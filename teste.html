@@ -153,6 +153,13 @@
     <button id="btn-validarcotasusa" type="button">Validar Cotas até a data (GPRK)</button>
     <div id="validarcotasusa-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="backfilltodos-card" style="display:none">
+    <h2>Prova de conceito expandida — Backfill de TODOS os 30 ativos (resumo)</h2>
+    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — mesma célula de rascunho de sempre, reaproveitada ativo por ativo. Roda a mesma reconstrução já validada (BTLG11) pra todos os 22 BR + 8 USA, desde a primeira transação de cada um até ontem. Só devolve um resumo por ativo (não a lista dia a dia inteira, senão fica gigante) — serve pra confirmar que roda sem erro e cabe numa execução só antes da escrita de verdade. Pode demorar alguns minutos.</p>
+    <button id="btn-backfilltodos" type="button">Testar backfill — todos os ativos (resumo)</button>
+    <div id="backfilltodos-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -309,6 +316,7 @@
       document.getElementById('diagusa-card').style.display = '';
       document.getElementById('tickersusa-card').style.display = '';
       document.getElementById('validarcotasusa-card').style.display = '';
+      document.getElementById('backfilltodos-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -517,6 +525,18 @@
       renderListaObjetos(out, 'Transações — GPRK (Transações - USA)', t.transacoes_gprk, 'transacoes');
       renderKV(out, 'Quantidade real hoje — GPRK (Carteira Ações USA)', t.carteira_gprk);
       renderKV(out, 'Validação', t.validacao);
+    });
+  });
+
+  document.getElementById('btn-backfilltodos').addEventListener('click', function () {
+    rodarTeste('btn-backfilltodos', 'backfilltodos-results', 'test_backfill_resumo_todos', 'Testar backfill — todos os ativos (resumo)', function (out, t) {
+      var r = t.resumo_backfill_todos;
+      if (r && r.ok) {
+        renderKV(out, 'Resumo geral', { ok: true, tempo_total_segundos: r.tempo_total_segundos, total_ativos: r.total_ativos, total_com_erro: r.total_com_erro });
+        renderListaObjetos(out, 'Resultado por ativo', r, 'resultados');
+      } else {
+        renderKV(out, 'Resumo geral', r);
+      }
     });
   });
 
