@@ -85,8 +85,8 @@
   </div>
 
   <div class="card" id="inicio-card" style="display:none">
-    <h2>Início — Ibovespa, IFIX, câmbio e patrimônio</h2>
-    <p class="hint" style="margin:0 0 10px">Não existe nenhuma célula pronta na planilha com Ibovespa/IFIX/câmbio EUR — então esses 3 vêm de cotação AO VIVO via GOOGLEFINANCE (mesmo mecanismo do teste de histórico). Patrimônio nas 3 visões vem de 📊Dash Geral (que por sua vez soma os dashboards de cada classe).</p>
+    <h2>Início — Ibovespa, IFIX, S&amp;P 500, câmbio e patrimônio</h2>
+    <p class="hint" style="margin:0 0 10px">Lê direto das 3 tabelas que você colou em Auxiliar_app (A6/A14/A18) — nada mais é escrito via API a cada chamada. Patrimônio nas 3 visões vem de 📊Dash Geral. Atenção: a variação % daqui vem em formato "1.3 = 1,3%", diferente da "Variação dia" das Carteiras, que vem como fração "0.013 = 1,3%".</p>
     <button id="btn-inicio" type="button">Testar Início</button>
     <div id="inicio-results" style="margin-top:12px"></div>
   </div>
@@ -99,15 +99,15 @@
   </div>
 
   <div class="card" id="detalhe-card" style="display:none">
-    <h2>Detalhe do Ativo — histórico de lançamentos (BTLG11)</h2>
-    <p class="hint" style="margin:0 0 10px">Confirma que dá pra puxar o histórico de transações de um ativo específico (aba Transações) — é a partir daí que os gráficos de rentabilidade e de Valor Aplicado × Saldo Bruto vão ser montados depois.</p>
+    <h2>Detalhe do Ativo — dados completos + histórico (BTLG11)</h2>
+    <p class="hint" style="margin:0 0 10px">Busca direto na aba Carteira FIIs por ticker (mesmas colunas já testadas, sem chamar GOOGLEFINANCE de novo — os valores já vêm calculados pela própria planilha) + histórico de transações (aba Transações), base pros gráficos de rentabilidade e de Valor Aplicado × Saldo Bruto.</p>
     <button id="btn-detalhe" type="button">Testar Detalhe do Ativo</button>
     <div id="detalhe-results" style="margin-top:12px"></div>
   </div>
 
   <div class="card" id="proventos-card" style="display:none">
     <h2>Proventos — Consolidado por período + a receber</h2>
-    <p class="hint" style="margin:0 0 10px">Consolidado vem de 📈Dash Proventos (total histórico / total no período selecionado / ano atual / DY on cost). "A receber" é calculado na hora com SUMIF sobre a aba Proventos (coluna "Já pago?" = Não).</p>
+    <p class="hint" style="margin:0 0 10px">Consolidado vem de 📈Dash Proventos (total histórico / total no período selecionado / ano atual / DY on cost). "A receber" (total/Ações/FIIs) lê direto da tabela 3 em Auxiliar_app.</p>
     <button id="btn-proventos" type="button">Testar Proventos</button>
     <div id="proventos-results" style="margin-top:12px"></div>
   </div>
@@ -398,9 +398,11 @@
 
   document.getElementById('btn-inicio').addEventListener('click', function () {
     rodarTeste('btn-inicio', 'inicio-results', 'test_inicio', 'Testar Início', function (out, t) {
-      renderKV(out, 'Ibovespa (INDEXBVMF:IBOV) — cotação ao vivo', t.ibovespa);
-      renderKV(out, 'IFIX (INDEXBVMF:IFIX) — cotação ao vivo', t.ifix);
-      renderKV(out, 'Câmbio EUR/BRL — cotação ao vivo', t.cambio_eur);
+      renderKV(out, 'Ibovespa (Auxiliar_app, tabela 1)', t.ibovespa);
+      renderKV(out, 'IFIX (Auxiliar_app, tabela 1)', t.ifix);
+      renderKV(out, 'Câmbio USD/BRL (Auxiliar_app, tabela 1)', t.cambio_usd);
+      renderKV(out, 'Câmbio EUR/BRL (Auxiliar_app, tabela 1)', t.cambio_eur);
+      renderKV(out, 'S&P 500 (Auxiliar_app, tabela 2)', t.sp500);
       renderKV(out, 'Patrimônio nas 3 visões (📊Dash Geral)', t.patrimonio);
     });
   });
@@ -414,6 +416,7 @@
 
   document.getElementById('btn-detalhe').addEventListener('click', function () {
     rodarTeste('btn-detalhe', 'detalhe-results', 'test_detalhe_ativo', 'Testar Detalhe do Ativo', function (out, t) {
+      renderKV(out, 'Dados da Carteira — BTLG11 (Carteira FIIs, por ticker)', t.dados_carteira_btlg11);
       renderListaObjetos(out, 'Transações — BTLG11 (Transações, até 10)', t.transacoes_btlg11, 'transacoes');
     });
   });
@@ -421,7 +424,7 @@
   document.getElementById('btn-proventos').addEventListener('click', function () {
     rodarTeste('btn-proventos', 'proventos-results', 'test_proventos', 'Testar Proventos', function (out, t) {
       renderKV(out, 'Consolidado por período (📈Dash Proventos)', t.consolidado);
-      renderKV(out, 'Proventos a receber (SUMIF — Já pago? = Não)', t.a_receber);
+      renderKV(out, 'Proventos a receber (Auxiliar_app, tabela 3)', t.a_receber);
     });
   });
 
