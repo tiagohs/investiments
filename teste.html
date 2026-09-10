@@ -83,6 +83,34 @@
     <button id="btn-distribuicao" type="button">Testar Distribuição e Metas</button>
     <div id="distribuicao-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="inicio-card" style="display:none">
+    <h2>Início — Ibovespa, IFIX, câmbio e patrimônio</h2>
+    <p class="hint" style="margin:0 0 10px">Não existe nenhuma célula pronta na planilha com Ibovespa/IFIX/câmbio EUR — então esses 3 vêm de cotação AO VIVO via GOOGLEFINANCE (mesmo mecanismo do teste de histórico). Patrimônio nas 3 visões vem de 📊Dash Geral (que por sua vez soma os dashboards de cada classe).</p>
+    <button id="btn-inicio" type="button">Testar Início</button>
+    <div id="inicio-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="rendafixa-card" style="display:none">
+    <h2>Carteira Renda Fixa</h2>
+    <p class="hint" style="margin:0 0 10px">Totais da aba (linha 6) + colunas do 1º investimento (linha 9).</p>
+    <button id="btn-rendafixa" type="button">Testar Renda Fixa</button>
+    <div id="rendafixa-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="detalhe-card" style="display:none">
+    <h2>Detalhe do Ativo — histórico de lançamentos (BTLG11)</h2>
+    <p class="hint" style="margin:0 0 10px">Confirma que dá pra puxar o histórico de transações de um ativo específico (aba Transações) — é a partir daí que os gráficos de rentabilidade e de Valor Aplicado × Saldo Bruto vão ser montados depois.</p>
+    <button id="btn-detalhe" type="button">Testar Detalhe do Ativo</button>
+    <div id="detalhe-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="proventos-card" style="display:none">
+    <h2>Proventos — Consolidado por período + a receber</h2>
+    <p class="hint" style="margin:0 0 10px">Consolidado vem de 📈Dash Proventos (total histórico / total no período selecionado / ano atual / DY on cost). "A receber" é calculado na hora com SUMIF sobre a aba Proventos (coluna "Já pago?" = Não).</p>
+    <button id="btn-proventos" type="button">Testar Proventos</button>
+    <div id="proventos-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -120,6 +148,38 @@
         <caption>${titulo}</caption>
         <tbody>${linhas}</tbody>
       </table>`);
+  }
+
+  // Renderiza uma lista de objetos (mesmas chaves em cada um) como tabela —
+  // usado pro histórico de transações do Detalhe do Ativo.
+  function renderListaObjetos(container, titulo, obj, chaveLista) {
+    if (!obj) return;
+    if (!obj.ok) {
+      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> falhou — ${obj.erro}</p>`);
+      return;
+    }
+    const lista = obj[chaveLista] || [];
+    if (lista.length === 0) {
+      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> nenhum registro encontrado</p>`);
+      return;
+    }
+    const colunas = Object.keys(lista[0]);
+    const cabecalho = colunas.map(function (c) { return `<th>${c}</th>`; }).join('');
+    const corpo = lista.map(function (linha) {
+      return '<tr>' + colunas.map(function (c) {
+        let v = linha[c];
+        if (v === null || v === undefined) v = '';
+        return `<td>${v}</td>`;
+      }).join('') + '</tr>';
+    }).join('');
+    container.insertAdjacentHTML('beforeend', `
+      <div style="overflow-x:auto; margin-bottom:14px">
+        <table class="mini-table" style="width:auto; min-width:100%; margin-bottom:0">
+          <caption>${titulo} (${lista.length} de ${obj.total_encontradas != null ? obj.total_encontradas : lista.length})</caption>
+          <thead><tr>${cabecalho}</tr></thead>
+          <tbody>${corpo}</tbody>
+        </table>
+      </div>`);
   }
 
   // Renderiza um intervalo lido como matriz (1a linha = cabeçalho) — usado
@@ -197,6 +257,10 @@
       // Login OK — libera os cards de teste sob demanda.
       document.getElementById('historico-card').style.display = '';
       document.getElementById('distribuicao-card').style.display = '';
+      document.getElementById('inicio-card').style.display = '';
+      document.getElementById('rendafixa-card').style.display = '';
+      document.getElementById('detalhe-card').style.display = '';
+      document.getElementById('proventos-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -296,6 +360,63 @@
     }
   });
 
+  // Padrão genérico pros 4 botões novos: chama uma action, mostra "falhou"
+  // se o Apps Script recusar, senão passa data.testes pro callback de render.
+  async function rodarTeste(botaoId, outId, action, textoOriginal, renderFn) {
+    const btn = document.getElementById(botaoId);
+    const out = document.getElementById(outId);
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Consultando...';
+    out.innerHTML = '';
+
+    const url = `${APPS_SCRIPT_URL}?action=${action}&token=${encodeURIComponent(currentToken)}`;
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json();
+      if (!data.ok) {
+        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
+        return;
+      }
+      renderFn(out, data.testes || {});
+    } catch (err) {
+      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  }
+
+  document.getElementById('btn-inicio').addEventListener('click', function () {
+    rodarTeste('btn-inicio', 'inicio-results', 'test_inicio', 'Testar Início', function (out, t) {
+      renderKV(out, 'Ibovespa (INDEXBVMF:IBOV) — cotação ao vivo', t.ibovespa);
+      renderKV(out, 'IFIX (INDEXBVMF:IFIX) — cotação ao vivo', t.ifix);
+      renderKV(out, 'Câmbio EUR/BRL — cotação ao vivo', t.cambio_eur);
+      renderKV(out, 'Patrimônio nas 3 visões (📊Dash Geral)', t.patrimonio);
+    });
+  });
+
+  document.getElementById('btn-rendafixa').addEventListener('click', function () {
+    rodarTeste('btn-rendafixa', 'rendafixa-results', 'test_renda_fixa', 'Testar Renda Fixa', function (out, t) {
+      renderKV(out, 'Totais — Carteira Renda Fixa', t.totais);
+      renderKV(out, 'Renda Fixa — 1º investimento', t.primeiro_ativo);
+    });
+  });
+
+  document.getElementById('btn-detalhe').addEventListener('click', function () {
+    rodarTeste('btn-detalhe', 'detalhe-results', 'test_detalhe_ativo', 'Testar Detalhe do Ativo', function (out, t) {
+      renderListaObjetos(out, 'Transações — BTLG11 (Transações, até 10)', t.transacoes_btlg11, 'transacoes');
+    });
+  });
+
+  document.getElementById('btn-proventos').addEventListener('click', function () {
+    rodarTeste('btn-proventos', 'proventos-results', 'test_proventos', 'Testar Proventos', function (out, t) {
+      renderKV(out, 'Consolidado por período (📈Dash Proventos)', t.consolidado);
+      renderKV(out, 'Proventos a receber (SUMIF — Já pago? = Não)', t.a_receber);
+    });
+  });
+
   window.addEventListener('load', function () {
     google.accounts.id.initialize({
       client_id: CLIENT_ID,
@@ -327,8 +448,36 @@
       }
     }
 
+    async function testarSerieIntervalo(nome, codigoSerie, dataInicial, dataFinal) {
+      const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${codigoSerie}/dados?formato=json&dataInicial=${dataInicial}&dataFinal=${dataFinal}`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length) {
+          row(container, true, nome, `${data.length} registros, de ${data[0].data} a ${data[data.length - 1].data}`);
+        } else {
+          row(container, false, nome, 'resposta inesperada: ' + JSON.stringify(data));
+        }
+      } catch (err) {
+        row(container, false, nome, String(err));
+      }
+    }
+
+    function formatarDataBr(d) {
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      return `${dd}/${mm}/${d.getFullYear()}`;
+    }
+    const hoje = new Date();
+    const trintaDiasAtras = new Date();
+    trintaDiasAtras.setDate(hoje.getDate() - 30);
+    const dataInicialStr = formatarDataBr(trintaDiasAtras);
+    const dataFinalStr = formatarDataBr(hoje);
+
     await testarSerie('CDI diário (série 12)', 12);
     await testarSerie('Meta Selic (série 432)', 432);
+    await testarSerieIntervalo(`CDI — intervalo (${dataInicialStr} a ${dataFinalStr})`, 12, dataInicialStr, dataFinalStr);
+    await testarSerieIntervalo(`Selic — intervalo (${dataInicialStr} a ${dataFinalStr})`, 432, dataInicialStr, dataFinalStr);
   })();
 </script>
 </body>
