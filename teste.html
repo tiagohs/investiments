@@ -76,6 +76,13 @@
     <button id="btn-historico" type="button">Testar histórico (GOOGLEFINANCE)</button>
     <div id="historico-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="distribuicao-card" style="display:none">
+    <h2>Distribuição e Metas — Radar + Metas futuras</h2>
+    <p class="hint" style="margin:0 0 10px">Lê direto as tabelas fixas da aba (Radar de oportunidades de Ações/FIIs/EUA, divisões da carteira ideal, cálculos de Renda Emergencial/Salário/Patrimônio futuro). Role pra ver as tabelas largas.</p>
+    <button id="btn-distribuicao" type="button">Testar Distribuição e Metas</button>
+    <div id="distribuicao-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -113,6 +120,34 @@
         <caption>${titulo}</caption>
         <tbody>${linhas}</tbody>
       </table>`);
+  }
+
+  // Renderiza um intervalo lido como matriz (1a linha = cabeçalho) — usado
+  // pras tabelas fixas da Distribuição e Metas.
+  function renderTabela2D(container, titulo, obj) {
+    if (!obj) return;
+    if (!obj.ok) {
+      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> falhou — ${obj.erro}</p>`);
+      return;
+    }
+    const linhas = obj.linhas || [];
+    if (linhas.length === 0) {
+      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> range vazio</p>`);
+      return;
+    }
+    const cel = function (v) { return (v === '' || v === null || v === undefined) ? '' : v; };
+    const cabecalho = linhas[0].map(function (v) { return `<th>${cel(v)}</th>`; }).join('');
+    const corpo = linhas.slice(1).map(function (linha) {
+      return '<tr>' + linha.map(function (v) { return `<td>${cel(v)}</td>`; }).join('') + '</tr>';
+    }).join('');
+    container.insertAdjacentHTML('beforeend', `
+      <div style="overflow-x:auto; margin-bottom:14px">
+        <table class="mini-table" style="width:auto; min-width:100%; margin-bottom:0">
+          <caption>${titulo} <span style="color:var(--ink-muted); font-weight:400">(${obj.range})</span></caption>
+          <thead><tr>${cabecalho}</tr></thead>
+          <tbody>${corpo}</tbody>
+        </table>
+      </div>`);
   }
 
   // ---- Bloco 1: login + Apps Script + planilha ----
@@ -159,8 +194,9 @@
       renderKV(container, 'Gráfico MENSAL — diagnóstico (FIIs)', t.grafico_mensal_fiis);
       renderKV(container, 'Gráfico MENSAL — diagnóstico (Ações USA)', t.grafico_mensal_acoes_usa);
 
-      // Login OK — libera o card do teste de histórico.
+      // Login OK — libera os cards de teste sob demanda.
       document.getElementById('historico-card').style.display = '';
+      document.getElementById('distribuicao-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -213,6 +249,50 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Testar histórico (GOOGLEFINANCE)';
+    }
+  });
+
+  // ---- Bloco 1c: tabelas de Distribuição e Metas (sob demanda) ----
+  document.getElementById('btn-distribuicao').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('distribuicao-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Consultando...';
+    out.innerHTML = '';
+
+    const url = `${APPS_SCRIPT_URL}?action=test_distribuicao&token=${encodeURIComponent(currentToken)}`;
+    const nomes = {
+      divisao_carteira_ideal: 'Divisão da carteira ideal (ex-Renda Emergencial)',
+      renda_emergencial_calc: 'Cálculo Renda Emergencial (Média de Gastos)',
+      salario_calc: 'Salário e % a investir',
+      meta_patrimonio_futuro: 'Meta futura de Patrimônio',
+      divisao_rv_nacional_internacional: 'Divisão Ações — nacional vs. internacional',
+      radar_acoes: 'Radar de oportunidades — Ações',
+      radar_acoes_usa: 'Radar de oportunidades — Ações EUA',
+      divisao_fiis_por_tipo: 'Divisão FIIs por tipo (Tijolo/Papel/Híbrido)',
+      radar_fiis: 'Radar de oportunidades — FIIs'
+    };
+
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json();
+
+      if (!data.ok) {
+        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
+        return;
+      }
+
+      const t = data.testes || {};
+      Object.keys(nomes).forEach(function (chave) {
+        renderTabela2D(out, nomes[chave], t[chave]);
+      });
+    } catch (err) {
+      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Testar Distribuição e Metas';
     }
   });
 
