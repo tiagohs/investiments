@@ -118,6 +118,13 @@
     <button id="btn-auxiliarapp" type="button">Testar tabelas auxiliares</button>
     <div id="auxiliarapp-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="backfill-card" style="display:none">
+    <h2>Prova de conceito — Backfill de patrimônio (BTLG11)</h2>
+    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — só usa a célula de rascunho de sempre (limpa sozinha no final). Cruza "Cotas até a data" (Transações) com preço histórico (GOOGLEFINANCE) pra reconstruir o valor do BTLG11 dia a dia, e compara o valor do dia mais recente contra o "Total Hoje" real já testado — se bater, o algoritmo do backfill está certo.</p>
+    <button id="btn-backfill" type="button">Testar reconstrução (BTLG11)</button>
+    <div id="backfill-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -269,6 +276,7 @@
       document.getElementById('detalhe-card').style.display = '';
       document.getElementById('proventos-card').style.display = '';
       document.getElementById('auxiliarapp-card').style.display = '';
+      document.getElementById('backfill-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -425,6 +433,13 @@
     rodarTeste('btn-proventos', 'proventos-results', 'test_proventos', 'Testar Proventos', function (out, t) {
       renderKV(out, 'Consolidado por período (📈Dash Proventos)', t.consolidado);
       renderKV(out, 'Proventos a receber (Auxiliar_app, tabela 3)', t.a_receber);
+    });
+  });
+
+  document.getElementById('btn-backfill').addEventListener('click', function () {
+    rodarTeste('btn-backfill', 'backfill-results', 'test_backfill_preview', 'Testar reconstrução (BTLG11)', function (out, t) {
+      renderListaObjetos(out, 'Reconstrução diária — BTLG11 (cotas × preço histórico)', t.reconstrucao_btlg11, 'dias_reconstruidos');
+      renderKV(out, 'Valor real hoje — BTLG11 (Carteira FIIs, já testado antes)', t.valor_real_hoje_btlg11);
     });
   });
 
