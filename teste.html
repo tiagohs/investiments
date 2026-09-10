@@ -156,7 +156,7 @@
 
   <div class="card" id="backfilltodos-card" style="display:none">
     <h2>Prova de conceito expandida — Backfill de TODOS os 30 ativos (resumo)</h2>
-    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — mesma célula de rascunho de sempre, reaproveitada ativo por ativo. Roda a mesma reconstrução já validada (BTLG11) pra todos os 22 BR + 8 USA, desde a primeira transação de cada um até ontem. Só devolve um resumo por ativo (não a lista dia a dia inteira, senão fica gigante) — serve pra confirmar que roda sem erro e cabe numa execução só antes da escrita de verdade. Pode demorar alguns minutos.</p>
+    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — mesma célula de rascunho de sempre, reaproveitada ativo por ativo. Roda a mesma reconstrução já validada (BTLG11) pra todos os 22 BR + 8 USA, desde a primeira transação de cada um até ontem. Processa em lotes de 6 ativos por chamada (senão estoura o limite de execução do Apps Script com anos de histórico) — o botão mostra o progresso. Só devolve um resumo por ativo (não a lista dia a dia inteira, senão fica gigante).</p>
     <button id="btn-backfilltodos" type="button">Testar backfill — todos os ativos (resumo)</button>
     <div id="backfilltodos-results" style="margin-top:12px"></div>
   </div>
@@ -528,16 +528,53 @@
     });
   });
 
-  document.getElementById('btn-backfilltodos').addEventListener('click', function () {
-    rodarTeste('btn-backfilltodos', 'backfilltodos-results', 'test_backfill_resumo_todos', 'Testar backfill — todos os ativos (resumo)', function (out, t) {
-      var r = t.resumo_backfill_todos;
-      if (r && r.ok) {
-        renderKV(out, 'Resumo geral', { ok: true, tempo_total_segundos: r.tempo_total_segundos, total_ativos: r.total_ativos, total_com_erro: r.total_com_erro });
-        renderListaObjetos(out, 'Resultado por ativo', r, 'resultados');
-      } else {
-        renderKV(out, 'Resumo geral', r);
+  document.getElementById('btn-backfilltodos').addEventListener('click', async function () {
+    const btn = document.getElementById('btn-backfilltodos');
+    const out = document.getElementById('backfilltodos-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
+    out.innerHTML = '';
+
+    const LIMITE_POR_LOTE = 6;
+    let offset = 0;
+    let totalGeral = null;
+    let tempoTotal = 0;
+    let todosResultados = [];
+
+    try {
+      while (true) {
+        btn.textContent = totalGeral ? `Processando ${offset}/${totalGeral}...` : 'Processando lote 1...';
+        const url = `${APPS_SCRIPT_URL}?action=test_backfill_resumo_todos&token=${encodeURIComponent(currentToken)}&offset=${offset}&limite=${LIMITE_POR_LOTE}`;
+        const res = await fetch(url, { method: 'GET' });
+        const data = await res.json();
+        if (!data.ok) {
+          out.insertAdjacentHTML('beforeend', `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`);
+          break;
+        }
+        const r = data.testes.resumo_backfill_todos;
+        totalGeral = r.total_geral;
+        tempoTotal += r.tempo_lote_segundos;
+        todosResultados = todosResultados.concat(r.resultados);
+        if (!r.proximo_offset && r.proximo_offset !== 0) break;
+        offset = r.proximo_offset;
       }
-    });
+
+      out.innerHTML = '';
+      renderKV(out, 'Resumo geral', {
+        ok: true,
+        tempo_total_segundos: Math.round(tempoTotal * 10) / 10,
+        total_ativos: todosResultados.length,
+        total_com_erro: todosResultados.filter(function (x) { return !x.ok; }).length
+      });
+      renderListaObjetos(out, 'Resultado por ativo', { ok: true, resultados: todosResultados }, 'resultados');
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   });
 
   document.getElementById('btn-auxiliarapp').addEventListener('click', function () {
