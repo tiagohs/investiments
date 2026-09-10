@@ -125,6 +125,13 @@
     <button id="btn-backfill" type="button">Testar reconstrução (BTLG11)</button>
     <div id="backfill-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="contagem-card" style="display:none">
+    <h2>Checagem — quantos ativos o backfill real vai precisar processar</h2>
+    <p class="hint" style="margin:0 0 10px">Só leitura, não mexe em nada. Varre a aba Transações (não as Carteiras, que só mostram o que você tem hoje) pra contar todo ticker que já passou pela carteira, mesmo os já vendidos, e achar a transação mais antiga de cada um — isso dá o tamanho real do backfill antes de rodar.</p>
+    <button id="btn-contagem" type="button">Contar ativos transacionados</button>
+    <div id="contagem-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -277,6 +284,7 @@
       document.getElementById('proventos-card').style.display = '';
       document.getElementById('auxiliarapp-card').style.display = '';
       document.getElementById('backfill-card').style.display = '';
+      document.getElementById('contagem-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -441,6 +449,18 @@
       renderListaObjetos(out, 'Reconstrução diária — BTLG11 (cotas × preço histórico)', t.reconstrucao_btlg11, 'dias_reconstruidos');
       renderKV(out, 'Valor real hoje — BTLG11 (Carteira FIIs, já testado antes)', t.valor_real_hoje_btlg11);
       renderKV(out, 'Validação — reconstrução × Fechamento dia anterior (mesma base: preço de fechamento)', t.validacao_fechamento_anterior_btlg11);
+    });
+  });
+
+  document.getElementById('btn-contagem').addEventListener('click', function () {
+    rodarTeste('btn-contagem', 'contagem-results', 'test_contar_ativos', 'Contar ativos transacionados', function (out, t) {
+      var c = t.contagem;
+      if (c && c.ok) {
+        renderKV(out, 'Resumo', { ok: true, total_tickers_distintos: c.total_tickers_distintos, data_mais_antiga_geral: c.data_mais_antiga_geral });
+        renderListaObjetos(out, 'Ativos encontrados (Transações — inclui já vendidos)', c, 'tickers');
+      } else {
+        renderKV(out, 'Resumo', c);
+      }
     });
   });
 
