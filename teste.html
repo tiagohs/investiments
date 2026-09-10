@@ -121,7 +121,7 @@
 
   <div class="card" id="backfill-card" style="display:none">
     <h2>Prova de conceito — Backfill de patrimônio (BTLG11)</h2>
-    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — só usa a célula de rascunho de sempre (limpa sozinha no final). Cruza "Cotas até a data" (Transações) com preço histórico (GOOGLEFINANCE) pra reconstruir o valor do BTLG11 dia a dia, e compara o valor do dia mais recente contra o "Total Hoje" real já testado — se bater, o algoritmo do backfill está certo.</p>
+    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — só usa a célula de rascunho de sempre (limpa sozinha no final). Cruza "Cotas até a data" (Transações) com preço histórico (GOOGLEFINANCE) pra reconstruir o valor do BTLG11 dia a dia. A validação certa compara o último dia reconstruído (preço de FECHAMENTO) contra "Fechamento dia anterior" da própria Carteira — não contra "Total Hoje", que é ao vivo e sempre vai divergir um pouco por comparar fechamento de ontem com cotação intraday de hoje.</p>
     <button id="btn-backfill" type="button">Testar reconstrução (BTLG11)</button>
     <div id="backfill-results" style="margin-top:12px"></div>
   </div>
@@ -440,6 +440,7 @@
     rodarTeste('btn-backfill', 'backfill-results', 'test_backfill_preview', 'Testar reconstrução (BTLG11)', function (out, t) {
       renderListaObjetos(out, 'Reconstrução diária — BTLG11 (cotas × preço histórico)', t.reconstrucao_btlg11, 'dias_reconstruidos');
       renderKV(out, 'Valor real hoje — BTLG11 (Carteira FIIs, já testado antes)', t.valor_real_hoje_btlg11);
+      renderKV(out, 'Validação — reconstrução × Fechamento dia anterior (mesma base: preço de fechamento)', t.validacao_fechamento_anterior_btlg11);
     });
   });
 
