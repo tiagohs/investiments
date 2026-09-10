@@ -111,6 +111,13 @@
     <button id="btn-proventos" type="button">Testar Proventos</button>
     <div id="proventos-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="auxiliarapp-card" style="display:none">
+    <h2>Tabelas auxiliares (Auxiliar_app — A6/A14/A18)</h2>
+    <p class="hint" style="margin:0 0 10px">Diagnóstico bruto — só pra eu ver o layout real das 3 tabelas que você colou (rótulos, colunas) e então trocar os testes de Início/Proventos pra ler direto daqui, em vez de escrever fórmula via API a cada chamada.</p>
+    <button id="btn-auxiliarapp" type="button">Testar tabelas auxiliares</button>
+    <div id="auxiliarapp-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -261,6 +268,7 @@
       document.getElementById('rendafixa-card').style.display = '';
       document.getElementById('detalhe-card').style.display = '';
       document.getElementById('proventos-card').style.display = '';
+      document.getElementById('auxiliarapp-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -414,6 +422,14 @@
     rodarTeste('btn-proventos', 'proventos-results', 'test_proventos', 'Testar Proventos', function (out, t) {
       renderKV(out, 'Consolidado por período (📈Dash Proventos)', t.consolidado);
       renderKV(out, 'Proventos a receber (SUMIF — Já pago? = Não)', t.a_receber);
+    });
+  });
+
+  document.getElementById('btn-auxiliarapp').addEventListener('click', function () {
+    rodarTeste('btn-auxiliarapp', 'auxiliarapp-results', 'test_auxiliar_app', 'Testar tabelas auxiliares', function (out, t) {
+      renderTabela2D(out, 'Tabela 1 (a partir de A6)', t.tabela1);
+      renderTabela2D(out, 'Tabela 2 (a partir de A14)', t.tabela2);
+      renderTabela2D(out, 'Tabela 3 (a partir de A18)', t.tabela3);
     });
   });
 
