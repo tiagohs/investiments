@@ -94,6 +94,27 @@
 
   function clear(container) { container.innerHTML = ''; }
 
+  // Renderiza qualquer objeto de teste como uma tabelinha campo/valor —
+  // usado pros campos de ativo, totais, câmbio e diagnóstico do gráfico.
+  function renderKV(container, titulo, obj) {
+    if (!obj) return;
+    if (!obj.ok) {
+      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> falhou — ${obj.erro}</p>`);
+      return;
+    }
+    const linhas = Object.keys(obj).filter(function (k) { return k !== 'ok'; })
+      .map(function (k) {
+        let v = obj[k];
+        if (v && typeof v === 'object') v = JSON.stringify(v);
+        return `<tr><td>${k}</td><td>${v}</td></tr>`;
+      }).join('');
+    container.insertAdjacentHTML('beforeend', `
+      <table class="mini-table">
+        <caption>${titulo}</caption>
+        <tbody>${linhas}</tbody>
+      </table>`);
+  }
+
   // ---- Bloco 1: login + Apps Script + planilha ----
   let currentToken = null;
 
@@ -122,15 +143,21 @@
       const t = data.testes || {};
       if (t.planilha) row(container, t.planilha.ok, 'Conexão com a planilha', t.planilha.ok ? t.planilha.nome : t.planilha.erro);
 
-      ['carteira_acoes', 'carteira_fiis', 'carteira_acoes_usa'].forEach(function (chave) {
-        const r = t[chave];
-        if (!r) return;
-        const nomeAba = { carteira_acoes: 'Carteira Ações (GOOGLEFINANCE)', carteira_fiis: 'Carteira FIIs (GOOGLEFINANCE)', carteira_acoes_usa: 'Carteira Ações USA (GOOGLEFINANCE)' }[chave];
-        if (!r.ok) { row(container, false, nomeAba, r.erro); return; }
-        const detalhe = Object.keys(r).filter(function(k){ return k !== 'ok'; })
-          .map(function(k){ return `${k}: ${r[k]}`; }).join('  |  ');
-        row(container, true, nomeAba, detalhe);
-      });
+      const tituloAcoes = 'Carteira Ações — 1º ativo' + ((t.carteira_acoes && t.carteira_acoes.ok) ? ` (${t.carteira_acoes.Ticker})` : '');
+      const tituloFiis = 'Carteira FIIs — 1º ativo' + ((t.carteira_fiis && t.carteira_fiis.ok) ? ` (${t.carteira_fiis.Ticker})` : '');
+      const tituloUsa = 'Carteira Ações USA — 1º ativo' + ((t.carteira_acoes_usa && t.carteira_acoes_usa.ok) ? ` (${t.carteira_acoes_usa.Ticker})` : '');
+
+      renderKV(container, tituloAcoes, t.carteira_acoes);
+      renderKV(container, tituloFiis, t.carteira_fiis);
+      renderKV(container, tituloUsa, t.carteira_acoes_usa);
+      renderKV(container, 'Ações USA — variação 504d (lida por posição)', t.carteira_acoes_usa && t.carteira_acoes_usa.variacao_504_dias);
+      renderKV(container, 'Câmbio USD/BRL', t.cambio_usd);
+      renderKV(container, 'Totais — Carteira Ações (linha 6)', t.totais_acoes);
+      renderKV(container, 'Totais — Carteira FIIs (linha 6)', t.totais_fiis);
+      renderKV(container, 'Totais — Carteira Ações USA (linha 6)', t.totais_acoes_usa);
+      renderKV(container, 'Gráfico MENSAL — diagnóstico (Ações)', t.grafico_mensal_acoes);
+      renderKV(container, 'Gráfico MENSAL — diagnóstico (FIIs)', t.grafico_mensal_fiis);
+      renderKV(container, 'Gráfico MENSAL — diagnóstico (Ações USA)', t.grafico_mensal_acoes_usa);
 
       // Login OK — libera o card do teste de histórico.
       document.getElementById('historico-card').style.display = '';
