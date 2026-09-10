@@ -146,6 +146,13 @@
     <button id="btn-tickersusa" type="button">Testar os 8 tickers USA</button>
     <div id="tickersusa-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="validarcotasusa-card" style="display:none">
+    <h2>Validação — "Cotas até a data" em Transações - USA (GPRK)</h2>
+    <p class="hint" style="margin:0 0 10px">Só leitura. Compara a "Cotas até a data" da última transação de GPRK (Transações - USA) contra a "Quantidade de ações" real na Carteira Ações USA (já testada antes = 48.5799) — se bater, essa coluna é confiável pro backfill de Ações USA, do mesmo jeito que a nacional.</p>
+    <button id="btn-validarcotasusa" type="button">Validar Cotas até a data (GPRK)</button>
+    <div id="validarcotasusa-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -301,6 +308,7 @@
       document.getElementById('contagem-card').style.display = '';
       document.getElementById('diagusa-card').style.display = '';
       document.getElementById('tickersusa-card').style.display = '';
+      document.getElementById('validarcotasusa-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -501,6 +509,14 @@
           renderKV(out, ticker, t[ticker]);
         }
       });
+    });
+  });
+
+  document.getElementById('btn-validarcotasusa').addEventListener('click', function () {
+    rodarTeste('btn-validarcotasusa', 'validarcotasusa-results', 'test_validar_cotas_usa', 'Validar Cotas até a data (GPRK)', function (out, t) {
+      renderListaObjetos(out, 'Transações — GPRK (Transações - USA)', t.transacoes_gprk, 'transacoes');
+      renderKV(out, 'Quantidade real hoje — GPRK (Carteira Ações USA)', t.carteira_gprk);
+      renderKV(out, 'Validação', t.validacao);
     });
   });
 
