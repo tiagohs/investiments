@@ -136,8 +136,15 @@
   <div class="card" id="diagusa-card" style="display:none">
     <h2>Diagnóstico bruto — Transações - USA</h2>
     <p class="hint" style="margin:0 0 10px">Só leitura. Preciso ver o layout real dessa aba (linha do cabeçalho, nomes das colunas) antes de incluir as ações internacionais na contagem/backfill — não posso supor que é igual à aba Transações nacional.</p>
-    <button id="btn-diagusa" type="button">Ver linhas 1-20 de Transações - USA</button>
+    <button id="btn-diagusa" type="button">Ver linhas 1-25 de Transações - USA (A1:Z25)</button>
     <div id="diagusa-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="tickersusa-card" style="display:none">
+    <h2>Checagem — os 8 tickers USA resolvem no GOOGLEFINANCE?</h2>
+    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente (célula de rascunho de sempre). As ações nacionais precisam do prefixo "BVMF:" pro GOOGLEFINANCE achar — antes de rodar o backfill de verdade pros 8 tickers de Ações USA, preciso confirmar se eles resolvem direto pelo símbolo (STR, EWBC, PROSY, VNOM, PAM, GPRK, SIRI, CHTR) ou se algum precisa de prefixo de bolsa (NASDAQ:/NYSE:).</p>
+    <button id="btn-tickersusa" type="button">Testar os 8 tickers USA</button>
+    <div id="tickersusa-results" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -293,6 +300,7 @@
       document.getElementById('backfill-card').style.display = '';
       document.getElementById('contagem-card').style.display = '';
       document.getElementById('diagusa-card').style.display = '';
+      document.getElementById('tickersusa-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -479,8 +487,20 @@
   });
 
   document.getElementById('btn-diagusa').addEventListener('click', function () {
-    rodarTeste('btn-diagusa', 'diagusa-results', 'test_diagnostico_usa', 'Ver linhas 1-20 de Transações - USA', function (out, t) {
-      renderTabela2D(out, 'Transações - USA (A1:P20)', t.diagnostico_usa);
+    rodarTeste('btn-diagusa', 'diagusa-results', 'test_diagnostico_usa', 'Ver linhas 1-25 de Transações - USA (A1:Z25)', function (out, t) {
+      renderTabela2D(out, 'Transações - USA (A1:Z25)', t.diagnostico_usa);
+    });
+  });
+
+  document.getElementById('btn-tickersusa').addEventListener('click', function () {
+    rodarTeste('btn-tickersusa', 'tickersusa-results', 'test_tickers_usa_gf', 'Testar os 8 tickers USA', function (out, t) {
+      Object.keys(t).forEach(function (ticker) {
+        if (t[ticker] && t[ticker].ok) {
+          renderListaObjetos(out, ticker + ' — últimos dias', { ok: true, linhas_formatadas: t[ticker].linhas.map(function (l) { return { data: l[0], preco: l[1] }; }) }, 'linhas_formatadas');
+        } else {
+          renderKV(out, ticker, t[ticker]);
+        }
+      });
     });
   });
 
