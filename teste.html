@@ -132,6 +132,13 @@
     <button id="btn-contagem" type="button">Contar ativos transacionados</button>
     <div id="contagem-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="diagusa-card" style="display:none">
+    <h2>Diagnóstico bruto — Transações - USA</h2>
+    <p class="hint" style="margin:0 0 10px">Só leitura. Preciso ver o layout real dessa aba (linha do cabeçalho, nomes das colunas) antes de incluir as ações internacionais na contagem/backfill — não posso supor que é igual à aba Transações nacional.</p>
+    <button id="btn-diagusa" type="button">Ver linhas 1-20 de Transações - USA</button>
+    <div id="diagusa-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -285,6 +292,7 @@
       document.getElementById('auxiliarapp-card').style.display = '';
       document.getElementById('backfill-card').style.display = '';
       document.getElementById('contagem-card').style.display = '';
+      document.getElementById('diagusa-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -461,6 +469,12 @@
       } else {
         renderKV(out, 'Resumo', c);
       }
+    });
+  });
+
+  document.getElementById('btn-diagusa').addEventListener('click', function () {
+    rodarTeste('btn-diagusa', 'diagusa-results', 'test_diagnostico_usa', 'Ver linhas 1-20 de Transações - USA', function (out, t) {
+      renderTabela2D(out, 'Transações - USA (A1:P20)', t.diagnostico_usa);
     });
   });
 
