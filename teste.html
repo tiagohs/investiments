@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fase 0 — Testes de Fundação</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#F7F6F2; --surface:#FFFFFF; --border:#E2E0D9;
+    --ink:#1B2430; --ink-muted:#6C7686;
+    --accent:#2A78D6;
+    --good:#0CA30C; --good-soft:#E3F3E1; --good-ink:#046B04;
+    --bad:#C0392B; --bad-soft:#FBE4E1; --bad-ink:#8A2418;
+    --pend-soft:#F1F0EC;
+    --display:'Fraunces', Georgia, serif;
+    --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --mono:'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
+        font-size:15px; line-height:1.55; padding:32px 16px 80px; }
+  .wrap{ max-width:720px; margin:0 auto; }
+  h1{ font-family:var(--display); font-weight:700; font-size:26px; margin:0 0 6px; }
+  p.hint{ color:var(--ink-muted); font-size:13.5px; margin:0 0 24px; max-width:60ch; }
+  button{ font-family:var(--body-f); font-weight:600; font-size:14px; padding:10px 18px;
+        border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff;
+        cursor:pointer; }
+  button:disabled{ opacity:.5; cursor:default; }
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:12px;
+        padding:16px 18px; margin-bottom:12px; }
+  .card h2{ font-family:var(--display); font-weight:600; font-size:15px; margin:0 0 10px; }
+  .row{ display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-top:1px solid var(--border); font-size:13.5px; }
+  .row:first-of-type{ border-top:none; }
+  .badge{ flex:none; font-family:var(--mono); font-size:11px; font-weight:600; padding:2px 8px;
+        border-radius:100px; text-transform:uppercase; letter-spacing:.03em; }
+  .badge.ok{ background:var(--good-soft); color:var(--good-ink); }
+  .badge.fail{ background:var(--bad-soft); color:var(--bad-ink); }
+  .badge.pend{ background:var(--pend-soft); color:var(--ink-muted); }
+  .row .txt b{ display:block; }
+  .row .txt span{ color:var(--ink-muted); font-family:var(--mono); font-size:12.5px; word-break:break-all; }
+  #status{ font-size:13.5px; color:var(--ink-muted); margin:14px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Fase 0 — Testes de Fundação</h1>
+  <p class="hint">Página temporária, não faz parte do app final. Valida, de ponta a ponta: login Google, verificação de token pelo Apps Script, leitura da planilha (incluindo valores vindos de GOOGLEFINANCE), e as APIs públicas do Banco Central. Se tudo aqui ficar verde, o "cano" de dados do app está confirmado — pode apagar este arquivo depois.</p>
+
+  <div id="g_id_signin_container"></div>
+  <p id="status"></p>
+
+  <div class="card">
+    <h2>Login Google + Apps Script + Planilha</h2>
+    <div id="appscript-results">
+      <div class="row"><span class="badge pend">pendente</span><div class="txt"><b>Faça login acima para rodar este bloco</b></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>APIs públicas do Banco Central (sem login)</h2>
+    <div id="bcb-results">
+      <div class="row"><span class="badge pend">pendente</span><div class="txt"><b>Carregando...</b></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+  // ---- CONFIGURAÇÃO — os 2 valores reais do projeto ----
+  const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com';
+  const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4WvFaADThJQVf2IzfW9i2TXRUqfvBNAg_wEjqNUAlqipKs40ZyVEehDRzx5eh40sFJw/exec';
+
+  function row(container, ok, title, detail) {
+    const div = document.createElement('div');
+    div.className = 'row';
+    div.innerHTML = `<span class="badge ${ok ? 'ok' : 'fail'}">${ok ? 'ok' : 'falhou'}</span>
+      <div class="txt"><b>${title}</b>${detail ? `<span>${detail}</span>` : ''}</div>`;
+    container.appendChild(div);
+  }
+
+  function clear(container) { container.innerHTML = ''; }
+
+  // ---- Bloco 1: login + Apps Script + planilha ----
+  window.onGoogleSignIn = async function (response) {
+    const statusEl = document.getElementById('status');
+    const container = document.getElementById('appscript-results');
+    clear(container);
+    statusEl.textContent = 'Chamando o Apps Script...';
+
+    const token = response.credential;
+    const url = `${APPS_SCRIPT_URL}?action=test&token=${encodeURIComponent(token)}`;
+
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json();
+      statusEl.textContent = '';
+
+      if (!data.ok) {
+        row(container, false, 'Apps Script recusou', `etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}`);
+        return;
+      }
+
+      row(container, true, 'Login + verificação de token', `autenticado como ${data.autenticado_como}`);
+
+      const t = data.testes || {};
+      if (t.planilha) row(container, t.planilha.ok, 'Conexão com a planilha', t.planilha.ok ? t.planilha.nome : t.planilha.erro);
+
+      ['carteira_acoes', 'carteira_fiis', 'carteira_acoes_usa'].forEach(function (chave) {
+        const r = t[chave];
+        if (!r) return;
+        const nomeAba = { carteira_acoes: 'Carteira Ações (GOOGLEFINANCE)', carteira_fiis: 'Carteira FIIs (GOOGLEFINANCE)', carteira_acoes_usa: 'Carteira Ações USA (GOOGLEFINANCE)' }[chave];
+        if (!r.ok) { row(container, false, nomeAba, r.erro); return; }
+        const detalhe = Object.keys(r).filter(function(k){ return k !== 'ok'; })
+          .map(function(k){ return `${k}: ${r[k]}`; }).join('  |  ');
+        row(container, true, nomeAba, detalhe);
+      });
+    } catch (err) {
+      statusEl.textContent = '';
+      row(container, false, 'Chamada ao Apps Script', String(err));
+    }
+  };
+
+  window.addEventListener('load', function () {
+    google.accounts.id.initialize({
+      client_id: CLIENT_ID,
+      callback: onGoogleSignIn
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('g_id_signin_container'),
+      { theme: 'outline', size: 'large', text: 'signin_with' }
+    );
+  });
+
+  // ---- Bloco 2: BCB SGS (CDI + Selic), direto do navegador, sem login ----
+  (async function testarBCB() {
+    const container = document.getElementById('bcb-results');
+    clear(container);
+
+    async function testarSerie(nome, codigoSerie) {
+      const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${codigoSerie}/dados/ultimos/1?formato=json`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (Array.isArray(data) && data[0]) {
+          row(container, true, nome, `${data[0].data} → ${data[0].valor}`);
+        } else {
+          row(container, false, nome, 'resposta inesperada: ' + JSON.stringify(data));
+        }
+      } catch (err) {
+        row(container, false, nome, String(err));
+      }
+    }
+
+    await testarSerie('CDI diário (série 12)', 12);
+    await testarSerie('Meta Selic (série 432)', 432);
+  })();
+</script>
+</body>
+</html>
