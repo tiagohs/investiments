@@ -128,7 +128,7 @@
 
   <div class="card" id="contagem-card" style="display:none">
     <h2>Checagem — quantos ativos o backfill real vai precisar processar</h2>
-    <p class="hint" style="margin:0 0 10px">Só leitura, não mexe em nada. Varre a aba Transações (não as Carteiras, que só mostram o que você tem hoje) pra contar todo ticker que já passou pela carteira, mesmo os já vendidos, e achar a transação mais antiga de cada um — isso dá o tamanho real do backfill antes de rodar.</p>
+    <p class="hint" style="margin:0 0 10px">Só leitura, não mexe em nada. Varre Transações + Transações - USA (não as Carteiras, que só mostram o que você tem hoje) pra contar todo ticker que já passou pela carteira em qualquer classe, mesmo os já vendidos, e achar a transação mais antiga de cada um — isso dá o tamanho real do backfill antes de rodar.</p>
     <button id="btn-contagem" type="button">Contar ativos transacionados</button>
     <div id="contagem-results" style="margin-top:12px"></div>
   </div>
@@ -464,8 +464,14 @@
     rodarTeste('btn-contagem', 'contagem-results', 'test_contar_ativos', 'Contar ativos transacionados', function (out, t) {
       var c = t.contagem;
       if (c && c.ok) {
-        renderKV(out, 'Resumo', { ok: true, total_tickers_distintos: c.total_tickers_distintos, data_mais_antiga_geral: c.data_mais_antiga_geral });
-        renderListaObjetos(out, 'Ativos encontrados (Transações — inclui já vendidos)', c, 'tickers');
+        renderKV(out, 'Resumo', {
+          ok: true,
+          total_tickers_distintos: c.total_tickers_distintos,
+          total_br: c.total_br,
+          total_usa: c.total_usa,
+          data_mais_antiga_geral: c.data_mais_antiga_geral
+        });
+        renderListaObjetos(out, 'Ativos encontrados (BR + USA — inclui já vendidos)', c, 'tickers');
       } else {
         renderKV(out, 'Resumo', c);
       }
