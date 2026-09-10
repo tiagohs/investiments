@@ -41,6 +41,11 @@
   .row .txt b{ display:block; }
   .row .txt span{ color:var(--ink-muted); font-family:var(--mono); font-size:12.5px; word-break:break-all; }
   #status{ font-size:13.5px; color:var(--ink-muted); margin:14px 0; }
+  .mini-table{ width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12.5px; margin-bottom:14px; }
+  .mini-table caption{ text-align:left; font-family:var(--body-f); font-weight:600; font-size:13px; margin-bottom:4px; color:var(--ink); }
+  .mini-table th, .mini-table td{ text-align:left; padding:3px 8px 3px 0; border-top:1px solid var(--border); }
+  .mini-table th{ border-top:none; color:var(--ink-muted); font-weight:600; }
+  #historico-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
 </style>
 </head>
 <body>
@@ -64,6 +69,13 @@
       <div class="row"><span class="badge pend">pendente</span><div class="txt"><b>Carregando...</b></div></div>
     </div>
   </div>
+
+  <div class="card" id="historico-card" style="display:none">
+    <h2>Histórico via GOOGLEFINANCE (Auxiliar_app)</h2>
+    <p class="hint" style="margin:0 0 10px">Escreve a fórmula numa célula de rascunho, força recálculo, lê o resultado e limpa — mesmo mecanismo que o backfill de histórico vai usar. Confira os valores abaixo antes de seguirmos.</p>
+    <button id="btn-historico" type="button">Testar histórico (GOOGLEFINANCE)</button>
+    <div id="historico-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -83,6 +95,8 @@
   function clear(container) { container.innerHTML = ''; }
 
   // ---- Bloco 1: login + Apps Script + planilha ----
+  let currentToken = null;
+
   window.onGoogleSignIn = async function (response) {
     const statusEl = document.getElementById('status');
     const container = document.getElementById('appscript-results');
@@ -90,6 +104,7 @@
     statusEl.textContent = 'Chamando o Apps Script...';
 
     const token = response.credential;
+    currentToken = token;
     const url = `${APPS_SCRIPT_URL}?action=test&token=${encodeURIComponent(token)}`;
 
     try {
@@ -116,11 +131,62 @@
           .map(function(k){ return `${k}: ${r[k]}`; }).join('  |  ');
         row(container, true, nomeAba, detalhe);
       });
+
+      // Login OK — libera o card do teste de histórico.
+      document.getElementById('historico-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
     }
   };
+
+  // ---- Bloco 1b: histórico via GOOGLEFINANCE (sob demanda) ----
+  document.getElementById('btn-historico').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('historico-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Consultando...';
+    out.innerHTML = '';
+
+    const url = `${APPS_SCRIPT_URL}?action=test_historico&token=${encodeURIComponent(currentToken)}`;
+    const nomes = { wizc3: 'WIZC3 (ação BR)', ibov: 'Ibovespa (INDEXBVMF:IBOV)', ifix: 'IFIX (INDEXBVMF:IFIX)', sp500: 'S&P 500 (INDEXSP:.INX)' };
+
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json();
+
+      if (!data.ok) {
+        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
+        return;
+      }
+
+      const t = data.testes || {};
+      Object.keys(nomes).forEach(function (chave) {
+        const r = t[chave];
+        if (!r) return;
+        if (!r.ok) {
+          out.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${nomes[chave]}:</b> falhou — ${r.erro}</p>`);
+          return;
+        }
+        const linhas = (r.linhas || []).map(function (l) {
+          return `<tr><td>${l[0]}</td><td>${l[1]}</td></tr>`;
+        }).join('');
+        out.insertAdjacentHTML('beforeend', `
+          <table class="mini-table">
+            <caption>${nomes[chave]} — ticker: ${r.ticker} (${(r.linhas || []).length} linhas)</caption>
+            <thead><tr><th>Data</th><th>Fechamento</th></tr></thead>
+            <tbody>${linhas || '<tr><td colspan="2">sem linhas retornadas</td></tr>'}</tbody>
+          </table>`);
+      });
+    } catch (err) {
+      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Testar histórico (GOOGLEFINANCE)';
+    }
+  });
 
   window.addEventListener('load', function () {
     google.accounts.id.initialize({
