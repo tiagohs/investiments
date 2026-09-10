@@ -167,7 +167,8 @@
         const r = t[chave];
         if (!r) return;
         if (!r.ok) {
-          out.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${nomes[chave]}:</b> falhou — ${r.erro}</p>`);
+          const formulaLine = r.formula ? `<br><span style="font-size:11px">fórmula: ${r.formula}</span>` : '';
+          out.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${nomes[chave]}:</b> falhou — ${r.erro}${formulaLine}</p>`);
           return;
         }
         const linhas = (r.linhas || []).map(function (l) {
