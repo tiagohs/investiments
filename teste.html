@@ -46,6 +46,8 @@
   .mini-table th, .mini-table td{ text-align:left; padding:3px 8px 3px 0; border-top:1px solid var(--border); }
   .mini-table th{ border-top:none; color:var(--ink-muted); font-weight:600; }
   #historico-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
+  #sincronizar-testes-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
+  #sincronizar-testes-results .ok-line{ color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
 </style>
 </head>
 <body>
@@ -171,6 +173,16 @@
     <button id="btn-sincronizar" type="button">Sincronizar tudo (29 ativos)</button>
     <button id="btn-syncstatus" type="button" style="background:var(--surface);color:var(--accent);margin-left:8px">Ver status da última sincronização</button>
     <div id="sincronizar-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="sincronizar-testes-card">
+    <h2>Testes de Registro de Controle — Atenção / Erro / retry seletivo</h2>
+    <p class="hint" style="margin:0 0 10px">Roda a MESMA rotina (<span style="font-family:var(--mono)">sincronizarAgora</span>), mas em modo teste: grava em <span style="font-family:var(--mono)">aux_tests</span> em vez de <span style="font-family:var(--mono)">aux_historico-patrimonio</span> (planilha real intocada) e força tickers falsos a "falhar" de propósito, de forma determinística. A linha gravada em Registro de Controle sai com Origem = <b>Teste</b>, pra nunca se confundir com uma sincronização de verdade.</p>
+    <button id="btn-teste-atencao" type="button">1) Simular Atenção (WIZC3 ok + 1 falso falhando)</button>
+    <button id="btn-teste-retry" type="button" style="margin-left:8px" disabled>2) Retry seletivo (só reprocessa quem falhou)</button>
+    <br style="line-height:2.4">
+    <button id="btn-teste-erro" type="button">3) Simular Erro total (2 falsos, ambos falhando)</button>
+    <div id="sincronizar-testes-results" style="margin-top:12px"></div>
   </div>
 
   <div class="card" id="importb3-card">
@@ -715,6 +727,115 @@
     } finally {
       btn.disabled = false;
       btn.textContent = 'Ver status da última sincronização';
+    }
+  });
+
+  // ---- Testes de Registro de Controle (Atenção/Erro/retry) — sempre em aux_tests, nunca na planilha real ----
+  const TICKER_TESTE_OK = 'WIZC3'; // ticker real e rápido (21 linhas), só pra ter 1 "ok" de verdade no meio do teste
+  let ultimosTickersQueFalharam = []; // alimenta o botão de retry seletivo
+
+  async function chamarSincronizarTeste(tickers, tickersParaFalhar) {
+    const body = new URLSearchParams();
+    body.set('action', 'sincronizarAgora');
+    body.set('token', currentToken);
+    body.set('tickers', JSON.stringify(tickers));
+    body.set('opcoesTeste', JSON.stringify({ abaHistoricoNome: 'aux_tests', tickersParaFalhar: tickersParaFalhar }));
+    const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: body });
+    return res.json();
+  }
+
+  function renderResultadoTeste(out, titulo, data) {
+    if (!data.ok) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`);
+      return null;
+    }
+    const r = data.resultado;
+    renderKV(out, titulo, {
+      ok: true,
+      status: r.status,
+      ok_lista: (r.ok || []).join(', ') || '(nenhum)',
+      falharam: (r.falharam || []).map(function (f) { return f.ticker + ' — ' + f.erro; }).join(' | ') || '(nenhum)',
+      naoProcessados: ((r.naoProcessados || []).join(', ')) || '(nenhum)'
+    });
+    return r;
+  }
+
+  document.getElementById('btn-teste-atencao').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('sincronizar-testes-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+    btn.disabled = true;
+    btn.textContent = 'Simulando...';
+    out.innerHTML = '';
+    try {
+      const tickersFalsos = ['TESTE_FALHA_1'];
+      const data = await chamarSincronizarTeste([TICKER_TESTE_OK].concat(tickersFalsos), tickersFalsos);
+      const r = renderResultadoTeste(out, 'Teste 1 — Atenção esperado (1 ok + 1 falha)', data);
+      if (r) {
+        ultimosTickersQueFalharam = (r.falharam || []).map(function (f) { return f.ticker; });
+        document.getElementById('btn-teste-retry').disabled = ultimosTickersQueFalharam.length === 0;
+        const okEsperado = r.status === 'Atenção' && r.ok.indexOf(TICKER_TESTE_OK) !== -1 && r.falharam.length === 1;
+        out.insertAdjacentHTML('beforeend', okEsperado
+          ? '<p class="ok-line">Bateu com o esperado: status Atenção, WIZC3 ok, TESTE_FALHA_1 no falharam.</p>'
+          : '<p class="fail-line">Não bateu com o esperado — confira os detalhes acima.</p>');
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '1) Simular Atenção (WIZC3 ok + 1 falso falhando)';
+    }
+  });
+
+  document.getElementById('btn-teste-retry').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('sincronizar-testes-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+    if (!ultimosTickersQueFalharam.length) { out.insertAdjacentHTML('beforeend', '<p class="fail-line">Rode o teste 1 primeiro.</p>'); return; }
+    btn.disabled = true;
+    btn.textContent = 'Reprocessando...';
+    try {
+      // Mesmos tickers que falharam, mas SEM forçar falha desta vez — devem
+      // suceder agora. tickers passados = só esses (prova que não reprocessa
+      // os outros 28 ativos reais nem o WIZC3 do teste anterior).
+      const data = await chamarSincronizarTeste(ultimosTickersQueFalharam, []);
+      const r = renderResultadoTeste(out, 'Teste 2 — Retry seletivo (só ' + ultimosTickersQueFalharam.join(', ') + ')', data);
+      if (r) {
+        const okEsperado = r.status === 'Sucesso' && r.falharam.length === 0 && r.ok.length === ultimosTickersQueFalharam.length;
+        out.insertAdjacentHTML('beforeend', okEsperado
+          ? '<p class="ok-line">Bateu com o esperado: retry reprocessou só os que falharam e virou Sucesso.</p>'
+          : '<p class="fail-line">Não bateu com o esperado — confira os detalhes acima.</p>');
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '2) Retry seletivo (só reprocessa quem falhou)';
+    }
+  });
+
+  document.getElementById('btn-teste-erro').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('sincronizar-testes-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+    btn.disabled = true;
+    btn.textContent = 'Simulando...';
+    out.innerHTML = '';
+    try {
+      const tickersFalsos = ['TESTE_FALHA_A', 'TESTE_FALHA_B'];
+      const data = await chamarSincronizarTeste(tickersFalsos, tickersFalsos);
+      const r = renderResultadoTeste(out, 'Teste 3 — Erro total esperado (2 falsos, ambos falhando)', data);
+      if (r) {
+        const okEsperado = r.status === 'Erro' && r.ok.length === 0 && r.falharam.length === 2;
+        out.insertAdjacentHTML('beforeend', okEsperado
+          ? '<p class="ok-line">Bateu com o esperado: status Erro, 0 ok, os 2 falsos em falharam.</p>'
+          : '<p class="fail-line">Não bateu com o esperado — confira os detalhes acima.</p>');
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '3) Simular Erro total (2 falsos, ambos falhando)';
     }
   });
 
