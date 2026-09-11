@@ -161,6 +161,14 @@
     <div id="backfilltodos-results" style="margin-top:12px"></div>
   </div>
 
+  <div class="card" id="sincronizar-card" style="display:none">
+    <h2>Sincronização do histórico de patrimônio (sync.gs)</h2>
+    <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=sincronizarAgora</span> (form-urlencoded, igual o Postman) — mesmo botão que vai existir no app de verdade. Se a resposta vier com ativos "não processados" (tempo esgotado), chama de novo sozinho só com esses, até zerar — assim testa em lotes sem esbarrar no limite de 6min do Apps Script numa chamada só.</p>
+    <button id="btn-sincronizar" type="button">Sincronizar agora</button>
+    <button id="btn-syncstatus" type="button" style="background:var(--surface);color:var(--accent);margin-left:8px">Ver status da última sincronização</button>
+    <div id="sincronizar-results" style="margin-top:12px"></div>
+  </div>
+
   <div class="card" id="importb3-card">
     <h2>Importar B3 — teste de leitura (não grava nada)</h2>
     <p class="hint" style="margin:0 0 10px">Não precisa de login. Anexe o arquivo .xlsx que você baixa direto do site da B3 (extrato de Negociação de ativos). Isso só processa no seu navegador e mostra o resultado — nenhuma linha é gravada na planilha ainda. Objetivo: confirmar que o cabeçalho é reconhecido, que "Compra"/"Venda" são separados corretamente do resto, e que Ticker/Data/Preço/Qtd saem certos antes de decidirmos como gravar.</p>
@@ -325,6 +333,7 @@
       document.getElementById('tickersusa-card').style.display = '';
       document.getElementById('validarcotasusa-card').style.display = '';
       document.getElementById('backfilltodos-card').style.display = '';
+      document.getElementById('sincronizar-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
@@ -591,6 +600,88 @@
       renderTabela2D(out, 'Tabela 2 (a partir de A14)', t.tabela2);
       renderTabela2D(out, 'Tabela 3 (a partir de A18)', t.tabela3);
     });
+  });
+
+  // ---- Bloco 2b: Sincronização do histórico (sync.gs) — doPost, em lotes ----
+  document.getElementById('btn-sincronizar').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('sincronizar-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    btn.disabled = true;
+    out.innerHTML = '';
+
+    let tickersPendentes = null; // null = todos os 29 (1ª rodada)
+    let rodada = 1;
+    let ultimoResultado = null;
+
+    try {
+      while (true) {
+        btn.textContent = rodada === 1 ? 'Sincronizando...' : `Continuando (rodada ${rodada})...`;
+
+        const body = new URLSearchParams();
+        body.set('action', 'sincronizarAgora');
+        body.set('token', currentToken);
+        if (tickersPendentes) body.set('tickers', JSON.stringify(tickersPendentes));
+
+        const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: body });
+        const data = await res.json();
+
+        if (!data.ok) {
+          out.insertAdjacentHTML('beforeend', `<p class="fail-line">Apps Script recusou (rodada ${rodada}) — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`);
+          break;
+        }
+
+        ultimoResultado = data.resultado;
+        const naoProcessados = ultimoResultado.naoProcessados || [];
+        out.insertAdjacentHTML('beforeend', `<p class="hint" style="margin:2px 0">Rodada ${rodada}: <b>${ultimoResultado.status}</b> — ${ultimoResultado.ok.length} ok, ${ultimoResultado.falharam.length} falharam, ${naoProcessados.length} pendentes (tempo esgotado nesta rodada).</p>`);
+
+        if (naoProcessados.length === 0) break;
+        tickersPendentes = naoProcessados;
+        rodada++;
+      }
+
+      if (ultimoResultado) {
+        renderKV(out, 'Resultado final', {
+          ok: true,
+          status: ultimoResultado.status,
+          rodadas: rodada,
+          ok_lista: (ultimoResultado.ok || []).join(', ') || '(nenhum)',
+          falharam: (ultimoResultado.falharam || []).map(function (f) { return f.ticker + ' — ' + f.erro; }).join(' | ') || '(nenhum)'
+        });
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sincronizar agora';
+    }
+  });
+
+  document.getElementById('btn-syncstatus').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('sincronizar-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Consultando...';
+    out.innerHTML = '';
+
+    const url = `${APPS_SCRIPT_URL}?action=syncStatus&token=${encodeURIComponent(currentToken)}`;
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const data = await res.json();
+      if (!data.ok) {
+        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
+        return;
+      }
+      renderKV(out, 'Registro de Controle — última linha (syncStatus)', Object.assign({ ok: true }, data.resultado));
+    } catch (err) {
+      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Ver status da última sincronização';
+    }
   });
 
   // ---- Bloco 3: Importar B3 — teste de leitura, 100% no navegador, não grava nada ----
