@@ -1,8 +1,10 @@
 /**
  * shell.css — shared chrome for every page: design tokens (color/type),
- * base resets, topbar (brand, refresh pill, sync badge + panel, period
- * filter, theme toggle), and the tab nav. Loaded by every page via
- * shell.js (item 8f) alongside shell.html.
+ * base resets, topbar (brand, refresh pill, sync badge, period filter),
+ * main nav (6 top-level sections, no dropdown), the contextual sidebar
+ * used by sections that have subpages (Carteiras/Transações/Proventos/
+ * Organização Financeira), and the theme toggle. Loaded by every page
+ * via shell.js (item 8f) alongside shell.html.
  *
  * Tokens and every rule here were validated in docs/direcao-visual.html
  * (categorical palette already run through the dataviz palette
@@ -10,6 +12,17 @@
  * duplicated per page. Custom property names (--acoes, --fiis, --rf,
  * --usa) are kept exactly as validated there, to stay consistent with
  * that reference rather than diverging into an English rename.
+ *
+ * Navigation architecture (revised after visual review — see commit
+ * history for the dropdown attempt this replaced): the main nav has
+ * only the 6 top-level sections and never opens a dropdown. A section
+ * that has subpages (Carteiras, Transações, Proventos, Organização
+ * Financeira) renders its own contextual sidebar as normal in-flow
+ * page content (.side-nav + .section-content) — not an overlay. Início
+ * and Distribuições e Metas have no subpages, so no sidebar. This
+ * avoids overlay/clipping bugs entirely for navigation: the only real
+ * overlays left are the sync and period popovers, which are transient
+ * actions, not navigation, so a popover is the right pattern for them.
  *
  * Page-specific styles (stat tiles, dropzone, alerts, generic status
  * badges, etc.) are NOT here — they belong to each page when it's built.
@@ -33,6 +46,7 @@
   --na:#98A0AC;     --na-soft:#EEEEEC;
 
   --shadow: 0 1px 2px rgba(27,36,48,.06), 0 6px 20px -8px rgba(27,36,48,.12);
+  --shadow-lg: 0 8px 30px -6px rgba(27,36,48,.22), 0 2px 8px rgba(27,36,48,.08);
   --display:'Fraunces', Georgia, 'Times New Roman', serif;
   --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
@@ -57,6 +71,7 @@
     --na:#6E7A8A;     --na-soft:#1D2734;
 
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    --shadow-lg: 0 12px 36px -6px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.35);
     color-scheme: dark;
   }
 }
@@ -78,52 +93,102 @@
   --na:#6E7A8A;     --na-soft:#1D2734;
 
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+  --shadow-lg: 0 12px 36px -6px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.35);
   color-scheme: dark;
 }
 
 /* ---- Base reset ---- */
 *{ box-sizing:border-box; }
 body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
-      font-size:14.5px; line-height:1.5; }
+      font-size:14.5px; line-height:1.5; overflow-x:hidden; }
 h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
 .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
-.wrap{ max-width:1080px; margin:0 auto; padding:20px 20px 96px; }
+.wrap{ max-width:1080px; margin:0 auto; padding:18px 20px 40px; }
 .eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+svg{ display:block; }
 
 /* ---- Top bar ---- */
 .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px;
-         padding:14px 4px; border-bottom:1px solid var(--border); margin-bottom:22px; flex-wrap:wrap; }
-.brand{ display:flex; align-items:baseline; gap:10px; }
-.brand h1{ font-size:22px; color:var(--acoes); }
-.brand span{ color:var(--ink-muted); font-size:12.5px; }
-.topbar-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-.refresh-pill{ display:flex; align-items:center; gap:6px; background:var(--surface);
-      border:1px solid var(--border); border-radius:100px; padding:6px 12px 6px 10px;
-      font-size:12px; color:var(--ink-muted); box-shadow:var(--shadow); }
-.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); flex:none; }
-.theme-btn{ border:1px solid var(--border); background:var(--surface); color:var(--ink);
-      border-radius:100px; padding:7px 14px; font-family:var(--body-f); font-size:12.5px;
-      font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
-.theme-btn:focus-visible{ outline:2px solid var(--usa); outline-offset:2px; }
+         padding:16px 0 12px; margin-bottom:6px; flex-wrap:wrap; }
+.brand{ display:flex; align-items:center; gap:10px; }
+.brand-mark{ width:30px; height:30px; border-radius:9px; background:var(--acoes); color:#fff;
+      display:flex; align-items:center; justify-content:center; font-family:var(--display);
+      font-weight:700; font-size:16px; flex:none; box-shadow:var(--shadow); }
+.brand-text{ display:flex; flex-direction:column; line-height:1.15; }
+.brand-text h1{ font-size:19px; color:var(--ink); }
+.brand-text span{ color:var(--ink-faint); font-size:11px; }
+.topbar-right{ display:flex; align-items:center; gap:8px; }
 
-/* ---- Desktop tab nav ---- */
-.tabs{ display:flex; gap:4px; margin:-8px 0 26px; overflow-x:auto; }
-.tab{ font-size:13px; font-weight:600; color:var(--ink-muted); padding:9px 14px;
-      border-radius:8px; white-space:nowrap; text-decoration:none; }
-.tab.active{ color:var(--acoes); background:var(--acoes-soft); }
+/* refresh pill — minimal text ("12min"), full context lives in the title tooltip */
+.refresh-pill{ display:flex; align-items:center; gap:5px; color:var(--ink-faint); font-size:11.5px; padding:4px 2px; }
+.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); flex:none; }
+
+/* ---- Sync badge — a colored circle + icon only, no status text.
+   The text ("Atenção"/"Sucesso"/"Erro") lives inside the popover, on
+   each log row, next to its own status icon. Color + icon carries the
+   state at a glance; the tooltip/title carries the summary for anyone
+   who needs the words. ---- */
+.sync-wrap, .period-wrap{ position:relative; }
+.sync-badge{ width:32px; height:32px; border-radius:50%; border:1px solid var(--border);
+      background:var(--surface); display:flex; align-items:center; justify-content:center;
+      cursor:pointer; box-shadow:var(--shadow); padding:0; flex:none; }
+.sync-badge svg{ width:15px; height:15px; stroke:currentColor; }
+.sync-badge.good{ color:var(--good); background:var(--good-soft); border-color:transparent; }
+.sync-badge.warn{ color:var(--warn-ink); background:var(--warn-soft); border-color:transparent; }
+.sync-badge.bad{ color:var(--bad); background:var(--bad-soft); border-color:transparent; }
 
 /* ---- Period filter (global date-range selector) ---- */
-.period-wrap{ position:relative; }
-.period-btn{ position:relative; display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border);
-      background:var(--surface); color:var(--ink); border-radius:100px; padding:7px 14px; font-family:var(--body-f);
+.period-btn{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
+      background:var(--surface); color:var(--ink); border-radius:100px; padding:7px 12px 7px 10px; font-family:var(--body-f);
       font-size:12.5px; font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
 .period-btn .cal{ width:14px; height:14px; stroke:var(--ink-muted); }
 .period-btn .chev{ width:11px; height:11px; stroke:var(--ink-faint); transition:transform .15s; }
 .period-btn.open .chev{ transform:rotate(180deg); }
 .period-btn .range{ color:var(--ink-muted); font-weight:500; }
-.period-panel{ position:absolute; top:calc(100% + 8px); right:0; z-index:30; width:270px; background:var(--surface);
-      border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:7px; display:none; }
-.period-panel.open{ display:block; }
+
+/* ---- Overlay popovers — used ONLY for sync + period (transient
+   actions, not navigation). Fixed + centered on the viewport by
+   default (works at any width, never clipped by an ancestor); from
+   640px up, anchored next to its trigger instead via position:absolute
+   (needs an explicit position:absolute here — inheriting "fixed" from
+   the base rule would compute "top:100%" against the whole viewport
+   height instead of the trigger, pushing the panel off-screen below).
+   Do NOT reuse .overlay-panel for navigation menus — that was tried
+   and reverted; see the nav / sidebar sections below instead. ---- */
+.overlay-panel{ position:fixed; z-index:60; top:64px; left:50%; transform:translateX(-50%);
+      width:min(320px, calc(100vw - 32px)); background:var(--surface); border:1px solid var(--border);
+      border-radius:14px; box-shadow:var(--shadow-lg); padding:10px; display:none;
+      max-height:calc(100vh - 90px); overflow-y:auto; }
+.overlay-panel.open{ display:block; }
+.overlay-backdrop{ position:fixed; inset:0; background:rgba(14,21,32,.28); z-index:55; display:none; }
+.overlay-backdrop.open{ display:block; }
+@media (min-width:640px){
+  .sync-wrap .overlay-panel{ position:absolute; left:auto; right:0; transform:none; top:calc(100% + 8px); max-height:none; }
+  .period-wrap .overlay-panel{ position:absolute; left:auto; right:0; transform:none; top:calc(100% + 8px); max-height:none; }
+}
+
+.sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; padding:2px 4px 0; }
+.sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
+.sync-log{ display:flex; flex-direction:column; margin-bottom:10px; }
+.sync-log-row{ display:flex; align-items:flex-start; gap:9px; padding:9px 4px; border-bottom:1px solid var(--border); }
+.sync-log-row:last-child{ border-bottom:none; }
+.sync-log-row .body{ flex:1; min-width:0; }
+.sync-log-row .top-line{ font-size:12px; font-weight:600; }
+.sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
+.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
+.hint{ font-size:11.5px; color:var(--ink-faint); padding:0 4px; }
+
+/* status icon — reused for the sync badge and for each Registro de
+   Controle log row. Exclamation mark (rounded terminals) = attention,
+   never a question mark. The actual <symbol> defs (#ico-check /
+   #ico-warn / #ico-bad) live once per page, in shell.html. */
+.status-ico{ width:21px; height:21px; border-radius:50%; flex:none; display:flex; align-items:center;
+      justify-content:center; margin-top:1px; }
+.status-ico svg{ width:12px; height:12px; stroke:currentColor; }
+.status-ico.good{ background:var(--good-soft); color:var(--good-ink); }
+.status-ico.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+.status-ico.bad{ background:var(--bad-soft); color:var(--bad-ink); }
+
 .preset-item{ display:block; width:100%; text-align:left; padding:9px 12px; border-radius:8px; border:none;
       background:transparent; color:var(--ink); font-family:var(--body-f); font-size:13px; cursor:pointer; }
 .preset-item:hover{ background:var(--surface-3); }
@@ -133,32 +198,6 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
       border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--ink); }
 .apply-btn{ width:100%; margin-top:8px; padding:9px; border-radius:8px; border:none; background:var(--acoes);
       color:#fff; font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
-
-/* ---- Sync badge (topbar) + "Registro de Controle" dropdown panel ---- */
-.sync-wrap{ position:relative; }
-.sync-badge{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
-      border-radius:100px; padding:6px 14px 6px 10px; font-size:12px; color:var(--ink); cursor:pointer;
-      box-shadow:var(--shadow); font-family:var(--body-f); }
-.status-dot{ width:9px; height:9px; border-radius:50%; flex:none; display:inline-block; }
-.status-dot.good{ background:var(--good); box-shadow:0 0 0 3px var(--good-soft); }
-.status-dot.warn{ background:var(--warn); box-shadow:0 0 0 3px var(--warn-soft); }
-.status-dot.bad{ background:var(--bad); box-shadow:0 0 0 3px var(--bad-soft); }
-.sync-badge b{ font-weight:700; }
-.sync-badge .chev{ width:11px; height:11px; stroke:var(--ink-faint); }
-.sync-panel{ position:absolute; top:calc(100% + 8px); right:0; z-index:30; width:340px; background:var(--surface);
-      border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:14px; display:none; }
-.sync-panel.open{ display:block; }
-.sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; }
-.sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
-.sync-log{ display:flex; flex-direction:column; max-height:220px; overflow-y:auto; margin-bottom:12px; }
-.sync-log-row{ display:flex; align-items:flex-start; gap:9px; padding:9px 2px; border-bottom:1px solid var(--border); }
-.sync-log-row:last-child{ border-bottom:none; }
-.sync-log-row .status-dot{ margin-top:5px; }
-.sync-log-row .body{ flex:1; min-width:0; }
-.sync-log-row .top-line{ display:flex; justify-content:space-between; gap:8px; font-size:12px; font-weight:600; }
-.sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
-.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
-.hint{ font-size:11.5px; color:var(--ink-faint); }
 
 /* ---- Buttons w/ loading state (used by "Sincronizar agora" etc.) ---- */
 .btn{ display:inline-flex; align-items:center; gap:8px; border:none; border-radius:100px; padding:9px 16px;
@@ -192,26 +231,87 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
 .toast.bad .bar{ background:var(--bad); }
 @keyframes toastbar{ from{ width:100%; } to{ width:0%; } }
 
-/* ---- Small screens (phone width, ~390-428px is the common case) ---- */
-@media (max-width:640px) {
-  .wrap{ padding:16px 16px 96px; }
-  .topbar{ gap:8px 10px; }
+/* ================= MAIN NAV — 6 top-level sections, no dropdown =================
+   Início, Distribuições e Metas, Carteiras, Transações, Proventos,
+   Organização Financeira. Icon-only below 900px (never a horizontal
+   scroll — items use flex:1 1 0 + min-width:0, so they always shrink
+   to fit); icon + label from 900px up. Sections with subpages render
+   their own .side-nav further down the page instead of a dropdown. */
+.mainnav{ display:flex; align-items:stretch; gap:2px; border-top:1px solid var(--border);
+      border-bottom:1px solid var(--border); margin-bottom:22px; }
+.nav-item{ position:relative; flex:1 1 0; min-width:0; }
+.nav-link{ all:unset; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:7px;
+      width:100%; padding:11px 6px; cursor:pointer; color:var(--ink-muted); font-size:12.5px; font-weight:600;
+      white-space:nowrap; }
+.nav-link:hover{ color:var(--ink); background:var(--surface-3); }
+.nav-link.active{ color:var(--acoes); }
+.nav-link svg.nav-icon{ width:17px; height:17px; flex:none; stroke:currentColor; }
+.nav-active-bar{ position:absolute; left:10%; right:10%; bottom:-1px; height:2px; background:var(--acoes);
+      border-radius:2px 2px 0 0; opacity:0; }
+.nav-item.current .nav-active-bar{ opacity:1; }
+.nav-item.current .nav-link{ color:var(--acoes); }
 
-  /* Date range text and "cotações há Xmin" label are the least essential
-     bits of the topbar - drop them first so the controls that matter
-     (sync badge, period, theme) always fit without wrapping into a mess. */
-  .period-btn .range{ display:none; }
-  .refresh-pill .label{ display:none; }
-  .refresh-pill{ padding:6px; }
-
-  .sync-panel{ width:min(340px, calc(100vw - 32px)); right:-16px; }
-  .period-panel{ width:min(270px, calc(100vw - 32px)); right:-16px; }
-
-  .tabs{ margin:-4px 0 20px; padding-bottom:2px; }
+@media (min-width:900px){
+  .nav-link{ justify-content:flex-start; padding:12px 16px; }
+  .nav-item{ flex:0 0 auto; }
+}
+@media (max-width:899.98px){
+  .nav-label{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .nav-link{ flex-direction:column; gap:4px; padding:9px 2px 8px; }
+  .nav-link svg.nav-icon{ width:19px; height:19px; }
 }
 
-@media (max-width:420px) {
-  /* Narrowest phones: the refresh pill is nice-to-have context, not a
-     control - drop it entirely rather than let 4 pills fight for space. */
-  .refresh-pill{ display:none; }
+/* ================= CONTEXTUAL SIDEBAR — Carteiras / Transações /
+   Proventos / Organização Financeira only (pages with subpages).
+   Renders as normal in-flow content beside .section-content, never as
+   an overlay. Below 640px it collapses to an icon-only rail (title
+   attribute carries the label as a tooltip) — still a vertical list,
+   so it never causes horizontal scroll. Carteiras colors each item
+   with the matching asset-class token (--acoes/--fiis/--usa/--rf) via
+   the --accent/--accent-soft custom properties set inline per item;
+   sections with no natural category color just omit them and fall
+   back to --acoes. ================= */
+.section-layout{ display:flex; gap:22px; align-items:flex-start; }
+.side-nav{ flex:0 0 220px; display:flex; flex-direction:column; gap:5px; }
+.side-item{ all:unset; box-sizing:border-box; display:flex; align-items:center; gap:11px; width:100%;
+      padding:9px 12px; border-radius:100px; cursor:pointer; color:var(--ink-muted); font-size:13px; font-weight:600; }
+.side-item:hover{ background:var(--surface-3); }
+.side-item.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+.side-ico{ width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+      flex:none; background:var(--surface-3); color:var(--ink-muted); }
+.side-item.active .side-ico{ background:var(--accent-soft, var(--acoes-soft)); color:var(--accent, var(--acoes)); }
+.side-ico svg{ width:15px; height:15px; stroke:currentColor; }
+.side-label{ overflow:hidden; text-overflow:ellipsis; }
+.side-chev{ margin-left:auto; width:13px; height:13px; stroke:var(--ink-faint); opacity:.55; flex:none; }
+
+.section-content{ flex:1 1 0; min-width:0; background:var(--surface); border:1px solid var(--border);
+      border-radius:16px; padding:22px; box-shadow:var(--shadow); min-height:220px; }
+.section-content h2{ font-size:16px; margin-bottom:8px; }
+
+@media (max-width:640px){
+  .section-layout{ gap:10px; }
+  .side-nav{ flex:0 0 58px; gap:8px; }
+  .side-item{ justify-content:center; padding:9px 4px; border-radius:14px; }
+  .side-chev{ display:none; }
+  .side-item .side-label{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+  .section-content{ padding:16px; }
+}
+
+/* ================= THEME TOGGLE — end of page, in normal flow (not
+   floating). Only visible after scrolling all the way down, alongside
+   whatever else lives in the page footer. ================= */
+.theme-footer{ display:flex; justify-content:center; margin-top:40px; padding-top:24px; border-top:1px solid var(--border); }
+.theme-fab{ display:flex; align-items:center; gap:8px; border:1px solid var(--border); background:var(--surface);
+      color:var(--ink-muted); border-radius:100px; padding:10px 18px; cursor:pointer; box-shadow:var(--shadow); }
+.theme-fab svg{ width:16px; height:16px; stroke:currentColor; }
+.theme-fab .txt::after{ content:'Tema escuro'; }
+:root[data-theme="dark"] .theme-fab .txt::after{ content:'Tema claro'; }
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .theme-fab .txt::after{ content:'Tema claro'; } }
+.theme-fab .sun{ display:none; }
+:root[data-theme="dark"] .theme-fab .sun{ display:block; }
+:root[data-theme="dark"] .theme-fab .moon{ display:none; }
+:root:not([data-theme="light"]) .theme-fab .sun{ display:none; }
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .theme-fab .sun{ display:block; }
+  :root:not([data-theme="light"]) .theme-fab .moon{ display:none; }
 }
