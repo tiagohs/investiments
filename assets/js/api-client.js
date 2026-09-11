@@ -49,6 +49,20 @@ export async function getSyncStatus(token) {
 }
 
 /**
+ * Patrimônio nas 3 visões (total/longoPrazo/rendaEmergencial) + índices
+ * & câmbio, for the Início page (action=home). See apps-script/Home.gs
+ * for exactly which cells each field comes from.
+ *
+ * @return {Promise<Object>} `{ ok, patrimonio: { total, longoPrazo,
+ *   rendaEmergencial, porClasse: { acoes, fiis, rendaFixa, acoesEua } },
+ *   indices: { ibovespa, ifix, spx }, cambio: { usd, eur } }` or
+ *   `{ ok:false, etapa, erro }`
+ */
+export async function getHome(token) {
+  return request('GET', 'home', token);
+}
+
+/**
  * Runs "sincronizarAgora", automatically resuming rounds until
  * `naoProcessados` is empty (or a round fails outright) — this is the
  * round-accumulation logic that used to live inside teste.html's

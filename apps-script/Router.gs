@@ -24,6 +24,9 @@ function doGet(e) {
   if (action === 'syncStatus') {
     return handleSyncStatus(e);
   }
+  if (action === 'home') {
+    return handleHome(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

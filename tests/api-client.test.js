@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, syncNow, importB3Transactions } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getHome, syncNow, importB3Transactions } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -47,6 +47,59 @@ test('getSyncStatus() calls action=syncStatus', async (t) => {
 
   assert.equal(result.resultado.status, 'Sucesso');
   assert.equal(new URL(capturedUrl).searchParams.get('action'), 'syncStatus');
+});
+
+test('getHome() calls action=home and returns patrimônio/índices/câmbio as-is', async (t) => {
+  let capturedUrl;
+  const backendResponse = {
+    ok: true,
+    patrimonio: {
+      total: 147978.99,
+      longoPrazo: 87218.72,
+      rendaEmergencial: 60760.27,
+      porClasse: { acoes: 28946.36, fiis: 35648, rendaFixa: 65455.4, acoesEua: 17929.23 },
+    },
+    indices: {
+      ibovespa: { valor: 187206.89, variacaoDia: -0.56 },
+      ifix: { valor: 3748.63, variacaoDia: 0.04 },
+      spx: { valor: 7656.98, variacaoDia: 0.86 },
+    },
+    cambio: { usd: 5.121516, eur: 5.945312 },
+  };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    capturedUrl = url;
+    return jsonResponse(backendResponse);
+  });
+
+  const result = await getHome('tok');
+
+  assert.deepEqual(result, backendResponse);
+  const params = new URL(capturedUrl).searchParams;
+  assert.equal(params.get('action'), 'home');
+  assert.equal(params.get('token'), 'tok');
+});
+
+test('getHome() normalizes a network failure into { ok:false, etapa:"network" }', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('offline'); });
+
+  const result = await getHome('tok');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.etapa, 'network');
+});
+
+test('getHome() passes through a backend error shape without throwing', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => jsonResponse({
+    ok: false,
+    etapa: 'home',
+    erro: 'aba não encontrada: 📊Dash Geral',
+  }));
+
+  const result = await getHome('tok');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.etapa, 'home');
+  assert.match(result.erro, /Dash Geral/);
 });
 
 test('importB3Transactions() posts action + transacoes as a JSON body field', async (t) => {
