@@ -1,0 +1,198 @@
+/**
+ * shell.css — shared chrome for every page: design tokens (color/type),
+ * base resets, topbar (brand, refresh pill, sync badge + panel, period
+ * filter, theme toggle), and the tab nav. Loaded by every page via
+ * shell.js (item 8f) alongside shell.html.
+ *
+ * Tokens and every rule here were validated in docs/direcao-visual.html
+ * (categorical palette already run through the dataviz palette
+ * validator) — copied here as the single source of truth instead of
+ * duplicated per page. Custom property names (--acoes, --fiis, --rf,
+ * --usa) are kept exactly as validated there, to stay consistent with
+ * that reference rather than diverging into an English rename.
+ *
+ * Page-specific styles (stat tiles, dropzone, alerts, generic status
+ * badges, etc.) are NOT here — they belong to each page when it's built.
+ */
+
+/* ---- Design tokens ---- */
+:root {
+  --bg:#F7F6F2; --surface:#FFFFFF; --surface-2:#E7EEF7; --surface-3:#F1F0EC;
+  --border:#E2E0D9; --ink:#1B2430; --ink-muted:#6C7686; --ink-faint:#98A0AC;
+
+  /* categorical — one per asset class */
+  --acoes:#2A78D6;  --acoes-soft:#E6EFFB;
+  --fiis:#1BAF7A;   --fiis-soft:#E1F5EC;
+  --rf:#C98500;     --rf-soft:#FBEED2;
+  --usa:#4A3AA7;    --usa-soft:#EBE8F7;
+
+  /* status triad — favorable / wait / unfavorable */
+  --good:#0CA30C;   --good-soft:#E3F3E1; --good-ink:#046B04;
+  --warn:#FAB219;   --warn-soft:#FEF0D6; --warn-ink:#8A5A06;
+  --bad:#D03B3B;    --bad-soft:#FBE7E6;  --bad-ink:#A32E2E;
+  --na:#98A0AC;     --na-soft:#EEEEEC;
+
+  --shadow: 0 1px 2px rgba(27,36,48,.06), 0 6px 20px -8px rgba(27,36,48,.12);
+  --display:'Fraunces', Georgia, 'Times New Roman', serif;
+  --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  color-scheme: light;
+}
+
+/* System dark mode, unless the user explicitly picked light via the
+   theme toggle (data-theme="light" on <html>). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0E1520; --surface:#151F2C; --surface-2:#1D3350; --surface-3:#1A2432;
+    --border:#283344; --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+
+    --acoes:#3987E5;  --acoes-soft:#1E3A57;
+    --fiis:#199E70;   --fiis-soft:#153A2C;
+    --rf:#DDAE63;     --rf-soft:#3B2E18;
+    --usa:#9085E9;    --usa-soft:#2A2650;
+
+    --good:#57C79A;   --good-soft:#123326; --good-ink:#7FE0B9;
+    --warn:#F0C46B;   --warn-soft:#3B2E18; --warn-ink:#F6D998;
+    --bad:#E5786C;    --bad-soft:#3A1E1A;  --bad-ink:#F0988D;
+    --na:#6E7A8A;     --na-soft:#1D2734;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    color-scheme: dark;
+  }
+}
+
+/* Explicit dark via the theme toggle — wins over system preference in
+   both directions (see shell.js, which sets data-theme on <html>). */
+:root[data-theme="dark"] {
+  --bg:#0E1520; --surface:#151F2C; --surface-2:#1D3350; --surface-3:#1A2432;
+  --border:#283344; --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+
+  --acoes:#3987E5;  --acoes-soft:#1E3A57;
+  --fiis:#199E70;   --fiis-soft:#153A2C;
+  --rf:#DDAE63;     --rf-soft:#3B2E18;
+  --usa:#9085E9;    --usa-soft:#2A2650;
+
+  --good:#57C79A;   --good-soft:#123326; --good-ink:#7FE0B9;
+  --warn:#F0C46B;   --warn-soft:#3B2E18; --warn-ink:#F6D998;
+  --bad:#E5786C;    --bad-soft:#3A1E1A;  --bad-ink:#F0988D;
+  --na:#6E7A8A;     --na-soft:#1D2734;
+
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+  color-scheme: dark;
+}
+
+/* ---- Base reset ---- */
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
+      font-size:14.5px; line-height:1.5; }
+h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
+.mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.wrap{ max-width:1080px; margin:0 auto; padding:20px 20px 96px; }
+.eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+
+/* ---- Top bar ---- */
+.topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px;
+         padding:14px 4px; border-bottom:1px solid var(--border); margin-bottom:22px; flex-wrap:wrap; }
+.brand{ display:flex; align-items:baseline; gap:10px; }
+.brand h1{ font-size:22px; color:var(--acoes); }
+.brand span{ color:var(--ink-muted); font-size:12.5px; }
+.topbar-right{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.refresh-pill{ display:flex; align-items:center; gap:6px; background:var(--surface);
+      border:1px solid var(--border); border-radius:100px; padding:6px 12px 6px 10px;
+      font-size:12px; color:var(--ink-muted); box-shadow:var(--shadow); }
+.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); }
+.theme-btn{ border:1px solid var(--border); background:var(--surface); color:var(--ink);
+      border-radius:100px; padding:7px 14px; font-family:var(--body-f); font-size:12.5px;
+      font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
+.theme-btn:focus-visible{ outline:2px solid var(--usa); outline-offset:2px; }
+
+/* ---- Desktop tab nav ---- */
+.tabs{ display:flex; gap:4px; margin:-8px 0 26px; overflow-x:auto; }
+.tab{ font-size:13px; font-weight:600; color:var(--ink-muted); padding:9px 14px;
+      border-radius:8px; white-space:nowrap; text-decoration:none; }
+.tab.active{ color:var(--acoes); background:var(--acoes-soft); }
+
+/* ---- Period filter (global date-range selector) ---- */
+.period-wrap{ position:relative; }
+.period-btn{ position:relative; display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border);
+      background:var(--surface); color:var(--ink); border-radius:100px; padding:7px 14px; font-family:var(--body-f);
+      font-size:12.5px; font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
+.period-btn .cal{ width:14px; height:14px; stroke:var(--ink-muted); }
+.period-btn .chev{ width:11px; height:11px; stroke:var(--ink-faint); transition:transform .15s; }
+.period-btn.open .chev{ transform:rotate(180deg); }
+.period-btn .range{ color:var(--ink-muted); font-weight:500; }
+.period-panel{ position:absolute; top:calc(100% + 8px); right:0; z-index:30; width:270px; background:var(--surface);
+      border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:7px; display:none; }
+.period-panel.open{ display:block; }
+.preset-item{ display:block; width:100%; text-align:left; padding:9px 12px; border-radius:8px; border:none;
+      background:transparent; color:var(--ink); font-family:var(--body-f); font-size:13px; cursor:pointer; }
+.preset-item:hover{ background:var(--surface-3); }
+.preset-item.active{ background:var(--acoes-soft); color:var(--acoes); font-weight:700; }
+.custom-dates{ display:flex; gap:8px; padding:8px 4px 4px; border-top:1px solid var(--border); margin-top:6px; }
+.custom-dates input{ flex:1; min-width:0; font-family:var(--body-f); font-size:12px; padding:7px 8px;
+      border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--ink); }
+.apply-btn{ width:100%; margin-top:8px; padding:9px; border-radius:8px; border:none; background:var(--acoes);
+      color:#fff; font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
+
+/* ---- Sync badge (topbar) + "Registro de Controle" dropdown panel ---- */
+.sync-wrap{ position:relative; }
+.sync-badge{ display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
+      border-radius:100px; padding:6px 14px 6px 10px; font-size:12px; color:var(--ink); cursor:pointer;
+      box-shadow:var(--shadow); font-family:var(--body-f); }
+.status-dot{ width:9px; height:9px; border-radius:50%; flex:none; display:inline-block; }
+.status-dot.good{ background:var(--good); box-shadow:0 0 0 3px var(--good-soft); }
+.status-dot.warn{ background:var(--warn); box-shadow:0 0 0 3px var(--warn-soft); }
+.status-dot.bad{ background:var(--bad); box-shadow:0 0 0 3px var(--bad-soft); }
+.sync-badge b{ font-weight:700; }
+.sync-badge .chev{ width:11px; height:11px; stroke:var(--ink-faint); }
+.sync-panel{ position:absolute; top:calc(100% + 8px); right:0; z-index:30; width:340px; background:var(--surface);
+      border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:14px; display:none; }
+.sync-panel.open{ display:block; }
+.sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; }
+.sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
+.sync-log{ display:flex; flex-direction:column; max-height:220px; overflow-y:auto; margin-bottom:12px; }
+.sync-log-row{ display:flex; align-items:flex-start; gap:9px; padding:9px 2px; border-bottom:1px solid var(--border); }
+.sync-log-row:last-child{ border-bottom:none; }
+.sync-log-row .status-dot{ margin-top:5px; }
+.sync-log-row .body{ flex:1; min-width:0; }
+.sync-log-row .top-line{ display:flex; justify-content:space-between; gap:8px; font-size:12px; font-weight:600; }
+.sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
+.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
+.hint{ font-size:11.5px; color:var(--ink-faint); }
+
+/* ---- Buttons w/ loading state (used by "Sincronizar agora" etc.) ---- */
+.btn{ display:inline-flex; align-items:center; gap:8px; border:none; border-radius:100px; padding:9px 16px;
+      font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
+.btn-primary{ background:var(--acoes); color:#fff; }
+:root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary{ color:#071522; }
+.btn:disabled{ opacity:.75; cursor:default; }
+.btn .spinner{ width:13px; height:13px; border-radius:50%; border:2px solid rgba(255,255,255,.4);
+      border-top-color:#fff; animation:spin .7s linear infinite; flex:none; }
+:root[data-theme="dark"] .btn-primary .spinner, :root:not([data-theme="light"]) .btn-primary .spinner{
+      border-color:rgba(7,21,34,.35); border-top-color:#071522; }
+@keyframes spin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .btn .spinner{ animation-duration:2s; } }
+
+/* ---- Toast (sync completed/failed notification) ---- */
+.toast-demo-row{ display:flex; flex-direction:column; gap:12px; align-items:stretch; }
+.toast{ display:flex; gap:10px; background:var(--surface); border:1px solid var(--border);
+      border-radius:14px; padding:13px 14px; box-shadow:var(--shadow); align-items:flex-start; position:relative; overflow:hidden; }
+.toast .tico{ width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:none; }
+.toast.good .tico{ background:var(--good-soft); color:var(--good-ink); }
+.toast.warn .tico{ background:var(--warn-soft); color:var(--warn-ink); }
+.toast.bad .tico{ background:var(--bad-soft); color:var(--bad-ink); }
+.toast .tico svg{ width:15px; height:15px; }
+.toast .body{ flex:1; min-width:0; }
+.toast .title{ font-size:13px; font-weight:700; }
+.toast .desc{ font-size:11.5px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
+.toast .close{ border:none; background:transparent; color:var(--ink-faint); cursor:pointer; padding:2px; flex:none; }
+.toast .close svg{ width:14px; height:14px; }
+.toast .bar{ position:absolute; left:0; bottom:0; height:3px; background:var(--good); animation:toastbar 5s linear forwards; }
+.toast.warn .bar{ background:var(--warn); }
+.toast.bad .bar{ background:var(--bad); }
+@keyframes toastbar{ from{ width:100%; } to{ width:0%; } }
+
+/* ---- Small screens ---- */
+@media (max-width:640px) {
+  .sync-panel{ width:min(340px, calc(100vw - 40px)); right:-40px; }
+}
