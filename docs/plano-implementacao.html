@@ -390,42 +390,48 @@ distribuicoes-metas.html
     </div>
     <div class="phase">
       <div class="num">1</div>
+      <div class="ttl">Fundação de Front-end</div>
+      <div class="desc">Antes de qualquer tela: branch <span class="mono">dev</span>, esqueleto de pastas (<span class="mono">assets/js</span>, <span class="mono">assets/css</span>, <span class="mono">tests/</span>), esteira de testes unitários (<span class="mono">node --test</span>, sem dependência externa), módulo de configuração, o cliente JS puro que fala com o Apps Script (<span class="mono">ping</span>/<span class="mono">syncStatus</span>/<span class="mono">sincronizarAgora</span>/<span class="mono">importarTransacoesB3</span>) com testes unitários, módulo de autenticação (token do Google Identity Services) com testes unitários, e só então a estrutura compartilhada de UI (<span class="mono">shell.css</span>/<span class="mono">shell.html</span>/<span class="mono">shell.js</span>). Detalhe item a item na checklist "Fase 1 — Fundação de Front-end" logo abaixo.</div>
+      <div class="deliv"><b>Entregável</b> — infraestrutura testada (cliente de API + autenticação) e a shell compartilhada funcionando, prontas pra primeira tela só consumir.</div>
+    </div>
+    <div class="phase">
+      <div class="num">2</div>
       <div class="ttl">Início (Home)</div>
       <div class="desc">3 visões de patrimônio, gráfico de Rentabilidade com seletor, índices &amp; câmbio, grade de Meus Ativos — tudo somente leitura.</div>
       <div class="deliv"><b>Entregável</b> — primeira página real, valida leitura + Chart.js + cache funcionando juntos.</div>
     </div>
     <div class="phase">
-      <div class="num">2</div>
+      <div class="num">3</div>
       <div class="ttl">Distribuições e Metas</div>
       <div class="desc">Objetivos, Radar, FIIs por tipo (leitura) + Metas da Carteira, que você edita e fica salvo.</div>
       <div class="deliv"><b>Entregável</b> — primeira escrita de verdade (<span class="mono">doPost</span>) na planilha, validando o caminho de ida e volta.</div>
     </div>
     <div class="phase">
-      <div class="num">3</div>
+      <div class="num">4</div>
       <div class="ttl">Carteiras</div>
       <div class="desc">Página principal com gráficos agregados, as 4 sub-páginas de classe com o gráfico de benchmark, e a página de Detalhe do Ativo.</div>
       <div class="deliv"><b>Entregável</b> — a parte mais densa de dado e gráfico do app.</div>
     </div>
     <div class="phase">
-      <div class="num">4</div>
+      <div class="num">5</div>
       <div class="ttl">Transações e Registros de Compra</div>
       <div class="desc">Formulários de lançamento manual (Internacional, Renda Fixa, Compras planejadas) + a importação do extrato da B3 pra Brasil (anexar <span class="mono">.xlsx</span>, prévia, confirmar), com lançamento manual também disponível ali como alternativa. Cada um com sua ação de escrita.</div>
       <div class="deliv"><b>Entregável</b> — o app agora substitui de verdade o lançamento manual na planilha, incluindo o fluxo que hoje passava pela planilha auxiliar de ordenar a B3.</div>
     </div>
     <div class="phase">
-      <div class="num">5</div>
+      <div class="num">6</div>
       <div class="ttl">Proventos e Dividendos</div>
       <div class="desc">As 2 páginas (Nacionais/Internacionais), cada uma com abas Consolidado + Agenda, estilo Gorila.</div>
       <div class="deliv"><b>Entregável</b> — calendário e tabela de lançamentos ligados ao dado real.</div>
     </div>
     <div class="phase">
-      <div class="num">6</div>
+      <div class="num">7</div>
       <div class="ttl">Organização Financeira</div>
       <div class="desc">Despesas Essenciais e Salário/Renda Emergencial — as páginas mais simples, deixadas por último de propósito.</div>
       <div class="deliv"><b>Entregável</b> — todas as 6 páginas principais no ar.</div>
     </div>
     <div class="phase">
-      <div class="num">7</div>
+      <div class="num">8</div>
       <div class="ttl">Polimento &amp; revisão</div>
       <div class="desc">Passada de acessibilidade, responsivo em celular de verdade, checklist comparando cada número do app contra a planilha, e um README de manutenção (como fazer deploy de uma mudança no Apps Script sem trocar a URL).</div>
       <div class="deliv"><b>Entregável</b> — app pronto pro uso do dia a dia.</div>
@@ -575,6 +581,26 @@ distribuicoes-metas.html
     <div class="box" style="background:var(--warn-soft);margin-top:12px">
       <p style="margin:0"><b>Ainda em aberto, diferente do resto da checklist:</b> os itens acima ainda não foram confirmados na planilha real — só o parsing do <span class="mono">.xlsx</span> no navegador foi testado (sem gravar nada). O script de <span class="mono">importarTransacoesB3</span>/<span class="mono">sync.gs</span> foi escrito nesta revisão (ver <span class="mono">apps-script/b3import.gs</span> e <span class="mono">apps-script/sync.gs</span>), mas ainda precisa ser colado no projeto Apps Script real e rodado contra a planilha de verdade — inclusive confirmar o nome da aba <span class="mono">Registro de Controle</span> e seu cabeçalho (Timestamp/Origem/Status/Detalhe), que ainda não foi criado.</p>
     </div>
+  </div>
+
+  <h2 class="section-title">Fase 1 — Fundação de Front-end</h2>
+  <p class="section-hint">Antes de escrever a primeira tela, monta a base: esqueleto de pastas, esteira de testes unitários, e a camada de comunicação com o Apps Script (cliente de API + autenticação) isolada e testada — só depois disso entra a estrutura de UI compartilhada. Ordem pensada pra cada peça nascer testável, em vez de misturar tudo dentro do HTML como o <span class="mono">teste.html</span> fez de propósito (ele é scaffold descartável, não é o padrão pro app real). Branch <span class="mono">dev</span> criada a partir do <span class="mono">main</span> — todo este trabalho acontece nela até revisão e merge.</p>
+
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>o que entrega</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Branch <span class="mono">dev</span></td><td>Criada a partir do <span class="mono">main</span> — todo o front-end é construído aqui até revisão e merge</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">concluído ✓</span></td></tr>
+        <tr><td>Esqueleto de pastas</td><td><span class="mono">assets/js/</span>, <span class="mono">assets/css/</span>, <span class="mono">tests/</span> — estrutura vazia, sem lógica ainda (evita reorganizar depois de já ter código dentro)</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Setup de testes unitários</td><td><span class="mono">node --test</span> (nativo do Node, zero dependência externa — mesma filosofia do "sem build pro site"), <span class="mono">package.json</span> só como ferramenta de dev (nunca servido pelo GitHub Pages), teste de sanidade pra confirmar que <span class="mono">npm test</span> roda</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Módulo de configuração</td><td>Constantes compartilhadas (<span class="mono">APPS_SCRIPT_URL</span>, <span class="mono">CLIENT_ID</span>) extraídas pra um arquivo único — hoje estão soltas dentro do <span class="mono">&lt;script&gt;</span> do <span class="mono">teste.html</span></td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Cliente da API do Apps Script</td><td>Módulo JS puro (sem DOM, sem tela) que encapsula <span class="mono">ping</span>, <span class="mono">syncStatus</span>, <span class="mono">sincronizarAgora</span> (incluindo a lógica de acumular resultado por rodada até <span class="mono">naoProcessados</span> zerar) e <span class="mono">importarTransacoesB3</span> — só entra/sai dado</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Testes unitários — cliente da API</td><td>Mockando <span class="mono">fetch</span>: montagem de URL/body por ação, tratamento de erro (<span class="mono">ok:false</span> + <span class="mono">etapa</span>), lógica de retomada de rodadas, timeout/erro de rede</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Módulo de autenticação</td><td>Gerencia o token do Google Identity Services (guarda em memória durante a sessão, expõe pro cliente da API, trata token ausente/expirado) — separado da UI de login</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Testes unitários — autenticação</td><td>Token ausente, token expirado, token válido passado adiante pro cliente da API</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Estrutura compartilhada de UI (shell)</td><td><span class="mono">shell.css</span> / <span class="mono">shell.html</span> / <span class="mono">shell.js</span> — topbar, nav, tema, filtro de período, badge de sincronização — já consumindo os módulos de auth + cliente de API acima, injetada via JS puro em cada página</td><td><span class="tag">a fazer</span></td></tr>
+      </tbody>
+    </table>
   </div>
 
   <h2 class="section-title">Riscos técnicos e como mitigar</h2>
