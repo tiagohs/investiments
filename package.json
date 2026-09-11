@@ -1,0 +1,12 @@
+{
+  "name": "investiments",
+  "private": true,
+  "type": "module",
+  "description": "Front-end do app pessoal de controle de investimentos (ver docs/plano-implementacao.html). package.json existe so como ferramenta de dev (testes) - nunca e servido pelo GitHub Pages.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
