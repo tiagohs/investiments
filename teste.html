@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Fase 0 — Testes de Fundação</title>
+<title>Testes — Sincronização e Importação</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
@@ -45,17 +45,19 @@
   .mini-table caption{ text-align:left; font-family:var(--body-f); font-weight:600; font-size:13px; margin-bottom:4px; color:var(--ink); }
   .mini-table th, .mini-table td{ text-align:left; padding:3px 8px 3px 0; border-top:1px solid var(--border); }
   .mini-table th{ border-top:none; color:var(--ink-muted); font-weight:600; }
-  #historico-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
-  #sincronizar-testes-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
-  #sincronizar-testes-results .ok-line{ color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
-  #importb3-testes-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
-  #importb3-testes-results .ok-line{ color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
+  #sincronizar-results .fail-line, #importb3-results .fail-line,
+  #sincronizar-testes-results .fail-line, #importb3-testes-results .fail-line{
+    color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px;
+  }
+  #sincronizar-testes-results .ok-line, #importb3-testes-results .ok-line{
+    color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Fase 0 — Testes de Fundação</h1>
-  <p class="hint">Página temporária, não faz parte do app final. Valida, de ponta a ponta: login Google, verificação de token pelo Apps Script, leitura da planilha (incluindo valores vindos de GOOGLEFINANCE), e as APIs públicas do Banco Central. Se tudo aqui ficar verde, o "cano" de dados do app está confirmado — pode apagar este arquivo depois.</p>
+  <h1>Testes — Sincronização e Importação</h1>
+  <p class="hint">Página temporária, não faz parte do app final. A Fase 0 (login, leitura da planilha, GOOGLEFINANCE, APIs do Banco Central) já foi validada por inteiro — ver Plano de Implementação. O que resta aqui é testar a automação de verdade: sincronização do histórico de patrimônio (sync.gs) e importação de transações da B3, sempre com um jeito seguro de simular cenários sem tocar na planilha real. Pode apagar este arquivo quando o front-end real estiver pronto.</p>
 
   <div id="g_id_signin_container"></div>
   <p id="status"></p>
@@ -74,97 +76,6 @@
     </div>
   </div>
 
-  <div class="card" id="historico-card" style="display:none">
-    <h2>Histórico via GOOGLEFINANCE (Auxiliar_app)</h2>
-    <p class="hint" style="margin:0 0 10px">Escreve a fórmula numa célula de rascunho, força recálculo, lê o resultado e limpa — mesmo mecanismo que o backfill de histórico vai usar. Confira os valores abaixo antes de seguirmos.</p>
-    <button id="btn-historico" type="button">Testar histórico (GOOGLEFINANCE)</button>
-    <div id="historico-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="distribuicao-card" style="display:none">
-    <h2>Distribuição e Metas — Radar + Metas futuras</h2>
-    <p class="hint" style="margin:0 0 10px">Lê direto as tabelas fixas da aba (Radar de oportunidades de Ações/FIIs/EUA, divisões da carteira ideal, cálculos de Renda Emergencial/Salário/Patrimônio futuro). Role pra ver as tabelas largas.</p>
-    <button id="btn-distribuicao" type="button">Testar Distribuição e Metas</button>
-    <div id="distribuicao-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="inicio-card" style="display:none">
-    <h2>Início — Ibovespa, IFIX, S&amp;P 500, câmbio e patrimônio</h2>
-    <p class="hint" style="margin:0 0 10px">Lê direto das 3 tabelas que você colou em Auxiliar_app (A6/A14/A18) — nada mais é escrito via API a cada chamada. Patrimônio nas 3 visões vem de 📊Dash Geral. Atenção: a variação % daqui vem em formato "1.3 = 1,3%", diferente da "Variação dia" das Carteiras, que vem como fração "0.013 = 1,3%".</p>
-    <button id="btn-inicio" type="button">Testar Início</button>
-    <div id="inicio-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="rendafixa-card" style="display:none">
-    <h2>Carteira Renda Fixa</h2>
-    <p class="hint" style="margin:0 0 10px">Totais da aba (linha 6) + colunas do 1º investimento (linha 9).</p>
-    <button id="btn-rendafixa" type="button">Testar Renda Fixa</button>
-    <div id="rendafixa-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="detalhe-card" style="display:none">
-    <h2>Detalhe do Ativo — dados completos + histórico (BTLG11)</h2>
-    <p class="hint" style="margin:0 0 10px">Busca direto na aba Carteira FIIs por ticker (mesmas colunas já testadas, sem chamar GOOGLEFINANCE de novo — os valores já vêm calculados pela própria planilha) + histórico de transações (aba Transações), base pros gráficos de rentabilidade e de Valor Aplicado × Saldo Bruto.</p>
-    <button id="btn-detalhe" type="button">Testar Detalhe do Ativo</button>
-    <div id="detalhe-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="proventos-card" style="display:none">
-    <h2>Proventos — Consolidado por período + a receber</h2>
-    <p class="hint" style="margin:0 0 10px">Consolidado vem de 📈Dash Proventos (total histórico / total no período selecionado / ano atual / DY on cost). "A receber" (total/Ações/FIIs) lê direto da tabela 3 em Auxiliar_app.</p>
-    <button id="btn-proventos" type="button">Testar Proventos</button>
-    <div id="proventos-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="auxiliarapp-card" style="display:none">
-    <h2>Tabelas auxiliares (Auxiliar_app — A6/A14/A18)</h2>
-    <p class="hint" style="margin:0 0 10px">Diagnóstico bruto — só pra eu ver o layout real das 3 tabelas que você colou (rótulos, colunas) e então trocar os testes de Início/Proventos pra ler direto daqui, em vez de escrever fórmula via API a cada chamada.</p>
-    <button id="btn-auxiliarapp" type="button">Testar tabelas auxiliares</button>
-    <div id="auxiliarapp-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="backfill-card" style="display:none">
-    <h2>Prova de conceito — Backfill de patrimônio (BTLG11)</h2>
-    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — só usa a célula de rascunho de sempre (limpa sozinha no final). Cruza "Cotas até a data" (Transações) com preço histórico (GOOGLEFINANCE) pra reconstruir o valor do BTLG11 dia a dia. A validação certa compara o último dia reconstruído (preço de FECHAMENTO) contra "Fechamento dia anterior" da própria Carteira — não contra "Total Hoje", que é ao vivo e sempre vai divergir um pouco por comparar fechamento de ontem com cotação intraday de hoje.</p>
-    <button id="btn-backfill" type="button">Testar reconstrução (BTLG11)</button>
-    <div id="backfill-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="contagem-card" style="display:none">
-    <h2>Checagem — quantos ativos o backfill real vai precisar processar</h2>
-    <p class="hint" style="margin:0 0 10px">Só leitura, não mexe em nada. Varre Transações + Transações - USA (não as Carteiras, que só mostram o que você tem hoje) pra contar todo ticker que já passou pela carteira em qualquer classe, mesmo os já vendidos, e achar a transação mais antiga de cada um — isso dá o tamanho real do backfill antes de rodar.</p>
-    <button id="btn-contagem" type="button">Contar ativos transacionados</button>
-    <div id="contagem-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="diagusa-card" style="display:none">
-    <h2>Diagnóstico bruto — Transações - USA</h2>
-    <p class="hint" style="margin:0 0 10px">Só leitura. Preciso ver o layout real dessa aba (linha do cabeçalho, nomes das colunas) antes de incluir as ações internacionais na contagem/backfill — não posso supor que é igual à aba Transações nacional.</p>
-    <button id="btn-diagusa" type="button">Ver linhas 1-25 de Transações - USA (A1:Z25)</button>
-    <div id="diagusa-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="tickersusa-card" style="display:none">
-    <h2>Checagem — os 8 tickers USA resolvem no GOOGLEFINANCE?</h2>
-    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente (célula de rascunho de sempre). As ações nacionais precisam do prefixo "BVMF:" pro GOOGLEFINANCE achar — antes de rodar o backfill de verdade pros 8 tickers de Ações USA, preciso confirmar se eles resolvem direto pelo símbolo (STR, EWBC, PROSY, VNOM, PAM, GPRK, SIRI, CHTR) ou se algum precisa de prefixo de bolsa (NASDAQ:/NYSE:).</p>
-    <button id="btn-tickersusa" type="button">Testar os 8 tickers USA</button>
-    <div id="tickersusa-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="validarcotasusa-card" style="display:none">
-    <h2>Validação — "Cotas até a data" em Transações - USA (GPRK)</h2>
-    <p class="hint" style="margin:0 0 10px">Só leitura. Compara a "Cotas até a data" da última transação de GPRK (Transações - USA) contra a "Quantidade de ações" real na Carteira Ações USA (já testada antes = 48.5799) — se bater, essa coluna é confiável pro backfill de Ações USA, do mesmo jeito que a nacional.</p>
-    <button id="btn-validarcotasusa" type="button">Validar Cotas até a data (GPRK)</button>
-    <div id="validarcotasusa-results" style="margin-top:12px"></div>
-  </div>
-
-  <div class="card" id="backfilltodos-card" style="display:none">
-    <h2>Prova de conceito expandida — Backfill de TODOS os 30 ativos (resumo)</h2>
-    <p class="hint" style="margin:0 0 10px">Não escreve nada permanente — mesma célula de rascunho de sempre, reaproveitada ativo por ativo. Roda a mesma reconstrução já validada (BTLG11) pra todos os 22 BR + 8 USA, desde a primeira transação de cada um até ontem. Processa em lotes de 6 ativos por chamada (senão estoura o limite de execução do Apps Script com anos de histórico) — o botão mostra o progresso. Só devolve um resumo por ativo (não a lista dia a dia inteira, senão fica gigante).</p>
-    <button id="btn-backfilltodos" type="button">Testar backfill — todos os ativos (resumo)</button>
-    <div id="backfilltodos-results" style="margin-top:12px"></div>
-  </div>
-
   <div class="card" id="sincronizar-card" style="display:none">
     <h2>Sincronização do histórico de patrimônio (sync.gs)</h2>
     <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=sincronizarAgora</span> (form-urlencoded, igual o Postman) — mesmo botão que vai existir no app de verdade. Se a resposta vier com ativos "não processados" (tempo esgotado), chama de novo sozinho só com esses, até zerar. Pro backfill completo (1ª vez, histórico desde a 1ª transação de cada ativo), os 3 botões por tipo abaixo separam em grupos menores — cada um tem mais chance de terminar numa rodada só, sem precisar retomar.</p>
@@ -177,7 +88,7 @@
     <div id="sincronizar-results" style="margin-top:12px"></div>
   </div>
 
-  <div class="card" id="sincronizar-testes-card">
+  <div class="card" id="sincronizar-testes-card" style="display:none">
     <h2>Testes de Registro de Controle — Atenção / Erro / retry seletivo</h2>
     <p class="hint" style="margin:0 0 10px">Roda a MESMA rotina (<span style="font-family:var(--mono)">sincronizarAgora</span>), mas em modo teste: grava em <span style="font-family:var(--mono)">aux_tests</span> em vez de <span style="font-family:var(--mono)">aux_historico-patrimonio</span> (planilha real intocada) e força tickers falsos a "falhar" de propósito, de forma determinística. A linha gravada em Registro de Controle sai com Origem = <b>Teste</b>, pra nunca se confundir com uma sincronização de verdade.</p>
     <button id="btn-teste-atencao" type="button">1) Simular Atenção (WIZC3 ok + 1 falso falhando)</button>
@@ -194,7 +105,7 @@
     <div id="importb3-results" style="margin-top:12px"></div>
   </div>
 
-  <div class="card" id="importb3-testes-card">
+  <div class="card" id="importb3-testes-card" style="display:none">
     <h2>Testes de Gravação em lote — importarTransacoesB3 (aux_tests)</h2>
     <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=importarTransacoesB3</span> de verdade (grava célula), mas em modo teste: escreve em <span style="font-family:var(--mono)">aux_tests</span> em vez de <span style="font-family:var(--mono)">Transações</span> — pré-requisito: copie a aba "Transações" atual e renomeie a cópia pra <span style="font-family:var(--mono)">aux_tests</span> (mesma estrutura, cabeçalho linha 6, dados a partir da linha 7). A validação de ticker continua contra a Carteira real (só leitura, nada é gravado lá). Lotes usam tickers reais (WIZC3, BTLG11) só pra passar na validação — as linhas gravadas ficam em aux_tests, nunca em Transações.</p>
     <button id="btn-teste-lote-ok" type="button">1) Gravação em lote (2 válidas: WIZC3 + BTLG11)</button>
@@ -273,34 +184,6 @@
       </div>`);
   }
 
-  // Renderiza um intervalo lido como matriz (1a linha = cabeçalho) — usado
-  // pras tabelas fixas da Distribuição e Metas.
-  function renderTabela2D(container, titulo, obj) {
-    if (!obj) return;
-    if (!obj.ok) {
-      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> falhou — ${obj.erro}</p>`);
-      return;
-    }
-    const linhas = obj.linhas || [];
-    if (linhas.length === 0) {
-      container.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${titulo}:</b> range vazio</p>`);
-      return;
-    }
-    const cel = function (v) { return (v === '' || v === null || v === undefined) ? '' : v; };
-    const cabecalho = linhas[0].map(function (v) { return `<th>${cel(v)}</th>`; }).join('');
-    const corpo = linhas.slice(1).map(function (linha) {
-      return '<tr>' + linha.map(function (v) { return `<td>${cel(v)}</td>`; }).join('') + '</tr>';
-    }).join('');
-    container.insertAdjacentHTML('beforeend', `
-      <div style="overflow-x:auto; margin-bottom:14px">
-        <table class="mini-table" style="width:auto; min-width:100%; margin-bottom:0">
-          <caption>${titulo} <span style="color:var(--ink-muted); font-weight:400">(${obj.range})</span></caption>
-          <thead><tr>${cabecalho}</tr></thead>
-          <tbody>${corpo}</tbody>
-        </table>
-      </div>`);
-  }
-
   // ---- Bloco 1: login + Apps Script + planilha ----
   let currentToken = null;
 
@@ -312,7 +195,7 @@
 
     const token = response.credential;
     currentToken = token;
-    const url = `${APPS_SCRIPT_URL}?action=test&token=${encodeURIComponent(token)}`;
+    const url = `${APPS_SCRIPT_URL}?action=ping&token=${encodeURIComponent(token)}`;
 
     try {
       const res = await fetch(url, { method: 'GET' });
@@ -325,308 +208,17 @@
       }
 
       row(container, true, 'Login + verificação de token', `autenticado como ${data.autenticado_como}`);
+      row(container, true, 'Conexão com a planilha', data.planilha);
 
-      const t = data.testes || {};
-      if (t.planilha) row(container, t.planilha.ok, 'Conexão com a planilha', t.planilha.ok ? t.planilha.nome : t.planilha.erro);
-
-      const tituloAcoes = 'Carteira Ações — 1º ativo' + ((t.carteira_acoes && t.carteira_acoes.ok) ? ` (${t.carteira_acoes.Ticker})` : '');
-      const tituloFiis = 'Carteira FIIs — 1º ativo' + ((t.carteira_fiis && t.carteira_fiis.ok) ? ` (${t.carteira_fiis.Ticker})` : '');
-      const tituloUsa = 'Carteira Ações USA — 1º ativo' + ((t.carteira_acoes_usa && t.carteira_acoes_usa.ok) ? ` (${t.carteira_acoes_usa.Ticker})` : '');
-
-      renderKV(container, tituloAcoes, t.carteira_acoes);
-      renderKV(container, tituloFiis, t.carteira_fiis);
-      renderKV(container, tituloUsa, t.carteira_acoes_usa);
-      renderKV(container, 'Ações USA — variação 504d (lida por posição)', t.carteira_acoes_usa && t.carteira_acoes_usa.variacao_504_dias);
-      renderKV(container, 'Câmbio USD/BRL', t.cambio_usd);
-      renderKV(container, 'Totais — Carteira Ações (linha 6)', t.totais_acoes);
-      renderKV(container, 'Totais — Carteira FIIs (linha 6)', t.totais_fiis);
-      renderKV(container, 'Totais — Carteira Ações USA (linha 6)', t.totais_acoes_usa);
-      renderKV(container, 'Gráfico MENSAL — diagnóstico (Ações)', t.grafico_mensal_acoes);
-      renderKV(container, 'Gráfico MENSAL — diagnóstico (FIIs)', t.grafico_mensal_fiis);
-      renderKV(container, 'Gráfico MENSAL — diagnóstico (Ações USA)', t.grafico_mensal_acoes_usa);
-
-      // Login OK — libera os cards de teste sob demanda.
-      document.getElementById('historico-card').style.display = '';
-      document.getElementById('distribuicao-card').style.display = '';
-      document.getElementById('inicio-card').style.display = '';
-      document.getElementById('rendafixa-card').style.display = '';
-      document.getElementById('detalhe-card').style.display = '';
-      document.getElementById('proventos-card').style.display = '';
-      document.getElementById('auxiliarapp-card').style.display = '';
-      document.getElementById('backfill-card').style.display = '';
-      document.getElementById('contagem-card').style.display = '';
-      document.getElementById('diagusa-card').style.display = '';
-      document.getElementById('tickersusa-card').style.display = '';
-      document.getElementById('validarcotasusa-card').style.display = '';
-      document.getElementById('backfilltodos-card').style.display = '';
+      // Login OK — libera os cards que dependem de token.
       document.getElementById('sincronizar-card').style.display = '';
+      document.getElementById('sincronizar-testes-card').style.display = '';
+      document.getElementById('importb3-testes-card').style.display = '';
     } catch (err) {
       statusEl.textContent = '';
       row(container, false, 'Chamada ao Apps Script', String(err));
     }
   };
-
-  // ---- Bloco 1b: histórico via GOOGLEFINANCE (sob demanda) ----
-  document.getElementById('btn-historico').addEventListener('click', async function () {
-    const btn = this;
-    const out = document.getElementById('historico-results');
-    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
-
-    btn.disabled = true;
-    btn.textContent = 'Consultando...';
-    out.innerHTML = '';
-
-    const url = `${APPS_SCRIPT_URL}?action=test_historico&token=${encodeURIComponent(currentToken)}`;
-    const nomes = { wizc3: 'WIZC3 (ação BR)', ibov: 'Ibovespa (INDEXBVMF:IBOV)', ifix: 'IFIX (INDEXBVMF:IFIX)', sp500: 'S&P 500 (INDEXSP:.INX)' };
-
-    try {
-      const res = await fetch(url, { method: 'GET' });
-      const data = await res.json();
-
-      if (!data.ok) {
-        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
-        return;
-      }
-
-      const t = data.testes || {};
-      Object.keys(nomes).forEach(function (chave) {
-        const r = t[chave];
-        if (!r) return;
-        if (!r.ok) {
-          const formulaLine = r.formula ? `<br><span style="font-size:11px">fórmula: ${r.formula}</span>` : '';
-          out.insertAdjacentHTML('beforeend', `<p class="fail-line"><b>${nomes[chave]}:</b> falhou — ${r.erro}${formulaLine}</p>`);
-          return;
-        }
-        const linhas = (r.linhas || []).map(function (l) {
-          return `<tr><td>${l[0]}</td><td>${l[1]}</td></tr>`;
-        }).join('');
-        out.insertAdjacentHTML('beforeend', `
-          <table class="mini-table">
-            <caption>${nomes[chave]} — ticker: ${r.ticker} (${(r.linhas || []).length} linhas)</caption>
-            <thead><tr><th>Data</th><th>Fechamento</th></tr></thead>
-            <tbody>${linhas || '<tr><td colspan="2">sem linhas retornadas</td></tr>'}</tbody>
-          </table>`);
-      });
-    } catch (err) {
-      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Testar histórico (GOOGLEFINANCE)';
-    }
-  });
-
-  // ---- Bloco 1c: tabelas de Distribuição e Metas (sob demanda) ----
-  document.getElementById('btn-distribuicao').addEventListener('click', async function () {
-    const btn = this;
-    const out = document.getElementById('distribuicao-results');
-    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
-
-    btn.disabled = true;
-    btn.textContent = 'Consultando...';
-    out.innerHTML = '';
-
-    const url = `${APPS_SCRIPT_URL}?action=test_distribuicao&token=${encodeURIComponent(currentToken)}`;
-    const nomes = {
-      divisao_carteira_ideal: 'Divisão da carteira ideal (ex-Renda Emergencial)',
-      renda_emergencial_calc: 'Cálculo Renda Emergencial (Média de Gastos)',
-      salario_calc: 'Salário e % a investir',
-      meta_patrimonio_futuro: 'Meta futura de Patrimônio',
-      divisao_rv_nacional_internacional: 'Divisão Ações — nacional vs. internacional',
-      radar_acoes: 'Radar de oportunidades — Ações',
-      radar_acoes_usa: 'Radar de oportunidades — Ações EUA',
-      divisao_fiis_por_tipo: 'Divisão FIIs por tipo (Tijolo/Papel/Híbrido)',
-      radar_fiis: 'Radar de oportunidades — FIIs'
-    };
-
-    try {
-      const res = await fetch(url, { method: 'GET' });
-      const data = await res.json();
-
-      if (!data.ok) {
-        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
-        return;
-      }
-
-      const t = data.testes || {};
-      Object.keys(nomes).forEach(function (chave) {
-        renderTabela2D(out, nomes[chave], t[chave]);
-      });
-    } catch (err) {
-      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Testar Distribuição e Metas';
-    }
-  });
-
-  // Padrão genérico pros 4 botões novos: chama uma action, mostra "falhou"
-  // se o Apps Script recusar, senão passa data.testes pro callback de render.
-  async function rodarTeste(botaoId, outId, action, textoOriginal, renderFn) {
-    const btn = document.getElementById(botaoId);
-    const out = document.getElementById(outId);
-    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
-
-    btn.disabled = true;
-    btn.textContent = 'Consultando...';
-    out.innerHTML = '';
-
-    const url = `${APPS_SCRIPT_URL}?action=${action}&token=${encodeURIComponent(currentToken)}`;
-    try {
-      const res = await fetch(url, { method: 'GET' });
-      const data = await res.json();
-      if (!data.ok) {
-        out.innerHTML = `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`;
-        return;
-      }
-      renderFn(out, data.testes || {});
-    } catch (err) {
-      out.innerHTML = `<p class="fail-line">Chamada falhou: ${String(err)}</p>`;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = textoOriginal;
-    }
-  }
-
-  document.getElementById('btn-inicio').addEventListener('click', function () {
-    rodarTeste('btn-inicio', 'inicio-results', 'test_inicio', 'Testar Início', function (out, t) {
-      renderKV(out, 'Ibovespa (Auxiliar_app, tabela 1)', t.ibovespa);
-      renderKV(out, 'IFIX (Auxiliar_app, tabela 1)', t.ifix);
-      renderKV(out, 'Câmbio USD/BRL (Auxiliar_app, tabela 1)', t.cambio_usd);
-      renderKV(out, 'Câmbio EUR/BRL (Auxiliar_app, tabela 1)', t.cambio_eur);
-      renderKV(out, 'S&P 500 (Auxiliar_app, tabela 2)', t.sp500);
-      renderKV(out, 'Patrimônio nas 3 visões (📊Dash Geral)', t.patrimonio);
-    });
-  });
-
-  document.getElementById('btn-rendafixa').addEventListener('click', function () {
-    rodarTeste('btn-rendafixa', 'rendafixa-results', 'test_renda_fixa', 'Testar Renda Fixa', function (out, t) {
-      renderKV(out, 'Totais — Carteira Renda Fixa', t.totais);
-      renderKV(out, 'Renda Fixa — 1º investimento', t.primeiro_ativo);
-    });
-  });
-
-  document.getElementById('btn-detalhe').addEventListener('click', function () {
-    rodarTeste('btn-detalhe', 'detalhe-results', 'test_detalhe_ativo', 'Testar Detalhe do Ativo', function (out, t) {
-      renderKV(out, 'Dados da Carteira — BTLG11 (Carteira FIIs, por ticker)', t.dados_carteira_btlg11);
-      renderListaObjetos(out, 'Transações — BTLG11 (Transações, até 10)', t.transacoes_btlg11, 'transacoes');
-    });
-  });
-
-  document.getElementById('btn-proventos').addEventListener('click', function () {
-    rodarTeste('btn-proventos', 'proventos-results', 'test_proventos', 'Testar Proventos', function (out, t) {
-      renderKV(out, 'Consolidado por período (📈Dash Proventos)', t.consolidado);
-      renderKV(out, 'Proventos a receber (Auxiliar_app, tabela 3)', t.a_receber);
-    });
-  });
-
-  document.getElementById('btn-backfill').addEventListener('click', function () {
-    rodarTeste('btn-backfill', 'backfill-results', 'test_backfill_preview', 'Testar reconstrução (BTLG11)', function (out, t) {
-      renderListaObjetos(out, 'Reconstrução diária — BTLG11 (cotas × preço histórico)', t.reconstrucao_btlg11, 'dias_reconstruidos');
-      renderKV(out, 'Valor real hoje — BTLG11 (Carteira FIIs, já testado antes)', t.valor_real_hoje_btlg11);
-      renderKV(out, 'Validação — reconstrução × Fechamento dia anterior (mesma base: preço de fechamento)', t.validacao_fechamento_anterior_btlg11);
-    });
-  });
-
-  document.getElementById('btn-contagem').addEventListener('click', function () {
-    rodarTeste('btn-contagem', 'contagem-results', 'test_contar_ativos', 'Contar ativos transacionados', function (out, t) {
-      var c = t.contagem;
-      if (c && c.ok) {
-        renderKV(out, 'Resumo', {
-          ok: true,
-          total_tickers_distintos: c.total_tickers_distintos,
-          total_br: c.total_br,
-          total_usa: c.total_usa,
-          data_mais_antiga_geral: c.data_mais_antiga_geral
-        });
-        renderListaObjetos(out, 'Ativos encontrados (BR + USA — inclui já vendidos)', c, 'tickers');
-      } else {
-        renderKV(out, 'Resumo', c);
-      }
-    });
-  });
-
-  document.getElementById('btn-diagusa').addEventListener('click', function () {
-    rodarTeste('btn-diagusa', 'diagusa-results', 'test_diagnostico_usa', 'Ver linhas 1-25 de Transações - USA (A1:Z25)', function (out, t) {
-      renderTabela2D(out, 'Transações - USA (A1:Z25)', t.diagnostico_usa);
-    });
-  });
-
-  document.getElementById('btn-tickersusa').addEventListener('click', function () {
-    rodarTeste('btn-tickersusa', 'tickersusa-results', 'test_tickers_usa_gf', 'Testar os 8 tickers USA', function (out, t) {
-      Object.keys(t).forEach(function (ticker) {
-        if (t[ticker] && t[ticker].ok) {
-          renderListaObjetos(out, ticker + ' — últimos dias', { ok: true, linhas_formatadas: t[ticker].linhas.map(function (l) { return { data: l[0], preco: l[1] }; }) }, 'linhas_formatadas');
-        } else {
-          renderKV(out, ticker, t[ticker]);
-        }
-      });
-    });
-  });
-
-  document.getElementById('btn-validarcotasusa').addEventListener('click', function () {
-    rodarTeste('btn-validarcotasusa', 'validarcotasusa-results', 'test_validar_cotas_usa', 'Validar Cotas até a data (GPRK)', function (out, t) {
-      renderListaObjetos(out, 'Transações — GPRK (Transações - USA)', t.transacoes_gprk, 'transacoes');
-      renderKV(out, 'Quantidade real hoje — GPRK (Carteira Ações USA)', t.carteira_gprk);
-      renderKV(out, 'Validação', t.validacao);
-    });
-  });
-
-  document.getElementById('btn-backfilltodos').addEventListener('click', async function () {
-    const btn = document.getElementById('btn-backfilltodos');
-    const out = document.getElementById('backfilltodos-results');
-    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
-
-    const textoOriginal = btn.textContent;
-    btn.disabled = true;
-    out.innerHTML = '';
-
-    const LIMITE_POR_LOTE = 6;
-    let offset = 0;
-    let totalGeral = null;
-    let tempoTotal = 0;
-    let todosResultados = [];
-
-    try {
-      while (true) {
-        btn.textContent = totalGeral ? `Processando ${offset}/${totalGeral}...` : 'Processando lote 1...';
-        const url = `${APPS_SCRIPT_URL}?action=test_backfill_resumo_todos&token=${encodeURIComponent(currentToken)}&offset=${offset}&limite=${LIMITE_POR_LOTE}`;
-        const res = await fetch(url, { method: 'GET' });
-        const data = await res.json();
-        if (!data.ok) {
-          out.insertAdjacentHTML('beforeend', `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`);
-          break;
-        }
-        const r = data.testes.resumo_backfill_todos;
-        totalGeral = r.total_geral;
-        tempoTotal += r.tempo_lote_segundos;
-        todosResultados = todosResultados.concat(r.resultados);
-        if (!r.proximo_offset && r.proximo_offset !== 0) break;
-        offset = r.proximo_offset;
-      }
-
-      out.innerHTML = '';
-      renderKV(out, 'Resumo geral', {
-        ok: true,
-        tempo_total_segundos: Math.round(tempoTotal * 10) / 10,
-        total_ativos: todosResultados.length,
-        total_com_erro: todosResultados.filter(function (x) { return !x.ok; }).length
-      });
-      renderListaObjetos(out, 'Resultado por ativo', { ok: true, resultados: todosResultados }, 'resultados');
-    } catch (err) {
-      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = textoOriginal;
-    }
-  });
-
-  document.getElementById('btn-auxiliarapp').addEventListener('click', function () {
-    rodarTeste('btn-auxiliarapp', 'auxiliarapp-results', 'test_auxiliar_app', 'Testar tabelas auxiliares', function (out, t) {
-      renderTabela2D(out, 'Tabela 1 (a partir de A6)', t.tabela1);
-      renderTabela2D(out, 'Tabela 2 (a partir de A14)', t.tabela2);
-      renderTabela2D(out, 'Tabela 3 (a partir de A18)', t.tabela3);
-    });
-  });
 
   // ---- Bloco 2b: Sincronização do histórico (sync.gs) — doPost, em lotes ----
   // Mesmas listas do sync.gs (TICKERS_BR/TICKERS_USA), só separadas por tipo
