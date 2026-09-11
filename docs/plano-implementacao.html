@@ -1,0 +1,690 @@
+<title>Plano de Implementação</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#F7F6F2; --surface:#FFFFFF; --surface-2:#F1F0EC; --surface-3:#E9E7E0; --border:#E2E0D9;
+    --ink:#1B2430; --ink-muted:#6C7686; --ink-faint:#98A0AC;
+    --accent:#2A78D6; --accent-soft:#E6EFFB;
+    --violet:#4A3AA7; --violet-soft:#EBE8F7;
+    --good:#0CA30C; --good-soft:#E3F3E1; --good-ink:#046B04;
+    --warn:#C98500; --warn-soft:#FBEED2; --warn-ink:#8A5A06;
+    --shadow: 0 1px 2px rgba(27,36,48,.06), 0 6px 20px -8px rgba(27,36,48,.12);
+    --display:'Fraunces', Georgia, serif;
+    --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E1520; --surface:#151F2C; --surface-2:#1A2432; --surface-3:#212D3D; --border:#283344;
+      --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+      --accent:#3987E5; --accent-soft:#1E3A57;
+      --violet:#9085E9; --violet-soft:#2A2650;
+      --good:#57C79A; --good-soft:#123326; --good-ink:#7FE0B9;
+      --warn:#F0C46B; --warn-soft:#3B2E18; --warn-ink:#F6D998;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E1520; --surface:#151F2C; --surface-2:#1A2432; --surface-3:#212D3D; --border:#283344;
+    --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+    --accent:#3987E5; --accent-soft:#1E3A57;
+    --violet:#9085E9; --violet-soft:#2A2650;
+    --good:#57C79A; --good-soft:#123326; --good-ink:#7FE0B9;
+    --warn:#F0C46B; --warn-soft:#3B2E18; --warn-ink:#F6D998;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    color-scheme: dark;
+  }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
+        font-size:15px; line-height:1.6; padding-block:36px 80px; }
+  h1,h2,h3,h4{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
+  .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .wrap{ max-width:920px; margin:0 auto; padding:0 20px; }
+
+  header.hero{ margin-bottom:30px; }
+  header.hero .eyebrow{ font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+        color:var(--ink-faint); font-weight:600; margin-bottom:10px; }
+  header.hero h1{ font-size:32px; margin-bottom:10px; }
+  header.hero p{ color:var(--ink-muted); max-width:66ch; font-size:15px; }
+  header.hero .xref{ display:inline-flex; align-items:center; gap:6px; margin-top:14px; font-size:13px;
+        color:var(--accent); background:var(--accent-soft); padding:6px 12px; border-radius:100px; font-weight:600; }
+
+  h2.section-title{ font-size:20px; margin:44px 0 6px; padding-top:22px; border-top:1px solid var(--border); }
+  h2.section-title:first-of-type{ border-top:none; padding-top:0; margin-top:0; }
+  h3.sub-title{ font-size:16px; margin:22px 0 10px; }
+  .section-hint{ color:var(--ink-faint); font-size:13px; margin:0 0 18px; max-width:66ch; }
+
+  .box{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:18px 20px; box-shadow:var(--shadow); margin-bottom:16px; }
+  .box p{ margin:0 0 10px; font-size:13.5px; }
+  .box p:last-child{ margin-bottom:0; }
+  .box ul{ margin:0 0 10px; padding-left:20px; font-size:13.5px; }
+  .box ul:last-child{ margin-bottom:0; }
+  .box li{ margin-bottom:4px; }
+  .box li:last-child{ margin-bottom:0; }
+
+  .decisions-recap{ display:flex; flex-direction:column; gap:8px; margin-bottom:20px; }
+  .decisions-recap .d{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; padding:12px 14px;
+        background:var(--good-soft); border-radius:10px; }
+  .decisions-recap .d .ic{ color:var(--good-ink); flex:none; font-weight:700; }
+  .decisions-recap .d b{ color:var(--good-ink); }
+
+  /* ---- Diagrama de arquitetura ---- */
+  .diagram{ display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .node{ flex:1 1 200px; background:var(--surface-2); border:1px solid var(--border); border-radius:12px;
+        padding:14px 16px; display:flex; flex-direction:column; gap:4px; justify-content:center; }
+  .node .t{ font-family:var(--display); font-weight:600; font-size:14.5px; }
+  .node .s{ font-size:12px; color:var(--ink-muted); }
+  .arrow-col{ display:flex; flex-direction:column; align-items:center; justify-content:center; flex:0 0 auto;
+        min-width:64px; gap:4px; }
+  .arrow-col .arr{ font-size:20px; color:var(--ink-faint); }
+  .arrow-col .lbl{ font-size:11px; color:var(--ink-faint); text-align:center; max-width:80px; }
+  @media (max-width:720px){
+    .diagram{ flex-direction:column; }
+    .arrow-col{ flex-direction:row; min-width:0; }
+    .arrow-col .arr{ transform:rotate(90deg); }
+  }
+  .diagram-note{ display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--ink-muted);
+        background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:10px 14px; margin-top:6px; }
+  .diagram-note b{ color:var(--ink); }
+
+  /* ---- Tabelas de endpoints ---- */
+  table.api{ width:100%; border-collapse:collapse; font-size:13px; }
+  table.api th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+        color:var(--ink-faint); padding:0 10px 8px; font-weight:600; }
+  table.api td{ padding:9px 10px; border-top:1px solid var(--border); vertical-align:top; }
+  table.api td.action{ font-family:var(--mono); font-size:12.5px; color:var(--accent); white-space:nowrap; }
+  table.api tr:first-child td{ border-top:none; }
+
+  /* ---- Filetree ---- */
+  .filetree{ font-family:var(--mono); font-size:12.5px; background:var(--surface-2);
+        border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto;
+        line-height:1.75; color:var(--ink); }
+  .filetree .dim{ color:var(--ink-faint); }
+  .filetree .new{ color:var(--accent); font-weight:600; }
+  .filetree .folder{ color:var(--violet); font-weight:600; }
+
+  /* ---- Fases ---- */
+  .phases{ position:relative; padding-left:34px; }
+  .phases::before{ content:""; position:absolute; left:13px; top:6px; bottom:6px; width:2px; background:var(--border); }
+  .phase{ position:relative; padding-bottom:24px; }
+  .phase:last-child{ padding-bottom:0; }
+  .phase .num{ position:absolute; left:-34px; top:0; width:28px; height:28px; border-radius:50%;
+        background:var(--accent); color:#fff; font-family:var(--mono); font-weight:600; font-size:12.5px;
+        display:flex; align-items:center; justify-content:center; }
+  .phase .ttl{ font-family:var(--display); font-weight:600; font-size:15.5px; margin-bottom:4px; }
+  .phase .desc{ font-size:13.5px; color:var(--ink-muted); margin-bottom:8px; }
+  .phase .deliv{ font-size:12.5px; color:var(--ink); background:var(--surface); border:1px solid var(--border);
+        border-radius:10px; padding:10px 12px; }
+  .phase .deliv b{ color:var(--ink-muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.03em; }
+
+  /* ---- Riscos ---- */
+  .risk{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; padding:12px 14px;
+        background:var(--warn-soft); border-radius:10px; margin-bottom:8px; }
+  .risk:last-child{ margin-bottom:0; }
+  .risk .ic{ color:var(--warn-ink); flex:none; font-weight:700; }
+  .risk b{ color:var(--warn-ink); }
+
+  .tag{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap;
+        background:var(--violet-soft); color:var(--violet); display:inline-block; }
+
+  footer{ margin-top:48px; font-size:12px; color:var(--ink-faint); text-align:center; }
+
+  @media (max-width:600px){
+    table.api, table.api tbody, table.api tr, table.api td{ display:block; width:100%; }
+    table.api thead{ display:none; }
+    table.api tr{ padding:10px 0; border-top:1px solid var(--border); }
+    table.api tr:first-child{ border-top:none; }
+    table.api td{ border-top:none; padding:2px 0; }
+    table.api td.action{ font-size:13px; margin-bottom:2px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Antes de escrever a primeira linha de código do app</div>
+    <h1>Plano de implementação</h1>
+    <p>O <a href="https://claude.ai/code/artifact/ba5e517c-3abc-4fc7-94fb-57fde0c68c78" style="color:var(--accent)">Mapa de Páginas</a> decidiu <b>o quê</b> cada página mostra. Este documento decide <b>como</b> tudo isso vai ser construído: arquitetura, onde os dados moram, como autenticação e escrita funcionam, estrutura de arquivos, convenções de código, sistema de UI e a ordem em que vamos construir. Nada foi codado ainda.</p>
+  </header>
+
+  <div class="decisions-recap">
+    <div class="d"><span class="ic">✓</span>Dados que você cadastra (Metas, Transações, Registros de Compra) são <b>escritos de volta na própria planilha</b>, via um endpoint de escrita no Apps Script — a planilha continua sendo a única fonte de verdade.</div>
+    <div class="d"><span class="ic">✓</span>O app fica <b>restrito à sua conta Google</b> — login obrigatório antes de ver qualquer dado.</div>
+    <div class="d"><span class="ic">✓</span><b>Chart.js</b> (via CDN, versão fixada) desenha todos os gráficos numéricos — linhas, donuts, barras, área. O calendário de proventos <b>não</b> é um gráfico Chart.js, é um componente HTML/CSS feito à mão (corrigido nesta revisão — a versão anterior deste documento misturava os dois).</div>
+    <div class="d"><span class="ic">✓</span>O site também fica <b>instalável</b> (PWA) — ícone na tela inicial, abre em tela cheia, esqueleto em cache pra abrir rápido mesmo com internet ruim. Dado financeiro nunca é cacheado, só a casca do app (decisão desta revisão).</div>
+    <div class="d"><span class="ic">✓</span>Importar o extrato da B3 usa <b>SheetJS</b> (biblioteca gratuita, licença Apache-2.0, via CDN, versão fixada) rodando 100% no navegador — o arquivo <span class="mono">.xlsx</span> nunca é enviado a um servidor terceiro, só processado localmente antes de gravar na planilha.</div>
+    <div class="d"><span class="ic">✓</span>Sincronização do histórico de patrimônio tem duas origens pro <b>mesmo</b> processo — gatilho diário automático e botão manual no site — e um registro de status de 3 estados (Sucesso/Atenção/Erro), com nova tentativa que reprocessa só os ativos que falharam.</div>
+  </div>
+
+  <h2 class="section-title">Arquitetura geral</h2>
+  <p class="section-hint">Três peças, nenhuma delas paga aluguel: GitHub Pages (site estático), Apps Script (ponte de dados + escrita), e a própria planilha que você já usa.</p>
+  <div class="box">
+    <div class="diagram">
+      <div class="node"><div class="t">Seu navegador</div><div class="s">Site estático no GitHub Pages — HTML/CSS/JS, sem build, sem servidor próprio</div></div>
+      <div class="arrow-col"><span class="arr">→</span><span class="lbl">login Google, pega um token</span></div>
+      <div class="node"><div class="t">Google Identity Services</div><div class="s">Tela de login "Entrar com Google", roda inteiramente no navegador</div></div>
+    </div>
+    <div class="diagram">
+      <div class="node"><div class="t">Seu navegador</div><div class="s">fetch() com o token de login anexado</div></div>
+      <div class="arrow-col"><span class="arr">→</span><span class="lbl">lê / escreve</span></div>
+      <div class="node"><div class="t">Apps Script Web App</div><div class="s">Valida o token, despacha a ação, lê ou grava na planilha</div></div>
+      <div class="arrow-col"><span class="arr">→</span><span class="lbl">SpreadsheetApp</span></div>
+      <div class="node"><div class="t">Sua planilha Google</div><div class="s">Fonte da verdade — inclui as fórmulas GOOGLEFINANCE já existentes</div></div>
+    </div>
+    <div class="diagram-note"><span>ℹ️</span><span>CDI (Banco Central) e câmbio (AwesomeAPI) são chamados <b>direto do navegador</b>, sem passar pelo Apps Script — são APIs públicas, sem login, sem dado sensível.</span></div>
+  </div>
+
+  <h2 class="section-title">Camada de dados — Apps Script Web App</h2>
+  <p class="section-hint">Um único projeto Apps Script vinculado à planilha, com duas portas de entrada: leitura (<span class="mono">doGet</span>) e escrita (<span class="mono">doPost</span>). As duas exigem um token válido antes de fazer qualquer coisa.</p>
+
+  <h3 class="sub-title">Verificação de acesso (todo request, leitura ou escrita)</h3>
+  <div class="box">
+    <p>O front-end manda o token de identidade do Google (que o Google Identity Services devolveu no login) junto de cada chamada. O Apps Script:</p>
+    <ul>
+      <li>Confere o token com o próprio Google (endpoint público de verificação), sem precisar de biblioteca extra.</li>
+      <li>Confirma que o e-mail do token é exatamente o seu e-mail (guardado como uma constante no código do script) — qualquer outra conta Google é recusada.</li>
+      <li>Só depois disso executa a ação pedida; caso contrário devolve um erro e o front-end volta pra tela de login.</li>
+    </ul>
+    <p>O Web App é publicado como "Executar como: Eu" e "Quem tem acesso: Qualquer pessoa" — isso soa contraintuitivo, mas é de propósito: deixamos o Google cuidar só do transporte, e a checagem de identidade real é essa verificação de e-mail acima, que funciona de forma confiável com <span class="mono">fetch()</span> comum (a alternativa nativa do Apps Script, restringir "quem tem acesso" à sua conta Google, depende de cookies de sessão entre domínios — e isso é bloqueado por navegadores modernos com frequência. Prefiro não depender disso.).</p>
+    <p><b>Correção importante desta revisão:</b> o token <b>não</b> pode ir num header <span class="mono">Authorization</span> — isso dispara um preflight CORS (requisição <span class="mono">OPTIONS</span>) que o Apps Script não responde corretamente, o mesmo problema que já tínhamos identificado antes com POST em <span class="mono">application/json</span>. Então o token vai como parâmetro de URL no <span class="mono">doGet</span> (<span class="mono">?token=...&amp;action=home</span>) e como campo de formulário comum (<span class="mono">application/x-www-form-urlencoded</span>, não JSON) no <span class="mono">doPost</span>. Isso mantém as chamadas como "simple requests", sem preflight.</p>
+    <p>Custo dessa abordagem: cada chamada ao Apps Script agora faz <b>2 idas à rede dentro da mesma execução</b> — uma pra verificar o token com o Google, outra pra ler/escrever a planilha. Isso soma tempo em cima da lentidão que o Apps Script já tem sozinho (ver Riscos técnicos). Vale considerar, mais adiante, cachear a verificação do token por alguns minutos dentro do próprio script (<span class="mono">CacheService</span>) pra não reverificar o mesmo token a cada clique.</p>
+  </div>
+
+  <h3 class="sub-title">Ações de leitura (<span class="mono">doGet</span>)</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>ação</th><th>devolve</th></tr></thead>
+      <tbody>
+        <tr><td class="action">home</td><td>Patrimônio nas 3 visões, série histórica de rentabilidade (portfólio × Ibovespa × CDI), índices &amp; câmbio, grade de "meus ativos"</td></tr>
+        <tr><td class="action">distribuicoesMetas</td><td>Objetivos da carteira, radar de oportunidades, FIIs por tipo, valores atuais das metas cadastradas</td></tr>
+        <tr><td class="action">carteira?classe=</td><td>Tabela completa da classe (ações / fiis / acoes-eua / renda-fixa) + dados dos gráficos agregados + série do gráfico de benchmark</td></tr>
+        <tr><td class="action">ativo?ref=&amp;classe=</td><td>Tudo que a página Detalhe do Ativo precisa daquele ativo específico — <span class="mono">ref</span> em vez de <span class="mono">ticker</span> de propósito, porque Renda Fixa é identificada por "Código", não por ticker de bolsa</td></tr>
+        <tr><td class="action">transacoes?tipo=</td><td>Lançamentos existentes (brasil / internacional / renda-fixa / compras), pra listar antes de adicionar um novo</td></tr>
+        <tr><td class="action">proventos?mercado=</td><td>Dados do Consolidado + Agenda daquele mercado (nacional / internacional)</td></tr>
+        <tr><td class="action">organizacao</td><td>Despesas essenciais + bloco de salário/renda emergencial</td></tr>
+        <tr><td class="action">syncStatus</td><td>Última linha de <span class="mono">Registro de Controle</span> (timestamp, origem, status, detalhe) — alimenta o badge e o painel de sincronização no topo de toda página</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Ações de escrita (<span class="mono">doPost</span>)</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>ação</th><th>o que faz</th></tr></thead>
+      <tbody>
+        <tr><td class="action">salvarMetaRendaPassiva</td><td>Atualiza o valor da meta mensal de Renda Passiva</td></tr>
+        <tr><td class="action">salvarMetaPatrimonio</td><td>Atualiza o valor da meta de Patrimônio</td></tr>
+        <tr><td class="action">addTransacao</td><td>Adiciona uma linha em Transações (Brasil ou Internacional, conforme o campo <span class="mono">mercado</span>)</td></tr>
+        <tr><td class="action">addTransacaoRendaFixa</td><td>Adiciona uma linha na tabela própria de Renda Fixa (colunas diferentes: emissão, vencimento)</td></tr>
+        <tr><td class="action">addRegistroCompra</td><td>Adiciona um item ao planejamento mensal de Registros de Compra</td></tr>
+        <tr><td class="action">importarTransacoesB3</td><td>Recebe o lote já validado no navegador (ticker/data/tipo/preço/qtd/taxa, um por linha reconhecida) e grava cada um em Transações — Brasil, na primeira linha vazia da coluna A; ver seção <b>Importação do extrato da B3</b>, abaixo</td></tr>
+        <tr><td class="action">sincronizarAgora</td><td>Roda a mesma rotina do gatilho diário sob demanda — sozinha (botão manual) ou só para uma lista de tickers (nova tentativa depois de uma Atenção); ver seção <b>Sincronização do histórico de patrimônio</b>, abaixo</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px">Toda escrita <b>adiciona uma linha nova</b> na aba correta (nunca sobrescreve uma existente) — mesmo padrão que você já usa manualmente na planilha, só que feito pelo formulário do app. Depois de um <span class="mono">doPost</span> bem-sucedido, o front-end invalida o cache local daquela leitura, então a tela atualiza sozinha sem esperar o tempo normal de cache.</p>
+  </div>
+
+  <h3 class="sub-title">Um cálculo que precisa de atenção: Patrimônio Longo Prazo × Renda Emergencial</h3>
+  <div class="box">
+    <p>A ação <span class="mono">home</span> precisa separar o patrimônio total em 3 números (Total / Longo Prazo / Renda Emergencial). Ações, FIIs e Ações EUA são sempre "Longo Prazo" — mas dentro de Renda Fixa, a divisão é uma marcação manual por posição (coluna B da aba <b>Carteira Renda Fixa</b>, que tem mais de 5 mil linhas). Somar isso lendo linha por linha a cada chamada do <span class="mono">home</span> seria lento e ficaria pior ainda somado à verificação de token (ver acima).</p>
+    <p><b>Decisão:</b> em vez de somar na hora dentro do Apps Script, criamos duas fórmulas pequenas de <span class="mono">SOMASE</span> direto na planilha (uma pra cada marcação), num canto reservado da própria aba ou numa aba auxiliar nova — a planilha já recalcula isso sozinha, de graça, toda vez que muda algo. O handler <span class="mono">home</span> só lê essas duas células prontas, em vez de iterar a tabela inteira. Isso é um trabalho de ~5 minutos direto na planilha quando chegarmos na Fase 1, não precisa ser decidido agora — só registrando aqui que <b>não</b> vamos somar isso em JavaScript.</p>
+  </div>
+
+  <h3 class="sub-title">Auxiliar_app — onde os cálculos agregados vivem</h3>
+  <div class="box">
+    <p>Generalizando a decisão acima: sempre que um valor não é "um campo de uma linha" (ticker, preço, etc.) mas sim uma soma, média, ranking ou série ao longo do tempo, ele mora numa aba nova que você criou — <span class="mono">Auxiliar_app</span> — calculado com fórmula direto na planilha, nunca em JavaScript dentro do Apps Script. O handler só lê células/intervalos já prontos. Isso vale pro SOMASE de Renda Emergencial × Longo Prazo (acima), pro Patrimônio nas 3 visões, pro histórico de rentabilidade (próxima seção), e pros agregados por classe que hoje vivem em <span class="mono">Aux_dash_*</span> — a diferença é só que os <span class="mono">Aux_dash_*</span> já existiam antes do app; <span class="mono">Auxiliar_app</span> é onde entra tudo que é novo, específico do app.</p>
+  </div>
+
+  <h3 class="sub-title">Histórico de patrimônio — reconstruído via GOOGLEFINANCE + Transações</h3>
+  <div class="box">
+    <p>Decisão desta revisão: em vez de os gráficos de Rentabilidade (Início, Carteiras, Detalhe do Ativo) começarem vazios, reconstruímos o passado. O <span class="mono">GOOGLEFINANCE</span> também busca preço histórico por período — <span class="mono">=GOOGLEFINANCE(ticker; "close"; data_início; data_fim)</span> devolve uma linha por dia — mas só funciona como fórmula de célula; o Apps Script não chama isso como função direto. Por isso o processo é: escrever a fórmula temporariamente numa célula de rascunho em <span class="mono">Auxiliar_app</span>, forçar o recálculo (<span class="mono">SpreadsheetApp.flush()</span>), ler o resultado, limpar a célula. É lento (uma leva de leitura/escrita por ticker), então roda como processo em lote, não em tempo real numa chamada de página.</p>
+    <p><b>Algoritmo:</b> pra cada ativo, soma as transações de <span class="mono">Transações</span>/<span class="mono">Transações - USA</span> em ordem cronológica pra saber quantas unidades você tinha em cada data (quantidade acumulada). Cruza isso com o preço histórico do dia (GOOGLEFINANCE) pra chegar em "valor daquele ativo naquele dia". Soma todos os ativos do dia = patrimônio do dia. Isso roda <b>uma vez</b> (o backfill), grava o resultado numa aba <span class="mono">Histórico</span> dentro de <span class="mono">Auxiliar_app</span> (uma linha por dia, uma coluna por classe + total), e depois um gatilho diário (<span class="mono">Time-driven trigger</span> do Apps Script) só adiciona a linha de hoje — não recalcula tudo de novo.</p>
+    <p><b>Renda Fixa fica de fora desse método</b> — título público/privado não tem "preço de mercado" via GOOGLEFINANCE do mesmo jeito que ação/FII. Pra manter simples, o valor histórico de Renda Fixa é aproximado por <b>acréscimo composto pelo CDI/Selic</b> desde a data de aplicação (o histórico diário de CDI/Selic já vem da API do Banco Central, testada e funcionando) — não é o valor exato que apareceria no extrato do banco, mas é consistente com o benchmark que já usamos (CDI+Selic) pra essa classe em todo o app, e é razoável pra um gráfico de tendência.</p>
+    <p><b>Benchmarks também precisam de histórico:</b> Ibovespa, IFIX e S&amp;P 500 via GOOGLEFINANCE (mesmo mecanismo de escrever/ler célula); CDI e Selic via API do Banco Central, que já suporta consulta por intervalo de datas (<span class="mono">/dados?dataInicial=&amp;dataFinal=</span>) — só testamos a variante "últimos N valores" até agora, falta testar essa.</p>
+    <p><b>Limitação conhecida, aceita por ora:</b> eventos corporativos (desdobramento, bonificação, grupamento) podem distorcer a quantidade reconstruída se não forem tratados linha a linha — fica registrado como imprecisão possível no histórico mais antigo, não como bloqueio.</p>
+  </div>
+
+  <h3 class="sub-title">Importação do extrato da B3</h3>
+  <div class="box">
+    <p>Substitui a planilha auxiliar que você usava pra ordenar as transações antes de colar em Transações — só para Brasil. Internacional e Renda Fixa continuam lançados manualmente, como já são hoje (decisão sua, mantida).</p>
+    <p><b>Biblioteca:</b> <span class="mono">SheetJS</span> (pacote <span class="mono">xlsx</span>, licença Apache-2.0, gratuita), carregada via <span class="mono">&lt;script src="cdnjs..."&gt;</span> com versão fixada (<span class="mono">0.18.5</span>) só na página de Transações Brasil — nenhuma outra página paga esse custo de carregamento. Roda inteiramente no navegador; o arquivo nunca sai da sua máquina.</p>
+    <p><b>Fluxo, passo a passo:</b></p>
+    <ul>
+      <li>Você anexa o <span class="mono">.xlsx</span> baixado direto do extrato de Negociação de ativos da B3 (dropzone ou seleção de arquivo, ver mockup na Direção Visual).</li>
+      <li>SheetJS lê o arquivo e devolve a planilha como matriz de linhas; o script procura, nas primeiras linhas, o cabeçalho pelo texto ("Data do Negócio" + "Código de Negociação") em vez de uma posição fixa — resistente a pequenas mudanças de layout da B3.</li>
+      <li>Filtra <b>Tipo de Movimentação</b>: só <span class="mono">Compra</span>/<span class="mono">Venda</span> viram linhas "reconhecidas"; qualquer outro tipo (bonificação, desdobramento, direito de subscrição etc.) vira "ignorada" e nunca é processado automaticamente — mesmo com a antiga macro "Classificar os dados" confirmada como um simples ordenar por data, sem lógica nenhuma pra esses casos, então não víamos por que inventar uma agora.</li>
+      <li>Cada ticker reconhecido é conferido contra a Carteira já carregada (Ações/FIIs) no navegador. Se não existir: a linha fica bloqueada com o aviso "essa ação não existe na carteira, inclua antes de importar" — nunca cria o ativo sozinho (decisão registrada no Mapa de Páginas).</li>
+      <li>Você revisa a prévia — Taxa é o único campo editável (o extrato da B3 não traz esse valor) — e confirma.</li>
+      <li>O front-end manda só as linhas reconhecidas e não bloqueadas pro Apps Script, via <span class="mono">doPost importarTransacoesB3</span> — mesmo transporte já usado nas outras escritas (form-urlencoded, token como campo, sem preflight CORS), com a lista de transações serializada num único campo.</li>
+      <li>O Apps Script grava cada uma em <span class="mono">Transações</span> (Brasil) achando a primeira linha vazia por varredura da coluna A — nunca <span class="mono">getLastRow()</span> (que erraria por causa do buffer de ~10.800 linhas pré-formuladas) — e escrevendo só as colunas A-F; nenhuma fórmula precisa ser copiada, porque já está pré-preenchida em todas as linhas.</li>
+      <li>O Apps Script confere o ticker de novo, como segunda camada (o navegador pode estar com uma cópia da Carteira desatualizada) — se algum ticker do lote não existir, só aquela linha é rejeitada e reportada de volta; o resto do lote segue normalmente.</li>
+    </ul>
+    <p>Nenhum endpoint novo de infraestrutura — é uma ação a mais dentro do <span class="mono">doPost</span> que já existe, protegida pela mesma verificação de token.</p>
+  </div>
+
+  <h3 class="sub-title">Sincronização do histórico de patrimônio</h3>
+  <div class="box">
+    <p>Duas origens acionam a <b>mesma</b> função central (ex. <span class="mono">atualizarHistorico()</span>): um gatilho automático e um botão manual no site. Nenhuma delas recalcula o histórico inteiro — só estende a partir de onde parou, igual ao backfill original.</p>
+    <ul>
+      <li><b>Gatilho automático:</b> <span class="mono">Time-driven trigger</span> do Apps Script, instalado uma única vez em <span class="mono">Implantar → Acionadores → Adicionar acionador</span> (baseado em tempo, timer diário, faixa 10h-11h) — configuração feita direto na UI do Apps Script, não precisa de código de instalação. O seletor de acionadores não tem opção nativa "segunda a sábado", então a própria função confere <span class="mono">new Date().getDay()</span> e sai sem fazer nada nos domingos.</li>
+      <li><b>Botão manual:</b> o site chama <span class="mono">doPost sincronizarAgora</span>, que roda exatamente a mesma função — só muda o campo <span class="mono">origem</span> gravado no registro (Automático/Manual).</li>
+      <li><b>O que a função faz, por ativo:</b> descobre a última data já salva em <span class="mono">aux_historico-patrimonio</span> pra aquele ticker, calcula o intervalo que falta (última salva + 1 até ontem), busca o preço de fechamento via GOOGLEFINANCE só desse intervalo curto (mesmo mecanismo de rascunho + <span class="mono">flush()</span> + leitura do backfill) e grava as linhas novas — nunca recalcula um dia já salvo.</li>
+      <li><b>Câmbio USD/BRL:</b> buscado <b>uma vez por execução</b> (não por ativo) e reaproveitado pelos 8 tickers USA, já que a cotação do dia é a mesma pra todos.</li>
+      <li><b>Falha isolada:</b> se um ticker específico falhar (ex. GOOGLEFINANCE devolve erro temporário), a função captura o erro daquele ticker e segue pros outros, em vez de abortar o lote inteiro.</li>
+      <li><b>Registro de Controle:</b> ao final, a função sobrescreve uma única linha nessa aba com timestamp, origem, status calculado (Sucesso = 0 falhas · Atenção = 1 ou mais falhas, mas não todas · Erro = todas falharam ou um erro geral impediu a execução) e o detalhe (lista dos tickers que falharam, só quando existir).</li>
+      <li><b>Nova tentativa seletiva:</b> o link "tentar novamente" no painel de sincronização chama a mesma ação <span class="mono">sincronizarAgora</span>, mas passando só a lista de tickers que falharam — reprocessa apenas esses, não os 30.</li>
+    </ul>
+    <p>Essa é a mesma peça de trabalho citada na Fase 0 (checklist "Fundação") — registrado aqui em detalhe pra não ficar só como menção solta.</p>
+  </div>
+
+  <h2 class="section-title">Autenticação no front-end</h2>
+  <div class="box">
+    <p>A biblioteca oficial do Google (<span class="mono">Google Identity Services</span>, carregada por <span class="mono">&lt;script&gt;</span> — sem instalar nada) desenha um botão "Entrar com Google" na tela de bloqueio inicial. Ao logar, ela devolve um token que identifica você.</p>
+    <ul>
+      <li><b>Onde o token fica:</b> em memória (uma variável no <span class="mono">auth.js</span>) e espelhado no <span class="mono">sessionStorage</span>, pra sobreviver a um F5 sem pedir login de novo — mas some ao fechar a aba, o que é aceitável pra um app de uso pessoal.</li>
+      <li><b>Expiração:</b> o token dura cerca de 1 hora. Quando o Apps Script recusa por token vencido, o <span class="mono">api.js</span> tenta renovar silenciosamente; se não conseguir, mostra de novo a tela de login.</li>
+      <li><b>Gate de acesso:</b> o <span class="mono">shell.js</span> (compartilhado por todas as páginas) esconde o conteúdo da página até confirmar login válido — ninguém vê nem o esqueleto da tela sem estar autenticado.</li>
+    </ul>
+    <p>Pra essa biblioteca funcionar, você precisa de um <b>Client ID OAuth</b> criado no Google Cloud Console — o passo a passo completo está na seção <b>Pré-implementação</b>, mais abaixo.</p>
+  </div>
+
+  <h2 class="section-title">Fontes de dados externas</h2>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>dado</th><th>fonte</th><th>passa pelo Apps Script?</th></tr></thead>
+      <tbody>
+        <tr><td>Ações BR/EUA, FIIs, Ibovespa, IFIX</td><td>GOOGLEFINANCE (fórmulas já na planilha) — <span class="tag" style="font-size:10px">testado ✓</span></td><td>Sim — só a planilha enxerga essas fórmulas</td></tr>
+        <tr><td>CDI</td><td>API do Banco Central (SGS)</td><td>Não — chamada direta, pública, sem login</td></tr>
+        <tr><td>Câmbio (USD/BRL, EUR/BRL)</td><td>GOOGLEFINANCE (via Apps Script) ou AwesomeAPI direto</td><td>Como preferir — os dois batem; GOOGLEFINANCE mantém tudo numa fonte só</td></tr>
+        <tr><td>S&amp;P 500</td><td>GOOGLEFINANCE — <span class="tag" style="font-size:10px">testado ✓</span> por você direto na planilha, retornou valor</td><td>Sim, via Apps Script</td></tr>
+        <tr><td>Selic</td><td>API do Banco Central (meta Selic)</td><td>Não — direta, como o CDI</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 class="section-title">Estrutura de arquivos</h2>
+  <p class="section-hint">Expande a estrutura já combinada no Mapa de Páginas, agora com as peças de infraestrutura (auth, API, gráficos, tema) — tudo compartilhado, nada duplicado entre páginas.</p>
+  <div class="box">
+    <div class="filetree"><span class="folder">/</span> <span class="dim">(raiz do repositório — GitHub Pages publica daqui)</span>
+index.html
+distribuicoes-metas.html
+<span class="new">manifest.json</span>  <span class="dim">→ PWA: nome, ícones, cor de tema, display: standalone</span>
+<span class="new">sw.js</span>          <span class="dim">→ PWA: service worker, cacheia só o esqueleto (nunca dado financeiro)</span>
+<span class="folder">carteiras/</span>
+  index.html, acoes.html, fiis.html, acoes-eua.html, renda-fixa.html
+  <span class="new">ativo.html</span> <span class="dim">→ Detalhe do Ativo, ?ref=XXX&classe=... (ref, não ticker — cobre Renda Fixa também)</span>
+<span class="folder">transacoes/</span>
+  compras.html, brasil.html, internacional.html, renda-fixa.html
+<span class="folder">proventos/</span>
+  nacionais.html, internacionais.html
+<span class="folder">organizacao/</span>
+  despesas.html, salario-renda-emergencial.html
+<span class="folder">assets/</span>
+  <span class="folder">css/</span>
+    <span class="new">tokens.css</span>      <span class="dim">→ cores, tipografia, espaçamento — claro/escuro, usado por tudo</span>
+    <span class="new">shell.css</span>       <span class="dim">→ topbar, navegação, toggle de tema</span>
+    <span class="new">components.css</span>  <span class="dim">→ cards, tags, tabelas, tiles, badges — reutilizados em todas as páginas</span>
+  <span class="folder">icons/</span>  <span class="dim">→ PWA: 192, 512, maskable, apple-touch-icon — gerados da identidade visual</span>
+  <span class="folder">js/</span>
+    <span class="new">shell.js</span>    <span class="dim">→ injeta a topbar/nav, marca a página ativa, toggle de tema</span>
+    <span class="new">auth.js</span>    <span class="dim">→ Google Identity Services, gate de login, gestão do token</span>
+    <span class="new">api.js</span>     <span class="dim">→ fetch com token, cache local, fontes externas (BCB/AwesomeAPI)</span>
+    <span class="new">charts.js</span>  <span class="dim">→ fábricas de gráfico Chart.js, cores por tema</span>
+    <span class="new">format.js</span>  <span class="dim">→ formatação pt-BR: moeda, %, datas</span>
+    <span class="new">importB3.js</span> <span class="dim">→ SheetJS: lê o .xlsx, reconhece/ignora linhas, confere ticker contra a Carteira, monta a prévia</span>
+  <span class="folder">partials/</span>
+    <span class="new">shell.html</span> <span class="dim">→ markup da topbar/nav + badge de sincronização, injetado pelo shell.js via fetch</span>
+<span class="folder">apps-script/</span> <span class="dim">→ espelho versionado do projeto Apps Script (via clasp)</span>
+  Code.gs, handlers.gs, auth.gs, <span class="new">sync.gs</span> <span class="dim">→ atualizarHistorico(), Registro de Controle, gatilho diário</span>, README.md</div>
+  </div>
+
+  <h2 class="section-title">Convenções de código</h2>
+  <div class="box">
+    <p><b>HTML</b> — elementos semânticos (<span class="mono">&lt;nav&gt;</span>, <span class="mono">&lt;main&gt;</span>, <span class="mono">&lt;table&gt;</span> de verdade pras tabelas, não divs), um <span class="mono">&lt;h1&gt;</span> por página, <span class="mono">lang="pt-BR"</span>, ids estáveis em todo campo de formulário, e o blocinho fixo de PWA (manifest + ícone + theme-color, ver seção <b>Progressive Web App</b>) em todo <span class="mono">&lt;head&gt;</span>.</p>
+    <p><b>CSS</b> — tudo derivado dos tokens em <span class="mono">tokens.css</span> (nunca uma cor solta direto numa página); mobile-first; classes reutilizáveis em <span class="mono">components.css</span> em vez de repetir estilo em cada arquivo <span class="mono">.html</span>.</p>
+    <p><b>JavaScript</b> — sem bundler: usamos <span class="mono">&lt;script type="module"&gt;</span> nativo do navegador, então cada página importa só o que precisa de <span class="mono">api.js</span>/<span class="mono">charts.js</span>/etc. com <span class="mono">import</span>/<span class="mono">export</span> de verdade, sem depender de ordem de <span class="mono">&lt;script&gt;</span> nem variáveis globais soltas. Isso exige rodar por um servidor local simples durante o desenvolvimento (<span class="mono">npx serve</span> ou <span class="mono">python -m http.server</span>) — abrir o arquivo direto (<span class="mono">file://</span>) não funciona com módulos ES nem com <span class="mono">fetch()</span>.</p>
+    <p><b>Erros</b> — todo <span class="mono">fetch</span> tem tratamento de erro visível (nunca falha em silêncio): um estado de "não consegui carregar, tentar de novo" consistente, definido uma vez em <span class="mono">components.css</span>/<span class="mono">api.js</span> e reaproveitado em toda página.</p>
+    <p><b>Nomenclatura</b> — arquivos e classes CSS em kebab-case, funções e variáveis JS em camelCase.</p>
+    <p><b>Git</b> — um commit por página/funcionalidade concluída, nada de segredo versionado (o token de login nunca é seu, é do Google, e o e-mail autorizado fica só no código do Apps Script, que vive fora do repositório do front-end).</p>
+  </div>
+
+  <h2 class="section-title">Sistema de UI</h2>
+  <div class="box">
+    <p><b>Identidade visual</b> — seguimos o mesmo sistema de tokens e tipografia já validado nos mockups e nos dois roadmaps (Fraunces pros títulos, Public Sans pro corpo, IBM Plex Mono pros números) — o app real herda essa identidade, não começa do zero.</p>
+    <p><b>Tema claro/escuro</b> — os tokens já cobrem os dois; o toggle na topbar grava a escolha no <span class="mono">localStorage</span> do navegador (preferência de tela, não dado da planilha).</p>
+    <p><b>Responsivo</b> — mobile-first de verdade: layouts em grid/flex que colapsam pra 1 coluna abaixo de ~600px, tabelas longas (Histórico, Transações) viram cards empilhados no celular em vez de scroll horizontal forçado.</p>
+    <p><b>Estados de carregamento</b> — esqueletos (blocos cinza do tamanho do conteúdo real) enquanto o Apps Script responde, nunca uma tela em branco; um indicador discreto "atualizado há Xmin" + botão de atualizar manual na topbar (já desenhado nos mockups).</p>
+    <p><b>Gráficos (Chart.js)</b> — uma única fábrica de configuração em <span class="mono">charts.js</span> por tipo (linha, donut, barra, área), que lê as cores certas dos tokens do tema atual — garante que todo gráfico do app já nasce consistente e correto nos dois temas, em vez de estilizar cada gráfico na mão. Carregado com uma versão exata fixada no <span class="mono">&lt;script&gt;</span> do cdnjs (ex. <span class="mono">4.4.x</span>) — nunca "latest", pra uma atualização da biblioteca não quebrar o app sem avisar.</p>
+    <p><b>Calendário de Proventos</b> — não é gráfico: é um componente HTML/CSS próprio (grade de selos por mês + tabela de lançamentos), construído do zero seguindo os prints estilo Gorila. Vive em <span class="mono">components.css</span> como qualquer outro componente reutilizável.</p>
+    <p><b>Acessibilidade</b> — contraste conferido nos tokens (já validamos a paleta), foco de teclado visível em todo controle interativo, <span class="mono">aria-label</span> em botões só-ícone, respeita <span class="mono">prefers-reduced-motion</span>.</p>
+  </div>
+
+  <h2 class="section-title">Progressive Web App (instalável)</h2>
+  <p class="section-hint">Decisão desta revisão: o site também fica instalável — ícone na tela inicial do celular, abre em tela cheia sem barra de navegador, e carrega o esqueleto instantaneamente mesmo com internet ruim. Não muda nada da arquitetura: continua HTML/CSS/JS estático, sem framework, sem build.</p>
+  <div class="box">
+    <p><b>Manifest (<span class="mono">manifest.json</span>)</b> — descreve o app pro sistema operacional: nome, ícones, cor de tema, e <span class="mono">"display": "standalone"</span> (é essa linha que tira a barra de endereço quando aberto pelo ícone). Um arquivo só, na raiz, referenciado por todas as páginas.</p>
+    <p><b>Ícones</b> — jogo gerado a partir da mesma identidade visual dos mockups (192px, 512px, versão "maskable" pro Android recortar em círculo/quadrado, e um <span class="mono">apple-touch-icon</span> 180px pro iOS). Vivem em <span class="mono">assets/icons/</span>.</p>
+    <p><b>Service worker (<span class="mono">sw.js</span>)</b> — guarda em cache só o esqueleto do app: HTML das páginas, CSS, JS, ícones. <b>Nunca</b> cacheia uma resposta do Apps Script, GOOGLEFINANCE ou BCB — dado financeiro sempre vem fresco da rede; esse cache é só pra abrir rápido, não pra mostrar número velho. Estratégia: cache-first pros arquivos estáticos (JS/CSS/ícones raramente mudam), network-first pro HTML de cada página (uma atualização de código chega rápido, mas o app ainda abre se a rede cair no meio do carregamento).</p>
+    <p><b>No iPhone</b> — a Safari não mostra banner de instalação sozinha: você abre o site, toca em Compartilhar → "Adicionar à Tela de Início". A partir daí abre em tela cheia, como um app normal. A Safari também pode limpar o cache do service worker depois de ~7 dias sem uso — inofensivo aqui, porque o login já expira em ~1h e "ter que logar de novo depois de um tempo parado" já era o comportamento esperado, com ou sem PWA.</p>
+    <p><b>Toda página HTML</b> ganha um blocinho fixo no <span class="mono">&lt;head&gt;</span> (link pro manifest, <span class="mono">theme-color</span>, <span class="mono">apple-touch-icon</span>, <span class="mono">apple-mobile-web-app-capable</span>) — repetitivo, mas são 5-6 linhas idênticas coladas em cada arquivo, sem lógica nenhuma envolvida.</p>
+  </div>
+
+  <h2 class="section-title">Cache e atualização de dados</h2>
+  <div class="box">
+    <p>Cada resposta de leitura do Apps Script fica em cache no <span class="mono">sessionStorage</span> por alguns minutos (a cotação em si já atualiza devagar via GOOGLEFINANCE, então não faz sentido bater no Apps Script a cada clique de navegação entre páginas). O botão de atualizar da topbar força ignorar o cache e buscar de novo. Depois de qualquer escrita bem-sucedida (nova transação, meta salva), o cache daquela leitura específica é limpo na hora — você vê o resultado imediatamente, sem esperar o tempo normal de cache expirar.</p>
+  </div>
+
+  <h2 class="section-title">Fases de implementação</h2>
+  <p class="section-hint">Começamos pela peça mais arriscada tecnicamente (login + ponte de dados), não pela mais vistosa — se o encanamento funcionar na Fase 0/1, o resto é composição de UI sobre um cano que já provou que funciona.</p>
+  <div class="phases">
+    <div class="phase">
+      <div class="num">0</div>
+      <div class="ttl">Fundação</div>
+      <div class="desc">Redefinida nesta revisão como fase de testes: repositório no GitHub, projeto Apps Script publicado, login Google de ponta a ponta, <span class="mono">manifest.json</span> + ícones + <span class="mono">sw.js</span> (PWA), <span class="mono">Auxiliar_app</span> criada com os cálculos agregados, o histórico de patrimônio reconstruído via GOOGLEFINANCE + Transações, e <b>todo item da checklist abaixo</b> confirmado direto na planilha real — nenhum handler de página de verdade é escrito antes disso.</div>
+      <div class="deliv"><b>Entregável</b> — uma página em branco que exige login, e depois do login, busca e mostra um "Olá, funcionou" vindo de verdade do Apps Script.</div>
+    </div>
+    <div class="phase">
+      <div class="num">1</div>
+      <div class="ttl">Início (Home)</div>
+      <div class="desc">3 visões de patrimônio, gráfico de Rentabilidade com seletor, índices &amp; câmbio, grade de Meus Ativos — tudo somente leitura.</div>
+      <div class="deliv"><b>Entregável</b> — primeira página real, valida leitura + Chart.js + cache funcionando juntos.</div>
+    </div>
+    <div class="phase">
+      <div class="num">2</div>
+      <div class="ttl">Distribuições e Metas</div>
+      <div class="desc">Objetivos, Radar, FIIs por tipo (leitura) + Metas da Carteira, que você edita e fica salvo.</div>
+      <div class="deliv"><b>Entregável</b> — primeira escrita de verdade (<span class="mono">doPost</span>) na planilha, validando o caminho de ida e volta.</div>
+    </div>
+    <div class="phase">
+      <div class="num">3</div>
+      <div class="ttl">Carteiras</div>
+      <div class="desc">Página principal com gráficos agregados, as 4 sub-páginas de classe com o gráfico de benchmark, e a página de Detalhe do Ativo.</div>
+      <div class="deliv"><b>Entregável</b> — a parte mais densa de dado e gráfico do app.</div>
+    </div>
+    <div class="phase">
+      <div class="num">4</div>
+      <div class="ttl">Transações e Registros de Compra</div>
+      <div class="desc">Formulários de lançamento manual (Internacional, Renda Fixa, Compras planejadas) + a importação do extrato da B3 pra Brasil (anexar <span class="mono">.xlsx</span>, prévia, confirmar), com lançamento manual também disponível ali como alternativa. Cada um com sua ação de escrita.</div>
+      <div class="deliv"><b>Entregável</b> — o app agora substitui de verdade o lançamento manual na planilha, incluindo o fluxo que hoje passava pela planilha auxiliar de ordenar a B3.</div>
+    </div>
+    <div class="phase">
+      <div class="num">5</div>
+      <div class="ttl">Proventos e Dividendos</div>
+      <div class="desc">As 2 páginas (Nacionais/Internacionais), cada uma com abas Consolidado + Agenda, estilo Gorila.</div>
+      <div class="deliv"><b>Entregável</b> — calendário e tabela de lançamentos ligados ao dado real.</div>
+    </div>
+    <div class="phase">
+      <div class="num">6</div>
+      <div class="ttl">Organização Financeira</div>
+      <div class="desc">Despesas Essenciais e Salário/Renda Emergencial — as páginas mais simples, deixadas por último de propósito.</div>
+      <div class="deliv"><b>Entregável</b> — todas as 6 páginas principais no ar.</div>
+    </div>
+    <div class="phase">
+      <div class="num">7</div>
+      <div class="ttl">Polimento &amp; revisão</div>
+      <div class="desc">Passada de acessibilidade, responsivo em celular de verdade, checklist comparando cada número do app contra a planilha, e um README de manutenção (como fazer deploy de uma mudança no Apps Script sem trocar a URL).</div>
+      <div class="deliv"><b>Entregável</b> — app pronto pro uso do dia a dia.</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Fase 0 — Checklist de testes de dados</h2>
+  <p class="section-hint">Redefinição desta revisão: a Fase 0 não é só "login funciona" — é testar <b>todo</b> valor que alguma página vai precisar, direto na planilha real, antes de escrever qualquer HTML de verdade. Legenda: <span class="tag" style="background:var(--good-soft);color:var(--good-ink);margin-right:6px">testado ✓</span> já confirmado nesta sessão · <span class="tag" style="margin-right:6px">a testar</span> ainda não · <span class="tag" style="background:var(--warn-soft);color:var(--warn-ink)">aba não inspecionada</span> nem as colunas foram conferidas ainda.</p>
+
+  <div class="box" style="background:var(--good-soft)">
+    <p style="margin:0 0 8px"><b>Praticamente toda a checklist está confirmada com valores reais.</b> O que restou de verdade "a testar" é só a série histórica de rentabilidade do patrimônio (Total/LP × Ibovespa+CDI) — que depende do backfill de histórico, uma peça de trabalho maior, não um teste pontual.</p>
+    <p style="margin:0"><b>Achados desta rodada:</b> Ibovespa, IFIX, câmbio EUR/BRL e S&amp;P 500 não têm nenhuma célula pronta em lugar nenhum da planilha (busquei em todas as abas, inclusive as <span class="mono">Aux_dash_*</span> até a última coluna) — resolvido colando GOOGLEFINANCE à mão em 3 tabelas na aba <span class="mono">Auxiliar_app</span> (A6, A14, A18), que os handlers agora leem procurando pelo texto do rótulo em vez de depender de uma coluna fixa (mais resistente a você reorganizar a planilha depois). Mesma lógica pro card "Proventos a receber", que também não existia pronto — virou SOMASE/SOMASES na tabela 3. E o Detalhe do Ativo: decidimos buscar os dados direto na aba Carteira por ticker, em vez de chamar GOOGLEFINANCE de novo via Apps Script — mais rápido e evita esses dois lugares divergirem.</p>
+  </div>
+
+  <div class="box" style="background:var(--good-soft)">
+    <p style="margin:0"><b>Três achados que simplificam o plano</b> (inspecionando o arquivo original em vez de só a planilha ao vivo): a aba <span class="mono">Transações</span> já tem uma coluna <b>"Cotas até a data"</b> — a quantidade acumulada por transação <b>já vem pronta</b>, não precisamos somar nada pra reconstruir "quanto eu tinha em cada data". A aba <span class="mono">Carteira Renda Fixa</span> tem, na linha 6, um total <b>"Renda Emergencial: R$ 60.760,27"</b> — <b>confirmado: é fórmula viva</b> (<span class="mono">=IFERROR(SUMIF($B$8:$C5491,$B9,$K$8:$K5491),"")</span>), não valor manual, então dá pra reaproveitar direto em vez de duplicar em <span class="mono">Auxiliar_app</span>. E o <b>Radar de oportunidades</b> não fica em <span class="mono">RV Metas de compra e venda</span> (confirmado vazia) — fica na própria aba <span class="mono">Distribuição e Metas</span>, em três tabelas de ranking lado a lado: Ações a partir de B41, Ações EUA a partir de B58, FIIs a partir de B81, todas com Ranking/Ativo/Preço Atual/Preço teto/Viés/P-VP/Desconto/% desejado/% atual/R$ investir.</p>
+  </div>
+
+  <h3 class="sub-title">Início</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Patrimônio nas 3 visões</td><td><span class="mono">📊Dash Geral</span> — E4 (total), E6 (RV), I16:I19 (Ações/FIIs/RF/USA em BRL), E25 (bolsa BR), S24 (câmbio ref.)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Série histórica de Rentabilidade (Total/LP × Ibovespa+CDI; Renda Emergencial × CDI+Selic)</td><td><span class="mono">Auxiliar_app &gt; Histórico</span></td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Ibovespa (valor + variação dia)</td><td>Não existe célula pronta na planilha — GOOGLEFINANCE colado à mão em <span class="mono">Auxiliar_app</span> (tabela 1, a partir de A6)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real)</span></td></tr>
+        <tr><td>IFIX (valor + variação dia)</td><td>Idem — <span class="mono">Auxiliar_app</span> tabela 1</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real)</span></td></tr>
+        <tr><td>S&amp;P 500 (valor + variação dia)</td><td>Idem — <span class="mono">Auxiliar_app</span> tabela 2 (a partir de A14)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real)</span></td></tr>
+        <tr><td>Câmbio USD/BRL e EUR/BRL</td><td>USD já existia (<span class="mono">Distribuição e Metas!K56</span>); EUR não existia — GOOGLEFINANCE colado à mão em <span class="mono">Auxiliar_app</span> tabela 1</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, ambos)</span></td></tr>
+        <tr><td>Grade "Meus Ativos" consolidada (4 classes)</td><td>Não precisa de fonte nova — monta no front a partir das 3 leituras de Carteira já testadas (Ações/FIIs/USA), iterando todas as linhas em vez de só a 1ª</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">coberto pelos testes de Carteiras ✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Distribuições e Metas</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Alocação desejada vs. atual por classe (Ações/FIIs/RF)</td><td>Distribuição e Metas — B10:G14 (Tipo, % desejado, % atual, Carteira atual, Nova carteira, R$ investir)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Divisão Ações — nacional vs. internacional</td><td>Distribuição e Metas — B33:G36 (Dividendos / Ações Internacionais, mesmo padrão de colunas)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Reserva emergência vs. Renda Fixa longo prazo</td><td>Distribuição e Metas — linhas 18–21 (mesmo padrão)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓ (arquivo)</span></td></tr>
+        <tr><td>Radar de oportunidades (Ações / EUA / FIIs)</td><td>Distribuição e Metas — 3 tabelas de ranking com ativos reais: Ações B41:S54, Ações EUA B58:Q67, FIIs B81:S92 (Ranking, Ativo, Preço Atual, Preço teto, Viés, P/VP, Desconto, % desejado, % atual, R$ investir; FIIs tem "Tipo" extra)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valores reais)</span></td></tr>
+        <tr><td>FIIs por tipo (Tijolo/Papel/Híbrido)</td><td>Distribuição e Metas — B72:G76 (tabela pronta: Tipo, % desejado, % atual, Carteira atual, Nova carteira, R$ investir), não precisa agregar da Carteira FIIs</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Meta Renda Passiva + média real de proventos</td><td>Aux_dash_Proventos + célula nova de escrita</td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Meta futura de Patrimônio (Extra, % Reinvestimento, Rendimento Médio, Patrimônio Desejado)</td><td>Distribuição e Metas — K17:S19 ("Cálculo futuro de patrimônio")</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Renda Emergencial (Média de Gastos) / Salário e % a investir</td><td>Distribuição e Metas — K10:M11 (Renda Emergencial) e N10:S11 (Salário)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Carteiras</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Tabela completa — Ações (20 campos: identificação, preço, DY, VPA, liquidez, P/L, totais, lucro/prejuízo)</td><td>Carteira Ações — todas as colunas confirmadas via Apps Script, 1 ativo real (WIZC3)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Tabela completa — FIIs (18 campos)</td><td>Carteira FIIs — todas as colunas confirmadas via Apps Script, 1 ativo real (BTLG11)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Tabela completa — Ações EUA (17 campos, em USD) + conversão BRL</td><td>Carteira Ações USA + câmbio de <span class="mono">Distribuição e Metas!K56</span> aplicado no handler (não existe coluna BRL na planilha)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, USD e BRL)</span></td></tr>
+        <tr><td>Tabela completa — Renda Fixa</td><td>Carteira Renda Fixa — totais da linha 6 (Total investido, Total atualizado, Renda Emergencial) + colunas do investimento (linha 9 em diante) confirmados via Apps Script</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Gráficos agregados por classe (patrimônio, resultado, donuts, barras)</td><td>Totais já prontos na linha 6 de cada carteira (Total comprado, Total Hoje, Lucro/Prejuízo, % Lucro/Prejuízo, Proventos totais) — confirmado via Apps Script, não precisa de aba <span class="mono">Aux_dash_*</span> separada</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script)</span></td></tr>
+        <tr><td>Gráfico "Gráfico MENSAL" por ativo (sparkline de período)</td><td>Diagnosticado: é <span class="mono">SPARKLINE(GOOGLEFINANCE(...))</span> nativo do Sheets, não dá pra ler como dado (<span class="mono">getValue()</span> vem vazio). Vamos reconstruir com a mesma lógica (GOOGLEFINANCE + seletor de período: 30/60/90/180/365/1825 dias, Máx em semanal) direto no front-end, usando <span class="mono">Auxiliar_app &gt; Histórico</span></td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">diagnosticado ✓ — plano definido</span></td></tr>
+        <tr><td>Gráfico de benchmark por classe (histórico)</td><td><span class="mono">Auxiliar_app &gt; Histórico</span> — mesmo mecanismo já provado no teste de GOOGLEFINANCE histórico (WIZC3/Ibovespa/IFIX/S&amp;P 500, 4/4 com dados reais)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">mecanismo testado ✓</span></td></tr>
+        <tr><td>Detalhe do Ativo — cabeçalho + tiles de resumo</td><td>Busca direto na aba Carteira por ticker (não recalcula com GOOGLEFINANCE de novo — reaproveita o que a própria planilha já calcula) — testado com BTLG11, todas as 18 colunas de FIIs</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, por ticker)</span></td></tr>
+        <tr><td>Detalhe do Ativo — gráfico de Rentabilidade</td><td><span class="mono">Auxiliar_app &gt; Histórico</span> (por ativo) — mesmo mecanismo do histórico já provado, só falta aplicar a um ativo específico dinamicamente</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">mecanismo testado ✓</span></td></tr>
+        <tr><td>Detalhe do Ativo — gráfico Valor Aplicado × Saldo Bruto</td><td>Transações (coluna "Cotas até a data" já vem pronta, sem precisar somar) + <span class="mono">Auxiliar_app &gt; Histórico</span></td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">dados-fonte confirmados ✓</span></td></tr>
+        <tr><td>Detalhe do Ativo — tabela de Histórico (lançamentos)</td><td>Transações, filtrado por Ticker — testado com BTLG11 (10 lançamentos reais)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, por ticker)</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Transações</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Transações Brasil</td><td>Transações — cabeçalho na linha 6 (Ticker, Data, Tipo, Preço, Qtd., Cotas até a data, Cotas atuais, ...)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+        <tr><td>Transações Internacional</td><td>Transações - USA — mesmo padrão, "Preço USD"</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+        <tr><td>Transações Renda Fixa</td><td>Carteira Renda Fixa — não é uma aba separada, é a própria tabela (cabeçalho linha 8: Código, Nome/identificador, Tipo, Indexador, Quantidade, Preço unitário, Valor Investido, Emissão, Vencimento, Valor Atualizado)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+        <tr><td>Registros de Compras</td><td>RV Metas de compra e venda — configuração de alerta por e-mail (Tipo, Ticker, Qtd meta, Preço teto, Preço atual, Qtd atual, R$ a investir); <b>Radar de oportunidades não é desta aba</b>, ver Distribuições e Metas</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Proventos e Dividendos</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Consolidado — 4 tiles por período (mês inicial/final, total histórico, total no período, ano atual, DY on cost)</td><td><span class="mono">📈Dash Proventos!E4:K4</span> (seletor de período já embutido na própria aba)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valores reais)</span></td></tr>
+        <tr><td>Card "Proventos a receber" (Total / Ações / FIIs)</td><td>Não existe célula pronta — SOMASE/SOMASES colados à mão em <span class="mono">Auxiliar_app</span> tabela 3 (a partir de A18), sobre <span class="mono">Proventos!H</span> ("Já pago?" = Não)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real = 0, sem pendências hoje)</span></td></tr>
+        <tr><td>Agenda — contagem por mês + tabela de lançamentos</td><td>Proventos — cabeçalho linha 7 (Data Com, Data pagamento, Ticker, Tipo, Núm. ativos, Provento/ativo, Provento líquido, Já pago?)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+        <tr><td>Equivalente internacional (Consolidado + Agenda)</td><td>Proventos - USA — mesma estrutura, mas hoje sem nenhum lançamento cadastrado</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓ (vazia)</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Organização Financeira</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Despesas Essenciais — lista + total + margem 10%</td><td>Despesas Essenciais — colunas A/B/C (Despesas, Média de Gastos, Total), margem em B5 (10%)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">colunas confirmadas ✓</span></td></tr>
+        <tr><td>Renda Emergencial / Salário</td><td>Distribuição e Metas</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Infraestrutura</h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>fonte</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Login Google + verificação de token pelo Apps Script</td><td>Google Identity Services + tokeninfo</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓</span></td></tr>
+        <tr><td>Conexão do Apps Script com a planilha</td><td>SpreadsheetApp</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓</span></td></tr>
+        <tr><td>CDI e Selic — últimos N valores</td><td>BCB SGS séries 12 e 432</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓</span></td></tr>
+        <tr><td>CDI e Selic — intervalo de datas (backfill)</td><td>BCB SGS <span class="mono">?dataInicial=&amp;dataFinal=</span></td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ — 21 e 31 registros reais (~30 dias)</span></td></tr>
+        <tr><td>GOOGLEFINANCE histórico — prova de conceito (4 tickers: WIZC3, Ibovespa, IFIX, S&amp;P 500)</td><td><span class="mono">Auxiliar_app</span>, célula de rascunho (escreve fórmula → flush → lê → limpa)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ — 4/4 tickers com dados reais</span></td></tr>
+        <tr><td>GitHub Pages publica mudanças (push → site atualizado)</td><td>repositório <span class="mono">tiagohs/investiments</span></td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓</span></td></tr>
+      </tbody>
+    </table>
+    <div class="box" style="background:var(--good-soft);margin-top:12px">
+      <p style="margin:0"><b>Achados desta rodada, todos resolvidos:</b> "DY%" não existe em <span class="mono">Carteira Ações</span> (removido do teste) e em <span class="mono">Carteira FIIs</span> o nome real é <span class="mono">"DY (%)"</span> — corrigido. <span class="mono">Carteira Ações</span> tem uma linha em branco entre o cabeçalho e o primeiro ativo (linha 9 vazia, dado real começa na 10) — o handler agora acha a primeira linha de verdade procurando pelo Ticker, em vez de assumir "cabeçalho + 1". E o mais importante pro resto do projeto: <b>toda fórmula escrita via Apps Script nesta planilha precisa usar <span class="mono">;</span> como separador de argumento</b> (a planilha está em locale pt-BR) <b>mas o nome da função continua em inglês</b> (<span class="mono">DATE</span>, não <span class="mono">DATA</span> — confirmado comparando com a fórmula real do "Gráfico MENSAL", que já usava <span class="mono">TODAY()</span> com <span class="mono">;</span>). Vale pra qualquer fórmula que os handlers de verdade forem escrever depois, não só o histórico.</p>
+    </div>
+  </div>
+
+  <h3 class="sub-title">Importação B3 &amp; Sincronização <span class="tag" style="margin-left:6px">novo</span></h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>o que precisa ser confirmado</th><th>status</th></tr></thead>
+      <tbody>
+        <tr><td>Leitura do <span class="mono">.xlsx</span> no navegador</td><td>SheetJS lê um extrato real da B3 e reconhece o cabeçalho pelo texto das colunas, sem depender de posição fixa</td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Reconhecer × ignorar linhas</td><td>Compra/Venda viram "reconhecidas"; qualquer outro Tipo de Movimentação (bonificação, desdobramento etc.) vira "ignorada" e nunca é processado</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (teste.html, sem gravar)</span></td></tr>
+        <tr><td>Bloqueio de ticker novo</td><td>Ticker ainda não cadastrado na Carteira é bloqueado com aviso — nas duas camadas: no navegador (antes de mandar) e de novo no Apps Script (<span class="mono">importarTransacoesB3</span>), caso a cópia local da Carteira esteja desatualizada</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Postman, ticker "TESTE99" rejeitado, nada gravado)</span></td></tr>
+        <tr><td>Gravação em lote — primeira linha vazia</td><td><span class="mono">importarTransacoesB3</span> escreve nas colunas A-F da primeira linha vazia de <span class="mono">Transações</span> (varredura, nunca <span class="mono">getLastRow()</span>), sem tocar nas fórmulas pré-existentes de G em diante</td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Rejeição parcial de um lote</td><td>Um ticker inválido no meio do lote rejeita só aquela linha — as outras, válidas, são gravadas normalmente</td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Gatilho diário instalado</td><td><span class="mono">instalarGatilhoDiario()</span> criou o Time-driven trigger; ele dispara sozinho por volta de 10h e pula domingo</td><td><span class="tag">a testar</span></td></tr>
+        <tr><td>Botão manual (<span class="mono">sincronizarAgora</span>)</td><td>Roda a mesma rotina do gatilho, sob demanda, gravando <span class="mono">origem = Manual</span></td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (teste.html, botões por classe, origem = Manual gravado certo)</span></td></tr>
+        <tr><td>Cálculo de quantidade por data</td><td><span class="mono">quantidadeNaData_</span> (via "Cotas até a data" de Transações) devolve o valor certo pra uma data no meio de um intervalo sem transação naquele dia exato</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (backfill completo, 29/29 ativos com Valor batendo)</span></td></tr>
+        <tr><td>Câmbio USD/BRL — uma busca por execução</td><td>Os 7 ativos USA da mesma rodada reaproveitam a mesma busca de câmbio, em vez de uma busca por ativo</td><td><span class="tag" style="background:var(--warn-soft);color:var(--warn-ink)">reabrir — bug achado na revisão de código (cache pegava o intervalo do 1º ticker USA processado, não a união de todos; corrigido no Sync.gs, mas o teste "7 ativos USA populados" foi rodado ANTES da correção, então precisa reconferir com o script corrigido)</span></td></tr>
+        <tr><td>Registro de Controle — Sucesso</td><td>0 falhas grava status verde com o total de ativos ok</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (12 de 12 e 7 de 7, status Sucesso real na planilha)</span></td></tr>
+        <tr><td>Registro de Controle — Atenção + retry seletivo</td><td>Falha simulada em 1-2 tickers grava amarelo com o detalhe de quais falharam; rodar <span class="mono">sincronizarAgora</span> só com esses tickers conserta sem reprocessar os outros 28</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (teste.html, modo teste em aux_tests — Atenção e retry seletivo confirmados)</span></td></tr>
+        <tr><td>Registro de Controle — Erro total</td><td>Falha geral (ex. aba renomeada, sem acesso) grava vermelho em vez de travar a execução</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (teste.html, 2 tickers falsos forçados a falhar, status Erro)</span></td></tr>
+        <tr><td><span class="mono">syncStatus</span> (doGet)</td><td>Devolve a última linha do Registro de Controle no formato que o badge/painel do topo espera</td><td><span class="tag">a testar</span></td></tr>
+      </tbody>
+    </table>
+    <div class="box" style="background:var(--warn-soft);margin-top:12px">
+      <p style="margin:0"><b>Ainda em aberto, diferente do resto da checklist:</b> os itens acima ainda não foram confirmados na planilha real — só o parsing do <span class="mono">.xlsx</span> no navegador foi testado (sem gravar nada). O script de <span class="mono">importarTransacoesB3</span>/<span class="mono">sync.gs</span> foi escrito nesta revisão (ver <span class="mono">apps-script/b3import.gs</span> e <span class="mono">apps-script/sync.gs</span>), mas ainda precisa ser colado no projeto Apps Script real e rodado contra a planilha de verdade — inclusive confirmar o nome da aba <span class="mono">Registro de Controle</span> e seu cabeçalho (Timestamp/Origem/Status/Detalhe), que ainda não foi criado.</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">Riscos técnicos e como mitigar</h2>
+  <div class="risk"><span class="ic">⚠</span><b>Apps Script demora pra responder</b> (1-3s por chamada, às vezes mais no primeiro acesso do dia) — e agora com 2 idas à rede por chamada (verificar token + ler/escrever), esse tempo tende a dobrar. Mitigado com esqueleto de carregamento, cache local, o indicador "atualizado há Xmin" em vez de recarregar toda hora, e — se precisar mais adiante — cachear a verificação do token por alguns minutos dentro do próprio Apps Script.</div>
+  <div class="risk"><span class="ic">⚠</span><b>GOOGLEFINANCE às vezes devolve erro temporário</b> (#N/A) — os handlers do Apps Script tratam isso e devolvem "indisponível" em vez de quebrar a resposta inteira.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Token de login expira</b> (~1h) — <span class="mono">api.js</span> tenta renovar sozinho antes de te jogar de volta pra tela de login.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Cota do Apps Script</b> (execuções/dia, 6min por execução) — folgada demais pra uso de uma pessoa só; citada aqui só pra registro, não é uma preocupação real.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Convenção de código — fórmulas escritas via Apps Script:</b> a planilha está em locale pt-BR, então qualquer <span class="mono">setFormula()</span> precisa usar <span class="mono">;</span> como separador de argumento (não vírgula) — mas os nomes de função continuam em <b>inglês</b> (<span class="mono">DATE</span>, <span class="mono">TODAY</span>, <span class="mono">SUM</span>...), nunca a versão em português (<span class="mono">DATA</span>, <span class="mono">HOJE</span>, <span class="mono">SOMA</span>). Confirmado via <span class="mono">testarHistoricoGoogleFinance</span> na Fase 0 — inglês+vírgula deu <span class="mono">#ERROR!</span>, português+<span class="mono">;</span> deu <span class="mono">#NAME?</span>, só inglês+<span class="mono">;</span> funcionou. Quando a fórmula é colada à mão direto na planilha (não via API), vale o oposto: nome da função em português.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Duas escalas de variação % diferentes na mesma planilha:</b> o <span class="mono">changepct</span> do GOOGLEFINANCE (usado pra Ibovespa/IFIX/S&amp;P 500) devolve a porcentagem já pronta (<span class="mono">1.3</span> = 1,3%), enquanto a "Variação dia" das abas de Carteira vem como fração (<span class="mono">0.013</span> = 1,3%). A UI de verdade precisa normalizar as duas pra um formato só antes de exibir lado a lado, senão um valor fica 100× maior que o outro sem nenhum erro aparente.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Layout do extrato da B3 pode mudar</b> sem aviso (a B3 já reformulou esse export antes) — o <span class="mono">importB3.js</span> procura o cabeçalho pelo texto das colunas em vez de posição fixa, mas uma mudança de nome de coluna ainda quebraria o reconhecimento; nesse caso a tela mostra "não consegui reconhecer o cabeçalho" em vez de importar errado, e o fallback é sempre o lançamento manual.</div>
+  <div class="risk"><span class="ic">⚠</span><b>Gatilho diário pode falhar silenciosamente</b> se não for observado — é por isso que existe o Registro de Controle e o badge no topo: se dois dias seguidos aparecerem sem "Sucesso", é sinal de checar o gatilho direto no editor do Apps Script (<span class="mono">Execuções</span>, no menu lateral, mostra o log de cada disparo).</div>
+
+  <h2 class="section-title">Fora de escopo (de propósito)</h2>
+  <div class="box">
+    <p>Sem framework (React etc.), sem build tool, sem banco de dados adicional, sem servidor próprio pra manter — as duas únicas peças de infraestrutura são GitHub Pages e Apps Script, e as duas são gratuitas e gerenciadas pelo Google/GitHub. Isso mantém o projeto sustentável pra manter sozinho.</p>
+  </div>
+
+  <h2 class="section-title">Pré-implementação</h2>
+  <p class="section-hint">Tudo que precisa existir <b>antes</b> de escrever a primeira linha de código da Fase 0 — nenhum passo aqui mexe em código, só em telas de configuração do Google e do GitHub. Pode seguir esta seção sozinho, na ordem, e me chamar se algum passo não bater com o que você está vendo na tela.</p>
+
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>o que você vai ter em mãos</th><th>de onde sai</th><th>onde entra no projeto</th></tr></thead>
+      <tbody>
+        <tr><td>URL do site (GitHub Pages)</td><td>Passo 1, abaixo</td><td>Cadastrada como "origem autorizada" no Client ID (Passo 2)</td></tr>
+        <tr><td>Client ID OAuth</td><td>Passo 2, abaixo</td><td><span class="mono">auth.js</span> / <span class="mono">shell.html</span> — inicializa o botão de login</td></tr>
+        <tr><td>URL do Web App (Apps Script)</td><td>Passo 3, abaixo</td><td><span class="mono">api.js</span> — endereço base de toda chamada <span class="mono">fetch()</span></td></tr>
+        <tr><td>Seu e-mail Google (o mesmo dono da planilha)</td><td>Você confirma</td><td><span class="mono">Code.gs</span> — constante <span class="mono">AUTHORIZED_EMAIL</span>, a checagem de acesso</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="sub-title">Passo 1 — Repositório GitHub e GitHub Pages</h3>
+  <div class="box">
+    <p>Fazemos isso primeiro porque o passo 2 (Google Cloud) precisa da URL final do site.</p>
+    <ul>
+      <li>Se ainda não existe: crie um repositório novo em <span class="mono">github.com/new</span> (pode ser privado ou público — GitHub Pages funciona nos dois em conta pessoal).</li>
+      <li>Depois de ter pelo menos um arquivo <span class="mono">index.html</span> no repositório, vá em <span class="mono">Settings → Pages</span>, e em "Source" escolha a branch <span class="mono">main</span>, pasta <span class="mono">/ (root)</span>.</li>
+      <li>O GitHub mostra a URL final, algo como <span class="mono">https://seu-usuario.github.io/nome-do-repo/</span>. Guarde essa URL — é ela que vai no passo 2.</li>
+    </ul>
+    <p><b>Me diga:</b> se você já tem um repositório criado pro projeto (e qual o nome), ou se começamos um do zero.</p>
+  </div>
+
+  <h3 class="sub-title">Passo 2 — Client ID OAuth no Google Cloud Console</h3>
+  <div class="box">
+    <p>É o que permite o botão "Entrar com Google" existir no seu site. Não tem custo — é uma configuração, não um produto pago.</p>
+    <ul>
+      <li>Acesse <span class="mono">console.cloud.google.com</span> logado com a mesma conta Google dona da planilha.</li>
+      <li>No topo, clique em "Selecionar um projeto" → "Novo Projeto". Dê um nome (ex. "App Investimentos") e crie.</li>
+      <li>Com o projeto selecionado, vá no menu (☰) → <span class="mono">APIs e serviços → Tela de permissão OAuth</span>.
+        <ul style="margin-top:6px">
+          <li>Tipo de usuário: <b>Externo</b> (é a única opção disponível pra conta Gmail pessoal, e funciona normalmente).</li>
+          <li>Preencha nome do app, seu e-mail em "e-mail de suporte" e em "informações de contato do desenvolvedor". Salve e continue pelas telas seguintes sem mudar nada (escopos: nenhum adicional necessário).</li>
+          <li>Na tela "Usuários de teste", adicione o seu próprio e-mail Google. Isso mantém o app em modo "Teste" pra sempre — o que é exatamente o que queremos (só você consegue logar), sem precisar passar pelo processo de verificação do Google.</li>
+        </ul>
+      </li>
+      <li>Vá em <span class="mono">APIs e serviços → Credenciais → + Criar credenciais → ID do cliente OAuth</span>.
+        <ul style="margin-top:6px">
+          <li>Tipo de aplicativo: <b>Aplicativo da Web</b>.</li>
+          <li>Nome: qualquer um (ex. "App Investimentos - Web").</li>
+          <li>Em "Origens JavaScript autorizadas", adicione a URL do GitHub Pages do Passo 1 (só o domínio, sem caminho — ex. <span class="mono">https://seu-usuario.github.io</span>) e também <span class="mono">http://localhost:8000</span> (ou a porta que formos usar no servidor local de desenvolvimento).</li>
+          <li>Não precisa preencher "URIs de redirecionamento" — o fluxo que vamos usar (botão de login) não usa redirecionamento.</li>
+          <li>Clique em Criar. A tela mostra um <b>Client ID</b> (termina em <span class="mono">.apps.googleusercontent.com</span>) — esse valor não é secreto, ele é feito pra ficar dentro do código do front-end. Guarde-o.</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <h3 class="sub-title">Passo 3 — Publicar o Apps Script como Web App</h3>
+  <div class="box">
+    <ul>
+      <li>Abra a planilha → menu <span class="mono">Extensões → Apps Script</span>. Se já existir um projeto vinculado, use esse; senão, isso já cria um novo, vinculado à planilha (o que queremos — assim <span class="mono">SpreadsheetApp.getActiveSpreadsheet()</span> já sabe qual planilha usar, sem precisar do ID dela em lugar nenhum).</li>
+      <li>Quando o código de leitura/escrita estiver pronto (Fase 0), clique em <span class="mono">Implantar → Nova implantação</span>.</li>
+      <li>Tipo: <b>Aplicativo da Web</b>. Executar como: <b>Eu</b>. Quem tem acesso: <b>Qualquer pessoa</b> (a checagem de verdade é o e-mail dentro do código, como já explicado acima).</li>
+      <li>Na primeira implantação, o Google pede sua autorização pro script acessar a própria planilha — é normal, aceite.</li>
+      <li>Copie a URL que aparece (termina em <span class="mono">/exec</span>) — essa é a URL base que vai em <span class="mono">api.js</span>.</li>
+      <li>Em atualizações futuras do código: use <span class="mono">Gerenciar implantações → editar (ícone de lápis) → Nova versão</span>, nunca crie uma implantação nova do zero — assim a URL nunca muda.</li>
+    </ul>
+    <p><b>Me diga:</b> se a planilha já tem um projeto Apps Script vinculado a ela, ou se vamos criar um novo na Fase 0.</p>
+  </div>
+
+  <h3 class="sub-title">Checklist final — confirmado <span class="tag">✓ concluído</span></h3>
+  <div class="box" style="overflow-x:auto">
+    <table class="api">
+      <thead><tr><th>item</th><th>valor confirmado</th></tr></thead>
+      <tbody>
+        <tr><td class="action">URL do site (GitHub Pages)</td><td class="mono" style="word-break:break-all">https://tiagohs.github.io/investiments/</td></tr>
+        <tr><td class="action">Client ID</td><td class="mono" style="word-break:break-all">778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com</td></tr>
+        <tr><td class="action">URL do Web App (Apps Script)</td><td class="mono" style="word-break:break-all">https://script.google.com/macros/s/AKfycbw4WvFaADThJQVf2IzfW9i2TXRUqfvBNAg_wEjqNUAlqipKs40ZyVEehDRzx5eh40sFJw/exec</td></tr>
+        <tr><td class="action">AUTHORIZED_EMAIL</td><td class="mono">tiago.hsilva.prof@gmail.com</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="risk"><span class="ic">⚠</span><b>Sobre a "Chave Secreta do Cliente" (Client Secret) que o Google também mostrou:</b> ela não entra em lugar nenhum deste projeto, e isso é de propósito, não um esquecimento. O fluxo que usamos (Google Identity Services, botão "Entrar com Google" rodando inteiramente no navegador) só precisa do Client ID — o secret existe para fluxos de servidor (trocar um código de autorização por token num backend), e não temos backend. Não cole esse valor em nenhum arquivo do repositório, não o versione, não o use no <span class="mono">auth.js</span>. Ele pode ficar só arquivado onde você guarda senhas, sem uso neste app.</div>
+
+  <div class="risk"><span class="ic">⚠</span><b>Uma última checagem antes de codar:</b> confirme que <span class="mono">https://tiagohs.github.io</span> (só o domínio, sem <span class="mono">/investiments</span>) está cadastrado em "Origens JavaScript autorizadas" do Client ID, junto com <span class="mono">http://localhost:8000</span> pro desenvolvimento local. Sem isso, o botão de login falha silenciosamente com um erro tipo <span class="mono">origin_mismatch</span> só visível no console do navegador.</div>
+
+  <h2 class="section-title">Revisão final antes da Fase 0</h2>
+  <div class="box">
+    <p>Conferindo o <a href="https://claude.ai/code/artifact/ba5e517c-3abc-4fc7-94fb-57fde0c68c78" style="color:var(--accent)">Mapa de Páginas</a> contra este plano, ponto a ponto:</p>
+    <ul>
+      <li>Todo benchmark de Renda Fixa (Detalhe do Ativo e agregados) usa CDI + Selic — decisão única, sem ambiguidade restante.</li>
+      <li>Renda Emergencial × Longo Prazo tem endereço exato na planilha (K10:S12 de <span class="mono">Distribuição e Metas</span>) e uma estratégia de cálculo definida (SOMASE na planilha, não em JS).</li>
+      <li>S&amp;P 500, Ibovespa e IFIX via GOOGLEFINANCE — confirmados testados por você, não é mais um risco em aberto.</li>
+      <li>As 3 credenciais de infraestrutura (site, Client ID, Web App) e o e-mail autorizado estão todos coletados e conferem com o que os dois documentos esperavam.</li>
+    </ul>
+    <p>Único item que segue deliberadamente em aberto: as colunas exatas dos gráficos agregados de FIIs e Ações EUA (Mapa de Páginas, seção "Perguntas em aberto") — decidimos olhar isso quando chegarmos na Fase 3 (Carteiras), com a planilha aberta ao lado. Não bloqueia nada antes disso.</p>
+    <p><b>Veredito:</b> não há mais pendência de decisão ou de credencial entre nós e a Fase 0. Próximo passo é sair do modo "planejamento" e começar a criar o repositório real e o primeiro <span class="mono">Code.gs</span>.</p>
+  </div>
+
+  <footer>Pré-implementação concluída em 10/09/2026 — a partir daqui, o próximo código escrito é o do app de verdade.</footer>
+</div>

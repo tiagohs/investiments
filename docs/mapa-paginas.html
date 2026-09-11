@@ -1,0 +1,331 @@
+<title>Mapa de Páginas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#F7F6F2; --surface:#FFFFFF; --surface-2:#F1F0EC; --border:#E2E0D9;
+    --ink:#1B2430; --ink-muted:#6C7686; --ink-faint:#98A0AC;
+    --accent:#2A78D6; --accent-soft:#E6EFFB;
+    --violet:#4A3AA7; --violet-soft:#EBE8F7;
+    --good:#0CA30C; --good-soft:#E3F3E1; --good-ink:#046B04;
+    --warn:#C98500; --warn-soft:#FBEED2; --warn-ink:#8A5A06;
+    --shadow: 0 1px 2px rgba(27,36,48,.06), 0 6px 20px -8px rgba(27,36,48,.12);
+    --display:'Fraunces', Georgia, serif;
+    --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0E1520; --surface:#151F2C; --surface-2:#1A2432; --border:#283344;
+      --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+      --accent:#3987E5; --accent-soft:#1E3A57;
+      --violet:#9085E9; --violet-soft:#2A2650;
+      --good:#57C79A; --good-soft:#123326; --good-ink:#7FE0B9;
+      --warn:#F0C46B; --warn-soft:#3B2E18; --warn-ink:#F6D998;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0E1520; --surface:#151F2C; --surface-2:#1A2432; --border:#283344;
+    --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
+    --accent:#3987E5; --accent-soft:#1E3A57;
+    --violet:#9085E9; --violet-soft:#2A2650;
+    --good:#57C79A; --good-soft:#123326; --good-ink:#7FE0B9;
+    --warn:#F0C46B; --warn-soft:#3B2E18; --warn-ink:#F6D998;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
+    color-scheme: dark;
+  }
+
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
+        font-size:15px; line-height:1.55; padding-block:36px 80px; }
+  h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
+  .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .wrap{ max-width:880px; margin:0 auto; padding:0 20px; }
+
+  header.hero{ margin-bottom:34px; }
+  header.hero .eyebrow{ font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+        color:var(--ink-faint); font-weight:600; margin-bottom:10px; }
+  header.hero h1{ font-size:32px; margin-bottom:10px; }
+  header.hero p{ color:var(--ink-muted); max-width:62ch; font-size:15px; }
+
+  h2.section-title{ font-size:20px; margin:44px 0 14px; padding-top:20px; border-top:1px solid var(--border); }
+  h2.section-title:first-of-type{ border-top:none; padding-top:0; margin-top:0; }
+  .section-hint{ color:var(--ink-faint); font-size:13px; margin:-8px 0 18px; max-width:64ch; }
+
+  /* ---- Arquitetura proposta ---- */
+  .arch-note{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:18px 20px; box-shadow:var(--shadow); margin-bottom:16px; }
+  .arch-note p{ margin:0 0 10px; }
+  .arch-note p:last-child{ margin-bottom:0; }
+  .filetree{ font-family:var(--mono); font-size:12.5px; background:var(--surface-2);
+        border:1px solid var(--border); border-radius:10px; padding:14px 16px; overflow-x:auto;
+        line-height:1.7; color:var(--ink); }
+  .filetree .dim{ color:var(--ink-faint); }
+  .filetree .new{ color:var(--accent); font-weight:600; }
+
+  /* ---- Árvore de navegação ---- */
+  .navtree{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:20px 22px; box-shadow:var(--shadow); }
+  .navtree ul{ list-style:none; margin:0; padding-left:22px; }
+  .navtree > ul{ padding-left:0; }
+  .navtree li{ position:relative; padding:5px 0 5px 0; font-size:14px; }
+  .navtree li.top{ font-family:var(--display); font-weight:600; font-size:16px; margin-top:10px; }
+  .navtree li.top:first-child{ margin-top:0; }
+  .navtree li.sub{ color:var(--ink-muted); }
+  .navtree li.sub::before{ content:"—"; color:var(--ink-faint); margin-right:8px; }
+
+  /* ---- Cards de página ---- */
+  .pagecard{ background:var(--surface); border:1px solid var(--border); border-radius:16px;
+        padding:22px 24px 24px; box-shadow:var(--shadow); margin-bottom:18px; }
+  .pagecard-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+        flex-wrap:wrap; margin-bottom:6px; }
+  .pagecard-head h3{ font-size:19px; }
+  .pagecard .purpose{ color:var(--ink-muted); font-size:13.5px; margin-bottom:16px; }
+  .subpages-row{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .subpage-chip{ font-size:11.5px; font-weight:700; background:var(--violet-soft); color:var(--violet);
+        padding:5px 11px; border-radius:100px; }
+  .rows{ display:flex; flex-direction:column; }
+  .row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:baseline;
+        padding:10px 0; border-top:1px solid var(--border); }
+  .row:first-child{ border-top:none; }
+  .row .label{ font-size:13.5px; }
+  .tag{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+  .tag.real{ background:var(--good-soft); color:var(--good-ink); }
+  .tag.edit{ background:var(--violet-soft); color:var(--violet); }
+  .tag.open{ background:var(--warn-soft); color:var(--warn-ink); }
+  .tag.new{ background:var(--accent-soft); color:var(--accent); }
+  .note{ font-size:12.5px; color:var(--ink-faint); margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+  .note b{ color:var(--ink-muted); }
+
+  /* ---- Decisões / perguntas ---- */
+  .decisions{ display:flex; flex-direction:column; gap:8px; }
+  .decision{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; padding:12px 14px;
+        background:var(--good-soft); border-radius:10px; }
+  .decision .ic{ color:var(--good-ink); flex:none; font-weight:700; }
+  .question{ display:flex; gap:10px; align-items:flex-start; font-size:13.5px; padding:12px 14px;
+        background:var(--warn-soft); border-radius:10px; }
+  .question .ic{ color:var(--warn-ink); flex:none; font-weight:700; }
+  .qlist{ display:flex; flex-direction:column; gap:8px; }
+
+  footer{ margin-top:48px; font-size:12px; color:var(--ink-faint); text-align:center; }
+
+  @media (max-width:600px){
+    .row{ grid-template-columns:1fr; }
+    .row .tag{ justify-self:flex-start; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Antes de tocar em qualquer HTML</div>
+    <h1>Mapa de páginas</h1>
+    <p>Como as 6 páginas principais e suas sub-páginas ficam organizadas, o que cada uma mostra, de onde vem o dado (planilha real, cálculo, ou algo que você vai cadastrar) e o que ainda falta decidir. Nada aqui foi construído ainda — é só o plano pra revisarmos juntos.</p>
+  </header>
+
+  <h2 class="section-title">Como o HTML vai ser organizado</h2>
+  <p class="section-hint">Você perguntou se valeria a pena montar isso como um app com JS — React ou parecido. Resposta curta: <b>não recomendo React aqui</b> — abaixo está o porquê, e o que proponho no lugar.</p>
+  <div class="arch-note">
+    <p><b>Por que não React (ou Vue/Angular):</b> essas ferramentas resolvem um problema que este projeto não tem — estado complexo compartilhado entre muitos componentes que mudam sozinhos na tela (carrinho de compras, chat, editor colaborativo). O que você tem é, na prática, um conjunto de painéis que carregam dado, desenham e ficam parados — e uns 4-5 formulários simples (metas, registros de compra). React também traz um custo real pra esse projeto especificamente: build tool (Vite/webpack), Node/npm instalado, um passo de "compilar" antes de publicar no GitHub Pages, e depurar fica mais indireto (dev tools de componente em vez de "ver o HTML"). Pra manter sozinho, isso é complexidade que se paga sem trazer benefício aqui.</p>
+    <p><b>O que causou a confusão anterior</b> (Home mostrando dado de outra página) não foi "faltou JS" — foi tudo estar empilhado num único arquivo HTML. A correção pra isso é separar em arquivos, não adicionar um framework.</p>
+    <p><b>Proposta: páginas HTML separadas</b> (mantém a ideia original), mas com uma peça de JS puro pra evitar repetir a topbar/menu/tema em 15 arquivos — um "include" simples: cada página carrega <span class="mono">assets/shell.js</span>, que busca <span class="mono">assets/shell.html</span> (a topbar + nav + toggle de tema + badge de status da última sincronização) e injeta no topo da página. Sem build, sem npm, sem JSX — é o HTML/CSS/JS que já roda direto no GitHub Pages hoje. Se algum dia uma tela precisar de mais interatividade (ex.: um formulário com validação cruzada entre vários campos), dá pra usar uma bibliotequinha via CDN tipo Alpine.js só naquela página, sem reescrever o projeto inteiro.</p>
+    <div class="filetree">index.html <span class="dim">→ Início</span>
+distribuicoes-metas.html <span class="dim">→ Distribuições e Metas</span>
+carteiras/index.html <span class="dim">→ Carteiras (visão agregada + gráficos de benchmark)</span>
+carteiras/acoes.html
+carteiras/fiis.html
+carteiras/acoes-eua.html
+carteiras/renda-fixa.html
+<span class="new">carteiras/ativo.html</span> <span class="dim">→ Detalhe do Ativo (1 arquivo, conteúdo troca por parâmetro na URL — ex. ?ticker=BBAS3)</span>
+transacoes/compras.html <span class="dim">→ Registros de Compras</span>
+<span class="new">transacoes/brasil.html</span> <span class="dim">→ importar extrato da B3 (.xlsx) + lançamento manual</span>
+transacoes/internacional.html <span class="dim">→ lançamento manual (B3 não cobre ativos internacionais)</span>
+transacoes/renda-fixa.html <span class="dim">→ separada — tabela é diferente (posição + emissão/vencimento), lançamento manual</span>
+proventos/nacionais.html <span class="dim">→ abas internas Consolidado + Agenda</span>
+proventos/internacionais.html <span class="dim">→ abas internas Consolidado + Agenda</span>
+organizacao/despesas.html
+organizacao/salario-renda-emergencial.html
+<span class="new">assets/shell.css + assets/shell.html + assets/shell.js</span> <span class="dim">→ topbar, nav, tema, filtro de período, badge de sincronização — compartilhado por todos, injetado via JS</span></div>
+  </div>
+
+  <h2 class="section-title">Árvore de navegação</h2>
+  <div class="navtree">
+    <ul>
+      <li class="top">Início</li>
+      <li class="top">Distribuições e Metas</li>
+      <li class="top">Carteiras
+        <ul>
+          <li class="sub">Ações</li>
+          <li class="sub">FIIs</li>
+          <li class="sub">Ações Internacionais</li>
+          <li class="sub">Renda Fixa</li>
+          <li class="sub">Detalhe do Ativo (clicando em qualquer linha da tabela)</li>
+        </ul>
+      </li>
+      <li class="top">Transações
+        <ul>
+          <li class="sub">Registros de Compras</li>
+          <li class="sub">Transações Brasileiras <span class="mono" style="font-size:12px">(importar da B3 + manual)</span></li>
+          <li class="sub">Transações Internacionais <span class="mono" style="font-size:12px">(manual)</span></li>
+          <li class="sub">Transações Renda Fixa <span class="mono" style="font-size:12px">(manual)</span></li>
+        </ul>
+      </li>
+      <li class="top">Proventos e Dividendos
+        <ul>
+          <li class="sub">Nacionais <span class="mono" style="font-size:12px">(abas internas: Consolidado / Agenda)</span></li>
+          <li class="sub">Internacionais <span class="mono" style="font-size:12px">(abas internas: Consolidado / Agenda)</span></li>
+        </ul>
+      </li>
+      <li class="top">Organização Financeira
+        <ul>
+          <li class="sub">Despesas Essenciais</li>
+          <li class="sub">Salário e Renda Emergencial</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <h2 class="section-title">Página a página</h2>
+  <p class="section-hint">Legenda: <span class="tag real" style="margin-right:6px">dado real</span> já existe e foi conferido na planilha · <span class="tag edit" style="margin-right:6px">você cadastra</span> valor que você define e fica salvo · <span class="tag new" style="margin-right:6px">nova automação</span> fluxo novo que estamos desenhando agora · <span class="tag open">a decidir</span> ainda sem resposta.</p>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Início</h3></div>
+    <p class="purpose">Painel do dia a dia — visão geral, sem mergulho analítico.</p>
+    <div class="rows">
+      <div class="row"><span class="label">Topbar: nome, cotações há X min, filtro de período global, tema, badge de sincronização ("Sincronizado em DD/MM às HH:MM — Sucesso/Atenção/Erro", cor conforme o estado)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">3 visões do Patrimônio: total / Longo Prazo / Renda Emergencial</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Gráfico de Rentabilidade dentro de cada uma das 3 visões, com seletor pra trocar — igual ao padrão de outras seções. Default: Patrimônio total. Benchmark muda por visão: <b>Total</b> e <b>Longo Prazo</b> comparam com Ibovespa + CDI; <b>Renda Emergencial</b> compara com CDI + Selic (é 100% Renda Fixa, não faz sentido benchmarking contra bolsa)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Lista de Interesses — Índices &amp; Câmbio</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Lista de Interesses — Meus Ativos (grade filtrável)</span><span class="tag real">dado real</span></div>
+    </div>
+    <div class="note"><b>Não entra aqui:</b> Radar de oportunidades, gráficos de distribuição, Metas da Carteira — tudo isso mora em Distribuições e Metas. <b>Badge de sincronização:</b> populado por uma aba própria de "Registro de Controle" na planilha (não a mesma do histórico de patrimônio), atualizada tanto pelo gatilho automático diário (seg-sáb, 10:01) quanto por um botão manual de sincronizar, em qualquer página que o exponha. 3 estados: Sucesso (verde, tudo certo), Atenção (amarelo, alguns ativos falharam — um retry reprocessa só esses), Erro (vermelho, falha total).</div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Distribuições e Metas</h3></div>
+    <p class="purpose">O que você tem vs. o que quer ter — por classe e por ativo.</p>
+    <div class="rows">
+      <div class="row"><span class="label">Objetivos da Carteira — na verdade são 2 blocos distintos na planilha: (a) alocação desejada por classe — Ações/FIIs/Renda Fixa — e (b) reserva de emergência vs. Renda Fixa de longo prazo. A página mostra os dois, não é um bloco só</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Radar de oportunidades — ranking, preço teto, viés, descontos</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">FIIs por tipo — Tijolo / Papel / Híbrido</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Metas da Carteira — Renda Passiva (meta mensal × média de proventos)</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Metas da Carteira — Patrimônio (meta × patrimônio atual), campo pré-preenchido com a sugestão do cálculo FIRE já existente na planilha (R$ 3.472.951,25) — você pode aceitar ou trocar por outro valor</span><span class="tag edit">você cadastra</span></div>
+    </div>
+    <div class="note">Fonte: aba <b>Distribuição e Metas</b> da planilha (Objetivos da Carteira, ranking de Ações/FIIs/Internacional, bloco "Cálculo futuro de patrimônio" em K17:S19) — meta mensal e meta de patrimônio são valores que você edita quando quiser, e ficam salvos.</div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Carteiras</h3></div>
+    <p class="purpose">Detalhe por classe de ativo — a página principal traz os gráficos agregados; cada classe tem sua própria sub-página.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Ações</span><span class="subpage-chip">FIIs</span>
+      <span class="subpage-chip">Ações Internacionais</span><span class="subpage-chip">Renda Fixa</span>
+      <span class="subpage-chip">Detalhe do Ativo</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Gráfico de rentabilidade vs. benchmark, em cada sub-página de classe</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Gráficos agregados por classe — patrimônio + resultado (carteira e +proventos), donut por ativo, donut por setor, barra de % variação e R$ variação (por ativo e por setor)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Detalhe do Ativo — clique em qualquer linha da tabela de ativos abre a posição individual</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Colunas exatas de cada tabela por classe</span><span class="tag real">dado real</span></div>
+    </div>
+    <div class="note">
+      <p style="margin:0">Comparação por classe, uma linha por indicador — <b>Ações Nacionais</b>: Portfólio × CDI × Ibovespa · <b>Ações Internacionais</b>: Portfólio × S&amp;P 500 × Ibovespa · <b>FIIs</b>: Portfólio × CDI × IFIX · <b>Renda Fixa</b>: Portfólio × CDI × Selic. Cada gráfico vive na sub-página da classe correspondente (carteiras/acoes.html, /acoes-eua.html, /fiis.html, /renda-fixa.html).</p>
+      <p style="margin:10px 0 0">Gráficos agregados: seguem o print que você mandou ("Intelinveste 7.0 — Ações") — patrimônio da classe + resultado (R$ e %, versão "carteira" e versão "carteira + proventos"), um donut de composição por ativo, um donut por setor, e barras horizontais de variação (% e R$) tanto por ativo quanto por setor. Confirmei que isso bate com o que a planilha já calcula nas abas <b>Aux_dash_Geral</b> (patrimônio, variação R$/%, distribuição), <b>Aux_dash_Ações</b>/<b>Aux_dash_FIIs</b> (ranking de maiores altas/baixas) e <b>Auxiliar_dash_USA</b> — mesmo padrão vale pra FIIs e Ações EUA.</p>
+      <p style="margin:10px 0 0"><b>Colunas por classe</b> — abri as abas <b>Carteira Ações</b>, <b>Carteira FIIs</b> e <b>Carteira Ações USA</b> pra conferir. Agrupando por tipo (nomes exatos na planilha, todas colunas automáticas exceto onde eu marco manual):</p>
+      <p style="margin:8px 0 0"><b>Ações (BR e EUA, mesmo padrão):</b> Identificação (Ticker, Nome, Tipo da carteira, Setor, SubSetor, Segmento) · Posição (Quantidade de ações, Quantidade meta — manual, Fechamento dia anterior, Valor atual, Variação dia, Preço médio de compra, Comprar? Preço teto — manual) · Valuation (Valor justo Bazin/Graham, Margem de segurança Bazin/Graham, Variação em 504 dias, Min./Max. Valor 52, Coeficiente MinMax) · Fundamentos (DY %, DY R$/ação, VPA, LPA, Margem Bruta/Líquida, ROE, ROA, ROIC, CAGR Receitas/Lucros 5 anos, Liquidez Diária — só na BR, P/L) · Resultado (Total comprado, Total Hoje, Lucro/Prejuízo R$ e %, Proventos totais, Lucro + Dividendos R$ e %, Proventos no ano, DY ano %, Peso na carteira). Ações EUA usa os mesmos campos, em USD.</p>
+      <p style="margin:8px 0 0"><b>FIIs:</b> Identificação (Ticker, Nome, Tipo — Tijolo/Papel/Híbrido, Segmento) · Posição (Quantidade de cotas, Quantidade meta, Fechamento dia anterior, Valor atual, Variação dia, Preço médio, Comprar? Preço teto) · Valuation (Variação em 504 dias, Min./Max. Valor 52, Coeficiente MinMax, P/VP) · Fundamentos (DY %, Liquidez Diária, % em caixa, Patrimônio do fundo) · Resultado (Total comprado, Total Hoje, Lucro/Prejuízo R$ e %, Proventos totais, Lucro + Dividendos R$ e %, Proventos no ano, DY ano %, Peso).</p>
+      <p style="margin:8px 0 0">Os cálculos agregados (patrimônio da classe, variação total, ranking de maiores altas/baixas) usam as abas auxiliares <b>Aux_dash_Ações</b> / <b>Aux_dash_FIIs</b> / <b>Auxiliar_dash_USA</b> / <b>Aux_dash_Proventos</b> como fonte — não precisamos recalcular nada do zero, só replicar a lógica.</p>
+      <p style="margin:10px 0 0"><b>Detalhe do Ativo</b> — em vez de escolher um dos dois padrões dos prints, você pediu pra somar tudo: a página combina os dois, com as métricas repetidas contando uma vez só. Estrutura final, pras 4 classes:</p>
+      <p style="margin:8px 0 0">1) <b>Cabeçalho</b> — categoria › classe (ex. "Renda Variável / Ações"), ticker + nome, corretora, e pra títulos de Renda Fixa também o tipo do título e data de vencimento.</p>
+      <p style="margin:4px 0 0">2) <b>Tiles de resumo</b> (uma linha só, sem duplicar conceito) — Valor atualizado (= Saldo bruto), Valor investido (= Valor aplicado), Preço médio, Quantidade total, Últ. cotação, Resultado/P&amp;L, Rentabilidade TWR, Rentabilidade TIR, Rent. sobre preço médio, Dividend Yield, Proventos totais — e, só em Ações Internacionais, Preço do dólar na data.</p>
+      <p style="margin:4px 0 0">3) <b>Gráfico de Rentabilidade</b> — linha do ativo vs. benchmark da classe, mesmo par usado no gráfico de Carteiras: CDI+Ibovespa (Ações) / CDI+IFIX (FIIs) / CDI+Selic (Renda Fixa, sempre — mesmo pra um título indexado ao IPCA, pra manter um único padrão em todo o app) / S&amp;P+Ibovespa (Ações Internacionais), com seletor de período.</p>
+      <p style="margin:4px 0 0">4) <b>Gráfico de área "Valor Aplicado × Saldo Bruto"</b> ao longo do tempo — mostra visualmente quanto do saldo atual é aporte vs. valorização.</p>
+      <p style="margin:4px 0 0">5) <b>Histórico</b> — uma tabela só de lançamentos (Data, Tipo, Quantidade, Preço, Câmbio quando for ativo internacional, Custos Op., Valor total, Origem), cobrindo o que os prints mostravam separado como "Histórico" e "Extrato".</p>
+      <p style="margin:10px 0 0">Um ticker novo (nunca comprado antes) que entrar via importação B3 não tem linha pronta nessas abas — ao contrário de Transações, Carteira Ações/FIIs/Ações USA não têm buffer de linhas vazias. Em vez de criar essa linha sozinha (o que exigiria adivinhar Nome/Setor/SubSetor/Segmento), a importação bloqueia e avisa: "essa ação não existe na carteira, inclua antes de importar". O fluxo espera que o ativo já esteja cadastrado na Carteira correspondente antes de trazer transações dele.</p>
+    </div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Transações</h3></div>
+    <p class="purpose">O núcleo operacional. Transações Brasileiras ganha importação automática do extrato da B3; Registros de Compras, Internacional e Renda Fixa continuam manuais, como você já faz na planilha.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Registros de Compras</span><span class="subpage-chip">Transações Brasileiras</span>
+      <span class="subpage-chip">Transações Internacionais</span><span class="subpage-chip">Transações Renda Fixa</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Registros de Compras — planejamento mensal, independente de Transações</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Transações Brasileiras — importar direto do extrato da B3 (.xlsx): você anexa o arquivo, o site lê no navegador, mostra uma pré-visualização (Ticker/Data/Tipo/Preço/Qtd/Taxa — editável, célula a célula, antes de confirmar) e só então grava na planilha. Lançamento manual continua disponível como alternativa, no mesmo lugar.</span><span class="tag new">nova automação</span></div>
+      <div class="row"><span class="label">Transações Internacionais — log do que já foi executado, sempre manual (a B3 não emite esse extrato pra ativos internacionais)</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Transações Renda Fixa — página própria, separada de Brasil/Internacional, sempre manual</span><span class="tag edit">você cadastra</span></div>
+    </div>
+    <div class="note">A tabela de Renda Fixa tem colunas diferentes das outras (Data de Emissão, Vencimento) — por isso fica separada, não misturada com Transações Brasil/Internacional. <b>Importação B3:</b> lida no navegador com a biblioteca gratuita SheetJS (licença Apache 2.0, sem custo, sem servidor extra) — não sobe o arquivo pra lugar nenhum antes de processar. Tipos de movimentação fora de Compra/Venda (bonificação, desdobramento, direitos de subscrição etc.) ainda não são tratados automaticamente: ficam listados à parte na pré-visualização, sinalizados, em vez de entrar sem confirmação. A gravação de verdade na planilha não precisa de uma segunda implantação do Apps Script — a mesma URL `/exec` já publicada ganha suporte a POST quando chegarmos nessa etapa. Achado importante conferindo o export real da planilha: as fórmulas de Transações/Transações-USA (inclusive "Cotas até a data" e toda a cadeia de preço médio) já vêm pré-preenchidas em ~10.800 linhas — lançar uma transação nova não exige copiar fórmula nenhuma, só escrever nas colunas A-F da primeira linha vazia. Se o extrato trouxer um ticker que ainda não existe na Carteira correspondente, a importação não tenta cadastrá-lo sozinha — avisa e pede pra você incluir o ativo primeiro; a expectativa é sempre cadastrar a ação antes de importar as transações dela.</div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Proventos e Dividendos</h3></div>
+    <p class="purpose">Histórico e calendário do que você recebeu e vai receber — layout baseado nos prints que você mandou (estilo Gorila).</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Nacionais</span><span class="subpage-chip">Internacionais</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Nacionais e Internacionais continuam como 2 páginas separadas — cada uma com abas internas Consolidado / Agenda</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Aba Consolidado — 4 tiles (Total investido, Renda acumulada, Média mensal, Resultado/YoC, cada um com o valor "últimos 12 meses") + card "Proventos a receber" + pílulas de período (No ano / 12 / 24 / 36 meses / Do início)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Aba Agenda — seletor de ano, 12 selos de mês com contagem de lançamentos, filtro Todos/Realizado/A realizar</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Aba Agenda — tabela por lançamento: Ativo, Tipo (Rendimentos/JCP/Dividendos), Valor por ação, Qtd., Preço médio, Câmbio, Data-com, Pagamento (badge realizado ✓ ou pendente 🕐), Total</span><span class="tag real">dado real</span></div>
+    </div>
+    <div class="note">O par de abas Consolidado/Agenda (estilo Gorila, dos prints que você mandou) se repete dentro de cada uma das 2 páginas — Nacionais e Internacionais continuam separadas, como na ideia original. Renda Fixa fica de fora dessa página — a planilha não tem uma aba de "Proventos" pra Renda Fixa (só Ações/FIIs têm); qualquer rendimento de juros de título aparece só dentro do Detalhe do Ativo daquele título, no gráfico Valor Aplicado × Saldo Bruto.</div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Organização Financeira</h3></div>
+    <p class="purpose">Orçamento pessoal — despesas fixas e composição da renda/reserva.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Despesas Essenciais</span><span class="subpage-chip">Salário e Renda Emergencial</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Despesas Essenciais — lista + total mensal + ajuste de segurança 10%</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Renda Emergencial — média de gastos mensais, meses de reserva desejados, valor alvo da reserva (com e sem margem de segurança de 10%)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Salário — líquido mensal, % e valor destinado a investir</span><span class="tag real">dado real</span></div>
+    </div>
+    <div class="note">Fonte confirmada célula a célula na aba <b>Distribuição e Metas</b>: bloco "Renda Emergencial: Média de Gastos" em K8, tabela em K10:M11 (Média de Gastos R$ 9.891,80 · Meses 6 · Total R$ 59.350,83), linha 12 acrescenta a margem de segurança de 10% (R$ 65.285,91, rótulo "Sobra"). Bloco "Salário" em N8, com Líquido em N11 (R$ 14.961,37) e % + valor mensal a investir em Q11/S11 (20% → R$ 2.992,27). Isso é separado da aba <b>Despesas Essenciais</b> (total R$ 9.891,80/mês), que é a fonte de origem do mesmo número de "Média de Gastos".</div>
+  </div>
+
+  <h2 class="section-title">Decisões já tomadas</h2>
+  <div class="decisions">
+    <div class="decision"><span class="ic">✓</span>Renda Emergencial × Investimentos de Longo Prazo é definido pela marcação manual na aba Carteira Renda Fixa (coluna B), não pelo tipo do título — uma posição em Tesouro Selic pode estar marcada como qualquer um dos dois.</div>
+    <div class="decision"><span class="ic">✓</span>Metas da Carteira ficam em Distribuições e Metas: Renda Passiva compara meta mensal (editável) com a média mensal real de Proventos; Patrimônio compara meta (editável) com o patrimônio total calculado.</div>
+    <div class="decision"><span class="ic">✓</span>Tipo de FII (Tijolo/Papel/Híbrido) já existe como coluna na planilha — não precisa de classificação nova.</div>
+    <div class="decision"><span class="ic">✓</span>Cotações: GOOGLEFINANCE via Apps Script para Ações BR/FIIs/EUA + Ibovespa + IFIX; Banco Central para CDI; câmbio via AwesomeAPI ou GOOGLEFINANCE.</div>
+    <div class="decision"><span class="ic">✓</span>Estrutura de arquivos: páginas HTML separadas, sem framework (sem React) — ver justificativa na seção acima. Topbar/nav/tema compartilhados via um include de JS puro, sem build tool.</div>
+    <div class="decision"><span class="ic">✓</span>Rentabilidade (Portfólio × Ibovespa × CDI) mora dentro de cada uma das 3 visões da Início, com seletor de visão; default Patrimônio total.</div>
+    <div class="decision"><span class="ic">✓</span>Carteiras ganha um gráfico de rentabilidade vs. benchmark por classe: Ações Nacionais → CDI + Ibovespa · Ações Internacionais → S&amp;P 500 + Ibovespa · FIIs → CDI + IFIX · Renda Fixa → CDI + Selic.</div>
+    <div class="decision"><span class="ic">✓</span>Transações Renda Fixa é página própria, separada de Brasil/Internacional (tabela com colunas diferentes).</div>
+    <div class="decision"><span class="ic">✓</span>Proventos e Dividendos: Nacionais e Internacionais continuam como 2 páginas separadas; dentro de cada uma, abas Consolidado + Agenda seguindo os prints estilo Gorila (tiles, seletor de ano/mês, tabela de lançamentos).</div>
+    <div class="decision"><span class="ic">✓</span>Carteiras: os gráficos agregados da página principal e de cada sub-página de classe seguem o print "Intelinveste 7.0" — patrimônio + resultado (carteira e +proventos), donut por ativo, donut por setor, barras de variação % e R$ (por ativo e por setor).</div>
+    <div class="decision"><span class="ic">✓</span>Nova página: Detalhe do Ativo, dentro de Carteiras — clicar em qualquer linha da tabela de "Meus ativos" abre a posição individual (tiles de rentabilidade/posição + histórico de lançamentos ou gráfico valor aplicado × saldo, conforme a classe).</div>
+    <div class="decision"><span class="ic">✓</span>Colunas de cada tabela de Carteiras confirmadas direto nas abas reais <b>Carteira Ações</b>, <b>Carteira FIIs</b> e <b>Carteira Ações USA</b> — Ações (BR/EUA) e FIIs têm estrutura parecida (identificação, posição, valuation, fundamentos, resultado), com pequenas diferenças por classe (ex.: FIIs tem P/VP e % em caixa; Ações têm P/L, ROE/ROA/ROIC). Os agregados usam as abas <b>Aux_dash_Ações/FIIs/Proventos</b> e <b>Auxiliar_dash_USA</b> como fonte de cálculo.</div>
+    <div class="decision"><span class="ic">✓</span>Detalhe do Ativo confirmado também pra Renda Fixa e Ações Internacionais, com base em novos prints — Ações Internacionais é igual à versão BR, só some "Preço do dólar" e "Câmbio".</div>
+    <div class="decision"><span class="ic">✓</span>Detalhe do Ativo soma os 2 padrões de layout que apareceram nos prints, em vez de escolher um: tiles de resumo (TWR/TIR + Quantidade/Saldo Bruto, sem duplicar métrica), gráfico de Rentabilidade vs. benchmark, gráfico de área Valor Aplicado × Saldo Bruto, e uma tabela única de Histórico — mesma estrutura pras 4 classes.</div>
+    <div class="decision"><span class="ic">✓</span>Benchmark de Renda Fixa é sempre CDI + Selic — em Carteiras e no Detalhe do Ativo, mesmo pra títulos indexados ao IPCA. Um único padrão em todo o app, em vez de variar por indexador do título.</div>
+    <div class="decision"><span class="ic">✓</span>Benchmark da Home também varia por visão: Total e Longo Prazo usam Ibovespa + CDI; Renda Emergencial usa CDI + Selic, porque é 100% Renda Fixa.</div>
+    <div class="decision"><span class="ic">✓</span>Células exatas de Renda Emergencial e Salário confirmadas na aba Distribuição e Metas (K8:S12) — ver nota da página Organização Financeira.</div>
+    <div class="decision"><span class="ic">✓</span>Meta de Patrimônio, em Distribuições e Metas, vem pré-preenchida com a sugestão do cálculo FIRE que já existe na planilha (R$ 3.472.951,25) — você edita se quiser outro valor.</div>
+    <div class="decision"><span class="ic">✓</span>Proventos de Renda Fixa (juros) não entram na página Proventos e Dividendos — a planilha não tem essa aba pra Renda Fixa. Aparecem só dentro do Detalhe do Ativo de cada título.</div>
+    <div class="decision"><span class="ic">✓</span>GOOGLEFINANCE do S&amp;P 500 testado por você direto na planilha e retornou valor — benchmark de Ações Internacionais confirmado, não é mais suposição.</div>
+    <div class="decision"><span class="ic">✓</span>Transações Brasileiras ganha importação automática do extrato da B3 (.xlsx): lida no navegador com a biblioteca gratuita SheetJS, pré-visualização editável antes de confirmar, sem exigir uma segunda implantação do Apps Script. Internacional e Renda Fixa continuam sempre manuais.</div>
+    <div class="decision"><span class="ic">✓</span>Fórmulas de Transações/Transações-USA (Cotas até a data + cadeia de preço médio) já vêm pré-preenchidas em ~10.800 linhas na planilha real — confirmado abrindo o export .xlsx. Uma transação nova só precisa escrever nas colunas A-F; Carteira Ações/FIIs/Ações USA não têm esse buffer e exigem inserir linha + copiar fórmula quando o ticker é novo.</div>
+    <div class="decision"><span class="ic">✓</span>Badge de sincronização na topbar compartilhada (shell.html): "Sincronizado em DD/MM às HH:MM — Sucesso/Atenção/Erro", com cor por estado. Alimentado por uma aba própria "Registro de Controle" (separada do histórico de patrimônio), atualizada tanto pelo gatilho automático diário (segunda a sábado, 10:01) quanto por um botão manual de sincronizar. Em falha parcial (Atenção), um retry reprocessa só os ativos que falharam, não o lote todo.</div>
+    <div class="decision"><span class="ic">✓</span>Ticker novo (nunca comprado) na importação B3: nada de auto-cadastro. O fluxo espera que você já tenha incluído o ativo em Carteira Ações/FIIs antes de importar — se a importação encontrar um ticker que ainda não existe lá, ela avisa ("essa ação não existe na carteira, inclua antes de importar") em vez de tentar preencher Nome/Setor/SubSetor/Segmento sozinha.</div>
+  </div>
+
+  <h2 class="section-title">Perguntas em aberto</h2>
+  <p class="section-hint">Uma, por enquanto:</p>
+  <div class="qlist">
+    <div class="question"><span class="ic">?</span>Os gráficos agregados detalhados de FIIs/Ações EUA (colunas exatas, olhando as abas 📈Dash correspondentes) — decidir com calma quando chegarmos lá.</div>
+  </div>
+
+  <footer>Nenhum HTML de app foi alterado — este é só o plano de páginas.</footer>
+</div>
