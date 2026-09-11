@@ -163,8 +163,12 @@
 
   <div class="card" id="sincronizar-card" style="display:none">
     <h2>Sincronização do histórico de patrimônio (sync.gs)</h2>
-    <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=sincronizarAgora</span> (form-urlencoded, igual o Postman) — mesmo botão que vai existir no app de verdade. Se a resposta vier com ativos "não processados" (tempo esgotado), chama de novo sozinho só com esses, até zerar — assim testa em lotes sem esbarrar no limite de 6min do Apps Script numa chamada só.</p>
-    <button id="btn-sincronizar" type="button">Sincronizar agora</button>
+    <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=sincronizarAgora</span> (form-urlencoded, igual o Postman) — mesmo botão que vai existir no app de verdade. Se a resposta vier com ativos "não processados" (tempo esgotado), chama de novo sozinho só com esses, até zerar. Pro backfill completo (1ª vez, histórico desde a 1ª transação de cada ativo), os 3 botões por tipo abaixo separam em grupos menores — cada um tem mais chance de terminar numa rodada só, sem precisar retomar.</p>
+    <button id="btn-sincronizar-acoes" type="button">Sincronizar Ações BR</button>
+    <button id="btn-sincronizar-fiis" type="button" style="margin-left:8px">Sincronizar FIIs</button>
+    <button id="btn-sincronizar-eua" type="button" style="margin-left:8px">Sincronizar Ações EUA</button>
+    <br style="line-height:2.4">
+    <button id="btn-sincronizar" type="button">Sincronizar tudo (29 ativos)</button>
     <button id="btn-syncstatus" type="button" style="background:var(--surface);color:var(--accent);margin-left:8px">Ver status da última sincronização</button>
     <div id="sincronizar-results" style="margin-top:12px"></div>
   </div>
@@ -603,15 +607,21 @@
   });
 
   // ---- Bloco 2b: Sincronização do histórico (sync.gs) — doPost, em lotes ----
-  document.getElementById('btn-sincronizar').addEventListener('click', async function () {
-    const btn = this;
+  // Mesmas listas do sync.gs (TICKERS_BR/TICKERS_USA), só separadas por tipo
+  // pra dar pra rodar o backfill completo em grupos menores — cada grupo tem
+  // mais chance de terminar numa única chamada, sem precisar de retomada.
+  const TICKERS_ACOES_BR = ['WIZC3', 'VAMO3', 'SEER3', 'TUPY3', 'AXIA7', 'AGRO3', 'B3SA3', 'BBAS3', 'BBSE3', 'EGIE3', 'PETR4', 'VALE3'];
+  const TICKERS_FIIS = ['BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11', 'RBRY11', 'KNUQ11', 'HGRU11', 'XPML11'];
+  const TICKERS_ACOES_EUA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
+
+  async function executarSincronizacao(btn, tickersIniciais, textoOriginal) {
     const out = document.getElementById('sincronizar-results');
     if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
 
     btn.disabled = true;
     out.innerHTML = '';
 
-    let tickersPendentes = null; // null = todos os 29 (1ª rodada)
+    let tickersPendentes = tickersIniciais; // null = todos os 29
     let rodada = 1;
     let ultimoResultado = null;
 
@@ -654,8 +664,21 @@
       out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Sincronizar agora';
+      btn.textContent = textoOriginal;
     }
+  }
+
+  document.getElementById('btn-sincronizar-acoes').addEventListener('click', function () {
+    executarSincronizacao(this, TICKERS_ACOES_BR, 'Sincronizar Ações BR');
+  });
+  document.getElementById('btn-sincronizar-fiis').addEventListener('click', function () {
+    executarSincronizacao(this, TICKERS_FIIS, 'Sincronizar FIIs');
+  });
+  document.getElementById('btn-sincronizar-eua').addEventListener('click', function () {
+    executarSincronizacao(this, TICKERS_ACOES_EUA, 'Sincronizar Ações EUA');
+  });
+  document.getElementById('btn-sincronizar').addEventListener('click', function () {
+    executarSincronizacao(this, null, 'Sincronizar tudo (29 ativos)');
   });
 
   document.getElementById('btn-syncstatus').addEventListener('click', async function () {
