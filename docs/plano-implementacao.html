@@ -385,7 +385,7 @@ distribuicoes-metas.html
     <div class="phase">
       <div class="num">0</div>
       <div class="ttl">Fundação</div>
-      <div class="desc">Redefinida nesta revisão como fase de testes: repositório no GitHub, projeto Apps Script publicado, login Google de ponta a ponta, <span class="mono">manifest.json</span> + ícones + <span class="mono">sw.js</span> (PWA), <span class="mono">Auxiliar_app</span> criada com os cálculos agregados, o histórico de patrimônio reconstruído via GOOGLEFINANCE + Transações, e <b>todo item da checklist abaixo</b> confirmado direto na planilha real — nenhum handler de página de verdade é escrito antes disso.</div>
+      <div class="desc">Redefinida nesta revisão como fase de testes: repositório no GitHub, projeto Apps Script publicado, login Google de ponta a ponta, <span class="mono">Auxiliar_app</span> criada com os cálculos agregados, o histórico de patrimônio reconstruído via GOOGLEFINANCE + Transações, e <b>todo item da checklist abaixo</b> confirmado direto na planilha real — nenhum handler de página de verdade é escrito antes disso. <span class="mono">manifest.json</span> + ícones + <span class="mono">sw.js</span> (PWA) passaram pra Fase 1, junto com o resto da fundação de front-end.</div>
       <div class="deliv"><b>Entregável</b> — uma página em branco que exige login, e depois do login, busca e mostra um "Olá, funcionou" vindo de verdade do Apps Script.</div>
     </div>
     <div class="phase">
@@ -599,6 +599,10 @@ distribuicoes-metas.html
         <tr><td>Módulo de autenticação</td><td>Gerencia o token do Google Identity Services (guarda em memória durante a sessão, expõe pro cliente da API, trata token ausente/expirado) — separado da UI de login</td><td><span class="tag">a fazer</span></td></tr>
         <tr><td>Testes unitários — autenticação</td><td>Token ausente, token expirado, token válido passado adiante pro cliente da API</td><td><span class="tag">a fazer</span></td></tr>
         <tr><td>Estrutura compartilhada de UI (shell)</td><td><span class="mono">shell.css</span> / <span class="mono">shell.html</span> / <span class="mono">shell.js</span> — topbar, nav, tema, filtro de período, badge de sincronização — já consumindo os módulos de auth + cliente de API acima, injetada via JS puro em cada página</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Ícones do PWA</td><td><span class="mono">assets/icons/</span> — monograma "P" sobre fundo <span class="mono">--acoes</span>, aprovado em preview visual: <span class="mono">icon-192.png</span>, <span class="mono">icon-512.png</span>, <span class="mono">icon-512-maskable.png</span> (zona segura 80% pro recorte circular/squircle do Android) e <span class="mono">apple-touch-icon.png</span> (180px, iOS)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">concluído ✓</span></td></tr>
+        <tr><td><span class="mono">manifest.json</span></td><td>Nome do app, os 4 ícones acima (com <span class="mono">purpose</span> "any"/"maskable"), cor de tema (<span class="mono">--acoes</span>), <span class="mono">"display": "standalone"</span></td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Service worker (<span class="mono">sw.js</span>)</td><td>Cache-first pro esqueleto estático (CSS/JS/ícones), network-first pro HTML de cada página, <b>nunca</b> cacheia resposta do Apps Script/GOOGLEFINANCE/BCB — dado financeiro sempre fresco</td><td><span class="tag">a fazer</span></td></tr>
+        <tr><td>Blocinho PWA no <span class="mono">&lt;head&gt;</span></td><td>Link pro manifest, <span class="mono">theme-color</span>, <span class="mono">apple-touch-icon</span>, <span class="mono">apple-mobile-web-app-capable</span> — colado em toda página HTML, junto com <span class="mono">shell.js</span> (item acima)</td><td><span class="tag">a fazer</span></td></tr>
       </tbody>
     </table>
   </div>
