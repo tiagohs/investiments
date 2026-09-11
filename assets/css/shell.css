@@ -100,7 +100,7 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
 .refresh-pill{ display:flex; align-items:center; gap:6px; background:var(--surface);
       border:1px solid var(--border); border-radius:100px; padding:6px 12px 6px 10px;
       font-size:12px; color:var(--ink-muted); box-shadow:var(--shadow); }
-.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); }
+.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); flex:none; }
 .theme-btn{ border:1px solid var(--border); background:var(--surface); color:var(--ink);
       border-radius:100px; padding:7px 14px; font-family:var(--body-f); font-size:12.5px;
       font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
@@ -192,7 +192,26 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
 .toast.bad .bar{ background:var(--bad); }
 @keyframes toastbar{ from{ width:100%; } to{ width:0%; } }
 
-/* ---- Small screens ---- */
+/* ---- Small screens (phone width, ~390-428px is the common case) ---- */
 @media (max-width:640px) {
-  .sync-panel{ width:min(340px, calc(100vw - 40px)); right:-40px; }
+  .wrap{ padding:16px 16px 96px; }
+  .topbar{ gap:8px 10px; }
+
+  /* Date range text and "cotações há Xmin" label are the least essential
+     bits of the topbar - drop them first so the controls that matter
+     (sync badge, period, theme) always fit without wrapping into a mess. */
+  .period-btn .range{ display:none; }
+  .refresh-pill .label{ display:none; }
+  .refresh-pill{ padding:6px; }
+
+  .sync-panel{ width:min(340px, calc(100vw - 32px)); right:-16px; }
+  .period-panel{ width:min(270px, calc(100vw - 32px)); right:-16px; }
+
+  .tabs{ margin:-4px 0 20px; padding-bottom:2px; }
+}
+
+@media (max-width:420px) {
+  /* Narrowest phones: the refresh pill is nice-to-have context, not a
+     control - drop it entirely rather than let 4 pills fight for space. */
+  .refresh-pill{ display:none; }
 }
