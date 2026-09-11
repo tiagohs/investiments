@@ -1,16 +1,16 @@
 /**
- * config.js — constantes compartilhadas do projeto, num lugar só.
+ * config.js — shared constants for the project, in one place.
  *
- * Antes viviam soltas dentro do <script> de cada página (ver teste.html,
- * que continua com sua própria cópia — é scaffold descartável, não o
- * padrão do app real). Todo módulo/página que precisar da URL do Web App
- * ou do Client ID do login importa daqui, em vez de repetir o valor.
+ * Previously scattered inside each page's <script> block (see teste.html,
+ * which keeps its own copy — it's disposable scaffold, not the pattern
+ * for the real app). Any module/page that needs the Web App URL or the
+ * login Client ID imports it from here instead of repeating the value.
  */
 
-// URL de implantação (/exec) do Apps Script Web App — muda se uma nova
-// implantação for criada (não só uma nova versão da mesma implantação).
+// Deployment (/exec) URL of the Apps Script Web App — changes if a new
+// deployment is created (not just a new version of the same deployment).
 export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4WvFaADThJQVf2IzfW9i2TXRUqfvBNAg_wEjqNUAlqipKs40ZyVEehDRzx5eh40sFJw/exec';
 
-// Client ID OAuth do Google Identity Services — precisa bater com o que
-// o Apps Script valida em Auth.gs (verificarToken checa payload.aud).
+// Google Identity Services OAuth Client ID — must match what the Apps
+// Script validates in Auth.gs (verificarToken checks payload.aud).
 export const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com';
