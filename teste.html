@@ -160,9 +160,17 @@
     <button id="btn-backfilltodos" type="button">Testar backfill — todos os ativos (resumo)</button>
     <div id="backfilltodos-results" style="margin-top:12px"></div>
   </div>
+
+  <div class="card" id="importb3-card">
+    <h2>Importar B3 — teste de leitura (não grava nada)</h2>
+    <p class="hint" style="margin:0 0 10px">Não precisa de login. Anexe o arquivo .xlsx que você baixa direto do site da B3 (extrato de Negociação de ativos). Isso só processa no seu navegador e mostra o resultado — nenhuma linha é gravada na planilha ainda. Objetivo: confirmar que o cabeçalho é reconhecido, que "Compra"/"Venda" são separados corretamente do resto, e que Ticker/Data/Preço/Qtd saem certos antes de decidirmos como gravar.</p>
+    <input id="input-b3" type="file" accept=".xlsx,.xls">
+    <div id="importb3-results" style="margin-top:12px"></div>
+  </div>
 </div>
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
   // ---- CONFIGURAÇÃO — os 2 valores reais do projeto ----
   const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com';
@@ -583,6 +591,123 @@
       renderTabela2D(out, 'Tabela 2 (a partir de A14)', t.tabela2);
       renderTabela2D(out, 'Tabela 3 (a partir de A18)', t.tabela3);
     });
+  });
+
+  // ---- Bloco 3: Importar B3 — teste de leitura, 100% no navegador, não grava nada ----
+  document.getElementById('input-b3').addEventListener('change', function (ev) {
+    const out = document.getElementById('importb3-results');
+    const file = ev.target.files[0];
+    out.innerHTML = '';
+    if (!file) return;
+    out.innerHTML = '<p class="hint" style="margin:0">Lendo arquivo...</p>';
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+
+        // Acha a linha de cabeçalho procurando pelos rótulos conhecidos do extrato da B3
+        // (em vez de assumir que é sempre a linha 1 — o extrato às vezes vem com linhas antes).
+        const ROTULOS = ['Data do Negócio', 'Tipo de Movimentação', 'Mercado', 'Código de Negociação', 'Quantidade', 'Preço'];
+        let linhaCabecalho = -1;
+        let indices = {};
+        for (let i = 0; i < Math.min(15, linhas.length); i++) {
+          const linha = (linhas[i] || []).map(function (v) { return String(v).trim(); });
+          if (linha.indexOf('Data do Negócio') !== -1 && linha.indexOf('Código de Negociação') !== -1) {
+            linhaCabecalho = i;
+            ROTULOS.forEach(function (r) { indices[r] = linha.indexOf(r); });
+            break;
+          }
+        }
+
+        if (linhaCabecalho === -1) {
+          out.innerHTML = '<p class="fail-line">Não encontrei o cabeçalho esperado (colunas "Data do Negócio" + "Código de Negociação") nas primeiras 15 linhas. Confirma que é o extrato de Negociação exportado direto do site da B3?</p>';
+          return;
+        }
+
+        function paraData(v) {
+          if (v instanceof Date) return v;
+          if (typeof v === 'string') {
+            const m = v.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (m) return new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+          }
+          return null;
+        }
+        function formatarData(d) {
+          if (!d) return '';
+          const dd = String(d.getDate()).padStart(2, '0');
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          return `${dd}/${mm}/${d.getFullYear()}`;
+        }
+        function paraNumero(v) {
+          if (typeof v === 'number') return v;
+          if (typeof v !== 'string') return null;
+          let s = v.replace(/[^\d,.-]/g, '').trim();
+          if (s === '') return null;
+          if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+          s = s.replace(/\./g, '').replace(',', '.');
+          const n = parseFloat(s);
+          return isNaN(n) ? null : n;
+        }
+
+        const reconhecidas = [];
+        const ignoradas = [];
+
+        for (let i = linhaCabecalho + 1; i < linhas.length; i++) {
+          const linha = linhas[i];
+          if (!linha || linha.every(function (v) { return v === '' || v === undefined; })) continue;
+
+          const tipoMov = String(linha[indices['Tipo de Movimentação']] || '').trim();
+          const ticker = String(linha[indices['Código de Negociação']] || '').trim();
+          const data = paraData(linha[indices['Data do Negócio']]);
+          const qtd = paraNumero(linha[indices['Quantidade']]);
+          const preco = paraNumero(linha[indices['Preço']]);
+          const mercado = String(linha[indices['Mercado']] || '').trim();
+
+          if (!ticker && !tipoMov) continue;
+
+          if (tipoMov !== 'Compra' && tipoMov !== 'Venda') {
+            ignoradas.push({ data: formatarData(data), ticker: ticker || '(vazio)', tipo_de_movimentacao: tipoMov || '(vazio)', motivo: 'tipo de movimentação não tratado automaticamente ainda' });
+            continue;
+          }
+          if (!ticker || !data || qtd === null || preco === null) {
+            ignoradas.push({ data: formatarData(data), ticker: ticker || '(vazio)', tipo_de_movimentacao: tipoMov, motivo: 'faltou ticker, data, quantidade ou preço' });
+            continue;
+          }
+
+          reconhecidas.push({
+            Ticker: ticker,
+            'Data Transação': formatarData(data),
+            _dataOrdenacao: data,
+            'Tipo da transação': tipoMov,
+            'Preço': preco,
+            'Qtd.': qtd,
+            'Taxa transação': '',
+            Mercado: mercado
+          });
+        }
+
+        reconhecidas.sort(function (a, b) { return a._dataOrdenacao - b._dataOrdenacao; });
+        reconhecidas.forEach(function (r) { delete r._dataOrdenacao; });
+
+        out.innerHTML = '';
+        renderKV(out, 'Resumo', {
+          ok: true,
+          linha_cabecalho_encontrada_na_linha: linhaCabecalho + 1,
+          reconhecidas_como_compra_ou_venda: reconhecidas.length,
+          ignoradas: ignoradas.length
+        });
+        renderListaObjetos(out, 'Transações reconhecidas (Compra/Venda) — já ordenadas por data, prontas pro formato Ticker/Data/Tipo/Preço/Qtd/Taxa', { ok: true, linhas: reconhecidas }, 'linhas');
+        if (ignoradas.length) {
+          renderListaObjetos(out, 'Ignoradas nesta pré-visualização (não é Compra/Venda, ou faltou dado)', { ok: true, linhas: ignoradas }, 'linhas');
+        }
+      } catch (err) {
+        out.innerHTML = `<p class="fail-line">Falha ao ler o arquivo: ${String(err)}</p>`;
+      }
+    };
+    reader.readAsArrayBuffer(file);
   });
 
   window.addEventListener('load', function () {
