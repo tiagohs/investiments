@@ -48,6 +48,8 @@
   #historico-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
   #sincronizar-testes-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
   #sincronizar-testes-results .ok-line{ color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
+  #importb3-testes-results .fail-line{ color:var(--bad-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
+  #importb3-testes-results .ok-line{ color:var(--good-ink); font-family:var(--mono); font-size:12.5px; margin:0 0 10px; }
 </style>
 </head>
 <body>
@@ -190,6 +192,14 @@
     <p class="hint" style="margin:0 0 10px">Não precisa de login. Anexe o arquivo .xlsx que você baixa direto do site da B3 (extrato de Negociação de ativos). Isso só processa no seu navegador e mostra o resultado — nenhuma linha é gravada na planilha ainda. Objetivo: confirmar que o cabeçalho é reconhecido, que "Compra"/"Venda" são separados corretamente do resto, e que Ticker/Data/Preço/Qtd saem certos antes de decidirmos como gravar.</p>
     <input id="input-b3" type="file" accept=".xlsx,.xls">
     <div id="importb3-results" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="importb3-testes-card">
+    <h2>Testes de Gravação em lote — importarTransacoesB3 (aux_tests)</h2>
+    <p class="hint" style="margin:0 0 10px">Chama <span style="font-family:var(--mono)">doPost</span> com <span style="font-family:var(--mono)">action=importarTransacoesB3</span> de verdade (grava célula), mas em modo teste: escreve em <span style="font-family:var(--mono)">aux_tests</span> em vez de <span style="font-family:var(--mono)">Transações</span> — pré-requisito: copie a aba "Transações" atual e renomeie a cópia pra <span style="font-family:var(--mono)">aux_tests</span> (mesma estrutura, cabeçalho linha 6, dados a partir da linha 7). A validação de ticker continua contra a Carteira real (só leitura, nada é gravado lá). Lotes usam tickers reais (WIZC3, BTLG11) só pra passar na validação — as linhas gravadas ficam em aux_tests, nunca em Transações.</p>
+    <button id="btn-teste-lote-ok" type="button">1) Gravação em lote (2 válidas: WIZC3 + BTLG11)</button>
+    <button id="btn-teste-lote-parcial" type="button" style="margin-left:8px">2) Rejeição parcial (1 ticker inválido no meio)</button>
+    <div id="importb3-testes-results" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -836,6 +846,89 @@
     } finally {
       btn.disabled = false;
       btn.textContent = '3) Simular Erro total (2 falsos, ambos falhando)';
+    }
+  });
+
+  // ---- Testes de Gravação em lote (importarTransacoesB3) — sempre em aux_tests, nunca em Transações ----
+  async function chamarImportarLoteTeste(transacoes) {
+    const body = new URLSearchParams();
+    body.set('action', 'importarTransacoesB3');
+    body.set('token', currentToken);
+    body.set('transacoes', JSON.stringify(transacoes));
+    body.set('opcoesTeste', JSON.stringify({ abaTransacoesNome: 'aux_tests' }));
+    const res = await fetch(APPS_SCRIPT_URL, { method: 'POST', body: body });
+    return res.json();
+  }
+
+  function renderResultadoLote(out, titulo, data) {
+    if (!data.ok) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Apps Script recusou — etapa: ${data.etapa || '?'} — ${data.erro || 'erro desconhecido'}</p>`);
+      return null;
+    }
+    const r = data.resultado;
+    renderKV(out, titulo, {
+      ok: true,
+      gravadas: (r.gravadas || []).join(', ') || '(nenhuma)',
+      rejeitadas: (r.rejeitadas || []).map(function (x) { return x.ticker + ' — ' + x.motivo; }).join(' | ') || '(nenhuma)'
+    });
+    return r;
+  }
+
+  document.getElementById('btn-teste-lote-ok').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('importb3-testes-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+    btn.disabled = true;
+    btn.textContent = 'Gravando em aux_tests...';
+    out.innerHTML = '';
+    try {
+      const lote = [
+        { ticker: 'WIZC3', data: '2026-01-15', tipo: 'Compra', preco: 10.5, qtd: 10, taxa: 1.9 },
+        { ticker: 'BTLG11', data: '2026-01-16', tipo: 'Venda', preco: 100.2, qtd: 2, taxa: 1.9 }
+      ];
+      const data = await chamarImportarLoteTeste(lote);
+      const r = renderResultadoLote(out, 'Teste 1 — 2 transações válidas', data);
+      if (r) {
+        const okEsperado = r.gravadas.length === 2 && r.rejeitadas.length === 0;
+        out.insertAdjacentHTML('beforeend', okEsperado
+          ? '<p class="ok-line">Bateu com o esperado: as 2 foram gravadas, 0 rejeitadas. Confira em aux_tests que caíram nas 2 primeiras linhas vazias e só nas colunas A-F.</p>'
+          : '<p class="fail-line">Não bateu com o esperado — confira os detalhes acima.</p>');
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '1) Gravação em lote (2 válidas: WIZC3 + BTLG11)';
+    }
+  });
+
+  document.getElementById('btn-teste-lote-parcial').addEventListener('click', async function () {
+    const btn = this;
+    const out = document.getElementById('importb3-testes-results');
+    if (!currentToken) { out.innerHTML = '<p class="fail-line">Faça login primeiro.</p>'; return; }
+    btn.disabled = true;
+    btn.textContent = 'Gravando em aux_tests...';
+    out.innerHTML = '';
+    try {
+      const lote = [
+        { ticker: 'WIZC3', data: '2026-01-17', tipo: 'Compra', preco: 11, qtd: 5, taxa: 1.9 },
+        { ticker: 'TICKER_INVALIDO_TESTE', data: '2026-01-18', tipo: 'Compra', preco: 5, qtd: 5, taxa: 1.9 },
+        { ticker: 'BTLG11', data: '2026-01-19', tipo: 'Compra', preco: 99, qtd: 3, taxa: 1.9 }
+      ];
+      const data = await chamarImportarLoteTeste(lote);
+      const r = renderResultadoLote(out, 'Teste 2 — 3 transações, 1 ticker inválido no meio', data);
+      if (r) {
+        const okEsperado = r.gravadas.length === 2 && r.gravadas.indexOf('WIZC3') !== -1 && r.gravadas.indexOf('BTLG11') !== -1
+          && r.rejeitadas.length === 1 && r.rejeitadas[0].ticker === 'TICKER_INVALIDO_TESTE';
+        out.insertAdjacentHTML('beforeend', okEsperado
+          ? '<p class="ok-line">Bateu com o esperado: WIZC3 e BTLG11 gravados normalmente, só o ticker inválido foi rejeitado.</p>'
+          : '<p class="fail-line">Não bateu com o esperado — confira os detalhes acima.</p>');
+      }
+    } catch (err) {
+      out.insertAdjacentHTML('beforeend', `<p class="fail-line">Chamada falhou: ${String(err)}</p>`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '2) Rejeição parcial (1 ticker inválido no meio)';
     }
   });
 
