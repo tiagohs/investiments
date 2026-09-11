@@ -1,3 +1,39 @@
-<html>
-  <body>Hello!</body>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Patrimônio</title>
+
+<!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2A78D6">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Patrimônio">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/css/shell.css">
+</head>
+<body data-section="inicio">
+
+<div class="wrap">
+  <div id="shell-header"></div>
+
+  <main>
+    <div class="section-content">
+      <h2>Início</h2>
+      <p>Fundação de front-end (Fase 1) pronta: shell, navegação e tema funcionando. O conteúdo real desta página — visões de patrimônio, gráfico de rentabilidade, índices e câmbio, grade de ativos — é a Fase 2.</p>
+    </div>
+  </main>
+
+  <div id="shell-footer"></div>
+</div>
+
+<script type="module">
+  import { mountShell } from './assets/js/shell.js';
+  mountShell();
+</script>
+</body>
 </html>
