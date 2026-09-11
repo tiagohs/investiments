@@ -624,6 +624,11 @@
     let tickersPendentes = tickersIniciais; // null = todos os 29
     let rodada = 1;
     let ultimoResultado = null;
+    // Acumula ao longo de TODAS as rodadas — cada rodada só reprocessa quem
+    // ficou pendente na anterior, então o resultado de uma rodada isolada
+    // (ex: "0 ok") não reflete os ativos já prontos de rodadas passadas.
+    const okAcumulado = [];
+    const falharamAcumulado = [];
 
     try {
       while (true) {
@@ -644,7 +649,9 @@
 
         ultimoResultado = data.resultado;
         const naoProcessados = ultimoResultado.naoProcessados || [];
-        out.insertAdjacentHTML('beforeend', `<p class="hint" style="margin:2px 0">Rodada ${rodada}: <b>${ultimoResultado.status}</b> — ${ultimoResultado.ok.length} ok, ${ultimoResultado.falharam.length} falharam, ${naoProcessados.length} pendentes (tempo esgotado nesta rodada).</p>`);
+        okAcumulado.push.apply(okAcumulado, ultimoResultado.ok || []);
+        falharamAcumulado.push.apply(falharamAcumulado, ultimoResultado.falharam || []);
+        out.insertAdjacentHTML('beforeend', `<p class="hint" style="margin:2px 0">Rodada ${rodada}: <b>${ultimoResultado.status}</b> — ${ultimoResultado.ok.length} ok, ${ultimoResultado.falharam.length} falharam, ${naoProcessados.length} pendentes (tempo esgotado nesta rodada). Acumulado até aqui: ${okAcumulado.length} ok, ${falharamAcumulado.length} falharam.</p>`);
 
         if (naoProcessados.length === 0) break;
         tickersPendentes = naoProcessados;
@@ -652,12 +659,15 @@
       }
 
       if (ultimoResultado) {
-        renderKV(out, 'Resultado final', {
+        renderKV(out, 'Resultado final (acumulado de todas as rodadas)', {
           ok: true,
           status: ultimoResultado.status,
           rodadas: rodada,
-          ok_lista: (ultimoResultado.ok || []).join(', ') || '(nenhum)',
-          falharam: (ultimoResultado.falharam || []).map(function (f) { return f.ticker + ' — ' + f.erro; }).join(' | ') || '(nenhum)'
+          total_ok: okAcumulado.length,
+          ok_lista: okAcumulado.join(', ') || '(nenhum)',
+          total_falharam: falharamAcumulado.length,
+          falharam: falharamAcumulado.map(function (f) { return f.ticker + ' — ' + f.erro; }).join(' | ') || '(nenhum)',
+          ainda_pendente_no_fim: ((ultimoResultado.naoProcessados || []).join(', ')) || '(nenhum)'
         });
       }
     } catch (err) {
