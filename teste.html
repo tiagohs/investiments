@@ -667,7 +667,8 @@
           ok_lista: okAcumulado.join(', ') || '(nenhum)',
           total_falharam: falharamAcumulado.length,
           falharam: falharamAcumulado.map(function (f) { return f.ticker + ' — ' + f.erro; }).join(' | ') || '(nenhum)',
-          ainda_pendente_no_fim: ((ultimoResultado.naoProcessados || []).join(', ')) || '(nenhum)'
+          ainda_pendente_no_fim: ((ultimoResultado.naoProcessados || []).join(', ')) || '(nenhum)',
+          lacunas: ((ultimoResultado.lacunas || []).join(' | ')) || '(nenhuma)'
         });
       }
     } catch (err) {
