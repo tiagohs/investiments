@@ -22,6 +22,23 @@
  * pra tela Início. Ficam disponíveis caso outra tela (Carteiras,
  * Detalhe do Ativo) precise buscar só um pedaço sem os outros dois.
  *
+ * Otimização de 12/09/2026 (lentidão de ~30-60s relatada na ação "home"):
+ *   1) aux_historico-renda-fixa era lida INTEIRA duas vezes na mesma
+ *      chamada (uma por montarSerieHistoricoInicio_, outra por
+ *      montarMeusAtivos_/montarVariacoesDiaRF_) — agora handleHome lê
+ *      essa aba UMA vez (lerLinhasHistoricoRendaFixa_, em
+ *      BackfillRendaFixa.gs) e passa o resultado pros dois.
+ *   2) buscarFatoresDiariosBcb_ (BackfillRendaFixa.gs) ganhou cache de 6h
+ *      (CacheService) — os 2 fetches externos pro BCB (CDI e SELIC,
+ *      cobrindo ~2090 dias) só rodam de fato na 1ª chamada da janela;
+ *      chamadas seguintes reaproveitam o cache. Isso resolve
+ *      especificamente o "rodei de novo e continuou lento".
+ *   3) Cada etapa agora loga quanto tempo levou (Logger.log, visível em
+ *      Execuções no editor do Apps Script) — assim dá pra confirmar
+ *      depois do deploy se o gargalo real era o fetch do BCB, a leitura
+ *      duplicada, ou só o overhead normal do Apps Script, em vez de
+ *      continuar no achismo.
+ *
  * Todas as células de montarHome_() foram confirmadas direto na
  * planilha real (rodamos TesteFase2Inicio.gs/diagnosticarInicio antes
  * de escrever isto, com dado de verdade, não suposição):
@@ -57,9 +74,11 @@ function handleHome(e) {
   var auth = verificarToken(e.parameter.token);
   if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
 
+  var inicioTudo = Date.now();
   var resposta = { ok: true };
   var avisos = {};
 
+  var marca = Date.now();
   try {
     var dadosHome = montarHome_();
     resposta.patrimonio = dadosHome.patrimonio;
@@ -68,18 +87,38 @@ function handleHome(e) {
   } catch (err) {
     avisos.home = String(err);
   }
+  Logger.log('handleHome: montarHome_ levou ' + (Date.now() - marca) + 'ms');
 
+  // Lê aux_historico-renda-fixa UMA vez só e passa pros dois montadores
+  // que precisam dela (historico e ativos) — ver otimização no cabeçalho.
+  marca = Date.now();
+  var dadosRendaFixaCache = null;
   try {
-    resposta.historico = montarSerieHistoricoInicio_();
+    dadosRendaFixaCache = lerLinhasHistoricoRendaFixa_();
+  } catch (err) {
+    // Não interrompe: cada montador cai no fallback de ler sozinho e,
+    // se a aba realmente não existir, reporta o próprio erro em avisos.
+    dadosRendaFixaCache = null;
+  }
+  Logger.log('handleHome: leitura de aux_historico-renda-fixa levou ' + (Date.now() - marca) + 'ms');
+
+  marca = Date.now();
+  try {
+    resposta.historico = montarSerieHistoricoInicio_(dadosRendaFixaCache);
   } catch (err) {
     avisos.historico = String(err);
   }
+  Logger.log('handleHome: montarSerieHistoricoInicio_ levou ' + (Date.now() - marca) + 'ms');
 
+  marca = Date.now();
   try {
-    resposta.ativos = montarMeusAtivos_();
+    resposta.ativos = montarMeusAtivos_(dadosRendaFixaCache);
   } catch (err) {
     avisos.ativos = String(err);
   }
+  Logger.log('handleHome: montarMeusAtivos_ levou ' + (Date.now() - marca) + 'ms');
+
+  Logger.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
 

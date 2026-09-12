@@ -24,6 +24,17 @@
  * arquivo — mesma ideia, chave em formato compatível). Se uma posição
  * não tiver histórico ainda (recém-cadastrada) ou a chave não bater,
  * volta null — nunca inventa número.
+ *
+ * Otimização de 12/09/2026 (lentidão de ~30-60s na ação "home"):
+ * montarMeusAtivos_/montarVariacoesDiaRF_ agora aceitam um parâmetro
+ * opcional dadosRendaFixaCache (linhas já lidas de
+ * aux_historico-renda-fixa), pra não ler essa aba de novo quando
+ * handleHome (Home.gs) já leu uma vez pra passar também pra
+ * montarSerieHistoricoInicio_ (HistoricoInicio.gs) — as duas usavam a
+ * MESMA aba, cada uma lendo por conta própria. Chamando essa função
+ * sozinha (ação "meusAtivos" via Router.gs) continua igual, sem passar
+ * nada — só lê a aba ela mesma (ver lerLinhasHistoricoRendaFixa_, em
+ * BackfillRendaFixa.gs).
  */
 
 var ABA_AUXILIAR_ATIVOS = 'Auxiliar_ativos';
@@ -51,7 +62,11 @@ function testarVariacoesDiaRfDireto() {
   Logger.log(JSON.stringify(montarVariacoesDiaRF_(), null, 2));
 }
 
-function montarMeusAtivos_() {
+/**
+ * @param {Array} dadosRendaFixaCache opcional — ver comentário no topo do
+ *   arquivo e handleHome (Home.gs).
+ */
+function montarMeusAtivos_(dadosRendaFixaCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var lista = [];
 
@@ -101,7 +116,7 @@ function montarMeusAtivos_() {
   // ---- Renda Fixa — direto da Carteira Renda Fixa (já é fonte única) ----
   var abaRF = ss.getSheetByName(ABA_CARTEIRA_RF_MEUSATIVOS);
   if (!abaRF) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_MEUSATIVOS);
-  var variacoesRF = montarVariacoesDiaRF_();
+  var variacoesRF = montarVariacoesDiaRF_(dadosRendaFixaCache);
   var ultimaLinhaRF = abaRF.getLastRow();
   if (ultimaLinhaRF >= LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS) {
     var dadosRF = abaRF.getRange(
@@ -154,17 +169,17 @@ function montarMeusAtivos_() {
  * diferentes na mesma instituição (por isso soma por dia dentro da
  * chave antes de comparar, em vez de pegar só a última linha bruta).
  * Devolve { chave: variação (fração, ex.: 0.0012) }.
+ *
+ * @param {Array} dadosRendaFixaCache opcional — linhas já lidas de
+ *   aux_historico-renda-fixa (ver comentário no topo do arquivo).
  */
-function montarVariacoesDiaRF_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var aba = ss.getSheetByName(ABA_HISTORICO_RF); // 'aux_historico-renda-fixa' (var global de BackfillRendaFixa.gs)
-  if (!aba) return {};
-  var ultimaLinha = aba.getLastRow();
-  if (ultimaLinha < 2) return {};
+function montarVariacoesDiaRF_(dadosRendaFixaCache) {
+  var linhas = dadosRendaFixaCache || lerLinhasHistoricoRendaFixa_();
+  if (!linhas.length) return {};
 
   var porChaveEDia = {}; // chave -> { 'yyyy-MM-dd': soma valor }
 
-  aba.getRange(2, 1, ultimaLinha - 1, 6).getValues().forEach(function (linha) {
+  linhas.forEach(function (linha) {
     var data = linha[0];
     if (!(data instanceof Date)) return;
     var produto = linha[1];

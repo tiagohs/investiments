@@ -3,9 +3,10 @@
  * Fixa e Ibovespa) numa série diária única, mais as curvas de CDI e SELIC
  * (base 100, compostas dia a dia) pros benchmarks da Home.
  *
- * Depende de buscarFatoresDiariosBcb_ e formatarDataBcbRF_, que vivem no
- * BackfillRendaFixa.gs — não precisa redefinir, é o mesmo projeto
- * (namespace global compartilhado entre todos os arquivos .gs).
+ * Depende de buscarFatoresDiariosBcb_, formatarDataBcbRF_ e
+ * lerLinhasHistoricoRendaFixa_, que vivem no BackfillRendaFixa.gs — não
+ * precisa redefinir, é o mesmo projeto (namespace global compartilhado
+ * entre todos os arquivos .gs).
  *
  * Renda Variável (ações/FIIs/USA, via aux_historico-patrimonio) e
  * Ibovespa (via aux_historico-indices) só fecham em dia de pregão, então
@@ -17,10 +18,17 @@
  * Testado em 12/09/2026: 2090 dias (22/12/2020 -> 11/09/2026), primeiro
  * dia zerado (antes da 1ª movimentação real), último dia com
  * longoPrazo + rendaEmergencial = patrimonio batendo exato.
+ *
+ * Otimização de 12/09/2026 (lentidão de ~30-60s na ação "home"):
+ * montarSerieHistoricoInicio_ agora aceita um parâmetro opcional
+ * dadosRendaFixaCache — as linhas já lidas de aux_historico-renda-fixa,
+ * pra não ler essa aba de novo quando handleHome (Home.gs) já leu uma vez
+ * pra passar também pra montarVariacoesDiaRF_ (MeusAtivos.gs). Chamando
+ * essa função sozinha (ação "historico_inicio" via Router.gs) ela continua
+ * funcionando igual, sem passar nada — só lê a aba ela mesma.
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
-var ABA_RENDA_FIXA_INICIO = 'aux_historico-renda-fixa';
 var ABA_INDICES_INICIO = 'aux_historico-indices';
 
 function handleHistoricoInicio(e) {
@@ -40,7 +48,13 @@ function testarHistoricoInicioDireto() {
   Logger.log('Último dia: ' + JSON.stringify(serie[serie.length - 1]));
 }
 
-function montarSerieHistoricoInicio_() {
+/**
+ * @param {Array} dadosRendaFixaCache opcional — linhas de aux_historico-renda-fixa
+ *   já lidas por quem chamou (ver handleHome, Home.gs). Se não vier, lê a
+ *   aba aqui mesmo (comportamento antigo, usado pela ação "historico_inicio"
+ *   sozinha).
+ */
+function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   var porDiaVariavel = {};         // chave -> soma Valor BRL (Ações/FIIs/USA)
@@ -63,23 +77,21 @@ function montarSerieHistoricoInicio_() {
   }
 
   // 2) aux_historico-renda-fixa (calculado dia a dia, sem lacunas — não
-  // precisa de forward-fill, ao contrário da Renda Variável e do Ibovespa)
-  var abaRendaFixa = ss.getSheetByName(ABA_RENDA_FIXA_INICIO);
-  if (!abaRendaFixa) throw new Error('aba não encontrada: ' + ABA_RENDA_FIXA_INICIO);
-  var linhasRendaFixa = Math.max(abaRendaFixa.getLastRow() - 1, 0);
-  if (linhasRendaFixa > 0) {
-    abaRendaFixa.getRange(2, 1, linhasRendaFixa, 6).getValues().forEach(function (linha) {
-      var data = linha[0];
-      if (!(data instanceof Date)) return;
-      var chave = chaveDiaISOInicio_(data);
-      var classificacao = linha[4];
-      var valorBrl = Number(linha[5]) || 0;
-      porDiaRendaFixaTotal[chave] = (porDiaRendaFixaTotal[chave] || 0) + valorBrl;
-      if (classificacao === 'Renda Emergencial') {
-        porDiaRendaEmergencial[chave] = (porDiaRendaEmergencial[chave] || 0) + valorBrl;
-      }
-    });
-  }
+  // precisa de forward-fill, ao contrário da Renda Variável e do Ibovespa).
+  // Reaproveita a leitura de quem chamou, se veio pronta (ver comentário
+  // do parâmetro acima) — senão lê aqui mesmo, igual antes.
+  var linhasRendaFixa = dadosRendaFixaCache || lerLinhasHistoricoRendaFixa_();
+  linhasRendaFixa.forEach(function (linha) {
+    var data = linha[0];
+    if (!(data instanceof Date)) return;
+    var chave = chaveDiaISOInicio_(data);
+    var classificacao = linha[4];
+    var valorBrl = Number(linha[5]) || 0;
+    porDiaRendaFixaTotal[chave] = (porDiaRendaFixaTotal[chave] || 0) + valorBrl;
+    if (classificacao === 'Renda Emergencial') {
+      porDiaRendaEmergencial[chave] = (porDiaRendaEmergencial[chave] || 0) + valorBrl;
+    }
+  });
 
   // 3) aux_historico-indices (só Ibovespa por enquanto)
   var abaIndices = ss.getSheetByName(ABA_INDICES_INICIO);
@@ -104,7 +116,8 @@ function montarSerieHistoricoInicio_() {
   var primeiraData = new Date(todasAsChaves[0]);
   var ultimaData = new Date(todasAsChaves[todasAsChaves.length - 1]);
 
-  // 4) fatores diários de CDI e SELIC via BCB (reaproveita função do BackfillRendaFixa.gs)
+  // 4) fatores diários de CDI e SELIC via BCB (reaproveita função do
+  // BackfillRendaFixa.gs, que agora tem cache — ver comentário lá)
   var fatoresCdi = buscarFatoresDiariosBcb_(12, primeiraData, ultimaData);
   var fatoresSelic = buscarFatoresDiariosBcb_(11, primeiraData, ultimaData);
 

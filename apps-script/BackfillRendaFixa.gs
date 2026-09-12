@@ -6,11 +6,22 @@
  * coexiste com BackfillIndices.gs e HistoricoInicio.gs no mesmo projeto —
  * são todos arquivos SEPARADOS, nunca um sobrescrevendo o outro.
  *
- * v5 (12/09/2026): a chave de cruzamento com a Carteira Renda Fixa agora
- * inclui o indexador, não só ano de vencimento + instituição — corrige
- * colisão entre "Tesouro Selic 2029" e "Tesouro IPCA+ 2029" (mesmo ano,
- * mesma instituição XP, mas indexadores diferentes), que fazia uma
- * classificação sobrescrever a outra.
+ * v6 (12/09/2026): buscarFatoresDiariosBcb_ ganhou cache (CacheService, 6h —
+ * o máximo permitido) pra resolver a lentidão de action=home: sem cache, TODA
+ * chamada de montarSerieHistoricoInicio_ (HistoricoInicio.gs) refazia 2 fetches
+ * externos pro BCB cobrindo o histórico inteiro (~2090 dias, desde 22/12/2020),
+ * e isso não muda de uma chamada pra outra no mesmo dia (dataFinal = hoje,
+ * dataInicial = fixo) — por isso rodar de novo continuava lento. Também
+ * ganhou lerLinhasHistoricoRendaFixa_(), pra HistoricoInicio.gs e
+ * MeusAtivos.gs pararem de ler aux_historico-renda-fixa inteira DUAS vezes
+ * na mesma chamada de action=home (ver Home.gs, que agora lê uma vez só e
+ * passa o resultado pros dois).
+ *
+ * v5: a chave de cruzamento com a Carteira Renda Fixa agora inclui o
+ * indexador, não só ano de vencimento + instituição — corrige colisão entre
+ * "Tesouro Selic 2029" e "Tesouro IPCA+ 2029" (mesmo ano, mesma instituição
+ * XP, mas indexadores diferentes), que fazia uma classificação sobrescrever
+ * a outra.
  *
  * v4: normaliza o nome da instituição por palavra-chave (XP/RICO -> "XP",
  * NU -> "NU", INTER -> "INTER") antes de agrupar e de cruzar com a
@@ -463,8 +474,43 @@ function detectarIndexadorRF_(produto) {
   return 'CDI'; // LCI, Prefixado (fallback), CDB, etc.
 }
 
-/** SELIC (11) e CDI (12): taxa diária real, só publicada em dia útil. */
+/**
+ * Lê aux_historico-renda-fixa inteira (Data | Produto | Instituição |
+ * Indexador | Classificação | Valor). Existe como função à parte (em vez de
+ * cada chamador ler direto) porque, na ação "home", TANTO
+ * montarSerieHistoricoInicio_ (HistoricoInicio.gs) QUANTO
+ * montarVariacoesDiaRF_ (MeusAtivos.gs) precisam dos mesmos dados — ver
+ * handleHome (Home.gs), que lê essa aba UMA vez só e passa o resultado pros
+ * dois, em vez de cada um reler a aba inteira (12/09/2026: essa releitura em
+ * duplicidade era um dos fatores da lentidão relatada na ação "home").
+ */
+function lerLinhasHistoricoRendaFixa_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(ABA_HISTORICO_RF);
+  if (!aba) throw new Error('aba não encontrada: ' + ABA_HISTORICO_RF);
+  var qtd = Math.max(aba.getLastRow() - 1, 0);
+  return qtd > 0 ? aba.getRange(2, 1, qtd, 6).getValues() : [];
+}
+
+/**
+ * SELIC (11) e CDI (12): taxa diária real, só publicada em dia útil.
+ *
+ * Cache (12/09/2026): resolve a lentidão de ~30-60s relatada na ação "home".
+ * montarSerieHistoricoInicio_ chama isso 2x (CDI e SELIC) cobrindo o
+ * histórico inteiro (~2090 dias) TODA VEZ que a Home é aberta — e como
+ * dataInicial é fixo e dataFinal é sempre "hoje", a chave do fetch não muda
+ * ao longo do dia, então repetir a chamada logo em seguida batia de novo no
+ * BCB à toa. Com CacheService (6h, o máximo permitido), só a 1ª chamada do
+ * dia paga o fetch externo; as próximas (dentro da mesma janela de 6h) usam
+ * o cache. Cobre só CDI/SELIC — IPCA (usada só pelo backfill, não pela
+ * Home) não precisa disso por enquanto.
+ */
 function buscarFatoresDiariosBcb_(codigoSerie, dataInicial, dataFinal) {
+  var chaveCache = 'bcb_' + codigoSerie + '_' + formatarDataBcbRF_(dataInicial) + '_' + formatarDataBcbRF_(dataFinal);
+  var cache = CacheService.getScriptCache();
+  var textoCacheado = cache.get(chaveCache);
+  if (textoCacheado) return JSON.parse(textoCacheado);
+
   var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.' + codigoSerie +
     '/dados?formato=json&dataInicial=' + formatarDataBcbRF_(dataInicial) +
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
@@ -474,6 +520,11 @@ function buscarFatoresDiariosBcb_(codigoSerie, dataInicial, dataFinal) {
   dados.forEach(function (item) {
     mapa[item.data] = 1 + (parseFloat(item.valor) / 100);
   });
+
+  var textoMapa = JSON.stringify(mapa);
+  if (textoMapa.length < 100000) { // CacheService: limite de 100KB por chave
+    cache.put(chaveCache, textoMapa, 21600); // 21600s = 6h, o máximo permitido
+  }
   return mapa;
 }
 
