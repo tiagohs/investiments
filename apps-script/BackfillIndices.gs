@@ -7,6 +7,21 @@
  * projeto Apps Script (mesmo namespace global), nunca um sobrescrevendo
  * o outro.
  *
+ * Taxas de CDI/SELIC (12/09/2026): resolvendo a lentidão de ~30-60s da
+ * ação "home", que vinha (entre outras causas) de montarSerieHistoricoInicio_
+ * (HistoricoInicio.gs) buscar CDI e SELIC DIRETO do BCB, cobrindo o
+ * histórico inteiro (~2090 dias), TODA VEZ que a Início é aberta — mesmo
+ * taxa de um dia que já passou nunca mudando. A correção segue o MESMO
+ * padrão que já existia aqui pro Ibovespa: persiste em aux_historico-indices
+ * (Índice = 'CDI'/'SELIC', Valor = taxa diária em %, igual ao que a API do
+ * BCB devolve) e só cresce incrementalmente pelo gatilho diário — a Início
+ * passa a só LER a aba, nunca mais chamar o BCB (ver
+ * atualizarTaxasBcbIncremental_ abaixo e lerFatoresIndiceSalvos_ removida
+ * de HistoricoInicio.gs, que agora lê tudo de aux_historico-indices numa
+ * passada só). GOOGLEFINANCE não tem CDI/SELIC (não são tickers de bolsa),
+ * então o BCB continua sendo a única fonte — só deixou de ser chamado na
+ * hora da requisição.
+ *
  * GOTCHA DE LOCALE (importante, custou algumas rodadas de debug): a
  * planilha está em locale pt-BR, e Range.setFormula() nesse locale exige
  * ";" como separador de argumento (porque "," é separador decimal no
@@ -31,6 +46,8 @@ var ABA_HISTORICO_INDICES = 'aux_historico-indices';
 var ABA_AUXILIAR_APP = 'Auxiliar_app';
 var CELULA_RASCUNHO_GOOGLEFINANCE = 'AZ1';
 var DIAS_POR_PEDACO_INDICE = 180;
+var DATA_INICIO_HISTORICO_INDICES = new Date(2020, 11, 22); // mesmo início do restante do histórico (aux_historico-renda-fixa começa 22/12/2020)
+var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11 }; // nome persistido -> código da série SGS/BCB
 
 function rodarBackfillIndicesDireto() {
   Logger.log(JSON.stringify(executarBackfillIndices_(), null, 2));
@@ -46,6 +63,25 @@ function handleBackfillIndices(e) {
   }
 }
 
+/** Roda direto no editor, pra popular CDI/SELIC do zero (rodar 1x depois de colar este arquivo). */
+function rodarBackfillTaxasBcbDireto() {
+  Logger.log(JSON.stringify(executarBackfillTaxasBcb_(), null, 2));
+}
+
+/**
+ * Lê aux_historico-indices inteira (Data | Índice | Valor), pulando linhas
+ * sem Data. Existe à parte porque tanto o backfill do Ibovespa quanto o de
+ * CDI/SELIC precisam preservar as linhas UM DO OUTRO ao regravar a aba do
+ * zero (ela guarda os 3 índices juntos, uma linha por dia por índice).
+ */
+function lerTodasLinhasIndices_(abaIndices) {
+  var ultimaLinha = Math.max(abaIndices.getLastRow() - 1, 0);
+  if (ultimaLinha === 0) return [];
+  return abaIndices.getRange(2, 1, ultimaLinha, 3).getValues().filter(function (linha) {
+    return linha[0] instanceof Date;
+  });
+}
+
 /** Regrava aux_historico-indices INTEIRA do zero (2020-12-23 até hoje) — uso manual. */
 function executarBackfillIndices_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -58,13 +94,76 @@ function executarBackfillIndices_() {
   var hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
 
-  var linhas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', dataInicio, hoje, 'Ibovespa');
+  var linhasIbovespa = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', dataInicio, hoje, 'Ibovespa');
 
-  var linhasAntigas = abaIndices.getLastRow() - 1;
-  if (linhasAntigas > 0) abaIndices.getRange(2, 1, linhasAntigas, 3).clearContent();
-  if (linhas.length > 0) abaIndices.getRange(2, 1, linhas.length, 3).setValues(linhas);
+  // Preserva CDI/SELIC (ou qualquer outro índice) já salvos — só substitui
+  // as linhas de Ibovespa (12/09/2026: antes regravava a aba inteira,
+  // apagando CDI/SELIC se rodado de novo depois do backfill de taxas).
+  var linhasMantidas = lerTodasLinhasIndices_(abaIndices).filter(function (linha) {
+    return linha[1] !== 'Ibovespa';
+  });
+  var linhasFinal = linhasMantidas.concat(linhasIbovespa);
 
-  return { linhasGravadas: linhas.length };
+  var linhasAntigasCount = Math.max(abaIndices.getLastRow() - 1, 0);
+  if (linhasAntigasCount > 0) abaIndices.getRange(2, 1, linhasAntigasCount, 3).clearContent();
+  if (linhasFinal.length > 0) abaIndices.getRange(2, 1, linhasFinal.length, 3).setValues(linhasFinal);
+
+  return { linhasGravadas: linhasIbovespa.length, totalNaAba: linhasFinal.length };
+}
+
+/**
+ * Regrava as taxas diárias de CDI e SELIC (Índice = 'CDI'/'SELIC', Valor =
+ * taxa % do dia, do jeito que a API do BCB devolve) em aux_historico-indices,
+ * do zero, de 22/12/2020 até ontem — uso manual, rodar 1x (rodarBackfillTaxasBcbDireto())
+ * depois de colar este arquivo pra já deixar a Início rápida na 1ª chamada.
+ * Preserva as linhas de Ibovespa (ou qualquer outro índice) já salvas.
+ */
+function executarBackfillTaxasBcb_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
+  if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_HISTORICO_INDICES);
+
+  var ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  ontem.setHours(0, 0, 0, 0);
+
+  var linhasNovas = [];
+  Object.keys(INDICES_TAXA_BCB).forEach(function (nome) {
+    linhasNovas = linhasNovas.concat(buscarTaxasBcbComoLinhas_(nome, DATA_INICIO_HISTORICO_INDICES, ontem));
+  });
+
+  var linhasMantidas = lerTodasLinhasIndices_(abaIndices).filter(function (linha) {
+    return !(linha[1] === 'CDI' || linha[1] === 'SELIC');
+  });
+  var linhasFinal = linhasMantidas.concat(linhasNovas);
+
+  var linhasAntigasCount = Math.max(abaIndices.getLastRow() - 1, 0);
+  if (linhasAntigasCount > 0) abaIndices.getRange(2, 1, linhasAntigasCount, 3).clearContent();
+  if (linhasFinal.length > 0) abaIndices.getRange(2, 1, linhasFinal.length, 3).setValues(linhasFinal);
+
+  return { linhasGravadas: linhasNovas.length, totalNaAba: linhasFinal.length };
+}
+
+/**
+ * Busca a série diária de CDI ou SELIC no BCB (SGS) e devolve linhas
+ * prontas pra gravar em aux_historico-indices: [Data, nomeIndice, taxa%].
+ * Não confundir com buscarFatoresDiariosBcb_ (BackfillRendaFixa.gs), que
+ * devolve um MAPA de fatores (usado pela projeção de posições de Renda
+ * Fixa) — esta aqui devolve LINHAS, pro backfill/incremental persistir.
+ */
+function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
+  if (dataInicial > dataFinal) return [];
+  var codigoSerie = INDICES_TAXA_BCB[nomeIndice];
+  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.' + codigoSerie +
+    '/dados?formato=json&dataInicial=' + formatarDataBcbRF_(dataInicial) +
+    '&dataFinal=' + formatarDataBcbRF_(dataFinal);
+  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var dados = JSON.parse(resposta.getContentText());
+  return dados.map(function (item) {
+    var partes = item.data.split('/'); // dd/mm/aaaa
+    var data = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+    return [data, nomeIndice, parseFloat(item.valor)];
+  });
 }
 
 function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio, dataFim, nomeIndice) {
@@ -134,9 +233,9 @@ function formatarDataIndice_(data) {
 // --- Sincronização diária de Renda Fixa + Índices ---
 // Renda Fixa: recálculo incremental (retoma do último dia salvo por
 // posição — ver executarBackfillRendaFixaIncremental_() no
-// BackfillRendaFixa.gs). Índices: idem, incremental (só o que falta desde
-// a última data salva), pra não repetir os pedaços de 180 dias da
-// história inteira desde 2020 toda vez.
+// BackfillRendaFixa.gs). Índices (Ibovespa) e Taxas (CDI/SELIC): idem,
+// incremental (só o que falta desde a última data salva de cada um), pra
+// não repetir a história inteira desde 2020 toda vez.
 //
 // Roda num gatilho SEPARADO do gatilho de ações/FIIs/USA (gatilhoDiario()
 // em Sync.gs), 1h depois, pra não competir pelo orçamento de 6min de
@@ -196,6 +295,14 @@ function atualizarRendaFixaEIndicesDiario_() {
     partes.push('Índices falharam: ' + String(erro));
   }
 
+  try {
+    var resultadoTaxas = atualizarTaxasBcbIncremental_();
+    partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
+  } catch (erro) {
+    status = (status === 'Erro') ? 'Erro' : 'Atenção';
+    partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
+  }
+
   gravarRegistroControle_(status, 'Automático', partes.join(' — '));
 }
 
@@ -236,6 +343,50 @@ function atualizarIndicesIncremental_() {
   }
 
   return { linhasNovas: linhas.length, jaEstavaEmDia: false };
+}
+
+/**
+ * Atualiza os fatores diários de CDI e SELIC salvos em aux_historico-indices,
+ * de forma incremental (só o que falta desde a última data salva de cada
+ * índice até ontem) — usado pelo gatilho diário, junto com Renda Fixa e
+ * Ibovespa. Se ainda não existir nenhuma linha de um dos dois (1ª vez),
+ * faz o backfill completo dele desde 22/12/2020 automaticamente — não
+ * PRECISA rodar rodarBackfillTaxasBcbDireto() manual antes, mas rodar
+ * manualmente uma vez (fora do horário do gatilho) é mais rápido pra ver
+ * o resultado sem esperar o próximo disparo das 11h.
+ */
+function atualizarTaxasBcbIncremental_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
+  if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_HISTORICO_INDICES);
+
+  var ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  ontem.setHours(0, 0, 0, 0);
+
+  var linhasNovas = [];
+  var detalhe = [];
+  Object.keys(INDICES_TAXA_BCB).forEach(function (nome) {
+    var ultimaData = ultimaDataIndiceSalvo_(abaIndices, nome);
+    var inicio = ultimaData
+      ? new Date(ultimaData.getFullYear(), ultimaData.getMonth(), ultimaData.getDate() + 1)
+      : new Date(DATA_INICIO_HISTORICO_INDICES);
+
+    if (inicio > ontem) {
+      detalhe.push(nome + ': já em dia');
+      return;
+    }
+    var linhas = buscarTaxasBcbComoLinhas_(nome, inicio, ontem);
+    linhasNovas = linhasNovas.concat(linhas);
+    detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)');
+  });
+
+  if (linhasNovas.length > 0) {
+    var primeiraLinhaNova = abaIndices.getLastRow() + 1;
+    abaIndices.getRange(primeiraLinhaNova, 1, linhasNovas.length, 3).setValues(linhasNovas);
+  }
+
+  return { linhasNovas: linhasNovas.length, detalhe: detalhe.join(', ') };
 }
 
 function ultimaDataIndiceSalvo_(aba, nomeIndice) {

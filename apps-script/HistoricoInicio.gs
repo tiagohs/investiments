@@ -3,10 +3,9 @@
  * Fixa e Ibovespa) numa série diária única, mais as curvas de CDI e SELIC
  * (base 100, compostas dia a dia) pros benchmarks da Home.
  *
- * Depende de buscarFatoresDiariosBcb_, formatarDataBcbRF_ e
- * lerLinhasHistoricoRendaFixa_, que vivem no BackfillRendaFixa.gs — não
- * precisa redefinir, é o mesmo projeto (namespace global compartilhado
- * entre todos os arquivos .gs).
+ * Depende de formatarDataBcbRF_ e lerLinhasHistoricoRendaFixa_, que vivem
+ * no BackfillRendaFixa.gs — não precisa redefinir, é o mesmo projeto
+ * (namespace global compartilhado entre todos os arquivos .gs).
  *
  * Renda Variável (ações/FIIs/USA, via aux_historico-patrimonio) e
  * Ibovespa (via aux_historico-indices) só fecham em dia de pregão, então
@@ -19,13 +18,27 @@
  * dia zerado (antes da 1ª movimentação real), último dia com
  * longoPrazo + rendaEmergencial = patrimonio batendo exato.
  *
- * Otimização de 12/09/2026 (lentidão de ~30-60s na ação "home"):
+ * Otimização de 12/09/2026 #1 (lentidão de ~30-60s na ação "home"):
  * montarSerieHistoricoInicio_ agora aceita um parâmetro opcional
  * dadosRendaFixaCache — as linhas já lidas de aux_historico-renda-fixa,
  * pra não ler essa aba de novo quando handleHome (Home.gs) já leu uma vez
  * pra passar também pra montarVariacoesDiaRF_ (MeusAtivos.gs). Chamando
  * essa função sozinha (ação "historico_inicio" via Router.gs) ela continua
  * funcionando igual, sem passar nada — só lê a aba ela mesma.
+ *
+ * Otimização de 12/09/2026 #2 (a #1 sozinha não bastava — o Tiago apontou
+ * que os fatores de CDI/SELIC ainda vinham de 2 fetches diretos pro BCB
+ * cobrindo o histórico inteiro TODA chamada, o que não devia ser
+ * necessário já que taxa de dia passado não muda): os fatores de CDI/SELIC
+ * pararam de vir de buscarFatoresDiariosBcb_ (fetch ao vivo) e passaram a
+ * vir de aux_historico-indices (Índice = 'CDI'/'SELIC', Valor = taxa % do
+ * dia) — mesmo padrão já usado pelo Ibovespa nessa aba, mantido em dia
+ * pelo gatilho diário (ver atualizarTaxasBcbIncremental_, em
+ * BackfillIndices.gs). Lidas na MESMA passada de getValues() que já lia o
+ * Ibovespa, então não é uma leitura a mais. IMPORTANTE: pra essa aba ter
+ * dado de CDI/SELIC, rodarBackfillTaxasBcbDireto() (BackfillIndices.gs)
+ * precisa ter rodado pelo menos uma vez — sem isso, os mapas vêm vazios e
+ * as curvas de CDI/SELIC ficam em 100 (não erra, só fica sem dado).
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -93,17 +106,28 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     }
   });
 
-  // 3) aux_historico-indices (só Ibovespa por enquanto)
+  // 3) aux_historico-indices — Ibovespa (Valor = pontos) e, na MESMA
+  // leitura, CDI/SELIC (Valor = taxa % do dia) — ver otimização #2 no
+  // cabeçalho do arquivo. Uma passada só de getValues() pros 3.
   var abaIndices = ss.getSheetByName(ABA_INDICES_INICIO);
   if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_INDICES_INICIO);
+  var fatoresCdi = {};
+  var fatoresSelic = {};
   var linhasIndices = Math.max(abaIndices.getLastRow() - 1, 0);
   if (linhasIndices > 0) {
     abaIndices.getRange(2, 1, linhasIndices, 3).getValues().forEach(function (linha) {
       var data = linha[0];
       if (!(data instanceof Date)) return;
-      if (linha[1] !== 'Ibovespa') return;
-      var chave = chaveDiaISOInicio_(data);
-      porDiaIbovespa[chave] = Number(linha[2]) || null;
+      var nomeIndice = linha[1];
+      var valor = Number(linha[2]);
+      if (nomeIndice === 'Ibovespa') {
+        var chave = chaveDiaISOInicio_(data);
+        porDiaIbovespa[chave] = isNaN(valor) ? null : valor;
+      } else if (nomeIndice === 'CDI' && !isNaN(valor)) {
+        fatoresCdi[formatarDataBcbRF_(data)] = 1 + (valor / 100);
+      } else if (nomeIndice === 'SELIC' && !isNaN(valor)) {
+        fatoresSelic[formatarDataBcbRF_(data)] = 1 + (valor / 100);
+      }
     });
   }
 
@@ -115,11 +139,6 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
 
   var primeiraData = new Date(todasAsChaves[0]);
   var ultimaData = new Date(todasAsChaves[todasAsChaves.length - 1]);
-
-  // 4) fatores diários de CDI e SELIC via BCB (reaproveita função do
-  // BackfillRendaFixa.gs, que agora tem cache — ver comentário lá)
-  var fatoresCdi = buscarFatoresDiariosBcb_(12, primeiraData, ultimaData);
-  var fatoresSelic = buscarFatoresDiariosBcb_(11, primeiraData, ultimaData);
 
   var serie = [];
   var indiceCdi = 100;
