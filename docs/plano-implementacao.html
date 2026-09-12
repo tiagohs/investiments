@@ -462,7 +462,7 @@ distribuicoes-metas.html
         <tr><td>IFIX (valor + variação dia)</td><td>Idem — <span class="mono">Auxiliar_app</span> tabela 1</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real)</span></td></tr>
         <tr><td>S&amp;P 500 (valor + variação dia)</td><td>Idem — <span class="mono">Auxiliar_app</span> tabela 2 (a partir de A14)</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, valor real)</span></td></tr>
         <tr><td>Câmbio USD/BRL e EUR/BRL</td><td>USD já existia (<span class="mono">Distribuição e Metas!K56</span>); EUR não existia — GOOGLEFINANCE colado à mão em <span class="mono">Auxiliar_app</span> tabela 1</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">testado ✓ (Apps Script, ambos)</span></td></tr>
-        <tr><td>Grade "Meus Ativos" consolidada (4 classes)</td><td>Não precisa de fonte nova — monta no front a partir das 3 leituras de Carteira já testadas (Ações/FIIs/USA), iterando todas as linhas em vez de só a 1ª</td><td><span class="tag" style="background:var(--good-soft);color:var(--good-ink)">coberto pelos testes de Carteiras ✓</span></td></tr>
+        <tr><td>Grade "Meus Ativos" consolidada (4 classes: Ações/FIIs/USA/Renda Fixa — RF incluída em 12/09/2026)</td><td>Carteira Ações / Carteira FIIs / Carteira Ações USA / Carteira Renda Fixa, iterando todas as linhas de cada uma (não só a 1ª testada manualmente)</td><td><span class="tag">a fazer — precisa de handler novo</span> (nenhuma ação do Router.gs hoje devolve a lista de posições de nenhuma Carteira, só os totais agregados que o Home.gs já lê)</td></tr>
       </tbody>
     </table>
   </div>
