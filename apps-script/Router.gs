@@ -30,6 +30,9 @@ function doGet(e) {
   if (action === 'historico_inicio') {
     return handleHistoricoInicio(e);
   }
+  if (action === 'meusAtivos') {
+    return handleMeusAtivos(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
