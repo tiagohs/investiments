@@ -148,7 +148,7 @@ proventos/nacionais.html <span class="dim">→ abas internas Consolidado + Agend
 proventos/internacionais.html <span class="dim">→ abas internas Consolidado + Agenda</span>
 organizacao/despesas.html
 organizacao/salario-renda-emergencial.html
-<span class="new">assets/shell.css + assets/shell.html + assets/shell.js</span> <span class="dim">→ topbar, nav, tema, filtro de período, badge de sincronização — compartilhado por todos, injetado via JS</span></div>
+<span class="new">assets/shell.css + assets/shell.html + assets/shell.js</span> <span class="dim">→ topbar, nav, tema, badge de sincronização — compartilhado por todos, injetado via JS (filtro de período NÃO mora mais aqui — virou contextual, ver decisão abaixo)</span></div>
   </div>
 
   <h2 class="section-title">Árvore de navegação</h2>
@@ -195,9 +195,10 @@ organizacao/salario-renda-emergencial.html
     <div class="pagecard-head"><h3>Início</h3></div>
     <p class="purpose">Painel do dia a dia — visão geral, sem mergulho analítico.</p>
     <div class="rows">
-      <div class="row"><span class="label">Topbar: nome, cotações há X min, filtro de período global, tema, badge de sincronização ("Sincronizado em DD/MM às HH:MM — Sucesso/Atenção/Erro", cor conforme o estado)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Topbar: nome, cotações há X min, tema, badge de sincronização ("Sincronizado em DD/MM às HH:MM — Sucesso/Atenção/Erro", cor conforme o estado)</span><span class="tag real">dado real</span></div>
       <div class="row"><span class="label">3 visões do Patrimônio: total / Longo Prazo / Renda Emergencial</span><span class="tag real">dado real</span></div>
-      <div class="row"><span class="label">Gráfico de Rentabilidade dentro de cada uma das 3 visões, com seletor pra trocar — igual ao padrão de outras seções. Default: Patrimônio total. Benchmark muda por visão: <b>Total</b> e <b>Longo Prazo</b> comparam com Ibovespa + CDI; <b>Renda Emergencial</b> compara com CDI + Selic (é 100% Renda Fixa, não faz sentido benchmarking contra bolsa)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Gráfico de Rentabilidade dentro de cada uma das 3 visões, com seletor pra trocar — igual ao padrão de outras seções. Default: Patrimônio total. Benchmark muda por visão: <b>Total</b> e <b>Longo Prazo</b> comparam com Ibovespa + CDI; <b>Renda Emergencial</b> compara com CDI + Selic (é 100% Renda Fixa, não faz sentido benchmarking contra bolsa). Cada card mostra Período/Mês atual/Ano atual (R$ + %, sem data embaixo pra economizar espaço), eixo X com as datas, e hover com linha-guia + marcador + tooltip por série</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Filtro de período mora junto dos gráficos — pills (1M/6M/12M/3A/Desde o início) + botão "Personalizado" que abre um miniformulário De/Até — não é mais o dropdown solto na topbar</span><span class="tag new">nova automação</span></div>
       <div class="row"><span class="label">Lista de Interesses — Índices &amp; Câmbio</span><span class="tag real">dado real</span></div>
       <div class="row"><span class="label">Lista de Interesses — Meus Ativos (grade filtrável)</span><span class="tag real">dado real</span></div>
     </div>
@@ -320,6 +321,7 @@ organizacao/salario-renda-emergencial.html
     <div class="decision"><span class="ic">✓</span>Badge de sincronização na topbar compartilhada (shell.html): "Sincronizado em DD/MM às HH:MM — Sucesso/Atenção/Erro", com cor por estado. Alimentado por uma aba própria "Registro de Controle" (separada do histórico de patrimônio), atualizada tanto pelo gatilho automático diário (segunda a sábado, 10:01) quanto por um botão manual de sincronizar. Em falha parcial (Atenção), um retry reprocessa só os ativos que falharam, não o lote todo.</div>
     <div class="decision"><span class="ic">✓</span>Grade "Meus Ativos" da Início passa a ter 4 classes, não 3: Renda Fixa entra junto com Ações/FIIs/Ações USA (decisão de 12/09/2026, depois que o histórico de Renda Fixa ficou com classificação e granularidade por posição tão boa quanto as outras classes). Ainda falta um handler novo — hoje nenhuma ação do Router.gs devolve a lista de posições de nenhuma Carteira (Ações/FIIs/USA/RF), só os totais agregados que o Home.gs já lê.</div>
     <div class="decision"><span class="ic">✓</span>Ticker novo (nunca comprado) na importação B3: nada de auto-cadastro. O fluxo espera que você já tenha incluído o ativo em Carteira Ações/FIIs antes de importar — se a importação encontrar um ticker que ainda não existe lá, ela avisa ("essa ação não existe na carteira, inclua antes de importar") em vez de tentar preencher Nome/Setor/SubSetor/Segmento sozinha.</div>
+    <div class="decision"><span class="ic">✓</span>Visual dos gráficos da Início (Patrimônio/Longo Prazo/Renda Emergencial) validado num mockup à parte antes de virar HTML de verdade (docs/direcao-visual.html): 2 linhas — Patrimônio em largura cheia, Longo Prazo + Renda Emergencial lado a lado. Cada card ganha Período/Mês atual/Ano atual (R$ + % cada), eixo X com as datas, e hover com linha-guia vertical + marcador + tooltip por série. Filtro de período sai do topbar (dropdown antigo) e vira pills contextuais coladas nos gráficos (1M/6M/12M/3A/Desde o início) + botão "Personalizado" com miniformulário De/Até. O dropdown antigo ainda existe em assets/partials/shell.html + assets/css/shell.css + assets/js/shell.js (com teste em tests/shell.test.js) — sai de lá quando entrarmos na Fase 2 de front-end (construção da Início de verdade).</div>
   </div>
 
   <h2 class="section-title">Perguntas em aberto</h2>
