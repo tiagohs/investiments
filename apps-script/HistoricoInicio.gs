@@ -39,6 +39,24 @@
  * dado de CDI/SELIC, rodarBackfillTaxasBcbDireto() (BackfillIndices.gs)
  * precisa ter rodado pelo menos uma vez — sem isso, os mapas vêm vazios e
  * as curvas de CDI/SELIC ficam em 100 (não erra, só fica sem dado).
+ *
+ * Otimização de 12/09/2026 #3 (as #1 e #2 derrubaram de ~78s pra ~42s, mas
+ * ainda é lento demais pra só ler planilha): o gargalo restante era
+ * chaveDiaISOInicio_ chamando Utilities.formatDate(data,
+ * Session.getScriptTimeZone(), ...) — e isso é chamado UMA VEZ POR LINHA
+ * de aux_historico-patrimonio (dezenas de milhares de linhas: 1 por
+ * ticker por dia de pregão) + 1x por linha de aux_historico-renda-fixa +
+ * 1x por linha de aux_historico-indices + 2x por dia no loop final
+ * (~2090 dias) — total na casa de 60-70 mil chamadas. Utilities.formatDate
+ * (e Session.getScriptTimeZone(), chamado de novo a cada vez dentro dela)
+ * é uma chamada de SERVIÇO do Apps Script (cruza pro backend, não é JS
+ * puro) — em loop isso é um gargalo clássico e conhecido do Apps Script,
+ * bem mais caro que o equivalente em JS puro. Troquei por um
+ * Intl.DateTimeFormat (nativo do V8, sem cruzar pro backend) criado UMA
+ * vez só (cacheado em variável de módulo) e reaproveitado em toda
+ * chamada — mesmo fuso (Session.getScriptTimeZone(), lido uma única vez),
+ * mesmo formato de saída, só que ordens de grandeza mais rápido em volume
+ * alto.
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -184,8 +202,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   return serie;
 }
 
+// Cacheado (lazy) — ver "Otimização #3" no cabeçalho do arquivo: criar o
+// Intl.DateTimeFormat UMA vez (em vez de chamar Utilities.formatDate a
+// cada linha) é o que faz essa função parar de ser o gargalo em volumes
+// de dezenas de milhares de chamadas.
+var _formatadorChaveDiaISOInicio_;
 function chaveDiaISOInicio_(data) {
-  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (!_formatadorChaveDiaISOInicio_) {
+    _formatadorChaveDiaISOInicio_ = new Intl.DateTimeFormat('en-CA', {
+      timeZone: Session.getScriptTimeZone(), year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+  }
+  return _formatadorChaveDiaISOInicio_.format(data); // "yyyy-MM-dd" (en-CA formata assim)
 }
 
 function arredondar2Inicio_(n) {

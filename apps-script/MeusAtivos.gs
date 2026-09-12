@@ -35,6 +35,14 @@
  * sozinha (ação "meusAtivos" via Router.gs) continua igual, sem passar
  * nada — só lê a aba ela mesma (ver lerLinhasHistoricoRendaFixa_, em
  * BackfillRendaFixa.gs).
+ *
+ * Otimização de 12/09/2026 #2: montarVariacoesDiaRF_ parou de chamar
+ * Utilities.formatDate direto (uma vez por LINHA de
+ * aux_historico-renda-fixa — pode ser milhares) e passou a usar
+ * chaveDiaISOInicio_ (HistoricoInicio.gs), que cacheia o formatador — ver
+ * "Otimização #3" no cabeçalho de HistoricoInicio.gs pro raciocínio
+ * completo (Utilities.formatDate é uma chamada de serviço do Apps Script,
+ * cara em volume alto; Intl.DateTimeFormat, criado uma vez, é JS puro).
  */
 
 var ABA_AUXILIAR_ATIVOS = 'Auxiliar_ativos';
@@ -190,7 +198,12 @@ function montarVariacoesDiaRF_(dadosRendaFixaCache) {
     var chave = chaveVariacaoRF_(produto, instituicao, indexador, null);
     if (!chave) return;
 
-    var diaIso = Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    // chaveDiaISOInicio_ (HistoricoInicio.gs) em vez de Utilities.formatDate
+    // direto — mesmo formato ('yyyy-MM-dd'), mas com o formatador
+    // Intl.DateTimeFormat cacheado, sem repetir a chamada de serviço a
+    // cada linha (ver "Otimização #3" no cabeçalho de HistoricoInicio.gs;
+    // essa aba pode ter milhares de linhas).
+    var diaIso = chaveDiaISOInicio_(data);
     if (!porChaveEDia[chave]) porChaveEDia[chave] = {};
     porChaveEDia[chave][diaIso] = (porChaveEDia[chave][diaIso] || 0) + valor;
   });

@@ -562,8 +562,22 @@ function buscarFatoresDiariosIpca_(dataInicial, dataFinal) {
   return mapa;
 }
 
+/**
+ * Otimização de 12/09/2026 (ver "Otimização #3" no cabeçalho de
+ * HistoricoInicio.gs): essa função é chamada em loop, MUITAS vezes, tanto
+ * no backfill de RF quanto (via montarSerieHistoricoInicio_) na ação
+ * "home" — Utilities.formatDate é uma chamada de SERVIÇO do Apps Script
+ * (cruza pro backend), cara quando repetida em volume alto. Trocado por
+ * Intl.DateTimeFormat (nativo do V8), criado uma vez só e cacheado.
+ */
+var _formatadorDataBcbRF_;
 function formatarDataBcbRF_(data) {
-  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  if (!_formatadorDataBcbRF_) {
+    _formatadorDataBcbRF_ = new Intl.DateTimeFormat('en-GB', {
+      timeZone: Session.getScriptTimeZone(), day: '2-digit', month: '2-digit', year: 'numeric'
+    });
+  }
+  return _formatadorDataBcbRF_.format(data); // "dd/MM/yyyy" (en-GB formata assim)
 }
 
 function mesmoDiaRF_(a, b) {
