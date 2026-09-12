@@ -6,16 +6,24 @@
  * uma planilha pronta pra importar como aba nova: no Sheets, Arquivo >
  * Importar > selecionar o arquivo > "Inserir nova(s) planilha(s)" — as
  * fórmulas (gravadas em inglês dentro do .xlsx) já chegam traduzidas pro
- * pt-BR sozinhas). Renda Fixa
- * não precisa de aba auxiliar — lê direto de "Carteira Renda Fixa",
- * que já é fonte única.
+ * pt-BR sozinhas). Renda Fixa não precisa de aba auxiliar — lê direto de
+ * "Carteira Renda Fixa", que já é fonte única.
  *
  * Câmbio de Ações EUA: reaproveita 'Distribuição e Metas'!K56, mesma
  * célula que o Home.gs já usa — não existe coluna BRL na planilha.
  *
- * Em aberto (ver conversa): "variação dia" de Renda Fixa não existe
- * como coluna — teria que vir de aux_historico-renda-fixa (comparar
- * hoje vs ontem por posição). Por enquanto volta null.
+ * Variação dia de Renda Fixa (12/09/2026): não existe como coluna em
+ * Carteira Renda Fixa, então é calculada comparando os 2 últimos dias de
+ * aux_historico-renda-fixa. O pareamento entre as duas abas NÃO pode ser
+ * por "Tipo de Investimento" cru (ex.: "Tesouro Selic (LFT)"), porque
+ * esse texto não inclui o ano e várias posições compartilham o mesmo
+ * Tipo — usamos a MESMA chave que BackfillRendaFixa.gs já usa pra achar
+ * a Classificação de cada posição histórica: ano do Vencimento +
+ * Instituição (normalizada) + Indexador, ou "LCI|Instituição" pra
+ * LCI/LCA (ver classificarPosicaoRF_/montarMapaClassificacaoRF_ nesse
+ * arquivo — mesma ideia, chave em formato compatível). Se uma posição
+ * não tiver histórico ainda (recém-cadastrada) ou a chave não bater,
+ * volta null — nunca inventa número.
  */
 
 var ABA_AUXILIAR_ATIVOS = 'Auxiliar_ativos';
@@ -36,6 +44,11 @@ function testarMeusAtivosDireto() {
   var ativos = montarMeusAtivos_();
   Logger.log('Total: ' + ativos.length);
   Logger.log(JSON.stringify(ativos, null, 2));
+}
+
+/** Roda só o cálculo de variação dia de RF, direto no editor, pra conferir as chaves batendo. */
+function testarVariacoesDiaRfDireto() {
+  Logger.log(JSON.stringify(montarVariacoesDiaRF_(), null, 2));
 }
 
 function montarMeusAtivos_() {
@@ -88,6 +101,7 @@ function montarMeusAtivos_() {
   // ---- Renda Fixa — direto da Carteira Renda Fixa (já é fonte única) ----
   var abaRF = ss.getSheetByName(ABA_CARTEIRA_RF_MEUSATIVOS);
   if (!abaRF) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_MEUSATIVOS);
+  var variacoesRF = montarVariacoesDiaRF_();
   var ultimaLinhaRF = abaRF.getLastRow();
   if (ultimaLinhaRF >= LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS) {
     var dadosRF = abaRF.getRange(
@@ -101,10 +115,14 @@ function montarMeusAtivos_() {
 
       var marca = linha[1];       // 'Renda Emergencial' | 'Renda Fixa' (a nossa "Longo Prazo")
       var indexador = linha[3];
+      var instituicao = linha[4]; // Instituição (mesma coluna que Transações Renda Fixa usa)
       var vencimento = linha[9];
       var vencimentoTexto = vencimento instanceof Date
         ? Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'MM/yyyy')
         : (vencimento || null);
+
+      var instituicaoNorm = normalizarInstituicaoRF_(instituicao);
+      var chaveVariacao = chaveVariacaoRF_(tipoInvestimento, instituicaoNorm, indexador, vencimento);
 
       lista.push({
         classe: 'rf',
@@ -119,12 +137,89 @@ function montarMeusAtivos_() {
         quantidade: numeroOuNulo_(linha[5]),
         vencimento: vencimentoTexto,
         valorAtualizado: numeroOuNulo_(linha[10]),
+        variacaoDia: (chaveVariacao && chaveVariacao in variacoesRF) ? variacoesRF[chaveVariacao] : null,
         moeda: 'R$'
       });
     });
   }
 
   return lista;
+}
+
+/**
+ * Compara os 2 últimos dias de aux_historico-renda-fixa por posição,
+ * agrupando pela MESMA chave (ano+instituição+indexador, ou
+ * LCI|instituição) que BackfillRendaFixa.gs usa pra classificar — não
+ * pelo texto cru do Produto, que pode se repetir entre posições
+ * diferentes na mesma instituição (por isso soma por dia dentro da
+ * chave antes de comparar, em vez de pegar só a última linha bruta).
+ * Devolve { chave: variação (fração, ex.: 0.0012) }.
+ */
+function montarVariacoesDiaRF_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(ABA_HISTORICO_RF); // 'aux_historico-renda-fixa' (var global de BackfillRendaFixa.gs)
+  if (!aba) return {};
+  var ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) return {};
+
+  var porChaveEDia = {}; // chave -> { 'yyyy-MM-dd': soma valor }
+
+  aba.getRange(2, 1, ultimaLinha - 1, 6).getValues().forEach(function (linha) {
+    var data = linha[0];
+    if (!(data instanceof Date)) return;
+    var produto = linha[1];
+    var instituicao = linha[2]; // já normalizada, gravada pelo próprio backfill
+    var indexador = linha[3];
+    var valor = Number(linha[5]) || 0;
+
+    var chave = chaveVariacaoRF_(produto, instituicao, indexador, null);
+    if (!chave) return;
+
+    var diaIso = Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (!porChaveEDia[chave]) porChaveEDia[chave] = {};
+    porChaveEDia[chave][diaIso] = (porChaveEDia[chave][diaIso] || 0) + valor;
+  });
+
+  var variacoes = {};
+  Object.keys(porChaveEDia).forEach(function (chave) {
+    var dias = Object.keys(porChaveEDia[chave]).sort();
+    if (dias.length < 2) return; // posição nova, só 1 dia de histórico ainda
+    var valorUltimo = porChaveEDia[chave][dias[dias.length - 1]];
+    var valorPenultimo = porChaveEDia[chave][dias[dias.length - 2]];
+    if (!valorPenultimo) return;
+    variacoes[chave] = arredondarVariacaoRF_((valorUltimo - valorPenultimo) / valorPenultimo);
+  });
+  return variacoes;
+}
+
+/**
+ * Monta a chave de cruzamento entre Carteira Renda Fixa e
+ * aux_historico-renda-fixa. Duas formas de chamar:
+ *  - a partir de uma linha da Carteira: passa tipoInvestimento,
+ *    instituicaoNormalizada, indexador e o objeto Date de vencimento.
+ *  - a partir de uma linha do histórico: passa produto (texto cru, ex.
+ *    "Tesouro Selic 2029"), instituicaoNormalizada, indexador e null no
+ *    lugar do vencimento — o ano sai do próprio texto do produto (regex),
+ *    igual classificarPosicaoRF_ já faz em BackfillRendaFixa.gs.
+ */
+function chaveVariacaoRF_(textoOuTipo, instituicaoNorm, indexador, vencimento) {
+  var indexadorNorm = String(indexador || '').toUpperCase().trim();
+  if (/lci|lca/i.test(String(textoOuTipo || ''))) {
+    return 'LCI|' + instituicaoNorm;
+  }
+  var ano = null;
+  if (vencimento instanceof Date) {
+    ano = vencimento.getFullYear();
+  } else {
+    var match = String(textoOuTipo || '').match(/(\d{4})/);
+    if (match) ano = match[1];
+  }
+  if (!ano) return null;
+  return ano + '|' + instituicaoNorm + '|' + indexadorNorm;
+}
+
+function arredondarVariacaoRF_(n) {
+  return Math.round(n * 10000) / 10000;
 }
 
 function numeroOuNulo_(v) {
