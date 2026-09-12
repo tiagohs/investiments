@@ -27,6 +27,9 @@ function doGet(e) {
   if (action === 'home') {
     return handleHome(e);
   }
+  if (action === 'historico_inicio') {
+    return handleHistoricoInicio(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
