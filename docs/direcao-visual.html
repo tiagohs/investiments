@@ -183,9 +183,22 @@
   .ativo-price{ font-family:var(--mono); font-size:19px; font-weight:600; margin-top:2px; }
   .ativo-price .dec{ font-size:13px; opacity:.65; }
   .ativo-delta{ font-size:11px; font-weight:600; }
-  .ativo-delta.good{ color:var(--good-ink); } .ativo-delta.bad{ color:var(--bad-ink); }
+  .ativo-delta.good{ color:var(--good-ink); } .ativo-delta.bad{ color:var(--bad-ink); } .ativo-delta.na{ color:var(--na); }
   .ativo-delta .dim{ color:var(--ink-faint); font-weight:500; }
+  .ativo-price-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); margin-left:4px; }
   @media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
+
+  /* ---- Tooltip de hover do card de ativo ---- */
+  .ativo-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
+        border-radius:12px; box-shadow:var(--shadow); padding:11px 13px; font-size:11.5px; min-width:210px; max-width:270px;
+        opacity:0; transition:opacity .1s ease; }
+  .ativo-tooltip .tt-head{ font-family:var(--body-f); font-weight:700; font-size:12.5px; margin-bottom:7px; display:flex; align-items:center; gap:6px; }
+  .ativo-tooltip .tt-cat{ font-size:9px; font-weight:700; text-transform:uppercase; color:var(--ink-faint); background:var(--surface-3); padding:2px 6px; border-radius:100px; }
+  .ativo-tooltip .tt-row{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:4px 0; }
+  .ativo-tooltip .tt-row + .tt-row{ border-top:1px dashed var(--border); }
+  .ativo-tooltip .tt-k{ color:var(--ink-muted); }
+  .ativo-tooltip .tt-v{ font-family:var(--mono); font-weight:600; text-align:right; }
+  .ativo-tooltip .tt-conv{ color:var(--ink-faint); font-weight:500; }
 
   /* ---- Global period filter ---- */
   .period-wrap{ position:relative; }
@@ -1139,26 +1152,117 @@
       {tk:'PAM',  cat:'usa', moeda:'US$', preco:'86,18', d:-0.01},
       {tk:'PROSY',cat:'usa', moeda:'US$', preco:'8,31',  d:-1.07},
       {tk:'VNOM', cat:'usa', moeda:'US$', preco:'45,14', d:0.56},
-      {tk:'Tesouro Selic 2029', cat:'rf', moeda:'R$', preco:'12.480,55', d:0.04},
-      {tk:'CDB Banco Inter 2027', cat:'rf', moeda:'R$', preco:'6.230,10', d:0.03},
-      {tk:'LCI Gafisa 2026', cat:'rf', moeda:'R$', preco:'4.117,88', d:-0.01}
+      {tk:'Tesouro Selic 2029', cat:'rf', moeda:'R$', preco:'12.480,55', d:0.04, tipoInvestimento:'Tesouro Direto', indexador:'Selic', vencimento:'01/03/2029'},
+      {tk:'CDB Banco Inter 2027', cat:'rf', moeda:'R$', preco:'6.230,10', d:0.03, tipoInvestimento:'CDB', indexador:'CDI', vencimento:'15/07/2027'},
+      {tk:'LCI Gafisa 2026', cat:'rf', moeda:'R$', preco:'4.117,88', d:-0.01, tipoInvestimento:'LCI', indexador:'IPCA', vencimento:'20/11/2026'}
     ];
     var classeLabel = {acoes:'Ação', fiis:'FII', usa:'EUA', rf:'RF'};
     var grid = document.getElementById('carteiraGrid');
     var state = { cat:'todos' };
-
-    // Viés (Comprar/Aguardar) ilustrativo pra visualizar o layout — na versão
-    // real vem da fórmula =SE(D42>=E42;"Aguardar";"Comprar") de Distribuições e
-    // Metas!F42. Renda Fixa não tem preço-teto, então fica sem Viés.
-    ativos.forEach(function(a){
-      if(a.cat !== 'rf'){ a.vies = (seedRand(a.tk + '-vies')() < 0.6) ? 'comprar' : 'aguardar'; }
-    });
 
     function seedRand(str){
       var h = 0;
       for(var i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
       return function(){ h = (h*1103515245 + 12345) >>> 0; return (h % 1000) / 1000; };
     }
+
+    function fmtMoney(v, moeda){
+      var sign = v < 0 ? '−' : '';
+      v = Math.abs(v);
+      var parts = v.toFixed(2).split('.');
+      var intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+      return sign + moeda + ' ' + intPart + ',' + parts[1];
+    }
+    function fmtPct(v){ return (v>=0?'+':'−') + Math.abs(v).toFixed(1).replace('.',',') + '%'; }
+
+    // Nome (e Tipo, no caso de FIIs) por ticker — só pro mockup; na versão real
+    // isso já é coluna de verdade em Carteira Ações/FIIs/Ações USA.
+    var EXTRA_INFO = {
+      WIZC3:{nome:'Wiz Co Participações'}, VAMO3:{nome:'Vamos Locação de Caminhões, Máquinas e Equip.'},
+      SEER3:{nome:'Ser Educacional'}, TUPY3:{nome:'Tupy'}, AXIA7:{nome:'Axia Energia'}, AGRO3:{nome:'BrasilAgro'},
+      B3SA3:{nome:'B3 — Brasil, Bolsa, Balcão'}, BBAS3:{nome:'Banco do Brasil'}, BBSE3:{nome:'BB Seguridade'},
+      EGIE3:{nome:'Engie Brasil Energia'}, PETR4:{nome:'Petrobras'}, VALE3:{nome:'Vale'},
+      BTLG11:{nome:'BTG Pactual Logística', tipo:'Tijolo'}, GARE11:{nome:'Guardian Real Estate', tipo:'Tijolo'},
+      PMLL11:{nome:'Plural Recebíveis Imobiliários', tipo:'Papel'}, VGIP11:{nome:'Valora RE III', tipo:'Papel'},
+      TRXF11:{nome:'TRX Real Estate', tipo:'Tijolo'}, RECR11:{nome:'REC Recebíveis Imobiliários', tipo:'Papel'},
+      RBRY11:{nome:'RBR Alpha Multiestratégia', tipo:'Papel'}, KNUQ11:{nome:'Kinea Rendimentos Imobiliários', tipo:'Papel'},
+      HGRU11:{nome:'CSHG Renda Urbana', tipo:'Tijolo'}, XPML11:{nome:'XP Malls', tipo:'Tijolo'},
+      GPRK:{nome:'GeoPark'}, CHTR:{nome:'Charter Communications'}, SIRI:{nome:'Sirius XM Holdings'},
+      EWBC:{nome:'East West Bancorp'}, PAM:{nome:'Pampa Energía'}, PROSY:{nome:'Prosus'}, VNOM:{nome:'Viper Energy'}
+    };
+
+    // Todo o resto do tooltip (Viés, quantidade, preço teto/médio, descontos,
+    // câmbio) é ilustrativo pra visualizar o layout — na versão real vem das
+    // colunas reais de cada Carteira + da fórmula de Distribuições e Metas!F42
+    // (=SE(D42>=E42;"Aguardar";"Comprar")). Renda Fixa não tem preço-teto, por
+    // isso fica sem Viés.
+    ativos.forEach(function(a){
+      var precoNum = parseFloat(a.preco.replace(/\./g,'').replace(',', '.'));
+      if(a.cat === 'rf') return;
+      var rnd = seedRand(a.tk + '-extra');
+      a.vies = (seedRand(a.tk + '-vies')() < 0.6) ? 'comprar' : 'aguardar';
+      a.qtd = Math.round(20 + rnd()*480);
+      a.precoMedio = precoNum * (0.82 + rnd()*0.33);
+      a.precoTeto = precoNum * (a.vies === 'comprar' ? (1.03 + rnd()*0.25) : (0.80 + rnd()*0.18));
+      a.descontoPVP = -18 + rnd()*36;
+      a.descontoPL = -22 + rnd()*40;
+      if(a.cat === 'usa'){
+        a.cambio = 5.35 + rnd()*0.25;
+        a.precoBRL = fmtMoney(precoNum * a.cambio, 'R$');
+      }
+    });
+
+    function tooltipRowsHTML(a){
+      var info = EXTRA_INFO[a.tk] || {};
+      var rows = [];
+      if(a.cat === 'rf'){
+        rows.push(['Tipo de investimento', a.tipoInvestimento]);
+        rows.push(['Indexador', a.indexador]);
+        rows.push(['Vencimento', a.vencimento]);
+        rows.push(['Valor atualizado (manual)', a.moeda + ' ' + a.preco]);
+      } else if(a.cat === 'fiis'){
+        rows.push(['Nome', info.nome || a.tk]);
+        rows.push(['Tipo', info.tipo || '—']);
+        rows.push(['Preço médio', fmtMoney(a.precoMedio, a.moeda)]);
+        rows.push(['Quantidade de cotas', a.qtd]);
+        rows.push(['Desconto sobre P/VP', fmtPct(a.descontoPVP)]);
+      } else if(a.cat === 'usa'){
+        rows.push(['Nome', info.nome || a.tk]);
+        rows.push(['Quantidade de ações', a.qtd]);
+        rows.push(['Preço teto', fmtMoney(a.precoTeto,'US$') + ' <span class="tt-conv">(' + fmtMoney(a.precoTeto*a.cambio,'R$') + ')</span>']);
+        rows.push(['Preço médio', fmtMoney(a.precoMedio,'US$') + ' <span class="tt-conv">(' + fmtMoney(a.precoMedio*a.cambio,'R$') + ')</span>']);
+        rows.push(['Desconto sobre P/VP', fmtPct(a.descontoPVP)]);
+        rows.push(['Desconto sobre P/L', fmtPct(a.descontoPL)]);
+      } else {
+        rows.push(['Nome', info.nome || a.tk]);
+        rows.push(['Quantidade de ações', a.qtd]);
+        rows.push(['Preço teto', fmtMoney(a.precoTeto, a.moeda)]);
+        rows.push(['Preço médio', fmtMoney(a.precoMedio, a.moeda)]);
+        rows.push(['Desconto sobre P/VP', fmtPct(a.descontoPVP)]);
+        rows.push(['Desconto sobre P/L', fmtPct(a.descontoPL)]);
+      }
+      return rows.map(function(r){ return '<div class="tt-row"><span class="tt-k">'+r[0]+'</span><span class="tt-v">'+r[1]+'</span></div>'; }).join('');
+    }
+
+    var tooltipEl = document.createElement('div');
+    tooltipEl.className = 'ativo-tooltip';
+    document.body.appendChild(tooltipEl);
+
+    grid.addEventListener('mousemove', function(e){
+      var card = e.target.closest('.ativo-card');
+      if(!card){ tooltipEl.style.opacity = 0; return; }
+      var a = ativos.find(function(x){ return x.tk === card.getAttribute('data-tk'); });
+      if(!a){ tooltipEl.style.opacity = 0; return; }
+      tooltipEl.innerHTML = '<div class="tt-head">'+a.tk+' <span class="tt-cat">'+classeLabel[a.cat]+'</span></div>' + tooltipRowsHTML(a);
+      tooltipEl.style.opacity = 1;
+      var tw = tooltipEl.offsetWidth, th = tooltipEl.offsetHeight;
+      var left = e.clientX + 16, top = e.clientY + 16;
+      if(left + tw > window.innerWidth - 12) left = e.clientX - tw - 16;
+      if(top + th > window.innerHeight - 12) top = e.clientY - th - 16;
+      tooltipEl.style.left = left + 'px';
+      tooltipEl.style.top = top + 'px';
+    });
+    grid.addEventListener('mouseleave', function(){ tooltipEl.style.opacity = 0; });
 
     function sparkline(tk, good){
       var rnd = seedRand(tk);
@@ -1181,19 +1285,21 @@
 
     function ativoCardHTML(a){
       var parts = a.preco.split(',');
-      var good = a.d >= 0;
-      var deltaTxt = (good ? '▲ +' : '▼ −') + Math.abs(a.d).toFixed(2).replace('.',',') + '%';
+      var trend = a.d > 0 ? 'good' : (a.d < 0 ? 'bad' : 'na');
+      var deltaTxt = a.d > 0 ? ('▲ +'+a.d.toFixed(2).replace('.',',')+'%')
+                   : a.d < 0 ? ('▼ −'+Math.abs(a.d).toFixed(2).replace('.',',')+'%')
+                   : '— 0,00%';
       var viesHTML = a.vies ? '<span class="vies-badge '+a.vies+'">'+(a.vies==='comprar'?'Comprar':'Aguardar')+'</span>' : '';
-      var priceLabel = a.cat === 'rf' ? '' : ''; // preço e saldo usam o mesmo slot visual, só muda o rótulo do dado de origem (ver nota acima do grid)
+      var precoConv = a.cat === 'usa' ? ' <span class="ativo-price-conv">('+a.precoBRL+')</span>' : '';
       return '' +
-        '<a class="ativo-card" data-cat="'+a.cat+'" href="carteiras/ativo.html?ticker='+encodeURIComponent(a.tk)+'">' +
+        '<a class="ativo-card" data-cat="'+a.cat+'" data-tk="'+a.tk+'" href="carteiras/ativo.html?ticker='+encodeURIComponent(a.tk)+'">' +
           '<div class="ativo-card-top">' +
             '<div class="ativo-id"><span class="ativo-ticker">'+a.tk+'</span><span class="ativo-classe '+a.cat+'">'+classeLabel[a.cat]+'</span></div>' +
             viesHTML +
           '</div>' +
-          '<div class="ativo-price">'+a.moeda+' '+parts[0]+'<span class="dec">,'+parts[1]+'</span></div>' +
-          '<div class="ativo-delta '+(good?'good':'bad')+'">'+deltaTxt+' <span class="dim">hoje</span></div>' +
-          sparkline(a.tk, good) +
+          '<div class="ativo-price">'+a.moeda+' '+parts[0]+'<span class="dec">,'+parts[1]+'</span>'+precoConv+'</div>' +
+          '<div class="ativo-delta '+trend+'">'+deltaTxt+' <span class="dim">hoje</span></div>' +
+          sparkline(a.tk, trend !== 'bad') +
         '</a>';
     }
 
