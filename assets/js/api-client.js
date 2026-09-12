@@ -49,14 +49,27 @@ export async function getSyncStatus(token) {
 }
 
 /**
- * Patrimônio nas 3 visões (total/longoPrazo/rendaEmergencial) + índices
- * & câmbio, for the Início page (action=home). See apps-script/Home.gs
- * for exactly which cells each field comes from.
+ * Chamada única da tela Início (action=home) — desde 12/09/2026 devolve
+ * patrimônio+índices+câmbio, a série histórica e a grade "Meus Ativos"
+ * juntos, pra evitar 3 chamadas separadas no carregamento da página. See
+ * apps-script/Home.gs (handleHome/montarHome_) for exactly which cells
+ * each field comes from and how as 3 seções são montadas.
+ *
+ * Cada seção (home/historico/ativos) roda no seu próprio try/catch no
+ * back-end: se uma falhar, as outras ainda voltam — o problema aparece
+ * em `avisos` (por seção) em vez de derrubar a resposta inteira. Front-end
+ * deve tratar cada campo (`patrimonio`/`historico`/`ativos`) como
+ * possivelmente ausente, não só a resposta como um todo.
  *
  * @return {Promise<Object>} `{ ok, patrimonio: { total, longoPrazo,
  *   rendaEmergencial, porClasse: { acoes, fiis, rendaFixa, acoesEua } },
- *   indices: { ibovespa, ifix, spx }, cambio: { usd, eur } }` or
- *   `{ ok:false, etapa, erro }`
+ *   indices: { ibovespa, ifix, spx }, cambio: { usd, eur },
+ *   historico: Array<{ data, patrimonio, longoPrazo, rendaEmergencial,
+ *   indiceCdi, indiceSelic, ibovespa }>, ativos: Array<Object>,
+ *   avisos?: { home?, historico?, ativos? } }` or
+ *   `{ ok:false, etapa, erro }`. As ações "historico_inicio" e
+ *   "meusAtivos" continuam existindo à parte no Router.gs, pra quem
+ *   precisar buscar só um pedaço sem os outros dois.
  */
 export async function getHome(token) {
   return request('GET', 'home', token);

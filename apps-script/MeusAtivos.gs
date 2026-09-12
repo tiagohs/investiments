@@ -2,8 +2,11 @@
  * MeusAtivos.gs — handler novo pra grade "Meus Ativos" da Início (e,
  * mais pra frente, Carteiras/Detalhe do Ativo, que reaproveitam o
  * mesmo consolidado). Ações/FIIs/Ações EUA vêm da aba "Auxiliar_ativos"
- * (uma linha por ativo, populada por fórmula — ver
- * docs/Auxiliar_ativos.tsv pra colar o conteúdo inicial). Renda Fixa
+ * (uma linha por ativo, populada por fórmula — ver docs/Auxiliar_ativos.xlsx,
+ * uma planilha pronta pra importar como aba nova: no Sheets, Arquivo >
+ * Importar > selecionar o arquivo > "Inserir nova(s) planilha(s)" — as
+ * fórmulas (gravadas em inglês dentro do .xlsx) já chegam traduzidas pro
+ * pt-BR sozinhas). Renda Fixa
  * não precisa de aba auxiliar — lê direto de "Carteira Renda Fixa",
  * que já é fonte única.
  *
