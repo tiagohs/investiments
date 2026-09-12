@@ -160,6 +160,33 @@
 
   .spark-mini{ display:block; margin-top:8px; }
 
+  /* ---- Cartao de ativo (Meus ativos) — o cartao inteiro e um link pro
+     Detalhe do Ativo, sem link externo de terceiro (tipo Suno) ---- */
+  .ativos-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .ativo-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+        padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px;
+        text-decoration:none; color:inherit; transition:transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
+  .ativo-card:hover{ transform:translateY(-2px); border-color:var(--acoes); box-shadow:0 4px 16px -4px rgba(27,36,48,.18), var(--shadow); }
+  .ativo-card:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+  .ativo-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+  .ativo-id{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+  .ativo-ticker{ font-family:var(--body-f); font-weight:700; font-size:14px; color:var(--ink); overflow-wrap:anywhere; }
+  .ativo-classe{ font-size:9px; font-weight:700; letter-spacing:.03em; padding:2px 7px; border-radius:100px;
+        text-transform:uppercase; white-space:nowrap; flex:none; }
+  .ativo-classe.acoes{ background:var(--acoes-soft); color:var(--acoes); }
+  .ativo-classe.fiis{ background:var(--fiis-soft); color:var(--fiis); }
+  .ativo-classe.rf{ background:var(--rf-soft); color:var(--rf); }
+  .ativo-classe.usa{ background:var(--usa-soft); color:var(--usa); }
+  .vies-badge{ font-size:10px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; flex:none; }
+  .vies-badge.comprar{ background:var(--good-soft); color:var(--good-ink); }
+  .vies-badge.aguardar{ background:var(--warn-soft); color:var(--warn-ink); }
+  .ativo-price{ font-family:var(--mono); font-size:19px; font-weight:600; margin-top:2px; }
+  .ativo-price .dec{ font-size:13px; opacity:.65; }
+  .ativo-delta{ font-size:11px; font-weight:600; }
+  .ativo-delta.good{ color:var(--good-ink); } .ativo-delta.bad{ color:var(--bad-ink); }
+  .ativo-delta .dim{ color:var(--ink-faint); font-weight:500; }
+  @media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
+
   /* ---- Global period filter ---- */
   .period-wrap{ position:relative; }
   .period-btn{ position:relative; display:inline-flex; align-items:center; gap:8px; border:1px solid var(--border);
@@ -709,9 +736,11 @@
       <button class="filter-tab" type="button" data-cat="acoes">Ações</button>
       <button class="filter-tab" type="button" data-cat="fiis">FIIs</button>
       <button class="filter-tab" type="button" data-cat="usa">Ações Inter.</button>
+      <button class="filter-tab" type="button" data-cat="rf">Renda Fixa</button>
     </div>
   </div>
-  <div class="widget-grid" id="carteiraGrid" style="margin-bottom:22px"></div>
+  <p class="hint" style="margin:-4px 0 10px">Cartão inteiro é link pro Detalhe do Ativo — sem link externo pra Suno. Viés (Comprar/Aguardar) ilustrativo aqui; na versão real vem da fórmula em <span class="mono">Distribuições e Metas!F42</span>. Renda Fixa não tem Viés (não existe preço-teto pra título de renda fixa) — mostra Saldo atual no lugar de Preço.</p>
+  <div class="ativos-grid" id="carteiraGrid" style="margin-bottom:22px"></div>
 
   <!-- ================= METAS DA CARTEIRA ================= -->
   <div class="section">
@@ -1109,11 +1138,21 @@
       {tk:'EWBC', cat:'usa', moeda:'US$', preco:'128,04', d:-0.94},
       {tk:'PAM',  cat:'usa', moeda:'US$', preco:'86,18', d:-0.01},
       {tk:'PROSY',cat:'usa', moeda:'US$', preco:'8,31',  d:-1.07},
-      {tk:'VNOM', cat:'usa', moeda:'US$', preco:'45,14', d:0.56}
+      {tk:'VNOM', cat:'usa', moeda:'US$', preco:'45,14', d:0.56},
+      {tk:'Tesouro Selic 2029', cat:'rf', moeda:'R$', preco:'12.480,55', d:0.04},
+      {tk:'CDB Banco Inter 2027', cat:'rf', moeda:'R$', preco:'6.230,10', d:0.03},
+      {tk:'LCI Gafisa 2026', cat:'rf', moeda:'R$', preco:'4.117,88', d:-0.01}
     ];
-    var sunoBase = {acoes:'https://investidor.suno.com.br/acoes/', fiis:'https://investidor.suno.com.br/fiis/', usa:'https://investidor.suno.com.br/acoes/'};
+    var classeLabel = {acoes:'Ação', fiis:'FII', usa:'EUA', rf:'RF'};
     var grid = document.getElementById('carteiraGrid');
     var state = { cat:'todos' };
+
+    // Viés (Comprar/Aguardar) ilustrativo pra visualizar o layout — na versão
+    // real vem da fórmula =SE(D42>=E42;"Aguardar";"Comprar") de Distribuições e
+    // Metas!F42. Renda Fixa não tem preço-teto, então fica sem Viés.
+    ativos.forEach(function(a){
+      if(a.cat !== 'rf'){ a.vies = (seedRand(a.tk + '-vies')() < 0.6) ? 'comprar' : 'aguardar'; }
+    });
 
     function seedRand(str){
       var h = 0;
@@ -1130,34 +1169,37 @@
       }
       pts[5] = good ? Math.min(pts[5], 7) : Math.max(pts[5], 15);
       var step = 60/(pts.length-1);
-      var d = pts.map(function(y,i){ return (i===0?'M':'L') + (i*step).toFixed(1) + ' ' + y.toFixed(1); }).join(' ');
+      var color = 'var(--'+(good?'good':'bad')+')';
+      var lineD = pts.map(function(y,i){ return (i===0?'M':'L') + (i*step).toFixed(1) + ' ' + y.toFixed(1); }).join(' ');
+      var areaD = lineD + ' L60,24 L0,24 Z';
       return '<svg class="spark-mini" width="100%" height="24" viewBox="0 0 60 24" preserveAspectRatio="none">' +
-        '<path d="'+d+'" fill="none" stroke="var(--'+(good?'good':'bad')+')" stroke-width="1.7"/>' +
-        '<circle cx="60" cy="'+pts[5].toFixed(1)+'" r="2.3" fill="var(--'+(good?'good':'bad')+')"/>' +
+        '<path d="'+areaD+'" fill="'+color+'" opacity="0.10" stroke="none"/>' +
+        '<path d="'+lineD+'" fill="none" stroke="'+color+'" stroke-width="1.7"/>' +
+        '<circle cx="60" cy="'+pts[5].toFixed(1)+'" r="2.3" fill="'+color+'"/>' +
         '</svg>';
     }
 
-    function tileHTML(a){
+    function ativoCardHTML(a){
       var parts = a.preco.split(',');
       var good = a.d >= 0;
-      var arrowPath = good ? 'M12 19V5M5 12l7-7 7 7' : 'M12 5v14M5 12l7 7 7-7';
+      var deltaTxt = (good ? '▲ +' : '▼ −') + Math.abs(a.d).toFixed(2).replace('.',',') + '%';
+      var viesHTML = a.vies ? '<span class="vies-badge '+a.vies+'">'+(a.vies==='comprar'?'Comprar':'Aguardar')+'</span>' : '';
+      var priceLabel = a.cat === 'rf' ? '' : ''; // preço e saldo usam o mesmo slot visual, só muda o rótulo do dado de origem (ver nota acima do grid)
       return '' +
-        '<div class="widget-tile" data-cat="'+a.cat+'">' +
-          '<div class="widget-tile-top">' +
-            '<div>' +
-              '<div class="widget-value">'+a.moeda+' '+parts[0]+'<span class="dec">,'+parts[1]+'</span></div>' +
-              '<div class="widget-label">'+a.tk+' <a class="ext-link" href="'+sunoBase[a.cat]+a.tk+'" target="_blank" rel="noopener">Suno<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17L17 7M9 7h8v8"/></svg></a></div>' +
-            '</div>' +
-            '<span class="arrow-badge '+(good?'good':'bad')+'"><svg viewBox="0 0 24 24"><path d="'+arrowPath+'"/></svg></span>' +
+        '<a class="ativo-card" data-cat="'+a.cat+'" href="carteiras/ativo.html?ticker='+encodeURIComponent(a.tk)+'">' +
+          '<div class="ativo-card-top">' +
+            '<div class="ativo-id"><span class="ativo-ticker">'+a.tk+'</span><span class="ativo-classe '+a.cat+'">'+classeLabel[a.cat]+'</span></div>' +
+            viesHTML +
           '</div>' +
-          '<div class="widget-delta" style="color:var(--'+(good?'good':'bad')+'-ink)">'+(good?'+':'')+a.d.toFixed(2).replace('.',',')+'% hoje</div>' +
+          '<div class="ativo-price">'+a.moeda+' '+parts[0]+'<span class="dec">,'+parts[1]+'</span></div>' +
+          '<div class="ativo-delta '+(good?'good':'bad')+'">'+deltaTxt+' <span class="dim">hoje</span></div>' +
           sparkline(a.tk, good) +
-        '</div>';
+        '</a>';
     }
 
     function render(){
       var list = ativos.filter(function(a){ return state.cat==='todos' || a.cat===state.cat; });
-      grid.innerHTML = list.map(tileHTML).join('');
+      grid.innerHTML = list.map(ativoCardHTML).join('');
     }
 
     document.querySelectorAll('#catTabs .filter-tab').forEach(function(btn){
