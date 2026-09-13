@@ -27,15 +27,20 @@
  * directly against a jsdom document instead of calling mountShell(),
  * so they never need a real network fetch.
  *
- * Login gate (13/09/2026): mountShell() also decides whether the page's
- * own <main> can be shown yet. If auth.js!getToken() already has a
- * valid token (session storage from an earlier page load), <main> is
- * shown immediately and options.onAuthenticated(token) runs right away.
- * Otherwise <main> stays hidden and the #authGate block (injected as
- * part of the header template, see assets/partials/shell.html) is shown
- * instead, with auth-ui.js!mountAuthGate wiring the real Google sign-in
- * button — onAuthenticated only ever runs once a token exists, so a
- * page's data-fetching code never has to check for a token itself.
+ * Login gate (13/09/2026, revised same day): mountShell() also decides
+ * whether the page's own <main> can be shown yet. If auth.js!getToken()
+ * already has a valid token (session storage from an earlier page
+ * load), <main> is shown immediately and options.onAuthenticated(token)
+ * runs right away. Otherwise <main> stays hidden and the browser is
+ * redirected to login.html (see redirectParaLogin) - a dedicated page,
+ * not an overlay drawn on top of this one (the first version tried an
+ * in-page gate; it looked cramped and, worse, its styling depended on
+ * this page's own shell.css loading correctly, which made a real
+ * caching bug - see sw.js - look like a broken login button instead of
+ * what it actually was). login.html remembers where to send you back
+ * via ?redirect=, and never runs anything from this page's own <main> -
+ * so a page's data-fetching code never has to check for a token itself,
+ * it just never runs until a token exists.
  *
  * No top-level side effects on import (same convention as api-client.js/
  * auth.js/config.js) - importing this module never touches the DOM or
@@ -44,7 +49,6 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
-import { mountAuthGate } from './auth-ui.js';
 
 /**
  * The shell partial always lives at assets/partials/shell.html relative
@@ -204,9 +208,10 @@ export async function registerServiceWorker(url, navigatorImpl = typeof navigato
 }
 
 /**
- * Shows or hides the page's own <main> — the only thing kept behind the
- * auth gate. Toggled via the `hidden` attribute (not display:none in
- * CSS) so a page never has to fight this with its own styles.
+ * Shows or hides the page's own <main> — hidden by default (see each
+ * page's own markup) until we know a token exists. Toggled via the
+ * `hidden` attribute (not display:none in CSS) so a page never has to
+ * fight this with its own styles.
  */
 export function setMainVisible(doc, visible) {
   const main = doc.querySelector('main');
@@ -214,27 +219,33 @@ export function setMainVisible(doc, visible) {
 }
 
 /**
- * Decides, once per page load, whether <main> can be shown right away
- * or needs to wait for login — see the header comment above ("Login
- * gate"). getTokenImpl/mountAuthGateImpl are injectable for tests, same
- * pattern as setupThemeToggle takes its two theme.js functions as params.
+ * Sends the browser to the dedicated login page, remembering the
+ * current path (+ query string) in ?redirect= so login.html can send
+ * you right back once you're signed in. win is injectable for tests -
+ * real code never touches window directly outside this one function.
  */
-export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, mountAuthGateImpl = mountAuthGate } = {}) {
-  const existingToken = getTokenImpl();
-  if (existingToken) {
+export function redirectParaLogin(win = window) {
+  const destino = win.location.pathname + win.location.search;
+  win.location.href = `login.html?redirect=${encodeURIComponent(destino)}`;
+}
+
+/**
+ * Decides, once per page load, whether <main> can be shown right away
+ * or the browser needs to leave for login.html — see the header
+ * comment above ("Login gate"). getTokenImpl/redirectImpl are
+ * injectable for tests, same pattern as setupThemeToggle takes its two
+ * theme.js functions as params.
+ */
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, win = typeof window !== 'undefined' ? window : undefined } = {}) {
+  const token = getTokenImpl();
+  if (token) {
     setMainVisible(doc, true);
-    onAuthenticated(existingToken);
+    onAuthenticated(token);
     return;
   }
 
   setMainVisible(doc, false);
-  mountAuthGateImpl({
-    doc,
-    onReady: (token) => {
-      setMainVisible(doc, true);
-      onAuthenticated(token);
-    },
-  });
+  redirectImpl(win);
 }
 
 /**

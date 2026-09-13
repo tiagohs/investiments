@@ -90,21 +90,6 @@
     </div>
   </div>
 
-  <!-- ================= AUTH GATE — login com Google Identity Services.
-       Escondido por padrão (sem a classe "open"); shell.js mostra isso
-       e esconde <main> quando não há token válido (assets/js/auth.js),
-       e devolve ao normal assim que o login é confirmado — ver
-       assets/js/auth-ui.js (mountAuthGate) pra a lógica de verdade.
-       Vive aqui (no template do header, injetado ANTES de <main>) pra
-       não precisar duplicar essa marcação em cada página nova. ================= -->
-  <div class="auth-gate" id="authGate">
-    <div class="brand-mark">P</div>
-    <h2>Entrar pra ver seus dados</h2>
-    <p>Login com a mesma conta Google usada na planilha — o Apps Script confirma sua identidade antes de devolver qualquer dado.</p>
-    <div class="gsi-slot" id="gsiButtonContainer"></div>
-    <p class="auth-erro" id="authGateErro"></p>
-  </div>
-
   <nav class="mainnav" id="mainnav">
     <div class="nav-item" data-section="inicio">
       <a class="nav-link" href="index.html" title="Início" data-section="inicio">

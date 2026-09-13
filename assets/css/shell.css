@@ -315,18 +315,3 @@ svg{ display:block; }
   :root:not([data-theme="light"]) .theme-fab .sun{ display:block; }
   :root:not([data-theme="light"]) .theme-fab .moon{ display:none; }
 }
-
-/* ================= AUTH GATE — tela de login (Google Identity
-   Services). Shown by shell.js whenever não há token válido; some
-   junto com <main> assim que o login é confirmado. O container do
-   botão do Google (#gsiButtonContainer) fica vazio até o script do GIS
-   carregar e desenhar o botão nele — ver assets/js/auth-ui.js. ================= */
-.auth-gate{ display:none; flex-direction:column; align-items:center; gap:14px; text-align:center;
-      max-width:360px; margin:60px auto; padding:32px 28px; background:var(--surface);
-      border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow); }
-.auth-gate.open{ display:flex; }
-.auth-gate .brand-mark{ margin-bottom:2px; }
-.auth-gate h2{ font-size:17px; }
-.auth-gate p{ margin:0; color:var(--ink-muted); font-size:12.5px; line-height:1.5; }
-.auth-gate .gsi-slot{ min-height:44px; display:flex; align-items:center; justify-content:center; }
-.auth-gate .auth-erro{ color:var(--bad-ink); font-size:12px; }

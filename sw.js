@@ -10,9 +10,22 @@
  * cross-page wiring.
  *
  * What gets cached, and what never does:
- *   - Static assets (CSS/JS/icons/manifest) → cache-first. These rarely
- *     change; serving straight from cache makes the app open instantly,
- *     and a miss falls back to the network and caches the result.
+ *   - CSS/JS (destination style/script) → network-first, same as HTML
+ *     navigations (see below). Revised 13/09/2026: these were
+ *     cache-first until a real bug showed exactly why that's wrong
+ *     during active development - a code edit to shell.css/shell.js
+ *     landed on disk, but a browser that had already cached the OLD
+ *     version (from an earlier visit, under this same CACHE_VERSION)
+ *     kept silently serving it on every reload - no error, just stale
+ *     code that looked "broken" because it didn't match the source
+ *     anymore. Icons/fonts/the manifest genuinely don't change often,
+ *     so they stay cache-first below - CSS/JS do change often, right
+ *     up until this app is finished, so "always try the network first"
+ *     is worth the (imperceptible, same-origin, tiny-file) latency cost
+ *     for a single-user app.
+ *   - Icons/fonts/manifest (destination image/font/manifest) →
+ *     cache-first. A miss falls back to the network and caches the
+ *     result.
  *   - HTML pages (navigations) → network-first. A code update should
  *     reach you on the very next visit; the cached copy is only a
  *     fallback for when the network request itself fails (e.g. opening
@@ -24,14 +37,19 @@
  *     for everything else it does nothing, so the browser's normal
  *     network fetch runs untouched. Financial data must always be
  *     fresh, never served from this cache.
+ *
+ * CACHE_VERSION bumped to v2 in the same change (13/09/2026) - forces a
+ * one-time cleanup of whatever got stuck under v1's cache-first CSS/JS
+ * (the activate handler below already deletes any cache name that
+ * doesn't match the current CACHE_NAME).
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME = `patrimonio-shell-${CACHE_VERSION}`;
 
 // Requests whose `destination` marks them as the static shell rather
 // than a page navigation or a data call.
-const STATIC_DESTINATIONS = new Set(['style', 'script', 'image', 'font', 'manifest']);
+const STATIC_DESTINATIONS = new Set(['image', 'font', 'manifest']);
 
 self.addEventListener('install', (event) => {
   // Activate this version as soon as it finishes installing, instead of
@@ -90,15 +108,23 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === 'navigate' || request.destination === 'document') {
-    event.respondWith(networkFirst(request));
+  if (STATIC_DESTINATIONS.has(request.destination)) {
+    event.respondWith(cacheFirst(request));
     return;
   }
 
-  if (STATIC_DESTINATIONS.has(request.destination)) {
-    event.respondWith(cacheFirst(request));
+  // Navigations (HTML pages) AND now CSS/JS too (destination style/
+  // script) - both go network-first, see the header comment above.
+  if (
+    request.mode === 'navigate'
+    || request.destination === 'document'
+    || request.destination === 'style'
+    || request.destination === 'script'
+  ) {
+    event.respondWith(networkFirst(request));
   }
   // Anything else same-origin (e.g. a fetch() with no `destination`,
-  // like a same-origin XHR) is left alone too - only known-static
-  // destinations and navigations are ever cached.
+  // like the shell.html partial fetched via shell.js!fetchShellPartial)
+  // is left alone too - only the destinations named above are ever
+  // handled by this worker.
 });

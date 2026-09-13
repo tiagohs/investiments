@@ -14,6 +14,7 @@ import {
   setupThemeToggle,
   registerServiceWorker,
   setMainVisible,
+  redirectParaLogin,
   setupAuthGate,
   mountShell,
 } from '../assets/js/shell.js';
@@ -54,12 +55,14 @@ function mountedDoc(bodySection) {
 }
 
 
-// --- setMainVisible / setupAuthGate ---------------------------------------
-// getTokenImpl/mountAuthGateImpl are injected fakes here on purpose - the
-// real auth.js touches sessionStorage and the real auth-ui.js injects a
-// <script> tag pointed at accounts.google.com, neither of which belongs
-// in a unit test. mountShell()'s own tests further down never provide a
-// token, so they exercise this same "no token yet" path for free.
+// --- setMainVisible / redirectParaLogin / setupAuthGate --------------------
+// getTokenImpl/redirectImpl are injected fakes here on purpose - the real
+// auth.js touches sessionStorage and the real redirectParaLogin does a
+// genuine window.location.href navigation, neither of which belongs in a
+// unit test. mountShell()'s own tests further down never provide a token,
+// so they exercise this same "no token yet" path for free (with the real
+// redirectParaLogin, harmlessly assigning href on a jsdom window that never
+// actually navigates anywhere).
 
 test('setMainVisible() toggles the hidden attribute on <main>', () => {
   const doc = makeDom();
@@ -74,47 +77,42 @@ test('setMainVisible() is a no-op (never throws) when the page has no <main>', (
   assert.doesNotThrow(() => setMainVisible(doc, true));
 });
 
-test('setupAuthGate() shows <main> right away and calls onAuthenticated when a token already exists', () => {
+test('redirectParaLogin() sends the browser to login.html, remembering the current path+query in ?redirect=', () => {
+  let assignedHref = null;
+  const fakeWin = { location: { pathname: '/carteiras/acoes.html', search: '?periodo=12m', set href(v) { assignedHref = v; }, get href() { return assignedHref; } } };
+  redirectParaLogin(fakeWin);
+  assert.equal(assignedHref, 'login.html?redirect=%2Fcarteiras%2Facoes.html%3Fperiodo%3D12m');
+});
+
+test('setupAuthGate() shows <main> right away and calls onAuthenticated when a token already exists - never redirects', () => {
   const doc = makeDom();
   let calledWith = null;
   setupAuthGate(doc, {
     onAuthenticated: (token) => { calledWith = token; },
     getTokenImpl: () => 'token-existente',
-    mountAuthGateImpl: () => { throw new Error('não deveria tentar logar de novo - já tinha token'); },
+    redirectImpl: () => { throw new Error('não deveria redirecionar - já tinha token'); },
   });
   assert.equal(doc.querySelector('main').hidden, false);
   assert.equal(calledWith, 'token-existente');
 });
 
-test('setupAuthGate() hides <main> and delegates to mountAuthGateImpl when there is no token yet', () => {
+test('setupAuthGate() hides <main> and redirects to login when there is no token yet - never calls onAuthenticated', () => {
   const doc = makeDom();
-  let mountArgs = null;
+  let redirected = false;
   setupAuthGate(doc, {
-    onAuthenticated: () => { throw new Error('não deveria ser chamado antes do login'); },
+    onAuthenticated: () => { throw new Error('não deveria ser chamado sem login'); },
     getTokenImpl: () => null,
-    mountAuthGateImpl: (args) => { mountArgs = args; },
+    redirectImpl: () => { redirected = true; },
   });
   assert.equal(doc.querySelector('main').hidden, true);
-  assert.equal(typeof mountArgs.onReady, 'function');
-});
-
-test('setupAuthGate() reveals <main> and calls onAuthenticated once mountAuthGateImpl reports a successful login (via onReady)', () => {
-  const doc = makeDom();
-  let calledWith = null;
-  setupAuthGate(doc, {
-    onAuthenticated: (token) => { calledWith = token; },
-    getTokenImpl: () => null,
-    mountAuthGateImpl: ({ onReady }) => onReady('token-recem-logado'),
-  });
-  assert.equal(doc.querySelector('main').hidden, false);
-  assert.equal(calledWith, 'token-recem-logado');
+  assert.equal(redirected, true);
 });
 
 test('setupAuthGate() defaults onAuthenticated to a no-op - a page with nothing to fetch yet can omit it', () => {
   const doc = makeDom();
   assert.doesNotThrow(() => setupAuthGate(doc, {
     getTokenImpl: () => 'token-existente',
-    mountAuthGateImpl: () => { throw new Error('não deveria chamar'); },
+    redirectImpl: () => { throw new Error('não deveria chamar'); },
   }));
 });
 

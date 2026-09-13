@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar — Patrimônio</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2A78D6">
+<link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/login.css">
+</head>
+<body class="login-body">
+
+<div class="login-atmos">
+  <img class="login-bg" src="assets/image-investiments.webp" alt="" aria-hidden="true">
+
+  <div class="login-brand">
+    <div class="brand-mark">P</div>
+    <span>Patrimônio</span>
+  </div>
+
+  <div class="login-card">
+    <div class="login-card-content">
+      <div class="brand-mark">P</div>
+      <h1>Entrar pra ver seus dados</h1>
+      <p>Login com a mesma conta Google usada na sua planilha — o Apps Script confirma sua identidade antes de devolver qualquer dado.</p>
+      <div class="login-gsi-slot" id="gsiButtonContainer"></div>
+      <p class="login-erro" id="authGateErro"></p>
+      <p class="login-footnote">Opção B · Card atmosférico · carteira pessoal · B3 + EUA</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { montarPaginaLogin } from './assets/js/pages/login.js';
+  montarPaginaLogin();
+</script>
+</body>
+</html>
