@@ -29,6 +29,39 @@
  * XP, mas indexadores diferentes), que fazia uma classificação sobrescrever
  * a outra.
  *
+ * Correção de 13/09/2026 (Tiago comparou com o Gorilla e reparou que
+ * "desde o início" dava um número catastrófico - até -99,99% num teste
+ * offline): TODA linha gravada em aux_historico-renda-fixa saía com a
+ * Data 1 dia ANTES do dia real (confirmado comparando com "Transações
+ * Renda Fixa" em 13 posições diferentes, de 2020 a 2026 - sempre
+ * exatamente 1 dia, sem exceção). Causa: o cursor de dia
+ * (executarBackfillRendaFixa_/executarBackfillRendaFixaIncremental_) usa
+ * métodos nativos de Date (setHours/getDate/setDate) pra avançar dia a
+ * dia - esses métodos rodam no fuso "de runtime" do V8 do Apps Script,
+ * NÃO no fuso do projeto (Session.getScriptTimeZone(), que é o que
+ * formatarDataBcbRF_ usa corretamente, via Intl.DateTimeFormat) -
+ * diferença de fuso vira, na prática, um cursor gravado ~1 dia adiantado
+ * em relação ao dia que ele deveria representar. Isso não estraga o
+ * VALOR de cada posição (o saldo em si continua certo, e o crescimento
+ * diário/eventos continuam consistentes entre si, já que tudo usa o
+ * MESMO cursor internamente) - só a DATA gravada em cada linha vem 1 dia
+ * adiantada. Só que essa data é exatamente o que HistoricoInicio.gs usa
+ * pra casar patrimônio com fluxo de caixa (Transações Renda Fixa, que
+ * usa a data real, sem esse desvio) - e um aporte "aparecendo" 1 dia
+ * antes de virar fluxo faz a Rentabilidade (TWR) enxergar uma "perda"
+ * artificial gigante logo no dia seguinte.
+ * Corrigido nos dois pontos onde a linha é montada pra gravação (dentro
+ * de executarBackfillRendaFixa_ e executarBackfillRendaFixaIncremental_)
+ * - a data GRAVADA agora soma +1 dia ao cursor, sem mexer no cursor em
+ * si nem em mais nada da lógica interna (validado reprocessando os 6
+ * anos de histórico do Tiago: "desde o início" foi de -99,99% pra
+ * +72,66%, perto do +75,63% que o Gorilla mostra). Depois de colar este
+ * arquivo, rode rodarBackfillRendaFixaDireto() uma vez no editor do Apps
+ * Script pra regravar aux_historico-renda-fixa inteira com as datas
+ * corrigidas (a função já limpa e regrava a aba do zero, então é
+ * seguro rodar de novo) - o gatilho diário (versão incremental) já sai
+ * corrigido a partir da próxima vez que rodar.
+ *
  * v4: normaliza o nome da instituição por palavra-chave (XP/RICO -> "XP",
  * NU -> "NU", INTER -> "INTER") antes de agrupar e de cruzar com a
  * Carteira — corrige fragmentação causada por "Rico" ter virado "XP" e a
@@ -192,7 +225,12 @@ function executarBackfillRendaFixa_() {
       }
 
       if (saldo > 0.01) {
-        linhasSaida.push([new Date(cursor), posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
+        // +1 dia: a Data GRAVADA corrige o desvio de fuso do cursor (ver
+        // correção de 13/09/2026 no cabeçalho do arquivo) - o cursor em si
+        // (usado pra achar eventos/fator do dia, logo abaixo) continua
+        // intocado.
+        var dataGravada = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+        linhasSaida.push([dataGravada, posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
       var chaveDia = formatarDataBcbRF_(cursor);
@@ -385,7 +423,9 @@ function executarBackfillRendaFixaIncremental_() {
       }
 
       if (saldo > 0.01) {
-        linhasNovas.push([new Date(cursor), posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
+        // +1 dia: mesma correção do backfill completo, ver cabeçalho do arquivo.
+        var dataGravada = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+        linhasNovas.push([dataGravada, posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
       var chaveDia = formatarDataBcbRF_(cursor);
