@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   formatBRL,
   formatUSD,
+  formatNumeroBR,
   formatPercentFromFraction,
   formatPercentFromPoints,
   formatDateBR,
@@ -75,6 +76,24 @@ test('percent formatters respect a custom decimals count', () => {
 test('percent formatters return an em dash for non-finite input', () => {
   assert.equal(formatPercentFromFraction(NaN), '—');
   assert.equal(formatPercentFromPoints(undefined), '—');
+});
+
+
+// --- formatNumeroBR ---------------------------------------------------------
+
+test('formatNumeroBR() formats a plain pt-BR number, no currency symbol - for index points (Ibovespa/IFIX/S&P 500)', () => {
+  assert.equal(formatNumeroBR(185600), '185.600,00');
+  assert.equal(formatNumeroBR(3761.37), '3.761,37');
+});
+
+test('formatNumeroBR() respects a custom decimals count', () => {
+  assert.equal(formatNumeroBR(185600, 0), '185.600');
+});
+
+test('formatNumeroBR() returns an em dash for non-finite input instead of throwing', () => {
+  assert.equal(formatNumeroBR(NaN), '—');
+  assert.equal(formatNumeroBR(undefined), '—');
+  assert.equal(formatNumeroBR('185600'), '—'); // strings are not accepted, only numbers
 });
 
 // --- formatDateBR / formatDateTimeBR --------------------------------------

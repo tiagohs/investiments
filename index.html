@@ -17,16 +17,45 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/inicio.css">
 </head>
 <body data-section="inicio">
 
 <div class="wrap">
   <div id="shell-header"></div>
 
-  <main>
-    <div class="section-content">
-      <h2>Início</h2>
-      <p>Fundação de front-end (Fase 1) pronta: shell, navegação e tema funcionando. O conteúdo real desta página — visões de patrimônio, gráfico de rentabilidade, índices e câmbio, grade de ativos — é a Fase 2.</p>
+  <main hidden>
+    <!-- Fase 2 / Parte 1 (13/09/2026): cards de Índices & Câmbio + hero
+         de Patrimônio (3 visões). O gráfico de Rentabilidade (com
+         seletor de período) e a grade "Meus Ativos" clicável são a
+         próxima parte — ver docs/plano-implementacao.html, Fase 2. -->
+
+    <div class="inicio-loading" id="inicioLoading">
+      <span class="spinner-lg" aria-hidden="true"></span>
+      <span>Carregando seus dados…</span>
+    </div>
+
+    <div class="inicio-erro" id="inicioErro" hidden></div>
+
+    <div id="inicioConteudo" hidden>
+      <div class="avisos-banner" id="inicioAvisos" hidden></div>
+
+      <div class="area-header">
+        <h2>Índices &amp; câmbio</h2>
+        <span class="hint">referência de mercado — não é dado da sua carteira</span>
+      </div>
+      <div class="widget-grid" id="indicesCambioGrid"></div>
+
+      <div class="area-header">
+        <h2>Minha carteira — situação atual</h2>
+        <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
+      </div>
+      <div class="filter-tabs" id="visaoTabs" style="margin-bottom:12px">
+        <button class="filter-tab active" type="button" data-visao="total">Total</button>
+        <button class="filter-tab" type="button" data-visao="longoPrazo">Longo Prazo</button>
+        <button class="filter-tab" type="button" data-visao="rendaEmergencial">Renda Emergencial</button>
+      </div>
+      <div id="heroPatrimonio"></div>
     </div>
   </main>
 
@@ -35,7 +64,13 @@
 
 <script type="module">
   import { mountShell } from './assets/js/shell.js';
-  mountShell();
+  import { montarPaginaInicio } from './assets/js/pages/inicio.js';
+
+  mountShell({
+    onAuthenticated(token) {
+      montarPaginaInicio(token);
+    },
+  });
 </script>
 </body>
 </html>

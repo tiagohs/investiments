@@ -28,6 +28,21 @@ export function formatUSD(value) {
   return USD_FORMATTER.format(value);
 }
 
+const NUMERO_BR_FORMATTER_2CASAS = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/**
+ * "185.600,00" - número puro em pt-BR, sem símbolo de moeda nenhum. Uso
+ * principal: pontos de índice (Ibovespa/IFIX/S&P 500), que não são
+ * valor em dinheiro. decimals=2 usa um formatador já pronto (caminho
+ * mais comum); qualquer outra contagem de casas monta um formatador
+ * avulso na hora.
+ */
+export function formatNumeroBR(value, decimals = 2) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  if (decimals === 2) return NUMERO_BR_FORMATTER_2CASAS.format(value);
+  return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
 function formatPercentValue(points, decimals) {
   if (typeof points !== 'number' || !Number.isFinite(points)) return '—';
   const sign = points > 0 ? '+' : '';

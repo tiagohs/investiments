@@ -27,12 +27,24 @@
  * directly against a jsdom document instead of calling mountShell(),
  * so they never need a real network fetch.
  *
+ * Login gate (13/09/2026): mountShell() also decides whether the page's
+ * own <main> can be shown yet. If auth.js!getToken() already has a
+ * valid token (session storage from an earlier page load), <main> is
+ * shown immediately and options.onAuthenticated(token) runs right away.
+ * Otherwise <main> stays hidden and the #authGate block (injected as
+ * part of the header template, see assets/partials/shell.html) is shown
+ * instead, with auth-ui.js!mountAuthGate wiring the real Google sign-in
+ * button — onAuthenticated only ever runs once a token exists, so a
+ * page's data-fetching code never has to check for a token itself.
+ *
  * No top-level side effects on import (same convention as api-client.js/
  * auth.js/config.js) - importing this module never touches the DOM or
  * the network by itself; only calling mountShell() does.
  */
 
 import { initTheme, toggleTheme } from './theme.js';
+import { getToken } from './auth.js';
+import { mountAuthGate } from './auth-ui.js';
 
 /**
  * The shell partial always lives at assets/partials/shell.html relative
@@ -192,11 +204,50 @@ export async function registerServiceWorker(url, navigatorImpl = typeof navigato
 }
 
 /**
+ * Shows or hides the page's own <main> — the only thing kept behind the
+ * auth gate. Toggled via the `hidden` attribute (not display:none in
+ * CSS) so a page never has to fight this with its own styles.
+ */
+export function setMainVisible(doc, visible) {
+  const main = doc.querySelector('main');
+  if (main) main.hidden = !visible;
+}
+
+/**
+ * Decides, once per page load, whether <main> can be shown right away
+ * or needs to wait for login — see the header comment above ("Login
+ * gate"). getTokenImpl/mountAuthGateImpl are injectable for tests, same
+ * pattern as setupThemeToggle takes its two theme.js functions as params.
+ */
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, mountAuthGateImpl = mountAuthGate } = {}) {
+  const existingToken = getTokenImpl();
+  if (existingToken) {
+    setMainVisible(doc, true);
+    onAuthenticated(existingToken);
+    return;
+  }
+
+  setMainVisible(doc, false);
+  mountAuthGateImpl({
+    doc,
+    onReady: (token) => {
+      setMainVisible(doc, true);
+      onAuthenticated(token);
+    },
+  });
+}
+
+/**
  * Real-world entry point: fetches the partial, injects it, marks the
- * active section from body[data-section], wires popovers + theme, and
- * registers the service worker. Never throws - a broken shell shouldn't
- * take the whole page down with it, so failures are logged and the page
- * is left usable without chrome.
+ * active section from body[data-section], wires popovers + theme +
+ * the login gate, and registers the service worker. Never throws - a
+ * broken shell shouldn't take the whole page down with it, so failures
+ * are logged and the page is left usable without chrome.
+ *
+ * options.onAuthenticated(token), when given, runs exactly once - right
+ * away if a valid token is already stored, or after a successful login
+ * otherwise. A page with nothing to fetch (no real content yet) can
+ * simply omit it.
  */
 export async function mountShell(options = {}) {
   const doc = options.document || document;
@@ -210,6 +261,7 @@ export async function mountShell(options = {}) {
     markActiveSection(doc, doc.body.dataset.section || null);
     setupPopovers(doc);
     setupThemeToggle(doc, { initTheme, toggleTheme });
+    setupAuthGate(doc, { onAuthenticated: options.onAuthenticated });
   } catch (error) {
     console.error('shell.js: failed to mount the shell', error);
   }

@@ -13,6 +13,8 @@ import {
   setupPopovers,
   setupThemeToggle,
   registerServiceWorker,
+  setMainVisible,
+  setupAuthGate,
   mountShell,
 } from '../assets/js/shell.js';
 
@@ -50,6 +52,71 @@ function mountedDoc(bodySection) {
   injectShell(doc, { headerContent, footerContent });
   return doc;
 }
+
+
+// --- setMainVisible / setupAuthGate ---------------------------------------
+// getTokenImpl/mountAuthGateImpl are injected fakes here on purpose - the
+// real auth.js touches sessionStorage and the real auth-ui.js injects a
+// <script> tag pointed at accounts.google.com, neither of which belongs
+// in a unit test. mountShell()'s own tests further down never provide a
+// token, so they exercise this same "no token yet" path for free.
+
+test('setMainVisible() toggles the hidden attribute on <main>', () => {
+  const doc = makeDom();
+  setMainVisible(doc, false);
+  assert.equal(doc.querySelector('main').hidden, true);
+  setMainVisible(doc, true);
+  assert.equal(doc.querySelector('main').hidden, false);
+});
+
+test('setMainVisible() is a no-op (never throws) when the page has no <main>', () => {
+  const doc = makeDom('<div id="shell-header"></div><div id="shell-footer"></div>');
+  assert.doesNotThrow(() => setMainVisible(doc, true));
+});
+
+test('setupAuthGate() shows <main> right away and calls onAuthenticated when a token already exists', () => {
+  const doc = makeDom();
+  let calledWith = null;
+  setupAuthGate(doc, {
+    onAuthenticated: (token) => { calledWith = token; },
+    getTokenImpl: () => 'token-existente',
+    mountAuthGateImpl: () => { throw new Error('não deveria tentar logar de novo - já tinha token'); },
+  });
+  assert.equal(doc.querySelector('main').hidden, false);
+  assert.equal(calledWith, 'token-existente');
+});
+
+test('setupAuthGate() hides <main> and delegates to mountAuthGateImpl when there is no token yet', () => {
+  const doc = makeDom();
+  let mountArgs = null;
+  setupAuthGate(doc, {
+    onAuthenticated: () => { throw new Error('não deveria ser chamado antes do login'); },
+    getTokenImpl: () => null,
+    mountAuthGateImpl: (args) => { mountArgs = args; },
+  });
+  assert.equal(doc.querySelector('main').hidden, true);
+  assert.equal(typeof mountArgs.onReady, 'function');
+});
+
+test('setupAuthGate() reveals <main> and calls onAuthenticated once mountAuthGateImpl reports a successful login (via onReady)', () => {
+  const doc = makeDom();
+  let calledWith = null;
+  setupAuthGate(doc, {
+    onAuthenticated: (token) => { calledWith = token; },
+    getTokenImpl: () => null,
+    mountAuthGateImpl: ({ onReady }) => onReady('token-recem-logado'),
+  });
+  assert.equal(doc.querySelector('main').hidden, false);
+  assert.equal(calledWith, 'token-recem-logado');
+});
+
+test('setupAuthGate() defaults onAuthenticated to a no-op - a page with nothing to fetch yet can omit it', () => {
+  const doc = makeDom();
+  assert.doesNotThrow(() => setupAuthGate(doc, {
+    getTokenImpl: () => 'token-existente',
+    mountAuthGateImpl: () => { throw new Error('não deveria chamar'); },
+  }));
+});
 
 // --- parseShellPartial ---------------------------------------------------
 
