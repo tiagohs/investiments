@@ -72,6 +72,20 @@
  * pesada + o loop de ~2090 dias são pulados inteiramente. Como o payload
  * pode passar de 100KB (limite por chave do CacheService), é gravado em
  * pedaços (ver gravarSerieHistoricoCache_/lerSerieHistoricoCache_).
+ *
+ * Instrumentação de 13/09/2026 (Tiago rodou 4 rodadas seguidas do teste
+ * paralelo/sequencial após o deploy da otimização #4 e não viu a melhora
+ * esperada — pelo contrário, os tempos flutuaram e uma rodada teve um pico
+ * isolado de ~34-38s): sem log de HIT/MISS não dava pra saber, só olhando o
+ * tempo total, se o cache estava realmente sendo usado ou se cada chamada
+ * caía em MISS por algum motivo (ex.: token.iat mudando não afeta a chave,
+ * mas qualquer diferença na contagem de linhas das 3 abas de origem
+ * invalidaria). Agora montarSerieHistoricoInicio_ loga explicitamente
+ * "cache HIT"/"cache MISS" (com a chave usada) e o tempo de cada etapa
+ * (checagem do cache, gravação do cache) — assim o próximo teste mostra
+ * direto, no Cloud Logging, qual caminho rodou em cada chamada, em vez de
+ * inferir pelo tempo total (que também sofre a variação normal do lado do
+ * Google Sheets, já observada antes).
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -133,8 +147,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // não mudarem, o resultado de hoje é idêntico ao de ontem, então pula
   // direto pro cache em vez de reler tudo e refazer o loop de ~2090 dias.
   var chaveCacheSerie = 'historico_serie_v1_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices;
+
+  // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
+  // leitura do cache, pra parar de inferir "tá cacheando?" só olhando o
+  // tempo total (que também varia por causa da planilha em si). Assim,
+  // toda chamada real deixa no Cloud Logging qual dos dois caminhos rodou.
+  var marcaCache = Date.now();
   var serieCacheada = lerSerieHistoricoCache_(chaveCacheSerie);
-  if (serieCacheada) return serieCacheada;
+  var msLeituraCache = Date.now() - marcaCache;
+  if (serieCacheada) {
+    console.log('montarSerieHistoricoInicio_: cache HIT (chave=' + chaveCacheSerie + ', leitura do cache levou ' + msLeituraCache + 'ms)');
+    return serieCacheada;
+  }
+  console.log('montarSerieHistoricoInicio_: cache MISS (chave=' + chaveCacheSerie + ', checagem levou ' + msLeituraCache + 'ms) — recalculando do zero');
 
   if (linhasPatrimonio > 0) {
     abaPatrimonio.getRange(2, 1, linhasPatrimonio, 8).getValues().forEach(function (linha) {
@@ -239,7 +264,9 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     dataAtual.setDate(dataAtual.getDate() + 1);
   }
 
+  var marcaGravacao = Date.now();
   gravarSerieHistoricoCache_(chaveCacheSerie, serie);
+  console.log('montarSerieHistoricoInicio_: gravacao do cache levou ' + (Date.now() - marcaGravacao) + 'ms (' + serie.length + ' dias)');
   return serie;
 }
 
