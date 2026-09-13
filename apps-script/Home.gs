@@ -68,11 +68,20 @@
  * changepct, já em pontos percentuais (-0.56 = -0,56%) — o front-end
  * usa format.js!formatPercentFromPoints pra essas, nunca
  * formatPercentFromFraction (ver o risco de escala documentado lá).
+ *
+ * Otimização de 13/09/2026: handleHome(e, auth) passou a receber "auth"
+ * já validado pelo Router (em vez de chamar verificarToken() de novo aqui
+ * dentro) e montarHome_() passou a ler cada aba em 1 bloco (getRange +
+ * índice no array) em vez de 1 getValue() por célula — 10 chamadas
+ * viraram 4. Nenhuma das duas mudanças altera os dados devolvidos, só
+ * reduz quantas vezes a gente cruza pro backend do Sheets/Google por
+ * chamada.
  */
 
-function handleHome(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleHome(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
 
   var inicioTudo = Date.now();
   var resposta = { ok: true };
@@ -145,9 +154,31 @@ function montarHome_() {
   var distribuicaoMetas = ss.getSheetByName('Distribuição e Metas');
   if (!distribuicaoMetas) throw new Error('aba não encontrada: Distribuição e Metas');
 
-  var total = dashGeral.getRange('E4').getValue();
+  // 13/09/2026: lê cada aba em UM bloco só (cobrindo todas as células que
+  // essa função precisa dela), em vez de uma chamada getValue() isolada por
+  // célula — eram 10 idas ao backend do Sheets (uma por célula), agora são
+  // 4 (uma por aba envolvida). Índices dos arrays abaixo = posição da
+  // célula dentro do bloco lido (linha 0 = primeira linha do range).
+  var blocoDash = dashGeral.getRange('E4:I19').getValues(); // colunas E(0)..I(4), linhas 4(0)..19(15)
+  var total = blocoDash[0][0]; // E4
+  var acoes = blocoDash[12][4]; // I16
+  var fiis = blocoDash[13][4]; // I17
+  var rendaFixaClasse = blocoDash[14][4]; // I18
+  var acoesEua = blocoDash[15][4]; // I19
+
   var rendaEmergencial = carteiraRF.getRange('M6').getValue();
   var longoPrazo = total - rendaEmergencial;
+
+  var blocoAux = auxiliarApp.getRange('B7:B16').getValues(); // coluna B, linhas 7(0)..16(9)
+  var ibovespaValor = blocoAux[0][0]; // B7
+  var ibovespaVar = blocoAux[1][0]; // B8
+  var ifixValor = blocoAux[2][0]; // B9
+  var ifixVar = blocoAux[3][0]; // B10
+  var eur = blocoAux[4][0]; // B11
+  var spxValor = blocoAux[8][0]; // B15
+  var spxVar = blocoAux[9][0]; // B16
+
+  var usd = distribuicaoMetas.getRange('K56').getValue();
 
   return {
     patrimonio: {
@@ -155,20 +186,20 @@ function montarHome_() {
       longoPrazo: longoPrazo,
       rendaEmergencial: rendaEmergencial,
       porClasse: {
-        acoes: dashGeral.getRange('I16').getValue(),
-        fiis: dashGeral.getRange('I17').getValue(),
-        rendaFixa: dashGeral.getRange('I18').getValue(),
-        acoesEua: dashGeral.getRange('I19').getValue()
+        acoes: acoes,
+        fiis: fiis,
+        rendaFixa: rendaFixaClasse,
+        acoesEua: acoesEua
       }
     },
     indices: {
-      ibovespa: { valor: auxiliarApp.getRange('B7').getValue(), variacaoDia: auxiliarApp.getRange('B8').getValue() },
-      ifix: { valor: auxiliarApp.getRange('B9').getValue(), variacaoDia: auxiliarApp.getRange('B10').getValue() },
-      spx: { valor: auxiliarApp.getRange('B15').getValue(), variacaoDia: auxiliarApp.getRange('B16').getValue() }
+      ibovespa: { valor: ibovespaValor, variacaoDia: ibovespaVar },
+      ifix: { valor: ifixValor, variacaoDia: ifixVar },
+      spx: { valor: spxValor, variacaoDia: spxVar }
     },
     cambio: {
-      usd: distribuicaoMetas.getRange('K56').getValue(),
-      eur: auxiliarApp.getRange('B11').getValue()
+      usd: usd,
+      eur: eur
     }
   };
 }

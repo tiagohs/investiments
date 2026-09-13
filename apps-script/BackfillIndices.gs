@@ -16,11 +16,13 @@
  * (Índice = 'CDI'/'SELIC', Valor = taxa diária em %, igual ao que a API do
  * BCB devolve) e só cresce incrementalmente pelo gatilho diário — a Início
  * passa a só LER a aba, nunca mais chamar o BCB (ver
- * atualizarTaxasBcbIncremental_ abaixo e lerFatoresIndiceSalvos_ removida
- * de HistoricoInicio.gs, que agora lê tudo de aux_historico-indices numa
- * passada só). GOOGLEFINANCE não tem CDI/SELIC (não são tickers de bolsa),
- * então o BCB continua sendo a única fonte — só deixou de ser chamado na
- * hora da requisição.
+ * atualizarTaxasBcbIncremental_ abaixo; em HistoricoInicio.gs, a leitura de
+ * CDI/SELIC foi inserida direto no MESMO loop que já lia Ibovespa dessa aba
+ * — não existe uma função separada "lerFatoresIndiceSalvos_", é tudo lido
+ * numa passada só de getValues() dentro de montarSerieHistoricoInicio_).
+ * GOOGLEFINANCE não tem CDI/SELIC (não são tickers de bolsa), então o BCB
+ * continua sendo a única fonte — só deixou de ser chamado na hora da
+ * requisição.
  *
  * GOTCHA DE LOCALE (importante, custou algumas rodadas de debug): a
  * planilha está em locale pt-BR, e Range.setFormula() nesse locale exige
@@ -226,8 +228,17 @@ function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio,
   return linhas;
 }
 
+/**
+ * 13/09/2026: passou a delegar pro formatador cacheado de
+ * BackfillRendaFixa.gs (mesmo formato "dd/MM/yyyy") em vez de chamar
+ * Utilities.formatDate direto. Volume baixo aqui (só usada por PEDAÇO de
+ * 180 dias no backfill do Ibovespa, não por dia/linha — bem menos crítico
+ * que os loops diários de BackfillRendaFixa.gs), mas reaproveitar o mesmo
+ * Intl.DateTimeFormat já cacheado custa nada e mantém o projeto
+ * consistente (só existe 1 formatador "dd/MM/yyyy" no lugar de 2).
+ */
 function formatarDataIndice_(data) {
-  return Utilities.formatDate(data, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+  return formatarDataBcbRF_(data);
 }
 
 // --- Sincronização diária de Renda Fixa + Índices ---
@@ -286,8 +297,20 @@ function atualizarRendaFixaEIndicesDiario_() {
     partes.push('Renda Fixa falhou: ' + String(erro));
   }
 
+  // 13/09/2026: lê aux_historico-indices UMA vez aqui (mapa índice -> última
+  // data salva) e passa pros dois passos abaixo — antes, Índices (Ibovespa)
+  // e Taxas (CDI+SELIC) reliam a aba inteira cada um por conta própria (até
+  // 3 leituras completas da mesma aba nesta única execução do gatilho).
+  var mapaUltimasDatasIndices = null;
   try {
-    var resultadoIndices = atualizarIndicesIncremental_();
+    var abaIndicesCache = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HISTORICO_INDICES);
+    if (abaIndicesCache) mapaUltimasDatasIndices = carregarTodasUltimasDatasIndices_(abaIndicesCache);
+  } catch (erro) {
+    mapaUltimasDatasIndices = null; // cada passo abaixo cai no fallback de ler sozinho
+  }
+
+  try {
+    var resultadoIndices = atualizarIndicesIncremental_(mapaUltimasDatasIndices);
     partes.push('Índices: ' + resultadoIndices.linhasNovas + ' linha(s) nova(s)' +
       (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' : ''));
   } catch (erro) {
@@ -296,7 +319,7 @@ function atualizarRendaFixaEIndicesDiario_() {
   }
 
   try {
-    var resultadoTaxas = atualizarTaxasBcbIncremental_();
+    var resultadoTaxas = atualizarTaxasBcbIncremental_(mapaUltimasDatasIndices);
     partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
   } catch (erro) {
     status = (status === 'Erro') ? 'Erro' : 'Atenção';
@@ -313,14 +336,14 @@ function atualizarRendaFixaEIndicesDiario_() {
  * backfill completo ainda, lança erro (rode rodarBackfillIndicesDireto()
  * manualmente primeiro).
  */
-function atualizarIndicesIncremental_() {
+function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
   if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_HISTORICO_INDICES);
   var abaAuxiliar = ss.getSheetByName(ABA_AUXILIAR_APP);
   if (!abaAuxiliar) throw new Error('aba não encontrada: ' + ABA_AUXILIAR_APP);
 
-  var ultimaData = ultimaDataIndiceSalvo_(abaIndices, 'Ibovespa');
+  var ultimaData = ultimaDataIndiceSalvo_(abaIndices, 'Ibovespa', mapaUltimasDatasCache);
   if (!ultimaData) {
     throw new Error('nenhum dado em ' + ABA_HISTORICO_INDICES + ' ainda — rode rodarBackfillIndicesDireto() primeiro.');
   }
@@ -355,7 +378,7 @@ function atualizarIndicesIncremental_() {
  * manualmente uma vez (fora do horário do gatilho) é mais rápido pra ver
  * o resultado sem esperar o próximo disparo das 11h.
  */
-function atualizarTaxasBcbIncremental_() {
+function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
   if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_HISTORICO_INDICES);
@@ -367,7 +390,7 @@ function atualizarTaxasBcbIncremental_() {
   var linhasNovas = [];
   var detalhe = [];
   Object.keys(INDICES_TAXA_BCB).forEach(function (nome) {
-    var ultimaData = ultimaDataIndiceSalvo_(abaIndices, nome);
+    var ultimaData = ultimaDataIndiceSalvo_(abaIndices, nome, mapaUltimasDatasCache);
     var inicio = ultimaData
       ? new Date(ultimaData.getFullYear(), ultimaData.getMonth(), ultimaData.getDate() + 1)
       : new Date(DATA_INICIO_HISTORICO_INDICES);
@@ -389,15 +412,35 @@ function atualizarTaxasBcbIncremental_() {
   return { linhasNovas: linhasNovas.length, detalhe: detalhe.join(', ') };
 }
 
-function ultimaDataIndiceSalvo_(aba, nomeIndice) {
+/**
+ * Última data salva pra UM índice (Ibovespa/CDI/SELIC). mapaCache
+ * (opcional) é o resultado de carregarTodasUltimasDatasIndices_, montado
+ * 1x por execução por quem chama em lote (ver
+ * atualizarRendaFixaEIndicesDiario_) — sem ele, relê a aba inteira sozinho
+ * (uso isolado, ex.: rodando uma função direto no editor).
+ */
+function ultimaDataIndiceSalvo_(aba, nomeIndice, mapaCache) {
+  var mapa = mapaCache || carregarTodasUltimasDatasIndices_(aba);
+  return mapa[nomeIndice] || null;
+}
+
+/**
+ * Última data salva de CADA índice, numa passada só pela aba — em vez de
+ * ultimaDataIndiceSalvo_ reler a aba inteira uma vez por índice (13/09/2026:
+ * antes disso, atualizarRendaFixaEIndicesDiario_ relia aux_historico-indices
+ * até 3 vezes na mesma execução: 1x pro Ibovespa, 1x pro CDI, 1x pro SELIC).
+ */
+function carregarTodasUltimasDatasIndices_(aba) {
+  var mapa = {};
   var ultimaLinha = aba.getLastRow();
-  if (ultimaLinha < 2) return null;
+  if (ultimaLinha < 2) return mapa;
   var dados = aba.getRange(2, 1, ultimaLinha - 1, 2).getValues(); // A=Data, B=Índice
-  var ultima = null;
   for (var i = 0; i < dados.length; i++) {
-    if (dados[i][1] === nomeIndice && dados[i][0] instanceof Date) {
-      if (!ultima || dados[i][0] > ultima) ultima = dados[i][0];
+    var nomeIndice = dados[i][1];
+    var data = dados[i][0];
+    if (data instanceof Date && (!mapa[nomeIndice] || data > mapa[nomeIndice])) {
+      mapa[nomeIndice] = data;
     }
   }
-  return ultima;
+  return mapa;
 }

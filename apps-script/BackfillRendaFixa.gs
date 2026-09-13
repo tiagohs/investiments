@@ -6,16 +6,22 @@
  * coexiste com BackfillIndices.gs e HistoricoInicio.gs no mesmo projeto —
  * são todos arquivos SEPARADOS, nunca um sobrescrevendo o outro.
  *
- * v6 (12/09/2026): buscarFatoresDiariosBcb_ ganhou cache (CacheService, 6h —
- * o máximo permitido) pra resolver a lentidão de action=home: sem cache, TODA
- * chamada de montarSerieHistoricoInicio_ (HistoricoInicio.gs) refazia 2 fetches
- * externos pro BCB cobrindo o histórico inteiro (~2090 dias, desde 22/12/2020),
- * e isso não muda de uma chamada pra outra no mesmo dia (dataFinal = hoje,
- * dataInicial = fixo) — por isso rodar de novo continuava lento. Também
- * ganhou lerLinhasHistoricoRendaFixa_(), pra HistoricoInicio.gs e
- * MeusAtivos.gs pararem de ler aux_historico-renda-fixa inteira DUAS vezes
- * na mesma chamada de action=home (ver Home.gs, que agora lê uma vez só e
- * passa o resultado pros dois).
+ * v6 (12/09/2026, revisado 13/09/2026): buscarFatoresDiariosBcb_ ganhou
+ * cache (CacheService, 6h — o máximo permitido). Na época isso resolvia a
+ * lentidão de action=home, porque montarSerieHistoricoInicio_
+ * (HistoricoInicio.gs) chamava essa função direto pra CDI/SELIC. Isso NÃO
+ * é mais verdade: desde a Otimização #2 em HistoricoInicio.gs (13/09/2026),
+ * a ação "home" lê CDI/SELIC direto de aux_historico-indices (mesmo padrão
+ * já usado pro Ibovespa — ver BackfillIndices.gs) e nunca mais chama
+ * buscarFatoresDiariosBcb_. Essa função hoje só é usada pelo backfill de
+ * Renda Fixa (executarBackfillRendaFixa_/executarBackfillRendaFixaIncremental_,
+ * neste arquivo) — o cache continua útil ali (evita refazer o mesmo fetch
+ * se o backfill rodar mais de uma vez na mesma janela de 6h), só deixou de
+ * ser o motivo da Home ficar rápida. Também ganhou
+ * lerLinhasHistoricoRendaFixa_(), pra HistoricoInicio.gs e MeusAtivos.gs
+ * pararem de ler aux_historico-renda-fixa inteira DUAS vezes na mesma
+ * chamada de action=home (ver Home.gs, que lê uma vez só e passa o
+ * resultado pros dois — isso continua valendo).
  *
  * v5: a chave de cruzamento com a Carteira Renda Fixa agora inclui o
  * indexador, não só ano de vencimento + instituição — corrige colisão entre
@@ -189,7 +195,7 @@ function executarBackfillRendaFixa_() {
         linhasSaida.push([new Date(cursor), posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
-      var chaveDia = Utilities.formatDate(cursor, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      var chaveDia = formatarDataBcbRF_(cursor);
       var fatorDoDia = fatores[chaveDia];
       if (fatorDoDia) saldo = saldo * fatorDoDia;
 
@@ -351,7 +357,7 @@ function executarBackfillRendaFixaIncremental_() {
     if (jaTinhaHistorico) {
       // aplica o crescimento pendente do último dia já salvo, antes de
       // entrar no dia seguinte
-      var chaveDiaRef = Utilities.formatDate(referencia, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      var chaveDiaRef = formatarDataBcbRF_(referencia);
       var fatorRef = fatores[chaveDiaRef];
       if (fatorRef) saldo = saldo * fatorRef;
 
@@ -382,7 +388,7 @@ function executarBackfillRendaFixaIncremental_() {
         linhasNovas.push([new Date(cursor), posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
-      var chaveDia = Utilities.formatDate(cursor, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      var chaveDia = formatarDataBcbRF_(cursor);
       var fatorDoDia = fatores[chaveDia];
       if (fatorDoDia) saldo = saldo * fatorDoDia;
 
@@ -495,15 +501,20 @@ function lerLinhasHistoricoRendaFixa_() {
 /**
  * SELIC (11) e CDI (12): taxa diária real, só publicada em dia útil.
  *
- * Cache (12/09/2026): resolve a lentidão de ~30-60s relatada na ação "home".
- * montarSerieHistoricoInicio_ chama isso 2x (CDI e SELIC) cobrindo o
- * histórico inteiro (~2090 dias) TODA VEZ que a Home é aberta — e como
- * dataInicial é fixo e dataFinal é sempre "hoje", a chave do fetch não muda
- * ao longo do dia, então repetir a chamada logo em seguida batia de novo no
- * BCB à toa. Com CacheService (6h, o máximo permitido), só a 1ª chamada do
- * dia paga o fetch externo; as próximas (dentro da mesma janela de 6h) usam
- * o cache. Cobre só CDI/SELIC — IPCA (usada só pelo backfill, não pela
- * Home) não precisa disso por enquanto.
+ * IMPORTANTE (atualizado 13/09/2026): esta função NÃO é mais chamada pela
+ * ação "home" — montarSerieHistoricoInicio_ (HistoricoInicio.gs) lê
+ * CDI/SELIC direto de aux_historico-indices, já persistidos pelo gatilho
+ * diário (atualizarTaxasBcbIncremental_, BackfillIndices.gs), na MESMA
+ * passada de getValues() que já lia o Ibovespa. Quem chama esta função hoje
+ * é só o backfill de Renda Fixa (executarBackfillRendaFixa_ e
+ * executarBackfillRendaFixaIncremental_, mais abaixo neste arquivo), que
+ * precisa do fator diário (não só a taxa % crua) pra compor o saldo das
+ * posições dia a dia.
+ *
+ * Cache (12/09/2026, CacheService, 6h — o máximo permitido): evita refazer
+ * o mesmo fetch externo pro BCB se o backfill de RF rodar mais de uma vez
+ * dentro da mesma janela de 6h (dataInicial fixo + dataFinal = hoje =>
+ * mesma chave de cache não muda ao longo do dia).
  */
 function buscarFatoresDiariosBcb_(codigoSerie, dataInicial, dataFinal) {
   var chaveCache = 'bcb_' + codigoSerie + '_' + formatarDataBcbRF_(dataInicial) + '_' + formatarDataBcbRF_(dataFinal);
@@ -554,7 +565,7 @@ function buscarFatoresDiariosIpca_(dataInicial, dataFinal) {
     if (valorMes !== undefined) {
       var diasNoMes = new Date(ano, mes + 1, 0).getDate();
       var fatorDiario = Math.pow(1 + valorMes / 100, 1 / diasNoMes);
-      var chaveDia = Utilities.formatDate(cursor, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+      var chaveDia = formatarDataBcbRF_(cursor);
       mapa[chaveDia] = fatorDiario;
     }
     cursor.setDate(cursor.getDate() + 1);
@@ -563,12 +574,15 @@ function buscarFatoresDiariosIpca_(dataInicial, dataFinal) {
 }
 
 /**
- * Otimização de 12/09/2026 (ver "Otimização #3" no cabeçalho de
- * HistoricoInicio.gs): essa função é chamada em loop, MUITAS vezes, tanto
- * no backfill de RF quanto (via montarSerieHistoricoInicio_) na ação
- * "home" — Utilities.formatDate é uma chamada de SERVIÇO do Apps Script
- * (cruza pro backend), cara quando repetida em volume alto. Trocado por
- * Intl.DateTimeFormat (nativo do V8), criado uma vez só e cacheado.
+ * Otimização de 12/09/2026 (mesmo raciocínio da "Otimização #3" no
+ * cabeçalho de HistoricoInicio.gs): essa função é chamada em loop, muitas
+ * vezes, pelo backfill de Renda Fixa (executarBackfillRendaFixa_ /
+ * executarBackfillRendaFixaIncremental_ / buscarFatoresDiariosIpca_, neste
+ * arquivo — um dia de pregão por iteração) — Utilities.formatDate é uma
+ * chamada de SERVIÇO do Apps Script (cruza pro backend), cara quando
+ * repetida em volume alto. Trocado por Intl.DateTimeFormat (nativo do
+ * V8), criado uma vez só e cacheado. (A ação "home" não passa mais por
+ * aqui — ver nota em buscarFatoresDiariosBcb_ acima.)
  */
 var _formatadorDataBcbRF_;
 function formatarDataBcbRF_(data) {

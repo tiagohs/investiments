@@ -32,6 +32,16 @@
  *    Usada só pelos testes de Registro de Controle (Atenção/Erro/retry) — o
  *    handleSincronizarAgora, quando recebe e.parameter.opcoesTeste, grava aqui
  *    em vez de na aba real, e a origem gravada fica sempre "Teste".
+ *
+ * Otimização de 13/09/2026: atualizarHistorico agora lê
+ * aux_historico-patrimonio e "Transações"/"Transações - USA" 1 vez cada,
+ * ANTES do loop de tickers (carregarTodasUltimasDatasSalvas_ /
+ * carregarTodosHistoricosTransacoes_), em vez de ultimaDataSalva_ e
+ * carregarHistoricoTransacoes_ relerem a aba inteira 1x POR TICKER (até 29
+ * no loop principal, mais até 7 de novo no pré-passo de câmbio USA) — a
+ * mesma classe de gargalo (releitura em N+1) já corrigida na ação "home"
+ * (ver Home.gs/HistoricoInicio.gs/BackfillRendaFixa.gs), agora também no
+ * motor de sincronização diária/manual.
  */
 
 var NOME_ABA_HISTORICO = 'aux_historico-patrimonio';
@@ -159,6 +169,21 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
   var naoProcessados = [];
   var lacunasEncontradas = []; // pedaços sem dado disponível de verdade (não é falta de tempo) — ver buscarPrecoHistorico_
 
+  // 13/09/2026: lê aux_historico-patrimonio e as duas abas de Transações
+  // (BR/USA) UMA vez cada, ANTES do loop de tickers — antes disso,
+  // ultimaDataSalva_ e carregarHistoricoTransacoes_ eram chamadas uma vez
+  // POR TICKER (até 29 no loop principal + até 7 de novo no pré-passo de
+  // câmbio abaixo), cada chamada relendo a aba inteira do zero. Pra 29
+  // ativos isso podia significar dezenas de leituras completas da mesma
+  // aba na mesma execução — agora são só 3 (1 de aux_historico-patrimonio +
+  // 1 de "Transações" + 1 de "Transações - USA", só quando a classe
+  // correspondente aparece em "tickers"). Mesmos dados, só lidos 1x.
+  var mapaUltimasDatas = carregarTodasUltimasDatasSalvas_(abaHistorico);
+  var classesNecessarias = [];
+  if (tickers.some(function (t) { return TICKERS_USA.indexOf(t) === -1; })) classesNecessarias.push('BR');
+  if (tickers.some(function (t) { return TICKERS_USA.indexOf(t) !== -1; })) classesNecessarias.push('USA');
+  var mapaTransacoes = carregarTodosHistoricosTransacoes_(ss, classesNecessarias);
+
   // Câmbio USD/BRL: busca UMA vez por execução, reaproveitado por todos os
   // tickers USA — mas o intervalo tem que cobrir a UNIÃO das datas de início
   // de TODOS eles, calculada aqui ANTES do loop principal. Buscar só na hora
@@ -172,8 +197,8 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
   if (tickersUsaNestaExecucao.length) {
     var inicioMaisAntigoUsa = null;
     tickersUsaNestaExecucao.forEach(function (t) {
-      var historico = carregarHistoricoTransacoes_(ss, t, 'USA');
-      var ultima = ultimaDataSalva_(abaHistorico, t);
+      var historico = carregarHistoricoTransacoes_(ss, t, 'USA', mapaTransacoes);
+      var ultima = ultimaDataSalva_(abaHistorico, t, mapaUltimasDatas);
       var base = ultima || (historico.length ? umDiaAntes_(historico[0].data) : diasAtras_(31));
       var inicioT = new Date(base);
       inicioT.setDate(inicioT.getDate() + 1);
@@ -207,9 +232,9 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
       }
 
       var classe = (TICKERS_USA.indexOf(ticker) === -1) ? 'BR' : 'USA';
-      var historicoTransacoes = carregarHistoricoTransacoes_(ss, ticker, classe);
+      var historicoTransacoes = carregarHistoricoTransacoes_(ss, ticker, classe, mapaTransacoes);
 
-      var ultimaData = ultimaDataSalva_(abaHistorico, ticker);
+      var ultimaData = ultimaDataSalva_(abaHistorico, ticker, mapaUltimasDatas);
       if (!ultimaData) {
         // Ticker ainda sem nenhuma linha em aux_historico-patrimonio — não é
         // um "está 31 dias desatualizado", é a 1ª sincronização de verdade.
@@ -299,19 +324,38 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
   return { status: status, ok: ok, falharam: falharam, naoProcessados: naoProcessados, lacunas: lacunasEncontradas };
 }
 
-/** Devolve a última data salva pra esse ticker, ou null se ele ainda não tem nenhuma linha (nunca sincronizado — dispara o backfill completo em atualizarHistorico). */
-function ultimaDataSalva_(aba, ticker) {
+/**
+ * Devolve a última data salva pra esse ticker, ou null se ele ainda não tem
+ * nenhuma linha (nunca sincronizado — dispara o backfill completo em
+ * atualizarHistorico). mapaCache (opcional): resultado de
+ * carregarTodasUltimasDatasSalvas_, montado 1x por execução por quem chama
+ * em lote (ver atualizarHistorico) — sem ele, relê a aba inteira sozinho
+ * (uso isolado, fora do loop principal).
+ */
+function ultimaDataSalva_(aba, ticker, mapaCache) {
+  var mapa = mapaCache || carregarTodasUltimasDatasSalvas_(aba);
+  return mapa[ticker] || null; // undefined -> null se esse ticker ainda não apareceu na aba
+}
+
+/**
+ * Última data salva de CADA ticker, numa passada só pela aba — em vez de
+ * ultimaDataSalva_ reler a aba inteira uma vez por ticker (13/09/2026: ver
+ * comentário no início de atualizarHistorico).
+ */
+function carregarTodasUltimasDatasSalvas_(aba) {
+  var mapa = {};
   var ultimaLinha = aba.getLastRow();
-  if (ultimaLinha < 2) return null;
+  if (ultimaLinha < 2) return mapa;
 
   var dados = aba.getRange(2, 1, ultimaLinha - 1, 2).getValues(); // A=Data, B=Ticker
-  var ultima = null;
   for (var i = 0; i < dados.length; i++) {
-    if (dados[i][1] === ticker && dados[i][0] instanceof Date) {
-      if (!ultima || dados[i][0] > ultima) ultima = dados[i][0];
+    var ticker = dados[i][1];
+    var data = dados[i][0];
+    if (data instanceof Date && (!mapa[ticker] || data > mapa[ticker])) {
+      mapa[ticker] = data;
     }
   }
-  return ultima; // null se esse ticker ainda não apareceu na aba
+  return mapa;
 }
 
 function diasAtras_(n) {
@@ -484,24 +528,47 @@ function buscarChunkGoogleFinance_(celula, saidaRange, tickerCompleto, inicio, f
 }
 
 /**
- * Carrega, uma vez por ticker (não uma vez por dia), a lista
- * (data, cotas acumuladas) direto de Transações — usada pra achar
- * quantas unidades você tinha em qualquer dia do intervalo, sem reler
- * a planilha inteira a cada dia.
+ * Pontos (data, cotas acumuladas) de UM ticker — lê mapaCache (opcional,
+ * resultado de carregarTodosHistoricosTransacoes_, montado 1x por execução
+ * por quem chama em lote — ver atualizarHistorico) em vez de reler a aba;
+ * sem cache, relê a aba inteira sozinho (uso isolado, fora do loop
+ * principal).
  */
-function carregarHistoricoTransacoes_(ss, ticker, classe) {
-  var aba = ss.getSheetByName(classe === 'USA' ? 'Transações - USA' : 'Transações');
-  var ultimaLinha = aba.getLastRow();
-  var dados = aba.getRange(7, 1, ultimaLinha - 6, 13).getValues(); // A..M (M = "Cotas até a data")
+function carregarHistoricoTransacoes_(ss, ticker, classe, mapaCache) {
+  var mapas = mapaCache || carregarTodosHistoricosTransacoes_(ss, [classe]);
+  return mapas[classe][ticker] || [];
+}
 
-  var pontos = [];
-  dados.forEach(function (linha) {
-    if (linha[0] === ticker && linha[1] instanceof Date) {
-      pontos.push({ data: linha[1], cotas: linha[12] });
-    }
+/**
+ * Lê "Transações" e/ou "Transações - USA" numa passada cada (nunca uma vez
+ * por ticker) e devolve os pontos (data, cotas acumuladas) já agrupados e
+ * ordenados por ticker — 13/09/2026: antes, carregarHistoricoTransacoes_
+ * relia a aba inteira (podendo ter milhares de linhas — "Transações" tem
+ * ~10.800, ver ImportB3.gs) uma vez POR TICKER (até 29 vezes na mesma
+ * execução de atualizarHistorico). Agora é 1 leitura de cada aba
+ * necessária, e o agrupamento por ticker vira só uma consulta de mapa.
+ *
+ * @param {Array<string>} classesNecessarias - só lê as abas cujas classes
+ *   aparecem aqui ('BR' e/ou 'USA') — ex.: um retry seletivo só de tickers
+ *   BR não precisa ler "Transações - USA".
+ */
+function carregarTodosHistoricosTransacoes_(ss, classesNecessarias) {
+  var mapas = { BR: {}, USA: {} };
+  classesNecessarias.forEach(function (classe) {
+    var aba = ss.getSheetByName(classe === 'USA' ? 'Transações - USA' : 'Transações');
+    var ultimaLinha = aba.getLastRow();
+    var dados = aba.getRange(7, 1, ultimaLinha - 6, 13).getValues(); // A..M (M = "Cotas até a data")
+    dados.forEach(function (linha) {
+      var ticker = linha[0];
+      if (!ticker || !(linha[1] instanceof Date)) return;
+      if (!mapas[classe][ticker]) mapas[classe][ticker] = [];
+      mapas[classe][ticker].push({ data: linha[1], cotas: linha[12] });
+    });
+    Object.keys(mapas[classe]).forEach(function (ticker) {
+      mapas[classe][ticker].sort(function (a, b) { return a.data - b.data; });
+    });
   });
-  pontos.sort(function (a, b) { return a.data - b.data; });
-  return pontos;
+  return mapas;
 }
 
 /** Quantidade que você tinha numa data específica: o último ponto de Transações com data <= a data pedida (0 se nenhum). */

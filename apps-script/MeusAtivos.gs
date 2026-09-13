@@ -43,15 +43,24 @@
  * "Otimização #3" no cabeçalho de HistoricoInicio.gs pro raciocínio
  * completo (Utilities.formatDate é uma chamada de serviço do Apps Script,
  * cara em volume alto; Intl.DateTimeFormat, criado uma vez, é JS puro).
+ *
+ * 13/09/2026: handleMeusAtivos(e, auth) passou a receber "auth" já
+ * validado pelo Router, em vez de chamar verificarToken() de novo aqui
+ * dentro (mesmo ajuste feito em Home.gs/HistoricoInicio.gs). E o
+ * vencimento (MM/yyyy) de cada posição de RF trocou o
+ * Utilities.formatDate direto por formatarMesAnoAtivos_ (mesmo padrão
+ * cacheado) — aqui o volume é baixo (uma linha por posição de RF, ~9-15),
+ * mas a troca custa nada e mantém o projeto inteiro consistente.
  */
 
 var ABA_AUXILIAR_ATIVOS = 'Auxiliar_ativos';
 var ABA_CARTEIRA_RF_MEUSATIVOS = 'Carteira Renda Fixa';
 var LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS = 9;
 
-function handleMeusAtivos(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleMeusAtivos(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
   try {
     return jsonOut({ ok: true, ativos: montarMeusAtivos_() });
   } catch (err) {
@@ -141,7 +150,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
       var instituicao = linha[4]; // Instituição (mesma coluna que Transações Renda Fixa usa)
       var vencimento = linha[9];
       var vencimentoTexto = vencimento instanceof Date
-        ? Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'MM/yyyy')
+        ? formatarMesAnoAtivos_(vencimento)
         : (vencimento || null);
 
       var instituicaoNorm = normalizarInstituicaoRF_(instituicao);
@@ -248,6 +257,23 @@ function chaveVariacaoRF_(textoOuTipo, instituicaoNorm, indexador, vencimento) {
 
 function arredondarVariacaoRF_(n) {
   return Math.round(n * 10000) / 10000;
+}
+
+// Cacheado (lazy) — mesmo padrão de chaveDiaISOInicio_ (HistoricoInicio.gs)
+// e formatarDataBcbRF_ (BackfillRendaFixa.gs): Utilities.formatDate cruza pro
+// backend do Apps Script a cada chamada, então mesmo um volume baixo (essa
+// função roda no máximo 1x por posição de Renda Fixa, ~9-15 linhas) ganha em
+// criar o Intl.DateTimeFormat uma vez só e reaproveitar, em vez de reservar
+// uma exceção "porque o volume é pequeno" — consistente com o resto do
+// projeto (ver "corrija tudo... performance prioridade em todos os fluxos").
+var _formatadorMesAnoAtivos_;
+function formatarMesAnoAtivos_(data) {
+  if (!_formatadorMesAnoAtivos_) {
+    _formatadorMesAnoAtivos_ = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: Session.getScriptTimeZone(), month: '2-digit', year: 'numeric'
+    });
+  }
+  return _formatadorMesAnoAtivos_.format(data); // "MM/yyyy" (pt-BR formata mês/ano assim)
 }
 
 function numeroOuNulo_(v) {

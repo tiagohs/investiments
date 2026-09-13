@@ -62,9 +62,10 @@
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
 var ABA_INDICES_INICIO = 'aux_historico-indices';
 
-function handleHistoricoInicio(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleHistoricoInicio(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
   try {
     return jsonOut({ ok: true, serie: montarSerieHistoricoInicio_() });
   } catch (err) {
