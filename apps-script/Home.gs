@@ -33,11 +33,14 @@
  *      cobrindo ~2090 dias) só rodam de fato na 1ª chamada da janela;
  *      chamadas seguintes reaproveitam o cache. Isso resolve
  *      especificamente o "rodei de novo e continuou lento".
- *   3) Cada etapa agora loga quanto tempo levou (Logger.log, visível em
- *      Execuções no editor do Apps Script) — assim dá pra confirmar
- *      depois do deploy se o gargalo real era o fetch do BCB, a leitura
- *      duplicada, ou só o overhead normal do Apps Script, em vez de
- *      continuar no achismo.
+ *   3) Cada etapa agora loga quanto tempo levou (console.log — trocado de
+ *      Logger.log em 13/09/2026 porque o Logger clássico não estava
+ *      sincronizando de forma confiável com "Registros do Cloud" pra
+ *      chamadas vindas de fora, via Web App; console.log vai direto pro
+ *      Cloud Logging e aparece ali com muito mais consistência) — assim
+ *      dá pra confirmar depois do deploy se o gargalo real era o fetch do
+ *      BCB, a leitura duplicada, ou só o overhead normal do Apps
+ *      Script/Sheets, em vez de continuar no achismo.
  *
  * Todas as células de montarHome_() foram confirmadas direto na
  * planilha real (rodamos TesteFase2Inicio.gs/diagnosticarInicio antes
@@ -96,7 +99,7 @@ function handleHome(e, auth) {
   } catch (err) {
     avisos.home = String(err);
   }
-  Logger.log('handleHome: montarHome_ levou ' + (Date.now() - marca) + 'ms');
+  console.log('handleHome: montarHome_ levou ' + (Date.now() - marca) + 'ms');
 
   // Lê aux_historico-renda-fixa UMA vez só e passa pros dois montadores
   // que precisam dela (historico e ativos) — ver otimização no cabeçalho.
@@ -109,7 +112,7 @@ function handleHome(e, auth) {
     // se a aba realmente não existir, reporta o próprio erro em avisos.
     dadosRendaFixaCache = null;
   }
-  Logger.log('handleHome: leitura de aux_historico-renda-fixa levou ' + (Date.now() - marca) + 'ms');
+  console.log('handleHome: leitura de aux_historico-renda-fixa levou ' + (Date.now() - marca) + 'ms');
 
   marca = Date.now();
   try {
@@ -117,7 +120,7 @@ function handleHome(e, auth) {
   } catch (err) {
     avisos.historico = String(err);
   }
-  Logger.log('handleHome: montarSerieHistoricoInicio_ levou ' + (Date.now() - marca) + 'ms');
+  console.log('handleHome: montarSerieHistoricoInicio_ levou ' + (Date.now() - marca) + 'ms');
 
   marca = Date.now();
   try {
@@ -125,9 +128,9 @@ function handleHome(e, auth) {
   } catch (err) {
     avisos.ativos = String(err);
   }
-  Logger.log('handleHome: montarMeusAtivos_ levou ' + (Date.now() - marca) + 'ms');
+  console.log('handleHome: montarMeusAtivos_ levou ' + (Date.now() - marca) + 'ms');
 
-  Logger.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
+  console.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
 
