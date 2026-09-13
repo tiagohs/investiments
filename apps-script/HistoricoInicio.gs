@@ -217,7 +217,13 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // fluxoCaixa*) - bump de versão pra nunca devolver, por engano, um
   // item cacheado da v1 sem esses campos (o TTL de 6h sozinho demoraria
   // até 6h pra "descobrir" isso organicamente).
-  var chaveCacheSerie = 'historico_serie_v2_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  // v3 (13/09/2026 #2, correção das "quedas fantasma"): o FORMATO do item
+  // não mudou dessa vez, mas a CONTA de patrimonio/longoPrazo/
+  // rendaEmergencial mudou (forward-fill por ticker, não mais por dia) -
+  // sem esse bump, uma chave v2 já cacheada (mesmas contagens de linha,
+  // já que nenhuma aba ganhou linha nova) devolveria o resultado ANTIGO
+  // (com as quedas) por até 6h depois do Tiago colar o código novo.
+  var chaveCacheSerie = 'historico_serie_v3_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 
   // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
   // leitura do cache, pra parar de inferir "tá cacheando?" só olhando o
