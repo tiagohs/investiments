@@ -46,7 +46,22 @@ test('criarTileIndice() renders the value, label, and a "good" (up) delta for a 
   assert.match(tile.querySelector('.widget-label').textContent, /Ibovespa/);
   assert.equal(tile.querySelector('.widget-delta').textContent, '+1,20% hoje');
   assert.ok(tile.querySelector('.arrow-badge.good'));
-  assert.ok(tile.querySelector('.ext-link'));
+});
+
+test('criarTileIndice() com extLinkHref vira o cartão inteiro clicável (<a>), não um link solto dentro dele', () => {
+  const doc = makeDom('');
+  const tile = criarTileIndice(doc, { label: 'Ibovespa', valor: 185600, variacaoDia: 1.2, extLinkHref: 'https://example.com/ibov' });
+  assert.equal(tile.tagName, 'A');
+  assert.equal(tile.getAttribute('href'), 'https://example.com/ibov');
+  assert.equal(tile.getAttribute('target'), '_blank');
+  assert.equal(tile.getAttribute('rel'), 'noopener');
+  assert.equal(tile.querySelector('.ext-link'), null);
+});
+
+test('criarTileIndice() sem extLinkHref não vira link (fica <div>, nunca um <a> sem destino)', () => {
+  const doc = makeDom('');
+  const tile = criarTileIndice(doc, { label: 'S&P 500', valor: 6500 });
+  assert.equal(tile.tagName, 'DIV');
 });
 
 test('criarTileIndice() renders a "bad" (down) delta for a negative variação', () => {
@@ -69,6 +84,13 @@ test('criarTileCambio() renders the BRL value and a neutral "câmbio" delta, no 
   assert.match(tile.querySelector('.widget-value').textContent, /5/);
   assert.equal(tile.querySelector('.widget-delta').textContent, 'câmbio');
   assert.equal(tile.querySelector('.arrow-badge'), null);
+});
+
+test('criarTileCambio() com extLinkHref também vira o cartão inteiro clicável', () => {
+  const doc = makeDom('');
+  const tile = criarTileCambio(doc, { label: 'Euro (EUR/BRL)', valor: 5.92, extLinkHref: 'https://example.com/eur' });
+  assert.equal(tile.tagName, 'A');
+  assert.equal(tile.getAttribute('href'), 'https://example.com/eur');
 });
 
 // --- renderIndicesCambio -----------------------------------------------------

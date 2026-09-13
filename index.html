@@ -30,9 +30,22 @@
          seletor de período) e a grade "Meus Ativos" clicável são a
          próxima parte — ver docs/plano-implementacao.html, Fase 2. -->
 
-    <div class="inicio-loading" id="inicioLoading">
-      <span class="spinner-lg" aria-hidden="true"></span>
-      <span>Carregando seus dados…</span>
+    <!-- Skeleton de carregamento (13/09/2026) - placeholders no formato do
+         conteúdo real (grade de índices/câmbio + hero de patrimônio) em vez
+         de um spinner central genérico, pra reduzir o "salto" visual quando
+         os dados chegam. Ver o bug de especificidade CSS documentado em
+         inicio.css sobre [hidden] - a mesma regra vale aqui. -->
+    <div class="inicio-loading" id="inicioLoading" aria-hidden="true">
+      <span class="skel skel-header"></span>
+      <div class="skel-grid">
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+      </div>
+      <span class="skel skel-header" style="margin-top:10px"></span>
+      <span class="skel skel-hero"></span>
     </div>
 
     <div class="inicio-erro" id="inicioErro" hidden></div>

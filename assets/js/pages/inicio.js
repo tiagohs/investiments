@@ -24,7 +24,23 @@ import { formatBRL, formatNumeroBR, formatPercentFromPoints } from '../format.js
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
-const EXT_LINK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17L17 7M9 7h8v8"/></svg>';
+
+/**
+ * Cria o elemento-base de um widget-tile: <a> (cartão inteiro clicável,
+ * indo direto pra cotação) quando há extLinkHref, ou <div> normal quando
+ * não há (nunca um link vazio) - mesmo padrão do .ativo-card discutido em
+ * docs/direcao-visual.html pra Meus Ativos, aplicado aqui em 13/09/2026 a
+ * pedido do Tiago (antes cada tile tinha um "G. Finance ↗" escrito solto
+ * dentro do rótulo em vez do cartão inteiro ser o link).
+ */
+function criarElementoTile(doc, extLinkHref) {
+  if (!extLinkHref) return doc.createElement('div');
+  const tile = doc.createElement('a');
+  tile.href = extLinkHref;
+  tile.target = '_blank';
+  tile.rel = 'noopener';
+  return tile;
+}
 
 /**
  * Separa um valor já formatado ("R$ 5,09", "185.600,00") na parte
@@ -61,22 +77,19 @@ function arrowSvg(good) {
  * risco de escala documentado lá - nunca passar isso pra
  * formatPercentFromFraction).
  */
-export function criarTileIndice(doc, { label, valor, variacaoDia, extLinkHref, extLinkLabel = 'G. Finance' }) {
-  const tile = doc.createElement('div');
+export function criarTileIndice(doc, { label, valor, variacaoDia, extLinkHref }) {
+  const tile = criarElementoTile(doc, extLinkHref);
   tile.className = 'widget-tile';
 
   const temVariacao = typeof variacaoDia === 'number' && Number.isFinite(variacaoDia);
   const good = temVariacao && variacaoDia >= 0;
   const arrowHtml = temVariacao ? `<span class="arrow-badge ${good ? 'good' : 'bad'}">${arrowSvg(good)}</span>` : '';
-  const linkHtml = extLinkHref
-    ? `<a class="ext-link" href="${extLinkHref}" target="_blank" rel="noopener">${extLinkLabel}${EXT_LINK_ICON}</a>`
-    : '';
 
   tile.innerHTML = `
     <div class="widget-tile-top">
       <div>
         <div class="widget-value"></div>
-        <div class="widget-label">${label} ${linkHtml}</div>
+        <div class="widget-label">${label}</div>
       </div>
       ${arrowHtml}
     </div>
@@ -96,18 +109,15 @@ export function criarTileIndice(doc, { label, valor, variacaoDia, extLinkHref, e
 }
 
 /** Widget-tile de câmbio (USD/EUR) - só valor; a API de hoje não devolve variação do dia pra esses dois (ver Home.gs!montarHome_). */
-export function criarTileCambio(doc, { label, valor, extLinkHref, extLinkLabel = 'G. Finance' }) {
-  const tile = doc.createElement('div');
+export function criarTileCambio(doc, { label, valor, extLinkHref }) {
+  const tile = criarElementoTile(doc, extLinkHref);
   tile.className = 'widget-tile';
-  const linkHtml = extLinkHref
-    ? `<a class="ext-link" href="${extLinkHref}" target="_blank" rel="noopener">${extLinkLabel}${EXT_LINK_ICON}</a>`
-    : '';
 
   tile.innerHTML = `
     <div class="widget-tile-top">
       <div>
         <div class="widget-value"></div>
-        <div class="widget-label">${label} ${linkHtml}</div>
+        <div class="widget-label">${label}</div>
       </div>
     </div>
     <div class="widget-delta" style="color:var(--ink-faint)">câmbio</div>
