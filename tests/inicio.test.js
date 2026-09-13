@@ -14,6 +14,13 @@ import {
   resolverVisao,
   renderHero,
   wireVisaoTabs,
+  filtrarHistoricoPorPeriodo,
+  normalizarSerieRentabilidade,
+  renderGraficoRentabilidade,
+  wireGraficoRentabilidade,
+  criarAtivoCard,
+  renderMeusAtivos,
+  wireFiltroAtivos,
   renderAvisos,
   montarPaginaInicio,
 } from '../assets/js/pages/inicio.js';
@@ -184,6 +191,200 @@ test('wireVisaoTabs() re-renders the hero for the clicked visão and toggles the
   assert.equal(tabs.querySelector('[data-visao="total"]').classList.contains('active'), false);
 });
 
+// --- filtrarHistoricoPorPeriodo / normalizarSerieRentabilidade / gráfico ----
+
+/** 40 dias corridos, patrimonio crescendo 1000/dia, ibovespa e indiceCdi/indiceSelic
+ * também subindo de forma previsível - dá pra calcular a mão o que cada teste espera. */
+function gerarHistoricoExemplo(dias = 40) {
+  const historico = [];
+  for (let i = 0; i < dias; i += 1) {
+    const d = new Date(2026, 0, 1 + i);
+    historico.push({
+      data: d.toISOString().slice(0, 10),
+      patrimonio: 100000 + i * 1000,
+      longoPrazo: 80000 + i * 800,
+      rendaEmergencial: 20000 + i * 200,
+      indiceCdi: 100 * (1 + i * 0.001),
+      indiceSelic: 100 * (1 + i * 0.0009),
+      ibovespa: i < 3 ? null : 120000 + i * 500, // simula "antes do 1º pregão da janela"
+    });
+  }
+  return historico;
+}
+
+test('filtrarHistoricoPorPeriodo() corta os últimos N dias corridos do preset pedido', () => {
+  const historico = gerarHistoricoExemplo(40);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d').length, 30);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d')[0], historico[10]);
+});
+
+test('filtrarHistoricoPorPeriodo() com "tudo" (ou preset desconhecido) devolve o array inteiro', () => {
+  const historico = gerarHistoricoExemplo(40);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, 'tudo').length, 40);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, 'nao-existe').length, 40);
+});
+
+test('filtrarHistoricoPorPeriodo() sem histórico (ou vazio) devolve array vazio, nunca lança', () => {
+  assert.deepEqual(filtrarHistoricoPorPeriodo(undefined, '30d'), []);
+  assert.deepEqual(filtrarHistoricoPorPeriodo([], '30d'), []);
+});
+
+test('normalizarSerieRentabilidade() calcula "% desde o início" a partir do 1º valor válido', () => {
+  const janela = gerarHistoricoExemplo(5); // patrimonio: 100000,101000,102000,103000,104000
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio');
+  assert.equal(serie[0], 0);
+  assert.match(String(serie[4]), /4/); // (104000/100000 - 1) * 100 = 4
+});
+
+test('normalizarSerieRentabilidade() pula valores null (ibovespa antes do 1º pregão) sem quebrar - usa o 1º válido como base', () => {
+  const janela = gerarHistoricoExemplo(5); // ibovespa: null,null,null,121500,122000
+  const serie = normalizarSerieRentabilidade(janela, 'ibovespa');
+  assert.equal(serie[0], null);
+  assert.equal(serie[1], null);
+  assert.equal(serie[2], null);
+  assert.equal(serie[3], 0); // primeiro valor válido vira a base (0%)
+});
+
+test('normalizarSerieRentabilidade() sem nenhum valor válido na janela devolve tudo null (nunca divide por zero)', () => {
+  const janela = [{ data: '2026-01-01', patrimonio: 0 }, { data: '2026-01-02', patrimonio: 0 }];
+  assert.deepEqual(normalizarSerieRentabilidade(janela, 'patrimonio'), [null, null]);
+});
+
+test('renderGraficoRentabilidade() desenha um <svg> com uma linha principal + 2 benchmarks pra visão "total"', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'total', periodoId: '30d' });
+  const svg = container.querySelector('svg.rentab-chart');
+  assert.ok(svg);
+  assert.equal(svg.querySelectorAll('path').length, 3); // portfólio + ibovespa + cdi
+});
+
+test('renderGraficoRentabilidade() troca os benchmarks pra CDI+Selic na visão "rendaEmergencial"', () => {
+  const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
+  const container = doc.getElementById('chart');
+  const legenda = doc.getElementById('legenda');
+  renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'rendaEmergencial', periodoId: '30d', legendaContainer: legenda });
+  assert.match(legenda.textContent, /Selic/);
+  assert.doesNotMatch(legenda.textContent, /Ibovespa/);
+});
+
+test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há histórico suficiente', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  assert.doesNotThrow(() => renderGraficoRentabilidade(doc, container, { historico: [], visaoId: 'total', periodoId: '30d' }));
+  assert.match(container.textContent, /Sem histórico/);
+});
+
+test('wireGraficoRentabilidade() renderiza de cara e reage tanto ao período quanto à visão', () => {
+  const doc = makeDom(`
+    <div class="filter-tabs" id="visaoTabs">
+      <button class="filter-tab active" data-visao="total">Total</button>
+      <button class="filter-tab" data-visao="rendaEmergencial">Renda Emergencial</button>
+    </div>
+    <div class="filter-tabs" id="periodoTabs">
+      <button class="filter-tab" data-periodo="30d">30 dias</button>
+      <button class="filter-tab active" data-periodo="12m">12 meses</button>
+    </div>
+    <div id="chart"></div>
+    <div id="legenda"></div>
+  `);
+  const historico = gerarHistoricoExemplo(40);
+  wireGraficoRentabilidade(doc, {
+    historico,
+    visaoTabsContainer: doc.getElementById('visaoTabs'),
+    periodoTabsContainer: doc.getElementById('periodoTabs'),
+    chartContainer: doc.getElementById('chart'),
+    legendaContainer: doc.getElementById('legenda'),
+    periodoInicial: '12m',
+  });
+  assert.ok(doc.getElementById('chart').querySelector('svg'), 'já renderiza de cara, sem esperar clique nenhum');
+
+  doc.getElementById('periodoTabs').querySelector('[data-periodo="30d"]')
+    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(doc.getElementById('periodoTabs').querySelector('[data-periodo="30d"]').classList.contains('active'), true);
+
+  doc.getElementById('visaoTabs').querySelector('[data-visao="rendaEmergencial"]')
+    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.match(doc.getElementById('legenda').textContent, /Selic/);
+});
+
+// --- criarAtivoCard / renderMeusAtivos / wireFiltroAtivos -------------------
+
+const ATIVO_ACAO_EXEMPLO = {
+  classe: 'acoes', ticker: 'BBAS3', nome: 'Banco do Brasil', precoAtual: 22.14, variacaoDia: -0.012,
+  vies: 'comprar', descontoPL: '12% (0,88 P/L)',
+};
+
+const ATIVO_USA_EXEMPLO = {
+  classe: 'usa', ticker: 'CHTR', precoAtual: 320.5, precoAtualBRL: 1732.5, variacaoDia: 0.008,
+  vies: 'aguardar', descontoPL: '-8% (14,2 P/L)',
+};
+
+const ATIVO_RF_EXEMPLO = {
+  classe: 'rf', ticker: 'Tesouro Selic · 03/2029', codigo: 'TS-2029', marca: 'longo-prazo',
+  indexador: 'Selic', vencimento: '03/2029', valorAtualizado: 12480.55, variacaoDia: 0.0004,
+};
+
+test('criarAtivoCard() de Ações vira o cartão inteiro clicável, com viés e desconto', () => {
+  const doc = makeDom('');
+  const card = criarAtivoCard(doc, ATIVO_ACAO_EXEMPLO);
+  assert.equal(card.tagName, 'A');
+  assert.equal(card.getAttribute('href'), 'ativo.html?ref=BBAS3&classe=acoes');
+  assert.match(card.querySelector('.ativo-ticker').textContent, /BBAS3/);
+  assert.ok(card.querySelector('.vies-badge.comprar'));
+  assert.equal(card.querySelector('.ativo-delta').classList.contains('bad'), true); // variação negativa
+  assert.match(card.querySelector('.ativo-detalhe').textContent, /12%/);
+});
+
+test('criarAtivoCard() de Ações EUA mostra o preço convertido pra BRL ao lado do preço em USD', () => {
+  const doc = makeDom('');
+  const card = criarAtivoCard(doc, ATIVO_USA_EXEMPLO);
+  assert.match(card.querySelector('.ativo-price').textContent, /320/);
+  assert.match(card.querySelector('.ativo-price-conv').textContent, /1\.732/);
+});
+
+test('criarAtivoCard() de Renda Fixa usa "codigo" (não o rótulo composto) como ref, e mostra indexador+vencimento no lugar do desconto', () => {
+  const doc = makeDom('');
+  const card = criarAtivoCard(doc, ATIVO_RF_EXEMPLO);
+  assert.equal(card.getAttribute('href'), 'ativo.html?ref=TS-2029&classe=rf');
+  assert.equal(card.querySelector('.vies-badge'), null, 'Renda Fixa não tem preço-teto, então não tem viés');
+  assert.match(card.querySelector('.ativo-detalhe').textContent, /Selic/);
+  assert.match(card.querySelector('.ativo-detalhe').textContent, /03\/2029/);
+  assert.match(card.querySelector('.ativo-price').textContent, /12\.480/);
+});
+
+test('renderMeusAtivos() filtra por classe e mostra um aviso pra categoria vazia', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  const ativos = [ATIVO_ACAO_EXEMPLO, ATIVO_USA_EXEMPLO, ATIVO_RF_EXEMPLO];
+
+  renderMeusAtivos(doc, grid, ativos, 'todos');
+  assert.equal(grid.querySelectorAll('.ativo-card').length, 3);
+
+  renderMeusAtivos(doc, grid, ativos, 'fiis');
+  assert.match(grid.textContent, /Nenhum ativo/);
+});
+
+test('wireFiltroAtivos() re-renderiza a grade filtrada e alterna a classe active', () => {
+  const doc = makeDom(`
+    <div class="filter-tabs" id="tabs">
+      <button class="filter-tab active" data-classe="todos">Todos</button>
+      <button class="filter-tab" data-classe="rf">Renda Fixa</button>
+    </div>
+    <div id="grid"></div>
+  `);
+  const tabs = doc.getElementById('tabs');
+  const grid = doc.getElementById('grid');
+  const ativos = [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO];
+  renderMeusAtivos(doc, grid, ativos, 'todos');
+  wireFiltroAtivos(doc, tabs, grid, ativos);
+
+  tabs.querySelector('[data-classe="rf"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
+  assert.equal(tabs.querySelector('[data-classe="rf"]').classList.contains('active'), true);
+});
+
 // --- renderAvisos ------------------------------------------------------------
 
 test('renderAvisos() hides the banner when there are no avisos', () => {
@@ -218,6 +419,17 @@ function makePaginaDom() {
         <button class="filter-tab" data-visao="longoPrazo">Longo Prazo</button>
       </div>
       <div id="heroPatrimonio"></div>
+      <div class="filter-tabs" id="periodoTabs">
+        <button class="filter-tab" data-periodo="30d">30 dias</button>
+        <button class="filter-tab active" data-periodo="12m">12 meses</button>
+      </div>
+      <div id="graficoRentabilidade"></div>
+      <div id="rentabLegenda"></div>
+      <div class="filter-tabs" id="filtroAtivosTabs">
+        <button class="filter-tab active" data-classe="todos">Todos</button>
+        <button class="filter-tab" data-classe="rf">Renda Fixa</button>
+      </div>
+      <div id="meusAtivosGrid"></div>
     </div>
   `);
 }

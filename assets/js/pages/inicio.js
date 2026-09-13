@@ -1,10 +1,12 @@
 /**
- * pages/inicio.js — renderização da página Início, Fase 2 / Parte 1:
- * cards de Índices & Câmbio + hero de Patrimônio (3 visões: Total /
- * Longo Prazo / Renda Emergencial). O gráfico de Rentabilidade (com
- * seletor de período) e a grade "Meus Ativos" ficam pras próximas
- * partes (ver docs/plano-implementacao.html, Fase 2, e o combinado
- * registrado em docs/historico-projeto.md).
+ * pages/inicio.js — renderização da página Início, Fase 2 completa:
+ * cards de Índices & Câmbio, hero de Patrimônio (3 visões: Total /
+ * Longo Prazo / Renda Emergencial), gráfico de Rentabilidade (com
+ * filtro de período contextual, próprio desta página - o filtro global
+ * do topbar saiu de shell.html em 13/09/2026, ver docs/plano-
+ * implementacao.html Fase 2) e a grade "Meus Ativos" (cartão inteiro
+ * clicável pro Detalhe do Ativo, ainda não construído - ver "ativo.html"
+ * em docs/plano-implementacao.html, ativo.html?ref=&classe=).
  *
  * Mesmo padrão de shell.js/auth-ui.js: funções puras de renderização
  * (recebem doc + elemento + dado já pronto, nunca buscam nada sozinhas)
@@ -14,13 +16,27 @@
  * de um token real.
  *
  * "avisos" (falha parcial de uma seção só) é tratado exatamente como o
- * back-end trata (ver Home.gs) - cada pedaço (índices/câmbio, hero)
- * aparece se veio, e falta silenciosamente (com um aviso) se não veio,
- * em vez de uma falha em uma seção derrubar a página inteira.
+ * back-end trata (ver Home.gs) - cada pedaço (índices/câmbio, hero,
+ * gráfico, ativos) aparece se veio, e falta silenciosamente (com um
+ * aviso) se não veio, em vez de uma falha em uma seção derrubar a
+ * página inteira.
+ *
+ * Rentabilidade (13/09/2026): historico (HistoricoInicio.gs) já vem com
+ * uma linha por dia corrido - patrimonio/longoPrazo/rendaEmergencial em
+ * R$, indiceCdi/indiceSelic como curva composta base 100, ibovespa em
+ * pontos brutos (pode vir null antes do 1º pregão da janela). O gráfico
+ * nunca compara valores brutos entre si (R$ vs pontos de índice não faz
+ * sentido) - normaliza tudo pra "% desde o início do período" a partir
+ * do primeiro valor válido da janela (normalizarSerieRentabilidade),
+ * mesma ideia por trás de qualquer gráfico de rentabilidade comparada.
+ * Os benchmarks mudam por visão, seguindo a decisão já registrada em
+ * docs/plano-implementacao.html: Total/Longo Prazo contra Ibovespa+CDI,
+ * Renda Emergencial contra CDI+Selic (não faz sentido comparar reserva
+ * de emergência com bolsa).
  */
 
 import { getHome } from '../api-client.js';
-import { formatBRL, formatNumeroBR, formatPercentFromPoints } from '../format.js';
+import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
@@ -248,6 +264,298 @@ export function wireVisaoTabs(doc, tabsContainer, heroContainer, patrimonio) {
   });
 }
 
+// ============================================================================
+// Gráfico de Rentabilidade
+// ============================================================================
+
+/** dias corridos de cada preset - historico tem 1 linha por dia corrido (ver
+ * cabeçalho), então cortar os últimos N itens do array já é a janela certa,
+ * sem precisar comparar datas. */
+const DIAS_POR_PERIODO = { '30d': 30, '6m': 182, '12m': 365, '3a': 365 * 3 };
+
+/** Recorta historico pro período pedido - 'tudo' (ou um id desconhecido que
+ * não seja 'tudo') devolve o array inteiro. */
+export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
+  if (!historico || !historico.length) return [];
+  const dias = DIAS_POR_PERIODO[periodoId];
+  if (!dias) return historico;
+  return historico.slice(-dias);
+}
+
+const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo', rendaEmergencial: 'rendaEmergencial' };
+
+/** Benchmarks por visão - Total/Longo Prazo contra Ibovespa+CDI, Renda
+ * Emergencial contra CDI+Selic (decisão registrada em
+ * docs/plano-implementacao.html - não compara reserva de emergência com bolsa). */
+const BENCHMARKS_POR_VISAO = {
+  total: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
+  ],
+  longoPrazo: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
+  ],
+  rendaEmergencial: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
+    { campo: 'indiceSelic', label: 'Selic', cor: '--fiis', dash: '1.5 4.5' },
+  ],
+};
+
+/** Primeiro valor numérico válido (não-nulo, finito) e diferente de zero de
+ * `campo` em `historico` - zero como base de "% desde o início" dividiria por
+ * zero; ibovespa também pode vir null antes do 1º pregão da janela. */
+function primeiroValorValidoInicio_(historico, campo) {
+  for (const item of historico) {
+    const v = item[campo];
+    if (typeof v === 'number' && Number.isFinite(v) && v !== 0) return v;
+  }
+  return null;
+}
+
+/**
+ * Normaliza a série de `campo` (dentro de `historico`, já recortado pro
+ * período) pra "% desde o início do período" - único jeito de comparar
+ * patrimônio (R$) com um índice (pontos ou curva base 100) na mesma escala.
+ * Sem base válida (tudo zero/null na janela), devolve todo mundo null em vez
+ * de inventar 0% - renderGraficoRentabilidade trata isso mostrando um aviso.
+ */
+export function normalizarSerieRentabilidade(historico, campo) {
+  const base = primeiroValorValidoInicio_(historico, campo);
+  if (base == null) return historico.map(() => null);
+  return historico.map((item) => {
+    const v = item[campo];
+    if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+    return ((v / base) - 1) * 100;
+  });
+}
+
+/** Monta o "d" de um <path> a partir de uma série normalizada, pulando nulos
+ * à toa (só existem no começo, antes do 1º valor válido - ver acima) sem
+ * quebrar o desenho do resto da linha. */
+function pathDRentabilidade_(valores, x, y) {
+  let d = '';
+  let comecou = false;
+  valores.forEach((v, i) => {
+    if (v == null) return;
+    d += `${comecou ? 'L' : 'M'}${x(i, valores.length).toFixed(1)} ${y(v).toFixed(1)} `;
+    comecou = true;
+  });
+  return d.trim();
+}
+
+/**
+ * Desenha o gráfico de Rentabilidade (Portfólio vs benchmarks da visão) em
+ * `container` - SVG desenhado à mão (mesma técnica/proporções validadas em
+ * docs/direcao-visual.html!renderChart, sem depender de biblioteca nenhuma,
+ * mesma convenção "no-build" do resto do projeto). Some com um aviso, sem
+ * lançar, quando não há histórico (ou histórico de menos de 2 dias, onde uma
+ * linha não diz nada).
+ */
+export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer } = {}) {
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  if (janela.length < 2) {
+    container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
+    if (legendaContainer) legendaContainer.innerHTML = '';
+    return;
+  }
+
+  const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
+
+  const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal);
+  const seriesBenchmark = benchmarks.map((b) => ({ ...b, valores: normalizarSerieRentabilidade(janela, b.campo) }));
+
+  const W = 1000, H = 220, padL = 52, padR = 10, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const todosValores = [seriePrincipal, ...seriesBenchmark.map((b) => b.valores)].flat().filter((v) => v != null);
+  let minV = Math.min(0, ...todosValores);
+  let maxV = Math.max(0, ...todosValores);
+  const folga = (maxV - minV) * 0.15 || 1;
+  minV -= folga; maxV += folga;
+
+  const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
+  const x = (i, n) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
+
+  const ticks = 4;
+  let gridSvg = '';
+  for (let t = 0; t <= ticks; t += 1) {
+    const v = minV + (maxV - minV) * (t / ticks);
+    const yy = y(v);
+    gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
+    gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatNumeroBR(v, 1)}%</text>`;
+  }
+
+  const passos = 4;
+  let xLabelsSvg = '';
+  for (let i = 0; i < passos; i += 1) {
+    const idx = Math.round((janela.length - 1) * (i / (passos - 1)));
+    const xx = padL + plotW * (i / (passos - 1));
+    const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
+    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 8}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
+  }
+
+  const benchmarkPathsSvg = seriesBenchmark
+    .map((b) => `<path d="${pathDRentabilidade_(b.valores, x, y)}" fill="none" stroke="var(${b.cor})" stroke-width="2" stroke-dasharray="${b.dash}"/>`)
+    .join('');
+  const principalPathSvg = `<path d="${pathDRentabilidade_(seriePrincipal, x, y)}" fill="none" stroke="var(--acoes)" stroke-width="2.6"/>`;
+
+  container.innerHTML = `<svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${gridSvg}${xLabelsSvg}${benchmarkPathsSvg}${principalPathSvg}</svg>`;
+
+  if (legendaContainer) {
+    legendaContainer.innerHTML = `
+      <span class="li"><span class="swline" style="border-color:var(--acoes)"></span>Portfólio</span>
+      ${benchmarks.map((b) => `<span class="li"><span class="swline ${b.dash.startsWith('1.5') ? 'dot' : 'dash'}" style="border-color:var(${b.cor})"></span>${b.label}</span>`).join('')}
+    `;
+  }
+}
+
+/**
+ * Liga os pills de período (#periodoTabs) e reage também aos cliques nas
+ * abas de visão (#visaoTabs, já ligadas por wireVisaoTabs ao hero) - o
+ * mesmo clique dispara os dois: o hero troca de visão E o gráfico troca de
+ * campo/benchmarks, sem precisar buscar nada de novo (historico já veio
+ * inteiro na primeira chamada). periodoInicial deve bater com o pill
+ * marcado "active" no HTML.
+ */
+export function wireGraficoRentabilidade(doc, { historico, visaoTabsContainer, periodoTabsContainer, chartContainer, legendaContainer, periodoInicial = '12m' } = {}) {
+  let visaoAtual = 'total';
+  let periodoAtual = periodoInicial;
+
+  function atualizar() {
+    if (!chartContainer) return;
+    renderGraficoRentabilidade(doc, chartContainer, { historico, visaoId: visaoAtual, periodoId: periodoAtual, legendaContainer });
+  }
+
+  if (visaoTabsContainer) {
+    Array.from(visaoTabsContainer.querySelectorAll('.filter-tab')).forEach((botao) => {
+      botao.addEventListener('click', () => { visaoAtual = botao.dataset.visao; atualizar(); });
+    });
+  }
+
+  if (periodoTabsContainer) {
+    const botoesPeriodo = Array.from(periodoTabsContainer.querySelectorAll('.filter-tab'));
+    botoesPeriodo.forEach((botao) => {
+      botao.addEventListener('click', () => {
+        botoesPeriodo.forEach((b) => b.classList.toggle('active', b === botao));
+        periodoAtual = botao.dataset.periodo;
+        atualizar();
+      });
+    });
+  }
+
+  atualizar();
+}
+
+// ============================================================================
+// Grade "Meus Ativos"
+// ============================================================================
+
+const CLASSE_LABEL_ATIVO = { acoes: 'Ação', fiis: 'FII', usa: 'EUA', rf: 'RF' };
+
+/** ref pra ativo.html?ref=&classe= (docs/plano-implementacao.html) - Renda
+ * Fixa é identificada por Código, não por ticker de bolsa (o "ticker" de RF
+ * aqui já é um rótulo composto - tipo + vencimento - não um identificador). */
+function refDoAtivo_(ativo) {
+  return ativo.classe === 'rf' ? (ativo.codigo || ativo.ticker) : ativo.ticker;
+}
+
+/**
+ * Cria um .ativo-card - cartão inteiro é o link pro Detalhe do Ativo
+ * (ativo.html, ainda não construído - próxima parte), sem link externo
+ * separado, mesmo padrão já aplicado aos widget-tiles de índices/câmbio.
+ * Renda Fixa não tem preço-teto (não existe preço-teto pra título de renda
+ * fixa) nem viés - mostra o saldo atualizado no lugar do preço, e o
+ * indexador/vencimento no lugar do desconto sobre P/VP ou P/L.
+ */
+export function criarAtivoCard(doc, ativo) {
+  const card = doc.createElement('a');
+  card.className = `ativo-card ${ativo.classe}`;
+  card.href = `ativo.html?ref=${encodeURIComponent(refDoAtivo_(ativo))}&classe=${encodeURIComponent(ativo.classe)}`;
+
+  const viesHtml = ativo.vies
+    ? `<span class="vies-badge ${ativo.vies}">${ativo.vies === 'comprar' ? 'Comprar' : 'Aguardar'}</span>`
+    : '';
+
+  let precoHtml;
+  let deltaHtml;
+  let detalheHtml;
+
+  if (ativo.classe === 'rf') {
+    precoHtml = `<div class="ativo-price"></div>`;
+    const temVariacao = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia);
+    const good = temVariacao && ativo.variacaoDia >= 0;
+    deltaHtml = temVariacao
+      ? `<div class="ativo-delta ${good ? 'good' : 'bad'}">${formatPercentFromFraction(ativo.variacaoDia)} <span class="dim">hoje</span></div>`
+      : '';
+    detalheHtml = `<div class="ativo-detalhe">${[ativo.indexador, ativo.vencimento ? `vence ${ativo.vencimento}` : null].filter(Boolean).join(' · ')}</div>`;
+  } else {
+    const temVariacao = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia);
+    const good = temVariacao && ativo.variacaoDia >= 0;
+    precoHtml = `<div class="ativo-price"></div>`;
+    deltaHtml = temVariacao
+      ? `<div class="ativo-delta ${good ? 'good' : 'bad'}">${formatPercentFromFraction(ativo.variacaoDia)} <span class="dim">hoje</span></div>`
+      : '<div class="ativo-delta na">—</div>';
+    const desconto = ativo.classe === 'usa' || ativo.classe === 'acoes' ? ativo.descontoPL : ativo.descontoPVp;
+    detalheHtml = desconto ? `<div class="ativo-detalhe">Desconto: ${desconto}</div>` : '';
+  }
+
+  card.innerHTML = `
+    <div class="ativo-card-top">
+      <div class="ativo-id">
+        <span class="ativo-ticker">${ativo.ticker}</span>
+        <span class="ativo-classe ${ativo.classe}">${CLASSE_LABEL_ATIVO[ativo.classe] || ativo.classe}</span>
+      </div>
+      ${viesHtml}
+    </div>
+    ${precoHtml}
+    ${deltaHtml}
+    ${detalheHtml}
+  `;
+
+  const precoEl = card.querySelector('.ativo-price');
+  if (ativo.classe === 'rf') {
+    setValorComDec(precoEl, formatBRL(ativo.valorAtualizado));
+  } else if (ativo.classe === 'usa') {
+    setValorComDec(precoEl, formatUSD(ativo.precoAtual));
+    if (typeof ativo.precoAtualBRL === 'number') {
+      const conv = doc.createElement('span');
+      conv.className = 'ativo-price-conv';
+      conv.textContent = ` (${formatBRL(ativo.precoAtualBRL)})`;
+      precoEl.appendChild(conv);
+    }
+  } else {
+    setValorComDec(precoEl, formatBRL(ativo.precoAtual));
+  }
+
+  return card;
+}
+
+/** Renderiza a grade de Meus Ativos, filtrando por classe ('todos' mostra tudo). Esvazia `container` antes. */
+export function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos') {
+  container.innerHTML = '';
+  const lista = (ativos || []).filter((a) => filtroClasse === 'todos' || a.classe === filtroClasse);
+
+  if (!lista.length) {
+    container.innerHTML = '<p class="hint">Nenhum ativo nessa categoria.</p>';
+    return;
+  }
+
+  lista.forEach((ativo) => container.appendChild(criarAtivoCard(doc, ativo)));
+}
+
+/** Liga as abas de categoria (#filtroAtivosTabs) à re-renderização da grade - ativos já veio inteiro na primeira chamada, nunca busca de novo. */
+export function wireFiltroAtivos(doc, tabsContainer, gridContainer, ativos) {
+  const botoes = Array.from(tabsContainer.querySelectorAll('.filter-tab'));
+  botoes.forEach((botao) => {
+    botao.addEventListener('click', () => {
+      botoes.forEach((b) => b.classList.toggle('active', b === botao));
+      renderMeusAtivos(doc, gridContainer, ativos, botao.dataset.classe);
+    });
+  });
+}
+
 /** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. */
 export function renderAvisos(container, avisos) {
   if (!avisos || Object.keys(avisos).length === 0) {
@@ -290,4 +598,15 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
   renderHero(doc, doc.getElementById('heroPatrimonio'), resposta.patrimonio, 'total');
   wireVisaoTabs(doc, doc.getElementById('visaoTabs'), doc.getElementById('heroPatrimonio'), resposta.patrimonio);
+
+  wireGraficoRentabilidade(doc, {
+    historico: resposta.historico,
+    visaoTabsContainer: doc.getElementById('visaoTabs'),
+    periodoTabsContainer: doc.getElementById('periodoTabs'),
+    chartContainer: doc.getElementById('graficoRentabilidade'),
+    legendaContainer: doc.getElementById('rentabLegenda'),
+  });
+
+  renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
+  wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
 }

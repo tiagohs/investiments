@@ -94,3 +94,50 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 @media (max-width:900px){ .skel-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:640px){ .skel-grid{ grid-template-columns:repeat(2,1fr); } }
 @media (prefers-reduced-motion: reduce){ .skel{ animation:none; } }
+
+/* ---- Gráfico de Rentabilidade (Parte 2, 13/09/2026) ----
+   SVG desenhado à mão em pages/inicio.js!renderGraficoRentabilidade,
+   mesma técnica/proporções validadas em docs/direcao-visual.html - só
+   o CSS (linhas de grade, rótulos, legenda) mora aqui. */
+.rentab-chart{ width:100%; height:auto; display:block; }
+.rentab-chart .gridline{ stroke:var(--border); stroke-width:1; }
+.rentab-chart .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
+.chart-legend2{ display:flex; gap:18px; margin-top:12px; flex-wrap:wrap; }
+.chart-legend2 .li{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-muted); }
+.chart-legend2 .swline{ width:18px; height:0; border-top:2.5px solid; display:inline-block; }
+.chart-legend2 .swline.dash{ border-top-style:dashed; }
+.chart-legend2 .swline.dot{ border-top-style:dotted; border-top-width:3px; }
+
+/* ---- Grade "Meus ativos" (Parte 3, 13/09/2026) ----
+   .ativo-card é o mesmo padrão de cartão-inteiro-é-link já aplicado aos
+   widget-tiles de índices/câmbio - validado em docs/direcao-visual.html
+   (sem sparkline/tooltip de hover aqui: sem dado histórico por ativo
+   ainda, e tooltip por mousemove não ajuda em toque/mobile - os campos
+   essenciais já vão direto no cartão). */
+.ativos-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.ativo-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px;
+      text-decoration:none; color:inherit; transition:transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
+.ativo-card:hover{ transform:translateY(-2px); border-color:var(--acoes); box-shadow:0 4px 16px -4px rgba(27,36,48,.18), var(--shadow); }
+.ativo-card:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.ativo-card-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.ativo-id{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0; }
+.ativo-ticker{ font-family:var(--body-f); font-weight:700; font-size:14px; color:var(--ink); overflow-wrap:anywhere; }
+.ativo-classe{ font-size:9px; font-weight:700; letter-spacing:.03em; padding:2px 7px; border-radius:100px;
+      text-transform:uppercase; white-space:nowrap; flex:none; }
+.ativo-classe.acoes{ background:var(--acoes-soft); color:var(--acoes); }
+.ativo-classe.fiis{ background:var(--fiis-soft); color:var(--fiis); }
+.ativo-classe.rf{ background:var(--rf-soft); color:var(--rf); }
+.ativo-classe.usa{ background:var(--usa-soft); color:var(--usa); }
+.vies-badge{ font-size:10px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; flex:none; }
+.vies-badge.comprar{ background:var(--good-soft); color:var(--good-ink); }
+.vies-badge.aguardar{ background:var(--warn-soft); color:var(--warn-ink); }
+.ativo-price{ font-family:var(--mono); font-size:19px; font-weight:600; margin-top:2px; }
+.ativo-price .dec{ font-size:13px; opacity:.65; }
+.ativo-delta{ font-size:11px; font-weight:600; }
+.ativo-delta.good{ color:var(--good-ink); } .ativo-delta.bad{ color:var(--bad-ink); } .ativo-delta.na{ color:var(--na); }
+.ativo-delta .dim{ color:var(--ink-faint); font-weight:500; }
+.ativo-price-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); margin-left:4px; }
+.ativo-detalhe{ font-size:10.5px; color:var(--ink-faint); margin-top:1px; }
+@media (max-width:900px){ .ativos-grid{ grid-template-columns:repeat(3,1fr); } }
+@media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
