@@ -1,6 +1,6 @@
 /**
  * shell.css — shared chrome for every page: design tokens (color/type),
- * base resets, topbar (brand, refresh pill, sync badge, period filter),
+ * base resets, topbar (brand, refresh pill, sync badge),
  * main nav (6 top-level sections, no dropdown), the contextual sidebar
  * used by sections that have subpages (Carteiras/Transações/Proventos/
  * Organização Financeira), and the theme toggle. Loaded by every page
@@ -21,8 +21,11 @@
  * page content (.side-nav + .section-content) — not an overlay. Início
  * and Distribuições e Metas have no subpages, so no sidebar. This
  * avoids overlay/clipping bugs entirely for navigation: the only real
- * overlays left are the sync and period popovers, which are transient
- * actions, not navigation, so a popover is the right pattern for them.
+ * overlay left is the sync popover, a transient action, not
+ * navigation, so a popover is the right pattern for it. (A global
+ * period filter used to live here too — removed 13/09/2026, each
+ * page with a chart gets its own contextual filter instead, see
+ * docs/plano-implementacao.html, Fase 2.)
  *
  * Page-specific styles (stat tiles, dropzone, alerts, generic status
  * badges, etc.) are NOT here — they belong to each page when it's built.
@@ -128,7 +131,7 @@ svg{ display:block; }
    each log row, next to its own status icon. Color + icon carries the
    state at a glance; the tooltip/title carries the summary for anyone
    who needs the words. ---- */
-.sync-wrap, .period-wrap{ position:relative; }
+.sync-wrap{ position:relative; }
 .sync-badge{ width:32px; height:32px; border-radius:50%; border:1px solid var(--border);
       background:var(--surface); display:flex; align-items:center; justify-content:center;
       cursor:pointer; box-shadow:var(--shadow); padding:0; flex:none; }
@@ -137,21 +140,23 @@ svg{ display:block; }
 .sync-badge.warn{ color:var(--warn-ink); background:var(--warn-soft); border-color:transparent; }
 .sync-badge.bad{ color:var(--bad); background:var(--bad-soft); border-color:transparent; }
 
-/* ---- Period filter (global date-range selector) ---- */
-.period-btn{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border);
-      background:var(--surface); color:var(--ink); border-radius:100px; padding:7px 12px 7px 10px; font-family:var(--body-f);
-      font-size:12.5px; font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
-.period-btn .cal{ width:14px; height:14px; stroke:var(--ink-muted); }
-.period-btn .chev{ width:11px; height:11px; stroke:var(--ink-faint); transition:transform .15s; }
-.period-btn.open .chev{ transform:rotate(180deg); }
-.period-btn .range{ color:var(--ink-muted); font-weight:500; }
+/* ---- External-link chip — small "G. Finance"/"Suno"/etc pill next to
+   a label or inside a popover link. Shared across pages (moved here
+   13/09/2026 from inicio.css so it also works inside shell chrome,
+   e.g. the sync popover's "ver registro completo" link, not just
+   Início's widget-tiles). ---- */
+.ext-link{ display:inline-flex; align-items:center; gap:3px; font-size:10.5px; font-weight:600;
+      color:var(--ink-faint); text-decoration:none; }
+.ext-link:hover{ color:var(--acoes); }
+.ext-link svg{ width:9px; height:9px; }
 
-/* ---- Overlay popovers — used ONLY for sync + period (transient
-   actions, not navigation). Fixed + centered on the viewport by
-   default (works at any width, never clipped by an ancestor); from
-   640px up, anchored next to its trigger instead via position:absolute
-   (needs an explicit position:absolute here — inheriting "fixed" from
-   the base rule would compute "top:100%" against the whole viewport
+/* ---- Overlay popovers — used for the sync popover (transient
+   action, not navigation) and any future popover that reuses this
+   same pattern. Fixed + centered on the viewport by default (works
+   at any width, never clipped by an ancestor); from 640px up,
+   anchored next to its trigger instead via position:absolute (needs
+   an explicit position:absolute here — inheriting "fixed" from the
+   base rule would compute "top:100%" against the whole viewport
    height instead of the trigger, pushing the panel off-screen below).
    Do NOT reuse .overlay-panel for navigation menus — that was tried
    and reverted; see the nav / sidebar sections below instead. ---- */
@@ -164,7 +169,6 @@ svg{ display:block; }
 .overlay-backdrop.open{ display:block; }
 @media (min-width:640px){
   .sync-wrap .overlay-panel{ position:absolute; left:auto; right:0; transform:none; top:calc(100% + 8px); max-height:none; }
-  .period-wrap .overlay-panel{ position:absolute; left:auto; right:0; transform:none; top:calc(100% + 8px); max-height:none; }
 }
 
 .sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; padding:2px 4px 0; }
@@ -176,6 +180,7 @@ svg{ display:block; }
 .sync-log-row .top-line{ font-size:12px; font-weight:600; }
 .sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
 .sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
+.sync-wrap .ext-link{ padding:2px 4px; }
 .hint{ font-size:11.5px; color:var(--ink-faint); padding:0 4px; }
 
 /* status icon — reused for the sync badge and for each Registro de
@@ -189,15 +194,6 @@ svg{ display:block; }
 .status-ico.warn{ background:var(--warn-soft); color:var(--warn-ink); }
 .status-ico.bad{ background:var(--bad-soft); color:var(--bad-ink); }
 
-.preset-item{ display:block; width:100%; text-align:left; padding:9px 12px; border-radius:8px; border:none;
-      background:transparent; color:var(--ink); font-family:var(--body-f); font-size:13px; cursor:pointer; }
-.preset-item:hover{ background:var(--surface-3); }
-.preset-item.active{ background:var(--acoes-soft); color:var(--acoes); font-weight:700; }
-.custom-dates{ display:flex; gap:8px; padding:8px 4px 4px; border-top:1px solid var(--border); margin-top:6px; }
-.custom-dates input{ flex:1; min-width:0; font-family:var(--body-f); font-size:12px; padding:7px 8px;
-      border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--ink); }
-.apply-btn{ width:100%; margin-top:8px; padding:9px; border-radius:8px; border:none; background:var(--acoes);
-      color:#fff; font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
 
 /* ---- Buttons w/ loading state (used by "Sincronizar agora" etc.) ---- */
 .btn{ display:inline-flex; align-items:center; gap:8px; border:none; border-radius:100px; padding:9px 16px;

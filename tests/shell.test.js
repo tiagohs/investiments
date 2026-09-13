@@ -16,6 +16,8 @@ import {
   setMainVisible,
   redirectParaLogin,
   setupAuthGate,
+  renderSyncStatus,
+  carregarStatusSync,
   mountShell,
 } from '../assets/js/shell.js';
 
@@ -25,11 +27,14 @@ const SHELL_PARTIAL_HTML = `
     <div class="overlay-backdrop" id="shell-backdrop"></div>
     <div class="sync-wrap">
       <button id="syncBadgeBtn" data-toggle-panel="syncPanel" aria-expanded="false">sync</button>
-      <div class="overlay-panel" id="syncPanel">sync panel</div>
+      <div class="overlay-panel" id="syncPanel">
+        <div class="sync-log" id="syncLog"><div class="hint">Nenhuma sincronização registrada ainda.</div></div>
+        <a id="syncSheetLink" href="#">link</a>
+      </div>
     </div>
-    <div class="period-wrap">
-      <button id="periodBtn" data-toggle-panel="periodPanel" aria-expanded="false">period</button>
-      <div class="overlay-panel" id="periodPanel">period panel</div>
+    <div class="outro-wrap">
+      <button id="outroBtn" data-toggle-panel="outroPanel" aria-expanded="false">outro</button>
+      <div class="overlay-panel" id="outroPanel">outro panel</div>
     </div>
     <nav id="mainnav">
       <div class="nav-item" data-section="inicio"><a class="nav-link" data-section="inicio">Início</a></div>
@@ -91,9 +96,32 @@ test('setupAuthGate() shows <main> right away and calls onAuthenticated when a t
     onAuthenticated: (token) => { calledWith = token; },
     getTokenImpl: () => 'token-existente',
     redirectImpl: () => { throw new Error('não deveria redirecionar - já tinha token'); },
+    carregarStatusSyncImpl: () => {},
   });
   assert.equal(doc.querySelector('main').hidden, false);
   assert.equal(calledWith, 'token-existente');
+});
+
+test('setupAuthGate() also dispara carregarStatusSyncImpl com o token, quando autenticado', () => {
+  const doc = makeDom();
+  let calledWith = null;
+  setupAuthGate(doc, {
+    getTokenImpl: () => 'token-existente',
+    redirectImpl: () => { throw new Error('não deveria redirecionar - já tinha token'); },
+    carregarStatusSyncImpl: (_doc, { token }) => { calledWith = token; },
+  });
+  assert.equal(calledWith, 'token-existente');
+});
+
+test('setupAuthGate() nunca chama carregarStatusSyncImpl quando não há token', () => {
+  const doc = makeDom();
+  let called = false;
+  setupAuthGate(doc, {
+    getTokenImpl: () => null,
+    redirectImpl: () => {},
+    carregarStatusSyncImpl: () => { called = true; },
+  });
+  assert.equal(called, false);
 });
 
 test('setupAuthGate() hides <main> and redirects to login when there is no token yet - never calls onAuthenticated', () => {
@@ -113,7 +141,92 @@ test('setupAuthGate() defaults onAuthenticated to a no-op - a page with nothing 
   assert.doesNotThrow(() => setupAuthGate(doc, {
     getTokenImpl: () => 'token-existente',
     redirectImpl: () => { throw new Error('não deveria chamar'); },
+    carregarStatusSyncImpl: () => {},
   }));
+});
+
+// --- renderSyncStatus / carregarStatusSync --------------------------------
+
+function syncDom() {
+  const doc = makeDom();
+  const wrap = doc.createElement('div');
+  wrap.innerHTML = `
+    <button id="syncBadgeBtn" class="sync-badge"></button>
+    <div id="syncLog"></div>
+    <a id="syncSheetLink" href="#"></a>
+  `;
+  doc.body.appendChild(wrap);
+  return doc;
+}
+
+test('renderSyncStatus() com "Sem dados" mantém o estado neutro (placeholder, sem classe no badge)', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Sem dados', timestamp: null, origem: '', detalhe: 'Nenhuma sincronização registrada ainda.' });
+  const badge = doc.getElementById('syncBadgeBtn');
+  assert.equal(badge.classList.contains('good'), false);
+  assert.equal(badge.classList.contains('warn'), false);
+  assert.equal(badge.classList.contains('bad'), false);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+test('renderSyncStatus() com resultado null (falha ao buscar) também cai no estado neutro', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, null);
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), false);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+test('renderSyncStatus() com status "Sucesso" pinta o badge de "good" e mostra a linha no log', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '29 ativos sincronizados' });
+  const badge = doc.getElementById('syncBadgeBtn');
+  assert.equal(badge.classList.contains('good'), true);
+  const log = doc.getElementById('syncLog');
+  assert.match(log.textContent, /Sucesso/);
+  assert.match(log.textContent, /29 ativos sincronizados/);
+});
+
+test('renderSyncStatus() com status "Erro" pinta o badge de "bad"', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Erro', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: 'falhou' });
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), true);
+});
+
+test('renderSyncStatus() sempre aponta o link "ver todas" pra planilha real (SPREADSHEET_URL)', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' });
+  assert.match(doc.getElementById('syncSheetLink').href, /docs\.google\.com\/spreadsheets/);
+});
+
+test('carregarStatusSync() busca com o token e renderiza o resultado', async () => {
+  const doc = syncDom();
+  let tokenRecebido = null;
+  await carregarStatusSync(doc, {
+    token: 'tok-123',
+    getSyncStatusImpl: async (token) => {
+      tokenRecebido = token;
+      return { ok: true, resultado: { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' } };
+    },
+  });
+  assert.equal(tokenRecebido, 'tok-123');
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('good'), true);
+});
+
+test('carregarStatusSync() sem token não busca nada', async () => {
+  const doc = syncDom();
+  let chamou = false;
+  await carregarStatusSync(doc, { token: null, getSyncStatusImpl: async () => { chamou = true; return { ok: true, resultado: {} }; } });
+  assert.equal(chamou, false);
+});
+
+test('carregarStatusSync() trata falha (ok:false ou exceção) caindo no estado neutro, sem lançar', async () => {
+  const doc = syncDom();
+  await assert.doesNotReject(carregarStatusSync(doc, {
+    token: 'tok-123',
+    getSyncStatusImpl: async () => { throw new Error('rede fora'); },
+  }));
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), false);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
 });
 
 // --- parseShellPartial ---------------------------------------------------
@@ -203,16 +316,16 @@ test('setupPopovers() opening one panel closes another that was already open', (
   setupPopovers(doc);
 
   const syncBtn = doc.getElementById('syncBadgeBtn');
-  const periodBtn = doc.getElementById('periodBtn');
+  const outroBtn = doc.getElementById('outroBtn');
   const syncPanel = doc.getElementById('syncPanel');
-  const periodPanel = doc.getElementById('periodPanel');
+  const outroPanel = doc.getElementById('outroPanel');
   const click = (el) => el.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
   click(syncBtn);
   assert.equal(syncPanel.classList.contains('open'), true);
 
-  click(periodBtn);
-  assert.equal(periodPanel.classList.contains('open'), true);
+  click(outroBtn);
+  assert.equal(outroPanel.classList.contains('open'), true);
   assert.equal(syncPanel.classList.contains('open'), false);
 });
 

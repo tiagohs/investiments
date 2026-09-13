@@ -49,6 +49,9 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
+import { getSyncStatus } from './api-client.js';
+import { formatDateTimeBR, formatRelativeTime } from './format.js';
+import { SPREADSHEET_URL } from './config.js';
 
 /**
  * The shell partial always lives at assets/partials/shell.html relative
@@ -230,17 +233,98 @@ export function redirectParaLogin(win = window) {
 }
 
 /**
+ * Mapa status (texto gravado por Sync.gs em "Registro de Controle") ->
+ * classe visual (mesmas 3 usadas no sync-badge e no status-ico: good/
+ * warn/bad). "Sem dados" (quando a aba ainda não tem nenhuma linha, ver
+ * Sync.gs!lerUltimoRegistroControle_) não entra aqui de propósito - cai
+ * no estado neutro (sem classe) tratado à parte em renderSyncStatus.
+ */
+const STATUS_CLASSE_SYNC = { Sucesso: 'good', Atenção: 'warn', Erro: 'bad' };
+const STATUS_ICONE_SYNC = { good: 'ico-check', warn: 'ico-warn', bad: 'ico-bad' };
+
+/**
+ * Renderiza o resultado de action=syncStatus (última linha de "Registro
+ * de Controle" - ver Sync.gs!handleSyncStatus) no badge + popover do
+ * topbar. `resultado` é null quando a chamada falhou (rede/token) - aí
+ * o popover mantém o texto neutro em vez de fingir que sabe o status.
+ * O link "Ver todas as sincronizações" é sempre a mesma URL real da
+ * planilha (config.js!SPREADSHEET_URL) - a API só devolve a última
+ * linha, então "quantas sincronizações foram feitas" só dá pra ver lá.
+ */
+export function renderSyncStatus(doc, resultado) {
+  const badge = doc.getElementById('syncBadgeBtn');
+  const log = doc.getElementById('syncLog');
+  const link = doc.getElementById('syncSheetLink');
+
+  if (link) link.href = SPREADSHEET_URL;
+
+  const semDados = !resultado || !resultado.status || resultado.status === 'Sem dados';
+
+  if (badge) {
+    badge.classList.remove('good', 'warn', 'bad');
+    if (!semDados) {
+      const classe = STATUS_CLASSE_SYNC[resultado.status];
+      if (classe) badge.classList.add(classe);
+      badge.title = `Sincronização: ${resultado.status} — ${formatRelativeTime(resultado.timestamp)}`;
+    } else {
+      badge.title = 'Sincronização: aguardando primeira verificação';
+    }
+  }
+
+  if (!log) return;
+  log.innerHTML = '';
+  if (semDados) {
+    log.innerHTML = '<div class="hint" style="padding:9px 4px">Nenhuma sincronização registrada ainda.</div>';
+    return;
+  }
+
+  const classe = STATUS_CLASSE_SYNC[resultado.status] || null;
+  const icone = classe ? STATUS_ICONE_SYNC[classe] : 'ico-check';
+  const row = doc.createElement('div');
+  row.className = 'sync-log-row';
+  row.innerHTML = `
+    <span class="status-ico ${classe || ''}"><svg><use href="#${icone}"/></svg></span>
+    <div class="body">
+      <div class="top-line">${resultado.status}</div>
+      <div class="origin">${resultado.origem || 'planilha'} · ${formatDateTimeBR(resultado.timestamp)}</div>
+      ${resultado.detalhe ? `<div class="detail">${resultado.detalhe}</div>` : ''}
+    </div>
+  `;
+  log.appendChild(row);
+}
+
+/**
+ * Real-world entry point de renderSyncStatus: busca action=syncStatus e
+ * liga o resultado no popover. Nunca lança - uma falha aqui não pode
+ * derrubar o resto do shell, só deixa o popover no estado neutro (mesmo
+ * padrão de resiliência parcial do resto do projeto - ver Home.gs).
+ * getSyncStatusImpl é injetável pra teste, mesmo padrão de
+ * setupAuthGate/setupThemeToggle.
+ */
+export async function carregarStatusSync(doc, { token, getSyncStatusImpl = getSyncStatus } = {}) {
+  if (!token) return;
+  try {
+    const resposta = await getSyncStatusImpl(token);
+    renderSyncStatus(doc, resposta.ok ? resposta.resultado : null);
+  } catch (error) {
+    console.error('shell.js: falha ao carregar o status de sincronização', error);
+    renderSyncStatus(doc, null);
+  }
+}
+
+/**
  * Decides, once per page load, whether <main> can be shown right away
  * or the browser needs to leave for login.html — see the header
  * comment above ("Login gate"). getTokenImpl/redirectImpl are
  * injectable for tests, same pattern as setupThemeToggle takes its two
  * theme.js functions as params.
  */
-export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, win = typeof window !== 'undefined' ? window : undefined } = {}) {
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, win = typeof window !== 'undefined' ? window : undefined } = {}) {
   const token = getTokenImpl();
   if (token) {
     setMainVisible(doc, true);
     onAuthenticated(token);
+    carregarStatusSyncImpl(doc, { token });
     return;
   }
 

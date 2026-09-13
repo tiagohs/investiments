@@ -14,7 +14,7 @@
 
   The icon sprite lives in the header template so every page that
   mounts the shell also gets every <use href="#ico-...")> icon the
-  shell itself needs (sync/period popover, nav) for free. Page-specific
+  shell itself needs (sync popover, nav) for free. Page-specific
   content (e.g. a section's own .side-nav) reuses the same ids/symbols
   and can assume this sprite is already in the document once the shell
   is mounted.
@@ -58,35 +58,15 @@
             <button class="btn btn-primary" id="syncNowBtn" type="button" style="padding:6px 12px; font-size:11.5px">Sincronizar agora</button>
           </div>
           <div class="sync-log" id="syncLog">
-            <div class="hint" style="padding:9px 4px">Nenhuma sincronização registrada ainda.</div>
+            <div class="hint" style="padding:9px 4px">Carregando…</div>
           </div>
-          <div class="hint">O ícone mostra a cor do último status — o detalhe fica aqui dentro.</div>
+          <a class="ext-link" id="syncSheetLink" href="#" target="_blank" rel="noopener">
+            Ver todas as sincronizações
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17L17 7M9 7h8v8"/></svg>
+          </a>
         </div>
       </div>
 
-      <div class="period-wrap">
-        <button class="period-btn" id="periodBtn" type="button" aria-expanded="false" aria-haspopup="true"
-                data-toggle-panel="periodPanel">
-          <svg class="cal" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18"/></svg>
-          <span id="periodLabel">30 dias</span><span class="range" id="periodRange"></span>
-          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6-6 6"/></svg>
-        </button>
-        <div class="overlay-panel" id="periodPanel">
-          <button class="preset-item active" type="button" data-period="30d">30 dias</button>
-          <button class="preset-item" type="button" data-period="12m">12 meses</button>
-          <button class="preset-item" type="button" data-period="month">Mês atual</button>
-          <button class="preset-item" type="button" data-period="year">Ano atual</button>
-          <button class="preset-item" type="button" data-period="prev-month">Mês anterior</button>
-          <button class="preset-item" type="button" data-period="prev-year">Ano anterior</button>
-          <button class="preset-item" type="button" data-period="all">Desde o início</button>
-          <button class="preset-item" type="button" data-period="custom">Personalizado…</button>
-          <div class="custom-dates" id="customDates" style="display:none">
-            <input type="date" id="customDateStart">
-            <input type="date" id="customDateEnd">
-          </div>
-          <button class="apply-btn" id="periodApplyBtn" type="button">Aplicar</button>
-        </div>
-      </div>
     </div>
   </div>
 

@@ -30,10 +30,7 @@
 .arrow-badge svg{ width:12px; height:12px; stroke:#06280f; stroke-width:3; fill:none; }
 :root[data-theme="dark"] .arrow-badge svg, :root:not([data-theme="light"]) .arrow-badge svg{ stroke:#06170d; }
 .arrow-badge.bad svg{ stroke:#3a0f0c; }
-.ext-link{ display:inline-flex; align-items:center; gap:3px; font-size:10.5px; font-weight:600;
-      color:var(--ink-faint); text-decoration:none; }
-.ext-link:hover{ color:var(--acoes); }
-.ext-link svg{ width:9px; height:9px; }
+/* .ext-link agora mora em shell.css (chrome compartilhado) — usado tambem no popover de sync. */
 @media (max-width:900px){ .widget-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:640px){ .widget-grid{ grid-template-columns:repeat(2,1fr); } }
 
@@ -57,9 +54,20 @@
       padding:11px 14px; font-size:12.5px; margin-bottom:16px; line-height:1.5; }
 .avisos-banner b{ font-weight:700; }
 
-/* ---- Estado de carregamento / erro total ---- */
+/* ---- Estado de carregamento / erro total ----
+   BUG (13/09/2026): montarPaginaInicio (pages/inicio.js) esconde o
+   spinner com `loadingEl.hidden = true`, mas a regra de classe abaixo
+   (".inicio-loading{ display:flex }") tem a MESMA especificidade do
+   seletor de atributo "[hidden]{ display:none }" da folha de estilo do
+   navegador — e regra de autor sempre ganha de regra de user-agent,
+   nao importa a ordem. Resultado: o spinner ficava com display:flex
+   mesmo com o atributo hidden presente, aparecendo junto do conteudo ja
+   carregado (relatado com print da tela real). A regra
+   ".inicio-loading[hidden]" abaixo tem especificidade maior (classe +
+   atributo) e resolve isso pra valer, sem precisar tocar em inicio.js. */
 .inicio-loading, .inicio-erro{ display:flex; flex-direction:column; align-items:center; gap:10px;
       padding:60px 20px; color:var(--ink-muted); text-align:center; }
+.inicio-loading[hidden], .inicio-erro[hidden]{ display:none; }
 .inicio-erro{ color:var(--bad-ink); }
 .spinner-lg{ width:26px; height:26px; border-radius:50%; border:3px solid var(--border);
       border-top-color:var(--acoes); animation:spin-lg .8s linear infinite; }
