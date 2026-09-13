@@ -57,6 +57,21 @@
  * chamada — mesmo fuso (Session.getScriptTimeZone(), lido uma única vez),
  * mesmo formato de saída, só que ordens de grandeza mais rápido em volume
  * alto.
+ *
+ * Otimização de 13/09/2026 #4 (Tiago apontou: os históricos só mudam 1x
+ * por dia — pelo gatilho — ou quando roda um backfill manual; não faz
+ * sentido reler as 3 abas inteiras + refazer o loop de ~2090 dias em toda
+ * chamada, mesmo quando nada mudou desde a última vez): o resultado desta
+ * função agora é cacheado (CacheService, 6h — o máximo permitido), com uma
+ * chave baseada na CONTAGEM de linhas das 3 abas de origem (não um TTL
+ * cego) — assim, o cache invalida sozinho assim que qualquer uma delas
+ * ganha linha nova (gatilho diário OU backfill manual), sem depender de
+ * "lembrar" de invalidar na mão. Contar linhas é uma chamada barata
+ * (getLastRow(), não getValues()) — então mesmo numa chamada com cache
+ * VÁLIDO, o custo extra pra confirmar isso é desprezível, e a leitura
+ * pesada + o loop de ~2090 dias são pulados inteiramente. Como o payload
+ * pode passar de 100KB (limite por chave do CacheService), é gravado em
+ * pedaços (ver gravarSerieHistoricoCache_/lerSerieHistoricoCache_).
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -98,6 +113,29 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var abaPatrimonio = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
   if (!abaPatrimonio) throw new Error('aba não encontrada: ' + ABA_PATRIMONIO_INICIO);
   var linhasPatrimonio = Math.max(abaPatrimonio.getLastRow() - 1, 0);
+
+  // Contagem de aux_historico-renda-fixa pra chave de cache — barata
+  // (getLastRow(), sem ler os dados) quando ninguém passou o cache pronto;
+  // se já veio pronto (dadosRendaFixaCache, ver handleHome), usa o length
+  // dele direto, sem chamada nenhuma a mais.
+  var linhasRendaFixaCount = dadosRendaFixaCache
+    ? dadosRendaFixaCache.length
+    : Math.max(ss.getSheetByName(ABA_HISTORICO_RF).getLastRow() - 1, 0);
+
+  // 3) aux_historico-indices — só a contagem por enquanto, barata (ver
+  // motivo acima); a leitura de verdade só acontece se der cache miss.
+  var abaIndices = ss.getSheetByName(ABA_INDICES_INICIO);
+  if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_INDICES_INICIO);
+  var linhasIndices = Math.max(abaIndices.getLastRow() - 1, 0);
+
+  // A chave muda sozinha assim que QUALQUER uma das 3 abas ganha linha
+  // nova (gatilho diário ou backfill manual) — enquanto as 3 contagens
+  // não mudarem, o resultado de hoje é idêntico ao de ontem, então pula
+  // direto pro cache em vez de reler tudo e refazer o loop de ~2090 dias.
+  var chaveCacheSerie = 'historico_serie_v1_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices;
+  var serieCacheada = lerSerieHistoricoCache_(chaveCacheSerie);
+  if (serieCacheada) return serieCacheada;
+
   if (linhasPatrimonio > 0) {
     abaPatrimonio.getRange(2, 1, linhasPatrimonio, 8).getValues().forEach(function (linha) {
       var data = linha[0];
@@ -127,12 +165,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
 
   // 3) aux_historico-indices — Ibovespa (Valor = pontos) e, na MESMA
   // leitura, CDI/SELIC (Valor = taxa % do dia) — ver otimização #2 no
-  // cabeçalho do arquivo. Uma passada só de getValues() pros 3.
-  var abaIndices = ss.getSheetByName(ABA_INDICES_INICIO);
-  if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_INDICES_INICIO);
+  // cabeçalho do arquivo. Uma passada só de getValues() pros 3. (abaIndices
+  // e linhasIndices já foram obtidas acima, pra montar a chave de cache.)
   var fatoresCdi = {};
   var fatoresSelic = {};
-  var linhasIndices = Math.max(abaIndices.getLastRow() - 1, 0);
   if (linhasIndices > 0) {
     abaIndices.getRange(2, 1, linhasIndices, 3).getValues().forEach(function (linha) {
       var data = linha[0];
@@ -153,7 +189,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var todasAsChaves = Object.keys(porDiaVariavel)
     .concat(Object.keys(porDiaRendaFixaTotal))
     .concat(Object.keys(porDiaIbovespa));
-  if (todasAsChaves.length === 0) return [];
+  if (todasAsChaves.length === 0) {
+    gravarSerieHistoricoCache_(chaveCacheSerie, []);
+    return [];
+  }
   todasAsChaves.sort();
 
   var primeiraData = new Date(todasAsChaves[0]);
@@ -200,7 +239,60 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     dataAtual.setDate(dataAtual.getDate() + 1);
   }
 
+  gravarSerieHistoricoCache_(chaveCacheSerie, serie);
   return serie;
+}
+
+// --- Cache da série combinada (ver Otimização #4 no cabeçalho do arquivo) ---
+// CacheService: 100KB por chave — a série inteira (hoje ~2090 itens, só
+// tende a crescer) passa disso, então grava em pedaços (chunks) sob um
+// prefixo comum + uma chave "_meta" com a contagem de pedaços.
+var CACHE_SERIE_HISTORICO_TTL = 21600; // 6h — o máximo permitido pelo CacheService
+var CACHE_SERIE_HISTORICO_TAMANHO_PEDACO = 90000; // caracteres por pedaço, com folga do limite de 100KB/chave
+
+function gravarSerieHistoricoCache_(chave, serie) {
+  try {
+    var texto = JSON.stringify(serie);
+    var pedacos = [];
+    for (var i = 0; i < texto.length; i += CACHE_SERIE_HISTORICO_TAMANHO_PEDACO) {
+      pedacos.push(texto.slice(i, i + CACHE_SERIE_HISTORICO_TAMANHO_PEDACO));
+    }
+    var paraGravar = {};
+    paraGravar[chave + '_meta'] = String(pedacos.length);
+    pedacos.forEach(function (pedaco, idx) {
+      paraGravar[chave + '_' + idx] = pedaco;
+    });
+    CacheService.getScriptCache().putAll(paraGravar, CACHE_SERIE_HISTORICO_TTL);
+  } catch (erro) {
+    // Cache é só otimização — uma falha aqui nunca pode derrubar a
+    // resposta principal (o valor já calculado já foi/será devolvido).
+    console.log('gravarSerieHistoricoCache_: falhou ao gravar cache (' + erro + ') — segue sem cache.');
+  }
+}
+
+/** Devolve a série cacheada, ou null se não tiver cache válido pra essa chave (cache frio, expirado, ou algum pedaço sumiu). */
+function lerSerieHistoricoCache_(chave) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var qtdPedacosTexto = cache.get(chave + '_meta');
+    if (!qtdPedacosTexto) return null;
+    var qtdPedacos = Number(qtdPedacosTexto);
+
+    var chavesPedacos = [];
+    for (var i = 0; i < qtdPedacos; i++) chavesPedacos.push(chave + '_' + i);
+    var mapaPedacos = cache.getAll(chavesPedacos);
+
+    var texto = '';
+    for (var i = 0; i < qtdPedacos; i++) {
+      var pedaco = mapaPedacos[chave + '_' + i];
+      if (pedaco === undefined) return null; // pedaço expirou/sumiu — cache inválido, recalcula do zero
+      texto += pedaco;
+    }
+    return JSON.parse(texto);
+  } catch (erro) {
+    console.log('lerSerieHistoricoCache_: falhou ao ler cache (' + erro + ') — recalculando do zero.');
+    return null;
+  }
 }
 
 // Cacheado (lazy) — ver "Otimização #3" no cabeçalho do arquivo: criar o
