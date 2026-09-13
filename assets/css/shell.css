@@ -183,6 +183,23 @@ svg{ display:block; }
 .sync-wrap .ext-link{ padding:2px 4px; }
 .hint{ font-size:11.5px; color:var(--ink-faint); padding:0 4px; }
 
+/* ---- Filter tabs (pills de aba/filtro - visão do hero, período do
+   gráfico, categoria de Meus Ativos) ----
+   BUG (13/09/2026, achado a partir do print do Tiago): inicio.css tinha
+   um comentário dizendo que ".filter-tabs/.filter-tab já vêm de
+   shell.css" - mas essa regra nunca tinha sido portada de
+   docs/direcao-visual.html pra cá, só existia no mockup. Sem CSS
+   nenhum, os botões caíam no estilo padrão do navegador (cinza,
+   quadrado, sem nenhum destaque quando "active") - daí o print
+   parecendo "sem formato" e sem estado selecionado. Portado aqui
+   (chrome compartilhado, os 3 grupos de pills do projeto usam essa
+   mesma classe) exatamente como validado no mockup. */
+.filter-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+.filter-tab{ font-size:11.5px; font-weight:700; padding:6px 12px; border-radius:100px; border:1px solid var(--border);
+      background:var(--surface); color:var(--ink-muted); cursor:pointer; font-family:var(--body-f); }
+.filter-tab.active{ background:var(--acoes); border-color:var(--acoes); color:#fff; }
+:root[data-theme="dark"] .filter-tab.active, :root:not([data-theme="light"]) .filter-tab.active{ color:#071522; }
+
 /* status icon — reused for the sync badge and for each Registro de
    Controle log row. Exclamation mark (rounded terminals) = attention,
    never a question mark. The actual <symbol> defs (#ico-check /

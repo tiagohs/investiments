@@ -227,7 +227,7 @@ export function renderHero(doc, container, patrimonio, visaoId = 'total') {
         <div class="hero-label"></div>
       </div>
     </div>
-    <div class="hero-note">A variação no período chega com o gráfico de Rentabilidade, na próxima parte.</div>
+    <div class="hero-note">Veja a variação no período no gráfico de Rentabilidade, logo abaixo.</div>
   `;
   setValorComDec(hero.querySelector('.hero-value'), formatBRL(valor));
   hero.querySelector('.hero-label').textContent = label;
@@ -411,26 +411,73 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   }
 }
 
+const LABEL_POR_VISAO_RENTABILIDADE = {
+  total: 'Patrimônio total',
+  longoPrazo: 'Patrimônio de Longo Prazo',
+  rendaEmergencial: 'Renda Emergencial',
+};
+
 /**
- * Liga os pills de período (#periodoTabs) e reage também aos cliques nas
- * abas de visão (#visaoTabs, já ligadas por wireVisaoTabs ao hero) - o
- * mesmo clique dispara os dois: o hero troca de visão E o gráfico troca de
- * campo/benchmarks, sem precisar buscar nada de novo (historico já veio
- * inteiro na primeira chamada). periodoInicial deve bater com o pill
- * marcado "active" no HTML.
+ * Renderiza o bloco de info (rótulo + valor atual + variação no período)
+ * de UM cartão de Rentabilidade - fica dentro do MESMO cartão do gráfico
+ * (não mais separado, a pedido do Tiago em 13/09/2026), reaproveitando o
+ * ÚLTIMO ponto da mesma série normalizada que alimenta a linha do
+ * gráfico (normalizarSerieRentabilidade) como a "variação no período" -
+ * uma fonte só pro número e pro desenho, nunca dois cálculos podendo
+ * divergir.
  */
-export function wireGraficoRentabilidade(doc, { historico, visaoTabsContainer, periodoTabsContainer, chartContainer, legendaContainer, periodoInicial = '12m' } = {}) {
-  let visaoAtual = 'total';
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
+  if (!container) return;
+  // campo (nomes de HistoricoInicio.gs: patrimonio/longoPrazo/rendaEmergencial) só
+  // vale pro historico - o objeto `patrimonio` (Home.gs) usa 'total' pra visão
+  // "total", daí reaproveitar resolverVisao (já usado pelo hero) pro valor atual.
+  const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const valorAtual = resolverVisao(patrimonio, visaoId).valor;
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo) : [];
+  let ultimoValido = null;
+  for (let i = serieNormalizada.length - 1; i >= 0; i -= 1) {
+    if (serieNormalizada[i] != null) { ultimoValido = serieNormalizada[i]; break; }
+  }
+
+  container.innerHTML = `
+    <div class="rentab-card-label">${LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
+    <div class="rentab-card-value"></div>
+    <div class="rentab-card-delta"></div>
+  `;
+  setValorComDec(container.querySelector('.rentab-card-value'), formatBRL(valorAtual));
+
+  const deltaEl = container.querySelector('.rentab-card-delta');
+  if (typeof ultimoValido === 'number') {
+    const good = ultimoValido >= 0;
+    deltaEl.className = `rentab-card-delta ${good ? 'good' : 'bad'}`;
+    deltaEl.textContent = `${formatPercentFromPoints(ultimoValido)} no período`;
+  } else {
+    deltaEl.className = 'rentab-card-delta na';
+    deltaEl.textContent = 'sem histórico suficiente no período';
+  }
+}
+
+/**
+ * Liga os pills de período (#periodoTabs) - um filtro só, compartilhado
+ * pelos 3 cartões de Rentabilidade (Total/Longo Prazo/Renda Emergencial),
+ * que agora ficam sempre visíveis ao mesmo tempo em vez de alternar por
+ * aba (mudança de 13/09/2026, a pedido do Tiago: "quero visualizar os
+ * três gráficos"). `paineis` é um array com um item por visão -
+ * { visaoId, chartContainer, legendaContainer, infoContainer } - cada um
+ * é atualizado (info + gráfico) no mesmo clique de período, sem buscar
+ * nada de novo (historico/patrimonio já vieram inteiros na 1ª chamada).
+ * periodoInicial deve bater com o pill marcado "active" no HTML.
+ */
+export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = '12m' } = {}) {
   let periodoAtual = periodoInicial;
 
   function atualizar() {
-    if (!chartContainer) return;
-    renderGraficoRentabilidade(doc, chartContainer, { historico, visaoId: visaoAtual, periodoId: periodoAtual, legendaContainer });
-  }
-
-  if (visaoTabsContainer) {
-    Array.from(visaoTabsContainer.querySelectorAll('.filter-tab')).forEach((botao) => {
-      botao.addEventListener('click', () => { visaoAtual = botao.dataset.visao; atualizar(); });
+    paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer }) => {
+      renderInfoRentabilidade(doc, infoContainer, { patrimonio, historico, visaoId, periodoId: periodoAtual });
+      if (chartContainer) {
+        renderGraficoRentabilidade(doc, chartContainer, { historico, visaoId, periodoId: periodoAtual, legendaContainer });
+      }
     });
   }
 
@@ -599,12 +646,21 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   renderHero(doc, doc.getElementById('heroPatrimonio'), resposta.patrimonio, 'total');
   wireVisaoTabs(doc, doc.getElementById('visaoTabs'), doc.getElementById('heroPatrimonio'), resposta.patrimonio);
 
+  const PAINEIS_RENTABILIDADE = [
+    { visaoId: 'total', sufixo: 'Total' },
+    { visaoId: 'longoPrazo', sufixo: 'LongoPrazo' },
+    { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial' },
+  ];
   wireGraficoRentabilidade(doc, {
+    patrimonio: resposta.patrimonio,
     historico: resposta.historico,
-    visaoTabsContainer: doc.getElementById('visaoTabs'),
     periodoTabsContainer: doc.getElementById('periodoTabs'),
-    chartContainer: doc.getElementById('graficoRentabilidade'),
-    legendaContainer: doc.getElementById('rentabLegenda'),
+    paineis: PAINEIS_RENTABILIDADE.map(({ visaoId, sufixo }) => ({
+      visaoId,
+      infoContainer: doc.getElementById(`rentabInfo${sufixo}`),
+      chartContainer: doc.getElementById(`rentabChart${sufixo}`),
+      legendaContainer: doc.getElementById(`rentabLegenda${sufixo}`),
+    })),
   });
 
   renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');

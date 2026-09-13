@@ -17,6 +17,7 @@ import {
   filtrarHistoricoPorPeriodo,
   normalizarSerieRentabilidade,
   renderGraficoRentabilidade,
+  renderInfoRentabilidade,
   wireGraficoRentabilidade,
   criarAtivoCard,
   renderMeusAtivos,
@@ -275,37 +276,66 @@ test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há
   assert.match(container.textContent, /Sem histórico/);
 });
 
-test('wireGraficoRentabilidade() renderiza de cara e reage tanto ao período quanto à visão', () => {
+// --- renderInfoRentabilidade -------------------------------------------------
+
+const PATRIMONIO_RENTAB_EXEMPLO = { total: 104000, longoPrazo: 90000, rendaEmergencial: 14000 };
+
+test('renderInfoRentabilidade() mostra o valor atual + a variação no período (mesmo número que alimenta a linha do gráfico)', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const container = doc.getElementById('info');
+  renderInfoRentabilidade(doc, container, {
+    patrimonio: PATRIMONIO_RENTAB_EXEMPLO,
+    historico: gerarHistoricoExemplo(5), // patrimonio: 100000..104000 -> +4% no período
+    visaoId: 'total',
+    periodoId: 'tudo',
+  });
+  assert.match(container.querySelector('.rentab-card-value').textContent, /104\.000/);
+  assert.match(container.querySelector('.rentab-card-delta').textContent, /\+4,00%/);
+  assert.equal(container.querySelector('.rentab-card-delta').classList.contains('good'), true);
+});
+
+test('renderInfoRentabilidade() sem histórico suficiente no período mostra o valor mas nenhuma variação (nunca lança)', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const container = doc.getElementById('info');
+  assert.doesNotThrow(() => renderInfoRentabilidade(doc, container, { patrimonio: PATRIMONIO_RENTAB_EXEMPLO, historico: [], visaoId: 'total' }));
+  assert.equal(container.querySelector('.rentab-card-delta').classList.contains('na'), true);
+});
+
+// --- wireGraficoRentabilidade -------------------------------------------------
+
+test('wireGraficoRentabilidade() renderiza os 3 painéis de cara (sempre visíveis, sem precisar de clique) e reage ao período em todos ao mesmo tempo', () => {
   const doc = makeDom(`
-    <div class="filter-tabs" id="visaoTabs">
-      <button class="filter-tab active" data-visao="total">Total</button>
-      <button class="filter-tab" data-visao="rendaEmergencial">Renda Emergencial</button>
-    </div>
     <div class="filter-tabs" id="periodoTabs">
       <button class="filter-tab" data-periodo="30d">30 dias</button>
       <button class="filter-tab active" data-periodo="12m">12 meses</button>
     </div>
-    <div id="chart"></div>
-    <div id="legenda"></div>
+    <div id="infoTotal"></div><div id="chartTotal"></div><div id="legendaTotal"></div>
+    <div id="infoRE"></div><div id="chartRE"></div><div id="legendaRE"></div>
   `);
   const historico = gerarHistoricoExemplo(40);
+  const paineis = [
+    { visaoId: 'total', infoContainer: doc.getElementById('infoTotal'), chartContainer: doc.getElementById('chartTotal'), legendaContainer: doc.getElementById('legendaTotal') },
+    { visaoId: 'rendaEmergencial', infoContainer: doc.getElementById('infoRE'), chartContainer: doc.getElementById('chartRE'), legendaContainer: doc.getElementById('legendaRE') },
+  ];
+
   wireGraficoRentabilidade(doc, {
+    patrimonio: PATRIMONIO_RENTAB_EXEMPLO,
     historico,
-    visaoTabsContainer: doc.getElementById('visaoTabs'),
     periodoTabsContainer: doc.getElementById('periodoTabs'),
-    chartContainer: doc.getElementById('chart'),
-    legendaContainer: doc.getElementById('legenda'),
+    paineis,
     periodoInicial: '12m',
   });
-  assert.ok(doc.getElementById('chart').querySelector('svg'), 'já renderiza de cara, sem esperar clique nenhum');
+
+  assert.ok(doc.getElementById('chartTotal').querySelector('svg'), 'já renderiza de cara, sem esperar clique nenhum');
+  assert.ok(doc.getElementById('chartRE').querySelector('svg'));
+  assert.match(doc.getElementById('legendaRE').textContent, /Selic/, 'painel de Renda Emergencial já usa os benchmarks certos de cara');
 
   doc.getElementById('periodoTabs').querySelector('[data-periodo="30d"]')
     .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(doc.getElementById('periodoTabs').querySelector('[data-periodo="30d"]').classList.contains('active'), true);
 
-  doc.getElementById('visaoTabs').querySelector('[data-visao="rendaEmergencial"]')
-    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.match(doc.getElementById('legenda').textContent, /Selic/);
+  assert.equal(doc.getElementById('periodoTabs').querySelector('[data-periodo="30d"]').classList.contains('active'), true);
+  assert.ok(doc.getElementById('chartTotal').querySelector('svg'), 'os dois painéis continuam atualizados no mesmo clique de período');
+  assert.ok(doc.getElementById('chartRE').querySelector('svg'));
 });
 
 // --- criarAtivoCard / renderMeusAtivos / wireFiltroAtivos -------------------
@@ -423,8 +453,9 @@ function makePaginaDom() {
         <button class="filter-tab" data-periodo="30d">30 dias</button>
         <button class="filter-tab active" data-periodo="12m">12 meses</button>
       </div>
-      <div id="graficoRentabilidade"></div>
-      <div id="rentabLegenda"></div>
+      <div id="rentabInfoTotal"></div><div id="rentabChartTotal"></div><div id="rentabLegendaTotal"></div>
+      <div id="rentabInfoLongoPrazo"></div><div id="rentabChartLongoPrazo"></div><div id="rentabLegendaLongoPrazo"></div>
+      <div id="rentabInfoRendaEmergencial"></div><div id="rentabChartRendaEmergencial"></div><div id="rentabLegendaRendaEmergencial"></div>
       <div class="filter-tabs" id="filtroAtivosTabs">
         <button class="filter-tab active" data-classe="todos">Todos</button>
         <button class="filter-tab" data-classe="rf">Renda Fixa</button>
