@@ -42,6 +42,14 @@
  * de calcular antes da leitura seguinte — por isso o polling com várias
  * tentativas (até 10x, com espera e novo flush a cada uma) antes de
  * desistir de um pedaço.
+ *
+ * BUG DE DATA NO CDI/SELIC (13/09/2026): auditoria pedida pelo usuário
+ * depois da correção da Renda Fixa (BackfillRendaFixa.gs) encontrou o
+ * MESMO tipo de bug aqui, em buscarTaxasBcbComoLinhas_ — mas 1 dia
+ * ADIANTADO em vez de atrasado. Corrigido com o mesmo "+24h" (ver
+ * comentário na função). É PRECISO rodar rodarBackfillTaxasBcbDireto()
+ * de novo depois de colar este arquivo pra regravar CDI/SELIC com a data
+ * certa (ele preserva as linhas de Ibovespa, só regrava CDI/SELIC).
  */
 
 var ABA_HISTORICO_INDICES = 'aux_historico-indices';
@@ -152,6 +160,18 @@ function executarBackfillTaxasBcb_() {
  * Não confundir com buscarFatoresDiariosBcb_ (BackfillRendaFixa.gs), que
  * devolve um MAPA de fatores (usado pela projeção de posições de Renda
  * Fixa) — esta aqui devolve LINHAS, pro backfill/incremental persistir.
+ *
+ * 13/09/2026: "new Date(ano, mes-1, dia)" sofre do MESMO problema de fuso
+ * já corrigido em BackfillRendaFixa.gs (ver cabeçalho daquele arquivo) —
+ * só que aqui o desvio saía pro lado OPOSTO (1 dia ADIANTADO, não
+ * atrasado). Prova, sem precisar bater com o BCB de novo: nos dados já
+ * gravados em aux_historico-indices, CDI/SELIC apareciam em ~286 domingos
+ * e NUNCA numa sexta-feira, além de aparecerem em feriados (Tiradentes,
+ * Independência, Natal) — impossível, já que o BCB não publica CDI/SELIC
+ * em dia não útil. Somando 1 dia em cada linha faz os domingos, as
+ * "sextas faltando" e os feriados indevidos desaparecerem por completo —
+ * ficando idêntico ao padrão do Ibovespa (que nunca erra, pois vem direto
+ * do GOOGLEFINANCE). Mesma correção "+24h" já usada na Renda Fixa.
  */
 function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   if (dataInicial > dataFinal) return [];
@@ -163,7 +183,8 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   var dados = JSON.parse(resposta.getContentText());
   return dados.map(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa
-    var data = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+    var dataBruta = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
+    var data = new Date(dataBruta.getTime() + 24 * 60 * 60 * 1000);
     return [data, nomeIndice, parseFloat(item.valor)];
   });
 }
