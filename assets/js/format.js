@@ -82,8 +82,26 @@ function toDate(value) {
 // which is a much worse bug than any real timezone edge case.
 const DATE_TZ = 'America/Sao_Paulo';
 
-/** "09/09/2026". Accepts a Date, an ISO string, or a timestamp. */
+// 'yyyy-MM-dd' puro (sem hora nenhuma) - é assim que historico[i].data
+// (HistoricoInicio.gs) vem pro front-end. BUG real encontrado em
+// 13/09/2026 (3ª rodada, testando a tooltip do gráfico de Rentabilidade):
+// `new Date('2026-01-03')` é interpretado como meia-noite UTC, e
+// convertendo isso pra America/Sao_Paulo (UTC-3) vira 2026-01-02 21:00 -
+// ou seja, ESSA data (sem hora nenhuma) formatava um dia ATRASADA. Uma
+// data pura de calendário não representa um instante no tempo, então não
+// faz sentido nenhum "converter de fuso" nela - o caminho abaixo evita
+// completamente o Date/timeZone pra esse caso, só reformatando os
+// componentes ano/mês/dia direto do texto.
+const SO_DATA_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "09/09/2026". Accepts a Date, an ISO string (with time), a timestamp,
+ * or um 'yyyy-MM-dd' puro (esse último NUNCA passa pelo Date/fuso -
+ * ver SO_DATA_REGEX acima). */
 export function formatDateBR(value) {
+  if (typeof value === 'string' && SO_DATA_REGEX.test(value)) {
+    const [ano, mes, dia] = value.split('-');
+    return `${dia}/${mes}/${ano}`;
+  }
   const date = toDate(value);
   if (!date) return '—';
   return date.toLocaleDateString('pt-BR', { timeZone: DATE_TZ });

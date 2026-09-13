@@ -124,6 +124,11 @@ test('formatDateBR() returns an em dash for an invalid date', () => {
   assert.equal(formatDateBR(null), '—');
 });
 
+test('formatDateBR() com uma data "pura" (yyyy-MM-dd, sem hora - o formato de historico[i].data) NUNCA volta um dia (bug real: new Date("2026-01-03") é meia-noite UTC, que em America/Sao_Paulo (UTC-3) cai em 02/01)', () => {
+  assert.equal(formatDateBR('2026-01-03'), '03/01/2026');
+  assert.equal(formatDateBR('2026-01-01'), '01/01/2026', 'nem no dia 1º do mês/ano - o caso mais fácil de mascarar o bug');
+});
+
 test('formatDateTimeBR() formats date and time together, in America/Sao_Paulo', () => {
   const date = new Date('2026-09-09T10:01:00-03:00');
   assert.equal(formatDateTimeBR(date), '09/09/2026 10:01');

@@ -12,6 +12,9 @@ import {
   criarTileCambio,
   renderIndicesCambio,
   resolverVisao,
+  calcularDistribuicaoPorClasse,
+  calcularDistribuicaoRendaEmergencial,
+  renderDistribuicao,
   renderResumoPatrimonio,
   filtrarHistoricoPorPeriodo,
   normalizarSerieRentabilidade,
@@ -150,10 +153,72 @@ test('resolverVisao() falls back to "total" for an unrecognized visão id', () =
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'algo-inexistente').valor, 147583.80);
 });
 
+// ativos usados nos testes de distribuição - 2 posições de Renda Fixa,
+// uma "longo-prazo" (Tesouro IPCA) e duas "emergencial" (Tesouro Selic +
+// CDB), pra dar pra testar tanto calcularDistribuicaoPorClasse quanto
+// calcularDistribuicaoRendaEmergencial com o mesmo fixture.
+const ATIVOS_RESUMO_EXEMPLO = [
+  { classe: 'acoes', ticker: 'BBAS3', precoAtual: 20, quantidade: 1000 }, // 20.000
+  { classe: 'fiis', ticker: 'HGLG11', precoAtual: 150, quantidade: 100 }, // 15.000
+  { classe: 'usa', ticker: 'AAPL', precoAtual: 100, quantidade: 50, precoAtualBRL: 550 }, // 27.500 (já convertido)
+  { classe: 'rf', ticker: 'Tesouro IPCA · 2035', marca: 'longo-prazo', tipoInvestimento: 'Tesouro IPCA', valorAtualizado: 50000 },
+  { classe: 'rf', ticker: 'Tesouro Selic · 2029', marca: 'emergencial', tipoInvestimento: 'Tesouro Selic', valorAtualizado: 30000 },
+  { classe: 'rf', ticker: 'CDB Banco X', marca: 'emergencial', tipoInvestimento: 'CDB', valorAtualizado: 10000 },
+];
+
+test('calcularDistribuicaoPorClasse() soma o valor de posição de cada classe (Ações/FIIs/RF/EUA)', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5 });
+  const porLabel = Object.fromEntries(distrib.map((f) => [f.label, f.valor]));
+  assert.equal(porLabel['Ações'], 20000);
+  assert.equal(porLabel['FIIs'], 15000);
+  assert.equal(porLabel['Renda Fixa'], 90000); // 50.000 (longo prazo) + 30.000 + 10.000 (emergencial)
+  assert.equal(porLabel['Ações EUA'], 27500);
+});
+
+test('calcularDistribuicaoPorClasse() com excluirEmergencial tira a reserva de emergência de dentro de Renda Fixa', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5, excluirEmergencial: true });
+  const porLabel = Object.fromEntries(distrib.map((f) => [f.label, f.valor]));
+  assert.equal(porLabel['Renda Fixa'], 50000, 'só a posição marca=longo-prazo (Tesouro IPCA) deveria sobrar');
+  assert.equal(porLabel['Ações'], 20000, 'as outras classes não mudam - a reserva de emergência é só Renda Fixa');
+});
+
+test('calcularDistribuicaoPorClasse() usa precoAtual×câmbio como fallback quando o ativo EUA não vem com precoAtualBRL', () => {
+  const semConversaoPronta = [{ classe: 'usa', ticker: 'AAPL', precoAtual: 100, quantidade: 50 }];
+  const distrib = calcularDistribuicaoPorClasse(semConversaoPronta, { cambioUsd: 5 });
+  assert.equal(distrib.find((f) => f.label === 'Ações EUA').valor, 25000); // 100 * 50 * 5
+});
+
+test('calcularDistribuicaoRendaEmergencial() agrupa por tipo de investimento, maior valor primeiro', () => {
+  const distrib = calcularDistribuicaoRendaEmergencial(ATIVOS_RESUMO_EXEMPLO);
+  assert.deepEqual(distrib.map((f) => f.label), ['Tesouro Selic', 'CDB'], 'só as posições marca=emergencial entram, ordenadas do maior pro menor');
+  assert.equal(distrib[0].valor, 30000);
+  assert.equal(distrib[1].valor, 10000);
+});
+
+test('renderDistribuicao() desenha uma fatia (arco do donut + item de legenda) por entrada', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Ações', cor: 'var(--acoes)', valor: 60 },
+    { label: 'FIIs', cor: 'var(--fiis)', valor: 40 },
+  ]);
+  assert.equal(container.querySelectorAll('.distrib-arco').length, 2);
+  assert.equal(container.querySelectorAll('.distrib-item').length, 2);
+  assert.match(container.textContent, /60,0%/);
+  assert.match(container.textContent, /40,0%/);
+});
+
+test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado suficiente', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  assert.doesNotThrow(() => renderDistribuicao(doc, container, []));
+  assert.match(container.textContent, /Sem dado/);
+});
+
 test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de clique nenhum', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, PATRIMONIO_EXEMPLO);
+  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
 
   const cards = resumo.querySelectorAll('.resumo-card');
   assert.equal(cards.length, 3, 'Total + Longo Prazo + Renda Emergencial de cara, nenhuma aba pra clicar');
@@ -162,24 +227,25 @@ test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de cli
   assert.match(resumo.textContent, /60\.227/);
 });
 
-test('renderResumoPatrimonio() mostra o detalhamento por classe só dentro do cartão Total', () => {
+test('renderResumoPatrimonio() mostra a distribuição (donut) nos 3 cartões - Total/Longo Prazo por classe, Renda Emergencial por tipo', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, PATRIMONIO_EXEMPLO);
+  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
 
   const cardTotal = resumo.querySelector('.resumo-card-total');
-  assert.ok(cardTotal.querySelector('.resumo-classes'), 'total deveria mostrar o detalhamento por classe');
+  assert.match(cardTotal.textContent, /Renda Fixa/);
+  assert.ok(cardTotal.querySelector('.distrib-arco'), 'total deveria mostrar o donut de distribuição por classe');
 
   const outrosCards = Array.from(resumo.querySelectorAll('.resumo-card')).filter((c) => c !== cardTotal);
-  outrosCards.forEach((card) => {
-    assert.equal(card.querySelector('.resumo-classes'), null, 'Longo Prazo/Renda Emergencial não têm detalhamento por classe na API');
-  });
+  const [cardLongoPrazo, cardRendaEmergencial] = outrosCards;
+  assert.ok(cardLongoPrazo.querySelector('.distrib-arco'), 'Longo Prazo também mostra o donut agora');
+  assert.match(cardRendaEmergencial.textContent, /Tesouro Selic/, 'Renda Emergencial mostra por tipo de investimento, não por classe');
 });
 
 test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio is missing', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, null);
+  renderResumoPatrimonio(doc, resumo, {});
   assert.match(resumo.textContent, /Sem dado/);
 });
 
@@ -260,16 +326,38 @@ test('renderGraficoRentabilidade() troca os benchmarks pra CDI+Selic na visão "
   assert.doesNotMatch(legenda.textContent, /Ibovespa/);
 });
 
-test('renderGraficoRentabilidade() mostra a % de retorno de cada benchmark junto do nome dele na legenda', () => {
+test('renderGraficoRentabilidade() mostra, junto do nome de cada benchmark, o quanto o PORTFÓLIO ganhou ou perdeu EM RELAÇÃO a ele (não o retorno absoluto do benchmark)', () => {
   const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
   const container = doc.getElementById('chart');
   const legenda = doc.getElementById('legenda');
   // patrimonio sobe 1000/dia (base 100000) e indiceCdi sobe 0.1%/dia (base 100) -
-  // ambos com retorno positivo na janela, então a legenda tem que trazer os dois
-  // com a classe "good" (nunca em branco, já que os benchmarks têm histórico completo).
+  // o portfólio cresce MUITO mais rápido que o CDI na janela, então a %
+  // ao lado do CDI (portfólio − CDI) tem que ser positiva e grande - bem
+  // diferente do retorno absoluto do próprio CDI (que seria só uns 2-3%).
   renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'total', periodoId: '30d', legendaContainer: legenda });
-  assert.match(legenda.textContent, /CDI\s*\+/, 'CDI deveria vir com uma % positiva ao lado');
-  assert.ok(legenda.querySelector('.li-delta.good'), 'delta positivo usa a mesma cor "good" do resto da UI');
+  assert.match(legenda.textContent, /CDI\s*\+2[0-9],/, 'CDI deveria vir com a diferença (~+23%), não o retorno absoluto dele (~+2,9%)');
+  assert.ok(legenda.querySelector('.li-delta.good'), 'delta positivo (portfólio bateu o benchmark) usa a cor "good"');
+});
+
+test('renderGraficoRentabilidade() mostra NEGATIVO quando o portfólio fica ATRÁS do benchmark (bug real reportado pelo Tiago)', () => {
+  const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
+  const container = doc.getElementById('chart');
+  const legenda = doc.getElementById('legenda');
+  // Portfólio sobe só 0,8% na janela; Ibovespa sobe 20% - o portfólio fica
+  // NITIDAMENTE atrás do Ibovespa, então a % ao lado dele tem que ser
+  // negativa (não "+20%" - isso pareceria um ganho, quando na real é uma
+  // perda relativa. Esse era exatamente o problema apontado no print: um
+  // "+12,03%" verde do lado do Ibovespa enquanto o portfólio só subiu 5%).
+  const historico = [
+    { data: '2026-01-01', patrimonio: 100000, ibovespa: 100000, indiceCdi: 100 },
+    { data: '2026-01-02', patrimonio: 100200, ibovespa: 105000, indiceCdi: 100.1 },
+    { data: '2026-01-03', patrimonio: 100400, ibovespa: 110000, indiceCdi: 100.2 },
+    { data: '2026-01-04', patrimonio: 100600, ibovespa: 115000, indiceCdi: 100.3 },
+    { data: '2026-01-05', patrimonio: 100800, ibovespa: 120000, indiceCdi: 100.4 },
+  ];
+  renderGraficoRentabilidade(doc, container, { historico, visaoId: 'total', periodoId: 'tudo', legendaContainer: legenda });
+  assert.match(legenda.textContent, /Ibovespa\s*-1[0-9],/, 'portfólio (+0,8%) muito atrás do Ibovespa (+20%) - diferença negativa, por volta de -19%');
+  assert.ok(legenda.querySelector('.li-delta.bad'), 'delta negativo (portfólio atrás do benchmark) usa a cor "bad", nunca "good"');
 });
 
 test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há histórico suficiente', () => {
@@ -279,22 +367,113 @@ test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há
   assert.match(container.textContent, /Sem histórico/);
 });
 
+// --- Hover/touch do gráfico (13/09/2026, 3ª rodada - antes não tinha
+// NENHUMA interação ligada ao SVG: mouse/touch não mostravam nada) -----------
+
+// 5 dias corridos, com Ibovespa/CDI também variando, pra dar pra checar a
+// tooltip trazendo o valor de cada série no mesmo dia.
+const HISTORICO_HOVER_EXEMPLO = [
+  { data: '2026-01-01', patrimonio: 100000, ibovespa: 100000, indiceCdi: 100 },
+  { data: '2026-01-02', patrimonio: 101000, ibovespa: 101000, indiceCdi: 100.1 },
+  { data: '2026-01-03', patrimonio: 102000, ibovespa: 102000, indiceCdi: 100.2 },
+  { data: '2026-01-04', patrimonio: 103000, ibovespa: 103000, indiceCdi: 100.3 },
+  { data: '2026-01-05', patrimonio: 104000, ibovespa: 104000, indiceCdi: 100.4 },
+];
+
+test('renderGraficoRentabilidade() esconde a tooltip e os pontos de hover antes de qualquer interação', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+
+  assert.equal(container.querySelector('.rentab-tooltip').hidden, true);
+  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), true);
+});
+
+test('renderGraficoRentabilidade() pointermove sobre a área do gráfico mostra a tooltip com a data e o valor de cada série', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+
+  const hitarea = container.querySelector('.rentab-hitarea');
+  // Sem layout de verdade (jsdom), a largura do cartão cai no fallback de
+  // 640px (ver larguraReal_) - padL=44, padR=8 -> plotW=588. O meio exato
+  // da janela de 5 dias (índice 2, "03/01/2026") fica em clientX = padL +
+  // plotW*0.5 = 338 (getBoundingClientRect também é 0 em jsdom, então
+  // clientX já É a posição dentro do próprio <svg>).
+  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 338, clientY: 50, bubbles: true }));
+
+  const tooltip = container.querySelector('.rentab-tooltip');
+  assert.equal(tooltip.hidden, false);
+  assert.match(tooltip.textContent, /03\/01\/2026/);
+  assert.match(tooltip.textContent, /Portfólio/);
+  assert.match(tooltip.textContent, /Ibovespa/);
+  assert.match(tooltip.textContent, /CDI/);
+  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), false, 'linha-guia + pontos aparecem junto com a tooltip');
+});
+
+test('renderGraficoRentabilidade() pointerdown (toque, sem "arrastar" o dedo antes) também mostra a tooltip', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+
+  container.querySelector('.rentab-hitarea')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', { clientX: 200, clientY: 50, bubbles: true }));
+
+  assert.equal(container.querySelector('.rentab-tooltip').hidden, false);
+});
+
+test('renderGraficoRentabilidade() pointerleave esconde a tooltip e os pontos de novo', () => {
+  const doc = makeDom('<div id="chart"></div>');
+  const container = doc.getElementById('chart');
+  renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+
+  const hitarea = container.querySelector('.rentab-hitarea');
+  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 338, clientY: 50, bubbles: true }));
+  assert.equal(container.querySelector('.rentab-tooltip').hidden, false);
+
+  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true }));
+  assert.equal(container.querySelector('.rentab-tooltip').hidden, true);
+  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), true);
+});
+
 // --- renderInfoRentabilidade -------------------------------------------------
 
 const PATRIMONIO_RENTAB_EXEMPLO = { total: 104000, longoPrazo: 90000, rendaEmergencial: 14000 };
 
-test('renderInfoRentabilidade() mostra o valor atual + a variação no período (mesmo número que alimenta a linha do gráfico)', () => {
+test('renderInfoRentabilidade() mostra o valor atual + o R$ ganho/perdido + a variação em % no período (mesmo par de pontos que alimenta a linha do gráfico)', () => {
   const doc = makeDom('<div id="info"></div>');
   const container = doc.getElementById('info');
   renderInfoRentabilidade(doc, container, {
     patrimonio: PATRIMONIO_RENTAB_EXEMPLO,
-    historico: gerarHistoricoExemplo(5), // patrimonio: 100000..104000 -> +4% no período
+    historico: gerarHistoricoExemplo(5), // patrimonio: 100000..104000 -> +R$4.000, +4% no período
     visaoId: 'total',
     periodoId: 'tudo',
   });
   assert.match(container.querySelector('.rentab-card-value').textContent, /104\.000/);
-  assert.match(container.querySelector('.rentab-card-delta').textContent, /\+4,00%/);
+  const textoDelta = container.querySelector('.rentab-card-delta').textContent;
+  assert.match(textoDelta, /\+R\$\s*4\.000,00/, 'precisa mostrar o valor em R$ ganho, não só a %');
+  assert.match(textoDelta, /\+4,00%/);
   assert.equal(container.querySelector('.rentab-card-delta').classList.contains('good'), true);
+});
+
+test('renderInfoRentabilidade() mostra o R$ PERDIDO (com sinal de menos, sem duplicar) quando o período é negativo', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const container = doc.getElementById('info');
+  const historico = [
+    { data: '2026-01-01', patrimonio: 104000 },
+    { data: '2026-01-02', patrimonio: 102000 },
+    { data: '2026-01-03', patrimonio: 100000 },
+  ];
+  renderInfoRentabilidade(doc, container, {
+    patrimonio: { total: 100000 },
+    historico,
+    visaoId: 'total',
+    periodoId: 'tudo',
+  });
+  const textoDelta = container.querySelector('.rentab-card-delta').textContent;
+  assert.match(textoDelta, /-R\$\s*4\.000,00/, 'perda de R$4.000 (104.000 -> 100.000), sinal único');
+  assert.doesNotMatch(textoDelta, /-R\$\s*-/, 'nunca dois sinais de menos juntos');
+  assert.equal(container.querySelector('.rentab-card-delta').classList.contains('bad'), true);
 });
 
 test('renderInfoRentabilidade() sem histórico suficiente no período mostra o valor mas nenhuma variação (nunca lança)', () => {

@@ -60,13 +60,23 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .resumo-label{ color:var(--ink-muted); font-size:12.5px; margin-bottom:6px; }
 .resumo-value{ font-family:var(--mono); font-size:28px; font-weight:600; line-height:1; }
 .resumo-value .dec{ font-size:16px; opacity:.62; }
-.resumo-classes{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
-.resumo-class{ display:flex; flex-direction:column; gap:2px; }
-.resumo-class .k{ font-size:10.5px; color:var(--ink-faint); }
-.resumo-class .v{ font-family:var(--mono); font-size:13px; font-weight:600; }
-.resumo-class.acoes .v{ color:var(--acoes); } .resumo-class.fiis .v{ color:var(--fiis); }
-.resumo-class.rf .v{ color:var(--rf); } .resumo-class.usa .v{ color:var(--usa); }
 @media (max-width:760px){ .resumo-grid{ grid-template-columns:1fr; } }
+
+/* ---- Distribuição (donut) dentro de um cartão do resumo ----
+   13/09/2026 (2ª rodada): antes um texto corrido (.resumo-classes) só
+   no cartão Total - Tiago pediu uma forma melhor de mostrar isso
+   ("talvez um gráfico de pizza?") e que aparecesse nos 3 cartões. SVG
+   simples (círculo + stroke-dasharray por fatia, sem biblioteca - ver
+   pages/inicio.js!renderDistribuicao); os textos (nome/%) ficam FORA
+   do SVG, em HTML normal, pra não repetir o bug de fonte minúscula que
+   o gráfico de Rentabilidade teve. */
+.distrib{ display:flex; align-items:center; gap:14px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.distrib-donut{ width:60px; height:60px; flex:none; }
+.distrib-legenda{ display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
+.distrib-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-muted); }
+.distrib-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+.distrib-nome{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.distrib-pct{ margin-left:auto; padding-left:8px; font-family:var(--mono); font-weight:600; color:var(--ink); flex:none; }
 
 /* ---- Avisos (falha parcial de alguma seção) ---- */
 .avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
@@ -133,9 +143,29 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    de tela em qualquer cartao (largo ou estreito lado a lado), e a fonte
    dos rotulos (.axislabel) fica sempre do mesmo tamanho visual - ver o
    comentario de cabecalho de renderGraficoRentabilidade. */
-.rentab-chart{ width:100%; height:190px; display:block; }
+.rentab-card-chart{ position:relative; }
+.rentab-chart{ width:100%; height:190px; display:block; touch-action:none; }
 .rentab-chart .gridline{ stroke:var(--border); stroke-width:1; }
 .rentab-chart .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
+
+/* ---- Hover/touch do gráfico de Rentabilidade (13/09/2026, 3ª rodada) ----
+   .rentab-hitarea é o <rect> transparente que recebe os Pointer Events
+   (mouse e touch juntos); .rentab-hover é a linha-guia + os pontos,
+   escondidos até o 1º movimento; .rentab-tooltip é HTML normal (não SVG)
+   posicionado por cima via JS (ligarInteracaoGrafico_, pages/inicio.js) -
+   deliberado: texto dentro do SVG escalado teria o mesmo risco de fonte
+   minúscula que o eixo já teve (ver o comentário no topo do arquivo). */
+.rentab-hitarea{ cursor:crosshair; }
+.rentab-hover-linha{ stroke:var(--ink-faint); stroke-width:1; stroke-dasharray:3 3; }
+.rentab-hover-ponto{ stroke:var(--surface); stroke-width:1.5; }
+.rentab-tooltip{ position:absolute; top:4px; z-index:2; min-width:130px; background:var(--surface);
+      border:1px solid var(--border); border-radius:10px; padding:8px 10px; box-shadow:var(--shadow-lg);
+      pointer-events:none; }
+.rentab-tooltip-data{ font-size:10.5px; color:var(--ink-faint); margin-bottom:5px; }
+.rentab-tooltip-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted); padding:1.5px 0; }
+.rentab-tooltip-item .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+.rentab-tooltip-item b{ margin-left:auto; padding-left:10px; font-family:var(--mono); font-weight:600; color:var(--ink); }
+
 .chart-legend2{ display:flex; gap:16px; margin-top:12px; flex-wrap:wrap; }
 .chart-legend2 .li{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-muted); }
 .chart-legend2 .swline{ width:18px; height:0; border-top:2.5px solid; display:inline-block; }

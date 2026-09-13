@@ -56,6 +56,45 @@
  *     (em vez de um elemento novo na página) - é o lugar onde o olho já
  *     vai pra identificar qual linha é qual, então é ali que o número
  *     faz sentido, sem inflar o total de texto da página.
+ *
+ * Correção do mesmo dia, 2ª rodada (Tiago viu o resultado e apontou 2
+ * problemas):
+ *  a) a % de cada benchmark na legenda estava mostrando o retorno
+ *     ABSOLUTO do próprio benchmark (ex.: "Ibovespa +12,03%"), não
+ *     "quanto minha carteira ganhou ou perdeu" EM RELAÇÃO a ele (o que
+ *     Tiago pediu desde o início - ver o exemplo dele "+15% CDI, -2%
+ *     Ibovespa"). Se o portfólio subiu 5% e o Ibovespa subiu 12%, o
+ *     portfólio está ATRÁS do Ibovespa (deveria aparecer negativo), não
+ *     "+12,03%" em verde do lado. Corrigido: a % agora é a DIFERENÇA
+ *     (retorno do portfólio − retorno do benchmark, mesma unidade "%
+ *     desde o início do período" que já alimenta os dois), positiva
+ *     quando o portfólio bate o benchmark, negativa quando fica atrás;
+ *  b) o detalhamento por classe (antes um texto corrido só no cartão
+ *     Total) virou um "donut" (SVG simples, técnica de
+ *     stroke-dasharray sobre um círculo, sem biblioteca nenhuma) +
+ *     legenda com nome/%, replicado nos 3 cartões do resumo:
+ *     Total (Ações/FIIs/Renda Fixa/Ações EUA), Longo Prazo (as mesmas 4
+ *     classes, mas excluindo a reserva de emergência de dentro de Renda
+ *     Fixa - por isso a fatia de Renda Fixa é menor que a do Total) e
+ *     Renda Emergencial (que é 100% Renda Fixa, então em vez de
+ *     classe, mostra por TIPO de investimento - Tesouro Selic, Tesouro
+ *     IPCA, CDB, LCI/LCA etc., via o campo tipoInvestimento que já vem
+ *     em cada ativo de Renda Fixa). Total e Longo Prazo são calculados
+ *     a partir do array `ativos` (não de patrimonio.porClasse, que só
+ *     cobre o total combinado) - ver calcularDistribuicaoPorClasse /
+ *     calcularDistribuicaoRendaEmergencial.
+ *
+ * Correção do mesmo dia, 3ª rodada (Tiago testou de novo):
+ *  a) passar o mouse (ou tocar, no celular) no gráfico de Rentabilidade
+ *     não mostrava nada - não havia NENHUMA interação ligada ao <svg>,
+ *     só o desenho estático. Agora um <rect> transparente
+ *     (.rentab-hitarea) escuta Pointer Events (mesma API pra mouse e
+ *     touch) e liga uma linha-guia + um ponto por série + uma tooltip
+ *     (HTML normal, fora do SVG - ver ligarInteracaoGrafico_) com a data
+ *     e o valor de cada linha naquele ponto;
+ *  b) o "no período" só mostrava a % - Tiago também quer o valor em R$
+ *     ganho/perdido (renderInfoRentabilidade agora calcula os dois a
+ *     partir do MESMO par de pontos brutos, pra nunca divergir).
  */
 
 import { getHome } from '../api-client.js';
@@ -232,22 +271,149 @@ export function resolverVisao(patrimonio, visaoId) {
 
 const ORDEM_RESUMO = ['total', 'longoPrazo', 'rendaEmergencial'];
 
+const CLASSE_LABEL_DISTRIB = { acoes: 'Ações', fiis: 'FIIs', rf: 'Renda Fixa', usa: 'Ações EUA' };
+const CLASSE_COR_DISTRIB = { acoes: '--acoes', fiis: '--fiis', rf: '--rf', usa: '--usa' };
+const ORDEM_CLASSE_DISTRIB = ['acoes', 'fiis', 'rf', 'usa'];
+
+/** Valor de posição (BRL) de UM ativo - Renda Fixa já vem como saldo
+ * (valorAtualizado), Ações/FIIs são preço unitário × quantidade, Ações
+ * EUA preferem o preço unitário já convertido (precoAtualBRL, calculado
+ * pelo back-end - ver MeusAtivos.gs) e só caem pro câmbio manual
+ * (precoAtual × cambioUsd) se por algum motivo esse campo não vier. */
+function valorPosicaoAtivo_(ativo, cambioUsd) {
+  if (ativo.classe === 'rf') return typeof ativo.valorAtualizado === 'number' ? ativo.valorAtualizado : 0;
+  const qtd = typeof ativo.quantidade === 'number' ? ativo.quantidade : 0;
+  if (ativo.classe === 'usa') {
+    if (typeof ativo.precoAtualBRL === 'number') return ativo.precoAtualBRL * qtd;
+    if (typeof cambioUsd === 'number' && typeof ativo.precoAtual === 'number') return ativo.precoAtual * qtd * cambioUsd;
+    return 0;
+  }
+  return typeof ativo.precoAtual === 'number' ? ativo.precoAtual * qtd : 0;
+}
+
+/**
+ * Soma o valor de posição (BRL) de cada classe (Ações/FIIs/Renda
+ * Fixa/Ações EUA) dentro de `ativos` - usado pra desenhar a distribuição
+ * do Total e da divisão Longo Prazo. `excluirEmergencial` tira as
+ * posições de Renda Fixa marcadas "Renda Emergencial" (marca==='emergencial')
+ * da soma - é assim que a distribuição de Longo Prazo difere da do
+ * Total (mesmas 4 classes, só que a fatia de Renda Fixa fica menor,
+ * já que a reserva de emergência saiu). Calculado a partir do array
+ * `ativos` (não de patrimonio.porClasse, que só existe pro total
+ * combinado - ver Home.gs) - classes com valor zero/ausente não entram.
+ */
+export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false } = {}) {
+  const somas = { acoes: 0, fiis: 0, rf: 0, usa: 0 };
+  (ativos || []).forEach((ativo) => {
+    if (excluirEmergencial && ativo.classe === 'rf' && ativo.marca === 'emergencial') return;
+    if (!(ativo.classe in somas)) return;
+    somas[ativo.classe] += valorPosicaoAtivo_(ativo, cambioUsd);
+  });
+  return ORDEM_CLASSE_DISTRIB
+    .filter((classe) => somas[classe] > 0)
+    .map((classe) => ({ label: CLASSE_LABEL_DISTRIB[classe], cor: `var(${CLASSE_COR_DISTRIB[classe]})`, valor: somas[classe] }));
+}
+
+/**
+ * Distribuição da Renda Emergencial por TIPO de investimento (Tesouro
+ * Selic, Tesouro IPCA, CDB, LCI/LCA etc., via o campo tipoInvestimento
+ * que cada ativo de Renda Fixa já traz) - a pedido do Tiago, já que
+ * Renda Emergencial é 100% Renda Fixa (uma distribuição por CLASSE, como
+ * as outras 2 divisões, não diria nada de novo aqui). Ordenado do maior
+ * pro menor valor.
+ */
+export function calcularDistribuicaoRendaEmergencial(ativos) {
+  const somas = new Map();
+  (ativos || []).forEach((ativo) => {
+    if (ativo.classe !== 'rf' || ativo.marca !== 'emergencial') return;
+    const tipo = ativo.tipoInvestimento || 'Outro';
+    const valor = typeof ativo.valorAtualizado === 'number' ? ativo.valorAtualizado : 0;
+    somas.set(tipo, (somas.get(tipo) || 0) + valor);
+  });
+  return Array.from(somas.entries())
+    .filter(([, valor]) => valor > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tipo, valor]) => ({ label: tipo, valor }));
+}
+
+/** Paleta de cores pra fatias sem token dedicado (caso da Renda
+ * Emergencial, que não tem uma cor fixa por tipo de investimento) -
+ * cicla pelos mesmos tokens categóricos já usados no resto do app. */
+const PALETA_DISTRIB_FALLBACK = ['--rf', '--fiis', '--usa', '--acoes', '--warn', '--na'];
+
+/**
+ * Desenha um "donut" (SVG simples - um círculo com stroke-dasharray por
+ * fatia, técnica que não depende de biblioteca nenhuma, mesma convenção
+ * do resto do projeto) + a legenda (nome e %) dentro de `container`
+ * (esvazia antes). Ao contrário do gráfico de Rentabilidade, os textos
+ * aqui (nome/%) ficam em HTML normal FORA do SVG - um donut não precisa
+ * de rótulo desenhado dentro do próprio desenho, então não corre o
+ * mesmo risco de fonte minúscula que o gráfico de linha teve (ver
+ * renderGraficoRentabilidade). `fatias` é `[{ label, valor, cor? }]` -
+ * `cor` é opcional (cai na paleta PALETA_DISTRIB_FALLBACK quando não
+ * vem, caso da Renda Emergencial).
+ */
+export function renderDistribuicao(doc, container, fatias) {
+  container.innerHTML = '';
+  const total = (fatias || []).reduce((soma, f) => soma + f.valor, 0);
+  if (!fatias || !fatias.length || total <= 0) {
+    container.innerHTML = '<p class="hint">Sem dado suficiente pra montar a distribuição.</p>';
+    return;
+  }
+
+  const R = 15.9155; // raio cuja circunferência (2πR) dá ~100 - 1 unidade de dasharray = 1% da volta.
+  let acumulado = 0;
+  const arcosSvg = fatias.map((f, i) => {
+    const pct = (f.valor / total) * 100;
+    const cor = f.cor || `var(${PALETA_DISTRIB_FALLBACK[i % PALETA_DISTRIB_FALLBACK.length]})`;
+    const dashoffset = (25 - acumulado).toFixed(2);
+    acumulado += pct;
+    return `<circle class="distrib-arco" cx="21" cy="21" r="${R}" fill="none" stroke="${cor}" stroke-width="7" stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}" stroke-dashoffset="${dashoffset}"/>`;
+  }).join('');
+
+  const wrap = doc.createElement('div');
+  wrap.className = 'distrib';
+  wrap.innerHTML = `
+    <svg class="distrib-donut" viewBox="0 0 42 42" aria-hidden="true">${arcosSvg}</svg>
+    <div class="distrib-legenda"></div>
+  `;
+
+  const legenda = wrap.querySelector('.distrib-legenda');
+  fatias.forEach((f, i) => {
+    const pct = (f.valor / total) * 100;
+    const cor = f.cor || `var(${PALETA_DISTRIB_FALLBACK[i % PALETA_DISTRIB_FALLBACK.length]})`;
+    const item = doc.createElement('div');
+    item.className = 'distrib-item';
+    item.innerHTML = `
+      <span class="distrib-dot" style="background:${cor}"></span>
+      <span class="distrib-nome">${f.label}</span>
+      <span class="distrib-pct"></span>
+    `;
+    item.querySelector('.distrib-pct').textContent = `${formatNumeroBR(pct, 1)}%`;
+    legenda.appendChild(item);
+  });
+
+  container.appendChild(wrap);
+}
+
 /**
  * Renderiza o resumo de patrimônio (Total / Longo Prazo / Renda
  * Emergencial) dentro de `container` (esvazia antes) - as 3 divisões
  * lado a lado, sempre visíveis de cara, sem aba/clique nenhum (mudança
  * de 13/09/2026 a pedido do Tiago: "mostre também os números das três
- * divisões, sem eu precisar clicar em botão"). O detalhamento por classe
- * (Ações/FIIs/Renda Fixa/Ações EUA, só existe pro total) fica compacto,
- * dentro do próprio cartão Total, em vez de uma seção extra.
+ * divisões, sem eu precisar clicar em botão"). Cada cartão traz também
+ * a distribuição (donut) da própria divisão - Total e Longo Prazo por
+ * classe, Renda Emergencial por tipo de investimento (ver
+ * calcularDistribuicaoPorClasse/calcularDistribuicaoRendaEmergencial).
  */
-export function renderResumoPatrimonio(doc, container, patrimonio) {
+export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cambio } = {}) {
   container.innerHTML = '';
   if (!patrimonio) {
     container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
     return;
   }
 
+  const cambioUsd = cambio?.usd;
   const grid = doc.createElement('div');
   grid.className = 'resumo-grid';
 
@@ -258,25 +424,18 @@ export function renderResumoPatrimonio(doc, container, patrimonio) {
     card.innerHTML = `
       <div class="resumo-label">${label}</div>
       <div class="resumo-value"></div>
+      <div class="resumo-distrib"></div>
     `;
     setValorComDec(card.querySelector('.resumo-value'), formatBRL(valor));
 
-    if (visaoId === 'total' && patrimonio.porClasse) {
-      const classes = doc.createElement('div');
-      classes.className = 'resumo-classes';
-      [
-        ['acoes', 'Ações', patrimonio.porClasse.acoes],
-        ['fiis', 'FIIs', patrimonio.porClasse.fiis],
-        ['rf', 'Renda Fixa', patrimonio.porClasse.rendaFixa],
-        ['usa', 'Ações EUA', patrimonio.porClasse.acoesEua],
-      ].forEach(([classe, nome, val]) => {
-        const item = doc.createElement('div');
-        item.className = `resumo-class ${classe}`;
-        item.innerHTML = `<div class="k">${nome}</div><div class="v"></div>`;
-        setValorComDec(item.querySelector('.v'), formatBRL(val));
-        classes.appendChild(item);
-      });
-      card.appendChild(classes);
+    const distribContainer = card.querySelector('.resumo-distrib');
+    if (visaoId === 'rendaEmergencial') {
+      renderDistribuicao(doc, distribContainer, calcularDistribuicaoRendaEmergencial(ativos));
+    } else {
+      renderDistribuicao(doc, distribContainer, calcularDistribuicaoPorClasse(ativos, {
+        cambioUsd,
+        excluirEmergencial: visaoId === 'longoPrazo',
+      }));
     }
 
     grid.appendChild(card);
@@ -387,6 +546,82 @@ function larguraReal_(container) {
 }
 
 /**
+ * Liga o hover (mouse) e o touch do gráfico de Rentabilidade - Pointer
+ * Events cobre os dois com a mesma API, sem precisar de handlers
+ * separados de mouse/touch. `.rentab-hitarea` é um <rect> transparente
+ * cobrindo a área de plotagem; como o viewBox do SVG já usa a largura
+ * REAL do cartão (W - ver o cabeçalho do arquivo), 1 unidade de SVG =
+ * 1px de tela, então dá pra converter clientX direto pra coordenada do
+ * gráfico sem nenhuma conta de escala - só subtrair a borda esquerda do
+ * próprio <svg> (svgEl.getBoundingClientRect().left).
+ */
+function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W }) {
+  const svgEl = container.querySelector('svg.rentab-chart');
+  const hitarea = container.querySelector('.rentab-hitarea');
+  const hoverGroup = container.querySelector('.rentab-hover');
+  const linhaHover = container.querySelector('.rentab-hover-linha');
+  const tooltip = container.querySelector('.rentab-tooltip');
+  if (!svgEl || !hitarea || !hoverGroup || !linhaHover || !tooltip) return;
+
+  const pontoPrincipal = container.querySelector('.rentab-hover-ponto[data-serie="principal"]');
+  const pontosBenchmark = seriesBenchmark.map((b) => container.querySelector(`.rentab-hover-ponto[data-serie="${b.campo}"]`));
+
+  function indiceNoClientX_(clientX) {
+    const rect = svgEl.getBoundingClientRect();
+    const svgX = clientX - rect.left;
+    const fracao = plotW > 0 ? (svgX - padL) / plotW : 0;
+    return Math.min(janela.length - 1, Math.max(0, Math.round(fracao * (janela.length - 1))));
+  }
+
+  function posicionarPonto_(el, valor, i) {
+    if (!el) return;
+    if (typeof valor !== 'number') {
+      el.setAttribute('hidden', '');
+      return;
+    }
+    el.removeAttribute('hidden');
+    el.setAttribute('cx', x(i, janela.length).toFixed(1));
+    el.setAttribute('cy', y(valor).toFixed(1));
+  }
+
+  function mostrar_(clientX) {
+    const i = indiceNoClientX_(clientX);
+    const xx = x(i, janela.length);
+
+    linhaHover.setAttribute('x1', xx.toFixed(1));
+    linhaHover.setAttribute('x2', xx.toFixed(1));
+    posicionarPonto_(pontoPrincipal, seriePrincipal[i], i);
+    seriesBenchmark.forEach((b, idx) => posicionarPonto_(pontosBenchmark[idx], b.valores[i], i));
+    hoverGroup.removeAttribute('hidden');
+
+    const linhasTooltip = [
+      { label: 'Portfólio', cor: 'var(--acoes)', valor: seriePrincipal[i] },
+      ...seriesBenchmark.map((b) => ({ label: b.label, cor: `var(${b.cor})`, valor: b.valores[i] })),
+    ].map((linha) => `
+      <div class="rentab-tooltip-item">
+        <span class="dot" style="background:${linha.cor}"></span>${linha.label}
+        <b>${typeof linha.valor === 'number' ? formatPercentFromPoints(linha.valor) : '—'}</b>
+      </div>
+    `).join('');
+    tooltip.innerHTML = `<div class="rentab-tooltip-data">${formatDateBR(janela[i].data)}</div>${linhasTooltip}`;
+    tooltip.hidden = false;
+
+    const larguraTooltip = tooltip.offsetWidth || 150;
+    const esquerda = Math.min(Math.max(xx - larguraTooltip / 2, 4), Math.max(W - larguraTooltip - 4, 4));
+    tooltip.style.left = `${esquerda}px`;
+  }
+
+  function esconder_() {
+    hoverGroup.setAttribute('hidden', '');
+    tooltip.hidden = true;
+  }
+
+  hitarea.addEventListener('pointermove', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerdown', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerleave', esconder_);
+}
+
+/**
  * Desenha o gráfico de Rentabilidade (Portfólio vs benchmarks da visão) em
  * `container` - SVG desenhado à mão (mesma técnica validada em
  * docs/direcao-visual.html!renderChart, sem depender de biblioteca nenhuma).
@@ -401,7 +636,9 @@ function larguraReal_(container) {
  * 1 unidade de SVG = 1px de tela sempre, não importa a largura do cartão, e
  * o número de rótulos do eixo X se adapta (menos rótulo em cartão estreito,
  * pra não amontoar). Some com um aviso, sem lançar, quando não há histórico
- * (ou histórico de menos de 2 dias, onde uma linha não diz nada).
+ * (ou histórico de menos de 2 dias, onde uma linha não diz nada). Liga
+ * também o hover/touch (ver ligarInteracaoGrafico_, logo acima) depois de
+ * montar o SVG.
  */
 export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer } = {}) {
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
@@ -458,14 +695,49 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     .join('');
   const principalPathSvg = `<path d="${pathDRentabilidade_(seriePrincipal, x, y)}" fill="none" stroke="var(--acoes)" stroke-width="2.6"/>`;
 
-  container.innerHTML = `<svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${gridSvg}${xLabelsSvg}${benchmarkPathsSvg}${principalPathSvg}</svg>`;
+  // Hover/touch (13/09/2026, 3ª rodada - Tiago reportou que passar o mouse ou
+  // tocar no gráfico não mostrava nada): um <g> com a linha-guia vertical +
+  // um ponto por série, escondido até o 1º movimento, e um <rect>
+  // transparente (`.rentab-hitarea`) cobrindo a área de plotagem que
+  // escuta Pointer Events (mouse e touch pela mesma API) - ver
+  // ligarInteracaoGrafico_ logo abaixo, que calcula o índice mais próximo
+  // do ponteiro e monta a tooltip (HTML normal, fora do SVG, mesmo
+  // cuidado com escala de fonte do gráfico em si).
+  const pontosHoverSvg = [
+    '<circle class="rentab-hover-ponto" data-serie="principal" r="3.6" fill="var(--acoes)" hidden/>',
+    ...seriesBenchmark.map((b) => `<circle class="rentab-hover-ponto" data-serie="${b.campo}" r="3.2" fill="var(${b.cor})" hidden/>`),
+  ].join('');
+
+  container.innerHTML = `
+    <svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${gridSvg}${xLabelsSvg}${benchmarkPathsSvg}${principalPathSvg}
+      <g class="rentab-hover" hidden>
+        <line class="rentab-hover-linha" x1="0" x2="0" y1="${padT}" y2="${H - padB}"/>
+        ${pontosHoverSvg}
+      </g>
+      <rect class="rentab-hitarea" x="${padL}" y="${padT}" width="${Math.max(plotW, 0)}" height="${Math.max(plotH, 0)}" fill="transparent" pointer-events="all"/>
+    </svg>
+    <div class="rentab-tooltip" hidden></div>
+  `;
+
+  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W });
 
   if (legendaContainer) {
+    // 13/09/2026 (2ª rodada): a % ao lado do benchmark é RELATIVA ao
+    // portfólio (retorno do portfólio − retorno do benchmark, mesma
+    // série "% desde o início do período") - não o retorno absoluto do
+    // próprio benchmark. Positiva = portfólio bateu o benchmark no
+    // período; negativa = ficou atrás. Ver correção no cabeçalho do
+    // arquivo (Tiago apontou que "+12,03%" ao lado do Ibovespa lia como
+    // um ganho, quando na verdade o portfólio estava atrás dele).
+    const deltaPrincipal = ultimoValidoDe_(seriePrincipal);
     const liBenchmarks = seriesBenchmark.map((b) => {
       const cls = b.dash.startsWith('1.5') ? 'dot' : 'dash';
-      const bom = typeof b.delta === 'number' && b.delta >= 0;
-      const deltaHtml = typeof b.delta === 'number'
-        ? `<b class="li-delta ${bom ? 'good' : 'bad'}">${formatPercentFromPoints(b.delta)}</b>`
+      const relativo = (typeof deltaPrincipal === 'number' && typeof b.delta === 'number')
+        ? deltaPrincipal - b.delta
+        : null;
+      const deltaHtml = typeof relativo === 'number'
+        ? `<b class="li-delta ${relativo >= 0 ? 'good' : 'bad'}">${formatPercentFromPoints(relativo)}</b>`
         : '';
       return `<span class="li"><span class="swline ${cls}" style="border-color:var(${b.cor})"></span>${b.label}${deltaHtml}</span>`;
     }).join('');
@@ -489,6 +761,12 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
  * linha do gráfico (normalizarSerieRentabilidade, via ultimoValidoDe_)
  * como a "variação no período" - uma fonte só pro número e pro desenho,
  * nunca dois cálculos podendo divergir.
+ *
+ * 13/09/2026 (3ª rodada): além da %, mostra também o valor em R$
+ * ganho/perdido no período - a pedido do Tiago ("quero saber o valor
+ * também, quanto ganhei ou perdi"). Calculado a partir dos MESMOS dois
+ * pontos brutos (1º valor válido da janela e o último) que já alimentam
+ * a % acima - nunca um R$ e uma % contando históricos diferentes.
  */
 export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
   if (!container) return;
@@ -501,6 +779,17 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo) : [];
   const ultimoValido = ultimoValidoDe_(serieNormalizada);
 
+  let ganhoReais = null;
+  if (janela.length >= 2) {
+    const base = primeiroValorValidoInicio_(janela, campo);
+    let ultimoBruto = null;
+    for (let i = janela.length - 1; i >= 0; i -= 1) {
+      const v = janela[i][campo];
+      if (typeof v === 'number' && Number.isFinite(v)) { ultimoBruto = v; break; }
+    }
+    if (base != null && ultimoBruto != null) ganhoReais = ultimoBruto - base;
+  }
+
   container.innerHTML = `
     <div class="rentab-card-label">${LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
     <div class="rentab-card-value"></div>
@@ -512,7 +801,10 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
   if (typeof ultimoValido === 'number') {
     const good = ultimoValido >= 0;
     deltaEl.className = `rentab-card-delta ${good ? 'good' : 'bad'}`;
-    deltaEl.textContent = `${formatPercentFromPoints(ultimoValido)} no período`;
+    const prefixoReais = typeof ganhoReais === 'number'
+      ? `${ganhoReais >= 0 ? '+' : '-'}${formatBRL(Math.abs(ganhoReais))} `
+      : '';
+    deltaEl.textContent = `${prefixoReais}${formatPercentFromPoints(ultimoValido)} no período`;
   } else {
     deltaEl.className = 'rentab-card-delta na';
     deltaEl.textContent = 'sem histórico suficiente no período';
@@ -716,7 +1008,11 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
 
   renderAvisos(doc.getElementById('inicioAvisos'), resposta.avisos);
   renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
-  renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), resposta.patrimonio);
+  renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), {
+    patrimonio: resposta.patrimonio,
+    ativos: resposta.ativos,
+    cambio: resposta.cambio,
+  });
 
   const PAINEIS_RENTABILIDADE = [
     { visaoId: 'total', sufixo: 'Total' },
