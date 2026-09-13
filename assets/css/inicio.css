@@ -75,8 +75,9 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .distrib-legenda{ display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
 .distrib-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-muted); }
 .distrib-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
-.distrib-nome{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.distrib-pct{ margin-left:auto; padding-left:8px; font-family:var(--mono); font-weight:600; color:var(--ink); flex:none; }
+.distrib-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.distrib-valor{ font-family:var(--mono); color:var(--ink-muted); white-space:nowrap; flex:none; }
+.distrib-pct{ padding-left:8px; font-family:var(--mono); font-weight:600; color:var(--ink); white-space:nowrap; flex:none; }
 
 /* ---- Avisos (falha parcial de alguma seção) ---- */
 .avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
@@ -211,6 +212,19 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .ativo-delta .dim{ color:var(--ink-faint); font-weight:500; }
 .ativo-price-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); margin-left:4px; }
 .ativo-detalhe{ font-size:10.5px; color:var(--ink-faint); margin-top:1px; }
+
+/* Tooltip de hover/touch do .ativo-card - mesmo desenho validado em
+   docs/direcao-visual.html, position:fixed (segue o ponteiro por cima de
+   qualquer cartão) ligado por wireTooltipAtivos (assets/js/pages/inicio.js). */
+.ativo-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; box-shadow:var(--shadow); padding:11px 13px; font-size:11.5px; min-width:210px; max-width:270px; }
+.ativo-tooltip .tt-head{ font-family:var(--body-f); font-weight:700; font-size:12.5px; margin-bottom:7px; display:flex; align-items:center; gap:6px; }
+.ativo-tooltip .tt-cat{ font-size:9px; font-weight:700; text-transform:uppercase; color:var(--ink-faint); background:var(--surface-3); padding:2px 6px; border-radius:100px; }
+.ativo-tooltip .tt-row{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:4px 0; }
+.ativo-tooltip .tt-row + .tt-row{ border-top:1px dashed var(--border); }
+.ativo-tooltip .tt-k{ color:var(--ink-muted); }
+.ativo-tooltip .tt-v{ font-family:var(--mono); font-weight:600; text-align:right; }
+.ativo-tooltip .tt-conv{ color:var(--ink-faint); font-weight:500; }
 @media (max-width:900px){ .ativos-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
 /* 13/09/2026: .wrap ficou mais largo (ver shell.css) pra aproveitar

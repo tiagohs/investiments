@@ -378,6 +378,9 @@ export function renderDistribuicao(doc, container, fatias) {
     <div class="distrib-legenda"></div>
   `;
 
+  // 13/09/2026 (4ª rodada): Tiago pediu de volta o valor em R$ junto da
+  // % (antes de virar donut, só tinha o R$; a 1ª versão do donut só
+  // trouxe a % - agora mostra os dois lado a lado por fatia).
   const legenda = wrap.querySelector('.distrib-legenda');
   fatias.forEach((f, i) => {
     const pct = (f.valor / total) * 100;
@@ -387,8 +390,10 @@ export function renderDistribuicao(doc, container, fatias) {
     item.innerHTML = `
       <span class="distrib-dot" style="background:${cor}"></span>
       <span class="distrib-nome">${f.label}</span>
+      <span class="distrib-valor"></span>
       <span class="distrib-pct"></span>
     `;
+    item.querySelector('.distrib-valor').textContent = formatBRL(f.valor);
     item.querySelector('.distrib-pct').textContent = `${formatNumeroBR(pct, 1)}%`;
     legenda.appendChild(item);
   });
@@ -453,10 +458,28 @@ export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cam
  * sem precisar comparar datas. */
 const DIAS_POR_PERIODO = { '30d': 30, '6m': 182, '12m': 365, '3a': 365 * 3 };
 
-/** Recorta historico pro período pedido - 'tudo' (ou um id desconhecido que
- * não seja 'tudo') devolve o array inteiro. */
+/**
+ * Recorta historico pro período pedido. 'mes' (13/09/2026, a pedido do
+ * Tiago: "aqui faltou o mês atual") é diferente dos outros presets -
+ * não é "os últimos N dias corridos", é o mês-calendário corrente (dia
+ * 1 até hoje). "hoje" aqui é o dia do ÚLTIMO item de historico (o mais
+ * recente sincronizado), não o relógio da máquina - evita qualquer
+ * divergência entre o que o back-end considera "hoje" e o front-end.
+ * Comparação por PREFIXO DE TEXTO (yyyy-MM) em vez de Date - historico[i].data
+ * é uma data pura (yyyy-MM-dd, sem hora), e já existe um bug real
+ * documentado (format.js!formatDateBR) de converter esse tipo de data
+ * por Date+fuso sem necessidade nenhuma - aqui nem essa conversão existe.
+ * 'tudo' (ou um id desconhecido que não seja 'mes'/'tudo') devolve o
+ * array inteiro.
+ */
 export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
   if (!historico || !historico.length) return [];
+  if (periodoId === 'mes') {
+    const ultimaData = historico[historico.length - 1].data;
+    if (typeof ultimaData !== 'string' || ultimaData.length < 7) return historico;
+    const anoMes = ultimaData.slice(0, 7); // 'yyyy-MM'
+    return historico.filter((item) => typeof item.data === 'string' && item.data.startsWith(anoMes));
+  }
   const dias = DIAS_POR_PERIODO[periodoId];
   if (!dias) return historico;
   return historico.slice(-dias);
@@ -866,6 +889,64 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
 
 const CLASSE_LABEL_ATIVO = { acoes: 'Ação', fiis: 'FII', usa: 'EUA', rf: 'RF' };
 
+/**
+ * Linhas do tooltip de hover/touch de cada .ativo-card, por classe - layout
+ * validado em docs/direcao-visual.html e decisão registrada em
+ * docs/mapa-paginas.html ("Card de Meus Ativos ganha ... tooltip de hover
+ * por classe: Nome, Quantidade, Preço Teto, Preço Médio, Descontos sobre
+ * P/VP e P/L pra Ações/FIIs/USA; Tipo em vez de P/L pra FIIs; Tipo de
+ * investimento/Indexador/Vencimento/Valor atualizado pra Renda Fixa").
+ * descontoPVp/descontoPL já vêm como texto pronto do back-end
+ * (MeusAtivos.gs) - "173% (1,73 P/VP)" - por isso entram direto, sem
+ * formatador. Ações EUA ainda não tem P/L na planilha (só P/VP) - por
+ * isso a linha de Desconto sobre P/L só aparece quando o dado existe.
+ */
+function linhasTooltipAtivo_(ativo) {
+  const linhas = [];
+  if (ativo.classe === 'rf') {
+    linhas.push(['Tipo de investimento', ativo.tipoInvestimento || '—']);
+    linhas.push(['Indexador', ativo.indexador || '—']);
+    linhas.push(['Vencimento', ativo.vencimento || '—']);
+    linhas.push(['Valor atualizado', formatBRL(ativo.valorAtualizado)]);
+    return linhas;
+  }
+  linhas.push(['Nome', ativo.nome || ativo.ticker]);
+  if (ativo.classe === 'fiis') {
+    linhas.push(['Tipo', ativo.tipo || '—']);
+    linhas.push(['Preço médio', formatBRL(ativo.precoMedio)]);
+    linhas.push(['Quantidade de cotas', formatNumeroBR(ativo.quantidade, 0)]);
+  } else if (ativo.classe === 'usa') {
+    linhas.push(['Quantidade de ações', formatNumeroBR(ativo.quantidade, 0)]);
+    linhas.push(['Preço teto', valorComConversaoBRL_(ativo.precoTeto, ativo.precoTetoBRL, formatUSD)]);
+    linhas.push(['Preço médio', valorComConversaoBRL_(ativo.precoMedio, ativo.precoMedioBRL, formatUSD)]);
+  } else {
+    linhas.push(['Quantidade de ações', formatNumeroBR(ativo.quantidade, 0)]);
+    linhas.push(['Preço teto', formatBRL(ativo.precoTeto)]);
+    linhas.push(['Preço médio', formatBRL(ativo.precoMedio)]);
+  }
+  if (ativo.descontoPVp) linhas.push(['Desconto sobre P/VP', ativo.descontoPVp]);
+  if (ativo.descontoPL) linhas.push(['Desconto sobre P/L', ativo.descontoPL]);
+  return linhas;
+}
+
+/** "US$ 12,34 (R$ 66,12)" - valor principal em USD (Ações EUA) com o
+ * equivalente em R$ menor do lado, mesmo padrão já usado no preço do
+ * cartão (.ativo-price-conv). Sem câmbio disponível, mostra só o USD. */
+function valorComConversaoBRL_(valorPrincipal, valorBRL, formatterPrincipal) {
+  const texto = formatterPrincipal(valorPrincipal);
+  if (typeof valorBRL !== 'number' || !Number.isFinite(valorBRL)) return texto;
+  return `${texto} <span class="tt-conv">(${formatBRL(valorBRL)})</span>`;
+}
+
+/** Monta o HTML inteiro do tooltip (cabeçalho com ticker+classe + linhas). */
+function tooltipInnerHtmlAtivo_(ativo) {
+  const linhasHtml = linhasTooltipAtivo_(ativo).map(([label, valor]) => `
+    <div class="tt-row"><span class="tt-k">${label}</span><span class="tt-v">${valor}</span></div>
+  `).join('');
+  return `<div class="tt-head">${ativo.ticker} <span class="tt-cat">${CLASSE_LABEL_ATIVO[ativo.classe] || ativo.classe}</span></div>${linhasHtml}`;
+}
+
+
 /** ref pra ativo.html?ref=&classe= (docs/plano-implementacao.html) - Renda
  * Fixa é identificada por Código, não por ticker de bolsa (o "ticker" de RF
  * aqui já é um rótulo composto - tipo + vencimento - não um identificador). */
@@ -941,6 +1022,11 @@ export function criarAtivoCard(doc, ativo) {
     setValorComDec(precoEl, formatBRL(ativo.precoAtual));
   }
 
+  // Guarda o ativo inteiro no próprio nó (não só o ticker em dataset) pra
+  // wireTooltipAtivos ler direto na hora do hover/touch, sem precisar
+  // reconsultar a lista de ativos - ver wireTooltipAtivos logo abaixo.
+  card._ativoTooltip = ativo;
+
   return card;
 }
 
@@ -966,6 +1052,66 @@ export function wireFiltroAtivos(doc, tabsContainer, gridContainer, ativos) {
       renderMeusAtivos(doc, gridContainer, ativos, botao.dataset.classe);
     });
   });
+}
+
+/**
+ * Liga o tooltip de hover/touch de cada .ativo-card (Nome, Quantidade,
+ * Preço Teto/Médio, Descontos sobre P/VP e P/L, ou os campos de Renda
+ * Fixa - ver linhasTooltipAtivo_ acima). Mesma técnica de Pointer Events
+ * (mouse + touch com a mesma API) já usada no gráfico de Rentabilidade
+ * (ver ligarInteracaoGrafico_), mas aqui é 1 tooltip só, position:fixed,
+ * anexado a doc.body e reposicionado por delegação de evento no
+ * `container` (a grade inteira) - porque o conteúdo do container é
+ * substituído a cada clique nas abas de classe (wireFiltroAtivos), mas o
+ * próprio container nunca é recriado, então ligar aqui uma vez só (na
+ * mesma chamada que já liga o filtro, em montarPaginaInicio) é suficiente
+ * pra qualquer cartão, mesmo depois de trocar de aba.
+ */
+export function wireTooltipAtivos(doc, container) {
+  if (!container) return;
+  const janela = doc.defaultView;
+  const tooltip = doc.createElement('div');
+  tooltip.className = 'ativo-tooltip';
+  tooltip.hidden = true;
+  (doc.body || container).appendChild(tooltip);
+
+  function esconder_() {
+    tooltip.hidden = true;
+  }
+
+  function mostrar_(card, clientX, clientY) {
+    const ativo = card._ativoTooltip;
+    if (!ativo) {
+      esconder_();
+      return;
+    }
+    tooltip.innerHTML = tooltipInnerHtmlAtivo_(ativo);
+    tooltip.hidden = false;
+
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    let esquerda = clientX + 16;
+    let topo = clientY + 16;
+    if (esquerda + tw > larguraJanela - 12) esquerda = clientX - tw - 16;
+    if (topo + th > alturaJanela - 12) topo = clientY - th - 16;
+    tooltip.style.left = `${esquerda}px`;
+    tooltip.style.top = `${topo}px`;
+  }
+
+  function aoMoverOuTocar_(ev) {
+    const card = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-card') : null;
+    if (!card) {
+      esconder_();
+      return;
+    }
+    mostrar_(card, ev.clientX, ev.clientY);
+  }
+
+  container.addEventListener('pointermove', aoMoverOuTocar_);
+  container.addEventListener('pointerdown', aoMoverOuTocar_);
+  container.addEventListener('pointerleave', esconder_);
 }
 
 /** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. */
@@ -1033,4 +1179,5 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
 
   renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
   wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
+  wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
 }

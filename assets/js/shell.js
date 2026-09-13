@@ -251,23 +251,44 @@ const STATUS_ICONE_SYNC = { good: 'ico-check', warn: 'ico-warn', bad: 'ico-bad' 
  * planilha (config.js!SPREADSHEET_URL) - a API só devolve a última
  * linha, então "quantas sincronizações foram feitas" só dá pra ver lá.
  */
-export function renderSyncStatus(doc, resultado) {
+export function renderSyncStatus(doc, resultado, agora = new Date()) {
   const badge = doc.getElementById('syncBadgeBtn');
   const log = doc.getElementById('syncLog');
   const link = doc.getElementById('syncSheetLink');
+  const refreshPill = doc.getElementById('refreshPill');
+  const refreshLabel = doc.getElementById('refreshLabel');
 
   if (link) link.href = SPREADSHEET_URL;
 
   const semDados = !resultado || !resultado.status || resultado.status === 'Sem dados';
+  const classeAtual = !semDados ? STATUS_CLASSE_SYNC[resultado.status] : null;
 
   if (badge) {
     badge.classList.remove('good', 'warn', 'bad');
+    // O ícone do badge sempre reflete a classe da ÚLTIMA sincronização
+    // (mesma tabela STATUS_ICONE_SYNC já usada na linha do popover, logo
+    // abaixo) - antes ficava hardcoded em #ico-check no shell.html e nunca
+    // era atualizado aqui, então uma sincronização "Atenção"/"Erro"
+    // continuava mostrando o ícone de check (bug relatado por print pelo
+    // Tiago em 13/09/2026).
+    const icone = badge.querySelector('svg use');
     if (!semDados) {
-      const classe = STATUS_CLASSE_SYNC[resultado.status];
-      if (classe) badge.classList.add(classe);
-      badge.title = `Sincronização: ${resultado.status} — ${formatRelativeTime(resultado.timestamp)}`;
+      if (classeAtual) badge.classList.add(classeAtual);
+      badge.title = `Sincronização: ${resultado.status} — ${formatRelativeTime(resultado.timestamp, agora)}`;
+      if (icone) icone.setAttribute('href', `#${classeAtual ? STATUS_ICONE_SYNC[classeAtual] : 'ico-check'}`);
     } else {
       badge.title = 'Sincronização: aguardando primeira verificação';
+      if (icone) icone.setAttribute('href', '#ico-check');
+    }
+  }
+
+  if (refreshPill || refreshLabel) {
+    const texto = !semDados ? formatRelativeTime(resultado.timestamp, agora) : '--';
+    if (refreshLabel) refreshLabel.textContent = texto;
+    if (refreshPill) {
+      refreshPill.title = !semDados
+        ? `Cotações atualizadas ${texto}`
+        : 'Cotações atualizadas — aguardando primeira sincronização';
     }
   }
 

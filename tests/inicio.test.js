@@ -24,6 +24,7 @@ import {
   criarAtivoCard,
   renderMeusAtivos,
   wireFiltroAtivos,
+  wireTooltipAtivos,
   renderAvisos,
   montarPaginaInicio,
 } from '../assets/js/pages/inicio.js';
@@ -208,6 +209,19 @@ test('renderDistribuicao() desenha uma fatia (arco do donut + item de legenda) p
   assert.match(container.textContent, /40,0%/);
 });
 
+test('renderDistribuicao() mostra o valor em R$ de cada fatia, além da porcentagem (Tiago pediu os dois de volta na legenda)', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Ações', cor: 'var(--acoes)', valor: 60000 },
+    { label: 'FIIs', cor: 'var(--fiis)', valor: 40000 },
+  ]);
+  const valores = Array.from(container.querySelectorAll('.distrib-valor')).map((el) => el.textContent);
+  assert.deepEqual(valores, ['R$\xa060.000,00', 'R$\xa040.000,00']);
+  assert.match(container.textContent, /60,0%/);
+  assert.match(container.textContent, /40,0%/);
+});
+
 test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado suficiente', () => {
   const doc = makeDom('<div id="distrib"></div>');
   const container = doc.getElementById('distrib');
@@ -285,6 +299,14 @@ test('filtrarHistoricoPorPeriodo() com "tudo" (ou preset desconhecido) devolve o
 test('filtrarHistoricoPorPeriodo() sem histórico (ou vazio) devolve array vazio, nunca lança', () => {
   assert.deepEqual(filtrarHistoricoPorPeriodo(undefined, '30d'), []);
   assert.deepEqual(filtrarHistoricoPorPeriodo([], '30d'), []);
+});
+
+test('filtrarHistoricoPorPeriodo("mes") recorta o MÊS-CALENDÁRIO do último dia de historico, não "os últimos 30 dias corridos"', () => {
+  const historico = gerarHistoricoExemplo(40); // 01/01/2026 .. 09/02/2026 (o último dia é 09/02)
+  const janela = filtrarHistoricoPorPeriodo(historico, 'mes');
+  assert.equal(janela.length, 9, 'só os dias de fevereiro (01 a 09) - fevereiro só tem 9 dias corridos até aqui');
+  assert.equal(janela[0].data, '2026-02-01');
+  assert.equal(janela[janela.length - 1].data, historico[historico.length - 1].data);
 });
 
 test('normalizarSerieRentabilidade() calcula "% desde o início" a partir do 1º valor válido', () => {
@@ -534,7 +556,13 @@ const ATIVO_USA_EXEMPLO = {
 
 const ATIVO_RF_EXEMPLO = {
   classe: 'rf', ticker: 'Tesouro Selic · 03/2029', codigo: 'TS-2029', marca: 'longo-prazo',
-  indexador: 'Selic', vencimento: '03/2029', valorAtualizado: 12480.55, variacaoDia: 0.0004,
+  tipoInvestimento: 'Tesouro Selic', indexador: 'Selic', vencimento: '03/2029',
+  valorAtualizado: 12480.55, variacaoDia: 0.0004,
+};
+
+const ATIVO_FII_EXEMPLO = {
+  classe: 'fiis', ticker: 'HGRU11', nome: 'CSHG Renda Urbana', tipo: 'Tijolo', precoAtual: 118.4,
+  variacaoDia: 0.003, precoMedio: 102.9, quantidade: 37, descontoPVp: '108% (1,08 P/VP)',
 };
 
 test('criarAtivoCard() de Ações vira o cartão inteiro clicável, com viés e desconto', () => {
@@ -595,6 +623,109 @@ test('wireFiltroAtivos() re-renderiza a grade filtrada e alterna a classe active
 
   assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
   assert.equal(tabs.querySelector('[data-classe="rf"]').classList.contains('active'), true);
+});
+
+// --- wireTooltipAtivos -------------------------------------------------------
+// Tooltip de hover/touch de cada .ativo-card (Nome, Quantidade, Preço
+// Teto/Médio, Descontos sobre P/VP e P/L, ou os campos de Renda Fixa) -
+// desenhado em docs/direcao-visual.html, decisão em docs/mapa-paginas.html.
+// Tiago apontou (13/09/2026, 3ª rodada) que essa tooltip nunca tinha saído
+// do mockup pro código de verdade.
+
+test('wireTooltipAtivos() no pointermove sobre um cartão de Ação mostra Nome, Quantidade, Preço Teto/Médio e os descontos', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  const ativo = { ...ATIVO_ACAO_EXEMPLO, quantidade: 140, precoMedio: 18.9, precoTeto: 26.4, descontoPVp: '132% (1,32 P/VP)' };
+  renderMeusAtivos(doc, grid, [ativo], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const card = grid.querySelector('.ativo-card');
+  card.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }));
+
+  const tooltip = doc.body.querySelector('.ativo-tooltip');
+  assert.equal(tooltip.hidden, false);
+  assert.match(tooltip.textContent, /BBAS3/);
+  assert.match(tooltip.textContent, /Banco do Brasil/);
+  assert.match(tooltip.textContent, /Quantidade de ações/);
+  assert.match(tooltip.textContent, /140/);
+  assert.match(tooltip.textContent, /Preço teto/);
+  assert.match(tooltip.textContent, /Preço médio/);
+  assert.match(tooltip.textContent, /Desconto sobre P\/L/);
+  assert.match(tooltip.textContent, /12% \(0,88 P\/L\)/);
+});
+
+test('wireTooltipAtivos() de FII mostra Tipo (Tijolo/Papel) em vez de Desconto sobre P/L, e a Quantidade de cotas', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_FII_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  grid.querySelector('.ativo-card')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }));
+
+  const tooltip = doc.body.querySelector('.ativo-tooltip');
+  assert.match(tooltip.textContent, /CSHG Renda Urbana/);
+  assert.match(tooltip.textContent, /Tijolo/);
+  assert.match(tooltip.textContent, /Quantidade de cotas/);
+  assert.match(tooltip.textContent, /37/);
+  assert.match(tooltip.textContent, /108% \(1,08 P\/VP\)/);
+  assert.doesNotMatch(tooltip.textContent, /P\/L/, 'FII não tem P/L, mostra Tipo no lugar');
+});
+
+test('wireTooltipAtivos() de Ações EUA mostra Preço Teto/Médio em US$ com o equivalente em R$, e omite Desconto sobre P/L quando a planilha não tem esse dado', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  const ativo = {
+    classe: 'usa', ticker: 'CHTR', nome: 'Charter Communications', precoAtual: 320.5, precoAtualBRL: 1732.5,
+    variacaoDia: 0.008, vies: 'aguardar', quantidade: 12, precoTeto: 340, precoTetoBRL: 1836,
+    precoMedio: 280, precoMedioBRL: 1512, descontoPVp: '95% (0,95 P/VP)',
+  };
+  renderMeusAtivos(doc, grid, [ativo], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  grid.querySelector('.ativo-card')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }));
+
+  const tooltip = doc.body.querySelector('.ativo-tooltip');
+  assert.match(tooltip.textContent, /Charter Communications/);
+  assert.match(tooltip.textContent, /\$340\.00/, 'preço teto em USD (formatUSD - símbolo "$", ponto decimal)');
+  assert.match(tooltip.textContent, /R\$.1\.836,00/, 'equivalente em R$ (formatBRL) entre parênteses ao lado');
+  assert.match(tooltip.textContent, /95% \(0,95 P\/VP\)/);
+  assert.doesNotMatch(tooltip.textContent, /P\/L/, 'Ações EUA ainda não tem P\/L na planilha - linha omitida, não "—"');
+});
+
+test('wireTooltipAtivos() de Renda Fixa mostra Tipo de investimento, Indexador, Vencimento e Valor atualizado (não Nome/Quantidade)', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_RF_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  grid.querySelector('.ativo-card')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 100, clientY: 100, bubbles: true }));
+
+  const tooltip = doc.body.querySelector('.ativo-tooltip');
+  assert.match(tooltip.textContent, /Tipo de investimento/);
+  assert.match(tooltip.textContent, /Tesouro Selic/);
+  assert.match(tooltip.textContent, /Indexador/);
+  assert.match(tooltip.textContent, /Vencimento/);
+  assert.match(tooltip.textContent, /03\/2029/);
+  assert.match(tooltip.textContent, /Valor atualizado/);
+  assert.match(tooltip.textContent, /12\.480,55/);
+  assert.doesNotMatch(tooltip.textContent, /Quantidade/);
+});
+
+test('wireTooltipAtivos() pointerdown (toque) também mostra a tooltip, e pointerleave esconde de novo', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const card = grid.querySelector('.ativo-card');
+  card.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', { clientX: 50, clientY: 50, bubbles: true }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false);
+
+  grid.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, true);
 });
 
 // --- renderAvisos ------------------------------------------------------------

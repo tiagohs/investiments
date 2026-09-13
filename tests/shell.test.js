@@ -151,7 +151,10 @@ function syncDom() {
   const doc = makeDom();
   const wrap = doc.createElement('div');
   wrap.innerHTML = `
-    <button id="syncBadgeBtn" class="sync-badge"></button>
+    <div class="refresh-pill" id="refreshPill" title="Cotações atualizadas há --">
+      <span id="refreshLabel">--</span>
+    </div>
+    <button id="syncBadgeBtn" class="sync-badge"><svg><use href="#ico-check"/></svg></button>
     <div id="syncLog"></div>
     <a id="syncSheetLink" href="#"></a>
   `;
@@ -190,6 +193,47 @@ test('renderSyncStatus() com status "Erro" pinta o badge de "bad"', () => {
   const doc = syncDom();
   renderSyncStatus(doc, { status: 'Erro', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: 'falhou' });
   assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), true);
+});
+
+test('renderSyncStatus() troca o ÍCONE do badge (não só a cor) pra bater com o status real da última sincronização', () => {
+  const doc = syncDom();
+  const icone = () => doc.getElementById('syncBadgeBtn').querySelector('svg use').getAttribute('href');
+
+  // Bug relatado por print (13/09/2026, 3ª rodada): a última sincronização
+  // era "Atenção", mas o badge continuava com o ícone de check (hardcoded
+  // no shell.html e nunca atualizado aqui) - considera sempre a última
+  // sincronização real, não um ícone fixo.
+  renderSyncStatus(doc, { status: 'Atenção', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: 'parcial' });
+  assert.equal(icone(), '#ico-warn');
+
+  renderSyncStatus(doc, { status: 'Erro', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: 'falhou' });
+  assert.equal(icone(), '#ico-bad');
+
+  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: 'ok' });
+  assert.equal(icone(), '#ico-check');
+});
+
+test('renderSyncStatus() com "Sem dados" mantém o ícone do badge em check (estado neutro)', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Sem dados', timestamp: null, origem: '', detalhe: '' });
+  assert.equal(doc.getElementById('syncBadgeBtn').querySelector('svg use').getAttribute('href'), '#ico-check');
+});
+
+test('renderSyncStatus() preenche o refresh-pill (antes um "--" estático) com a hora relativa da última sincronização', () => {
+  const doc = syncDom();
+  const agora = new Date('2026-09-13T10:20:00.000Z');
+  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' }, agora);
+
+  const label = doc.getElementById('refreshLabel');
+  const pill = doc.getElementById('refreshPill');
+  assert.equal(label.textContent, 'há 20min');
+  assert.match(pill.title, /há 20min/);
+});
+
+test('renderSyncStatus() mantém o refresh-pill em "--" quando não há sincronização registrada ainda', () => {
+  const doc = syncDom();
+  renderSyncStatus(doc, { status: 'Sem dados', timestamp: null, origem: '', detalhe: '' });
+  assert.equal(doc.getElementById('refreshLabel').textContent, '--');
 });
 
 test('renderSyncStatus() sempre aponta o link "ver todas" pra planilha real (SPREADSHEET_URL)', () => {
