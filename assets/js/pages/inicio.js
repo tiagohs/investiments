@@ -1,12 +1,11 @@
 /**
  * pages/inicio.js — renderização da página Início, Fase 2 completa:
- * cards de Índices & Câmbio, hero de Patrimônio (3 visões: Total /
- * Longo Prazo / Renda Emergencial), gráfico de Rentabilidade (com
- * filtro de período contextual, próprio desta página - o filtro global
- * do topbar saiu de shell.html em 13/09/2026, ver docs/plano-
- * implementacao.html Fase 2) e a grade "Meus Ativos" (cartão inteiro
- * clicável pro Detalhe do Ativo, ainda não construído - ver "ativo.html"
- * em docs/plano-implementacao.html, ativo.html?ref=&classe=).
+ * cards de Índices & Câmbio, resumo de Patrimônio (Total / Longo Prazo /
+ * Renda Emergencial, os 3 sempre visíveis, sem precisar clicar em nada -
+ * ver renderResumoPatrimonio), gráfico de Rentabilidade (com filtro de
+ * período contextual, próprio desta página) e a grade "Meus Ativos"
+ * (cartão inteiro clicável pro Detalhe do Ativo, ainda não construído -
+ * ver "ativo.html" em docs/plano-implementacao.html, ativo.html?ref=&classe=).
  *
  * Mesmo padrão de shell.js/auth-ui.js: funções puras de renderização
  * (recebem doc + elemento + dado já pronto, nunca buscam nada sozinhas)
@@ -16,7 +15,7 @@
  * de um token real.
  *
  * "avisos" (falha parcial de uma seção só) é tratado exatamente como o
- * back-end trata (ver Home.gs) - cada pedaço (índices/câmbio, hero,
+ * back-end trata (ver Home.gs) - cada pedaço (índices/câmbio, resumo,
  * gráfico, ativos) aparece se veio, e falta silenciosamente (com um
  * aviso) se não veio, em vez de uma falha em uma seção derrubar a
  * página inteira.
@@ -33,6 +32,30 @@
  * docs/plano-implementacao.html: Total/Longo Prazo contra Ibovespa+CDI,
  * Renda Emergencial contra CDI+Selic (não faz sentido comparar reserva
  * de emergência com bolsa).
+ *
+ * Ajuste do mesmo dia (feedback do Tiago com print): três mudanças na
+ * mesma leva, todas interligadas -
+ *  1) o resumo de patrimônio (antes um "hero" com abas Total/Longo
+ *     Prazo/Renda Emergencial, só uma visão por vez) virou
+ *     renderResumoPatrimonio - as 3 divisões aparecem juntas, sem clique;
+ *  2) cada gráfico de Rentabilidade agora desenha seu <svg> na LARGURA
+ *     REAL do próprio cartão (medida via clientWidth), em vez de um
+ *     viewBox fixo (0 0 1000 220) esticado por preserveAspectRatio="none".
+ *     Esse viewBox fixo era o motivo da fonte do eixo (font-size em
+ *     unidade do SVG) renderizar menor nos 2 cartões lado a lado
+ *     (Longo Prazo/Renda Emergencial, mais estreitos) do que no cartão
+ *     Total (largura cheia) - a mesma unidade de viewBox virava menos
+ *     pixels de tela quanto mais estreito o cartão. Com viewBox largura
+ *     = largura real do cartão em px, 1 unidade de SVG = 1px de tela
+ *     sempre, não importa a largura do cartão - fonte sempre no mesmo
+ *     tamanho visual. wireGraficoRentabilidade também escuta "resize" da
+ *     janela (com debounce) e redesenha, pra não ficar com a medida
+ *     antiga se a janela mudar de tamanho depois do primeiro desenho;
+ *  3) a % de cada benchmark no período (CDI/Ibovespa/Selic) passou a
+ *     aparecer junto do próprio nome dele na legenda de cada gráfico
+ *     (em vez de um elemento novo na página) - é o lugar onde o olho já
+ *     vai pra identificar qual linha é qual, então é ali que o número
+ *     faz sentido, sem inflar o total de texto da página.
  */
 
 import { getHome } from '../api-client.js';
@@ -193,13 +216,12 @@ export function renderIndicesCambio(doc, container, { indices, cambio } = {}) {
 /**
  * As 3 visões de patrimônio que a Home.gs devolve hoje. porClasse
  * (Ações/FIIs/Renda Fixa/Ações EUA) só existe pro total - não é um
- * recorte por classe dentro de Longo Prazo ou Renda Emergencial, então
- * só aparece na visão "total" (ver renderHero).
+ * recorte por classe dentro de Longo Prazo ou Renda Emergencial.
  */
 const VISOES = {
-  total: { chave: 'total', label: 'Patrimônio total · Ações + FIIs + Renda Fixa + Ações EUA' },
-  longoPrazo: { chave: 'longoPrazo', label: 'Patrimônio de Longo Prazo · total menos Renda Emergencial' },
-  rendaEmergencial: { chave: 'rendaEmergencial', label: 'Renda Emergencial · reserva em Tesouro Selic' },
+  total: { chave: 'total', label: 'Patrimônio total' },
+  longoPrazo: { chave: 'longoPrazo', label: 'Longo Prazo' },
+  rendaEmergencial: { chave: 'rendaEmergencial', label: 'Renda Emergencial' },
 };
 
 /** {valor, label} pra visão pedida - cai em "total" se o id não for reconhecido. */
@@ -208,60 +230,59 @@ export function resolverVisao(patrimonio, visaoId) {
   return { valor: patrimonio ? patrimonio[visao.chave] : undefined, label: visao.label };
 }
 
-/** Renderiza o hero de patrimônio pra visão dada dentro de `container` (esvazia antes). */
-export function renderHero(doc, container, patrimonio, visaoId = 'total') {
+const ORDEM_RESUMO = ['total', 'longoPrazo', 'rendaEmergencial'];
+
+/**
+ * Renderiza o resumo de patrimônio (Total / Longo Prazo / Renda
+ * Emergencial) dentro de `container` (esvazia antes) - as 3 divisões
+ * lado a lado, sempre visíveis de cara, sem aba/clique nenhum (mudança
+ * de 13/09/2026 a pedido do Tiago: "mostre também os números das três
+ * divisões, sem eu precisar clicar em botão"). O detalhamento por classe
+ * (Ações/FIIs/Renda Fixa/Ações EUA, só existe pro total) fica compacto,
+ * dentro do próprio cartão Total, em vez de uma seção extra.
+ */
+export function renderResumoPatrimonio(doc, container, patrimonio) {
   container.innerHTML = '';
   if (!patrimonio) {
     container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
     return;
   }
 
-  const { valor, label } = resolverVisao(patrimonio, visaoId);
+  const grid = doc.createElement('div');
+  grid.className = 'resumo-grid';
 
-  const hero = doc.createElement('div');
-  hero.className = 'hero';
-  hero.innerHTML = `
-    <div class="hero-top">
-      <div>
-        <div class="hero-value"></div>
-        <div class="hero-label"></div>
-      </div>
-    </div>
-    <div class="hero-note">Veja a variação no período no gráfico de Rentabilidade, logo abaixo.</div>
-  `;
-  setValorComDec(hero.querySelector('.hero-value'), formatBRL(valor));
-  hero.querySelector('.hero-label').textContent = label;
+  ORDEM_RESUMO.forEach((visaoId) => {
+    const { valor, label } = resolverVisao(patrimonio, visaoId);
+    const card = doc.createElement('div');
+    card.className = `resumo-card${visaoId === 'total' ? ' resumo-card-total' : ''}`;
+    card.innerHTML = `
+      <div class="resumo-label">${label}</div>
+      <div class="resumo-value"></div>
+    `;
+    setValorComDec(card.querySelector('.resumo-value'), formatBRL(valor));
 
-  if (visaoId === 'total' && patrimonio.porClasse) {
-    const classes = doc.createElement('div');
-    classes.className = 'hero-classes';
-    [
-      ['acoes', 'Ações', patrimonio.porClasse.acoes],
-      ['fiis', 'FIIs', patrimonio.porClasse.fiis],
-      ['rf', 'Renda Fixa', patrimonio.porClasse.rendaFixa],
-      ['usa', 'Ações EUA', patrimonio.porClasse.acoesEua],
-    ].forEach(([classe, nome, val]) => {
-      const item = doc.createElement('div');
-      item.className = `hero-class ${classe}`;
-      item.innerHTML = `<div class="k">${nome}</div><div class="v"></div>`;
-      setValorComDec(item.querySelector('.v'), formatBRL(val));
-      classes.appendChild(item);
-    });
-    hero.appendChild(classes);
-  }
+    if (visaoId === 'total' && patrimonio.porClasse) {
+      const classes = doc.createElement('div');
+      classes.className = 'resumo-classes';
+      [
+        ['acoes', 'Ações', patrimonio.porClasse.acoes],
+        ['fiis', 'FIIs', patrimonio.porClasse.fiis],
+        ['rf', 'Renda Fixa', patrimonio.porClasse.rendaFixa],
+        ['usa', 'Ações EUA', patrimonio.porClasse.acoesEua],
+      ].forEach(([classe, nome, val]) => {
+        const item = doc.createElement('div');
+        item.className = `resumo-class ${classe}`;
+        item.innerHTML = `<div class="k">${nome}</div><div class="v"></div>`;
+        setValorComDec(item.querySelector('.v'), formatBRL(val));
+        classes.appendChild(item);
+      });
+      card.appendChild(classes);
+    }
 
-  container.appendChild(hero);
-}
-
-/** Liga os botões .filter-tab de visão (Total/Longo Prazo/Renda Emergencial) à re-renderização do hero, sem precisar buscar nada de novo - patrimonio já veio inteiro na primeira chamada. */
-export function wireVisaoTabs(doc, tabsContainer, heroContainer, patrimonio) {
-  const botoes = Array.from(tabsContainer.querySelectorAll('.filter-tab'));
-  botoes.forEach((botao) => {
-    botao.addEventListener('click', () => {
-      botoes.forEach((b) => b.classList.toggle('active', b === botao));
-      renderHero(doc, heroContainer, patrimonio, botao.dataset.visao);
-    });
+    grid.appendChild(card);
   });
+
+  container.appendChild(grid);
 }
 
 // ============================================================================
@@ -330,6 +351,17 @@ export function normalizarSerieRentabilidade(historico, campo) {
   });
 }
 
+/** Último valor não-nulo de uma série já normalizada ("% desde o início do
+ * período") - usado tanto pro delta do portfólio (renderInfoRentabilidade)
+ * quanto pro delta de cada benchmark na legenda (renderGraficoRentabilidade),
+ * uma implementação só pros dois nunca divergirem. */
+function ultimoValidoDe_(serieNormalizada) {
+  for (let i = serieNormalizada.length - 1; i >= 0; i -= 1) {
+    if (serieNormalizada[i] != null) return serieNormalizada[i];
+  }
+  return null;
+}
+
 /** Monta o "d" de um <path> a partir de uma série normalizada, pulando nulos
  * à toa (só existem no começo, antes do 1º valor válido - ver acima) sem
  * quebrar o desenho do resto da linha. */
@@ -344,13 +376,32 @@ function pathDRentabilidade_(valores, x, y) {
   return d.trim();
 }
 
+/** Largura real (em px) de `container` - clientWidth/getBoundingClientRect
+ * num navegador de verdade já refletem o layout (grid de 1 ou 2 colunas,
+ * `.wrap` etc.) no momento em que o gráfico é desenhado. Em ambiente sem
+ * layout de verdade (jsdom dos testes) essas leituras vêm 0 - cai num valor
+ * fixo só pra ter uma medida determinística nos testes. */
+function larguraReal_(container) {
+  const w = container.clientWidth || (container.getBoundingClientRect && container.getBoundingClientRect().width) || 0;
+  return w > 40 ? Math.round(w) : 640;
+}
+
 /**
  * Desenha o gráfico de Rentabilidade (Portfólio vs benchmarks da visão) em
- * `container` - SVG desenhado à mão (mesma técnica/proporções validadas em
- * docs/direcao-visual.html!renderChart, sem depender de biblioteca nenhuma,
- * mesma convenção "no-build" do resto do projeto). Some com um aviso, sem
- * lançar, quando não há histórico (ou histórico de menos de 2 dias, onde uma
- * linha não diz nada).
+ * `container` - SVG desenhado à mão (mesma técnica validada em
+ * docs/direcao-visual.html!renderChart, sem depender de biblioteca nenhuma).
+ *
+ * viewBox na LARGURA REAL do cartão (13/09/2026, ver cabeçalho do arquivo):
+ * antes o viewBox era fixo (0 0 1000 220) e o CSS esticava esse desenho pra
+ * caber no cartão (preserveAspectRatio="none") - num cartão mais estreito
+ * (Longo Prazo/Renda Emergencial, lado a lado) a MESMA unidade de SVG virava
+ * menos pixels de tela, encolhendo a fonte dos rótulos junto. Agora o
+ * viewBox usa a largura medida de verdade (W = larguraReal_(container)) e a
+ * altura fixa do CSS (H, igual .rentab-chart{height:...} em inicio.css) -
+ * 1 unidade de SVG = 1px de tela sempre, não importa a largura do cartão, e
+ * o número de rótulos do eixo X se adapta (menos rótulo em cartão estreito,
+ * pra não amontoar). Some com um aviso, sem lançar, quando não há histórico
+ * (ou histórico de menos de 2 dias, onde uma linha não diz nada).
  */
 export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer } = {}) {
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
@@ -364,9 +415,14 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
 
   const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal);
-  const seriesBenchmark = benchmarks.map((b) => ({ ...b, valores: normalizarSerieRentabilidade(janela, b.campo) }));
+  const seriesBenchmark = benchmarks.map((b) => {
+    const valores = normalizarSerieRentabilidade(janela, b.campo);
+    return { ...b, valores, delta: ultimoValidoDe_(valores) };
+  });
 
-  const W = 1000, H = 220, padL = 52, padR = 10, padT = 14, padB = 26;
+  const W = larguraReal_(container);
+  const H = 190;
+  const padL = 44, padR = 8, padT = 12, padB = 22;
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const todosValores = [seriePrincipal, ...seriesBenchmark.map((b) => b.valores)].flat().filter((v) => v != null);
@@ -387,13 +443,14 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatNumeroBR(v, 1)}%</text>`;
   }
 
-  const passos = 4;
+  // Cartão estreito (2 lado a lado) cabe menos rótulo de data sem amontoar.
+  const passos = W < 460 ? 3 : (W < 720 ? 4 : 5);
   let xLabelsSvg = '';
   for (let i = 0; i < passos; i += 1) {
     const idx = Math.round((janela.length - 1) * (i / (passos - 1)));
     const xx = padL + plotW * (i / (passos - 1));
     const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
-    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 8}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
+    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 7}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
   }
 
   const benchmarkPathsSvg = seriesBenchmark
@@ -404,9 +461,17 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   container.innerHTML = `<svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${gridSvg}${xLabelsSvg}${benchmarkPathsSvg}${principalPathSvg}</svg>`;
 
   if (legendaContainer) {
+    const liBenchmarks = seriesBenchmark.map((b) => {
+      const cls = b.dash.startsWith('1.5') ? 'dot' : 'dash';
+      const bom = typeof b.delta === 'number' && b.delta >= 0;
+      const deltaHtml = typeof b.delta === 'number'
+        ? `<b class="li-delta ${bom ? 'good' : 'bad'}">${formatPercentFromPoints(b.delta)}</b>`
+        : '';
+      return `<span class="li"><span class="swline ${cls}" style="border-color:var(${b.cor})"></span>${b.label}${deltaHtml}</span>`;
+    }).join('');
     legendaContainer.innerHTML = `
       <span class="li"><span class="swline" style="border-color:var(--acoes)"></span>Portfólio</span>
-      ${benchmarks.map((b) => `<span class="li"><span class="swline ${b.dash.startsWith('1.5') ? 'dot' : 'dash'}" style="border-color:var(${b.cor})"></span>${b.label}</span>`).join('')}
+      ${liBenchmarks}
     `;
   }
 }
@@ -419,26 +484,22 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
 
 /**
  * Renderiza o bloco de info (rótulo + valor atual + variação no período)
- * de UM cartão de Rentabilidade - fica dentro do MESMO cartão do gráfico
- * (não mais separado, a pedido do Tiago em 13/09/2026), reaproveitando o
- * ÚLTIMO ponto da mesma série normalizada que alimenta a linha do
- * gráfico (normalizarSerieRentabilidade) como a "variação no período" -
- * uma fonte só pro número e pro desenho, nunca dois cálculos podendo
- * divergir.
+ * de UM cartão de Rentabilidade - fica dentro do MESMO cartão do gráfico,
+ * reaproveitando o ÚLTIMO ponto da mesma série normalizada que alimenta a
+ * linha do gráfico (normalizarSerieRentabilidade, via ultimoValidoDe_)
+ * como a "variação no período" - uma fonte só pro número e pro desenho,
+ * nunca dois cálculos podendo divergir.
  */
 export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
   if (!container) return;
   // campo (nomes de HistoricoInicio.gs: patrimonio/longoPrazo/rendaEmergencial) só
   // vale pro historico - o objeto `patrimonio` (Home.gs) usa 'total' pra visão
-  // "total", daí reaproveitar resolverVisao (já usado pelo hero) pro valor atual.
+  // "total", daí reaproveitar resolverVisao (já usado pelo resumo) pro valor atual.
   const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const valorAtual = resolverVisao(patrimonio, visaoId).valor;
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo) : [];
-  let ultimoValido = null;
-  for (let i = serieNormalizada.length - 1; i >= 0; i -= 1) {
-    if (serieNormalizada[i] != null) { ultimoValido = serieNormalizada[i]; break; }
-  }
+  const ultimoValido = ultimoValidoDe_(serieNormalizada);
 
   container.innerHTML = `
     <div class="rentab-card-label">${LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
@@ -461,13 +522,16 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
 /**
  * Liga os pills de período (#periodoTabs) - um filtro só, compartilhado
  * pelos 3 cartões de Rentabilidade (Total/Longo Prazo/Renda Emergencial),
- * que agora ficam sempre visíveis ao mesmo tempo em vez de alternar por
- * aba (mudança de 13/09/2026, a pedido do Tiago: "quero visualizar os
- * três gráficos"). `paineis` é um array com um item por visão -
- * { visaoId, chartContainer, legendaContainer, infoContainer } - cada um
- * é atualizado (info + gráfico) no mesmo clique de período, sem buscar
- * nada de novo (historico/patrimonio já vieram inteiros na 1ª chamada).
- * periodoInicial deve bater com o pill marcado "active" no HTML.
+ * sempre visíveis ao mesmo tempo. `paineis` é um array com um item por
+ * visão - { visaoId, chartContainer, legendaContainer, infoContainer } -
+ * cada um é atualizado (info + gráfico) no mesmo clique de período, sem
+ * buscar nada de novo (historico/patrimonio já vieram inteiros na 1ª
+ * chamada). periodoInicial deve bater com o pill marcado "active" no HTML.
+ *
+ * Também escuta "resize" da janela (com debounce de 150ms) e redesenha -
+ * necessário porque cada gráfico agora usa a largura REAL do cartão no
+ * momento do desenho (ver renderGraficoRentabilidade); sem isso, redimen-
+ * sionar a janela deixaria o desenho com a medida antiga.
  */
 export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = '12m' } = {}) {
   let periodoAtual = periodoInicial;
@@ -489,6 +553,15 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
         periodoAtual = botao.dataset.periodo;
         atualizar();
       });
+    });
+  }
+
+  const janela = doc.defaultView;
+  if (janela && typeof janela.addEventListener === 'function') {
+    let timerResize = null;
+    janela.addEventListener('resize', () => {
+      if (timerResize) janela.clearTimeout(timerResize);
+      timerResize = janela.setTimeout(atualizar, 150);
     });
   }
 
@@ -643,8 +716,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
 
   renderAvisos(doc.getElementById('inicioAvisos'), resposta.avisos);
   renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
-  renderHero(doc, doc.getElementById('heroPatrimonio'), resposta.patrimonio, 'total');
-  wireVisaoTabs(doc, doc.getElementById('visaoTabs'), doc.getElementById('heroPatrimonio'), resposta.patrimonio);
+  renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), resposta.patrimonio);
 
   const PAINEIS_RENTABILIDADE = [
     { visaoId: 'total', sufixo: 'Total' },

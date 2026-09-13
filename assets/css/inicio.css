@@ -1,9 +1,10 @@
 /**
  * inicio.css — estilos só da página Início (Fase 2). Tokens e o padrão
  * de tabs (.filter-tabs/.filter-tab) já vêm de shell.css — aqui só o que
- * é específico desta página: cabeçalho de área, cards de índices/câmbio
- * e o hero de patrimônio. Validado em docs/direcao-visual.html (classes
- * copiadas de lá com o mesmo nome, pra não divergir do que já foi revisto).
+ * é específico desta página: cabeçalho de área, cards de índices/câmbio,
+ * resumo de patrimônio e o gráfico de Rentabilidade. Validado em
+ * docs/direcao-visual.html (classes copiadas de lá com o mesmo nome, pra
+ * não divergir do que já foi revisto).
  */
 
 /* ---- Cabeçalho de área (Índices & câmbio / Minha carteira) ---- */
@@ -44,20 +45,28 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 @media (max-width:900px){ .widget-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:640px){ .widget-grid{ grid-template-columns:repeat(2,1fr); } }
 
-/* ---- Hero (patrimônio) ---- */
-.hero{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
-      padding:22px; box-shadow:var(--shadow); margin-bottom:10px; }
-.hero-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
-.hero-value{ font-family:var(--mono); font-size:36px; font-weight:600; line-height:1; }
-.hero-value .dec{ font-size:20px; opacity:.62; }
-.hero-label{ color:var(--ink-muted); font-size:12.5px; margin-top:6px; }
-.hero-note{ color:var(--ink-faint); font-size:11.5px; margin-top:10px; }
-.hero-classes{ display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
-.hero-class{ display:flex; flex-direction:column; gap:2px; }
-.hero-class .k{ font-size:10.5px; color:var(--ink-faint); }
-.hero-class .v{ font-family:var(--mono); font-size:13.5px; font-weight:600; }
-.hero-class.acoes .v{ color:var(--acoes); } .hero-class.fiis .v{ color:var(--fiis); }
-.hero-class.rf .v{ color:var(--rf); } .hero-class.usa .v{ color:var(--usa); }
+/* ---- Resumo de patrimônio ----
+   13/09/2026: antes era um "hero" com abas (Total/Longo Prazo/Renda
+   Emergencial) mostrando só UMA visão por vez - Tiago pediu pra mostrar
+   as 3 juntas, sem precisar clicar em nada. .resumo-grid: 3 cartões
+   iguais lado a lado (a mesma ideia compacta do print que ele mandou -
+   um cartão por número, em vez de um bloco grande só). O detalhamento
+   por classe (Ações/FIIs/Renda Fixa/Ações EUA, só existe pro total)
+   entra dentro do próprio cartão Total como "chips" pequenos, sem virar
+   uma seção extra na página. */
+.resumo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:26px; }
+.resumo-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
+      padding:18px 20px; box-shadow:var(--shadow); }
+.resumo-label{ color:var(--ink-muted); font-size:12.5px; margin-bottom:6px; }
+.resumo-value{ font-family:var(--mono); font-size:28px; font-weight:600; line-height:1; }
+.resumo-value .dec{ font-size:16px; opacity:.62; }
+.resumo-classes{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.resumo-class{ display:flex; flex-direction:column; gap:2px; }
+.resumo-class .k{ font-size:10.5px; color:var(--ink-faint); }
+.resumo-class .v{ font-family:var(--mono); font-size:13px; font-weight:600; }
+.resumo-class.acoes .v{ color:var(--acoes); } .resumo-class.fiis .v{ color:var(--fiis); }
+.resumo-class.rf .v{ color:var(--rf); } .resumo-class.usa .v{ color:var(--usa); }
+@media (max-width:760px){ .resumo-grid{ grid-template-columns:1fr; } }
 
 /* ---- Avisos (falha parcial de alguma seção) ---- */
 .avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
@@ -71,7 +80,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 
 /* ---- Skeleton de carregamento ----
    13/09/2026: trocado o spinner central generico por placeholders no
-   formato do conteudo real (grade de indices/cambio + hero de
+   formato do conteudo real (grade de indices/cambio + resumo de
    patrimonio), a pedido do Tiago - reduz o "salto" visual de layout
    quando os dados chegam.
    BUG (mesmo dia, ainda vale aqui): montarPaginaInicio (pages/inicio.js)
@@ -98,8 +107,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 /* ---- Grafico de Rentabilidade (Parte 2, 13/09/2026; reorganizado no
    mesmo dia a pedido do Tiago: os 3 cartoes - Total/Longo Prazo/Renda
    Emergencial - ficam sempre visiveis ao mesmo tempo, cada um com seu
-   valor+variacao JUNTO do proprio grafico, em vez de um grafico so que
-   alternava por aba e um "hero" de valores separado) ----
+   valor+variacao JUNTO do proprio grafico) ----
    .rentab-grid: Total ocupa a linha inteira (grid-column:1/-1), Longo
    Prazo e Renda Emergencial caem naturalmente lado a lado na 2a linha
    (mesma grade de 2 colunas). Em telas estreitas as 2 colunas empilham. */
@@ -118,17 +126,29 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .rentab-card-delta.bad{ color:var(--bad-ink); }
 .rentab-card-delta.na{ color:var(--ink-faint); font-weight:500; }
 
-/* SVG desenhado a mao em pages/inicio.js!renderGraficoRentabilidade,
-   mesma tecnica/proporcoes validadas em docs/direcao-visual.html - so
-   o CSS (linhas de grade, rotulos, legenda) mora aqui. */
-.rentab-chart{ width:100%; height:auto; display:block; }
+/* SVG desenhado a mao em pages/inicio.js!renderGraficoRentabilidade.
+   13/09/2026: altura FIXA em px (em vez de height:auto seguindo o
+   aspect-ratio do viewBox) - o proprio JS agora mede a largura real do
+   cartao e usa ela como largura do viewBox, entao 1 unidade de SVG = 1px
+   de tela em qualquer cartao (largo ou estreito lado a lado), e a fonte
+   dos rotulos (.axislabel) fica sempre do mesmo tamanho visual - ver o
+   comentario de cabecalho de renderGraficoRentabilidade. */
+.rentab-chart{ width:100%; height:190px; display:block; }
 .rentab-chart .gridline{ stroke:var(--border); stroke-width:1; }
 .rentab-chart .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
-.chart-legend2{ display:flex; gap:18px; margin-top:12px; flex-wrap:wrap; }
+.chart-legend2{ display:flex; gap:16px; margin-top:12px; flex-wrap:wrap; }
 .chart-legend2 .li{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-muted); }
 .chart-legend2 .swline{ width:18px; height:0; border-top:2.5px solid; display:inline-block; }
 .chart-legend2 .swline.dash{ border-top-style:dashed; }
 .chart-legend2 .swline.dot{ border-top-style:dotted; border-top-width:3px; }
+/* 13/09/2026: % de retorno do benchmark no mesmo período, junto do nome
+   dele na legenda - a pedido do Tiago ("mostre ao lado ou onde couber
+   essa porcentagem... +15% CDI, -2% Ibovespa"). Fica aqui (em vez de um
+   elemento novo na página) porque é onde o olho já vai pra identificar
+   qual linha é qual. */
+.chart-legend2 .li-delta{ margin-left:2px; font-family:var(--mono); font-weight:700; }
+.chart-legend2 .li-delta.good{ color:var(--good-ink); }
+.chart-legend2 .li-delta.bad{ color:var(--bad-ink); }
 
 /* ---- Grade "Meus ativos" (Parte 3, 13/09/2026) ----
    .ativo-card é o mesmo padrão de cartão-inteiro-é-link já aplicado aos
@@ -163,3 +183,8 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .ativo-detalhe{ font-size:10.5px; color:var(--ink-faint); margin-top:1px; }
 @media (max-width:900px){ .ativos-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
+/* 13/09/2026: .wrap ficou mais largo (ver shell.css) pra aproveitar
+   telas grandes ("a tela nao usa todo o espaco horizontal") - com mais
+   espaço sobrando, a grade de ativos ganha uma 5ª coluna em vez de
+   cartões esticados à toa. */
+@media (min-width:1300px){ .ativos-grid{ grid-template-columns:repeat(5,1fr); } }

@@ -25,16 +25,16 @@
   <div id="shell-header"></div>
 
   <main hidden>
-    <!-- Fase 2 / Parte 1 (13/09/2026): cards de Índices & Câmbio + hero
-         de Patrimônio (3 visões). O gráfico de Rentabilidade (com
-         seletor de período) e a grade "Meus Ativos" clicável são a
-         próxima parte — ver docs/plano-implementacao.html, Fase 2. -->
+    <!-- Fase 2 (13/09/2026): cards de Índices & Câmbio + resumo de
+         Patrimônio (Total/Longo Prazo/Renda Emergencial, sempre juntos),
+         gráfico de Rentabilidade (com seletor de período) e a grade
+         "Meus Ativos" clicável — ver docs/plano-implementacao.html, Fase 2. -->
 
     <!-- Skeleton de carregamento (13/09/2026) - placeholders no formato do
-         conteúdo real (grade de índices/câmbio + hero de patrimônio) em vez
-         de um spinner central genérico, pra reduzir o "salto" visual quando
-         os dados chegam. Ver o bug de especificidade CSS documentado em
-         inicio.css sobre [hidden] - a mesma regra vale aqui. -->
+         conteúdo real (grade de índices/câmbio + resumo de patrimônio) em
+         vez de um spinner central genérico, pra reduzir o "salto" visual
+         quando os dados chegam. Ver o bug de especificidade CSS documentado
+         em inicio.css sobre [hidden] - a mesma regra vale aqui. -->
     <div class="inicio-loading" id="inicioLoading" aria-hidden="true">
       <span class="skel skel-header"></span>
       <div class="skel-grid">
@@ -63,16 +63,13 @@
         <h2>Minha carteira — situação atual</h2>
         <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
       </div>
-      <div class="filter-tabs" id="visaoTabs" style="margin-bottom:12px">
-        <button class="filter-tab active" type="button" data-visao="total">Total</button>
-        <button class="filter-tab" type="button" data-visao="longoPrazo">Longo Prazo</button>
-        <button class="filter-tab" type="button" data-visao="rendaEmergencial">Renda Emergencial</button>
-      </div>
-      <div id="heroPatrimonio"></div>
+      <!-- 13/09/2026: as 3 divisoes (Total/Longo Prazo/Renda Emergencial)
+           sempre visiveis juntas, sem aba - a pedido do Tiago. Ver
+           renderResumoPatrimonio em pages/inicio.js. -->
+      <div id="resumoPatrimonio"></div>
 
       <div class="area-header" style="margin-top:26px">
         <h2>Rentabilidade</h2>
-        <span class="hint">Total, Longo Prazo e Renda Emergencial - cada um contra seus benchmarks</span>
       </div>
       <div class="filter-tabs" id="periodoTabs" style="margin-bottom:14px">
         <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>

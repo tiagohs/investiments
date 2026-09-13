@@ -12,8 +12,7 @@ import {
   criarTileCambio,
   renderIndicesCambio,
   resolverVisao,
-  renderHero,
-  wireVisaoTabs,
+  renderResumoPatrimonio,
   filtrarHistoricoPorPeriodo,
   normalizarSerieRentabilidade,
   renderGraficoRentabilidade,
@@ -132,7 +131,7 @@ test('renderIndicesCambio() clears previous content before re-rendering', () => 
   assert.match(grid.querySelector('.widget-label').textContent, /Euro/);
 });
 
-// --- resolverVisao / renderHero ----------------------------------------------
+// --- resolverVisao / renderResumoPatrimonio -----------------------------------
 
 const PATRIMONIO_EXEMPLO = {
   total: 147583.80,
@@ -151,45 +150,37 @@ test('resolverVisao() falls back to "total" for an unrecognized visão id', () =
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'algo-inexistente').valor, 147583.80);
 });
 
-test('renderHero() shows the porClasse breakdown only for the "total" visão', () => {
-  const doc = makeDom('<div id="hero"></div>');
-  const hero = doc.getElementById('hero');
+test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de clique nenhum', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, PATRIMONIO_EXEMPLO);
 
-  renderHero(doc, hero, PATRIMONIO_EXEMPLO, 'total');
-  assert.ok(hero.querySelector('.hero-classes'), 'total deveria mostrar o detalhamento por classe');
-
-  renderHero(doc, hero, PATRIMONIO_EXEMPLO, 'longoPrazo');
-  assert.equal(hero.querySelector('.hero-classes'), null, 'Longo Prazo não tem detalhamento por classe na API');
+  const cards = resumo.querySelectorAll('.resumo-card');
+  assert.equal(cards.length, 3, 'Total + Longo Prazo + Renda Emergencial de cara, nenhuma aba pra clicar');
+  assert.match(resumo.textContent, /147\.583/);
+  assert.match(resumo.textContent, /87\.356/);
+  assert.match(resumo.textContent, /60\.227/);
 });
 
-test('renderHero() shows a hint instead of throwing when patrimonio is missing', () => {
-  const doc = makeDom('<div id="hero"></div>');
-  const hero = doc.getElementById('hero');
-  renderHero(doc, hero, null, 'total');
-  assert.match(hero.textContent, /Sem dado/);
+test('renderResumoPatrimonio() mostra o detalhamento por classe só dentro do cartão Total', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, PATRIMONIO_EXEMPLO);
+
+  const cardTotal = resumo.querySelector('.resumo-card-total');
+  assert.ok(cardTotal.querySelector('.resumo-classes'), 'total deveria mostrar o detalhamento por classe');
+
+  const outrosCards = Array.from(resumo.querySelectorAll('.resumo-card')).filter((c) => c !== cardTotal);
+  outrosCards.forEach((card) => {
+    assert.equal(card.querySelector('.resumo-classes'), null, 'Longo Prazo/Renda Emergencial não têm detalhamento por classe na API');
+  });
 });
 
-// --- wireVisaoTabs -----------------------------------------------------------
-
-test('wireVisaoTabs() re-renders the hero for the clicked visão and toggles the active class', () => {
-  const doc = makeDom(`
-    <div class="filter-tabs" id="tabs">
-      <button class="filter-tab active" data-visao="total">Total</button>
-      <button class="filter-tab" data-visao="rendaEmergencial">Renda Emergencial</button>
-    </div>
-    <div id="hero"></div>
-  `);
-  const tabs = doc.getElementById('tabs');
-  const hero = doc.getElementById('hero');
-  renderHero(doc, hero, PATRIMONIO_EXEMPLO, 'total');
-  wireVisaoTabs(doc, tabs, hero, PATRIMONIO_EXEMPLO);
-
-  const botaoRendaEmergencial = tabs.querySelector('[data-visao="rendaEmergencial"]');
-  botaoRendaEmergencial.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-
-  assert.match(hero.querySelector('.hero-value').textContent, /60\.227/);
-  assert.equal(botaoRendaEmergencial.classList.contains('active'), true);
-  assert.equal(tabs.querySelector('[data-visao="total"]').classList.contains('active'), false);
+test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio is missing', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, null);
+  assert.match(resumo.textContent, /Sem dado/);
 });
 
 // --- filtrarHistoricoPorPeriodo / normalizarSerieRentabilidade / gráfico ----
@@ -267,6 +258,18 @@ test('renderGraficoRentabilidade() troca os benchmarks pra CDI+Selic na visão "
   renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'rendaEmergencial', periodoId: '30d', legendaContainer: legenda });
   assert.match(legenda.textContent, /Selic/);
   assert.doesNotMatch(legenda.textContent, /Ibovespa/);
+});
+
+test('renderGraficoRentabilidade() mostra a % de retorno de cada benchmark junto do nome dele na legenda', () => {
+  const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
+  const container = doc.getElementById('chart');
+  const legenda = doc.getElementById('legenda');
+  // patrimonio sobe 1000/dia (base 100000) e indiceCdi sobe 0.1%/dia (base 100) -
+  // ambos com retorno positivo na janela, então a legenda tem que trazer os dois
+  // com a classe "good" (nunca em branco, já que os benchmarks têm histórico completo).
+  renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'total', periodoId: '30d', legendaContainer: legenda });
+  assert.match(legenda.textContent, /CDI\s*\+/, 'CDI deveria vir com uma % positiva ao lado');
+  assert.ok(legenda.querySelector('.li-delta.good'), 'delta positivo usa a mesma cor "good" do resto da UI');
 });
 
 test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há histórico suficiente', () => {
@@ -444,11 +447,7 @@ function makePaginaDom() {
     <div id="inicioConteudo" hidden>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
       <div class="widget-grid" id="indicesCambioGrid"></div>
-      <div class="filter-tabs" id="visaoTabs">
-        <button class="filter-tab active" data-visao="total">Total</button>
-        <button class="filter-tab" data-visao="longoPrazo">Longo Prazo</button>
-      </div>
-      <div id="heroPatrimonio"></div>
+      <div id="resumoPatrimonio"></div>
       <div class="filter-tabs" id="periodoTabs">
         <button class="filter-tab" data-periodo="30d">30 dias</button>
         <button class="filter-tab active" data-periodo="12m">12 meses</button>
@@ -479,7 +478,7 @@ test('montarPaginaInicio() renders every section and hides the loading state on 
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
   assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3); // ibovespa + usd + eur
-  assert.ok(doc.getElementById('heroPatrimonio').querySelector('.hero-value'));
+  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.resumo-value'));
   assert.equal(doc.getElementById('inicioErro').hidden, true);
 });
 

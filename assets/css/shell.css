@@ -106,7 +106,11 @@ body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f
       font-size:14.5px; line-height:1.5; overflow-x:hidden; }
 h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
 .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
-.wrap{ max-width:1080px; margin:0 auto; padding:18px 20px 40px; }
+/* 13/09/2026: 1080px -> 1360px a pedido do Tiago ("a tela nao usa
+   todo o espaco horizontal, utilize-o, pra ter mais espaco pra
+   trabalhar") - mais espaco pras grades de indices/ativos e pros
+   2 cartoes lado a lado de Rentabilidade. */
+.wrap{ max-width:1360px; margin:0 auto; padding:18px 24px 40px; }
 .eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
 svg{ display:block; }
 
