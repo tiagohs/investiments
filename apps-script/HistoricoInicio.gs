@@ -88,6 +88,21 @@
  * Google Sheets, já observada antes).
  */
 
+/**
+ * Correção de 13/09/2026 (Tiago comparou com o Gorilla e reparou que
+ * "desde o início" mostrava +5.726% em vez de algo perto do ~75% real):
+ * historico[i].patrimonio é só valor de mercado, sem noção nenhuma de
+ * quanto foi aporte/retirada/provento recebido - e a Rentabilidade
+ * (inicio.js!normalizarSerieRentabilidade) fazia (valor_hoje/valor_base
+ * - 1), tratando TODO aporte novo como se fosse ganho. Cada item da
+ * série agora também carrega fluxoCaixaPatrimonio/fluxoCaixaLongoPrazo/
+ * fluxoCaixaRendaEmergencial (ver calcularFluxoCaixaDiario_,
+ * FluxoCaixaInicio.gs) - o fluxo líquido do dia, calculado a partir de
+ * Transações/Transações - USA/Transações Renda Fixa/Proventos/Proventos
+ * - USA - que o front-end usa pra montar um retorno "time-weighted"
+ * (TWR) de verdade, neutralizando esse efeito.
+ */
+
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
 var ABA_INDICES_INICIO = 'aux_historico-indices';
 
@@ -122,6 +137,12 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var porDiaRendaFixaTotal = {};   // chave -> soma Valor BRL (todas as posições RF)
   var porDiaRendaEmergencial = {}; // chave -> soma Valor BRL (só Classificação = Renda Emergencial)
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
+  // Câmbio USD/BRL por dia (só existe pra classe USA) - montado na MESMA
+  // passada que lê aux_historico-patrimonio logo abaixo, reaproveitado
+  // por calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) pra converter as
+  // Transações - USA pra R$ sem reler essa aba de novo (ver correção de
+  // 13/09/2026 no cabeçalho do arquivo).
+  var mapaCambioUsd = {};
 
   // 1) aux_historico-patrimonio (Renda Variável: Ações/FIIs/USA)
   var abaPatrimonio = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
@@ -146,7 +167,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // nova (gatilho diário ou backfill manual) — enquanto as 3 contagens
   // não mudarem, o resultado de hoje é idêntico ao de ontem, então pula
   // direto pro cache em vez de reler tudo e refazer o loop de ~2090 dias.
-  var chaveCacheSerie = 'historico_serie_v1_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices;
+  // Contagem das 5 abas-fonte do fluxo de caixa (Transações/Transações -
+  // USA/Transações Renda Fixa/Proventos/Proventos - USA) - ver correção
+  // de 13/09/2026 no cabeçalho do arquivo. Mesmo princípio das outras 3
+  // contagens acima: getLastRow() é barato, e a chave muda sozinha assim
+  // que o Tiago registra um aporte/retirada/provento novo.
+  var contagemFluxoCaixa = contarLinhasFluxoCaixa_(ss);
+
+  // v2 (13/09/2026): mudou o FORMATO do item da série (ganhou os campos
+  // fluxoCaixa*) - bump de versão pra nunca devolver, por engano, um
+  // item cacheado da v1 sem esses campos (o TTL de 6h sozinho demoraria
+  // até 6h pra "descobrir" isso organicamente).
+  var chaveCacheSerie = 'historico_serie_v2_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 
   // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
   // leitura do cache, pra parar de inferir "tá cacheando?" só olhando o
@@ -168,6 +200,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       var chave = chaveDiaISOInicio_(data);
       var valorBrl = Number(linha[7]) || 0;
       porDiaVariavel[chave] = (porDiaVariavel[chave] || 0) + valorBrl;
+      // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.
+      if (linha[2] === 'USA' && typeof linha[6] === 'number' && linha[6]) {
+        mapaCambioUsd[chave] = linha[6];
+      }
     });
   }
 
@@ -211,6 +247,12 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     });
   }
 
+  // Fluxo de caixa líquido diário (aporte/retirada) - ver correção de
+  // 13/09/2026 no cabeçalho do arquivo e em FluxoCaixaInicio.gs. Calculado
+  // aqui (não dentro do loop de dias abaixo) porque é 1 leitura por aba
+  // de origem, não 1 por dia.
+  var fluxoCaixa = calcularFluxoCaixaDiario_(mapaCambioUsd);
+
   var todasAsChaves = Object.keys(porDiaVariavel)
     .concat(Object.keys(porDiaRendaFixaTotal))
     .concat(Object.keys(porDiaIbovespa));
@@ -243,6 +285,12 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var rendaFixaHoje = porDiaRendaFixaTotal[chaveAtual] || 0;
     var rendaEmergencialHoje = porDiaRendaEmergencial[chaveAtual] || 0;
 
+    // Fluxo de caixa líquido do dia (positivo = aporte/entrada, negativo =
+    // retirada/saída) - mesma decomposição Total/Longo Prazo/Renda
+    // Emergencial já usada pro patrimônio em si, logo abaixo.
+    var fluxoTotalHoje = fluxoCaixa.total[chaveAtual] || 0;
+    var fluxoRendaEmergencialHoje = fluxoCaixa.rendaEmergencial[chaveAtual] || 0;
+
     var chaveBcb = formatarDataBcbRF_(dataAtual);
     var fatorCdi = fatoresCdi[chaveBcb];
     var fatorSelic = fatoresSelic[chaveBcb];
@@ -258,7 +306,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       rendaEmergencial: arredondar2Inicio_(rendaEmergencialHoje),
       indiceCdi: arredondar2Inicio_(indiceCdi),
       indiceSelic: arredondar2Inicio_(indiceSelic),
-      ibovespa: ultimoIbovespa
+      ibovespa: ultimoIbovespa,
+      fluxoCaixaPatrimonio: arredondar2Inicio_(fluxoTotalHoje),
+      fluxoCaixaLongoPrazo: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje),
+      fluxoCaixaRendaEmergencial: arredondar2Inicio_(fluxoRendaEmergencialHoje)
     });
 
     dataAtual.setDate(dataAtual.getDate() + 1);

@@ -330,6 +330,61 @@ test('normalizarSerieRentabilidade() sem nenhum valor válido na janela devolve 
   assert.deepEqual(normalizarSerieRentabilidade(janela, 'patrimonio'), [null, null]);
 });
 
+// --- normalizarSerieRentabilidade() com campoFluxo (TWR - correção Gorilla) -
+
+test('normalizarSerieRentabilidade() com campoFluxo NEUTRALIZA um aporte - depósito não aparece como ganho', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 110000, fluxoCaixaPatrimonio: 10000 }, // aporte de 10.000, 0 de ganho orgânico
+    { data: '2026-01-03', patrimonio: 110000, fluxoCaixaPatrimonio: 0 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1]) < 1e-9, `esperado ~0%, veio ${serie[1]}`);
+  assert.ok(Math.abs(serie[2]) < 1e-9, `esperado ~0%, veio ${serie[2]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo NEUTRALIZA uma retirada/venda - não aparece como perda', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 90000, fluxoCaixaPatrimonio: -10000 }, // retirada de 10.000, 0 de perda orgânica
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1]) < 1e-9, `esperado ~0%, veio ${serie[1]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo mede só o ganho ORGÂNICO quando aporte e ganho acontecem juntos', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    // 100.000 * 1,02 + aporte de 10.000 = 112.000 (2% de ganho orgânico + aporte)
+    { data: '2026-01-02', patrimonio: 112000, fluxoCaixaPatrimonio: 10000 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.ok(Math.abs(serie[1] - 2) < 1e-9, `esperado 2%, veio ${serie[1]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo encadeia (compõe) retornos diários em vez de somar', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 110000, fluxoCaixaPatrimonio: 0 }, // +10%
+    { data: '2026-01-03', patrimonio: 121000, fluxoCaixaPatrimonio: 0 }, // +10% de novo
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  // 1,10 * 1,10 - 1 = 0,21 -> 21%, não 20% (10% + 10% somado ingenuamente)
+  assert.ok(Math.abs(serie[2] - 21) < 1e-9, `esperado 21% (composto), veio ${serie[2]}`);
+});
+
+test('normalizarSerieRentabilidade() sem campoFluxo mantém o cálculo antigo (compatibilidade com os benchmarks)', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000 },
+    { data: '2026-01-02', patrimonio: 110000 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1] - 10) < 1e-9);
+});
+
 test('renderGraficoRentabilidade() desenha um <svg> com uma linha principal + 2 benchmarks pra visão "total"', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
@@ -496,6 +551,25 @@ test('renderInfoRentabilidade() mostra o R$ PERDIDO (com sinal de menos, sem dup
   assert.match(textoDelta, /-R\$\s*4\.000,00/, 'perda de R$4.000 (104.000 -> 100.000), sinal único');
   assert.doesNotMatch(textoDelta, /-R\$\s*-/, 'nunca dois sinais de menos juntos');
   assert.equal(container.querySelector('.rentab-card-delta').classList.contains('bad'), true);
+});
+
+test('renderInfoRentabilidade() desconta o fluxo de caixa (aporte) também do R$ ganho, não só da % (correção Gorilla)', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const container = doc.getElementById('info');
+  const historico = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    // +2.000 de ganho orgânico + aporte de 10.000 = 112.000 brutos, mas só 2.000 é ganho de verdade
+    { data: '2026-01-02', patrimonio: 112000, fluxoCaixaPatrimonio: 10000 },
+  ];
+  renderInfoRentabilidade(doc, container, {
+    patrimonio: { total: 112000 },
+    historico,
+    visaoId: 'total',
+    periodoId: 'tudo',
+  });
+  const textoDelta = container.querySelector('.rentab-card-delta').textContent;
+  assert.match(textoDelta, /\+R\$\s*2\.000,00/, 'o aporte de 10.000 não pode contar como ganho - só os 2.000 orgânicos');
+  assert.doesNotMatch(textoDelta, /12\.000,00/, 'não pode mostrar o delta bruto (112.000-100.000) sem descontar o aporte');
 });
 
 test('renderInfoRentabilidade() sem histórico suficiente no período mostra o valor mas nenhuma variação (nunca lança)', () => {

@@ -487,6 +487,16 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
 
 const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo', rendaEmergencial: 'rendaEmergencial' };
 
+/** Campo de fluxo de caixa liquido diario (aporte/retirada/provento, ver
+ * FluxoCaixaInicio.gs) correspondente a cada visao - usado so pra
+ * "neutralizar" a serie do PORTFOLIO em normalizarSerieRentabilidade (TWR),
+ * nunca pros benchmarks (Ibovespa/CDI/Selic nao tem aporte). */
+const CAMPO_FLUXO_POR_VISAO = {
+  total: 'fluxoCaixaPatrimonio',
+  longoPrazo: 'fluxoCaixaLongoPrazo',
+  rendaEmergencial: 'fluxoCaixaRendaEmergencial',
+};
+
 /** Benchmarks por visão - Total/Longo Prazo contra Ibovespa+CDI, Renda
  * Emergencial contra CDI+Selic (decisão registrada em
  * docs/plano-implementacao.html - não compara reserva de emergência com bolsa). */
@@ -505,15 +515,23 @@ const BENCHMARKS_POR_VISAO = {
   ],
 };
 
-/** Primeiro valor numérico válido (não-nulo, finito) e diferente de zero de
- * `campo` em `historico` - zero como base de "% desde o início" dividiria por
- * zero; ibovespa também pode vir null antes do 1º pregão da janela. */
-function primeiroValorValidoInicio_(historico, campo) {
-  for (const item of historico) {
-    const v = item[campo];
-    if (typeof v === 'number' && Number.isFinite(v) && v !== 0) return v;
+/** Índice do primeiro valor numérico válido (não-nulo, finito) e diferente de
+ * zero de `campo` em `historico` - zero como base de "% desde o início"
+ * dividiria por zero; ibovespa também pode vir null antes do 1º pregão da
+ * janela. -1 quando não existe nenhum valor válido. */
+function primeiroIndiceValidoInicio_(historico, campo) {
+  for (let i = 0; i < historico.length; i += 1) {
+    const v = historico[i][campo];
+    if (typeof v === 'number' && Number.isFinite(v) && v !== 0) return i;
   }
-  return null;
+  return -1;
+}
+
+/** Primeiro valor numérico válido de `campo` em `historico` (ver
+ * primeiroIndiceValidoInicio_). */
+function primeiroValorValidoInicio_(historico, campo) {
+  const idx = primeiroIndiceValidoInicio_(historico, campo);
+  return idx === -1 ? null : historico[idx][campo];
 }
 
 /**
@@ -522,15 +540,61 @@ function primeiroValorValidoInicio_(historico, campo) {
  * patrimônio (R$) com um índice (pontos ou curva base 100) na mesma escala.
  * Sem base válida (tudo zero/null na janela), devolve todo mundo null em vez
  * de inventar 0% - renderGraficoRentabilidade trata isso mostrando um aviso.
+ *
+ * 13/09/2026 (correção Gorilla - Tiago comparou nosso "+5.726% desde o
+ * início" com o "+75,63%" do app Gorilla): quando `campoFluxo` é passado (só
+ * pra série do PORTFÓLIO - patrimonio/longoPrazo/rendaEmergencial -, nunca
+ * pros benchmarks, que não têm aporte/retirada), o cálculo vira Retorno
+ * Ponderado no Tempo (TWR) em vez da razão ingênua valor_hoje/valor_base:
+ * cada dia "neutraliza" o fluxo de caixa líquido daquele dia (aporte,
+ * retirada, provento recebido - ver FluxoCaixaInicio.gs, calculado incluindo
+ * câmbio histórico USD/BRL pras ações EUA) antes de medir o retorno do dia, e
+ * os retornos diários são encadeados (compostos), nunca somados. Isso evita
+ * que um aporte apareça como ganho (ou uma retirada/venda como perda) - a
+ * causa raiz do número absurdo. Proventos entram como flow NEGATIVO (ver
+ * FluxoCaixaInicio.gs) de propósito: como `patrimonio` não inclui caixa, um
+ * provento recebido não move o valor bruto do dia, então soma-lo de volta é
+ * o jeito de fazer o dividendo CONTAR como ganho no retorno total (pedido do
+ * Tiago: "incluir proventos também"). Sem campoFluxo, mantém o cálculo antigo
+ * (usado pelos benchmarks, que não têm fluxo de caixa).
  */
-export function normalizarSerieRentabilidade(historico, campo) {
-  const base = primeiroValorValidoInicio_(historico, campo);
-  if (base == null) return historico.map(() => null);
-  return historico.map((item) => {
-    const v = item[campo];
-    if (typeof v !== 'number' || !Number.isFinite(v)) return null;
-    return ((v / base) - 1) * 100;
-  });
+export function normalizarSerieRentabilidade(historico, campo, campoFluxo) {
+  if (!campoFluxo) {
+    const base = primeiroValorValidoInicio_(historico, campo);
+    if (base == null) return historico.map(() => null);
+    return historico.map((item) => {
+      const v = item[campo];
+      if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+      return ((v / base) - 1) * 100;
+    });
+  }
+
+  const idxBase = primeiroIndiceValidoInicio_(historico, campo);
+  if (idxBase === -1) return historico.map(() => null);
+
+  const resultado = new Array(historico.length).fill(null);
+  resultado[idxBase] = 0;
+  let cumulativo = 0;
+  let anterior = historico[idxBase][campo];
+
+  for (let i = idxBase + 1; i < historico.length; i += 1) {
+    const v = historico[i][campo];
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      resultado[i] = null;
+      continue;
+    }
+    if (anterior) {
+      const fluxo = historico[i][campoFluxo] || 0;
+      const retornoDia = (v - fluxo) / anterior - 1;
+      cumulativo = (1 + cumulativo) * (1 + retornoDia) - 1;
+      resultado[i] = cumulativo * 100;
+    } else {
+      resultado[i] = null;
+    }
+    anterior = v;
+  }
+
+  return resultado;
 }
 
 /** Último valor não-nulo de uma série já normalizada ("% desde o início do
@@ -672,9 +736,10 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   }
 
   const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const campoFluxoPrincipal = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
   const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
 
-  const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal);
+  const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal, campoFluxoPrincipal);
   const seriesBenchmark = benchmarks.map((b) => {
     const valores = normalizarSerieRentabilidade(janela, b.campo);
     return { ...b, valores, delta: ultimoValidoDe_(valores) };
@@ -797,20 +862,36 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
   // vale pro historico - o objeto `patrimonio` (Home.gs) usa 'total' pra visão
   // "total", daí reaproveitar resolverVisao (já usado pelo resumo) pro valor atual.
   const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const campoFluxo = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
   const valorAtual = resolverVisao(patrimonio, visaoId).valor;
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
-  const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo) : [];
+  const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo) : [];
   const ultimoValido = ultimoValidoDe_(serieNormalizada);
 
+  // 13/09/2026 (correção Gorilla): o ganho em R$ também precisa descontar o
+  // fluxo de caixa líquido do período (mesma lógica da % acima, TWR) - senão
+  // um aporte de R$ 10.000 no meio do período aparecia como "+R$ 10.000" de
+  // ganho que nunca existiu. Soma o fluxo de todos os dias DEPOIS da base (o
+  // próprio dia-base é o ponto de partida, não conta como fluxo do período) e
+  // desconta do delta bruto (valor final - valor base).
   let ganhoReais = null;
   if (janela.length >= 2) {
-    const base = primeiroValorValidoInicio_(janela, campo);
-    let ultimoBruto = null;
-    for (let i = janela.length - 1; i >= 0; i -= 1) {
-      const v = janela[i][campo];
-      if (typeof v === 'number' && Number.isFinite(v)) { ultimoBruto = v; break; }
+    const idxBase = primeiroIndiceValidoInicio_(janela, campo);
+    if (idxBase !== -1) {
+      const base = janela[idxBase][campo];
+      let ultimoBruto = null;
+      for (let i = janela.length - 1; i >= 0; i -= 1) {
+        const v = janela[i][campo];
+        if (typeof v === 'number' && Number.isFinite(v)) { ultimoBruto = v; break; }
+      }
+      if (ultimoBruto != null) {
+        let somaFluxo = 0;
+        for (let i = idxBase + 1; i < janela.length; i += 1) {
+          somaFluxo += janela[i][campoFluxo] || 0;
+        }
+        ganhoReais = (ultimoBruto - base) - somaFluxo;
+      }
     }
-    if (base != null && ultimoBruto != null) ganhoReais = ultimoBruto - base;
   }
 
   container.innerHTML = `
