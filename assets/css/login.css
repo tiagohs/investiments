@@ -1,16 +1,14 @@
 /**
- * login.css — página de login dedicada. Duas variantes temporárias pra
- * escolher entre (13/09/2026): .login-split (login.html, split-screen
- * ao estilo Vanta) e .login-atmos (login-b.html, card sobre foto
- * cheia). Depois de escolhida uma, a outra seção deste arquivo + seu
- * arquivo .html correspondente saem do repositório.
+ * login.css — página de login dedicada (login.html). Escolhida em
+ * 13/09/2026 entre duas opções visuais: um card com efeito de vidro
+ * (glass) flutuando sobre uma foto em tela cheia (esta) venceu a opção
+ * split-screen ao estilo Vanta, que foi removida do repositório.
  *
- * Tokens/fontes vêm de shell.css (linkado antes deste arquivo em ambas
- * as páginas) - login.css só acrescenta o que é específico da tela de
- * login.
+ * Tokens/fontes vêm de shell.css (linkado antes deste arquivo) -
+ * login.css só acrescenta o que é específico da tela de login.
  */
 
-/* ---- Base + conteúdo do cartão de login (compartilhado pelas duas variantes) ---- */
+/* ---- Base + conteúdo do cartão de login ---- */
 html, body{ height:100%; }
 body.login-body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
       font-size:14.5px; line-height:1.5; }
@@ -32,34 +30,11 @@ body.login-body{ margin:0; background:var(--bg); color:var(--ink); font-family:v
 .login-footnote{ color:var(--ink-faint); font-size:11.5px; margin-top:26px; line-height:1.5; }
 
 @media (prefers-reduced-motion: no-preference){
-  .login-card-content, .login-photo-tagline{ animation:login-rise .5s ease both; }
+  .login-card-content{ animation:login-rise .5s ease both; }
   @keyframes login-rise{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
 }
 
-/* ================= OPÇÃO A — split-screen (login.html) ================= */
-.login-split{ min-height:100vh; display:grid; grid-template-columns:1fr 1fr; }
-.login-split .login-pane{ display:flex; flex-direction:column; padding:28px clamp(24px, 5vw, 72px); }
-.login-split .login-pane-form{ justify-content:center; align-items:flex-start; }
-.login-split .login-photo{ position:relative; overflow:hidden; background:#1B2430; }
-.login-split .login-photo img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
-      opacity:.55; filter:saturate(0.85); }
-.login-split .login-photo::before{ content:''; position:absolute; inset:0;
-      background:linear-gradient(200deg, rgba(42,120,214,.75), rgba(14,21,32,.4) 55%, rgba(14,21,32,.85));
-      mix-blend-mode:multiply; }
-.login-split .login-photo::after{ content:''; position:absolute; inset:0;
-      background:linear-gradient(0deg, rgba(14,21,32,.9), rgba(14,21,32,0) 45%); }
-.login-split .login-photo-tagline{ position:relative; z-index:1; margin-top:auto; color:#fff; max-width:380px; }
-.login-split .login-photo-tagline .eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase;
-      color:rgba(255,255,255,.7); font-weight:600; margin-bottom:8px; }
-.login-split .login-photo-tagline p{ font-family:var(--display); font-size:22px; font-weight:600; line-height:1.35;
-      text-wrap:balance; margin:0; }
-@media (max-width:820px){
-  .login-split{ grid-template-columns:1fr; }
-  .login-split .login-photo{ display:none; }
-  .login-split .login-pane-form{ min-height:100vh; }
-}
-
-/* ================= OPÇÃO B — card atmosférico sobre foto (login-b.html) ================= */
+/* ---- Card atmosférico sobre foto em tela cheia ---- */
 .login-atmos{ min-height:100vh; position:relative; display:flex; align-items:center; justify-content:center;
       padding:20px; overflow:hidden; }
 .login-atmos .login-bg{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
@@ -78,3 +53,8 @@ body.login-body{ margin:0; background:var(--bg); color:var(--ink); font-family:v
 .login-atmos .login-card-content p{ color:rgba(255,255,255,.72); }
 .login-atmos .login-footnote{ color:rgba(255,255,255,.55); text-align:center; }
 .login-atmos .login-gsi-slot{ justify-content:center; }
+
+/* Sem <link rel="stylesheet"> pro Google fazer nada de especial aqui -
+   o botão do GIS (renderButton, ver auth-ui.js) já vem branco/neutro
+   por padrão, que já contrasta bem com o card escuro translúcido. Num
+   fundo muito claro ele precisaria de ajuste; aqui não precisa. */

@@ -1,7 +1,5 @@
 /**
- * pages/login.js — orquestra a página de login dedicada. As duas
- * variantes visuais (login.html / login-b.html, ver docs/) importam
- * este mesmo script - só o HTML/CSS muda entre elas, a lógica é uma só.
+ * pages/login.js — orquestra a página de login dedicada (login.html).
  *
  * Fluxo:
  *  1) Se já existe um token válido (sessão anterior - auth.js!getToken),

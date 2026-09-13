@@ -1,5 +1,5 @@
 // Unit tests for assets/js/pages/login.js - the dedicated login page's
-// logic (shared by both visual variants, login.html/login-b.html).
+// logic (login.html).
 // getTokenImpl/mountAuthGateImpl are injected fakes, same pattern as
 // shell.test.js's setupAuthGate tests - no real sessionStorage, no real
 // Google script.
