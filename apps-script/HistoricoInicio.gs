@@ -101,6 +101,22 @@
  * Transações/Transações - USA/Transações Renda Fixa/Proventos/Proventos
  * - USA - que o front-end usa pra montar um retorno "time-weighted"
  * (TWR) de verdade, neutralizando esse efeito.
+ *
+ * Correção de 13/09/2026 #2 ("quedas fantasma" - depois da correção do
+ * TWR acima, Tiago reparou que o gráfico de "6 meses" tinha vários
+ * trechos caindo até -45/-78% e voltando ao normal poucos dias depois,
+ * sem nada parecido no Gorilla): o forward-fill de Renda Variável era
+ * por DIA (se o dia tinha QUALQUER linha em aux_historico-patrimonio,
+ * usava a soma daquele dia), não por TICKER - então um dia com linha de
+ * só ALGUNS tickers (feriado da B3, onde só Ações EUA operam - ex.:
+ * Tiradentes, 21/04 -, ou uma falha pontual do câmbio USD/BRL no
+ * backfill que deixa Valor BRL em branco só pras Ações EUA daquele dia)
+ * derrubava o total do dia inteiro, em vez de manter congelados só os
+ * tickers sem dado novo. Virou forward-fill por ticker (ver
+ * atualizacoesPorDiaTicker/valorAtualPorTicker, no corpo da função) -
+ * validado reprocessando o histórico real do Tiago: as quedas de -20% a
+ * -78% sumiram todas, sem tocar em nenhum dia com aumento de patrimônio
+ * de verdade.
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -133,7 +149,30 @@ function testarHistoricoInicioDireto() {
 function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  var porDiaVariavel = {};         // chave -> soma Valor BRL (Ações/FIIs/USA)
+  // 13/09/2026 (correção "quedas fantasma" - Tiago comparou com o Gorilla e
+  // viu o gráfico de 6 meses com vários trechos caindo até -45/-78% e
+  // voltando ao normal poucos dias depois, sem nada parecido no Gorilla):
+  // ANTES, essa era uma soma direta por dia (chave -> soma Valor BRL de
+  // TODOS os tickers daquele dia), e o forward-fill (mais abaixo) só
+  // olhava se o dia tinha "alguma" linha em aux_historico-patrimonio,
+  // sem notar quando um dia tem linha de ALGUNS tickers mas não de
+  // outros - dois casos reais disso: (1) feriado da B3 (ex.: Tiradentes,
+  // 21/04) - Ações EUA operam, então o dia "existe" na soma, mas as
+  // ações/FIIs BR não têm linha nenhuma nesse dia (mercado fechado) e
+  // saem inteiras da soma, não só congeladas; (2) o câmbio USD/BRL do
+  // dia falhou no backfill (Sync.gs) só pra ela - o preço em USD veio
+  // certinho, mas Valor BRL fica em branco pra TODAS as ações EUA
+  // naquele dia. Nos dois casos, a soma "existe" (tem linha de outros
+  // tickers), então o forward-fill antigo não entrava em ação e o total
+  // do dia saía artificialmente menor.
+  // Agora guarda o Valor BRL por TICKER por dia (só quando a célula não
+  // está em branco) e o forward-fill roda por ticker (ver
+  // atualizarSomaVariavelDoDia_ no loop principal) - cada ticker sem
+  // linha (ou com câmbio em branco) naquele dia mantém seu ÚLTIMO valor
+  // válido, e só entram na soma do dia os tickers que realmente
+  // mudaram - nunca zera um pedaço inteiro do patrimônio por um gap
+  // pontual de 1 dia num ticker só.
+  var atualizacoesPorDiaTicker = {}; // chave -> { ticker: valorBrl (só quando não está em branco) }
   var porDiaRendaFixaTotal = {};   // chave -> soma Valor BRL (todas as posições RF)
   var porDiaRendaEmergencial = {}; // chave -> soma Valor BRL (só Classificação = Renda Emergencial)
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
@@ -198,8 +237,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       var data = linha[0];
       if (!(data instanceof Date)) return;
       var chave = chaveDiaISOInicio_(data);
-      var valorBrl = Number(linha[7]) || 0;
-      porDiaVariavel[chave] = (porDiaVariavel[chave] || 0) + valorBrl;
+      var ticker = linha[1];
+      // Valor BRL (coluna H) vem em branco ('') quando o câmbio do dia
+      // faltou no backfill pra essa linha (só acontece pra classe USA) -
+      // tratar como "sem dado hoje" (fica de fora, ver comentário acima),
+      // nunca como 0 - Number('') seria 0 e zeraria o ticker inteiro
+      // naquele dia por engano.
+      if (linha[7] !== '' && linha[7] != null) {
+        var valorBrl = Number(linha[7]);
+        if (!isNaN(valorBrl)) {
+          if (!atualizacoesPorDiaTicker[chave]) atualizacoesPorDiaTicker[chave] = {};
+          atualizacoesPorDiaTicker[chave][ticker] = valorBrl;
+        }
+      }
       // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.
       if (linha[2] === 'USA' && typeof linha[6] === 'number' && linha[6]) {
         mapaCambioUsd[chave] = linha[6];
@@ -253,7 +303,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // de origem, não 1 por dia.
   var fluxoCaixa = calcularFluxoCaixaDiario_(mapaCambioUsd);
 
-  var todasAsChaves = Object.keys(porDiaVariavel)
+  var todasAsChaves = Object.keys(atualizacoesPorDiaTicker)
     .concat(Object.keys(porDiaRendaFixaTotal))
     .concat(Object.keys(porDiaIbovespa));
   if (todasAsChaves.length === 0) {
@@ -268,16 +318,37 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var serie = [];
   var indiceCdi = 100;
   var indiceSelic = 100;
-  var ultimoVariavel = 0;
+  // Último Valor BRL conhecido de CADA ticker (Ações/FIIs/USA) - forward-fill
+  // por ticker (ver comentário em atualizacoesPorDiaTicker, acima) - e a soma
+  // corrente deles, que é o que realmente vira "patrimônio de Renda Variável"
+  // do dia. somaVariavelAtual só muda quando um ticker tem uma atualização de
+  // verdade (linha nova, câmbio presente); um ticker sem novidade hoje segue
+  // contribuindo com o valor que já estava somado, nunca some da soma.
+  var valorAtualPorTicker = {};
+  var somaVariavelAtual = 0;
   var ultimoIbovespa = null;
 
   var dataAtual = new Date(primeiraData);
   while (dataAtual <= ultimaData) {
     var chaveAtual = chaveDiaISOInicio_(dataAtual);
 
-    // Renda Variável e Ibovespa: fecham só em dia de pregão, então "carrega"
-    // o último valor conhecido nos fins de semana/feriados.
-    if (chaveAtual in porDiaVariavel) ultimoVariavel = porDiaVariavel[chaveAtual];
+    // Renda Variável: cada ticker fecha só em dia de pregão do SEU mercado
+    // (feriado da B3 não fecha Ações EUA, e vice-versa) - forward-fill por
+    // ticker, não por "o dia teve alguma linha" (ver correção de 13/09/2026
+    // no cabeçalho do arquivo).
+    var atualizacoesHoje = atualizacoesPorDiaTicker[chaveAtual];
+    if (atualizacoesHoje) {
+      for (var tickerAtualizado in atualizacoesHoje) {
+        var valorNovo = atualizacoesHoje[tickerAtualizado];
+        var valorAntigo = valorAtualPorTicker[tickerAtualizado] || 0;
+        somaVariavelAtual += (valorNovo - valorAntigo);
+        valorAtualPorTicker[tickerAtualizado] = valorNovo;
+      }
+    }
+    var ultimoVariavel = somaVariavelAtual;
+
+    // Ibovespa: fecha só em dia de pregão B3, então "carrega" o último valor
+    // conhecido nos fins de semana/feriados.
     if (chaveAtual in porDiaIbovespa) ultimoIbovespa = porDiaIbovespa[chaveAtual];
 
     // Renda Fixa: já vem calculada dia a dia (todo santo dia, sem lacuna),
