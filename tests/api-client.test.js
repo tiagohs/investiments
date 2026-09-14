@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getHome, syncNow, importB3Transactions } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -204,4 +204,63 @@ test('syncNow() stops and reports what it accumulated so far if a round fails ou
   assert.match(result.error, /aba não encontrada/);
   assert.equal(result.rounds, 2);
   assert.deepEqual(result.okList, ['WIZC3']);
+});
+
+test('getDistribuicoesMetas() calls action=distribuicoesMetas as GET', async (t) => {
+  let capturedUrl;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedUrl = url;
+    assert.equal(opts.method, 'GET');
+    return jsonResponse({ ok: true, metas: { rendaPassiva: { meta: 500, mediaUlt12Meses: 368.86, percentualAtingido: 0.7377 } } });
+  });
+
+  const result = await getDistribuicoesMetas('tok');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.metas.rendaPassiva.meta, 500);
+  assert.equal(new URL(capturedUrl).searchParams.get('action'), 'distribuicoesMetas');
+});
+
+test('salvarMetaRendaPassiva() POSTs action + valor as form-urlencoded fields', async (t) => {
+  let capturedBody;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedBody = opts.body;
+    assert.equal(opts.method, 'POST');
+    return jsonResponse({ ok: true });
+  });
+
+  const result = await salvarMetaRendaPassiva('tok', 600);
+
+  assert.equal(result.ok, true);
+  assert.equal(capturedBody.get('action'), 'salvarMetaRendaPassiva');
+  assert.equal(capturedBody.get('token'), 'tok');
+  assert.equal(capturedBody.get('valor'), '600');
+});
+
+test('salvarMetaPatrimonio() forwards only the fields passed in', async (t) => {
+  let capturedBody;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedBody = opts.body;
+    return jsonResponse({ ok: true });
+  });
+
+  await salvarMetaPatrimonio('tok', { extra: 4500, percentualReinvestimento: 0.3 });
+
+  assert.equal(capturedBody.get('action'), 'salvarMetaPatrimonio');
+  assert.equal(capturedBody.get('extra'), '4500');
+  assert.equal(capturedBody.get('percentualReinvestimento'), '0.3');
+  assert.equal(capturedBody.has('rendimentoMedio'), false);
+});
+
+test('salvarMesesRendaEmergencial() POSTs action + meses', async (t) => {
+  let capturedBody;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedBody = opts.body;
+    return jsonResponse({ ok: true });
+  });
+
+  await salvarMesesRendaEmergencial('tok', 8);
+
+  assert.equal(capturedBody.get('action'), 'salvarMesesRendaEmergencial');
+  assert.equal(capturedBody.get('meses'), '8');
 });

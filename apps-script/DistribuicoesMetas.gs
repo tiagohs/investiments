@@ -133,6 +133,28 @@ function handleSalvarMetaRendaPassiva(e) {
 }
 
 /**
+ * doPost, action=salvarMesesRendaEmergencial. Campo de formulário "meses"
+ * (número inteiro de meses de reserva desejados). Grava direto em L11 —
+ * o resto do bloco (média de gastos em K11, meta com margem em M12,
+ * carteira atual em E19) recalcula sozinho.
+ */
+function handleSalvarMesesRendaEmergencial(e) {
+  try {
+    var meses = Number(e.parameter.meses);
+    if (isNaN(meses) || meses <= 0) {
+      return jsonOut({ ok: false, erro: 'meses inválido: ' + e.parameter.meses });
+    }
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dm = ss.getSheetByName('Distribuição e Metas');
+    if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+    dm.getRange('L11').setValue(meses);
+    return jsonOut({ ok: true });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
+}
+
+/**
  * doPost, action=salvarMetaPatrimonio. Campos de formulário opcionais —
  * manda só o(s) que mudou(aram): "extra" (R$), "percentualReinvestimento"
  * e "rendimentoMedio" (ambos como fração 0-1, ex. 0.25 = 25%). Grava só

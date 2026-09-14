@@ -66,6 +66,9 @@ function doPost(e) {
   if (action === 'salvarMetaPatrimonio') {
     return handleSalvarMetaPatrimonio(e);
   }
+  if (action === 'salvarMesesRendaEmergencial') {
+    return handleSalvarMesesRendaEmergencial(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

@@ -145,6 +145,55 @@ export async function syncNow(token, { tickers = null, testOptions = null, onRou
 }
 
 /**
+ * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas).
+ * Primeira fatia traz só `metas` (Renda Passiva/Patrimônio/Renda
+ * Emergencial) — ver apps-script/DistribuicoesMetas.gs. `objetivos` e
+ * `radar` entram numa próxima rodada; o front-end deve tratar os dois
+ * como ausentes por enquanto.
+ *
+ * @return {Promise<Object>} `{ ok, metas: { rendaPassiva: { meta,
+ *   mediaUlt12Meses, percentualAtingido }, patrimonio: { extra,
+ *   percentualReinvestimento, rendimentoMedio, meta, carteiraAtual,
+ *   percentualAtingido }, rendaEmergencial: { mediaGastos, meses, meta,
+ *   carteiraAtual, percentualAtingido, atingida } }, avisos? }` or
+ *   `{ ok:false, etapa, erro }`.
+ */
+export async function getDistribuicoesMetas(token) {
+  return request('GET', 'distribuicoesMetas', token);
+}
+
+/**
+ * Grava a meta mensal de Renda Passiva (action=salvarMetaRendaPassiva).
+ * @param {string} token
+ * @param {number} valor - R$ por mês.
+ */
+export async function salvarMetaRendaPassiva(token, valor) {
+  return request('POST', 'salvarMetaRendaPassiva', token, { valor });
+}
+
+/**
+ * Grava um ou mais dos 3 campos manuais do bloco de Patrimônio
+ * (action=salvarMetaPatrimonio) — passe só o(s) que mudou(aram), os
+ * outros ficam como estavam.
+ * @param {string} token
+ * @param {{extra?: number, percentualReinvestimento?: number, rendimentoMedio?: number}} campos
+ *   percentualReinvestimento e rendimentoMedio são frações 0-1 (0.25 = 25%).
+ */
+export async function salvarMetaPatrimonio(token, campos) {
+  return request('POST', 'salvarMetaPatrimonio', token, campos);
+}
+
+/**
+ * Grava a quantidade de meses de reserva desejados pra Renda Emergencial
+ * (action=salvarMesesRendaEmergencial).
+ * @param {string} token
+ * @param {number} meses
+ */
+export async function salvarMesesRendaEmergencial(token, meses) {
+  return request('POST', 'salvarMesesRendaEmergencial', token, { meses });
+}
+
+/**
  * Runs "importarTransacoesB3" — a single batch, no round logic (unlike
  * syncNow, a batch import never partially times out and resumes).
  *
