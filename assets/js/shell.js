@@ -222,6 +222,94 @@ export function setMainVisible(doc, visible) {
 }
 
 /**
+ * Botão "Atualizar dados" + "Atualizado às HH:MM" + timer automático,
+ * reaproveitado pela Início e por Distribuições e Metas (pedido do
+ * Tiago, 14/09/2026: "poderiam ter algum tipo de timer... coloque um
+ * botão de atualizar"). `aoAtualizar` é o `carregarERedesenhar()` da
+ * própria página — busca de novo e só redesenha depois que os dados
+ * chegam, então os dados atuais continuam na tela o tempo todo; nunca
+ * mostra skeleton de novo (loadingEl só é escondido 1x, nunca reexibido
+ * pelas páginas). Aqui só trocamos o texto do botão pra "Atualizando…"
+ * enquanto a busca está em voo.
+ *
+ * Quem chama já fez a 1ª busca sozinho (mesmo padrão de sempre: buscar
+ * antes de desenhar) — por isso `marcarAtualizado()` existe separado de
+ * `atualizar()`: registra "Atualizado às HH:MM" sem buscar de novo,
+ * pra refletir a carga inicial que já aconteceu.
+ *
+ * Testável: `intervaloMs: 0` desliga o timer automático (evita deixar
+ * um setInterval real pendurado nos testes); `setIntervalImpl`/
+ * `clearIntervalImpl`/`agora` são injetáveis pelo mesmo motivo que o
+ * resto do arquivo (getXImpl em todo lugar).
+ */
+export function mountRefreshControl(doc, container, aoAtualizar, {
+  intervaloMs = 5 * 60 * 1000,
+  setIntervalImpl = typeof setInterval === 'function' ? setInterval : null,
+  clearIntervalImpl = typeof clearInterval === 'function' ? clearInterval : null,
+  agora = () => new Date(),
+} = {}) {
+  if (!container) return { atualizar: async () => {}, marcarAtualizado: () => {}, pararTimer: () => {} };
+  container.innerHTML = '';
+
+  const btn = doc.createElement('button');
+  btn.type = 'button';
+  btn.className = 'refresh-btn';
+  btn.textContent = 'Atualizar dados';
+
+  const status = doc.createElement('span');
+  status.className = 'refresh-status';
+  status.textContent = '';
+
+  container.append(btn, status);
+
+  function registrarAtualizacao_() {
+    const d = agora();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    status.textContent = `Atualizado às ${hh}:${mm}`;
+  }
+
+  let emAndamento = false;
+  async function atualizar() {
+    if (emAndamento) return;
+    emAndamento = true;
+    btn.disabled = true;
+    btn.classList.add('carregando');
+    const textoOriginal = btn.textContent;
+    btn.textContent = 'Atualizando…';
+    try {
+      await aoAtualizar();
+      registrarAtualizacao_();
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('carregando');
+      btn.textContent = textoOriginal;
+      emAndamento = false;
+    }
+  }
+
+  btn.addEventListener('click', atualizar);
+
+  let timer = null;
+  if (intervaloMs > 0 && setIntervalImpl) {
+    timer = setIntervalImpl(atualizar, intervaloMs);
+    // unref: nao deixa esse timer (5 min) segurar o processo Node vivo -
+    // sem isso, `node --test` trava sem imprimir o resumo final, porque um
+    // setInterval real fica pendurado a cada teste que chama
+    // montarPaginaInicio/montarPaginaDistribuicoesMetas de verdade. Guarda
+    // defensiva pro `setIntervalImpl` injetado nos testes (tests/shell.test.js),
+    // que retorna um objeto sem `.unref`.
+    if (timer && typeof timer.unref === 'function') timer.unref();
+  }
+  function pararTimer() {
+    if (timer !== null && clearIntervalImpl) clearIntervalImpl(timer);
+    timer = null;
+  }
+
+  return { atualizar, marcarAtualizado: registrarAtualizacao_, pararTimer };
+}
+
+/**
  * Sends the browser to the dedicated login page, remembering the
  * current path (+ query string) in ?redirect= so login.html can send
  * you right back once you're signed in. win is injectable for tests -

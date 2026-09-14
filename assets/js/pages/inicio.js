@@ -98,6 +98,7 @@
  */
 
 import { getHome } from '../api-client.js';
+import { mountRefreshControl } from '../shell.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
@@ -937,26 +938,49 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
  * necessário porque cada gráfico agora usa a largura REAL do cartão no
  * momento do desenho (ver renderGraficoRentabilidade); sem isso, redimen-
  * sionar a janela deixaria o desenho com a medida antiga.
+ *
+ * 14/09/2026 (botão "Atualizar dados" + timer automático - ver
+ * shell.js!mountRefreshControl): montarPaginaInicio agora pode chamar
+ * esta função várias vezes na vida da página (1 vez por carga de dado
+ * novo), sempre com o MESMO periodoTabsContainer (elemento estático do
+ * HTML, nunca recriado). Só a 1ª chamada liga os listeners de clique e
+ * resize de verdade - guardado em `periodoTabsContainer._graficoEstado`;
+ * chamadas seguintes só atualizam esse estado (patrimonio/historico/
+ * paineis novos) e redesenham, sem religar nada (religar de novo a cada
+ * refresh duplicaria o listener, e cada clique/resize futuro dispararia
+ * o redesenho N vezes). Os listeners já ligados sempre leem o estado
+ * mais recente através do objeto `estado` (nunca duma variável capturada
+ * na 1ª chamada), por isso continuam corretos depois de um refresh.
  */
 export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes' } = {}) {
-  let periodoAtual = periodoInicial;
-
-  function atualizar() {
-    paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer }) => {
-      renderInfoRentabilidade(doc, infoContainer, { patrimonio, historico, visaoId, periodoId: periodoAtual });
-      if (chartContainer) {
-        renderGraficoRentabilidade(doc, chartContainer, { historico, visaoId, periodoId: periodoAtual, legendaContainer });
-      }
-    });
+  if (periodoTabsContainer && periodoTabsContainer._graficoEstado) {
+    const estado = periodoTabsContainer._graficoEstado;
+    estado.patrimonio = patrimonio;
+    estado.historico = historico;
+    estado.paineis = paineis;
+    estado.atualizar();
+    return;
   }
 
+  const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
+
+  estado.atualizar = function atualizar() {
+    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer }) => {
+      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual });
+      if (chartContainer) {
+        renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer });
+      }
+    });
+  };
+
   if (periodoTabsContainer) {
+    periodoTabsContainer._graficoEstado = estado;
     const botoesPeriodo = Array.from(periodoTabsContainer.querySelectorAll('.filter-tab'));
     botoesPeriodo.forEach((botao) => {
       botao.addEventListener('click', () => {
         botoesPeriodo.forEach((b) => b.classList.toggle('active', b === botao));
-        periodoAtual = botao.dataset.periodo;
-        atualizar();
+        estado.periodoAtual = botao.dataset.periodo;
+        estado.atualizar();
       });
     });
   }
@@ -966,11 +990,11 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
     let timerResize = null;
     janela.addEventListener('resize', () => {
       if (timerResize) janela.clearTimeout(timerResize);
-      timerResize = janela.setTimeout(atualizar, 150);
+      timerResize = janela.setTimeout(estado.atualizar, 150);
     });
   }
 
-  atualizar();
+  estado.atualizar();
 }
 
 // ============================================================================
@@ -1135,11 +1159,24 @@ export function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos')
 
 /** Liga as abas de categoria (#filtroAtivosTabs) à re-renderização da grade - ativos já veio inteiro na primeira chamada, nunca busca de novo. */
 export function wireFiltroAtivos(doc, tabsContainer, gridContainer, ativos) {
+  if (!tabsContainer) return;
+  tabsContainer._ativosAtuais = ativos;
+
+  if (tabsContainer._filtroWired) {
+    // Refresh (dado novo) - a aba clicada continua a mesma, só redesenha
+    // a grade com o `ativos` novo, sem religar o clique (ver
+    // wireGraficoRentabilidade acima pro mesmo raciocínio completo).
+    const ativa = tabsContainer.querySelector('.filter-tab.active');
+    renderMeusAtivos(doc, gridContainer, ativos, ativa ? ativa.dataset.classe : 'todos');
+    return;
+  }
+  tabsContainer._filtroWired = true;
+
   const botoes = Array.from(tabsContainer.querySelectorAll('.filter-tab'));
   botoes.forEach((botao) => {
     botao.addEventListener('click', () => {
       botoes.forEach((b) => b.classList.toggle('active', b === botao));
-      renderMeusAtivos(doc, gridContainer, ativos, botao.dataset.classe);
+      renderMeusAtivos(doc, gridContainer, tabsContainer._ativosAtuais, botao.dataset.classe);
     });
   });
 }
@@ -1158,7 +1195,8 @@ export function wireFiltroAtivos(doc, tabsContainer, gridContainer, ativos) {
  * pra qualquer cartão, mesmo depois de trocar de aba.
  */
 export function wireTooltipAtivos(doc, container) {
-  if (!container) return;
+  if (!container || container._tooltipWired) return;
+  container._tooltipWired = true;
   const janela = doc.defaultView;
   const tooltip = doc.createElement('div');
   tooltip.className = 'ativo-tooltip';
@@ -1227,48 +1265,63 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
+  const refreshControlEl = doc.getElementById('refreshControl');
 
-  const resposta = await getHomeImpl(token);
+  async function carregarERedesenhar() {
+    const resposta = await getHomeImpl(token);
 
-  if (loadingEl) loadingEl.hidden = true;
+    if (loadingEl) loadingEl.hidden = true;
 
-  if (!resposta.ok) {
-    if (erroEl) {
-      erroEl.hidden = false;
-      erroEl.textContent = `Não deu pra carregar a Início agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
+    if (!resposta.ok) {
+      if (erroEl) {
+        erroEl.hidden = false;
+        erroEl.textContent = `Não deu pra carregar a Início agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
+      }
+      return;
     }
-    return;
+
+    if (conteudoEl) conteudoEl.hidden = false;
+    if (erroEl) erroEl.hidden = true;
+
+    renderAvisos(doc.getElementById('inicioAvisos'), resposta.avisos);
+    renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
+    renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), {
+      patrimonio: resposta.patrimonio,
+      ativos: resposta.ativos,
+      cambio: resposta.cambio,
+    });
+
+    const PAINEIS_RENTABILIDADE = [
+      { visaoId: 'total', sufixo: 'Total' },
+      { visaoId: 'longoPrazo', sufixo: 'LongoPrazo' },
+      { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial' },
+    ];
+    wireGraficoRentabilidade(doc, {
+      patrimonio: resposta.patrimonio,
+      historico: resposta.historico,
+      periodoTabsContainer: doc.getElementById('periodoTabs'),
+      periodoInicial: 'mes',
+      paineis: PAINEIS_RENTABILIDADE.map(({ visaoId, sufixo }) => ({
+        visaoId,
+        infoContainer: doc.getElementById(`rentabInfo${sufixo}`),
+        chartContainer: doc.getElementById(`rentabChart${sufixo}`),
+        legendaContainer: doc.getElementById(`rentabLegenda${sufixo}`),
+      })),
+    });
+
+    renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
+    wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
+    wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
   }
 
-  if (conteudoEl) conteudoEl.hidden = false;
+  await carregarERedesenhar();
 
-  renderAvisos(doc.getElementById('inicioAvisos'), resposta.avisos);
-  renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
-  renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), {
-    patrimonio: resposta.patrimonio,
-    ativos: resposta.ativos,
-    cambio: resposta.cambio,
-  });
-
-  const PAINEIS_RENTABILIDADE = [
-    { visaoId: 'total', sufixo: 'Total' },
-    { visaoId: 'longoPrazo', sufixo: 'LongoPrazo' },
-    { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial' },
-  ];
-  wireGraficoRentabilidade(doc, {
-    patrimonio: resposta.patrimonio,
-    historico: resposta.historico,
-    periodoTabsContainer: doc.getElementById('periodoTabs'),
-    periodoInicial: 'mes',
-    paineis: PAINEIS_RENTABILIDADE.map(({ visaoId, sufixo }) => ({
-      visaoId,
-      infoContainer: doc.getElementById(`rentabInfo${sufixo}`),
-      chartContainer: doc.getElementById(`rentabChart${sufixo}`),
-      legendaContainer: doc.getElementById(`rentabLegenda${sufixo}`),
-    })),
-  });
-
-  renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
-  wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
-  wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
+  // Botão "Atualizar dados" + timer automático (5 em 5 min - pedido do
+  // Tiago, 14/09/2026). carregarERedesenhar busca de novo e só redesenha
+  // depois que os dados chegam (nunca reexibe o skeleton), e
+  // wireGraficoRentabilidade/wireFiltroAtivos/wireTooltipAtivos (acima)
+  // agora são idempotentes - religar não duplica listener, só atualiza o
+  // que está na tela com o dado novo. marcarAtualizado() só registra o
+  // horário da carga inicial que já aconteceu, sem buscar de novo.
+  mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).marcarAtualizado();
 }

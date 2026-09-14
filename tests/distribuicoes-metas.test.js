@@ -736,6 +736,146 @@ test('renderRadarOportunidades() mostra aviso quando a tabela ativa não tem ite
   assert.match(container.textContent, /Nenhum ativo/);
 });
 
+// 14/09/2026 (rodada de feedback): Desconto P/VP e P/L viraram coluna,
+// Ranking/Preço-teto/linha "Aguardar" ganharam destaque visual, e o
+// tooltip do Ativo/badges/ícone "i" passaram de `title` nativo pra um
+// tooltip por Pointer Events (funciona em toque, não só mouse — ver
+// wirePointerTooltipRadar_ no arquivo de origem).
+
+test('renderRadarOportunidades() mostra as colunas de Desconto sobre P/VP e P/L com o cabeçalho certo', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const rotulos = Array.from(container.querySelectorAll('.radar-th-btn')).map((b) => b.textContent);
+  assert.ok(rotulos.some((r) => r.includes('Desc. P/VP')));
+  assert.ok(rotulos.some((r) => r.includes('Desc. P/L')));
+});
+
+test('renderRadarOportunidades(): célula de Desconto mostra o resumo (antes do "(") como badge, com o texto completo no dataset.tooltip', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  // WIZC3 (ranking 1, 1ª linha por default): descontoPvp '169% (1,69 P/VP)'.
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const badgePvp = primeiraLinha.querySelector('.radar-desconto-badge');
+  assert.equal(badgePvp.textContent, '169%');
+  assert.equal(badgePvp.dataset.tooltip, '169% (1,69 P/VP)');
+  assert.equal(badgePvp.classList.contains('radar-info-alvo'), true);
+});
+
+test('renderRadarOportunidades(): Desconto sobre P/L "—" (sem badge/tooltip) quando a planilha não tem esse dado', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linhaGprk = container.querySelector('.radar-table tbody tr'); // só tem 1 item nessa tabela no fixture
+  const colunas = Array.from(linhaGprk.children).map((td) => td.textContent.trim());
+  assert.ok(colunas.includes('—'));
+  assert.equal(linhaGprk.querySelectorAll('.radar-desconto-badge').length, 1); // só o de P/VP, P/L é '—'
+});
+
+test('renderRadarOportunidades(): Ranking tem badge próprio e Preço-teto fica com classe de destaque (negrito)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const badgeRank = primeiraLinha.querySelector('.radar-rank-badge');
+  assert.equal(badgeRank.textContent, '1');
+  assert.match(primeiraLinha.querySelector('.radar-preco-teto').textContent, /10,00/); // formatBRL usa espaço não-quebrável entre "R$" e o número
+});
+
+test('renderRadarOportunidades(): linha com Viés "Aguardar" ganha a classe radar-linha-aguardar; "Comprar" não', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, Comprar
+  assert.equal(primeiraLinha.classList.contains('radar-linha-aguardar'), false);
+
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linhaGprk = container.querySelector('.radar-table tbody tr'); // GPRK, Aguardar
+  assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), true);
+});
+
+test('renderRadarOportunidades(): R$ investir/resgatar ganha um ícone "i" com "Nova carteira" no dataset.tooltip', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, novaCarteira: 5869.89
+  const icone = primeiraLinha.querySelector('.radar-info-icon');
+  assert.ok(icone);
+  assert.match(icone.dataset.tooltip, /Nova carteira/);
+  assert.match(icone.dataset.tooltip, /5\.869,89/);
+});
+
+test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o tooltip com Preço médio e % de diferença (funciona em toque, não só title)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const celulaAtivo = container.querySelector('.radar-table tbody tr td'); // 1ª célula = ranking, mas o alvo certo é a 2ª
+  const celulaAtivoReal = container.querySelectorAll('.radar-table tbody tr td')[1];
+  assert.equal(celulaAtivoReal.classList.contains('radar-info-alvo'), true);
+
+  celulaAtivoReal.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 50, clientY: 50, bubbles: true }));
+  const tooltip = doc.querySelector('.radar-tooltip');
+  assert.equal(tooltip.hidden, false);
+  assert.match(tooltip.textContent, /Preço médio/);
+  assert.match(tooltip.textContent, /Diferença vs\. meta/);
+
+  container.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, true);
+});
+
+test('renderRadarOportunidades(): redesenhar o mesmo container (ex.: depois de "Atualizar dados") não duplica o tooltip nem os listeners', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // simula um 2º carregamento
+  assert.equal(doc.querySelectorAll('.radar-tooltip').length, 1);
+});
+
+test('renderRadarOportunidades(): célula do Ativo mostra o logo (assets/imgs/, via logos-ativos.js) quando o ticker tem um mapeado', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, tem logo em assets/imgs/acoes/WIZC3.png
+  const logo = primeiraLinha.querySelector('.radar-logo');
+  assert.ok(logo);
+  assert.equal(logo.classList.contains('radar-logo-fallback'), false);
+  assert.match(logo.querySelector('img').src, /WIZC3\.png$/);
+  assert.match(primeiraLinha.querySelectorAll('.radar-table tbody tr td, td')[1]?.textContent || primeiraLinha.children[1].textContent, /WIZC3/);
+});
+
+test('renderRadarOportunidades(): sem logo mapeado (ou se a imagem falha ao carregar) cai no círculo com as iniciais do ticker', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const semLogo = {
+    acoesNacionais: {
+      itens: [{ ...RADAR_EXEMPLO.acoesNacionais.itens[1], ativo: 'ZZZZ9', linha: 99 }],
+      total: {},
+    },
+    acoesInternacionais: { itens: [], total: {} },
+    fiis: { itens: [], total: {} },
+  };
+  renderRadarOportunidades(doc, container, semLogo);
+  const logo = container.querySelector('.radar-logo');
+  assert.equal(logo.classList.contains('radar-logo-fallback'), true);
+  assert.equal(logo.textContent, 'ZZ');
+  assert.equal(logo.querySelector('img'), null);
+});
+
+test('renderRadarOportunidades(): imagem do logo que falha ao carregar (evento "error") também cai no círculo de iniciais', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3
+  const img = primeiraLinha.querySelector('.radar-logo img');
+  img.dispatchEvent(new doc.defaultView.Event('error'));
+  const logo = primeiraLinha.querySelector('.radar-logo');
+  assert.equal(logo.classList.contains('radar-logo-fallback'), true);
+  assert.equal(logo.textContent, 'WI');
+  assert.equal(logo.querySelector('img'), null);
+});
+
 
 // --- montarPaginaDistribuicoesMetas ------------------------------------------------------
 

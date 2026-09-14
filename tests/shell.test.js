@@ -19,6 +19,7 @@ import {
   renderSyncStatus,
   carregarStatusSync,
   mountShell,
+  mountRefreshControl,
 } from '../assets/js/shell.js';
 
 const SHELL_PARTIAL_HTML = `
@@ -498,4 +499,115 @@ test('mountShell() still registers the service worker even when the shell fetch 
   });
 
   assert.equal(registeredWith, 'fake://sw.js');
+});
+
+// --- mountRefreshControl -------------------------------------------------------
+// Pedido do Tiago (14/09/2026): botão de atualizar + "atualizado às HH:MM" +
+// timer automático, reaproveitado pela Início e por Distribuições e Metas.
+// Clicar não pode mostrar skeleton de novo — por isso o teste central aqui é
+// que os dados atuais nunca somem: quem chama (a própria página) é quem
+// decide o que redesenhar dentro de `aoAtualizar`, este módulo só cuida do
+// botão/status/timer.
+
+test('mountRefreshControl() desenha o botão "Atualizar dados" e chama aoAtualizar ao clicar, registrando o horário', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamadas = 0;
+  const aoAtualizar = async () => { chamadas += 1; };
+  const agoraFixo = () => new Date(2026, 8, 14, 9, 5);
+
+  mountRefreshControl(doc, container, aoAtualizar, { intervaloMs: 0, agora: agoraFixo });
+
+  const btn = container.querySelector('.refresh-btn');
+  assert.equal(btn.textContent, 'Atualizar dados');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadas, 1);
+  assert.match(container.querySelector('.refresh-status').textContent, /Atualizado às 09:05/);
+});
+
+test('mountRefreshControl(): botão vira "Atualizando…" e fica desabilitado enquanto aoAtualizar está em voo', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let resolver;
+  const aoAtualizar = () => new Promise((r) => { resolver = r; });
+
+  mountRefreshControl(doc, container, aoAtualizar, { intervaloMs: 0 });
+
+  const btn = container.querySelector('.refresh-btn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(btn.textContent, 'Atualizando…');
+  assert.equal(btn.disabled, true);
+
+  resolver();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(btn.textContent, 'Atualizar dados');
+  assert.equal(btn.disabled, false);
+});
+
+test('mountRefreshControl(): clique duplo enquanto já está atualizando não chama aoAtualizar 2 vezes', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamadas = 0;
+  let resolver;
+  const aoAtualizar = () => { chamadas += 1; return new Promise((r) => { resolver = r; }); };
+
+  mountRefreshControl(doc, container, aoAtualizar, { intervaloMs: 0 });
+
+  const btn = container.querySelector('.refresh-btn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(chamadas, 1);
+  resolver();
+});
+
+test('mountRefreshControl(): marcarAtualizado() registra o horário sem chamar aoAtualizar (reflete a carga inicial que a página já fez)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamadas = 0;
+  const aoAtualizar = async () => { chamadas += 1; };
+  const agoraFixo = () => new Date(2026, 8, 14, 8, 0);
+
+  const controle = mountRefreshControl(doc, container, aoAtualizar, { intervaloMs: 0, agora: agoraFixo });
+  controle.marcarAtualizado();
+
+  assert.equal(chamadas, 0);
+  assert.match(container.querySelector('.refresh-status').textContent, /Atualizado às 08:00/);
+});
+
+test('mountRefreshControl(): liga um timer automático que chama aoAtualizar sozinho, e pararTimer() desliga', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamadas = 0;
+  const aoAtualizar = async () => { chamadas += 1; };
+  const chamadasTimer = [];
+  const setIntervalImpl = (fn, ms) => { chamadasTimer.push(ms); return { fn }; };
+  let limpou = false;
+  const clearIntervalImpl = () => { limpou = true; };
+
+  const controle = mountRefreshControl(doc, container, aoAtualizar, {
+    intervaloMs: 300000,
+    setIntervalImpl,
+    clearIntervalImpl,
+  });
+
+  assert.deepEqual(chamadasTimer, [300000]);
+  controle.pararTimer();
+  assert.equal(limpou, true);
+});
+
+test('mountRefreshControl() sem container não quebra (só devolve no-ops)', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const controle = mountRefreshControl(doc, null, async () => {});
+  await controle.atualizar();
+  controle.pararTimer();
 });

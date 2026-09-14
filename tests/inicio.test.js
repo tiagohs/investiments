@@ -662,6 +662,50 @@ test('wireGraficoRentabilidade() sem periodoInicial explícito usa "mes" (o pill
   assert.notEqual(htmlSemPeriodoInicial, htmlCom12mExplicito);
 });
 
+// 14/09/2026 (botão "Atualizar dados" + timer automático - ver
+// shell.js!mountRefreshControl): montarPaginaInicio agora pode chamar
+// wireGraficoRentabilidade de novo (1x por carga de dado novo) no MESMO
+// periodoTabsContainer - religar teria duplicado o listener de clique/
+// resize. O teste central aqui não é só "não quebra" - é que o clique
+// depois do refresh usa o dado NOVO, não fica preso na 1ª chamada.
+test('wireGraficoRentabilidade() chamada de novo no mesmo periodoTabsContainer (refresh) atualiza com o dado novo sem religar o clique', () => {
+  const doc = makeDom(`
+    <div class="filter-tabs" id="periodoTabs">
+      <button class="filter-tab" data-periodo="30d">30 dias</button>
+      <button class="filter-tab active" data-periodo="12m">12 meses</button>
+    </div>
+    <div id="infoTotal"></div><div id="chartTotal"></div><div id="legendaTotal"></div>
+  `);
+  const periodoTabsContainer = doc.getElementById('periodoTabs');
+  const paineis = [{ visaoId: 'total', infoContainer: doc.getElementById('infoTotal'), chartContainer: doc.getElementById('chartTotal'), legendaContainer: doc.getElementById('legendaTotal') }];
+
+  wireGraficoRentabilidade(doc, {
+    patrimonio: { total: 100000 },
+    historico: gerarHistoricoExemplo(40),
+    periodoTabsContainer,
+    paineis,
+    periodoInicial: '12m',
+  });
+  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /100\.000/);
+
+  // "refresh": patrimônio novo, mesmo container.
+  wireGraficoRentabilidade(doc, {
+    patrimonio: { total: 250000 },
+    historico: gerarHistoricoExemplo(40),
+    periodoTabsContainer,
+    paineis,
+    periodoInicial: '12m',
+  });
+  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /250\.000/, 'a 2ª chamada precisa redesenhar com o patrimônio novo');
+
+  // Clicar no período DEPOIS do refresh também precisa usar o dado novo -
+  // se o clique tivesse ficado preso na 1ª chamada (closure antiga), isso
+  // voltaria a mostrar 100.000.
+  periodoTabsContainer.querySelector('[data-periodo="30d"]')
+    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /250\.000/);
+});
+
 // --- criarAtivoCard / renderMeusAtivos / wireFiltroAtivos -------------------
 
 const ATIVO_ACAO_EXEMPLO = {
@@ -743,6 +787,38 @@ test('wireFiltroAtivos() re-renderiza a grade filtrada e alterna a classe active
 
   assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
   assert.equal(tabs.querySelector('[data-classe="rf"]').classList.contains('active'), true);
+});
+
+test('wireFiltroAtivos() chamada de novo no mesmo tabsContainer (refresh) redesenha com os ativos novos, mantendo a aba ativa, sem religar o clique', () => {
+  const doc = makeDom(`
+    <div class="filter-tabs" id="tabs">
+      <button class="filter-tab" data-classe="todos">Todos</button>
+      <button class="filter-tab active" data-classe="rf">Renda Fixa</button>
+    </div>
+    <div id="grid"></div>
+  `);
+  const tabs = doc.getElementById('tabs');
+  const grid = doc.getElementById('grid');
+  const ativoRfNovo = { ...ATIVO_RF_EXEMPLO, codigo: 'TS-2031' };
+
+  // Mesmo padrão de uso real (montarPaginaInicio): renderMeusAtivos desenha
+  // a grade 1ª vez, wireFiltroAtivos só liga o clique - não redesenha nada
+  // sozinho na 1ª chamada.
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO], 'rf'); // aba "Renda Fixa" já ativa no HTML
+  wireFiltroAtivos(doc, tabs, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO]);
+  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
+
+  // "refresh": ativos novos (RF trocado), mesmo container - continua na
+  // aba ativa (Renda Fixa) e mostra o RF novo, não o antigo.
+  wireFiltroAtivos(doc, tabs, grid, [ATIVO_ACAO_EXEMPLO, ativoRfNovo]);
+  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
+  assert.equal(grid.querySelector('.ativo-card').getAttribute('href'), 'ativo.html?ref=TS-2031&classe=rf');
+
+  // Clicar numa aba DEPOIS do refresh também usa os ativos novos (prova
+  // que o clique não ficou preso na 1ª chamada).
+  tabs.querySelector('[data-classe="todos"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(grid.querySelectorAll('.ativo-card').length, 2);
+  assert.ok(Array.from(grid.querySelectorAll('.ativo-card')).some((c) => c.getAttribute('href').includes('TS-2031')));
 });
 
 // --- wireTooltipAtivos -------------------------------------------------------
@@ -848,6 +924,20 @@ test('wireTooltipAtivos() pointerdown (toque) também mostra a tooltip, e pointe
   assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, true);
 });
 
+test('wireTooltipAtivos() chamada de novo no mesmo container (refresh) não duplica a div de tooltip nem os listeners', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+  wireTooltipAtivos(doc, grid); // simula um refresh (montarPaginaInicio chamando de novo)
+
+  assert.equal(doc.body.querySelectorAll('.ativo-tooltip').length, 1);
+
+  const card = grid.querySelector('.ativo-card');
+  card.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 50, clientY: 50, bubbles: true }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false);
+});
+
 // --- renderAvisos ------------------------------------------------------------
 
 test('renderAvisos() hides the banner when there are no avisos', () => {
@@ -875,6 +965,7 @@ function makePaginaDom() {
     <div class="inicio-loading" id="inicioLoading"></div>
     <div class="inicio-erro" id="inicioErro" hidden></div>
     <div id="inicioConteudo" hidden>
+      <div id="refreshControl"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
       <div class="widget-grid" id="indicesCambioGrid"></div>
       <div id="resumoPatrimonio"></div>
@@ -939,4 +1030,44 @@ test('montarPaginaInicio() surfaces avisos (partial section failure) without hid
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
   assert.equal(doc.getElementById('inicioAvisos').hidden, false);
   assert.match(doc.getElementById('inicioAvisos').textContent, /historico/);
+});
+
+// 14/09/2026 (pedido do Tiago: botão de atualizar + timer, sem mostrar
+// skeleton de novo ao clicar): monta o botão "Atualizar dados" e clicar
+// nele busca de novo (getHomeImpl 2ª vez) e redesenha - sem voltar a
+// mostrar o skeleton (inicioLoading fica escondido o tempo todo depois
+// da 1ª carga) e sem duplicar os widgets (prova que
+// wireGraficoRentabilidade/wireFiltroAtivos/wireTooltipAtivos, chamados
+// de novo dentro de carregarERedesenhar, não religam listener nem
+// tooltip).
+test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenha, sem mostrar o skeleton de novo', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getHomeImpl = async () => {
+    chamadasGet += 1;
+    return {
+      ok: true,
+      patrimonio: { ...PATRIMONIO_EXEMPLO, total: chamadasGet === 1 ? 100000 : 250000 },
+      indices: { ibovespa: { valor: 185600, variacaoDia: -0.9 } },
+      cambio: { usd: 5.09, eur: 5.92 },
+    };
+  };
+
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  assert.equal(chamadasGet, 1);
+  assert.equal(doc.getElementById('inicioLoading').hidden, true);
+  assert.match(doc.getElementById('resumoPatrimonio').textContent, /100\.000/);
+
+  const btn = doc.getElementById('refreshControl').querySelector('.refresh-btn');
+  assert.ok(btn, 'montarPaginaInicio precisa montar o botão de atualizar em #refreshControl');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadasGet, 2);
+  assert.equal(doc.getElementById('inicioLoading').hidden, true, 'skeleton nunca reaparece num refresh');
+  assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3, 'widgets não duplicam');
+  assert.match(doc.getElementById('resumoPatrimonio').textContent, /250\.000/, 'redesenha com o patrimônio novo');
 });

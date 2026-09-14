@@ -49,11 +49,31 @@
  * "Ranking" é o default. Ranking, Preço-teto e "% desejado" são
  * editáveis por ticker (botão "Editar" na linha, grava só essa linha via
  * salvarRadarItem — diferente de Objetivos da Carteira, aqui não tem
- * soma que precise fechar 100%). Preço médio, descontos P/VP e P/L, %
- * de diferença e nova carteira não viram coluna (a tabela já tem gente
- * demais) — ficam num tooltip na célula do Ativo. Ações Internacionais
- * mostra preço atual/teto em USD (formatUSD) — carteira atual e R$
- * investir continuam em BRL, como o resto do app já agrega tudo.
+ * soma que precise fechar 100%). Preço médio e % de diferença ficam num
+ * tooltip na célula do Ativo. Ações Internacionais mostra preço atual/
+ * teto em USD (formatUSD) — carteira atual e R$ investir continuam em
+ * BRL, como o resto do app já agrega tudo.
+ *
+ * 14/09/2026 (rodada de feedback com prints do app de referência —
+ * Suno — e da planilha real): Desconto sobre P/VP e Desconto sobre P/L
+ * viraram colunas de verdade (antes só apareciam no tooltip do Ativo) —
+ * célula mostra o resumo (ex.: "121%") num badge clicável/tocável, e o
+ * texto completo da planilha (ex.: "121% (1,21 P/VP)") aparece na
+ * tooltip ao tocar/passar o mouse — sem cor verde/vermelho automática
+ * por enquanto (não dá pra inferir com segurança a partir só do texto
+ * da célula qual regra o Tiago usa pra "bom"/"ruim" nesses 2 campos;
+ * fica como próxima decisão, não uma adivinhação). R$ investir/resgatar
+ * ganhou um ícone "i" ao lado com o detalhe de Nova carteira. Ranking
+ * ganhou um badge numérico próprio, Preço-teto ficou em negrito, e a
+ * linha inteira fica com fundo amarelo clarinho (--warn-soft) quando o
+ * Viés é "Aguardar" — pra chamar atenção sem precisar ler a coluna.
+ *
+ * Tooltip do Ativo (e os novos badges/ícone) trocaram de `title` nativo
+ * pra um tooltip por Pointer Events (mostrar/esconder em pointermove/
+ * pointerdown/pointerleave), a mesma técnica que `wireTooltipAtivos` já
+ * usa na Início (assets/js/pages/inicio.js) — `title` nativo não
+ * aparece em navegador de celular (sem hover), que é onde o app
+ * realmente é usado; ver wirePointerTooltipRadar_.
  */
 
 import {
@@ -65,6 +85,8 @@ import {
   salvarRadarItem as salvarRadarItemApi,
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD } from '../format.js';
+import { mountRefreshControl } from '../shell.js';
+import { LOGOS_ATIVOS } from '../logos-ativos.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -535,6 +557,8 @@ const COLUNAS_RADAR = [
   { chave: 'precoAtual', rotulo: 'Preço atual', numerica: true },
   { chave: 'precoTeto', rotulo: 'Preço-teto', editavel: true, numerica: true },
   { chave: 'vies', rotulo: 'Viés' },
+  { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true },
+  { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true },
   { chave: 'percentualDesejado', rotulo: '% desejado', editavel: true, numerica: true },
   { chave: 'percentualAtual', rotulo: '% atual', numerica: true },
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
@@ -570,14 +594,113 @@ function formatarCelulaRadar_(item, coluna, chaveTabela) {
   }
 }
 
-/** Tooltip da célula "Ativo" com o detalhe que não cabe na tabela (preço médio, descontos, % de diferença, nova carteira). */
+/** Tooltip da célula "Ativo": preço médio e % de diferença vs. meta (descontos e nova carteira agora têm seu próprio badge/ícone na linha). */
 function tituloLinhaRadar_(item, chaveTabela) {
   const partes = [`Preço médio: ${formatarPrecoRadar_(item.precoMedio, chaveTabela)}`];
-  if (item.descontoPvp) partes.push(`Desconto P/VP: ${item.descontoPvp}`);
-  if (item.descontoPl && item.descontoPl !== 'Indisponivel') partes.push(`Desconto P/L: ${item.descontoPl}`);
   if (typeof item.percentualDiferenca === 'number') partes.push(`Diferença vs. meta: ${formatPercentualPreciso(item.percentualDiferenca)}`);
-  if (typeof item.novaCarteira === 'number') partes.push(`Nova carteira: ${formatBRL(item.novaCarteira)}`);
-  return partes.join(' · ');
+  return partes.join('\n');
+}
+
+/**
+ * "121% (1,21 P/VP)" -> "121%" — o texto antes do primeiro "(" (o
+ * resumo curto que cabe numa coluna). `null`/"Indisponivel" (comum em
+ * Desconto sobre P/L de Ações Internacionais/FIIs, que não têm P/L na
+ * planilha) devolve null pra célula mostrar só "—", sem badge/tooltip.
+ */
+function resumoDesconto_(valor) {
+  if (!valor || valor === 'Indisponivel') return null;
+  const str = String(valor).trim();
+  const idx = str.indexOf('(');
+  return idx > -1 ? str.slice(0, idx).trim() : str;
+}
+
+/**
+ * Tooltip por Pointer Events (funciona em mouse E toque, ao contrário de
+ * `title` nativo — ver o comentário no topo do arquivo). Delegado no
+ * `container` estável (radarOportunidadesGrid, nunca recriado — só o
+ * conteúdo dentro dele é trocado a cada redesenho/troca de aba), pra
+ * qualquer elemento marcado `.radar-info-alvo` com `dataset.tooltip`
+ * preenchido: célula do Ativo, badges de desconto, ícone "i" de R$
+ * investir. Guardado por `container._radarTooltipWired` pra nunca ligar
+ * 2 vezes no mesmo container (ex.: depois de "Atualizar dados" chamar
+ * renderRadarOportunidades de novo).
+ */
+function wirePointerTooltipRadar_(doc, container) {
+  if (!container || container._radarTooltipWired) return;
+  container._radarTooltipWired = true;
+
+  const janela = doc.defaultView;
+  const tooltip = doc.createElement('div');
+  tooltip.className = 'radar-tooltip';
+  tooltip.hidden = true;
+  (doc.body || container).appendChild(tooltip);
+
+  function esconder_() {
+    tooltip.hidden = true;
+  }
+
+  function mostrar_(alvo, clientX, clientY) {
+    const texto = alvo.dataset.tooltip;
+    if (!texto) {
+      esconder_();
+      return;
+    }
+    tooltip.textContent = texto;
+    tooltip.hidden = false;
+
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    let esquerda = clientX + 14;
+    let topo = clientY + 14;
+    if (esquerda + tw > larguraJanela - 12) esquerda = clientX - tw - 14;
+    if (topo + th > alturaJanela - 12) topo = clientY - th - 14;
+    tooltip.style.left = `${esquerda}px`;
+    tooltip.style.top = `${topo}px`;
+  }
+
+  function aoMoverOuTocar_(ev) {
+    const alvo = typeof ev.target.closest === 'function' ? ev.target.closest('.radar-info-alvo') : null;
+    if (!alvo) {
+      esconder_();
+      return;
+    }
+    mostrar_(alvo, ev.clientX, ev.clientY);
+  }
+
+  container.addEventListener('pointermove', aoMoverOuTocar_);
+  container.addEventListener('pointerdown', aoMoverOuTocar_);
+  container.addEventListener('pointerleave', esconder_);
+}
+
+/**
+ * Logo redondo do ativo (LOGOS_ATIVOS, gerado por
+ * scripts/gerar-logos-ativos.mjs a partir de assets/imgs/acoes|fiis/ que
+ * o Tiago foi organizando) — quando não tem logo pra esse ticker, ou a
+ * imagem falha ao carregar (`error`), cai num círculo com as 2 primeiras
+ * letras do ticker, sem nunca quebrar a linha.
+ */
+function criarLogoAtivo_(doc, ticker) {
+  const span = doc.createElement('span');
+  span.className = 'radar-logo';
+  const caminho = LOGOS_ATIVOS[ticker];
+  if (!caminho) {
+    span.classList.add('radar-logo-fallback');
+    span.textContent = (ticker || '?').slice(0, 2).toUpperCase();
+    return span;
+  }
+  const img = doc.createElement('img');
+  img.src = caminho;
+  img.alt = '';
+  img.loading = 'lazy';
+  img.addEventListener('error', () => {
+    span.innerHTML = '';
+    span.classList.add('radar-logo-fallback');
+    span.textContent = (ticker || '?').slice(0, 2).toUpperCase();
+  });
+  span.appendChild(img);
+  return span;
 }
 
 function criarBadgeVies_(doc, vies) {
@@ -602,16 +725,57 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
   const tr = doc.createElement('tr');
   tr.className = 'radar-linha';
 
+  if (item.vies === 'Aguardar') tr.classList.add('radar-linha-aguardar');
+
   const celulas = {};
   for (const coluna of colunas) {
     const td = doc.createElement('td');
     if (coluna.numerica) td.classList.add('num');
     if (coluna.chave === 'vies') {
       td.appendChild(criarBadgeVies_(doc, item.vies));
+    } else if (coluna.chave === 'ranking') {
+      td.classList.add('radar-rank');
+      const badge = doc.createElement('span');
+      badge.className = 'radar-rank-badge';
+      badge.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
+      td.appendChild(badge);
+    } else if (coluna.chave === 'precoTeto') {
+      td.classList.add('radar-preco-teto');
+      td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
+    } else if (coluna.chave === 'descontoPvp' || coluna.chave === 'descontoPl') {
+      const resumo = resumoDesconto_(item[coluna.chave]);
+      if (resumo) {
+        const badge = doc.createElement('span');
+        badge.className = 'radar-desconto-badge';
+        badge.textContent = resumo;
+        const detalheCompleto = String(item[coluna.chave]).trim();
+        if (detalheCompleto !== resumo) {
+          badge.classList.add('radar-info-alvo');
+          badge.dataset.tooltip = detalheCompleto;
+        }
+        td.appendChild(badge);
+      } else {
+        td.textContent = '—';
+      }
+    } else if (coluna.chave === 'valorInvestir') {
+      td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      if (typeof item.novaCarteira === 'number') {
+        const info = doc.createElement('span');
+        info.className = 'radar-info-icon radar-info-alvo';
+        info.textContent = 'i';
+        info.dataset.tooltip = `Nova carteira: ${formatBRL(item.novaCarteira)}`;
+        td.appendChild(info);
+      }
+    } else if (coluna.chave === 'ativo') {
+      td.appendChild(criarLogoAtivo_(doc, item.ativo));
+      td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
     } else {
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
     }
-    if (coluna.chave === 'ativo') td.title = tituloLinhaRadar_(item, chaveTabela);
+    if (coluna.chave === 'ativo') {
+      td.classList.add('radar-info-alvo');
+      td.dataset.tooltip = tituloLinhaRadar_(item, chaveTabela);
+    }
     tr.appendChild(td);
     celulas[coluna.chave] = td;
   }
@@ -782,6 +946,8 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem }
   container.innerHTML = '';
   if (!radar) return;
 
+  wirePointerTooltipRadar_(doc, container);
+
   let abaAtiva = 'acoesNacionais';
   let ordenacao = { campo: 'ranking', direcao: 'asc' };
 
@@ -931,6 +1097,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const objetivosContainer = doc.getElementById('objetivosCarteiraGrid');
   const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
+  const refreshControlEl = doc.getElementById('refreshControl');
 
   async function carregarERedesenhar() {
     const resposta = await getDistribuicoesMetasImpl(token);
@@ -985,4 +1152,10 @@ export async function montarPaginaDistribuicoesMetas(token, {
   }
 
   await carregarERedesenhar();
+
+  // Botão "Atualizar dados" + timer automático (5 em 5 min) — reaproveita
+  // carregarERedesenhar (busca de novo, só redesenha depois que os dados
+  // chegam, sem mostrar skeleton de novo). marcarAtualizado() só registra
+  // o horário da carga inicial que acabou de acontecer, sem buscar de novo.
+  mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).marcarAtualizado();
 }
