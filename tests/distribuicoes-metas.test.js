@@ -1057,6 +1057,35 @@ test('renderRadarOportunidades(): redesenhar o mesmo container (ex.: depois de "
   assert.equal(doc.querySelectorAll('.radar-tooltip').length, 1);
 });
 
+// 14/09/2026 ("estilo Suno mobile"): cada <td> ganha data-label (usado
+// só via CSS, content:attr(data-label), no card do celular - ver o
+// media query em distribuicoes-metas.css) e Ranking/Ativo (sempre as 2
+// primeiras colunas) ganham .radar-card-topo pra virarem o "topo" do
+// card em vez de uma linha rótulo:valor comum.
+test('renderRadarOportunidades(): cada célula tem data-label (pro card do mobile) igual ao rótulo da coluna', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const celulas = Array.from(primeiraLinha.children);
+  assert.equal(celulas[0].dataset.label, '#'); // ranking
+  assert.equal(celulas[1].dataset.label, 'Ativo');
+  assert.equal(celulas[3].dataset.label, 'Preço-teto');
+  assert.equal(celulas[5].dataset.label, 'Desc. P/VP');
+});
+
+test('renderRadarOportunidades(): Ranking e Ativo têm a classe radar-card-topo (topo do card no mobile); as outras colunas não', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const celulas = Array.from(primeiraLinha.children);
+  assert.equal(celulas[0].classList.contains('radar-card-topo'), true); // ranking
+  assert.equal(celulas[1].classList.contains('radar-card-topo'), true); // ativo
+  assert.equal(celulas[2].classList.contains('radar-card-topo'), false); // precoAtual
+  assert.equal(celulas[4].classList.contains('radar-card-topo'), false); // vies
+});
+
 test('renderRadarOportunidades(): célula do Ativo mostra o logo (assets/imgs/, via logos-ativos.js) quando o ticker tem um mapeado', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');

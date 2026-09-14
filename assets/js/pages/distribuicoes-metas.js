@@ -839,6 +839,15 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
   for (const coluna of colunas) {
     const td = doc.createElement('td');
     if (coluna.numerica) td.classList.add('num');
+    // data-label: só usado no card do mobile (ver o media query em
+    // distribuicoes-metas.css) — a tabela em tela larga ignora isso
+    // (o cabeçalho <th> já rotula a coluna). Ranking/Ativo viram o
+    // "cabeçalho" do card (radar-card-topo) em vez de linha
+    // label:valor - ver a classe aplicada logo abaixo.
+    td.dataset.label = coluna.rotulo.replace(/\n/g, ' ');
+    if (coluna.chave === 'ranking' || coluna.chave === 'ativo') {
+      td.classList.add('radar-card-topo');
+    }
     if (coluna.chave === 'vies') {
       if (item.vies === 'Comprar') td.classList.add('radar-vies-comprar');
       td.appendChild(criarBadgeVies_(doc, item.vies));
@@ -863,14 +872,20 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
         td.textContent = '—';
       }
     } else if (coluna.chave === 'valorInvestir') {
-      td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      // Envolve valor + ícone num span só (em vez de 2 filhos soltos
+      // na td) - no card do mobile a td vira flex com o rótulo do lado
+      // (justify-content:space-between), então precisa ser 1 item só
+      // do lado do valor, senão o rótulo entraria espremido no meio.
+      const wrap = doc.createElement('span');
+      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
       if (typeof item.novaCarteira === 'number') {
         const info = doc.createElement('span');
         info.className = 'radar-info-icon radar-info-alvo';
         info.textContent = 'i';
         info.dataset.tooltip = `Nova carteira: ${formatBRL(item.novaCarteira)}`;
-        td.appendChild(info);
+        wrap.appendChild(info);
       }
+      td.appendChild(wrap);
     } else if (coluna.chave === 'ativo') {
       td.appendChild(criarLogoAtivo_(doc, item.ativo));
       td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));

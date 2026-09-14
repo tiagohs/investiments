@@ -205,4 +205,48 @@
 .radar-cancelar-btn{ background:transparent; margin-right:6px; }
 .radar-edit-status{ font-size:10.5px; color:var(--ink-faint); }
 
-@media (max-width:640px){ .radar-table{ font-size:11px; } .radar-table th, .radar-table td{ padding:7px 9px; } }
+/**
+ * Radar em telas estreitas (celular, "estilo Suno mobile" - pedido do
+ * Tiago): a tabela não funciona ali (11 colunas + rolagem horizontal é
+ * ruim de usar com o polegar). Em vez de duplicar a lógica de desenho
+ * (criarLinhaRadar_ continua sendo o único gerador de linha, testado
+ * uma vez só), a MESMA <table>/<tr>/<td> vira 1 card por ticker só com
+ * CSS: <thead> some, cada <tr> vira um cartão e cada <td> vira uma
+ * linha "rótulo: valor", com o rótulo puxado do próprio HTML via
+ * `data-label` (setado em criarLinhaRadar_, cópia do `rotulo` de
+ * COLUNAS_RADAR).
+ *
+ * Ranking e Ativo (sempre as 2 primeiras colunas, nessa ordem, em
+ * COLUNAS_RADAR) viram o topo do card, lado a lado, sem rótulo (o
+ * conteúdo já fala por si - um número de ranking e o ticker com logo).
+ * O truque é `flex-wrap:wrap` na <tr> + `flex:0 0 100%` em todo <td>
+ * QUE NÃO for .radar-card-topo — isso força cada célula "normal" a
+ * sempre começar sua própria linha no wrap, enquanto ranking/ativo
+ * (sem essa regra, então largura automática) ficam livres pra sentar
+ * lado a lado na 1ª linha. ATENÇÃO: se a ordem de COLUNAS_RADAR mudar
+ * (ranking/ativo deixarem de ser as 2 primeiras), esse acoplamento
+ * quebra visualmente (mas não quebra os testes, que não checam CSS) -
+ * ajustar aqui também se isso mudar.
+ */
+@media (max-width:640px){
+  .radar-table-wrap{ overflow-x:visible; border:none; box-shadow:none; background:none; }
+  .radar-table{ font-size:12.5px; white-space:normal; }
+  .radar-table thead{ display:none; }
+  .radar-table, .radar-table tbody{ display:block; }
+  .radar-table tbody tr{ display:flex; flex-wrap:wrap; background:var(--surface); border:1px solid var(--border);
+        border-radius:14px; box-shadow:var(--shadow); padding:12px 14px 4px; margin-bottom:10px; }
+  .radar-table tbody tr:last-child{ margin-bottom:0; }
+  .radar-table td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding:8px 0; border-bottom:1px solid var(--border); text-align:right; }
+  .radar-table tr td:last-child{ border-bottom:none; }
+  .radar-table td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
+        letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
+
+  .radar-table td.radar-card-topo{ flex:0 1 auto; justify-content:flex-start; gap:8px; border-bottom:none;
+        padding:0 14px 10px 0; font-weight:700; }
+  .radar-table td.radar-card-topo::before{ content:none; }
+  .radar-table td.radar-card-topo.radar-rank{ padding-right:6px; }
+  .radar-table td.radar-card-topo:nth-of-type(2){ font-size:13.5px; }
+
+  .radar-acoes{ flex-basis:100%; justify-content:flex-end !important; padding-top:10px !important; }
+}
