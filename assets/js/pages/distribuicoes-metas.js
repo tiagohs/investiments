@@ -643,9 +643,13 @@ export function renderSplitInterno(doc, container, { splitsInternos, linksRecome
 
 /**
  * Metadados das colunas da tabela do Radar de oportunidades — mesma
- * lista pras 3 tabelas, "tipo" (Tijolo/Papel/Híbrido) é só dos FIIs.
- * Preço médio, descontos P/VP e P/L, % de diferença e nova carteira NÃO
- * viram coluna — ficam no tooltip da célula do Ativo (ver tituloLinha_).
+ * lista pras 3 tabelas. Preço médio, descontos P/VP e P/L, % de
+ * diferença e nova carteira NÃO viram coluna — ficam no tooltip da
+ * célula do Ativo (ver tituloLinha_). O Tipo do FII (Tijolo/Híbrido/
+ * Papel) também não é mais coluna própria (era só nos FIIs) — virou só
+ * a cor da célula do Ativo + a legenda clicável acima da tabela
+ * (pedido do Tiago, 14/09/2026, 4ª rodada de feedback: "pode remover a
+ * coluna tipo... deixa só a cor").
  */
 const COLUNAS_RADAR = [
   { chave: 'ranking', rotulo: '#', editavel: true, numerica: true },
@@ -660,10 +664,9 @@ const COLUNAS_RADAR = [
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
   { chave: 'valorInvestir', rotulo: 'R$ investir/resgatar', numerica: true },
 ];
-const COLUNA_TIPO_FII = { chave: 'tipo', rotulo: 'Tipo' };
 
-function colunasRadarPara_(chaveTabela) {
-  return chaveTabela === 'fiis' ? [...COLUNAS_RADAR, COLUNA_TIPO_FII] : COLUNAS_RADAR;
+function colunasRadarPara_() {
+  return COLUNAS_RADAR;
 }
 
 /** Preço atual/teto/médio de Ações Internacionais é em USD; o resto (carteira, R$ investir) já vem em BRL, igual às outras 2 tabelas. */
@@ -716,15 +719,27 @@ const LEGENDA_TIPO_FII = [
   { chave: 'hibrido', rotulo: 'Híbrido', imagem: 'assets/imgs/fiis/hibrido.jpg' },
   { chave: 'papel', rotulo: 'Papel', imagem: 'assets/imgs/fiis/papel.png' },
 ];
-function criarLegendaTipoFii_(doc) {
+/**
+ * Legenda de tipo de FII, agora clicável — funciona como filtro
+ * (pedido do Tiago, 14/09/2026, 4ª rodada: "se eu clicar no botão lá
+ * em cima... se eu seleciono tijolo, só mostra os tijolos"). Clicar de
+ * novo no mesmo tipo desliga o filtro (mostra todos de novo); clicar
+ * num tipo diferente troca. `filtroAtivo` marca (classe .active) qual
+ * tipo está filtrando agora, se algum — quem desenha (renderRadarOportunidades)
+ * é quem guarda esse estado, essa função só reflete o que recebe.
+ */
+function criarLegendaTipoFii_(doc, { filtroAtivo, onSelecionar } = {}) {
   const div = doc.createElement('div');
   div.className = 'radar-fii-legenda';
   for (const t of LEGENDA_TIPO_FII) {
-    const item = doc.createElement('span');
+    const item = doc.createElement('button');
+    item.type = 'button';
     item.className = `radar-fii-legenda-item radar-fii-legenda-${t.chave}`;
+    if (filtroAtivo === t.chave) item.classList.add('active');
     item.innerHTML = '<img src="" alt="" /><span></span>';
     item.querySelector('img').src = t.imagem;
     item.querySelector('span').textContent = t.rotulo;
+    item.addEventListener('click', () => onSelecionar && onSelecionar(t.chave));
     div.appendChild(item);
   }
   return div;
@@ -752,7 +767,7 @@ function criarCelulaPctAtualMeta_(doc, item) {
   const pctAtual = Math.max(0, Math.min(typeof item.percentualAtual === 'number' ? item.percentualAtual : 0, 1)) * 100;
   const pctMeta = Math.max(0, Math.min(typeof item.percentualDesejado === 'number' ? item.percentualDesejado : 0, 1)) * 100;
   wrap.innerHTML = `
-    <span class="radar-pct-label"><b></b><span class="radar-pct-meta-label"></span></span>
+    <span class="radar-pct-label"><b></b><span class="radar-pct-meta-label"></span><span class="radar-info-icon">i</span></span>
     <div class="radar-pct-bar">
       <div class="radar-pct-bar-fill" style="width:${pctAtual.toFixed(1)}%"></div>
       <div class="radar-pct-bar-meta" style="left:${pctMeta.toFixed(1)}%"></div>
@@ -1005,6 +1020,15 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
     } else if (coluna.chave === 'ativo') {
       td.appendChild(criarLogoAtivo_(doc, item.ativo));
       td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      // Ícone "i" — a célula inteira já é .radar-info-alvo com tooltip
+      // (preço médio, diferença vs. meta, Segmento/Tipo nos FIIs), mas
+      // isso sozinho não dava nenhuma pista visual de que dava pra
+      // tocar/passar o mouse pra ver mais (pedido do Tiago, 14/09/2026,
+      // 4ª rodada: "tudo que envolver tooltip, coloca o botão i").
+      const infoAtivo = doc.createElement('span');
+      infoAtivo.className = 'radar-info-icon';
+      infoAtivo.textContent = 'i';
+      td.appendChild(infoAtivo);
       // Cor por tipo de FII (pedido do Tiago, 14/09/2026): só na célula
       // do Ativo (desktop) - no card do mobile, essa mesma célula tem
       // .radar-card-topo, e o CSS (:has) espalha a cor pra área do
@@ -1208,6 +1232,12 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
 
   let abaAtiva = 'acoesNacionais';
   let ordenacao = { campo: 'ranking', direcao: 'asc' };
+  // Filtro por Tipo de FII (Tijolo/Híbrido/Papel), ligado à legenda
+  // clicável acima da tabela — null = mostra todos. Só existe pra
+  // FIIs; resetado toda vez que a aba muda (ver o handler das
+  // pill-buttons logo abaixo), pra não deixar um filtro escondido
+  // aplicado quando o Tiago volta pra aba de FIIs depois.
+  let filtroTipoFii = null;
 
   const tabsEl = doc.createElement('div');
   tabsEl.className = 'filter-tabs radar-tabs';
@@ -1227,12 +1257,29 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     if (abaAtiva === 'acoesInternacionais' && typeof radar.cotacaoDolar === 'number') {
       tableContainer.appendChild(criarBannerCotacaoDolar_(doc, radar.cotacaoDolar));
     }
+    let itensExibidos = bloco.itens;
     if (abaAtiva === 'fiis') {
-      tableContainer.appendChild(criarLegendaTipoFii_(doc));
+      tableContainer.appendChild(criarLegendaTipoFii_(doc, {
+        filtroAtivo: filtroTipoFii,
+        onSelecionar: (chave) => {
+          filtroTipoFii = filtroTipoFii === chave ? null : chave;
+          desenhar();
+        },
+      }));
+      if (filtroTipoFii) {
+        itensExibidos = bloco.itens.filter((item) => chaveTipoFii_(item.tipo) === filtroTipoFii);
+      }
+    }
+    if (itensExibidos.length === 0) {
+      const vazioFiltro = doc.createElement('p');
+      vazioFiltro.className = 'hint';
+      vazioFiltro.textContent = 'Nenhum FII desse tipo.';
+      tableContainer.appendChild(vazioFiltro);
+      return;
     }
     tableContainer.appendChild(criarTabelaRadar_(doc, {
       chaveTabela: abaAtiva,
-      itens: bloco.itens,
+      itens: itensExibidos,
       onSalvarItem,
       ordenacao,
       cotacaoDolar: radar.cotacaoDolar,
@@ -1255,6 +1302,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       if (abaAtiva === chave) return;
       abaAtiva = chave;
       ordenacao = { campo: 'ranking', direcao: 'asc' };
+      filtroTipoFii = null;
       desenhar();
       if (onTrocarAba) onTrocarAba(abaAtiva);
     });

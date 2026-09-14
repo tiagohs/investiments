@@ -1023,7 +1023,10 @@ test('renderRadarOportunidades(): R$ investir/resgatar ganha um ícone "i" com "
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, novaCarteira: 5869.89
-  const icone = primeiraLinha.querySelector('.radar-info-icon');
+  // índice 9 = "R$ investir/resgatar" (0 ranking, 1 ativo, ... 8 carteira atual) -
+  // Ativo (1) e "% atual x meta" (7) também ganharam ícone "i" nesta
+  // rodada, então não dá mais pra pegar só o 1º .radar-info-icon da linha.
+  const icone = primeiraLinha.children[9].querySelector('.radar-info-icon');
   assert.ok(icone);
   assert.match(icone.dataset.tooltip, /Nova carteira/);
   assert.match(icone.dataset.tooltip, /5\.869,89/);
@@ -1294,6 +1297,91 @@ test('renderRadarOportunidades(): legenda de tipo de FII aparece só na aba FIIs
   assert.match(legenda.textContent, /Tijolo/);
   assert.match(legenda.textContent, /Híbrido/);
   assert.match(legenda.textContent, /Papel/);
+});
+
+// 14/09/2026 (4ª rodada de feedback): "pode remover a coluna tipo" -
+// deixou de existir coluna própria pro Tipo do FII, só a cor da
+// célula do Ativo + a legenda (clicável, ver os 2 testes seguintes).
+test('renderRadarOportunidades(): não existe mais coluna "Tipo" (nem cabeçalho, nem célula própria) - só a cor da célula do Ativo', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const rotulos = Array.from(container.querySelectorAll('.radar-th-btn')).map((b) => b.textContent);
+  assert.equal(rotulos.includes('Tipo'), false);
+  const linha = container.querySelector('.radar-table tbody tr');
+  assert.equal(Array.from(linha.children).some((td) => td.dataset.label === 'Tipo'), false);
+});
+
+const RADAR_FIIS_3_TIPOS = {
+  acoesNacionais: { itens: [], total: {} },
+  acoesInternacionais: { itens: [], total: {} },
+  fiis: {
+    itens: [
+      { ...RADAR_EXEMPLO.fiis.itens[0], ativo: 'PMLL11', tipo: 'Tijolo' },
+      { ...RADAR_EXEMPLO.fiis.itens[0], linha: 83, ativo: 'TRXF11', tipo: 'Híbrido' },
+      { ...RADAR_EXEMPLO.fiis.itens[0], linha: 84, ativo: 'RECR11', tipo: 'Papel' },
+    ],
+    total: {},
+  },
+};
+
+test('renderRadarOportunidades(): clicar num tipo na legenda filtra a tabela de FIIs; clicar de novo no mesmo tipo volta a mostrar todos', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_FIIS_3_TIPOS);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 3);
+
+  const btnTijolo = container.querySelector('.radar-fii-legenda-tijolo');
+  btnTijolo.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  let linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.equal(linhas.length, 1);
+  assert.match(linhas[0].textContent, /PMLL11/);
+  assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), true);
+
+  // clicar de novo no mesmo tipo desliga o filtro.
+  container.querySelector('.radar-fii-legenda-tijolo').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.equal(linhas.length, 3);
+  assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), false);
+
+  // trocar pra outro tipo troca o filtro (não acumula).
+  container.querySelector('.radar-fii-legenda-hibrido').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.equal(linhas.length, 1);
+  assert.match(linhas[0].textContent, /TRXF11/);
+  assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), false);
+  assert.equal(container.querySelector('.radar-fii-legenda-hibrido').classList.contains('active'), true);
+});
+
+test('renderRadarOportunidades(): trocar de aba reseta o filtro de tipo de FII', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_FIIS_3_TIPOS);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  container.querySelector('.radar-fii-legenda-papel').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 1);
+
+  container.querySelector('[data-tabela="acoesNacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 3);
+  assert.equal(container.querySelector('.radar-fii-legenda-papel').classList.contains('active'), false);
+});
+
+// "Tudo que envolver tooltip, coloca o botão i" (Tiago, 14/09/2026, 4ª
+// rodada) - a célula do Ativo e a barra "% atual x meta" já tinham
+// tooltip (preço médio/diferença vs. meta e Atual/Meta, respectivamente)
+// mas nenhuma pista visual de que dava pra tocar/passar o mouse.
+test('renderRadarOportunidades(): célula do Ativo e a barra "% atual x meta" ganham o ícone "i" (mesmo tooltip de antes, agora com uma pista visual)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const celulaAtivo = primeiraLinha.children[1];
+  assert.ok(celulaAtivo.querySelector('.radar-info-icon'));
+  const celulaPct = primeiraLinha.children[7];
+  assert.ok(celulaPct.querySelector('.radar-pct-wrap .radar-info-icon'));
 });
 
 test('renderRadarOportunidades(): tooltip do Ativo, nos FIIs, acrescenta "Segmento (Tipo)" (ex. "Shopping (Tijolo)")', () => {
