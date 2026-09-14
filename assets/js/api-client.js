@@ -145,6 +145,27 @@ export async function syncNow(token, { tickers = null, testOptions = null, onRou
 }
 
 /**
+ * Runs "sincronizarRendaFixaEIndices" (action=sincronizarRendaFixaEIndices
+ * — ver apps-script/BackfillIndices.gs!handleSincronizarRendaFixaEIndices).
+ * Chamada de UMA rodada só (sem loop de retomada - Renda Fixa/Índices não
+ * tem o mesmo mecanismo de "naoProcessados" de syncNow(), incremental já
+ * é suficiente pra caber numa única execução).
+ *
+ * 14/09/2026: ação SEPARADA de syncNow() de propósito - as duas rodando
+ * dentro da MESMA requisição (tentado e revertido no mesmo dia) estourava
+ * o limite de execução do Apps Script sempre que havia backlog, matando
+ * a sincronização inteira em silêncio. shell.js!setupSyncNowButton chama
+ * as duas em sequência, cada uma na sua própria requisição.
+ *
+ * @param {string} token
+ * @return {Promise<Object>} `{ ok, resultado: { status, detalhe } }` or
+ *   `{ ok:false, etapa, erro }`.
+ */
+export async function syncRendaFixaEIndices(token) {
+  return request('POST', 'sincronizarRendaFixaEIndices', token);
+}
+
+/**
  * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas)
  * — ver apps-script/DistribuicoesMetas.gs pra estrutura completa de
  * cada fatia. Além de `metas`, hoje também traz `objetivos` (split

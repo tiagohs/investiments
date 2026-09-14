@@ -60,6 +60,9 @@ function doPost(e) {
   if (action === 'sincronizarAgora') {
     return handleSincronizarAgora(e);
   }
+  if (action === 'sincronizarRendaFixaEIndices') {
+    return handleSincronizarRendaFixaEIndices(e);
+  }
   if (action === 'salvarMetaRendaPassiva') {
     return handleSalvarMetaRendaPassiva(e);
   }

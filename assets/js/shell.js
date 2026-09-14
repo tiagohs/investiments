@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
-import { getSyncStatus, syncNow } from './api-client.js';
+import { getSyncStatus, syncNow, syncRendaFixaEIndices } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 
@@ -436,7 +436,7 @@ export async function carregarStatusSync(doc, { token, getSyncStatusImpl = getSy
  * (ver carregarStatusSync): uma falha de rede aqui não pode quebrar a
  * página, só deixa o popover sem se atualizar.
  */
-export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, carregarStatusSyncImpl = carregarStatusSync } = {}) {
+export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRendaFixaEIndicesImpl = syncRendaFixaEIndices, carregarStatusSyncImpl = carregarStatusSync } = {}) {
   const button = doc.getElementById('syncNowBtn');
   if (!button || !token) return;
 
@@ -445,15 +445,24 @@ export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, carregar
     const textoOriginal = button.textContent;
     button.disabled = true;
     button.textContent = 'Sincronizando…';
+    // 14/09/2026: as duas chamadas rodam em requisições SEPARADAS de
+    // propósito (uma depois da outra), nunca combinadas numa só - ver o
+    // comentário de syncRendaFixaEIndices (api-client.js) pro motivo.
+    // Cada uma no seu próprio try/catch: uma falhar não pode impedir a
+    // outra de rodar nem deixar o botão travado em "Sincronizando…".
     try {
       await syncNowImpl(token);
     } catch (error) {
-      console.error('shell.js: falha ao sincronizar', error);
-    } finally {
-      await carregarStatusSyncImpl(doc, { token });
-      button.disabled = false;
-      button.textContent = textoOriginal;
+      console.error('shell.js: falha ao sincronizar ações/FIIs/USA', error);
     }
+    try {
+      await syncRendaFixaEIndicesImpl(token);
+    } catch (error) {
+      console.error('shell.js: falha ao sincronizar Renda Fixa/Índices', error);
+    }
+    await carregarStatusSyncImpl(doc, { token });
+    button.disabled = false;
+    button.textContent = textoOriginal;
   });
 }
 

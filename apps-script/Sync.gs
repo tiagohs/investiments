@@ -125,22 +125,23 @@ function handleSincronizarAgora(e) {
       origem = 'Teste';
     }
 
+    // 14/09/2026, revertido no mesmo dia: cheguei a chamar
+    // atualizarRendaFixaEIndicesDiario_ aqui em seguida (mesma requisição),
+    // pra "Sincronizar agora" cobrir tudo numa tacada só - quebrou tudo.
+    // Com o backlog de vários dias que o Tiago tinha, ações/FIIs/USA
+    // sozinho já usa quase todo o orçamento de 4.5-5.5min pensado pra
+    // caber no limite de 6min do Apps Script; somar Renda Fixa/Índices
+    // (+ os retries de comRetry_, até 3x20s cada) por cima estourava esse
+    // limite quase toda vez - matando a execução INTEIRA antes de
+    // gravarRegistroControle_ registrar Renda Fixa/Índices, e sem devolver
+    // resposta nenhuma pro front-end (o loop de retomada automática do
+    // syncNow() nunca tinha chance de continuar de onde parou - cada
+    // clique novo reiniciava ações/FIIs/USA do zero, gastando o orçamento
+    // de novo, sempre no mesmo lugar). Ver Router.gs/BackfillIndices.gs -
+    // agora é uma ação SEPARADA ("sincronizarRendaFixaEIndices"), chamada
+    // pelo front-end (shell.js!setupSyncNowButton) numa requisição própria,
+    // DEPOIS que esta aqui já convergiu sozinha.
     var resultado = atualizarHistorico(origem, tickersEspecificos, opcoes);
-
-    // 14/09/2026: pedido do Tiago - "Sincronizar agora" precisa sincronizar
-    // TUDO (ações/FIIs/USA + Renda Fixa + Índices/CDI/SELIC), não só
-    // ações/FIIs/USA (a Renda Fixa/Índices só rodava sozinha no gatilho
-    // automático das 11h - ver BackfillIndices.gs). Só dispara na 1ª
-    // rodada de uma sincronização de verdade: nunca numa retomada de
-    // "naoProcessados" (tickersEspecificos preenchido - já rodou nesta
-    // mesma sincronização) nem em modo teste (Renda Fixa/Índices não têm
-    // infraestrutura de teste própria, sempre gravariam na planilha real).
-    // Uma falha aqui não derruba o resultado de ações/FIIs/USA, que já
-    // rodou e já foi registrado - fica só dentro de resultado.rendaFixaEIndices.
-    if (!tickersEspecificos && !opcoes) {
-      resultado.rendaFixaEIndices = atualizarRendaFixaEIndicesDiario_('Manual');
-    }
-
     return jsonOut({ ok: true, resultado: resultado });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });

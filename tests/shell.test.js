@@ -300,15 +300,21 @@ test('carregarStatusSync() trata falha (ok:false ou exceção) caindo no estado 
 });
 
 // --- setupSyncNowButton ---------------------------------------------------
+// 14/09/2026: o botao dispara DUAS chamadas SEPARADAS em sequencia -
+// syncNowImpl (acoes/FIIs/USA, com seu proprio loop de retomada) e depois
+// syncRendaFixaEIndicesImpl (Renda Fixa/Indices/CDI/SELIC) - nunca
+// combinadas numa mesma requisicao (ver comentario em api-client.js!
+// syncRendaFixaEIndices pro motivo: combinadas, estourava o limite de
+// execucao do Apps Script sempre que havia backlog).
 
-test('setupSyncNowButton() chama syncNowImpl com o token ao clicar, e recarrega o status ao final', async () => {
+test('setupSyncNowButton() chama as duas sincronizacoes com o token, em sequencia, e recarrega o status ao final', async () => {
   const doc = mountedDoc();
-  let tokenRecebido = null;
-  let statusRecarregado = false;
+  const chamadas = [];
   setupSyncNowButton(doc, {
     token: 'token-abc',
-    syncNowImpl: async (token) => { tokenRecebido = token; return { ok: true }; },
-    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
+    syncNowImpl: async (token) => { chamadas.push(['acoes', token]); return { ok: true }; },
+    syncRendaFixaEIndicesImpl: async (token) => { chamadas.push(['rendaFixaEIndices', token]); return { ok: true }; },
+    carregarStatusSyncImpl: async () => { chamadas.push(['status']); },
   });
 
   const btn = doc.getElementById('syncNowBtn');
@@ -316,17 +322,23 @@ test('setupSyncNowButton() chama syncNowImpl com o token ao clicar, e recarrega 
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
 
-  assert.equal(tokenRecebido, 'token-abc');
-  assert.equal(statusRecarregado, true);
+  assert.deepEqual(chamadas, [
+    ['acoes', 'token-abc'],
+    ['rendaFixaEIndices', 'token-abc'],
+    ['status'],
+  ]);
 });
 
-test('setupSyncNowButton() desabilita o botão e troca o texto enquanto a sincronização está em voo', async () => {
+test('setupSyncNowButton() desabilita o botao e troca o texto enquanto esta em voo, dos dois passos ate o final', async () => {
   const doc = mountedDoc();
-  let resolver;
+  let resolverAcoes;
+  let resolverRendaFixa;
   setupSyncNowButton(doc, {
     token: 'token-abc',
-    syncNowImpl: () => new Promise((r) => { resolver = r; }),
+    syncNowImpl: () => new Promise((r) => { resolverAcoes = r; }),
+    syncRendaFixaEIndicesImpl: () => new Promise((r) => { resolverRendaFixa = r; }),
     carregarStatusSyncImpl: async () => {},
   });
 
@@ -338,7 +350,14 @@ test('setupSyncNowButton() desabilita o botão e troca o texto enquanto a sincro
   assert.equal(btn.disabled, true);
   assert.equal(btn.textContent, 'Sincronizando…');
 
-  resolver({ ok: true });
+  resolverAcoes({ ok: true });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  // ainda em voo - agora no 2º passo (Renda Fixa/Índices)
+  assert.equal(btn.disabled, true);
+
+  resolverRendaFixa({ ok: true });
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -347,13 +366,14 @@ test('setupSyncNowButton() desabilita o botão e troca o texto enquanto a sincro
   assert.equal(btn.textContent, textoOriginal);
 });
 
-test('setupSyncNowButton() clique duplo enquanto já está sincronizando não chama syncNowImpl 2 vezes', async () => {
+test('setupSyncNowButton() clique duplo enquanto ja esta sincronizando nao chama syncNowImpl 2 vezes', async () => {
   const doc = mountedDoc();
   let chamadas = 0;
   let resolver;
   setupSyncNowButton(doc, {
     token: 'token-abc',
     syncNowImpl: () => { chamadas += 1; return new Promise((r) => { resolver = r; }); },
+    syncRendaFixaEIndicesImpl: async () => ({ ok: true }),
     carregarStatusSyncImpl: async () => {},
   });
 
@@ -366,12 +386,36 @@ test('setupSyncNowButton() clique duplo enquanto já está sincronizando não ch
   resolver({ ok: true });
 });
 
-test('setupSyncNowButton() trata falha de syncNowImpl sem lançar, ainda recarregando o status e reabilitando o botão', async () => {
+test('setupSyncNowButton() trata falha de syncNowImpl sem lancar, ainda rodando o passo de Renda Fixa/Indices e recarregando o status', async () => {
   const doc = mountedDoc();
+  let rendaFixaChamada = false;
   let statusRecarregado = false;
   setupSyncNowButton(doc, {
     token: 'token-abc',
     syncNowImpl: async () => { throw new Error('rede caiu'); },
+    syncRendaFixaEIndicesImpl: async () => { rendaFixaChamada = true; return { ok: true }; },
+    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(rendaFixaChamada, true);
+  assert.equal(statusRecarregado, true);
+  assert.equal(btn.disabled, false);
+});
+
+test('setupSyncNowButton() trata falha de syncRendaFixaEIndicesImpl sem lancar, ainda recarregando o status e reabilitando o botao', async () => {
+  const doc = mountedDoc();
+  let statusRecarregado = false;
+  setupSyncNowButton(doc, {
+    token: 'token-abc',
+    syncNowImpl: async () => ({ ok: true }),
+    syncRendaFixaEIndicesImpl: async () => { throw new Error('rede caiu'); },
     carregarStatusSyncImpl: async () => { statusRecarregado = true; },
   });
 
@@ -386,7 +430,7 @@ test('setupSyncNowButton() trata falha de syncNowImpl sem lançar, ainda recarre
   assert.equal(btn.disabled, false);
 });
 
-test('setupSyncNowButton() sem token não liga nada (clicar não chama syncNowImpl)', () => {
+test('setupSyncNowButton() sem token nao liga nada (clicar nao chama syncNowImpl)', () => {
   const doc = mountedDoc();
   let chamado = false;
   setupSyncNowButton(doc, {
@@ -399,7 +443,7 @@ test('setupSyncNowButton() sem token não liga nada (clicar não chama syncNowIm
   assert.equal(chamado, false);
 });
 
-test('setupSyncNowButton() não quebra quando a página não tem #syncNowBtn', () => {
+test('setupSyncNowButton() nao quebra quando a pagina nao tem #syncNowBtn', () => {
   const doc = makeDom();
   assert.doesNotThrow(() => setupSyncNowButton(doc, { token: 'token-abc' }));
 });

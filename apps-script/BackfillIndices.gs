@@ -108,6 +108,28 @@ function handleBackfillIndices(e) {
   }
 }
 
+/**
+ * Handler chamado pelo Router (doPost) — ação SEPARADA de
+ * "sincronizarAgora" (Sync.gs, cuida só de ações/FIIs/USA) de propósito.
+ * 14/09/2026: rodar as duas coisas dentro da MESMA requisição (dentro de
+ * handleSincronizarAgora) foi tentado e revertido no mesmo dia - com um
+ * backlog de vários dias, ações/FIIs/USA sozinho já usa quase todo o
+ * orçamento de tempo pensado pra caber no limite de execução do Apps
+ * Script; somar Renda Fixa/Índices por cima estourava esse limite quase
+ * toda vez, matando a execução inteira em silêncio (ver comentário em
+ * Sync.gs!handleSincronizarAgora). O botão "Sincronizar agora"
+ * (shell.js!setupSyncNowButton) agora chama esta ação numa requisição
+ * própria, DEPOIS que a de ações/FIIs/USA já convergiu sozinha - cada
+ * uma com seu próprio orçamento só pra si.
+ */
+function handleSincronizarRendaFixaEIndices(e) {
+  try {
+    return jsonOut({ ok: true, resultado: atualizarRendaFixaEIndicesDiario_('Manual') });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
+}
+
 /** Roda direto no editor, pra popular CDI/SELIC do zero (rodar 1x depois de colar este arquivo). */
 function rodarBackfillTaxasBcbDireto() {
   Logger.log(JSON.stringify(executarBackfillTaxasBcb_(), null, 2));
