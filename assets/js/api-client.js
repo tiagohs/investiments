@@ -194,6 +194,19 @@ export async function salvarMesesRendaEmergencial(token, meses) {
 }
 
 /**
+ * Grava os "% desejado" de um bloco inteiro de Objetivos da Carteira
+ * (action=salvarObjetivosCarteira) — sempre o bloco todo de uma vez, na
+ * mesma ordem em que getDistribuicoesMetas devolveu os tipos desse
+ * bloco (o back-end grava por posição, não por nome).
+ * @param {string} token
+ * @param {'geral'|'rendaFixa'} bloco
+ * @param {number[]} percentuais - frações 0-1, uma por tipo do bloco, devem somar ~1.
+ */
+export async function salvarObjetivosCarteira(token, bloco, percentuais) {
+  return request('POST', 'salvarObjetivosCarteira', token, { bloco, percentuais: percentuais.join(',') });
+}
+
+/**
  * Runs "importarTransacoesB3" — a single batch, no round logic (unlike
  * syncNow, a batch import never partially times out and resumes).
  *

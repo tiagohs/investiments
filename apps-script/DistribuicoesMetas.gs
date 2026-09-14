@@ -12,11 +12,11 @@
  * handleDistribuicoesMetas.
  *
  * Objetivos da Carteira: a aba "Distribuição e Metas" guarda 2 blocos de
- * distribuição desejada x atual, ambos B:G, só leitura aqui (toda a
- * distribuição é calculada por fórmula a partir da carteira real, não há
- * campo editável nesta seção — os "%  desejado" de cada linha É que são
- * editáveis diretamente na planilha pelo Tiago, mas por enquanto não
- * pedimos pra isso vir com um formulário de edição na tela, só leitura):
+ * distribuição desejada x atual, ambos B:G — % atual, carteira atual,
+ * nova carteira e R$ a investir são fórmula (só leitura aqui). O único
+ * campo editável de verdade é "% desejado" (coluna C de cada linha),
+ * gravado por doPost action=salvarObjetivosCarteira (handler mais abaixo
+ * neste arquivo) — um bloco inteiro por vez, pra manter a soma em 100%:
  *   - B11:G13 — split principal Ações Nacionais e Internacionais / FIIs /
  *     Renda Fixa (título em B8/B9), com totais em E14:G14.
  *   - B19:G20 — split de Renda Fixa em Renda Emergencial / Renda Fixa de
@@ -174,6 +174,62 @@ function montarObjetivosCarteira_() {
 function testarObjetivosCarteiraDireto() {
   var dados = montarObjetivosCarteira_();
   Logger.log(JSON.stringify(dados, null, 2));
+}
+
+/**
+ * doPost, action=salvarObjetivosCarteira. Grava os "% desejado" de um
+ * dos 2 blocos de Objetivos da Carteira (a única coisa editável nessa
+ * seção — % atual, carteira atual, nova carteira e R$ a investir são
+ * fórmula e recalculam sozinhas a partir do % desejado que muda aqui).
+ * Campos do formulário:
+ *   - "bloco": "geral" (Ações Nacionais e Internacionais / FIIs / Renda
+ *     Fixa → grava C11:C13) ou "rendaFixa" (Renda Emergencial / Renda
+ *     Fixa de longo prazo → grava C19:C20).
+ *   - "percentuais": valores separados por vírgula, uma fração (0-1)
+ *     por linha, NA MESMA ORDEM que montarObjetivosCarteira_ devolve
+ *     esse bloco (senão grava o % errado na linha errada).
+ * Valida cada valor (0-1) e que a soma do bloco feche perto de 100%
+ * (margem de 1 ponto percentual, só pra pegar erro de digitação sem
+ * atrapalhar arredondamento normal).
+ */
+function handleSalvarObjetivosCarteira(e) {
+  try {
+    var bloco = e.parameter.bloco;
+    var range;
+    if (bloco === 'geral') {
+      range = 'C11:C13';
+    } else if (bloco === 'rendaFixa') {
+      range = 'C19:C20';
+    } else {
+      return jsonOut({ ok: false, erro: 'bloco inválido: ' + bloco });
+    }
+
+    var percentuaisStr = String(e.parameter.percentuais || '');
+    var percentuais = percentuaisStr.split(',').map(function (s) { return Number(s.trim()); });
+
+    var linhasEsperadas = bloco === 'geral' ? 3 : 2;
+    if (percentuais.length !== linhasEsperadas) {
+      return jsonOut({ ok: false, erro: 'esperava ' + linhasEsperadas + ' valores, recebi ' + percentuais.length });
+    }
+    for (var i = 0; i < percentuais.length; i++) {
+      if (isNaN(percentuais[i]) || percentuais[i] < 0 || percentuais[i] > 1) {
+        return jsonOut({ ok: false, erro: 'percentual inválido (use fração 0-1): ' + percentuaisStr });
+      }
+    }
+    var soma = percentuais.reduce(function (a, b) { return a + b; }, 0);
+    if (Math.abs(soma - 1) > 0.01) {
+      return jsonOut({ ok: false, erro: 'os percentuais desse bloco precisam somar 100% (soma atual: ' + Math.round(soma * 100) + '%)' });
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dm = ss.getSheetByName('Distribuição e Metas');
+    if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+    dm.getRange(range).setValues(percentuais.map(function (v) { return [v]; }));
+
+    return jsonOut({ ok: true });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
 }
 
 /**

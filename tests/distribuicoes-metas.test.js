@@ -87,6 +87,13 @@ test('criarAnelProgresso() trata percentual ausente/inválido como 0%', () => {
   assert.equal(svg.querySelector('text.big').textContent, '0%');
 });
 
+test('criarAnelProgresso() inclui um <title> (tooltip) com o percentual exato, com 2 casas', () => {
+  const doc = makeDom('');
+  const svg = criarAnelProgresso(doc, { percentual: 0.737725, cor: 'var(--usa)' });
+  assert.equal(svg.querySelector('title').textContent, '73,77% da meta');
+});
+
+
 // --- criarCardMeta ------------------------------------------------------
 
 test('criarCardMeta() monta título, badge, stats e o botão Editar', () => {
@@ -205,6 +212,23 @@ test('criarCardMeta(): erro em onSalvar aparece no status e reabilita o botão S
   assert.match(card.querySelector('.goal-edit-status').textContent, /token expirado/);
   assert.equal(card.querySelector('button[type="submit"]').disabled, false);
 });
+
+test('criarCardMeta() põe um tooltip (title) no stat quando o item vem com `title`', () => {
+  const doc = makeDom('');
+  const card = criarCardMeta(doc, {
+    titulo: 'X',
+    percentual: 0.5,
+    cor: 'var(--acoes)',
+    stats: [
+      { k: 'A', v: '1', title: 'explicação de A' },
+      { k: 'B', v: '2' },
+    ],
+  });
+  const statDivs = card.querySelectorAll('.goal-stats > div');
+  assert.equal(statDivs[0].title, 'explicação de A');
+  assert.equal(statDivs[1].title, '');
+});
+
 
 // --- renderMetasCarteira ------------------------------------------------------
 
@@ -349,6 +373,16 @@ test('criarLinhaObjetivo() usa a cor passada em `cor`, senão a do mapa fixo por
   assert.match(comCor.querySelector('.obj-dot').getAttribute('style'), /red/);
 });
 
+test('criarLinhaObjetivo() põe um tooltip (title) na barra com % exato (atual e meta) e o valor em R$', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs
+  const tituloBarra = linha.querySelector('.obj-barra').title;
+  assert.match(tituloBarra, /40,32%/);
+  assert.match(tituloBarra, /35\.648,00/);
+  assert.match(tituloBarra, /40,00%/);
+});
+
+
 // --- criarBlocoObjetivo ------------------------------------------------------
 
 test('criarBlocoObjetivo() monta o título, uma linha por tipo e o total', () => {
@@ -373,6 +407,118 @@ test('criarBlocoObjetivo() omite "pra atingir a meta" no total quando nada falta
   });
   assert.equal(bloco.querySelector('.obj-total-investir'), null);
 });
+
+test('criarBlocoObjetivo() sem blocoId/onSalvarPercentuais não desenha o botão de editar % desejado', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+  });
+  assert.equal(bloco.querySelector('.goal-editar-btn'), null);
+});
+
+test('criarBlocoObjetivo(): "Editar % desejado" revela um input por tipo, pré-preenchido em %', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+    blocoId: 'geral',
+    onSalvarPercentuais: async () => {},
+  });
+  bloco.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = bloco.querySelectorAll('.goal-edit-field input');
+  assert.equal(inputs.length, 3);
+  assert.equal(inputs[0].value, '50');
+  assert.equal(inputs[1].value, '40');
+  assert.equal(inputs[2].value, '10');
+});
+
+test('criarBlocoObjetivo(): salvar chama onSalvarPercentuais(blocoId, [frações]) na mesma ordem dos tipos', async () => {
+  const doc = makeDom('');
+  let chamou;
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+    blocoId: 'geral',
+    onSalvarPercentuais: async (bloco, percentuais) => { chamou = { bloco, percentuais }; },
+  });
+  bloco.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = bloco.querySelectorAll('.goal-edit-field input');
+  inputs[0].value = '55';
+  inputs[1].value = '35';
+  inputs[2].value = '10';
+  bloco.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamou.bloco, 'geral');
+  assert.deepEqual(chamou.percentuais, [0.55, 0.35, 0.1]);
+});
+
+test('criarBlocoObjetivo(): soma diferente de 100% mostra erro e não chama onSalvarPercentuais', async () => {
+  const doc = makeDom('');
+  let chamou = false;
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+    blocoId: 'geral',
+    onSalvarPercentuais: async () => { chamou = true; },
+  });
+  bloco.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = bloco.querySelectorAll('.goal-edit-field input');
+  inputs[0].value = '50';
+  inputs[1].value = '30';
+  inputs[2].value = '10';
+  bloco.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+
+  assert.equal(chamou, false);
+  assert.match(bloco.querySelector('.goal-edit-status').textContent, /somar 100%/);
+});
+
+test('criarBlocoObjetivo(): campo em branco mostra erro e não chama onSalvarPercentuais', async () => {
+  const doc = makeDom('');
+  let chamou = false;
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+    blocoId: 'geral',
+    onSalvarPercentuais: async () => { chamou = true; },
+  });
+  bloco.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = bloco.querySelectorAll('.goal-edit-field input');
+  inputs[0].value = '';
+  bloco.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+
+  assert.equal(chamou, false);
+  assert.match(bloco.querySelector('.goal-edit-status').textContent, /preencha/);
+});
+
+test('criarBlocoObjetivo(): Cancelar esconde o formulário de novo e limpa o status', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'X',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+    blocoId: 'geral',
+    onSalvarPercentuais: async () => {},
+  });
+  bloco.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(bloco.querySelector('form').hidden, false);
+  bloco.querySelector('.goal-edit-acoes button[type="button"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(bloco.querySelector('form').hidden, true);
+  assert.equal(bloco.querySelector('.goal-editar-btn').hidden, false);
+});
+
 
 // --- renderObjetivosCarteira ------------------------------------------------------
 
@@ -404,6 +550,26 @@ test('renderObjetivosCarteira() não quebra quando container é null', () => {
   const doc = makeDom('');
   assert.doesNotThrow(() => renderObjetivosCarteira(doc, null, OBJETIVOS_EXEMPLO));
 });
+
+test('renderObjetivosCarteira() repassa onSalvarPercentuais pros 2 blocos, com o blocoId certo', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const chamadas = [];
+  renderObjetivosCarteira(doc, container, OBJETIVOS_EXEMPLO, {
+    onSalvarPercentuais: async (bloco) => { chamadas.push(bloco); },
+  });
+  const blocos = container.querySelectorAll('.obj-bloco');
+  blocos[0].querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  blocos[0].querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  blocos[1].querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  blocos[1].querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(chamadas, ['geral', 'rendaFixa']);
+});
+
 
 // --- montarPaginaDistribuicoesMetas ------------------------------------------------------
 
@@ -535,4 +701,55 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar não impede tentar de nov
 
   assert.equal(chamadasGet, 1); // não recarregou, porque salvar falhou
   assert.match(rendaEmergencialCard.querySelector('.goal-edit-status').textContent, /meses inválido/);
+});
+
+test('montarPaginaDistribuicoesMetas(): salvar % desejado de um bloco de Objetivos grava e recarrega os dados', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO };
+  };
+  let salvo;
+  const salvarObjetivosCarteiraImpl = async (token, bloco, percentuais) => {
+    salvo = { bloco, percentuais };
+    return { ok: true };
+  };
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarObjetivosCarteiraImpl });
+
+  const blocoGeral = doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco')[0];
+  blocoGeral.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  blocoGeral.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(salvo.bloco, 'geral');
+  assert.equal(chamadasGet, 2); // busca inicial + recarregar após salvar
+});
+
+test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado mostra erro no bloco (sem recarregar)', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO };
+  };
+  const salvarObjetivosCarteiraImpl = async () => ({ ok: false, erro: 'soma inválida' });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarObjetivosCarteiraImpl });
+
+  const blocoGeral = doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco')[0];
+  blocoGeral.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  blocoGeral.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadasGet, 1);
+  assert.match(blocoGeral.querySelector('.goal-edit-status').textContent, /soma inválida/);
 });

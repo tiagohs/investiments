@@ -28,6 +28,17 @@
  * sobrescrever direto. O campo editável de verdade desse card é "meses"
  * (L11). O link/popup pra lista de Despesas Essenciais que o Tiago pediu
  * ainda não entrou nesta rodada — fica como próximo passo.
+ *
+ * 14/09/2026 (3ª fatia, mesmo dia): "% desejado" de cada tipo dentro dos
+ * 2 blocos de Objetivos da Carteira também virou editável (botão "Editar
+ * % desejado" em cada bloco, grava o bloco inteiro de uma vez via
+ * salvarObjetivosCarteira — ver o handler em DistribuicoesMetas.gs pra
+ * por que é o bloco inteiro e não uma linha por vez: a soma das linhas
+ * precisa fechar 100%). Também nessa rodada: tooltips (title) nos
+ * gadgets visuais que arredondam ou resumem um número — anel de
+ * progresso, barra de Objetivos, alguns stats dos cards de Meta —
+ * mostrando o valor exato ou a conta por trás, sem precisar abrir a
+ * planilha pra conferir.
  */
 
 import {
@@ -35,8 +46,9 @@ import {
   salvarMetaRendaPassiva as salvarMetaRendaPassivaApi,
   salvarMetaPatrimonio as salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencial as salvarMesesRendaEmergencialApi,
+  salvarObjetivosCarteira as salvarObjetivosCarteiraApi,
 } from '../api-client.js';
-import { formatBRL } from '../format.js';
+import { formatBRL, formatNumeroBR } from '../format.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -44,6 +56,17 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 export function formatPercentualMeta(fracao) {
   if (typeof fracao !== 'number' || !Number.isFinite(fracao)) return '—';
   return `${Math.round(fracao * 100)}%`;
+}
+
+/**
+ * "73,77%" — mesma fração de formatPercentualMeta, mas com 2 casas. Só
+ * pra tooltip/title: o texto visível sempre arredonda pro inteiro (mais
+ * limpo numa barra/anel pequeno), mas quem passa o mouse/toca-segura
+ * consegue ver o valor exato por trás do arredondamento.
+ */
+function formatPercentualPreciso(fracao) {
+  if (typeof fracao !== 'number' || !Number.isFinite(fracao)) return '—';
+  return `${formatNumeroBR(fracao * 100, 2)}%`;
 }
 
 /**
@@ -102,7 +125,10 @@ export function criarAnelProgresso(doc, { percentual, cor }) {
   textoPequeno.setAttribute('class', 'small');
   textoPequeno.textContent = 'da meta';
 
-  svg.append(g, textoGrande, textoPequeno);
+  const tituloEl = doc.createElementNS(SVG_NS, 'title');
+  tituloEl.textContent = `${formatPercentualPreciso(bruto)} da meta`;
+
+  svg.append(tituloEl, g, textoGrande, textoPequeno);
   return svg;
 }
 
@@ -138,8 +164,9 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
 
   const statsEl = doc.createElement('div');
   statsEl.className = 'goal-stats';
-  for (const { k, v } of stats) {
+  for (const { k, v, title } of stats) {
     const div = doc.createElement('div');
+    if (title) div.title = title;
     const kEl = doc.createElement('div');
     kEl.className = 'k';
     kEl.textContent = k;
@@ -296,7 +323,8 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
 
   linha.querySelector('.obj-pcts b').textContent = formatPercentualMeta(percentualAtual);
   linha.querySelector('.obj-meta-pct').textContent = `meta ${formatPercentualMeta(percentualDesejado)}`;
-  linha.querySelector('.obj-barra-meta').title = `meta: ${formatPercentualMeta(percentualDesejado)}`;
+  linha.querySelector('.obj-barra').title = `Atual: ${formatPercentualPreciso(percentualAtual)} (${formatBRL(carteiraAtual)}) · Meta: ${formatPercentualPreciso(percentualDesejado)}`;
+  linha.querySelector('.obj-barra-meta').title = `Meta: ${formatPercentualPreciso(percentualDesejado)}`;
   linha.querySelector('.obj-valor-atual').textContent = formatBRL(carteiraAtual);
   linha.querySelector('.goal-badge').textContent = faltaInvestir
     ? `faltam ${formatBRL(valorInvestir)}`
@@ -311,7 +339,7 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
  * (carteira atual e, se algum tipo estiver abaixo da meta, quanto
  * precisa entrar no total pra rebalancear).
  */
-export function criarBlocoObjetivo(doc, { titulo, tipos, total } = {}) {
+export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalvarPercentuais } = {}) {
   const bloco = doc.createElement('div');
   bloco.className = 'obj-bloco';
 
@@ -335,11 +363,106 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total } = {}) {
       <span class="obj-total-k">Total investido</span><span class="obj-total-v"></span>
       ${faltaInvestir ? '<span class="obj-total-k">Pra atingir a meta</span><span class="obj-total-v obj-total-investir"></span>' : ''}
     `;
-    totalEl.querySelector('.obj-total-v').textContent = formatBRL(total.carteiraAtual);
+    const totalVEl = totalEl.querySelector('.obj-total-v');
+    totalVEl.textContent = formatBRL(total.carteiraAtual);
+    totalVEl.title = 'Soma da carteira atual de todos os tipos deste bloco.';
     if (faltaInvestir) {
-      totalEl.querySelector('.obj-total-investir').textContent = `+ ${formatBRL(total.valorInvestir)}`;
+      const investirEl = totalEl.querySelector('.obj-total-investir');
+      investirEl.textContent = `+ ${formatBRL(total.valorInvestir)}`;
+      investirEl.title = typeof total.novaCarteira === 'number'
+        ? `Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada. Carteira projetada após o aporte: ${formatBRL(total.novaCarteira)}.`
+        : 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.';
     }
     bloco.appendChild(totalEl);
+  }
+
+  // Editar % desejado — grava o BLOCO INTEIRO de uma vez (nunca uma
+  // linha isolada): a soma dos % desejados de um bloco precisa fechar
+  // 100%, então editar uma linha sem ver as outras deixaria fácil
+  // esquecer de ajustar o resto. Reaproveita as mesmas classes .goal-*
+  // já validadas nos cards de Metas em vez de um padrão visual novo.
+  if (tipos && tipos.length > 0 && blocoId && onSalvarPercentuais) {
+    const editarBtn = doc.createElement('button');
+    editarBtn.type = 'button';
+    editarBtn.className = 'goal-editar-btn';
+    editarBtn.textContent = 'Editar % desejado';
+
+    const form = doc.createElement('form');
+    form.className = 'goal-edit-form';
+    form.hidden = true;
+
+    const inputs = tipos.map((t) => {
+      const campo = doc.createElement('label');
+      campo.className = 'goal-edit-field';
+      const rotulo = doc.createElement('span');
+      rotulo.textContent = t.tipo;
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.step = '0.01';
+      input.value = typeof t.percentualDesejado === 'number' ? Math.round(t.percentualDesejado * 10000) / 100 : '';
+      campo.append(rotulo, input);
+      form.appendChild(campo);
+      return input;
+    });
+
+    const acoes = doc.createElement('div');
+    acoes.className = 'goal-edit-acoes';
+    const salvarBtn = doc.createElement('button');
+    salvarBtn.type = 'submit';
+    salvarBtn.textContent = 'Salvar';
+    const cancelarBtn = doc.createElement('button');
+    cancelarBtn.type = 'button';
+    cancelarBtn.textContent = 'Cancelar';
+    const statusEl = doc.createElement('span');
+    statusEl.className = 'goal-edit-status';
+    acoes.append(salvarBtn, cancelarBtn, statusEl);
+    form.appendChild(acoes);
+
+    editarBtn.addEventListener('click', () => {
+      form.hidden = false;
+      editarBtn.hidden = true;
+    });
+    cancelarBtn.addEventListener('click', () => {
+      form.hidden = true;
+      editarBtn.hidden = false;
+      statusEl.textContent = '';
+    });
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const percentuais = [];
+      for (const input of inputs) {
+        // mesma checagem de criarCardMeta: input.value é '' tanto pro
+        // campo vazio quanto pro texto que o <input type="number"> já
+        // rejeitou sozinho, e Number('') dá 0, não NaN.
+        if (input.value === '') {
+          statusEl.textContent = 'preencha todos os percentuais';
+          return;
+        }
+        const bruto = Number(input.value);
+        if (Number.isNaN(bruto)) {
+          statusEl.textContent = 'percentual inválido';
+          return;
+        }
+        percentuais.push(bruto / 100);
+      }
+      const soma = percentuais.reduce((a, b) => a + b, 0);
+      if (Math.abs(soma - 1) > 0.01) {
+        statusEl.textContent = `os percentuais precisam somar 100% (soma atual: ${Math.round(soma * 100)}%)`;
+        return;
+      }
+      salvarBtn.disabled = true;
+      statusEl.textContent = 'salvando…';
+      try {
+        await onSalvarPercentuais(blocoId, percentuais);
+        statusEl.textContent = '';
+      } catch (err) {
+        statusEl.textContent = `erro ao salvar: ${err && err.message ? err.message : err}`;
+      } finally {
+        salvarBtn.disabled = false;
+      }
+    });
+
+    bloco.append(editarBtn, form);
   }
 
   return bloco;
@@ -353,7 +476,7 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total } = {}) {
  * visual" (era uma tabela simples na planilha) - cada linha vira uma
  * barra de progresso em vez de só números numa tabela.
  */
-export function renderObjetivosCarteira(doc, container, objetivos) {
+export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPercentuais } = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!objetivos) return;
@@ -366,6 +489,8 @@ export function renderObjetivosCarteira(doc, container, objetivos) {
       titulo: 'Ações, FIIs e Renda Fixa',
       tipos: objetivos.alocacaoGeral.tipos,
       total: objetivos.alocacaoGeral.total,
+      blocoId: 'geral',
+      onSalvarPercentuais,
     }));
   }
 
@@ -374,6 +499,8 @@ export function renderObjetivosCarteira(doc, container, objetivos) {
       titulo: 'Dentro da Renda Fixa',
       tipos: objetivos.alocacaoRendaFixa.tipos,
       total: objetivos.alocacaoRendaFixa.total,
+      blocoId: 'rendaFixa',
+      onSalvarPercentuais,
     }));
   }
 
@@ -394,8 +521,8 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       percentual: rendaPassiva.percentualAtingido,
       cor: 'var(--usa)',
       stats: [
-        { k: 'Média últ. 12 meses', v: formatBRL(rendaPassiva.mediaUlt12Meses) },
-        { k: 'Meta mensal', v: formatBRL(rendaPassiva.meta) },
+        { k: 'Média últ. 12 meses', v: formatBRL(rendaPassiva.mediaUlt12Meses), title: 'Soma dos proventos recebidos nos últimos 12 meses fechados, dividida por 12.' },
+        { k: 'Meta mensal', v: formatBRL(rendaPassiva.meta), title: 'Editável — quanto você quer receber de proventos por mês.' },
       ],
       campos: [{ nome: 'valor', rotulo: 'Meta mensal (R$)', valor: rendaPassiva.meta, tipo: 'reais' }],
       onSalvar: async (valores) => onSalvarRendaPassiva && onSalvarRendaPassiva(valores.valor),
@@ -409,7 +536,7 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       cor: 'var(--acoes)',
       stats: [
         { k: 'Carteira atual', v: formatBRL(patrimonio.carteiraAtual) },
-        { k: 'Meta', v: formatBRL(patrimonio.meta) },
+        { k: 'Meta', v: formatBRL(patrimonio.meta), title: 'Calculada a partir do extra mensal, do % de reinvestimento e do rendimento médio anual informados abaixo, em "Editar".' },
       ],
       campos: [
         { nome: 'extra', rotulo: 'Extra mensal (R$)', valor: patrimonio.extra, tipo: 'reais' },
@@ -428,7 +555,7 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       cor: 'var(--fiis)',
       stats: [
         { k: 'Carteira atual', v: formatBRL(rendaEmergencial.carteiraAtual) },
-        { k: 'Meta (c/ margem 10%)', v: formatBRL(rendaEmergencial.meta) },
+        { k: 'Meta (c/ margem 10%)', v: formatBRL(rendaEmergencial.meta), title: 'Média de gastos essenciais × meses de reserva desejados × 1,10 (margem de segurança de 10%).' },
       ],
       campos: [{ nome: 'meses', rotulo: 'Meses de reserva desejados', valor: rendaEmergencial.meses, tipo: 'numero' }],
       onSalvar: async (valores) => onSalvarRendaEmergencial && onSalvarRendaEmergencial(valores.meses),
@@ -469,6 +596,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarMetaRendaPassivaImpl = salvarMetaRendaPassivaApi,
   salvarMetaPatrimonioImpl = salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencialImpl = salvarMesesRendaEmergencialApi,
+  salvarObjetivosCarteiraImpl = salvarObjetivosCarteiraApi,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
@@ -493,7 +621,13 @@ export async function montarPaginaDistribuicoesMetas(token, {
 
     renderAvisos(doc.getElementById('metasAvisos'), resposta.avisos);
 
-    renderObjetivosCarteira(doc, objetivosContainer, resposta.objetivos);
+    renderObjetivosCarteira(doc, objetivosContainer, resposta.objetivos, {
+      onSalvarPercentuais: async (bloco, percentuais) => {
+        const r = await salvarObjetivosCarteiraImpl(token, bloco, percentuais);
+        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+        await carregarERedesenhar();
+      },
+    });
 
     renderMetasCarteira(doc, container, resposta.metas, {
       onSalvarRendaPassiva: async (valor) => {

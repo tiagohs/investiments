@@ -229,6 +229,19 @@ test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado su
   assert.match(container.textContent, /Sem dado/);
 });
 
+test('renderDistribuicao() põe um tooltip (title) com nome completo e % com 2 casas em cada item da legenda', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Renda Fixa - Tesouro Selic e afins', cor: 'var(--rf)', valor: 1 },
+    { label: 'FIIs', cor: 'var(--fiis)', valor: 2 },
+  ]);
+  const [item1, item2] = container.querySelectorAll('.distrib-item');
+  assert.match(item1.title, /Renda Fixa - Tesouro Selic e afins/);
+  assert.match(item1.title, /33,33%/);
+  assert.match(item2.title, /66,67%/);
+});
+
 test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de clique nenhum', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');

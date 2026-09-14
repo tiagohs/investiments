@@ -387,6 +387,11 @@ export function renderDistribuicao(doc, container, fatias) {
     const cor = f.cor || `var(${PALETA_DISTRIB_FALLBACK[i % PALETA_DISTRIB_FALLBACK.length]})`;
     const item = doc.createElement('div');
     item.className = 'distrib-item';
+    // 14/09/2026: tooltip com nome completo (o .distrib-nome trunca com
+    // "..." quando o rótulo é longo) + % com 2 casas (a legenda mostra só
+    // 1 casa, pra caber) - sem precisar abrir a planilha pra ver o valor
+    // exato por trás do arredondamento.
+    item.title = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatBRL(f.valor)})`;
     item.innerHTML = `
       <span class="distrib-dot" style="background:${cor}"></span>
       <span class="distrib-nome">${f.label}</span>

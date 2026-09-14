@@ -69,6 +69,9 @@ function doPost(e) {
   if (action === 'salvarMesesRendaEmergencial') {
     return handleSalvarMesesRendaEmergencial(e);
   }
+  if (action === 'salvarObjetivosCarteira') {
+    return handleSalvarObjetivosCarteira(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
