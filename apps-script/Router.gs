@@ -39,6 +39,9 @@ function doGet(e) {
   if (action === 'meusAtivos') {
     return handleMeusAtivos(e, auth);
   }
+  if (action === 'distribuicoesMetas') {
+    return handleDistribuicoesMetas(e, auth);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
@@ -56,6 +59,12 @@ function doPost(e) {
   }
   if (action === 'sincronizarAgora') {
     return handleSincronizarAgora(e);
+  }
+  if (action === 'salvarMetaRendaPassiva') {
+    return handleSalvarMetaRendaPassiva(e);
+  }
+  if (action === 'salvarMetaPatrimonio') {
+    return handleSalvarMetaPatrimonio(e);
   }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
