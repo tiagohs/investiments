@@ -83,7 +83,17 @@ function gatilhoDiario() {
     Logger.log('Hoje é domingo, gatilho não faz nada.');
     return;
   }
-  atualizarHistorico('Automático', null);
+  try {
+    atualizarHistorico('Automático', null);
+  } catch (erro) {
+    // atualizarHistorico (wrapper logo abaixo) já grava "Erro" no Registro
+    // de Controle e dispara o e-mail antes de relançar - esse catch aqui é
+    // só pra a execução do GATILHO em si nunca aparecer como "falhou" nas
+    // Execuções do Apps Script (evita o risco de o Google desativar o
+    // gatilho sozinho depois de falhas automáticas consecutivas - ver
+    // comentário do wrapper, correção de 14/09/2026).
+    Logger.log('gatilhoDiario: atualizarHistorico falhou (já registrado e notificado) - ' + erro);
+  }
 }
 
 /**
@@ -122,19 +132,6 @@ function handleSincronizarAgora(e) {
   }
 }
 
-/**
- * Rotina central. Pra cada ativo (ou só pra tickersEspecificos, num
- * retry seletivo): descobre a última data já salva, busca só o
- * intervalo que falta, grava as linhas novas. Nunca recalcula um dia
- * já salvo — mesmo princípio do backfill original.
- *
- * @param {string} origem - "Automático", "Manual" ou "Teste"
- * @param {Array<string>|null} tickersEspecificos - null = todos os 29
- * @param {Object|null} opcoes - uso exclusivo dos testes (ver handleSincronizarAgora):
- *   { abaHistoricoNome: string, tickersParaFalhar: Array<string> }
- *   Fora de teste, sempre null — grava em NOME_ABA_HISTORICO normalmente.
- * @return {Object} { status, ok: [tickers], falharam: [{ticker, erro}] }
- */
 // Orçamento de tempo por execução — o Apps Script mata a execução em 6min;
 // paramos com folga antes disso (sobra tempo pra gravar o Registro de
 // Controle) em vez de deixar estourar e perder esse registro. Ativos que não
@@ -150,7 +147,55 @@ var LIMITE_MS_EXECUCAO = 4.5 * 60 * 1000;
 // foi calculado e escrever o Registro de Controle.
 var LIMITE_MS_ABSOLUTO = 5.5 * 60 * 1000;
 
+/**
+ * Correção de 14/09/2026 (Tiago comparou a Rentabilidade da Início com o
+ * Gorilla/Kinvo e viu um número bem diferente do esperado - causa raiz
+ * NÃO foi um bug de conta, foi aux_historico-patrimonio parado havia 3
+ * dias: o Registro de Controle mostrava a última execução AUTOMÁTICA em
+ * 12/09 09:10 ("Atenção", 22 de 29 - 7 incompletos por tempo, o que é
+ * normal e se autorresolve sozinho na chamada seguinte) e NENHUMA linha
+ * depois disso - nem "Erro" - até 14/09. atualizarHistoricoInterno_ (a
+ * rotina de verdade, abaixo) só grava no Registro de Controle DEPOIS do
+ * loop principal; o trecho ANTES do loop (carregarTodasUltimasDatasSalvas_/
+ * carregarTodosHistoricosTransacoes_ e o pré-passo de câmbio USD/BRL, que
+ * busca CURRENCY:USDBRL via GOOGLEFINANCE) não tinha try/catch nenhum - e
+ * gatilhoDiario() também não tinha (só filtrava domingo). Ou seja: uma
+ * falha ali (ex.: um soluço do GOOGLEFINANCE ou da Sheets API bem nessa
+ * hora) derrubava a execução INTEIRA em silêncio - sem log, sem e-mail,
+ * sem nada visível até alguém notar o número errado dias depois (foi
+ * exatamente o que aconteceu aqui). Esse wrapper garante que QUALQUER
+ * falha (antes OU dentro do loop) sempre vira uma linha "Erro" no
+ * Registro de Controle, e dispara notificarFalhaSincronizacao_ (e-mail
+ * pro Tiago) quando é o gatilho automático que falhou de verdade - nunca
+ * mais dias de silêncio até um print do Gorilla entregar o problema.
+ */
 function atualizarHistorico(origem, tickersEspecificos, opcoes) {
+  try {
+    return atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes);
+  } catch (erro) {
+    var detalheErro = 'Falha antes de concluir a execução (fora do loop por-ativo, que já tem seu próprio try/catch): ' + String(erro);
+    gravarRegistroControle_('Erro', origem, detalheErro);
+    notificarFalhaSincronizacao_(origem, detalheErro);
+    throw erro; // handleSincronizarAgora (botão manual) continua devolvendo ok:false pro site
+  }
+}
+
+/**
+ * Rotina central de verdade (renomeada de atualizarHistorico - ver o
+ * wrapper acima, que garante Registro de Controle + e-mail mesmo numa
+ * falha ANTES do loop). Pra cada ativo (ou só pra tickersEspecificos,
+ * num retry seletivo): descobre a última data já salva, busca só o
+ * intervalo que falta, grava as linhas novas. Nunca recalcula um dia
+ * já salvo — mesmo princípio do backfill original.
+ *
+ * @param {string} origem - "Automático", "Manual" ou "Teste"
+ * @param {Array<string>|null} tickersEspecificos - null = todos os 29
+ * @param {Object|null} opcoes - uso exclusivo dos testes (ver handleSincronizarAgora):
+ *   { abaHistoricoNome: string, tickersParaFalhar: Array<string> }
+ *   Fora de teste, sempre null — grava em NOME_ABA_HISTORICO normalmente.
+ * @return {Object} { status, ok: [tickers], falharam: [{ticker, erro}] }
+ */
+function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
   var inicioExecucao = Date.now();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var nomeAbaHistorico = (opcoes && opcoes.abaHistoricoNome) || NOME_ABA_HISTORICO;
@@ -320,6 +365,7 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
   var detalhe = partes.join(' — ');
 
   gravarRegistroControle_(status, origem, detalhe);
+  if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
 
   return { status: status, ok: ok, falharam: falharam, naoProcessados: naoProcessados, lacunas: lacunasEncontradas };
 }
@@ -635,6 +681,34 @@ function gravarRegistroControle_(status, origem, detalhe) {
   var totalLinhas = aba.getLastRow();
   if (totalLinhas > LIMITE_HISTORICO_REGISTRO + 1) {
     aba.deleteRows(LIMITE_HISTORICO_REGISTRO + 2, totalLinhas - LIMITE_HISTORICO_REGISTRO - 1);
+  }
+}
+
+/**
+ * E-mail pro dono do script quando a sincronização AUTOMÁTICA falha de
+ * verdade (status "Erro" — nunca "Atenção", que se autorresolve sozinho
+ * na próxima chamada) — correção de 14/09/2026: o gatilho diário morreu
+ * em silêncio por 2 dias (12 a 14/09) até a Rentabilidade da Início
+ * divergir visivelmente do Gorilla/Kinvo, e só aí o Tiago percebeu -
+ * ninguém tinha como saber antes disso sem ir olhar o Registro de
+ * Controle manualmente. Só dispara pra origem === 'Automático' (o botão
+ * manual e o modo Teste já mostram o erro na hora, na própria tela — ver
+ * handleSincronizarAgora/teste.html). Best-effort: uma falha ao ENVIAR o
+ * e-mail (cota do Gmail, por exemplo) nunca pode mascarar/derrubar o
+ * resto da execução, por isso o try/catch próprio, que só loga.
+ */
+function notificarFalhaSincronizacao_(origem, detalhe) {
+  if (origem !== 'Automático') return;
+  try {
+    MailApp.sendEmail({
+      to: Session.getEffectiveUser().getEmail(),
+      subject: 'Investimentos: sincronização diária falhou',
+      body: 'A sincronização automática do histórico de patrimônio (aux_historico-patrimonio) falhou hoje.\n\n' +
+        detalhe +
+        '\n\nEnquanto isso não for resolvido, o histórico fica desatualizado — o que afeta o gráfico de Rentabilidade da Início (compara com um "hoje" que não é o de verdade). Abra teste.html no site e clique em "Sincronizar tudo (29 ativos)" pra rodar manualmente, ou confira "Execuções" no editor do Apps Script pra mais detalhes do erro.'
+    });
+  } catch (erroEmail) {
+    console.log('notificarFalhaSincronizacao_: falhou ao enviar e-mail (' + erroEmail + ') — segue sem notificar.');
   }
 }
 
