@@ -91,3 +91,41 @@
 .goal-edit-status{ font-size:11px; color:var(--ink-faint); }
 
 @media (max-width:640px){ .goals-grid{ grid-template-columns:1fr; } }
+
+/* ---- Objetivos da carteira (2 blocos: Ações/FIIs/Renda Fixa e, dentro
+   de Renda Fixa, Renda Emergencial x Renda Fixa de longo prazo) — cada
+   tipo vira uma barra "% atual" com um traço marcando o "% desejado" em
+   vez da tabela simples que existia antes na planilha (pedido do Tiago:
+   "queria que isso fosse mais visual"). Reaproveita .goal-badge (good/
+   warn) pra "na meta" / "faltam R$ X", em vez de duplicar a mesma regra
+   de cor com outro nome de classe. ---- */
+.obj-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:8px; }
+.obj-bloco{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px;
+      box-shadow:var(--shadow); }
+.obj-bloco-titulo{ font-size:14.5px; margin-bottom:14px; }
+.obj-linhas{ display:flex; flex-direction:column; gap:16px; }
+.obj-linha-head{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+.obj-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+.obj-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12.5px; font-weight:600; }
+.obj-pcts{ flex:none; font-family:var(--mono); font-size:12.5px; display:flex; align-items:baseline; gap:6px; }
+.obj-pcts b{ font-weight:700; color:var(--ink); }
+.obj-meta-pct{ color:var(--ink-faint); font-size:10.5px; }
+
+/* Trilho + preenchimento + traço da meta. O traço usa uma borda em vez
+   de background pra ficar visível tanto em cima do preenchimento
+   colorido quanto em cima do trilho vazio (dois fundos diferentes). */
+.obj-barra{ position:relative; height:8px; border-radius:100px; background:var(--surface-3); overflow:visible; }
+.obj-barra-fill{ position:absolute; inset:0 auto 0 0; height:100%; border-radius:100px; max-width:100%; }
+.obj-barra-meta{ position:absolute; top:-3px; bottom:-3px; width:2px; margin-left:-1px;
+      background:var(--ink); border-radius:2px; opacity:.55; }
+
+.obj-linha-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+.obj-valor-atual{ font-family:var(--mono); font-size:11.5px; color:var(--ink-muted); }
+
+.obj-total{ display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin-top:16px; padding-top:14px;
+      border-top:1px solid var(--border); }
+.obj-total-k{ font-size:10.5px; color:var(--ink-faint); }
+.obj-total-v{ font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ink); margin-right:14px; }
+.obj-total-investir{ color:var(--warn-ink); }
+
+@media (max-width:640px){ .obj-grid{ grid-template-columns:1fr; } }

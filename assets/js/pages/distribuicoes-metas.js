@@ -1,11 +1,15 @@
 /**
  * distribuicoes-metas.js — página "Distribuições e Metas".
  *
- * 14/09/2026: primeira fatia construída é só a seção "Metas da Carteira"
- * (3 cards: Renda Passiva, Patrimônio, Renda Emergencial), ligada à ação
- * distribuicoesMetas (ver apps-script/DistribuicoesMetas.gs). Objetivos
- * da Carteira e Radar de oportunidades (Ações/EUA/FIIs) entram numa
- * próxima rodada — não têm HTML nenhum ainda nesta página.
+ * 14/09/2026: primeira fatia construída foi só "Metas da Carteira" (3
+ * cards: Renda Passiva, Patrimônio, Renda Emergencial). Segunda fatia
+ * (mesmo dia) acrescenta "Objetivos da Carteira" (2 blocos com barras
+ * meta-vs-atual: Ações/FIIs/Renda Fixa e, dentro de Renda Fixa, Renda
+ * Emergencial x Renda Fixa de longo prazo) — os dois vêm juntos numa
+ * chamada só a distribuicoesMetas (ver apps-script/DistribuicoesMetas.gs),
+ * então usam o mesmo loading/erro compartilhado. A ordem de exibição na
+ * página segue a ordem que o Tiago pediu: Objetivos → Radar de
+ * oportunidades (Ações/EUA/FIIs, ainda não construído) → Metas.
  *
  * O anel de progresso (criarAnelProgresso) e o layout de card
  * (criarCardMeta) seguem o desenho já validado em docs/direcao-visual.html
@@ -234,6 +238,148 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
   return card;
 }
 
+/**
+ * Mapa fixo cor por tipo (mesmos tokens categóricos usados no resto do
+ * app - ver PALETA_DISTRIB_FALLBACK em pages/inicio.js). "Renda
+ * Emergencial" não tinha token próprio; usa --na (cinza neutro) porque
+ * dentro do bloco de Renda Fixa ela representa "dinheiro parado, não é
+ * pra crescer" - contraste de propósito com --rf (Renda Fixa de longo
+ * prazo, essa sim investimento).
+ */
+const CORES_TIPO_OBJETIVO = {
+  'Ações Nacionais e Internacionais': 'var(--acoes)',
+  'FIIs': 'var(--fiis)',
+  'Renda Fixa': 'var(--rf)',
+  'Renda Emergencial': 'var(--na)',
+};
+
+function corParaTipoObjetivo(tipo) {
+  return CORES_TIPO_OBJETIVO[tipo] || 'var(--na)';
+}
+
+/**
+ * Uma linha "meta vs. atual" dentro de um bloco de Objetivos da
+ * Carteira: barra horizontal preenchida até o % atual, com um traço
+ * marcando o % desejado (dado real vem de montarObjetivosCarteira_ em
+ * apps-script/DistribuicoesMetas.gs - já vem com os percentuais/valores
+ * calculados pela planilha, nada é somado aqui). Quando o valor a
+ * investir é essencialmente zero (já bateu ou passou da meta), mostra
+ * "na meta" em vez de pedir mais aporte - overalocação não é tratada
+ * como problema aqui, só quem está abaixo da meta precisa de aporte.
+ */
+export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAtual, carteiraAtual, valorInvestir, cor } = {}) {
+  const linha = doc.createElement('div');
+  linha.className = 'obj-linha';
+
+  const corFinal = cor || corParaTipoObjetivo(tipo);
+  const pctAtual = Math.max(0, Math.min(typeof percentualAtual === 'number' ? percentualAtual : 0, 1)) * 100;
+  const pctMeta = Math.max(0, Math.min(typeof percentualDesejado === 'number' ? percentualDesejado : 0, 1)) * 100;
+  // > 0.5 (meio real) em vez de > 0 pra não exibir "faltam R$ 0,01" por
+  // causa de arredondamento de ponto flutuante vindo da planilha.
+  const faltaInvestir = typeof valorInvestir === 'number' && valorInvestir > 0.5;
+
+  linha.innerHTML = `
+    <div class="obj-linha-head">
+      <span class="obj-dot" style="background:${corFinal}"></span>
+      <span class="obj-nome">${tipo || ''}</span>
+      <span class="obj-pcts"><b></b><span class="obj-meta-pct"></span></span>
+    </div>
+    <div class="obj-barra">
+      <div class="obj-barra-fill" style="width:${pctAtual.toFixed(1)}%; background:${corFinal}"></div>
+      <div class="obj-barra-meta" style="left:${pctMeta.toFixed(1)}%"></div>
+    </div>
+    <div class="obj-linha-foot">
+      <span class="obj-valor-atual"></span>
+      <span class="goal-badge ${faltaInvestir ? 'warn' : 'good'}"></span>
+    </div>
+  `;
+
+  linha.querySelector('.obj-pcts b').textContent = formatPercentualMeta(percentualAtual);
+  linha.querySelector('.obj-meta-pct').textContent = `meta ${formatPercentualMeta(percentualDesejado)}`;
+  linha.querySelector('.obj-barra-meta').title = `meta: ${formatPercentualMeta(percentualDesejado)}`;
+  linha.querySelector('.obj-valor-atual').textContent = formatBRL(carteiraAtual);
+  linha.querySelector('.goal-badge').textContent = faltaInvestir
+    ? `faltam ${formatBRL(valorInvestir)}`
+    : '✓ na meta';
+
+  return linha;
+}
+
+/**
+ * Um bloco de Objetivos da Carteira (ex. "Ações, FIIs e Renda Fixa" ou
+ * "Dentro da Renda Fixa") - título + uma linha por tipo + o total
+ * (carteira atual e, se algum tipo estiver abaixo da meta, quanto
+ * precisa entrar no total pra rebalancear).
+ */
+export function criarBlocoObjetivo(doc, { titulo, tipos, total } = {}) {
+  const bloco = doc.createElement('div');
+  bloco.className = 'obj-bloco';
+
+  const h3 = doc.createElement('h3');
+  h3.className = 'obj-bloco-titulo';
+  h3.textContent = titulo || '';
+  bloco.appendChild(h3);
+
+  const linhas = doc.createElement('div');
+  linhas.className = 'obj-linhas';
+  for (const t of (tipos || [])) {
+    linhas.appendChild(criarLinhaObjetivo(doc, t));
+  }
+  bloco.appendChild(linhas);
+
+  if (total) {
+    const faltaInvestir = typeof total.valorInvestir === 'number' && total.valorInvestir > 0.5;
+    const totalEl = doc.createElement('div');
+    totalEl.className = 'obj-total';
+    totalEl.innerHTML = `
+      <span class="obj-total-k">Total investido</span><span class="obj-total-v"></span>
+      ${faltaInvestir ? '<span class="obj-total-k">Pra atingir a meta</span><span class="obj-total-v obj-total-investir"></span>' : ''}
+    `;
+    totalEl.querySelector('.obj-total-v').textContent = formatBRL(total.carteiraAtual);
+    if (faltaInvestir) {
+      totalEl.querySelector('.obj-total-investir').textContent = `+ ${formatBRL(total.valorInvestir)}`;
+    }
+    bloco.appendChild(totalEl);
+  }
+
+  return bloco;
+}
+
+/**
+ * Renderiza a seção "Objetivos da carteira" inteira (2 blocos lado a
+ * lado: alocacaoGeral - Ações/FIIs/Renda Fixa - e alocacaoRendaFixa -
+ * Renda Emergencial x Renda Fixa de longo prazo, dentro do bloco de
+ * Renda Fixa). Pedido original do Tiago: "queria que isso fosse mais
+ * visual" (era uma tabela simples na planilha) - cada linha vira uma
+ * barra de progresso em vez de só números numa tabela.
+ */
+export function renderObjetivosCarteira(doc, container, objetivos) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!objetivos) return;
+
+  const grid = doc.createElement('div');
+  grid.className = 'obj-grid';
+
+  if (objetivos.alocacaoGeral) {
+    grid.appendChild(criarBlocoObjetivo(doc, {
+      titulo: 'Ações, FIIs e Renda Fixa',
+      tipos: objetivos.alocacaoGeral.tipos,
+      total: objetivos.alocacaoGeral.total,
+    }));
+  }
+
+  if (objetivos.alocacaoRendaFixa) {
+    grid.appendChild(criarBlocoObjetivo(doc, {
+      titulo: 'Dentro da Renda Fixa',
+      tipos: objetivos.alocacaoRendaFixa.tipos,
+      total: objetivos.alocacaoRendaFixa.total,
+    }));
+  }
+
+  container.appendChild(grid);
+}
+
 /** Constrói e injeta os 3 cards de Metas da Carteira no container. */
 export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiva, onSalvarPatrimonio, onSalvarRendaEmergencial } = {}) {
   if (!container) return;
@@ -327,6 +473,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
   const conteudoEl = doc.getElementById('metasConteudo');
+  const objetivosContainer = doc.getElementById('objetivosCarteiraGrid');
   const container = doc.getElementById('metasCarteiraGrid');
 
   async function carregarERedesenhar() {
@@ -337,7 +484,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
     if (!resposta.ok) {
       if (erroEl) {
         erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar Metas da Carteira agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
+        erroEl.textContent = `Não deu pra carregar Distribuições e Metas agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
       }
       return;
     }
@@ -345,6 +492,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
     if (conteudoEl) conteudoEl.hidden = false;
 
     renderAvisos(doc.getElementById('metasAvisos'), resposta.avisos);
+
+    renderObjetivosCarteira(doc, objetivosContainer, resposta.objetivos);
 
     renderMetasCarteira(doc, container, resposta.metas, {
       onSalvarRendaPassiva: async (valor) => {

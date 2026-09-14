@@ -13,6 +13,9 @@ import {
   renderMetasCarteira,
   renderAvisos,
   montarPaginaDistribuicoesMetas,
+  criarLinhaObjetivo,
+  criarBlocoObjetivo,
+  renderObjetivosCarteira,
 } from '../assets/js/pages/distribuicoes-metas.js';
 
 function makeDom(bodyHtml) {
@@ -286,6 +289,122 @@ test('renderAvisos() mostra a seção e a mensagem de erro quando há avisos', (
   assert.match(el.textContent, /aba não encontrada/);
 });
 
+const OBJETIVOS_EXEMPLO = {
+  alocacaoGeral: {
+    tipos: [
+      { tipo: 'Ações Nacionais e Internacionais', percentualDesejado: 0.5, percentualAtual: 0.5429649038887503, carteiraAtual: 47999.698359495786, novaCarteira: 47999.698359495786, valorInvestir: 0 },
+      { tipo: 'FIIs', percentualDesejado: 0.4, percentualAtual: 0.4032444693477339, carteiraAtual: 35648, novaCarteira: 38399.75868759663, valorInvestir: 2751.75868759663 },
+      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.05379062676351581, carteiraAtual: 4755.25, novaCarteira: 9599.939671899157, valorInvestir: 4844.6896718991575 },
+    ],
+    total: { carteiraAtual: 88402.94835949579, novaCarteira: 95999.39671899157, valorInvestir: 7596.448359495787 },
+  },
+  alocacaoRendaFixa: {
+    tipos: [
+      { tipo: 'Renda Emergencial', percentualDesejado: 0.9, percentualAtual: 0.9276225587786557, carteiraAtual: 60945.47, novaCarteira: 65285.913, valorInvestir: 4340.442999999999 },
+      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.0723774412213443, carteiraAtual: 4755.25, novaCarteira: 9599.939671899157, valorInvestir: 4844.6896718991575 },
+    ],
+    total: { carteiraAtual: 65700.72, novaCarteira: 74885.85267189916, valorInvestir: 9185.132671899157 },
+  },
+};
+
+// --- criarLinhaObjetivo ------------------------------------------------------
+
+test('criarLinhaObjetivo() mostra nome, % atual/meta e o valor investido', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs
+  assert.match(linha.querySelector('.obj-nome').textContent, /FIIs/);
+  assert.equal(linha.querySelector('.obj-pcts b').textContent, '40%');
+  assert.equal(linha.querySelector('.obj-meta-pct').textContent, 'meta 40%');
+  assert.match(linha.querySelector('.obj-valor-atual').textContent, /35\.648/);
+});
+
+test('criarLinhaObjetivo() mostra badge "faltam R$ X" quando valorInvestir é maior que zero', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs, valorInvestir > 0
+  const badge = linha.querySelector('.goal-badge');
+  assert.match(badge.className, /warn/);
+  assert.match(badge.textContent, /faltam/);
+  assert.match(badge.textContent, /2\.751,76/);
+});
+
+test('criarLinhaObjetivo() mostra badge "na meta" quando já atingiu ou passou do desejado', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[0]); // Ações, valorInvestir: 0
+  const badge = linha.querySelector('.goal-badge');
+  assert.match(badge.className, /good/);
+  assert.match(badge.textContent, /na meta/);
+});
+
+test('criarLinhaObjetivo() ignora valorInvestir residual de arredondamento (< R$ 0,50) como "na meta"', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, { tipo: 'X', percentualDesejado: 0.5, percentualAtual: 0.5, carteiraAtual: 100, valorInvestir: 0.03 });
+  assert.match(linha.querySelector('.goal-badge').textContent, /na meta/);
+});
+
+test('criarLinhaObjetivo() usa a cor passada em `cor`, senão a do mapa fixo por tipo', () => {
+  const doc = makeDom('');
+  const semCor = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[0]);
+  assert.match(semCor.querySelector('.obj-dot').getAttribute('style'), /--acoes/);
+  const comCor = criarLinhaObjetivo(doc, { ...OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[0], cor: 'red' });
+  assert.match(comCor.querySelector('.obj-dot').getAttribute('style'), /red/);
+});
+
+// --- criarBlocoObjetivo ------------------------------------------------------
+
+test('criarBlocoObjetivo() monta o título, uma linha por tipo e o total', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'Ações, FIIs e Renda Fixa',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+  });
+  assert.equal(bloco.querySelector('.obj-bloco-titulo').textContent, 'Ações, FIIs e Renda Fixa');
+  assert.equal(bloco.querySelectorAll('.obj-linha').length, 3);
+  assert.match(bloco.querySelector('.obj-total').textContent, /88\.402,95/);
+  assert.match(bloco.querySelector('.obj-total-investir').textContent, /7\.596,45/);
+});
+
+test('criarBlocoObjetivo() omite "pra atingir a meta" no total quando nada falta investir', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'Tudo na meta',
+    tipos: [{ tipo: 'X', percentualDesejado: 0.5, percentualAtual: 0.5, carteiraAtual: 100, valorInvestir: 0 }],
+    total: { carteiraAtual: 100, valorInvestir: 0 },
+  });
+  assert.equal(bloco.querySelector('.obj-total-investir'), null);
+});
+
+// --- renderObjetivosCarteira ------------------------------------------------------
+
+test('renderObjetivosCarteira() desenha os 2 blocos (alocacaoGeral e alocacaoRendaFixa)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderObjetivosCarteira(doc, container, OBJETIVOS_EXEMPLO);
+  const blocos = container.querySelectorAll('.obj-bloco');
+  assert.equal(blocos.length, 2);
+  assert.match(blocos[0].querySelector('.obj-bloco-titulo').textContent, /Ações, FIIs e Renda Fixa/);
+  assert.match(blocos[1].querySelector('.obj-bloco-titulo').textContent, /Dentro da Renda Fixa/);
+});
+
+test('renderObjetivosCarteira() limpa o container quando objetivos é null/undefined', () => {
+  const doc = makeDom('<div id="c"><span>lixo antigo</span></div>');
+  const container = doc.getElementById('c');
+  renderObjetivosCarteira(doc, container, null);
+  assert.equal(container.innerHTML, '');
+});
+
+test('renderObjetivosCarteira() ignora bloco ausente (ex. só alocacaoGeral) sem quebrar', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderObjetivosCarteira(doc, container, { alocacaoGeral: OBJETIVOS_EXEMPLO.alocacaoGeral });
+  assert.equal(container.querySelectorAll('.obj-bloco').length, 1);
+});
+
+test('renderObjetivosCarteira() não quebra quando container é null', () => {
+  const doc = makeDom('');
+  assert.doesNotThrow(() => renderObjetivosCarteira(doc, null, OBJETIVOS_EXEMPLO));
+});
+
 // --- montarPaginaDistribuicoesMetas ------------------------------------------------------
 
 function makePaginaDom() {
@@ -294,6 +413,7 @@ function makePaginaDom() {
     <div class="metas-erro" id="metasErro" hidden></div>
     <div id="metasConteudo" hidden>
       <div class="avisos-banner" id="metasAvisos" hidden></div>
+      <div id="objetivosCarteiraGrid"></div>
       <div id="metasCarteiraGrid"></div>
     </div>
   `);
@@ -309,6 +429,24 @@ test('montarPaginaDistribuicoesMetas() renderiza os 3 cards e esconde o loading 
   assert.equal(doc.getElementById('metasConteudo').hidden, false);
   assert.equal(doc.getElementById('metasErro').hidden, true);
   assert.equal(doc.getElementById('metasCarteiraGrid').querySelectorAll('.goal-card').length, 3);
+});
+
+test('montarPaginaDistribuicoesMetas() também desenha os blocos de Objetivos da Carteira quando vêm na resposta', async () => {
+  const doc = makePaginaDom();
+  const getDistribuicoesMetasImpl = async () => ({
+    ok: true,
+    metas: METAS_EXEMPLO,
+    objetivos: {
+      alocacaoGeral: {
+        tipos: [{ tipo: 'FIIs', percentualDesejado: 0.4, percentualAtual: 0.4, carteiraAtual: 1000, valorInvestir: 0 }],
+        total: { carteiraAtual: 1000, valorInvestir: 0 },
+      },
+    },
+  });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
+
+  assert.equal(doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco').length, 1);
 });
 
 test('montarPaginaDistribuicoesMetas() mostra o estado de erro quando o back-end rejeita a chamada', async () => {

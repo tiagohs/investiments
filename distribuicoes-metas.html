@@ -25,14 +25,21 @@
   <div id="shell-header"></div>
 
   <main hidden>
-    <!-- 14/09/2026: primeira fatia desta página é só "Metas da Carteira"
-         (3 cards: Renda Passiva / Patrimônio / Renda Emergencial), ligada
-         à ação distribuicoesMetas (apps-script/DistribuicoesMetas.gs).
-         Objetivos da Carteira e Radar de oportunidades (Ações/EUA/FIIs)
-         entram numa próxima rodada — ver docs/plano-implementacao.html. -->
+    <!-- 14/09/2026: 1ª fatia foi só "Metas da Carteira". 2ª fatia (mesmo
+         dia) acrescenta "Objetivos da Carteira" logo acima — ambas ligadas
+         à mesma ação distribuicoesMetas (apps-script/DistribuicoesMetas.gs),
+         por isso compartilham loading/erro. Radar de oportunidades
+         (Ações/EUA/FIIs) entra numa próxima rodada — ver
+         docs/plano-implementacao.html. Ordem das seções aqui é a ordem que
+         o Tiago pediu: Objetivos → Radar (futuro) → Metas. -->
 
     <div class="metas-loading" id="metasLoading" aria-hidden="true">
       <span class="skel skel-header"></span>
+      <div class="obj-grid">
+        <span class="skel" style="height:190px"></span>
+        <span class="skel" style="height:190px"></span>
+      </div>
+      <span class="skel skel-header" style="margin-top:8px"></span>
       <div class="goals-grid">
         <span class="skel" style="height:220px"></span>
         <span class="skel" style="height:220px"></span>
@@ -46,6 +53,12 @@
       <div class="avisos-banner" id="metasAvisos" hidden></div>
 
       <div class="area-header">
+        <h2>Objetivos da carteira</h2>
+        <span class="hint">Quanto você quer ter em cada tipo de ativo — e quanto falta investir pra chegar lá</span>
+      </div>
+      <div id="objetivosCarteiraGrid"></div>
+
+      <div class="area-header" style="margin-top:28px">
         <h2>Metas da carteira</h2>
         <span class="hint">Renda Passiva, Patrimônio e Renda Emergencial — clique em "Editar" em qualquer cartão pra mudar a meta direto na planilha</span>
       </div>
