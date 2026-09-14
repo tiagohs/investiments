@@ -4,12 +4,25 @@
  * salvarMetaPatrimonio e salvarMesesRendaEmergencial.
  *
  * 14/09/2026: 1ª fatia foi só "Metas da Carteira" (Renda Passiva,
- * Patrimônio, Renda Emergencial). 2ª fatia (mesmo dia, ordem pedida pelo
- * Tiago: Objetivos da Carteira → Radar de oportunidades → Metas da
- * Carteira) adiciona `objetivos` — a distribuição desejada x atual por
- * classe de ativo. O Radar de oportunidades (tabelas Ações Nacionais/
- * EUA/FIIs com viés, preço-teto etc.) ainda não entra aqui — ver TODO em
- * handleDistribuicoesMetas.
+ * Patrimônio, Renda Emergencial). 2ª fatia (mesmo dia) adiciona
+ * `objetivos` — a distribuição desejada x atual por classe de ativo. 3ª
+ * fatia (mesmo dia, ordem pedida pelo Tiago: Objetivos da Carteira →
+ * Radar de oportunidades → Metas da Carteira) adiciona `radar` — as 3
+ * tabelas de ranking de ativos (Ações Nacionais, Ações Internacionais,
+ * FIIs), todas dentro da própria aba "Distribuição e Metas":
+ *   - Ações Nacionais (view "Dividendos"): cabeçalho na linha 41, dados
+ *     a partir da linha 42, total logo após o último ticker.
+ *   - Ações Internacionais (USA): cabeçalho na linha 58, dados a partir
+ *     da linha 59.
+ *   - FIIs: cabeçalho na linha 81, dados a partir da linha 82 — única
+ *     com a coluna "Tipo" (Tijolo/Papel/Híbrido).
+ * Nenhuma tem linhas fixas (Tiago só adiciona ticker no fim, nunca no
+ * meio), então a leitura varre linha a linha até achar a coluna Ativo
+ * vazia (ver lerBlocoRadar_). 3 campos são manuais em cada linha —
+ * Ranking, Preço-teto e % desejado — e o Tiago quer os 3 editáveis na
+ * tela também, mas a escrita ainda não entra nesta rodada: primeiro só
+ * leitura, pra validar contra a planilha real (mesmo padrão usado pra
+ * Objetivos da Carteira).
  *
  * Objetivos da Carteira: a aba "Distribuição e Metas" guarda 2 blocos de
  * distribuição desejada x atual, ambos B:G — % atual, carteira atual,
@@ -69,7 +82,11 @@ function handleDistribuicoesMetas(e, auth) {
     avisos.objetivos = String(err);
   }
 
-  // TODO (próxima rodada): resposta.radar = montarRadarOportunidades_();
+  try {
+    resposta.radar = montarRadarOportunidades_();
+  } catch (err) {
+    avisos.radar = String(err);
+  }
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
 
@@ -173,6 +190,99 @@ function montarObjetivosCarteira_() {
 
 function testarObjetivosCarteiraDireto() {
   var dados = montarObjetivosCarteira_();
+  Logger.log(JSON.stringify(dados, null, 2));
+}
+
+/**
+ * Lê os 3 blocos do "Radar de oportunidades" — ranking de ativos por
+ * classe (Ações Nacionais "Dividendos", Ações Internacionais, FIIs).
+ * Cada linha é um ticker com ranking, preço-teto, viés (fórmula:
+ * "Aguardar" se preço atual >= preço-teto, senão "Comprar"), desconto
+ * sobre P/VP (e, só nas Nacionais, sobre P/L), % desejado/atual por
+ * ticker e quanto falta investir pra chegar na meta dele. 3 campos são
+ * manuais na planilha (ranking, preço-teto, % desejado) - o Tiago quer
+ * os 3 editáveis na tela também, mas a escrita ainda não entra nesta
+ * rodada: primeiro validar que a leitura bate com a planilha real
+ * (mesmo padrão usado pra Objetivos da Carteira).
+ *
+ * As 3 tabelas ficam todas na aba "Distribuição e Metas", cada uma com
+ * layout de coluna um pouco diferente (a de Ações Nacionais tem 2
+ * colunas de P/L que as outras duas não têm, o que desloca onde "%
+ * desejado" começa):
+ *   - Ações Nacionais (view "Dividendos" da carteira): cabeçalho
+ *     B41:S41, dados a partir de B42.
+ *   - Ações Internacionais (USA): cabeçalho B58:R58, dados a partir de
+ *     B59.
+ *   - FIIs: cabeçalho B81:S81, dados a partir de B82 - única com a
+ *     coluna extra "Tipo" (Tijolo/Papel/Híbrido).
+ * Nenhuma das 3 tem um número fixo de linhas (Tiago só adiciona ticker
+ * no fim, nunca no meio) - por isso lerBlocoRadar_ varre linha a linha
+ * até achar a coluna Ativo vazia, em vez de usar um range fixo tipo
+ * B42:S53. A linha em que ela para É a linha de total de cada bloco
+ * (confirmado na planilha real: logo após o último ticker).
+ */
+function lerBlocoRadar_(sheet, primeiraLinha, colunas) {
+  var itens = [];
+  var linha = primeiraLinha;
+  while (true) {
+    var ativo = sheet.getRange(colunas.ativo + linha).getValue();
+    if (!ativo) break;
+    var item = {};
+    for (var campo in colunas) {
+      var col = colunas[campo];
+      item[campo] = col ? sheet.getRange(col + linha).getValue() : null;
+    }
+    itens.push(item);
+    linha++;
+  }
+  return { itens: itens, linhaTotal: linha };
+}
+
+function montarRadarOportunidades_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dm = ss.getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+
+  var colunasNacionais = {
+    ranking: 'B', ativo: 'C', precoAtual: 'D', precoTeto: 'E', vies: 'F',
+    precoMedio: 'G', pvp: 'H', pl: 'I', descontoPvp: 'J', descontoPl: 'K',
+    percentualDesejado: 'L', percentualAtual: 'M', carteiraAtual: 'N',
+    percentualDiferenca: 'O', novaCarteira: 'Q', valorInvestir: 'S', tipo: null
+  };
+  var colunasInternacionais = {
+    ranking: 'B', ativo: 'C', precoAtual: 'D', precoTeto: 'E', vies: 'F',
+    precoMedio: 'G', pvp: 'H', pl: null, descontoPvp: 'J', descontoPl: null,
+    percentualDesejado: 'K', percentualAtual: 'L', carteiraAtual: 'M',
+    percentualDiferenca: 'O', novaCarteira: 'N', valorInvestir: 'Q', tipo: null
+  };
+  var colunasFiis = {
+    ranking: 'B', ativo: 'C', precoAtual: 'D', precoTeto: 'E', vies: 'F',
+    precoMedio: 'G', pvp: 'H', pl: null, descontoPvp: 'J', descontoPl: null,
+    percentualDesejado: 'K', percentualAtual: 'L', carteiraAtual: 'M',
+    percentualDiferenca: 'O', novaCarteira: 'N', valorInvestir: 'Q', tipo: 'S'
+  };
+
+  var nacionais = lerBlocoRadar_(dm, 42, colunasNacionais);
+  var internacionais = lerBlocoRadar_(dm, 59, colunasInternacionais);
+  var fiis = lerBlocoRadar_(dm, 82, colunasFiis);
+
+  function total_(linhaTotal, colCarteiraAtual, colNovaCarteira, colValorInvestir) {
+    return {
+      carteiraAtual: dm.getRange(colCarteiraAtual + linhaTotal).getValue(),
+      novaCarteira: dm.getRange(colNovaCarteira + linhaTotal).getValue(),
+      valorInvestir: dm.getRange(colValorInvestir + linhaTotal).getValue()
+    };
+  }
+
+  return {
+    acoesNacionais: { itens: nacionais.itens, total: total_(nacionais.linhaTotal, 'N', 'Q', 'S') },
+    acoesInternacionais: { itens: internacionais.itens, total: total_(internacionais.linhaTotal, 'M', 'N', 'Q') },
+    fiis: { itens: fiis.itens, total: total_(fiis.linhaTotal, 'M', 'N', 'Q') }
+  };
+}
+
+function testarRadarOportunidadesDireto() {
+  var dados = montarRadarOportunidades_();
   Logger.log(JSON.stringify(dados, null, 2));
 }
 
