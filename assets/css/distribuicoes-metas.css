@@ -14,6 +14,31 @@
  * e o .goal-badge ("atingida", usado pela Renda Emergencial).
  */
 
+/* ---- Tokens de cor por tipo de FII (Tijolo/Híbrido/Papel) — só usados
+   nesta página (legenda + fundo de linha do Radar de FIIs, pedido do
+   Tiago 14/09/2026 "vamos testar"), por isso ficam aqui e não em
+   shell.css junto de --acoes/--fiis/--rf/--usa (aqueles são
+   reaproveitados em várias páginas, estes não). Mesmo padrão de 3
+   variáveis (cor/soft) e dos 2 jeitos de "modo escuro" (prefers-color-
+   scheme E [data-theme]) que shell.css já usa. */
+:root {
+  --fii-tijolo:#B5651D; --fii-tijolo-soft:#F5E3D3;
+  --fii-hibrido:#7B52AB; --fii-hibrido-soft:#EDE4F7;
+  --fii-papel:#2E7D8C; --fii-papel-soft:#DCEEF1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fii-tijolo:#D98C4A; --fii-tijolo-soft:#3A2A1A;
+    --fii-hibrido:#B79AE0; --fii-hibrido-soft:#2E2440;
+    --fii-papel:#5FB8C9; --fii-papel-soft:#173036;
+  }
+}
+:root[data-theme="dark"] {
+  --fii-tijolo:#D98C4A; --fii-tijolo-soft:#3A2A1A;
+  --fii-hibrido:#B79AE0; --fii-hibrido-soft:#2E2440;
+  --fii-papel:#5FB8C9; --fii-papel-soft:#173036;
+}
+
 /* ---- Cabeçalho de área (mesmo padrão de .area-header em inicio.css —
    duplicado aqui porque esta página não carrega inicio.css). ---- */
 .area-header{ display:flex; align-items:baseline; justify-content:space-between; gap:12px;
@@ -157,10 +182,59 @@
    o tom do amarelo pro verde também"). */
 .radar-table tbody tr td.radar-vies-comprar{ background:var(--good-soft); }
 
+/* ---- Cor de fundo por tipo de FII (Tijolo/Híbrido/Papel) — "vamos
+   testar" (Tiago, 14/09/2026). Precisa perder pra Aguardar quando as 2
+   caem na mesma linha (o aviso de "esperar" é a cor mais importante) -
+   por isso o último seletor (2 classes, especificidade maior que as
+   regras de fundo por tipo aqui em cima, que só têm 1) reafirma
+   --warn-soft nesse caso, independente da ordem no arquivo. */
+.radar-table tbody tr.radar-linha-fii-tijolo{ background:var(--fii-tijolo-soft); }
+.radar-table tbody tr.radar-linha-fii-hibrido{ background:var(--fii-hibrido-soft); }
+.radar-table tbody tr.radar-linha-fii-papel{ background:var(--fii-papel-soft); }
+.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-tijolo,
+.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-hibrido,
+.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-papel{ background:var(--warn-soft); }
+
+/* Legenda acima da tabela de FIIs — 1 pill por tipo, com a mesma cor
+   suave do fundo de linha e a fotinho que o Tiago organizou em
+   assets/imgs/fiis/. */
+.radar-fii-legenda{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; font-size:11.5px; color:var(--ink-muted); }
+.radar-fii-legenda-item{ display:inline-flex; align-items:center; gap:6px; padding:3px 12px 3px 3px; border-radius:100px; }
+.radar-fii-legenda-item img{ width:20px; height:20px; border-radius:50%; object-fit:cover; flex:none; }
+.radar-fii-legenda-tijolo{ background:var(--fii-tijolo-soft); }
+.radar-fii-legenda-hibrido{ background:var(--fii-hibrido-soft); }
+.radar-fii-legenda-papel{ background:var(--fii-papel-soft); }
+
+/* Banner "Cotação do dólar hoje" acima da tabela de Ações
+   Internacionais — mesmo tom de --usa (categoria já usada pra "Ações
+   Internacionais" no resto do app) em vez de um azul novo qualquer. */
+.radar-cotacao-dolar{ font-size:12px; color:var(--ink-muted); background:var(--usa-soft); border-radius:10px;
+      padding:9px 14px; margin-bottom:12px; font-family:var(--mono); }
+.radar-cotacao-dolar b{ color:var(--usa); font-weight:700; }
+
 .radar-rank-badge{ display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px;
       padding:0 6px; border-radius:8px; background:var(--surface-3); font-family:var(--mono); font-weight:700;
       font-size:12.5px; color:var(--ink); }
 .radar-preco-teto{ font-weight:700; }
+
+/* Preço atual + variação % do dia embaixo, estilo Suno (print 1 do
+   Tiago) — mesmas cores good/bad do resto da tabela (Comprar/desconto). */
+.radar-preco-wrap{ display:flex; flex-direction:column; align-items:center; gap:1px; }
+.radar-preco-variacao{ font-family:var(--mono); font-size:10.5px; font-weight:600; }
+.radar-preco-variacao.good{ color:var(--good); }
+.radar-preco-variacao.bad{ color:var(--bad); }
+
+/* "% atual x meta" — 1 coluna só com barra visual em vez de 2 colunas
+   de número cru (pedido do Tiago: "pode utilizar algo visual, parecido
+   com o slide da meta"). Versão compacta de .obj-barra (Objetivos da
+   Carteira, lá em cima) pra caber numa célula de tabela. */
+.radar-pct-wrap{ display:flex; flex-direction:column; gap:4px; min-width:84px; }
+.radar-pct-label{ font-family:var(--mono); font-size:11px; display:flex; align-items:baseline; justify-content:center; gap:3px; }
+.radar-pct-label b{ font-weight:700; color:var(--ink); }
+.radar-pct-meta-label{ color:var(--ink-faint); font-size:10px; }
+.radar-pct-bar{ position:relative; width:100%; height:6px; border-radius:100px; background:var(--surface-3); }
+.radar-pct-bar-fill{ position:absolute; inset:0 auto 0 0; height:100%; border-radius:100px; max-width:100%; background:var(--acoes); }
+.radar-pct-bar-meta{ position:absolute; top:-2px; bottom:-2px; width:2px; margin-left:-1px; background:var(--ink); border-radius:2px; opacity:.55; }
 
 .radar-logo{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
       border-radius:50%; overflow:hidden; background:var(--surface-3); margin-right:8px; vertical-align:middle; flex:none; }
@@ -199,6 +273,8 @@
       padding:5px 11px; border-radius:100px; cursor:pointer; border:1px solid var(--border); background:var(--surface);
       color:var(--ink-muted); }
 .radar-editar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
+.radar-editar-btn-icone{ display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; }
+.radar-editar-btn-icone svg{ width:15px; height:15px; }
 .radar-salvar-btn{ background:var(--acoes); border-color:var(--acoes); color:#fff; margin-right:6px; }
 :root[data-theme="dark"] .radar-salvar-btn, :root:not([data-theme="light"]) .radar-salvar-btn{ color:#071522; }
 .radar-salvar-btn:disabled{ opacity:.7; cursor:default; }
@@ -249,4 +325,12 @@
   .radar-table td.radar-card-topo:nth-of-type(2){ font-size:13.5px; }
 
   .radar-acoes{ flex-basis:100%; justify-content:flex-end !important; padding-top:10px !important; }
+
+  /* .radar-preco-wrap/.radar-pct-wrap são coluna centralizada em tela
+     larga (a td tem text-align:center) - no card, a td vira flex com
+     rótulo à esquerda e valor à direita (space-between), então o
+     "valor" (nosso wrap) precisa se alinhar à direita, não ficar
+     centralizado sozinho no meio da célula. */
+  .radar-preco-wrap, .radar-pct-wrap{ align-items:flex-end; }
+  .radar-fii-legenda{ margin:0 0 10px; }
 }

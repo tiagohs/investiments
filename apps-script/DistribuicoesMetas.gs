@@ -4,6 +4,22 @@
  * salvarMetaRendaPassiva, salvarMetaPatrimonio,
  * salvarMesesRendaEmergencial e salvarSplitInterno.
  *
+ * 14/09/2026, 6ª fatia (2ª rodada de feedback, com prints da Suno):
+ * `montarRadarOportunidades_` agora também enriquece cada item com
+ * `variacaoDia` (fração, ex. -0,0409 = -4,09% - mesma escala que
+ * format.js já documenta pra "Variação dia") e, só nos FIIs,
+ * `segmento` (ex. "Shopping") — nenhum dos dois mora na aba
+ * "Distribuição e Metas" (só ranking/preço/desconto/etc. por ticker
+ * ficam lá); ambos vêm das abas "Carteira Ações"/"Carteira Ações
+ * USA"/"Carteira FIIs", que já têm 1 linha por ticker com essas
+ * colunas (usadas pra outras telas do app) - ver
+ * lerMapaCarteiraPorTicker_. Também expõe `cotacaoDolar`
+ * (Distribuição e Metas!K56, "Cotação do dólar hoje:" - informada
+ * manualmente pelo Tiago, não é fórmula) pro front-end converter os
+ * valores de Ações Internacionais (que já são em dólar na planilha)
+ * pra reais sob demanda. Confirmado célula a célula na planilha real
+ * (mesmo arquivo usado na 5ª fatia).
+ *
  * 14/09/2026, 5ª fatia (rodada de feedback do Radar): `splitsInternos`
  * e `linksRecomendados` — pedido do Tiago pra 2 tabelas de "distribuição
  * desejada" DENTRO de uma classe de ativo (diferente de `objetivos`,
@@ -284,6 +300,50 @@ function lerBlocoRadar_(sheet, primeiraLinha, colunas) {
   return { itens: itens, linhaTotal: linha };
 }
 
+/**
+ * Lê uma aba "Carteira X" (Ações/FIIs/Ações USA) inteira de uma vez
+ * (getValues, 1 chamada em vez de 1 por linha) e monta um mapa
+ * ticker -> {variacaoDia, segmento} — essas 3 abas têm cabeçalho na
+ * linha 8 e dados a partir da linha 9, MAS 'Carteira Ações' tem uma
+ * linha 9 em branco antes do primeiro ticker (confirmado na planilha
+ * real) — por isso aqui PULA linha com ticker vazio em vez de parar
+ * nela, diferente de lerBlocoRadar_ (que para no primeiro Ativo
+ * vazio, porque ali o fim da lista É o primeiro vazio; aqui não dá
+ * pra confiar nisso).
+ *   - 'Carteira Ações' e 'Carteira Ações USA': A=Ticker, F=Segmento,
+ *     K=Variação dia.
+ *   - 'Carteira FIIs': A=Ticker, D=Segmento, I=Variação dia (o "Tipo"
+ *     - Tijolo/Híbrido/Papel - já vem de outro lugar, a coluna S do
+ *     bloco de FIIs na própria Distribuição e Metas, não daqui).
+ */
+function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento) {
+  var mapa = {};
+  if (!sheet) return mapa;
+  var ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 9) return mapa;
+  var numCols = Math.max(colTicker, colVariacao, colSegmento || 0);
+  var valores = sheet.getRange(9, 1, ultimaLinha - 9 + 1, numCols).getValues();
+  for (var i = 0; i < valores.length; i++) {
+    var linha = valores[i];
+    var ticker = linha[colTicker - 1];
+    if (!ticker) continue;
+    mapa[ticker] = {
+      variacaoDia: linha[colVariacao - 1],
+      segmento: colSegmento ? linha[colSegmento - 1] : null
+    };
+  }
+  return mapa;
+}
+
+/** Copia variacaoDia/segmento (quando existir) do mapa pra cada item, por ticker (item.ativo). */
+function enriquecerRadarComCarteira_(itens, mapa) {
+  itens.forEach(function (item) {
+    var info = mapa[item.ativo];
+    item.variacaoDia = info && typeof info.variacaoDia === 'number' ? info.variacaoDia : null;
+    if (info && info.segmento) item.segmento = info.segmento;
+  });
+}
+
 function montarRadarOportunidades_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dm = ss.getSheetByName('Distribuição e Metas');
@@ -312,6 +372,13 @@ function montarRadarOportunidades_() {
   var internacionais = lerBlocoRadar_(dm, 59, colunasInternacionais);
   var fiis = lerBlocoRadar_(dm, 82, colunasFiis);
 
+  var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6);
+  var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6);
+  var mapaFiis = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira FIIs'), 1, 9, 4);
+  enriquecerRadarComCarteira_(nacionais.itens, mapaAcoes);
+  enriquecerRadarComCarteira_(internacionais.itens, mapaAcoesUsa);
+  enriquecerRadarComCarteira_(fiis.itens, mapaFiis);
+
   function total_(linhaTotal, colCarteiraAtual, colNovaCarteira, colValorInvestir) {
     return {
       carteiraAtual: dm.getRange(colCarteiraAtual + linhaTotal).getValue(),
@@ -323,7 +390,8 @@ function montarRadarOportunidades_() {
   return {
     acoesNacionais: { itens: nacionais.itens, total: total_(nacionais.linhaTotal, 'N', 'Q', 'S') },
     acoesInternacionais: { itens: internacionais.itens, total: total_(internacionais.linhaTotal, 'M', 'N', 'Q') },
-    fiis: { itens: fiis.itens, total: total_(fiis.linhaTotal, 'M', 'N', 'Q') }
+    fiis: { itens: fiis.itens, total: total_(fiis.linhaTotal, 'M', 'N', 'Q') },
+    cotacaoDolar: dm.getRange('K56').getValue()
   };
 }
 

@@ -74,6 +74,27 @@
  * usa na Início (assets/js/pages/inicio.js) — `title` nativo não
  * aparece em navegador de celular (sem hover), que é onde o app
  * realmente é usado; ver wirePointerTooltipRadar_.
+ *
+ * 14/09/2026 (2ª rodada de feedback, mesmo dia): "Preço atual" ganha a
+ * variação % do dia embaixo (verde/vermelho, igual Comprar/Aguardar) -
+ * vem de `item.variacaoDia`, novo campo do backend (ver
+ * enriquecerRadarComCarteira_ em DistribuicoesMetas.gs). "% desejado" e
+ * "% atual" viram 1 coluna só ("% atual x meta") com uma barrinha
+ * visual (mesma ideia de .obj-barra dos Objetivos da Carteira, versão
+ * compacta pra caber na célula) em vez de 2 números crus lado a lado -
+ * ainda editável (edita só o % desejado, igual antes). "Editar" virou
+ * um ícone de lápis (sem texto). Ações Internacionais: Carteira atual
+ * e R$ investir/resgatar SEMPRE foram valores em dólar na planilha,
+ * mas a tela mostrava com "R$" na frente por engano - agora usam
+ * formatUSD igual Preço atual/teto já usavam, com um ícone "i" do lado
+ * mostrando o equivalente em reais (cotação do dólar do dia, também
+ * nova - Distribuição e Metas!K56 - exibida acima da tabela). FIIs:
+ * cada linha ganha um fundo bem suave conforme o Tipo (Tijolo/Híbrido/
+ * Papel - "vamos testar", pedido do Tiago) - a cor de Aguardar (linha
+ * inteira) sempre vence essa, nunca o contrário -, com uma legenda
+ * acima da tabela (usa as 3 imagens que o Tiago organizou em
+ * assets/imgs/fiis/) e o Segmento (ex. "Shopping") somado ao tooltip
+ * do Ativo, formato "Segmento (Tipo)".
  */
 
 import {
@@ -85,7 +106,7 @@ import {
   salvarRadarItem as salvarRadarItemApi,
   salvarSplitInterno as salvarSplitInternoApi,
 } from '../api-client.js';
-import { formatBRL, formatNumeroBR, formatUSD } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 
@@ -634,8 +655,8 @@ const COLUNAS_RADAR = [
   { chave: 'vies', rotulo: 'Viés' },
   { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true, dica: 'Com desconto quando o P/VP calculado (coluna H da planilha) é menor que 1 — está caro quando é maior ou igual a 1.' },
   { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true, dica: 'Com desconto quando o retorno (1 ÷ P/L) fica abaixo da taxa de renda fixa atual — está caro quando fica acima. Calculado só pra Ações Nacionais.' },
-  { chave: 'percentualDesejado', rotulo: '% desejado', editavel: true, numerica: true },
-  { chave: 'percentualAtual', rotulo: '% atual', numerica: true },
+  { chave: 'percentualDesejado', rotulo: '% atual x meta', editavel: true, numerica: true,
+    dica: 'Barra mostra o % atual da carteira nesse ativo; o traço marca o % desejado (editável). Toque/passe o mouse pro valor exato de cada um.' },
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
   { chave: 'valorInvestir', rotulo: 'R$ investir/resgatar', numerica: true },
 ];
@@ -658,12 +679,9 @@ function formatarCelulaRadar_(item, coluna, chaveTabela) {
     case 'precoAtual':
     case 'precoTeto':
       return formatarPrecoRadar_(v, chaveTabela);
-    case 'percentualDesejado':
-    case 'percentualAtual':
-      return formatPercentualMeta(v);
     case 'carteiraAtual':
     case 'valorInvestir':
-      return formatBRL(v);
+      return formatarPrecoRadar_(v, chaveTabela);
     default:
       return v || v === 0 ? String(v) : '—';
   }
@@ -673,7 +691,77 @@ function formatarCelulaRadar_(item, coluna, chaveTabela) {
 function tituloLinhaRadar_(item, chaveTabela) {
   const partes = [`Preço médio: ${formatarPrecoRadar_(item.precoMedio, chaveTabela)}`];
   if (typeof item.percentualDiferenca === 'number') partes.push(`Diferença vs. meta: ${formatPercentualPreciso(item.percentualDiferenca)}`);
+  if (chaveTabela === 'fiis' && item.segmento && item.tipo) partes.push(`${item.segmento} (${item.tipo})`);
   return partes.join('\n');
+}
+
+/**
+ * "Tijolo"/"Híbrido"/"Papel" -> chave de classe CSS sem acento
+ * ('tijolo'/'hibrido'/'papel') pra colorir o fundo da linha (pedido do
+ * Tiago, "vamos testar" - cor suave por tipo de FII). `null` pra
+ * qualquer texto que não bata com os 3 tipos conhecidos, em vez de
+ * inventar uma cor pra tipo desconhecido.
+ */
+function chaveTipoFii_(tipo) {
+  const normalizado = String(tipo || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  if (normalizado === 'tijolo') return 'tijolo';
+  if (normalizado === 'hibrido') return 'hibrido';
+  if (normalizado === 'papel') return 'papel';
+  return null;
+}
+
+/** Legenda de cor por tipo de FII (Tijolo/Híbrido/Papel), acima da tabela — usa as 3 imagens que o Tiago organizou em assets/imgs/fiis/. */
+const LEGENDA_TIPO_FII = [
+  { chave: 'tijolo', rotulo: 'Tijolo', imagem: 'assets/imgs/fiis/tijolo.webp' },
+  { chave: 'hibrido', rotulo: 'Híbrido', imagem: 'assets/imgs/fiis/hibrido.jpg' },
+  { chave: 'papel', rotulo: 'Papel', imagem: 'assets/imgs/fiis/papel.png' },
+];
+function criarLegendaTipoFii_(doc) {
+  const div = doc.createElement('div');
+  div.className = 'radar-fii-legenda';
+  for (const t of LEGENDA_TIPO_FII) {
+    const item = doc.createElement('span');
+    item.className = `radar-fii-legenda-item radar-fii-legenda-${t.chave}`;
+    item.innerHTML = '<img src="" alt="" /><span></span>';
+    item.querySelector('img').src = t.imagem;
+    item.querySelector('span').textContent = t.rotulo;
+    div.appendChild(item);
+  }
+  return div;
+}
+
+/** Banner "Cotação do dólar hoje: R$ X,XX" acima da tabela de Ações Internacionais (pedido do Tiago — os valores da tabela são em dólar por padrão; isso dá o número pra quem quiser converter de cabeça). */
+function criarBannerCotacaoDolar_(doc, cotacaoDolar) {
+  const div = doc.createElement('div');
+  div.className = 'radar-cotacao-dolar';
+  div.innerHTML = `Cotação do dólar hoje: <b>${formatBRL(cotacaoDolar)}</b>`;
+  return div;
+}
+
+/**
+ * Barra "% atual x meta" — uma célula só em vez de 2 colunas de número
+ * cru (pedido do Tiago: "pode ser uma coluna só... pode utilizar algo
+ * visual, parecido com o slide da meta"). Mesma ideia visual de
+ * .obj-barra (criarLinhaObjetivo, lá em cima) numa versão compacta que
+ * cabe numa célula de tabela — barra preenchida até o % atual, traço
+ * marcando o % desejado.
+ */
+function criarCelulaPctAtualMeta_(doc, item) {
+  const wrap = doc.createElement('div');
+  wrap.className = 'radar-pct-wrap radar-info-alvo';
+  const pctAtual = Math.max(0, Math.min(typeof item.percentualAtual === 'number' ? item.percentualAtual : 0, 1)) * 100;
+  const pctMeta = Math.max(0, Math.min(typeof item.percentualDesejado === 'number' ? item.percentualDesejado : 0, 1)) * 100;
+  wrap.innerHTML = `
+    <span class="radar-pct-label"><b></b><span class="radar-pct-meta-label"></span></span>
+    <div class="radar-pct-bar">
+      <div class="radar-pct-bar-fill" style="width:${pctAtual.toFixed(1)}%"></div>
+      <div class="radar-pct-bar-meta" style="left:${pctMeta.toFixed(1)}%"></div>
+    </div>
+  `;
+  wrap.querySelector('.radar-pct-label b').textContent = formatPercentualMeta(item.percentualAtual);
+  wrap.querySelector('.radar-pct-meta-label').textContent = `/ ${formatPercentualMeta(item.percentualDesejado)}`;
+  wrap.dataset.tooltip = `Atual: ${formatPercentualPreciso(item.percentualAtual)} · Meta: ${formatPercentualPreciso(item.percentualDesejado)}`;
+  return wrap;
 }
 
 /**
@@ -828,12 +916,16 @@ function criarBadgeVies_(doc, vies) {
  * inteira no sucesso — "Cancelar" só redesenha a linha a partir do
  * `item` original, mais simples que reverter célula por célula.
  */
-function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
+function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
   const colunas = colunasRadarPara_(chaveTabela);
   const tr = doc.createElement('tr');
   tr.className = 'radar-linha';
 
   if (item.vies === 'Aguardar') tr.classList.add('radar-linha-aguardar');
+  if (chaveTabela === 'fiis') {
+    const chaveTipo = chaveTipoFii_(item.tipo);
+    if (chaveTipo) tr.classList.add(`radar-linha-fii-${chaveTipo}`);
+  }
 
   const celulas = {};
   for (const coluna of colunas) {
@@ -857,9 +949,33 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
       badge.className = 'radar-rank-badge';
       badge.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
       td.appendChild(badge);
+    } else if (coluna.chave === 'precoAtual') {
+      const wrap = doc.createElement('span');
+      wrap.className = 'radar-preco-wrap';
+      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      if (typeof item.variacaoDia === 'number') {
+        const variacao = doc.createElement('span');
+        variacao.className = `radar-preco-variacao ${item.variacaoDia < 0 ? 'bad' : 'good'}`;
+        variacao.textContent = formatPercentFromFraction(item.variacaoDia);
+        wrap.appendChild(variacao);
+      }
+      td.appendChild(wrap);
     } else if (coluna.chave === 'precoTeto') {
       td.classList.add('radar-preco-teto');
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
+    } else if (coluna.chave === 'percentualDesejado') {
+      td.appendChild(criarCelulaPctAtualMeta_(doc, item));
+    } else if (coluna.chave === 'carteiraAtual') {
+      const wrap = doc.createElement('span');
+      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      if (chaveTabela === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && typeof item.carteiraAtual === 'number') {
+        const info = doc.createElement('span');
+        info.className = 'radar-info-icon radar-info-alvo';
+        info.textContent = 'i';
+        info.dataset.tooltip = `≈ ${formatBRL(item.carteiraAtual * cotacaoDolar)} em reais (cotação: ${formatBRL(cotacaoDolar)})`;
+        wrap.appendChild(info);
+      }
+      td.appendChild(wrap);
     } else if (coluna.chave === 'descontoPvp' || coluna.chave === 'descontoPl') {
       const info = badgeDesconto_(coluna.chave, item);
       if (info) {
@@ -878,11 +994,18 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
       // do lado do valor, senão o rótulo entraria espremido no meio.
       const wrap = doc.createElement('span');
       wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      const partesTooltip = [];
       if (typeof item.novaCarteira === 'number') {
+        partesTooltip.push(`Nova carteira: ${formatarPrecoRadar_(item.novaCarteira, chaveTabela)}`);
+      }
+      if (chaveTabela === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && typeof item.valorInvestir === 'number') {
+        partesTooltip.push(`≈ ${formatBRL(item.valorInvestir * cotacaoDolar)} em reais (cotação: ${formatBRL(cotacaoDolar)})`);
+      }
+      if (partesTooltip.length > 0) {
         const info = doc.createElement('span');
         info.className = 'radar-info-icon radar-info-alvo';
         info.textContent = 'i';
-        info.dataset.tooltip = `Nova carteira: ${formatBRL(item.novaCarteira)}`;
+        info.dataset.tooltip = partesTooltip.join('\n');
         wrap.appendChild(info);
       }
       td.appendChild(wrap);
@@ -908,8 +1031,10 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
 
   const editarBtn = doc.createElement('button');
   editarBtn.type = 'button';
-  editarBtn.className = 'radar-editar-btn';
-  editarBtn.textContent = 'Editar';
+  editarBtn.className = 'radar-editar-btn radar-editar-btn-icone';
+  editarBtn.setAttribute('aria-label', 'Editar');
+  editarBtn.title = 'Editar';
+  editarBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
   tdAcoes.appendChild(editarBtn);
 
   editarBtn.addEventListener('click', () => {
@@ -945,7 +1070,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
     tdAcoes.append(salvarBtn, cancelarBtn, statusEl);
 
     cancelarBtn.addEventListener('click', () => {
-      tr.replaceWith(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem));
+      tr.replaceWith(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
     });
 
     salvarBtn.addEventListener('click', async () => {
@@ -996,7 +1121,7 @@ function compararRadar_(a, b, campo) {
  * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
  * pra sobreviver a troca de aba sem perder o estado.
  */
-function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar }) {
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar }) {
   const colunas = colunasRadarPara_(chaveTabela);
   const wrap = doc.createElement('div');
   wrap.className = 'radar-table-wrap';
@@ -1041,7 +1166,7 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
     });
   }
   for (const item of ordenados) {
-    tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem));
+    tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
   }
   table.appendChild(tbody);
 
@@ -1096,11 +1221,18 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       tableContainer.appendChild(vazio);
       return;
     }
+    if (abaAtiva === 'acoesInternacionais' && typeof radar.cotacaoDolar === 'number') {
+      tableContainer.appendChild(criarBannerCotacaoDolar_(doc, radar.cotacaoDolar));
+    }
+    if (abaAtiva === 'fiis') {
+      tableContainer.appendChild(criarLegendaTipoFii_(doc));
+    }
     tableContainer.appendChild(criarTabelaRadar_(doc, {
       chaveTabela: abaAtiva,
       itens: bloco.itens,
       onSalvarItem,
       ordenacao,
+      cotacaoDolar: radar.cotacaoDolar,
       onOrdenar: (campo) => {
         ordenacao = ordenacao.campo === campo
           ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }

@@ -1129,6 +1129,193 @@ test('renderRadarOportunidades(): imagem do logo que falha ao carregar (evento "
   assert.equal(logo.querySelector('img'), null);
 });
 
+// 14/09/2026 (2ª rodada de feedback, com prints da Suno): variação % do
+// dia embaixo do Preço atual; "% desejado"/"% atual" viraram 1 coluna
+// só com barra visual; "Editar" virou ícone; Ações Internacionais
+// mostram Carteira atual/R$ investir em dólar (com ícone "i" pra
+// reais) + banner de cotação; FIIs ganham cor de linha + legenda +
+// segmento no tooltip do Ativo.
+
+test('renderRadarOportunidades(): Preço atual mostra a variação % do dia embaixo, verde quando positiva e vermelha quando negativa', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = {
+    acoesNacionais: {
+      itens: [
+        { ...RADAR_EXEMPLO.acoesNacionais.itens[1], variacaoDia: -0.0021 }, // WIZC3
+        { ...RADAR_EXEMPLO.acoesNacionais.itens[0], variacaoDia: 0.0134 }, // VAMO3
+      ],
+      total: {},
+    },
+    acoesInternacionais: { itens: [], total: {} },
+    fiis: { itens: [], total: {} },
+  };
+  renderRadarOportunidades(doc, container, dados);
+  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  const variacaoWizc3 = linhas[0].querySelector('.radar-preco-variacao');
+  assert.match(variacaoWizc3.textContent, /-0,21%/);
+  assert.equal(variacaoWizc3.classList.contains('bad'), true);
+  const variacaoVamo3 = linhas[1].querySelector('.radar-preco-variacao');
+  assert.match(variacaoVamo3.textContent, /\+1,34%/);
+  assert.equal(variacaoVamo3.classList.contains('good'), true);
+});
+
+test('renderRadarOportunidades(): sem variacaoDia (null) não desenha o span de variação', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // itens do fixture não têm variacaoDia
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  assert.equal(primeiraLinha.querySelector('.radar-preco-variacao'), null);
+});
+
+test('renderRadarOportunidades(): "% desejado" e "% atual" viram 1 coluna só ("% atual x meta") com barra visual, ainda editável', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const rotulos = Array.from(container.querySelectorAll('.radar-th-btn')).map((b) => b.textContent);
+  assert.ok(rotulos.some((r) => r.includes('% atual x meta')));
+  assert.equal(rotulos.some((r) => r.includes('% desejado')), false);
+  assert.equal(rotulos.some((r) => r === '% atual'), false);
+
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3: 3%/11%
+  const barra = primeiraLinha.querySelector('.radar-pct-wrap');
+  assert.ok(barra);
+  assert.match(barra.querySelector('.radar-pct-label b').textContent, /3%/);
+  assert.match(barra.querySelector('.radar-pct-meta-label').textContent, /11%/);
+  assert.match(barra.querySelector('.radar-pct-bar-fill').style.width, /3\.4%|3%/);
+  assert.match(barra.querySelector('.radar-pct-bar-meta').style.left, /11/);
+
+  // continua editável (edita só % desejado) - "Editar" ainda revela os
+  // mesmos 3 inputs de sempre (Ranking/Preço-teto/% desejado).
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
+  const linhaEditavel = container.querySelector('.radar-table tbody tr');
+  linhaEditavel.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(linhaEditavel.querySelectorAll('.radar-edit-input').length, 3);
+});
+
+test('renderRadarOportunidades(): "Editar" é um ícone (sem texto "Editar" visível), com aria-label pra acessibilidade', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
+  const btn = container.querySelector('.radar-editar-btn');
+  assert.equal(btn.getAttribute('aria-label'), 'Editar');
+  assert.ok(btn.querySelector('svg'));
+  assert.equal(btn.textContent.trim(), '');
+});
+
+test('renderRadarOportunidades(): Ações Internacionais mostram Carteira atual e R$ investir em dólar (não mais "R$")', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
+  const celulas = Array.from(linha.children);
+  assert.match(celulas[8].textContent, /\$557\.70/); // carteira atual
+  assert.match(celulas[9].textContent, /\$42\.30/); // r$ investir/resgatar
+  assert.equal(celulas[8].textContent.includes('R$'), false);
+});
+
+test('renderRadarOportunidades(): banner de cotação do dólar aparece só na aba Ações Internacionais, quando radar.cotacaoDolar vem preenchido', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = { ...RADAR_EXEMPLO, cotacaoDolar: 5.1218 };
+  renderRadarOportunidades(doc, container, dados);
+  assert.equal(container.querySelector('.radar-cotacao-dolar'), null); // Ações Nacionais é a aba default
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const banner = container.querySelector('.radar-cotacao-dolar');
+  assert.ok(banner);
+  assert.match(banner.textContent, /5,12/);
+});
+
+test('renderRadarOportunidades(): ícone "i" de Carteira atual/R$ investir em Ações Internacionais mostra o equivalente em reais', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = { ...RADAR_EXEMPLO, cotacaoDolar: 5 };
+  renderRadarOportunidades(doc, container, dados);
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
+  const celulas = Array.from(linha.children);
+  const iconeCarteira = celulas[8].querySelector('.radar-info-icon');
+  assert.ok(iconeCarteira);
+  assert.match(iconeCarteira.dataset.tooltip, /2\.788,50/); // 557.7 * 5
+  const iconeInvestir = celulas[9].querySelector('.radar-info-icon');
+  assert.match(iconeInvestir.dataset.tooltip, /211,50/); // 42.3 * 5
+});
+
+test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não ganham ícone de conversão nem banner', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // sem cotacaoDolar no fixture
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelector('.radar-cotacao-dolar'), null);
+  const linha = container.querySelector('.radar-table tbody tr');
+  assert.equal(Array.from(linha.children)[8].querySelector('.radar-info-icon'), null);
+});
+
+test('renderRadarOportunidades(): linha de FII ganha classe de cor pelo Tipo (Tijolo/Híbrido/Papel); "Aguardar" continua vencendo o fundo', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = {
+    acoesNacionais: { itens: [], total: {} },
+    acoesInternacionais: { itens: [], total: {} },
+    fiis: {
+      itens: [
+        { ...RADAR_EXEMPLO.fiis.itens[0], tipo: 'Tijolo', vies: 'Comprar' },
+        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 83, ativo: 'TRXF11', tipo: 'Híbrido', vies: 'Comprar' },
+        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 84, ativo: 'RECR11', tipo: 'Papel', vies: 'Aguardar' },
+      ],
+      total: {},
+    },
+  };
+  renderRadarOportunidades(doc, container, dados);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.equal(linhas[0].classList.contains('radar-linha-fii-tijolo'), true);
+  assert.equal(linhas[1].classList.contains('radar-linha-fii-hibrido'), true);
+  // Papel + Aguardar: ganha as 2 classes, mas o CSS garante que
+  // radar-linha-aguardar vence no fundo (ver distribuicoes-metas.css).
+  assert.equal(linhas[2].classList.contains('radar-linha-fii-papel'), true);
+  assert.equal(linhas[2].classList.contains('radar-linha-aguardar'), true);
+});
+
+test('renderRadarOportunidades(): legenda de tipo de FII aparece só na aba FIIs', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  assert.equal(container.querySelector('.radar-fii-legenda'), null);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const legenda = container.querySelector('.radar-fii-legenda');
+  assert.ok(legenda);
+  const itens = legenda.querySelectorAll('.radar-fii-legenda-item');
+  assert.equal(itens.length, 3);
+  assert.match(legenda.textContent, /Tijolo/);
+  assert.match(legenda.textContent, /Híbrido/);
+  assert.match(legenda.textContent, /Papel/);
+});
+
+test('renderRadarOportunidades(): tooltip do Ativo, nos FIIs, acrescenta "Segmento (Tipo)" (ex. "Shopping (Tijolo)")', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = {
+    acoesNacionais: { itens: [], total: {} },
+    acoesInternacionais: { itens: [], total: {} },
+    fiis: { itens: [{ ...RADAR_EXEMPLO.fiis.itens[0], tipo: 'Tijolo', segmento: 'Shopping' }], total: {} },
+  };
+  renderRadarOportunidades(doc, container, dados);
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  assert.match(celulaAtivo.dataset.tooltip, /Shopping \(Tijolo\)/);
+});
+
+test('renderRadarOportunidades(): tooltip do Ativo não quebra quando o item não tem segmento (Ações, ou FIIs sem esse dado)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // WIZC3 (Nacionais), sem segmento
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  assert.equal(celulaAtivo.dataset.tooltip.includes('undefined'), false);
+});
+
+
 
 // --- montarPaginaDistribuicoesMetas ------------------------------------------------------
 
