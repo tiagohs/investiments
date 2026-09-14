@@ -1,13 +1,28 @@
 /**
- * DistribuicoesMetas.gs — ação "distribuicoesMetas" (doGet) e as 2 ações
- * de escrita de Metas da Carteira (doPost): salvarMetaRendaPassiva e
- * salvarMetaPatrimonio.
+ * DistribuicoesMetas.gs — ação "distribuicoesMetas" (doGet) e as ações
+ * de escrita de Metas da Carteira (doPost): salvarMetaRendaPassiva,
+ * salvarMetaPatrimonio e salvarMesesRendaEmergencial.
  *
- * 14/09/2026: primeira fatia construída é só "Metas da Carteira" (Renda
- * Passiva, Patrimônio, Renda Emergencial) — Objetivos da Carteira e o
- * Radar de oportunidades (Ações/EUA/FIIs) ainda não entram aqui, entram
- * numa próxima rodada, dentro do mesmo action de leitura (ver TODOs em
- * handleDistribuicoesMetas).
+ * 14/09/2026: 1ª fatia foi só "Metas da Carteira" (Renda Passiva,
+ * Patrimônio, Renda Emergencial). 2ª fatia (mesmo dia, ordem pedida pelo
+ * Tiago: Objetivos da Carteira → Radar de oportunidades → Metas da
+ * Carteira) adiciona `objetivos` — a distribuição desejada x atual por
+ * classe de ativo. O Radar de oportunidades (tabelas Ações Nacionais/
+ * EUA/FIIs com viés, preço-teto etc.) ainda não entra aqui — ver TODO em
+ * handleDistribuicoesMetas.
+ *
+ * Objetivos da Carteira: a aba "Distribuição e Metas" guarda 2 blocos de
+ * distribuição desejada x atual, ambos B:G, só leitura aqui (toda a
+ * distribuição é calculada por fórmula a partir da carteira real, não há
+ * campo editável nesta seção — os "%  desejado" de cada linha É que são
+ * editáveis diretamente na planilha pelo Tiago, mas por enquanto não
+ * pedimos pra isso vir com um formulário de edição na tela, só leitura):
+ *   - B11:G13 — split principal Ações Nacionais e Internacionais / FIIs /
+ *     Renda Fixa (título em B8/B9), com totais em E14:G14.
+ *   - B19:G20 — split de Renda Fixa em Renda Emergencial / Renda Fixa de
+ *     longo prazo (título em B16/B17), com totais em E21:G21.
+ * Cada linha tem: Tipo (B), % desejado (C), % atual (D), carteira atual
+ * R$ (E), nova carteira R$ (F) e R$ a investir/resgatar (G).
  *
  * Renda Passiva: bloco novo colado em U10:W12 (título em U10, cabeçalho
  * em U11:W11, dados em U12:W12) — meta em U12 (editável, gravada por
@@ -48,7 +63,12 @@ function handleDistribuicoesMetas(e, auth) {
     avisos.metas = String(err);
   }
 
-  // TODO (próxima rodada): resposta.objetivos = montarObjetivosCarteira_();
+  try {
+    resposta.objetivos = montarObjetivosCarteira_();
+  } catch (err) {
+    avisos.objetivos = String(err);
+  }
+
   // TODO (próxima rodada): resposta.radar = montarRadarOportunidades_();
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
@@ -109,6 +129,51 @@ function montarMetasCarteira_() {
     patrimonio: patrimonio,
     rendaEmergencial: rendaEmergencial
   };
+}
+
+/**
+ * Lê os 2 blocos de "Objetivos da Carteira" (distribuição desejada x
+ * atual) — puro read-only, nenhum cálculo de agregação aqui, tudo já
+ * vem pronto por fórmula da própria planilha.
+ */
+function montarObjetivosCarteira_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dm = ss.getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+
+  function linhaParaObjeto_(linha) {
+    return {
+      tipo: linha[0],
+      percentualDesejado: linha[1],
+      percentualAtual: linha[2],
+      carteiraAtual: linha[3],
+      novaCarteira: linha[4],
+      valorInvestir: linha[5]
+    };
+  }
+
+  // Split principal — Ações Nacionais e Internacionais / FIIs / Renda Fixa.
+  var linhasGeral = dm.getRange('B11:G13').getValues();
+  var totalGeral = dm.getRange('E14:G14').getValues()[0];
+  var alocacaoGeral = {
+    tipos: linhasGeral.map(linhaParaObjeto_),
+    total: { carteiraAtual: totalGeral[0], novaCarteira: totalGeral[1], valorInvestir: totalGeral[2] }
+  };
+
+  // Split de Renda Fixa — Renda Emergencial / Renda Fixa de longo prazo.
+  var linhasRendaFixa = dm.getRange('B19:G20').getValues();
+  var totalRendaFixa = dm.getRange('E21:G21').getValues()[0];
+  var alocacaoRendaFixa = {
+    tipos: linhasRendaFixa.map(linhaParaObjeto_),
+    total: { carteiraAtual: totalRendaFixa[0], novaCarteira: totalRendaFixa[1], valorInvestir: totalRendaFixa[2] }
+  };
+
+  return { alocacaoGeral: alocacaoGeral, alocacaoRendaFixa: alocacaoRendaFixa };
+}
+
+function testarObjetivosCarteiraDireto() {
+  var dados = montarObjetivosCarteira_();
+  Logger.log(JSON.stringify(dados, null, 2));
 }
 
 /**
