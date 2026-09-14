@@ -921,12 +921,6 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
   const tr = doc.createElement('tr');
   tr.className = 'radar-linha';
 
-  if (item.vies === 'Aguardar') tr.classList.add('radar-linha-aguardar');
-  if (chaveTabela === 'fiis') {
-    const chaveTipo = chaveTipoFii_(item.tipo);
-    if (chaveTipo) tr.classList.add(`radar-linha-fii-${chaveTipo}`);
-  }
-
   const celulas = {};
   for (const coluna of colunas) {
     const td = doc.createElement('td');
@@ -941,7 +935,6 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       td.classList.add('radar-card-topo');
     }
     if (coluna.chave === 'vies') {
-      if (item.vies === 'Comprar') td.classList.add('radar-vies-comprar');
       td.appendChild(criarBadgeVies_(doc, item.vies));
     } else if (coluna.chave === 'ranking') {
       td.classList.add('radar-rank');
@@ -1012,6 +1005,16 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
     } else if (coluna.chave === 'ativo') {
       td.appendChild(criarLogoAtivo_(doc, item.ativo));
       td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      // Cor por tipo de FII (pedido do Tiago, 14/09/2026): só na célula
+      // do Ativo (desktop) - no card do mobile, essa mesma célula tem
+      // .radar-card-topo, e o CSS (:has) espalha a cor pra área do
+      // header inteira (Ranking + Ativo juntos), não só o texto do
+      // ticker. Rodada anterior pintava a LINHA inteira - Tiago achou
+      // feio, voltou atrás.
+      if (chaveTabela === 'fiis') {
+        const chaveTipo = chaveTipoFii_(item.tipo);
+        if (chaveTipo) td.classList.add(`radar-fii-cor-${chaveTipo}`);
+      }
     } else {
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
     }

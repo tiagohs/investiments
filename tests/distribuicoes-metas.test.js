@@ -971,20 +971,29 @@ test('renderRadarOportunidades(): cabeçalho de Desconto sobre P/VP e P/L vira a
   assert.match(thPl.dataset.tooltip, /taxa de renda fixa/);
 });
 
-test('renderRadarOportunidades(): linha "Comprar" pinta só a célula do Viés (não a linha inteira); "Aguardar" continua pintando a linha inteira', () => {
+// 14/09/2026 (3ª rodada de feedback): uma rodada anterior tinha
+// passado a pintar a célula do Viés inteira (Comprar) e a linha
+// inteira (Aguardar) - Tiago achou feio e pediu pra voltar atrás
+// ("vamos manter como antes, tag verde/amarela"). O badge
+// (.goal-badge good/warn, sempre existiu) já É essa tag - o teste
+// agora confirma que NENHUM fundo extra de célula/linha é adicionado,
+// só a tag colorida continua ali.
+test('renderRadarOportunidades(): "Comprar"/"Aguardar" mostram só a tag (badge) verde/amarela - sem pintar célula ou linha', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, Comprar
   const celulaVies = Array.from(primeiraLinha.children).find((td) => td.querySelector('.goal-badge'));
-  assert.equal(celulaVies.classList.contains('radar-vies-comprar'), true);
+  assert.equal(celulaVies.classList.contains('radar-vies-comprar'), false);
   assert.equal(primeiraLinha.classList.contains('radar-linha-aguardar'), false);
+  assert.equal(celulaVies.querySelector('.goal-badge').classList.contains('good'), true);
 
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linhaGprk = container.querySelector('.radar-table tbody tr'); // GPRK, Aguardar
-  assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), true);
+  assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), false);
   const celulaViesGprk = Array.from(linhaGprk.children).find((td) => td.querySelector('.goal-badge'));
   assert.equal(celulaViesGprk.classList.contains('radar-vies-comprar'), false);
+  assert.equal(celulaViesGprk.querySelector('.goal-badge').classList.contains('warn'), true);
 });
 
 test('renderRadarOportunidades(): Desconto sobre P/L "—" (sem badge/tooltip) quando a planilha não tem esse dado', () => {
@@ -1008,17 +1017,6 @@ test('renderRadarOportunidades(): Ranking tem badge próprio e Preço-teto fica 
   assert.match(primeiraLinha.querySelector('.radar-preco-teto').textContent, /10,00/); // formatBRL usa espaço não-quebrável entre "R$" e o número
 });
 
-test('renderRadarOportunidades(): linha com Viés "Aguardar" ganha a classe radar-linha-aguardar; "Comprar" não', () => {
-  const doc = makeDom('<div id="c"></div>');
-  const container = doc.getElementById('c');
-  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, Comprar
-  assert.equal(primeiraLinha.classList.contains('radar-linha-aguardar'), false);
-
-  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linhaGprk = container.querySelector('.radar-table tbody tr'); // GPRK, Aguardar
-  assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), true);
-});
 
 test('renderRadarOportunidades(): R$ investir/resgatar ganha um ícone "i" com "Nova carteira" no dataset.tooltip', () => {
   const doc = makeDom('<div id="c"></div>');
@@ -1252,7 +1250,11 @@ test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não 
   assert.equal(Array.from(linha.children)[8].querySelector('.radar-info-icon'), null);
 });
 
-test('renderRadarOportunidades(): linha de FII ganha classe de cor pelo Tipo (Tijolo/Híbrido/Papel); "Aguardar" continua vencendo o fundo', () => {
+// 14/09/2026 (3ª rodada de feedback): pintar a LINHA inteira "ficou
+// feio" (Tiago) - agora só a célula do Ativo ganha a cor por Tipo (o
+// CSS espalha isso pra área do header inteira no card do mobile, via
+// :has(), sem precisar de mais classe nenhuma aqui no JS).
+test('renderRadarOportunidades(): célula do Ativo (só ela, não a linha) ganha classe de cor pelo Tipo do FII (Tijolo/Híbrido/Papel)', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   const dados = {
@@ -1260,9 +1262,9 @@ test('renderRadarOportunidades(): linha de FII ganha classe de cor pelo Tipo (Ti
     acoesInternacionais: { itens: [], total: {} },
     fiis: {
       itens: [
-        { ...RADAR_EXEMPLO.fiis.itens[0], tipo: 'Tijolo', vies: 'Comprar' },
-        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 83, ativo: 'TRXF11', tipo: 'Híbrido', vies: 'Comprar' },
-        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 84, ativo: 'RECR11', tipo: 'Papel', vies: 'Aguardar' },
+        { ...RADAR_EXEMPLO.fiis.itens[0], tipo: 'Tijolo' },
+        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 83, ativo: 'TRXF11', tipo: 'Híbrido' },
+        { ...RADAR_EXEMPLO.fiis.itens[0], linha: 84, ativo: 'RECR11', tipo: 'Papel' },
       ],
       total: {},
     },
@@ -1270,12 +1272,13 @@ test('renderRadarOportunidades(): linha de FII ganha classe de cor pelo Tipo (Ti
   renderRadarOportunidades(doc, container, dados);
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linhas = container.querySelectorAll('.radar-table tbody tr');
-  assert.equal(linhas[0].classList.contains('radar-linha-fii-tijolo'), true);
-  assert.equal(linhas[1].classList.contains('radar-linha-fii-hibrido'), true);
-  // Papel + Aguardar: ganha as 2 classes, mas o CSS garante que
-  // radar-linha-aguardar vence no fundo (ver distribuicoes-metas.css).
-  assert.equal(linhas[2].classList.contains('radar-linha-fii-papel'), true);
-  assert.equal(linhas[2].classList.contains('radar-linha-aguardar'), true);
+  assert.equal(linhas[0].classList.contains('radar-linha-fii-tijolo'), false); // linha não pinta mais
+  const celulaAtivo0 = linhas[0].children[1]; // ranking(0), ativo(1)
+  assert.equal(celulaAtivo0.classList.contains('radar-fii-cor-tijolo'), true);
+  assert.equal(linhas[1].children[1].classList.contains('radar-fii-cor-hibrido'), true);
+  assert.equal(linhas[2].children[1].classList.contains('radar-fii-cor-papel'), true);
+  // outras células da linha (ex. ranking) não ganham a cor.
+  assert.equal(linhas[0].children[0].classList.contains('radar-fii-cor-tijolo'), false);
 });
 
 test('renderRadarOportunidades(): legenda de tipo de FII aparece só na aba FIIs', () => {

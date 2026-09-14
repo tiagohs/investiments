@@ -175,25 +175,24 @@
 .radar-table td.num, .radar-table th.num{ font-family:var(--mono); }
 .radar-table tbody tr:last-child td{ border-bottom:none; }
 .radar-table tbody tr:hover{ background:var(--surface-3); }
-.radar-table tbody tr.radar-linha-aguardar{ background:var(--warn-soft); }
-/* "Comprar" NÃO pinta a linha inteira (isso é só pro Viés "Aguardar",
-   acima) — só a própria célula do Viés, no mesmo tom (--good-soft) que
-   --warn-soft já usa pra Aguardar (pedido do Tiago, 14/09/2026: "siga
-   o tom do amarelo pro verde também"). */
-.radar-table tbody tr td.radar-vies-comprar{ background:var(--good-soft); }
+/* 14/09/2026 (3ª rodada de feedback): Tiago não gostou da linha
+   inteira pintada de amarelo pro Viés "Aguardar" nem da célula do
+   Viés pintada de verde pro "Comprar" ("vamos manter como antes, tag
+   verde/amarela") - REMOVIDO. O badge (.goal-badge good/warn, dentro
+   da própria célula do Viés) já É essa tag e sempre foi - isso aqui
+   só tirava o fundo A MAIS que uma rodada anterior tinha somado nele.
+   Sem regra de fundo pra .radar-linha-aguardar/.radar-vies-comprar
+   de propósito - não recriar sem pedido novo. */
 
-/* ---- Cor de fundo por tipo de FII (Tijolo/Híbrido/Papel) — "vamos
-   testar" (Tiago, 14/09/2026). Precisa perder pra Aguardar quando as 2
-   caem na mesma linha (o aviso de "esperar" é a cor mais importante) -
-   por isso o último seletor (2 classes, especificidade maior que as
-   regras de fundo por tipo aqui em cima, que só têm 1) reafirma
-   --warn-soft nesse caso, independente da ordem no arquivo. */
-.radar-table tbody tr.radar-linha-fii-tijolo{ background:var(--fii-tijolo-soft); }
-.radar-table tbody tr.radar-linha-fii-hibrido{ background:var(--fii-hibrido-soft); }
-.radar-table tbody tr.radar-linha-fii-papel{ background:var(--fii-papel-soft); }
-.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-tijolo,
-.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-hibrido,
-.radar-table tbody tr.radar-linha-aguardar.radar-linha-fii-papel{ background:var(--warn-soft); }
+/* ---- Cor por tipo de FII (Tijolo/Híbrido/Papel) — "vamos testar"
+   (Tiago, 14/09/2026), ajustada numa 2ª rodada porque a linha inteira
+   pintada "ficou meio feio": agora só a célula do Ativo (desktop)
+   ganha o fundo — no card do mobile, o :has() abaixo espalha essa cor
+   pra área do header inteira (Ranking + Ativo, que ali formam 1 bloco
+   visual só), não só o texto do ticker. */
+.radar-table td.radar-fii-cor-tijolo{ background:var(--fii-tijolo-soft); }
+.radar-table td.radar-fii-cor-hibrido{ background:var(--fii-hibrido-soft); }
+.radar-table td.radar-fii-cor-papel{ background:var(--fii-papel-soft); }
 
 /* Legenda acima da tabela de FIIs — 1 pill por tipo, com a mesma cor
    suave do fundo de linha e a fotinho que o Tiago organizou em
@@ -318,19 +317,44 @@
   .radar-table td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
         letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
 
-  .radar-table td.radar-card-topo{ flex:0 1 auto; justify-content:flex-start; gap:8px; border-bottom:none;
+  .radar-table td.radar-card-topo{ order:0; flex:0 1 auto; justify-content:flex-start; gap:8px; border-bottom:none;
         padding:0 14px 10px 0; font-weight:700; }
   .radar-table td.radar-card-topo::before{ content:none; }
   .radar-table td.radar-card-topo.radar-rank{ padding-right:6px; }
   .radar-table td.radar-card-topo:nth-of-type(2){ font-size:13.5px; }
 
-  .radar-acoes{ flex-basis:100%; justify-content:flex-end !important; padding-top:10px !important; }
+  /* Cor por tipo de FII (ver a regra "desktop" .radar-fii-cor-* mais
+     acima no arquivo) - no card do mobile, Ranking+Ativo formam 1
+     bloco visual só (o "header" do card), então a cor precisa cobrir
+     os 2, não só a célula do Ativo sozinha - :has() olha pro irmão
+     .radar-fii-cor-* dentro da mesma linha e pinta toda a área
+     .radar-card-topo (funciona em Chrome/Safari/Firefox atuais). */
+  .radar-table tr:has(> td.radar-fii-cor-tijolo) td.radar-card-topo{ background:var(--fii-tijolo-soft); border-radius:10px; }
+  .radar-table tr:has(> td.radar-fii-cor-hibrido) td.radar-card-topo{ background:var(--fii-hibrido-soft); border-radius:10px; }
+  .radar-table tr:has(> td.radar-fii-cor-papel) td.radar-card-topo{ background:var(--fii-papel-soft); border-radius:10px; }
 
-  /* .radar-preco-wrap/.radar-pct-wrap são coluna centralizada em tela
-     larga (a td tem text-align:center) - no card, a td vira flex com
-     rótulo à esquerda e valor à direita (space-between), então o
-     "valor" (nosso wrap) precisa se alinhar à direita, não ficar
-     centralizado sozinho no meio da célula. */
-  .radar-preco-wrap, .radar-pct-wrap{ align-items:flex-end; }
+  /* Lápis (Editar) sobe pro header do card, do lado direito, ao invés
+     de virar sua própria linha lá embaixo (pedido do Tiago,
+     14/09/2026) - "order" reagrupa só visualmente, sem mudar a ordem
+     real no DOM (criarLinhaRadar_ continua colocando .radar-acoes por
+     último, igual no desktop): header (order 0) e ações (order 1)
+     cabem na MESMA linha do flex-wrap porque nenhum dos 2 força
+     100% de largura - só as células "normais" (order 2, mais abaixo)
+     forçam quebra. margin-left:auto empurra o lápis pro fim da linha. */
+  .radar-table td:not(.radar-card-topo):not(.radar-acoes){ order:2; }
+  .radar-acoes{ order:1; flex:0 1 auto !important; margin-left:auto; justify-content:flex-end !important;
+        padding:0 0 10px !important; border-bottom:none !important; }
+
+  /* .radar-pct-wrap é coluna centralizada em tela larga (a td tem
+     text-align:center) - no card, a td vira flex com rótulo à esquerda
+     e valor à direita (space-between), então o "valor" (nosso wrap)
+     precisa se alinhar à direita, não ficar centralizado sozinho no
+     meio da célula. */
+  .radar-pct-wrap{ align-items:flex-end; }
+  /* Preço atual + variação do dia: no card tem espaço de sobra (pedido
+     do Tiago) - fica lado a lado em vez de empilhado (só no mobile;
+     na tabela em tela larga continua empilhado, célula é estreita). */
+  .radar-preco-wrap{ flex-direction:row; align-items:baseline; gap:6px; }
+
   .radar-fii-legenda{ margin:0 0 10px; }
 }
