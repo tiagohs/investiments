@@ -922,14 +922,18 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
  * visão - { visaoId, chartContainer, legendaContainer, infoContainer } -
  * cada um é atualizado (info + gráfico) no mesmo clique de período, sem
  * buscar nada de novo (historico/patrimonio já vieram inteiros na 1ª
- * chamada). periodoInicial deve bater com o pill marcado "active" no HTML.
+ * chamada). periodoInicial deve bater com o pill marcado "active" no HTML
+ * (14/09/2026: default trocado de "12m" pra "mes", a pedido do Tiago -
+ * montarPaginaInicio agora passa periodoInicial:'mes' explicitamente, e o
+ * default do parâmetro também foi atualizado pra "mes" por segurança, caso
+ * algum outro chamador não passe o valor).
  *
  * Também escuta "resize" da janela (com debounce de 150ms) e redesenha -
  * necessário porque cada gráfico agora usa a largura REAL do cartão no
  * momento do desenho (ver renderGraficoRentabilidade); sem isso, redimen-
  * sionar a janela deixaria o desenho com a medida antiga.
  */
-export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = '12m' } = {}) {
+export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes' } = {}) {
   let periodoAtual = periodoInicial;
 
   function atualizar() {
@@ -1250,6 +1254,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     patrimonio: resposta.patrimonio,
     historico: resposta.historico,
     periodoTabsContainer: doc.getElementById('periodoTabs'),
+    periodoInicial: 'mes',
     paineis: PAINEIS_RENTABILIDADE.map(({ visaoId, sufixo }) => ({
       visaoId,
       infoContainer: doc.getElementById(`rentabInfo${sufixo}`),

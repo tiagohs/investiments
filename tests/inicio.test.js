@@ -616,6 +616,39 @@ test('wireGraficoRentabilidade() renderiza os 3 painéis de cara (sempre visíve
   assert.ok(doc.getElementById('chartRE').querySelector('svg'));
 });
 
+test('wireGraficoRentabilidade() sem periodoInicial explícito usa "mes" (o pill marcado active no HTML) como padrão', () => {
+  // Compara o resultado sem periodoInicial contra o resultado com
+  // periodoInicial:'mes' explícito - se os dois cartões renderizarem
+  // idêntico, o default é mesmo 'mes' (14/09/2026, pedido do Tiago: trocar
+  // o período padrão da Rentabilidade de "12 meses" pra "Mês atual").
+  const historico = gerarHistoricoExemplo(400);
+
+  function montarERetornarHtml(periodoInicial) {
+    const doc = makeDom(`
+      <div class="filter-tabs" id="periodoTabs">
+        <button class="filter-tab active" data-periodo="mes">Mês atual</button>
+        <button class="filter-tab" data-periodo="12m">12 meses</button>
+      </div>
+      <div id="infoTotal"></div><div id="chartTotal"></div><div id="legendaTotal"></div>
+    `);
+    wireGraficoRentabilidade(doc, {
+      patrimonio: PATRIMONIO_RENTAB_EXEMPLO,
+      historico,
+      periodoTabsContainer: doc.getElementById('periodoTabs'),
+      paineis: [{ visaoId: 'total', infoContainer: doc.getElementById('infoTotal'), chartContainer: doc.getElementById('chartTotal'), legendaContainer: doc.getElementById('legendaTotal') }],
+      ...(periodoInicial ? { periodoInicial } : {}),
+    });
+    return doc.getElementById('infoTotal').innerHTML;
+  }
+
+  const htmlSemPeriodoInicial = montarERetornarHtml(undefined);
+  const htmlComMesExplicito = montarERetornarHtml('mes');
+  const htmlCom12mExplicito = montarERetornarHtml('12m');
+
+  assert.equal(htmlSemPeriodoInicial, htmlComMesExplicito);
+  assert.notEqual(htmlSemPeriodoInicial, htmlCom12mExplicito);
+});
+
 // --- criarAtivoCard / renderMeusAtivos / wireFiltroAtivos -------------------
 
 const ATIVO_ACAO_EXEMPLO = {
