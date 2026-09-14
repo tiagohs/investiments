@@ -643,12 +643,32 @@ function carregarTodosHistoricosTransacoes_(ss, classesNecessarias) {
   classesNecessarias.forEach(function (classe) {
     var aba = ss.getSheetByName(classe === 'USA' ? 'Transações - USA' : 'Transações');
     var ultimaLinha = aba.getLastRow();
-    var dados = aba.getRange(7, 1, ultimaLinha - 6, 13).getValues(); // A..M (M = "Cotas até a data")
+    var dados = aba.getRange(7, 1, ultimaLinha - 6, 13).getValues(); // A..M (K = qtd sinalizada da transação)
     dados.forEach(function (linha) {
       var ticker = linha[0];
       if (!ticker || !(linha[1] instanceof Date)) return;
       if (!mapas[classe][ticker]) mapas[classe][ticker] = [];
-      mapas[classe][ticker].push({ data: linha[1], cotas: linha[12] });
+      // Correção de 14/09/2026 (bug real, achado com dados reais do Tiago —
+      // AXIA7 mostrando 39 cotas por semanas em aux_historico-patrimonio e
+      // depois pulando pra 4 num único dia, quando o correto — confirmado
+      // tanto em "Carteira Ações" quanto somando as próprias Transações —
+      // sempre foi 10): antes lia direto a coluna M ("Cotas até a data"),
+      // que na planilha é `=SUMIF($A$7:$A<linha>,$A<linha>,$K$7:$K<linha>)`
+      // — soma acumulada por POSIÇÃO DA LINHA na aba, não pela DATA da
+      // transação. Isso só corresponde à ordem cronológica se cada
+      // transação for lançada na aba na mesma ordem da sua própria data —
+      // e o Tiago tem uma compra de 22/12/2025 (bonificação, preço 0)
+      // lançada numa linha MAIS ABAIXO que uma compra de 05/08/2026 já
+      // lançada antes. Depois de ordenar por data (como já fazíamos logo
+      // abaixo), o valor de M da transação de 2026 virava "a resposta" pra
+      // qualquer dia a partir de 05/08/2026 — mas esse M foi calculado
+      // ANTES de a linha de 2025 existir na aba, então ficou parado em 4
+      // pra sempre, nunca virou 10. Agora guarda só o DELTA sinalizado de
+      // cada transação (coluna K, incremental — +qtd em Compra, -qtd em
+      // Venda) e quantidadeNaData_ acumula esses deltas DEPOIS de ordenar
+      // por data — o resultado passa a ser sempre correto independente da
+      // ordem em que as linhas foram lançadas na aba.
+      mapas[classe][ticker].push({ data: linha[1], delta: linha[10] });
     });
     Object.keys(mapas[classe]).forEach(function (ticker) {
       mapas[classe][ticker].sort(function (a, b) { return a.data - b.data; });
@@ -657,14 +677,21 @@ function carregarTodosHistoricosTransacoes_(ss, classesNecessarias) {
   return mapas;
 }
 
-/** Quantidade que você tinha numa data específica: o último ponto de Transações com data <= a data pedida (0 se nenhum). */
+/**
+ * Quantidade que você tinha numa data específica: soma de todos os deltas
+ * (coluna K de Transações/Transações - USA, já sinalizados +/- por
+ * Compra/Venda) com data <= a data pedida — nunca lê a coluna M ("Cotas
+ * até a data") direto, porque ela acumula por POSIÇÃO DA LINHA na aba, não
+ * por data (ver comentário em carregarTodosHistoricosTransacoes_, correção
+ * de 14/09/2026). `pontos` já vem ordenado por data por quem chama.
+ */
 function quantidadeNaData_(pontos, data) {
-  var melhor = 0;
+  var total = 0;
   for (var i = 0; i < pontos.length; i++) {
-    if (pontos[i].data <= data) melhor = pontos[i].cotas;
+    if (pontos[i].data <= data) total += pontos[i].delta;
     else break;
   }
-  return melhor;
+  return total;
 }
 
 /**
