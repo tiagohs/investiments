@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
-import { getSyncStatus } from './api-client.js';
+import { getSyncStatus, syncNow } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 
@@ -422,18 +422,55 @@ export async function carregarStatusSync(doc, { token, getSyncStatusImpl = getSy
 }
 
 /**
+ * Wires #syncNowBtn (dentro do popover "Registro de Controle") pra rodar
+ * uma sincronização manual completa (ações/FIIs/USA + Renda Fixa +
+ * Índices/CDI/SELIC — ver Sync.gs!handleSincronizarAgora) e recarregar o
+ * popover com o resultado ao final.
+ *
+ * 14/09/2026: pedido do Tiago - o botão já existia no HTML (assets/
+ * partials/shell.html) mas nunca tinha sido ligado a nada (nenhum
+ * addEventListener em lugar nenhum do JS) - clicar nele não fazia
+ * literalmente nada. syncNowImpl/carregarStatusSyncImpl são injetáveis
+ * pros testes, mesmo padrão do resto do arquivo (getTokenImpl etc.).
+ * Nunca lança - mesmo padrão de resiliência parcial do resto do shell
+ * (ver carregarStatusSync): uma falha de rede aqui não pode quebrar a
+ * página, só deixa o popover sem se atualizar.
+ */
+export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, carregarStatusSyncImpl = carregarStatusSync } = {}) {
+  const button = doc.getElementById('syncNowBtn');
+  if (!button || !token) return;
+
+  button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    const textoOriginal = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Sincronizando…';
+    try {
+      await syncNowImpl(token);
+    } catch (error) {
+      console.error('shell.js: falha ao sincronizar', error);
+    } finally {
+      await carregarStatusSyncImpl(doc, { token });
+      button.disabled = false;
+      button.textContent = textoOriginal;
+    }
+  });
+}
+
+/**
  * Decides, once per page load, whether <main> can be shown right away
  * or the browser needs to leave for login.html — see the header
  * comment above ("Login gate"). getTokenImpl/redirectImpl are
  * injectable for tests, same pattern as setupThemeToggle takes its two
  * theme.js functions as params.
  */
-export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, win = typeof window !== 'undefined' ? window : undefined } = {}) {
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, setupSyncNowButtonImpl = setupSyncNowButton, win = typeof window !== 'undefined' ? window : undefined } = {}) {
   const token = getTokenImpl();
   if (token) {
     setMainVisible(doc, true);
     onAuthenticated(token);
     carregarStatusSyncImpl(doc, { token });
+    setupSyncNowButtonImpl(doc, { token });
     return;
   }
 

@@ -59,6 +59,41 @@ var DIAS_POR_PEDACO_INDICE = 180;
 var DATA_INICIO_HISTORICO_INDICES = new Date(2020, 11, 22); // mesmo início do restante do histórico (aux_historico-renda-fixa começa 22/12/2020)
 var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11 }; // nome persistido -> código da série SGS/BCB
 
+/**
+ * Roda fn() até funcionar, tentando de novo em caso de erro. Usado pelos
+ * passos externos mais frágeis do gatilho diário de Renda Fixa/Índices
+ * (GOOGLEFINANCE pro Ibovespa, API do BCB pra CDI/SELIC) — ver
+ * atualizarRendaFixaEIndicesDiario_ abaixo.
+ *
+ * 14/09/2026: pedido do Tiago depois de ver a sincronização automática de
+ * 14/09 registrar "Atenção" com Índices e Taxas CDI/SELIC falhando (um
+ * soluço pontual do GOOGLEFINANCE - #N/A pro Ibovespa - e outro do BCB -
+ * resposta que não veio como lista, virando "dados.map is not a
+ * function") — nenhum dos dois é um bug de conta, são falhas transitórias
+ * de fonte externa que numa tentativa seguinte, alguns segundos depois,
+ * tendem a se resolver sozinhas. Antes disso, uma falha assim virava
+ * "Atenção" na primeira tentativa e ficava assim até o próximo gatilho no
+ * dia seguinte, mesmo quando o problema já tinha passado minutos depois.
+ * 3 tentativas, 20s de espera entre elas — chega pra um soluço pontual
+ * sem seguer o orçamento de 6min de execução do Apps Script (pior caso:
+ * 3 chamadas + 2 esperas de 20s = bem menos que 1min).
+ */
+function comRetry_(fn, contexto) {
+  var MAX_TENTATIVAS = 3;
+  var ESPERA_MS = 20 * 1000;
+  var ultimoErro = null;
+  for (var tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      return fn();
+    } catch (erro) {
+      ultimoErro = erro;
+      Logger.log(contexto + ': tentativa ' + tentativa + '/' + MAX_TENTATIVAS + ' falhou - ' + erro);
+      if (tentativa < MAX_TENTATIVAS) Utilities.sleep(ESPERA_MS);
+    }
+  }
+  throw ultimoErro;
+}
+
 function rodarBackfillIndicesDireto() {
   Logger.log(JSON.stringify(executarBackfillIndices_(), null, 2));
 }
@@ -181,6 +216,16 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
   var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   var dados = JSON.parse(resposta.getContentText());
+  // 14/09/2026: o BCB às vezes devolve algo que não é uma lista (erro,
+  // manutenção, rate limit) - sem essa checagem virava um "TypeError:
+  // dados.map is not a function" bem menos claro de diagnosticar (foi o
+  // que apareceu no Registro de Controle em 14/09). Mensagem melhor +
+  // ainda é um erro comum, então comRetry_ (chamado por quem chama esta
+  // função) trata igual.
+  if (!Array.isArray(dados)) {
+    throw new Error('BCB devolveu resposta inesperada (não é lista) pra ' + nomeIndice + ': ' +
+      resposta.getContentText().slice(0, 200));
+  }
   return dados.map(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa
     var dataBruta = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
@@ -302,16 +347,17 @@ function gatilhoDiarioRendaFixaEIndices() {
 
 /** Roda a mesma rotina do gatilho, na hora, pra testar direto no editor. */
 function rodarRendaFixaEIndicesDiretoDireto() {
-  atualizarRendaFixaEIndicesDiario_();
-  Logger.log('Rodado — confira o Registro de Controle.');
+  var resultado = atualizarRendaFixaEIndicesDiario_('Manual');
+  Logger.log('Rodado (' + resultado.status + ') — ' + resultado.detalhe);
 }
 
-function atualizarRendaFixaEIndicesDiario_() {
+function atualizarRendaFixaEIndicesDiario_(origem) {
+  origem = origem || 'Automático';
   var partes = [];
   var status = 'Sucesso';
 
   try {
-    var resultadoRf = executarBackfillRendaFixaIncremental_();
+    var resultadoRf = comRetry_(function () { return executarBackfillRendaFixaIncremental_(); }, 'Renda Fixa');
     partes.push('Renda Fixa: ' + resultadoRf.linhasGravadas + ' linha(s) nova(s) (' + resultadoRf.posicoes + ' posições)');
   } catch (erro) {
     status = 'Erro';
@@ -330,8 +376,12 @@ function atualizarRendaFixaEIndicesDiario_() {
     mapaUltimasDatasIndices = null; // cada passo abaixo cai no fallback de ler sozinho
   }
 
+  // 14/09/2026: os dois passos abaixo (GOOGLEFINANCE pro Ibovespa, BCB pra
+  // CDI/SELIC) agora tentam de novo em caso de erro (comRetry_, 3x, 20s de
+  // espera) antes de desistir e virar "Atenção"/"Erro" - ver comentário de
+  // comRetry_ no topo do arquivo.
   try {
-    var resultadoIndices = atualizarIndicesIncremental_(mapaUltimasDatasIndices);
+    var resultadoIndices = comRetry_(function () { return atualizarIndicesIncremental_(mapaUltimasDatasIndices); }, 'Índices');
     partes.push('Índices: ' + resultadoIndices.linhasNovas + ' linha(s) nova(s)' +
       (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' : ''));
   } catch (erro) {
@@ -340,14 +390,20 @@ function atualizarRendaFixaEIndicesDiario_() {
   }
 
   try {
-    var resultadoTaxas = atualizarTaxasBcbIncremental_(mapaUltimasDatasIndices);
+    var resultadoTaxas = comRetry_(function () { return atualizarTaxasBcbIncremental_(mapaUltimasDatasIndices); }, 'Taxas CDI/SELIC');
     partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
   } catch (erro) {
     status = (status === 'Erro') ? 'Erro' : 'Atenção';
     partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
   }
 
-  gravarRegistroControle_(status, 'Automático', partes.join(' — '));
+  var detalhe = partes.join(' — ');
+  gravarRegistroControle_(status, origem, detalhe);
+  // notificarFalhaSincronizacao_ (Sync.gs) já só envia e-mail quando
+  // origem === 'Automático' - seguro chamar sempre aqui, mesmo quando
+  // origem é 'Manual' (clique no botão "Sincronizar agora").
+  if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
+  return { status: status, detalhe: detalhe };
 }
 
 /**

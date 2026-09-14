@@ -126,6 +126,21 @@ function handleSincronizarAgora(e) {
     }
 
     var resultado = atualizarHistorico(origem, tickersEspecificos, opcoes);
+
+    // 14/09/2026: pedido do Tiago - "Sincronizar agora" precisa sincronizar
+    // TUDO (ações/FIIs/USA + Renda Fixa + Índices/CDI/SELIC), não só
+    // ações/FIIs/USA (a Renda Fixa/Índices só rodava sozinha no gatilho
+    // automático das 11h - ver BackfillIndices.gs). Só dispara na 1ª
+    // rodada de uma sincronização de verdade: nunca numa retomada de
+    // "naoProcessados" (tickersEspecificos preenchido - já rodou nesta
+    // mesma sincronização) nem em modo teste (Renda Fixa/Índices não têm
+    // infraestrutura de teste própria, sempre gravariam na planilha real).
+    // Uma falha aqui não derruba o resultado de ações/FIIs/USA, que já
+    // rodou e já foi registrado - fica só dentro de resultado.rendaFixaEIndices.
+    if (!tickersEspecificos && !opcoes) {
+      resultado.rendaFixaEIndices = atualizarRendaFixaEIndicesDiario_('Manual');
+    }
+
     return jsonOut({ ok: true, resultado: resultado });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });

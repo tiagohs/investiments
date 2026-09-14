@@ -16,6 +16,7 @@ import {
   setMainVisible,
   redirectParaLogin,
   setupAuthGate,
+  setupSyncNowButton,
   renderSyncStatus,
   carregarStatusSync,
   mountShell,
@@ -29,6 +30,7 @@ const SHELL_PARTIAL_HTML = `
     <div class="sync-wrap">
       <button id="syncBadgeBtn" data-toggle-panel="syncPanel" aria-expanded="false">sync</button>
       <div class="overlay-panel" id="syncPanel">
+        <button id="syncNowBtn" type="button">Sincronizar agora</button>
         <div class="sync-log" id="syncLog"><div class="hint">Nenhuma sincronização registrada ainda.</div></div>
         <a id="syncSheetLink" href="#">link</a>
       </div>
@@ -112,6 +114,29 @@ test('setupAuthGate() also dispara carregarStatusSyncImpl com o token, quando au
     carregarStatusSyncImpl: (_doc, { token }) => { calledWith = token; },
   });
   assert.equal(calledWith, 'token-existente');
+});
+
+test('setupAuthGate() também liga o botão "Sincronizar agora" (setupSyncNowButtonImpl) quando autenticado', () => {
+  const doc = makeDom();
+  let calledWith = null;
+  setupAuthGate(doc, {
+    getTokenImpl: () => 'token-existente',
+    redirectImpl: () => { throw new Error('não deveria redirecionar - já tinha token'); },
+    carregarStatusSyncImpl: () => {},
+    setupSyncNowButtonImpl: (_doc, { token }) => { calledWith = token; },
+  });
+  assert.equal(calledWith, 'token-existente');
+});
+
+test('setupAuthGate() nunca liga o botão de sincronizar quando não há token', () => {
+  const doc = makeDom();
+  let called = false;
+  setupAuthGate(doc, {
+    getTokenImpl: () => null,
+    redirectImpl: () => {},
+    setupSyncNowButtonImpl: () => { called = true; },
+  });
+  assert.equal(called, false);
 });
 
 test('setupAuthGate() nunca chama carregarStatusSyncImpl quando não há token', () => {
@@ -272,6 +297,111 @@ test('carregarStatusSync() trata falha (ok:false ou exceção) caindo no estado 
   }));
   assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), false);
   assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+// --- setupSyncNowButton ---------------------------------------------------
+
+test('setupSyncNowButton() chama syncNowImpl com o token ao clicar, e recarrega o status ao final', async () => {
+  const doc = mountedDoc();
+  let tokenRecebido = null;
+  let statusRecarregado = false;
+  setupSyncNowButton(doc, {
+    token: 'token-abc',
+    syncNowImpl: async (token) => { tokenRecebido = token; return { ok: true }; },
+    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(tokenRecebido, 'token-abc');
+  assert.equal(statusRecarregado, true);
+});
+
+test('setupSyncNowButton() desabilita o botão e troca o texto enquanto a sincronização está em voo', async () => {
+  const doc = mountedDoc();
+  let resolver;
+  setupSyncNowButton(doc, {
+    token: 'token-abc',
+    syncNowImpl: () => new Promise((r) => { resolver = r; }),
+    carregarStatusSyncImpl: async () => {},
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  const textoOriginal = btn.textContent;
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.textContent, 'Sincronizando…');
+
+  resolver({ ok: true });
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, textoOriginal);
+});
+
+test('setupSyncNowButton() clique duplo enquanto já está sincronizando não chama syncNowImpl 2 vezes', async () => {
+  const doc = mountedDoc();
+  let chamadas = 0;
+  let resolver;
+  setupSyncNowButton(doc, {
+    token: 'token-abc',
+    syncNowImpl: () => { chamadas += 1; return new Promise((r) => { resolver = r; }); },
+    carregarStatusSyncImpl: async () => {},
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(chamadas, 1);
+  resolver({ ok: true });
+});
+
+test('setupSyncNowButton() trata falha de syncNowImpl sem lançar, ainda recarregando o status e reabilitando o botão', async () => {
+  const doc = mountedDoc();
+  let statusRecarregado = false;
+  setupSyncNowButton(doc, {
+    token: 'token-abc',
+    syncNowImpl: async () => { throw new Error('rede caiu'); },
+    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(statusRecarregado, true);
+  assert.equal(btn.disabled, false);
+});
+
+test('setupSyncNowButton() sem token não liga nada (clicar não chama syncNowImpl)', () => {
+  const doc = mountedDoc();
+  let chamado = false;
+  setupSyncNowButton(doc, {
+    token: null,
+    syncNowImpl: async () => { chamado = true; },
+  });
+
+  const btn = doc.getElementById('syncNowBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(chamado, false);
+});
+
+test('setupSyncNowButton() não quebra quando a página não tem #syncNowBtn', () => {
+  const doc = makeDom();
+  assert.doesNotThrow(() => setupSyncNowButton(doc, { token: 'token-abc' }));
 });
 
 // --- parseShellPartial ---------------------------------------------------
