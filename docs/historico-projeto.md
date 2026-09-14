@@ -1,6 +1,6 @@
 # Histórico do projeto — Investimentos (app de controle de patrimônio)
 
-> Documento de contexto gerado por Claude a partir das conversas de planejamento e implementação deste projeto. Objetivo: qualquer sessão futura (ou suporte) conseguir retomar o trabalho rapidamente sem precisar reconstruir tudo do zero. Não é uma transcrição literal da conversa — é uma síntese organizada por assunto. Atualizado em 12/09/2026 com o trabalho de histórico de Renda Fixa e Índices.
+> Documento de contexto gerado por Claude a partir das conversas de planejamento e implementação deste projeto. Objetivo: qualquer sessão futura (ou suporte) conseguir retomar o trabalho rapidamente sem precisar reconstruir tudo do zero. Não é uma transcrição literal da conversa — é uma síntese organizada por assunto. Atualizado em 14/09/2026 com a construção do front-end real (Início, Login, Distribuições e Metas) — ver a seção "Front-end real" mais abaixo.
 
 ## O que é o projeto
 
@@ -11,29 +11,58 @@ Arquitetura:
 - **Front-end**: site estático no GitHub Pages, repositório [`tiagohs/investiments`](https://github.com/tiagohs/investiments) (público — decisão consciente do Tiago: GitHub Pages grátis exige repositório público numa conta free; a alternativa avaliada, Cloudflare Pages + Cloudflare Access com login, foi descartada por dar mais trabalho de configuração), publicado em `https://tiagohs.github.io/investiments/`.
 - **Backend/ponte de dados**: Google Apps Script Web App (`doGet`/`doPost`), autenticado via Google Identity Services (login com a conta do próprio Tiago).
 - **Dados**: a planilha Google Sheets real do Tiago — nenhuma cópia/duplicação de dados fora dela.
-- Objetivo final: PWA (instalável, com skeleton cacheado) pra funcionar como app no celular.
+- PWA (instalável, manifest + service worker com skeleton cacheado) já funciona no celular — ver a seção "Front-end real" abaixo pra detalhes da estratégia de cache.
 - Cotações: `GOOGLEFINANCE` não é uma API pública consumível fora do Google Sheets — só funciona dentro de uma planilha. Por isso o "botão de atualizar" do front-end não chama a API diretamente; ele aciona o Apps Script (que roda DENTRO da planilha, onde `GOOGLEFINANCE` funciona) via Web App.
 
 ## Estrutura de arquivos do repositório
 
 ```
-index.html              — hoje é só um placeholder ("Hello!"), front-end real ainda não foi construído
-teste.html               — scaffold de testes (login, sincronização, testes de Registro de Controle e de gravação em lote)
+index.html                — página Início (dashboard): índices/câmbio, resumo de patrimônio, gráfico de Rentabilidade, grade Meus Ativos
+login.html                 — página de login dedicada (Google Identity Services)
+distribuicoes-metas.html   — página Distribuições e Metas: Objetivos da Carteira, Radar de oportunidades, Metas da Carteira
+teste.html                 — scaffold de testes (login, sincronização, testes de Registro de Controle e de gravação em lote) — não faz parte do app final
+manifest.json               — manifesto da PWA (ícones, tema, nome "Patrimônio")
+sw.js                        — service worker (cache da PWA)
+package.json / package-lock.json — só ferramenta de dev (node --test), nunca servido pelo GitHub Pages
+assets/
+  css/
+    shell.css                 — chrome compartilhado (topbar, nav, tema, filter-tabs/pills, botões, status-ico)
+    inicio.css                 — específico da Início
+    distribuicoes-metas.css    — específico de Distribuições e Metas (goal-*, obj-*, radar-*)
+    login.css                   — específico do login
+  js/
+    config.js          — constantes compartilhadas (URL do Web App, Client ID OAuth, link da planilha)
+    auth.js              — guarda/lê/decodifica o token GIS (memória + sessionStorage), sem DOM
+    auth-ui.js             — liga o Google Identity Services de verdade (botão, callback) ao auth.js
+    theme.js                — lê/escreve/resolve o tema claro/escuro (localStorage + matchMedia)
+    shell.js                  — monta o chrome compartilhado (topbar, nav, tema, status de sync, PWA) em qualquer página
+    format.js                  — helpers de formatação pt-BR (BRL/USD, percentual — 2 funções distintas por escala, datas)
+    api-client.js                — cliente puro do Web App (uma função por action, espelha o contrato do Router.gs)
+    pages/
+      login.js                  — orquestrador real da página de login
+      inicio.js                   — orquestrador + funções puras de render da Início
+      distribuicoes-metas.js       — orquestrador + funções puras de render de Distribuições e Metas
 apps-script/
   Auth.gs                    — constantes, verificarToken(), jsonOut(), handlePing()
   Router.gs                  — doGet/doPost, autenticação centralizada
   Sync.gs                    — sincronização do histórico de patrimônio (Renda Variável) + Registro de Controle
   ImportB3.gs                — importação de extrato da B3 (Transações de ações/FIIs)
   Macros.gs                  — ordemcrono() (macro legada)
-  Home.gs                    — dados calculados da Home (handleHome) — Renda Emergencial/Longo Prazo via Carteira Renda Fixa
+  Home.gs                    — orquestrador da ação "home" (chama os 3 montadores da Início numa resposta só)
+  MeusAtivos.gs               — grade "Meus Ativos" (Ações/FIIs/Ações EUA via Auxiliar_ativos; Renda Fixa direto da Carteira)
+  FluxoCaixaInicio.gs          — fluxo de caixa líquido diário, usado pra normalizar a Rentabilidade (TWR)
+  HistoricoInicio.gs          — junta os 3 históricos (Renda Variável, Renda Fixa, Ibovespa) + CDI/SELIC numa série única pra Home
   BackfillRendaFixa.gs        — projeção diária de Renda Fixa (SELIC/CDI/IPCA), completo + incremental
   BackfillIndices.gs          — histórico diário do Ibovespa (GOOGLEFINANCE), completo + incremental; gatilho diário de Renda Fixa + Índices
-  HistoricoInicio.gs          — junta os 3 históricos (Renda Variável, Renda Fixa, Ibovespa) + CDI/SELIC numa série única pra Home
+  DistribuicoesMetas.gs        — ação "distribuicoesMetas": Objetivos da Carteira, Radar de oportunidades, Metas da Carteira (leitura + escrita)
+  DiagnosticoAtivos.gs          — script de uso único (roda 1x no editor, depois pode apagar) — confirma estrutura de colunas antes de escrever um handler novo
+tests/                         — node --test + jsdom, um arquivo por módulo de assets/js (256 testes no total)
 docs/
   planilha-formulas.md    — mapeamento das fórmulas da planilha original (Transações, Carteiras, RF, Proventos)
   plano-implementacao.html — checklist de implementação (Fase 0 e além), com status testado/pendente por item
   mapa-paginas.html        — mapa das páginas/telas planejadas para o front-end
   direcao-visual.html      — direção visual/design do front-end (paleta por categoria, Fraunces/Public Sans/IBM Plex Mono, mobile-first, tema claro/escuro)
+  Auxiliar_ativos.xlsx     — planilha pronta pra importar como aba nova (fonte de Meus Ativos pra Ações/FIIs/Ações EUA)
   historico-projeto.md     — este arquivo
 ```
 
@@ -195,11 +224,15 @@ Como o Tiago sobrescreveu `aux_tests` com uma cópia de Transações (pros teste
 ## Estrutura final dos arquivos do Apps Script
 
 - **Auth.gs**: constantes (`AUTHORIZED_EMAIL`, `CLIENT_ID`), `verificarToken()` (valida token do Google direto no endpoint `tokeninfo`, sem lib extra), `jsonOut()`, `handlePing()`.
-- **Router.gs**: `doGet`/`doPost` — únicos pontos de entrada do Web App. Autenticação checada UMA vez aqui, centralizada, antes de despachar pra qualquer handler. Ações hoje: `ping`, `syncStatus`, `home`, `historico_inicio` (GET); `importarTransacoesB3`, `sincronizarAgora` (POST).
+- **Router.gs**: `doGet`/`doPost` — únicos pontos de entrada do Web App. Autenticação checada UMA vez aqui, centralizada, antes de despachar pra qualquer handler. Ações hoje: `ping`, `syncStatus`, `home`, `historico_inicio`, `meusAtivos`, `distribuicoesMetas` (GET); `importarTransacoesB3`, `sincronizarAgora`, `salvarMetaRendaPassiva`, `salvarMetaPatrimonio`, `salvarMesesRendaEmergencial`, `salvarObjetivosCarteira`, `salvarRadarItem` (POST).
 - **Sync.gs**: sincronização do histórico de patrimônio de Renda Variável + Registro de Controle (`atualizarHistorico`, `handleSincronizarAgora`, `handleSyncStatus`, `gatilhoDiario`, backfill via GOOGLEFINANCE, etc). Contém o bug do câmbio corrigido descrito acima.
 - **ImportB3.gs**: importação de extrato da B3 (`importarTransacoesB3_`) — recebe lote já validado no navegador (SheetJS lê o .xlsx), confere ticker de novo no servidor como segunda camada de segurança, escreve nas colunas A-F da primeira linha vazia de Transações. (Só Renda Variável — o extrato de Renda Fixa é colado manualmente pelo Tiago em `Transações Renda Fixa`, sem handler dedicado ainda.)
 - **Macros.gs**: `ordemcrono()` — macro legada, gravada manualmente na planilha, não é chamada por nenhum código.
-- **Home.gs**: `handleHome` — dados calculados da Home, incluindo o split Renda Emergencial/Longo Prazo via `Carteira Renda Fixa!M6` (conferido correto, sem mudanças nesta etapa).
+- **Home.gs**: `handleHome` — desde 13/09/2026 é o orquestrador único da ação `home` (chama `montarHome_` neste arquivo + `montarSerieHistoricoInicio_`/`HistoricoInicio.gs` + `montarMeusAtivos_`/`MeusAtivos.gs` numa resposta só, cada um no seu try/catch — ver seção "Front-end real"). `montarHome_` continua incluindo o split Renda Emergencial/Longo Prazo via `Carteira Renda Fixa!M6`.
+- **MeusAtivos.gs**: `montarMeusAtivos_`/`handleMeusAtivos` — grade "Meus Ativos". Ações/FIIs/Ações EUA vêm de `Auxiliar_ativos` (aba populada por fórmula); Renda Fixa lê direto de `Carteira Renda Fixa`. Variação dia de Renda Fixa calculada comparando os 2 últimos dias de `aux_historico-renda-fixa`, pareada pela mesma chave (ano+instituição+indexador) que `BackfillRendaFixa.gs` já usa pra classificar posições.
+- **FluxoCaixaInicio.gs**: calcula o fluxo de caixa líquido diário (aporte/retirada) cruzando Transações/Transações-USA/Transações Renda Fixa/Proventos/Proventos-USA — alimenta `historico[i].fluxoCaixa*` (`HistoricoInicio.gs`), usado pelo front-end pra normalizar a Rentabilidade como um retorno time-weighted de verdade (ver "Front-end real").
+- **DistribuicoesMetas.gs**: ação `distribuicoesMetas` (doGet) + as ações de escrita `salvarMetaRendaPassiva`/`salvarMetaPatrimonio`/`salvarMesesRendaEmergencial`/`salvarObjetivosCarteira`/`salvarRadarItem` (doPost). Lê e escreve Metas da Carteira, Objetivos da Carteira e Radar de oportunidades — ver "Front-end real" pra detalhe de cada seção.
+- **DiagnosticoAtivos.gs**: script de uso único (`diagnosticarColunasMeusAtivos`), rodado uma vez no editor pra confirmar célula a célula a estrutura real das abas antes de escrever `MeusAtivos.gs` — pode ser apagado, fica no repo como referência de como validar estrutura de planilha antes de codar um handler novo.
 - **BackfillRendaFixa.gs**: projeção diária de Renda Fixa — `executarBackfillRendaFixa_`/`rodarBackfillRendaFixaDireto` (completo) e `executarBackfillRendaFixaIncremental_`/`rodarBackfillRendaFixaIncrementalDireto` (incremental), mais os helpers de normalização/classificação/BCB (`normalizarInstituicaoRF_`, `detectarIndexadorRF_`, `classificarPosicaoRF_`, `montarMapaClassificacaoRF_`, `buscarFatoresDiariosBcb_`, `buscarFatoresDiariosIpca_`).
 - **BackfillIndices.gs**: histórico do Ibovespa — `executarBackfillIndices_`/`rodarBackfillIndicesDireto` (completo) e `atualizarIndicesIncremental_` (incremental); também define o gatilho diário combinado `gatilhoDiarioRendaFixaEIndices`/`instalarGatilhoDiarioRendaFixaEIndices` que roda a versão incremental de Renda Fixa + Índices em sequência.
 - **HistoricoInicio.gs**: `handleHistoricoInicio`/`montarSerieHistoricoInicio_` — junta os 3 históricos + CDI/SELIC numa série única pra Home. Depende de `buscarFatoresDiariosBcb_`/`formatarDataBcbRF_` (definidos em BackfillRendaFixa.gs, mesmo namespace global).
@@ -227,6 +260,56 @@ Não faz parte do app final — só uma página de testes, pode ser apagada quan
 - Testes de Gravação em lote (`importarTransacoesB3`) via `aux_tests`.
 - Leitura de extrato .xlsx da B3 no navegador (SheetJS), só pré-visualização, não grava nada.
 
+## Front-end real — Início, Login e Distribuições e Metas
+
+Construído entre 13 e 14/09/2026 (antes disso só existia o placeholder documentado acima). Duas páginas completas hoje: Início (`index.html`) e Distribuições e Metas (`distribuicoes-metas.html`), mais uma página de login dedicada (`login.html`) e a base de PWA (manifest + service worker).
+
+### Padrão de código (todas as páginas seguem o mesmo)
+
+- HTML/CSS/JS puro, sem framework — decisão consciente, app pessoal de 1 usuário não precisa da complexidade de build de um framework.
+- Cada página tem um módulo em `assets/js/pages/*.js` com duas partes bem separadas: funções puras de render (recebem `doc` + elemento + dado já pronto, nunca buscam nada sozinhas — testáveis contra jsdom sem fetch real) e UM orquestrador real por página (`montarPaginaX`) que busca de verdade via `api-client.js` e liga tudo. Mesmo padrão usado em `shell.js`/`auth-ui.js`/`theme.js`.
+- `shell.js` (`mountShell()`) monta o chrome compartilhado — topbar, nav, toggle de tema, badge/popover de status de sincronização, registro do service worker — em qualquer página que forneça os 2 mount points (`#shell-header`/`#shell-footer`) e o atributo `body[data-section]`.
+- `api-client.js`: cliente puro (sem DOM) do Web App, uma função por `action`, espelha o contrato do `Router.gs` — toda resposta é `{ ok: true, ... }` ou `{ ok: false, etapa, erro }`, e falha de rede (fetch offline etc.) é normalizada pro mesmo formato.
+- `format.js`: helpers de formatação pt-BR. Ponto de atenção documentado: existem 2 funções de percentual DIFERENTES por escala — `changepct` do GOOGLEFINANCE já vem em pontos percentuais (1.3 = 1,3%), enquanto "Variação dia" das abas de Carteira vem como fração (0.013 = 1,3%). Misturar as duas silenciosamente deixa um número 100x maior que o outro sem erro nenhum — por isso não existe uma função "genérica" que assume a escala, o chamador precisa dizer qual tem.
+- Testes: `node --test` + `jsdom`, 256 testes no total (`npm test`), um arquivo por módulo em `tests/`. Todo teste de orquestrador injeta implementações falsas (`getXImpl`, `salvarYImpl`) em vez de mockar fetch/token reais.
+- Tema claro/escuro: `theme.js` (localStorage + `matchMedia`, nunca lança — degrada pra "não persiste"/"segue o sistema" em modo privado ou storage bloqueado).
+- Tipografia/paleta: Fraunces (display) + Public Sans (corpo) + IBM Plex Mono (números), definidos em `docs/direcao-visual.html` — paleta categórica por classe de ativo (Ações/FIIs/USA/Renda Fixa), mobile-first.
+- Padrão de edição inline, repetido em toda tela editável (Metas/Objetivos/Radar): botão "Editar" revela um formulário embutido (sem modal) → "Salvar" grava na planilha de verdade via a ação de escrita correspondente → em caso de sucesso, a página busca os dados de novo do zero e redesenha tudo (nunca só atualiza em memória local) → em caso de erro, a mensagem aparece no próprio formulário/linha, sem recarregar.
+- **Padrão de validação de dados antes de UI** (preferência do Tiago, reafirmada em toda seção nova): antes de construir qualquer tela nova, escrever uma função só-leitura `montarX_()` + uma `testarXDireto()` no Apps Script; o Tiago roda direto no editor e cola o JSON real de volta no chat; só então a UI é construída a partir do formato validado. Usado (e funcionou) em Metas da Carteira, Objetivos da Carteira e Radar de oportunidades.
+
+### Login (`login.html` / `auth.js` / `auth-ui.js`)
+
+Virou página própria em 13/09/2026 (antes era um card dentro da própria Início). `auth.js` só guarda/lê/decodifica o token (memória como fonte de verdade durante a sessão da aba, espelhado em `sessionStorage` pra um F5 não forçar novo login — best-effort, nunca lança); `auth-ui.js` liga o Google Identity Services de verdade (botão "Entrar com Google", callback que chama `setToken()`) — antes disso só existia como rascunho em `teste.html`.
+
+### PWA (`manifest.json` / `sw.js`)
+
+Nome "Patrimônio", ícones em 3 tamanhos, `start_url`/`scope` na raiz. Service worker registrado por `shell.js` (uma vez só, não por página) com estratégia diferenciada por tipo de recurso: CSS/JS e navegações HTML são **network-first** (decisão revertida em 13/09 depois de um bug real: uma edição em `shell.css`/`shell.js` ficava presa em cache antigo, servida silenciosamente sem erro nenhum, parecendo "quebrado" sem motivo aparente); ícones/fontes/manifest continuam **cache-first** (mudam raramente). `CACHE_VERSION` é versionado manualmente (bump v2→v3 registrado num commit, junto da correção de quedas fantasma no gráfico — ver abaixo).
+
+### Início (`index.html` / `pages/inicio.js` / `Home.gs` + `MeusAtivos.gs` + `FluxoCaixaInicio.gs`)
+
+A ação `home` (`Router.gs`) virou um orquestrador único (`Home.gs`) que chama os 3 montadores — cada um já vivia no seu próprio arquivo e continua lá — numa resposta só: `montarHome_()` (patrimônio/índices/câmbio), `montarSerieHistoricoInicio_()` (histórico) e `montarMeusAtivos_()` (ativos). Cada um roda no seu try/catch — uma falha aparece em `avisos` por seção em vez de derrubar a resposta inteira. Isso resolveu uma lentidão real de ~30-60s por chamada: `aux_historico-renda-fixa` era lida inteira 2x na mesma chamada (agora é lida 1x e compartilhada entre os 2 montadores que precisam dela), e a busca de CDI/SELIC no BCB ganhou cache de 6h via `CacheService` (só busca de verdade na 1ª chamada da janela).
+
+Seções da tela, todas puras/testadas contra jsdom:
+
+- **Índices & Câmbio**: cards clicáveis (cartão inteiro, não só um link dentro).
+- **Resumo de Patrimônio**: as 3 divisões (Total / Longo Prazo / Renda Emergencial) sempre visíveis ao mesmo tempo — era um "hero" com abas (uma visão por vez), revertido em 13/09 a pedido do Tiago.
+- **Distribuição por classe** (donut): legenda mostra o nome completo + valor + percentual com 2 casas no tooltip (o rótulo visível trunca com `text-overflow:ellipsis`, então o hover existe justamente pra mostrar o que foi cortado).
+- **Gráfico de Rentabilidade**: 3 cartões simultâneos (Total / Longo Prazo / Renda Emergencial), cada um com seu benchmark (Total e Longo Prazo vs Ibovespa+CDI; Renda Emergencial vs CDI+Selic — não faz sentido comparar reserva de emergência com bolsa). Filtro de período em pill-buttons (`.filter-tabs`), default "Mês atual" (trocado de "12 meses" em 14/09). Sem "quedas fantasma" (Renda Variável só fecha em dia de pregão — fins de semana/feriado usam forward-fill por ticker, bug corrigido em 13/09). SVG desenhado na largura REAL do cartão (`clientWidth`), não um viewBox fixo esticado — o viewBox fixo fazia a fonte do eixo renderizar menor quando 2 cartões ficavam lado a lado.
+  - **Rentabilidade "de verdade" (TWR)**: bug encontrado a partir de um print do Tiago comparando com o app Gorilla — `historico[i].patrimonio` é só o valor de mercado das posições, sem noção de caixa, então `(hoje/base − 1)` tratava todo aporte novo como ganho e toda venda/retirada/provento como perda, inflando muito qualquer janela longa (quase 6 anos de aportes acumulados apareciam como "retorno" desde o início). Corrigido com `FluxoCaixaInicio.gs`: calcula o fluxo de caixa líquido diário (aporte/retirada) cruzando Transações/Transações-USA/Transações Renda Fixa/Proventos/Proventos-USA, alimenta `historico[i].fluxoCaixa*` (`HistoricoInicio.gs`), e `normalizarSerieRentabilidade` (front-end) usa isso pra montar um retorno time-weighted de verdade, comparável com os benchmarks sem o efeito de quanto dinheiro entrou ou saiu.
+- **Grade "Meus Ativos"**: cartão inteiro clicável (Detalhe do Ativo ainda não construído — placeholder de rota `ativo.html?ref=&classe=` já definido em `docs/plano-implementacao.html`), filtro por classe em pill-buttons, tooltip com detalhe extra por ativo, Renda Fixa incluída (antes só Ações/FIIs/USA). Ações/FIIs/Ações EUA vêm de uma aba auxiliar nova, `Auxiliar_ativos` (1 linha por ativo, populada por fórmula — entregue como `docs/Auxiliar_ativos.xlsx` pronto pra importar: Arquivo → Importar → "Inserir nova(s) planilha(s)", as fórmulas em inglês no `.xlsx` chegam traduzidas pro pt-BR sozinhas). Renda Fixa lê direto de `Carteira Renda Fixa` (fonte única, sem aba auxiliar). Variação dia de Renda Fixa (que não existe como coluna) é calculada comparando os 2 últimos dias de `aux_historico-renda-fixa`, pareado pela MESMA chave que já classifica Renda Emergencial×Longo Prazo (ano do vencimento + instituição normalizada + indexador) — nunca inventa número quando a chave não bate.
+
+### Distribuições e Metas (`distribuicoes-metas.html` / `pages/distribuicoes-metas.js` / `DistribuicoesMetas.gs`)
+
+Ordem das 3 seções definida pelo Tiago: **Objetivos da Carteira → Radar de oportunidades → Metas da Carteira**. As 3 vêm juntas numa chamada só (`action=distribuicoesMetas`), cada uma com seu try/catch (mesmo padrão de `avisos` parciais da Início).
+
+- **Metas da Carteira** (1ª fatia, 14/09): 3 cards (Renda Passiva, Patrimônio, Renda Emergencial) com anel de progresso (SVG, nunca "vaza" visualmente acima de 100% mas o texto mostra o valor real) e 2 estatísticas cada. Cada card edita seu(s) campo(s) e grava na planilha (`salvarMetaRendaPassiva`/`salvarMetaPatrimonio`/`salvarMesesRendaEmergencial`).
+- **Objetivos da Carteira** (2ª fatia): 2 blocos (split geral Ações/FIIs/Renda Fixa; split dentro de Renda Fixa entre Renda Emergencial/Renda Fixa de longo prazo) — cada tipo virou uma barra "% atual" com um traço marcando "% desejado", substituindo a tabela simples que existia na planilha (pedido explícito do Tiago: "queria que isso fosse mais visual"). "% desejado" é editável, mas só o BLOCO INTEIRO de uma vez (nunca uma linha isolada) — a soma das linhas de um bloco precisa fechar 100%, validado tanto no cliente quanto no servidor (`salvarObjetivosCarteira`).
+- **Radar de oportunidades** (3ª e 4ª fatias): 3 tabelas de ranking por classe (Ações Nacionais "Dividendos", Ações Internacionais, FIIs) — **todas dentro da própria aba "Distribuição e Metas"**, não em abas de Carteira separadas (ver "lição aprendida" abaixo). Pill-buttons pra trocar de tabela (mesmo componente `.filter-tabs` da Início). Cabeçalho de qualquer coluna ordena ao clicar (clique de novo inverte asc/desc), default Ranking crescente. Ranking, Preço-teto e "% desejado" são editáveis por ticker (botão "Editar" na linha), gravando 1 linha só por vez via `salvarRadarItem` — diferente de Objetivos, aqui não existe soma que precise fechar 100%. A leitura (`montarRadarOportunidades_`) devolve o número real da linha da planilha (`linha`) em cada item, usado pela escrita pra gravar sem ambiguidade mesmo que a tela esteja ordenada diferente da planilha — o handler ainda confere o ticker esperado contra a planilha antes de gravar, como 2ª trava de segurança. Preço médio, descontos P/VP e P/L, % de diferença e nova carteira não viram coluna própria (a tabela já tem muita coisa) — ficam num tooltip na célula do Ativo. Ações Internacionais mostra preço atual/teto em USD; carteira atual e R$ a investir continuam em BRL, como o resto do app já agrega tudo.
+- **Tooltips com valor exato**: em todo gadget que arredonda visualmente pro texto (anéis de progresso, barras de Objetivos, alguns stats dos cards de Meta), o `title` mostra o valor com 2 casas — sem precisar abrir a planilha pra conferir o número por trás do arredondamento.
+
+**Lição aprendida (14/09, vale registrar pra próximas telas)**: ao planejar o Radar de oportunidades, a 1ª investigação (baseada só num snapshot em cache da planilha, sem confirmação do Tiago) concluiu — errado — que Preço-teto/Viés viriam de uma aba `RV Metas de compra e venda` vazia e que o Ranking usaria uma "Coeficiente MinMax" qualquer. O Tiago corrigiu tudo: os 3 campos (e as 3 tabelas inteiras) vivem dentro da própria "Distribuição e Metas", com células exatas citadas por ele (`F42` = viés da WIZC3, `E43` ≈ preço-teto, `L41` = cabeçalho "% desejado"). **Lição**: mesmo com um snapshot da planilha disponível como "gerador de hipótese" pra economizar perguntas, uma citação de célula específica do usuário é fonte de verdade e exige reinvestigação completa daquele trecho — não só um ajuste fino da hipótese anterior.
+
+
 ## Status geral (nesta data)
 
 - **Fase 0 (validação de dados/backend) concluída** para Renda Variável: login, leitura da planilha, backfill completo dos 29 ativos, sincronização incremental, Registro de Controle (3 estados + retry seletivo), gravação em lote da B3 — todos testados via `teste.html` contra a planilha real (em modo teste, sem tocar dado real).
@@ -234,10 +317,10 @@ Não faz parte do app final — só uma página de testes, pode ser apagada quan
 - **Histórico de Índices (Ibovespa) criado e sincronizando**: 1422 dias de histórico via GOOGLEFINANCE, backfill completo e incremental funcionando (gotcha de locale pt-BR resolvido).
 - **`HistoricoInicio.gs` combinando os 3 históricos**: testado, 2090 dias, números conferidos batendo (soma Longo Prazo + Renda Emergencial = Patrimônio, benchmarks em faixas plausíveis).
 - **Sincronização diária automática cobrindo os 3 históricos**: gatilho de Renda Variável (já existia) + novo gatilho de Renda Fixa + Índices (ambos incrementais).
-- Backend reorganizado em arquivos finais de produção (ver estrutura acima) — 8 arquivos `.gs` ao todo.
-- **Front-end real ainda não foi iniciado** — só existe o placeholder em `index.html` e o scaffold `teste.html`. Os documentos de planejamento (`plano-implementacao.html`, `mapa-paginas.html`, `direcao-visual.html`) definem o que vem a seguir.
-- Preferência de trabalho do Tiago: antes de qualquer HTML/UI ser construído, ele quer ver os dados/valores reais (puxados da planilha/APIs de verdade) pra confirmar que estão corretos antes do trabalho de UI prosseguir — essa etapa de dados (Renda Fixa/Índices/série combinada) foi resolvida especificamente antes de começar a Home, seguindo essa preferência.
-- Próximo passo combinado com o Tiago: construir a Home de verdade (gráficos de Resultado do período + % vs índices por visão — Patrimônio e Longo Prazo vs CDI+Ibovespa, Renda Emergencial vs CDI+SELIC —, grade "Meus Ativos" clicável, cards "Índices e Câmbios"), usando `historico_inicio` como fonte dos gráficos.
+- Backend reorganizado em arquivos finais de produção (ver estrutura acima) — 13 arquivos `.gs` ao todo.
+- **Front-end real construído e funcionando**: Início (dashboard completo — índices/câmbio, resumo de patrimônio, distribuição por classe, gráfico de Rentabilidade com TWR de verdade, grade Meus Ativos) e Distribuições e Metas (Objetivos da Carteira, Radar de oportunidades e Metas da Carteira, todos editáveis com escrita de volta na planilha) — ver a seção "Front-end real" acima pra todo o detalhe. Login virou página dedicada e a PWA (manifest + service worker) já é instalável. 256 testes (`node --test` + jsdom) cobrindo shell/tema/auth/format/api-client e as 2 páginas.
+- Preferência de trabalho do Tiago (mantida em toda tela nova construída): antes de qualquer HTML/UI ser construído, ele quer ver os dados/valores reais (função só-leitura + `testarXDireto()` rodada por ele no editor, JSON colado de volta no chat) pra confirmar que estão corretos antes do trabalho de UI prosseguir.
+- Próximo passo ainda não combinado com o Tiago: as telas restantes do mapa original (`docs/mapa-paginas.html`) — Carteiras e Detalhe do Ativo (`ativo.html?ref=&classe=`, já referenciado pelos cartões clicáveis da Início e de Meus Ativos, mas sem rota construída ainda) — e decidir o destino de `teste.html` (aposentar quando as telas reais cobrirem tudo que ele testa hoje).
 
 ## Fluxo de trabalho estabelecido (Claude + repositório)
 
