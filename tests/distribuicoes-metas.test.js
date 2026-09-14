@@ -912,16 +912,79 @@ test('renderRadarOportunidades() mostra as colunas de Desconto sobre P/VP e P/L 
   assert.ok(rotulos.some((r) => r.includes('Desc. P/L')));
 });
 
-test('renderRadarOportunidades(): célula de Desconto mostra o resumo (antes do "(") como badge, com o texto completo no dataset.tooltip', () => {
+// 14/09/2026 (2ª rodada de feedback): o badge deixou de mostrar a
+// porcentagem crua ("169%", ambígua - a mesma fórmula da planilha usa
+// esse formato tanto pra desconto quanto pra ágio/caro) e passou a
+// mostrar o veredito direto - "Com desconto" ou "Está caro" - com cor
+// verde/vermelha (mesma paleta do Viés Comprar/Aguardar). O texto cru
+// continua só no tooltip.
+test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Está caro" (vermelho) quando o P/VP calculado é >= 1', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  // WIZC3 (ranking 1, 1ª linha por default): descontoPvp '169% (1,69 P/VP)'.
+  // WIZC3 (ranking 1, 1ª linha por default): pvp 1.69 (>= 1), descontoPvp '169% (1,69 P/VP)'.
   const primeiraLinha = container.querySelector('.radar-table tbody tr');
   const badgePvp = primeiraLinha.querySelector('.radar-desconto-badge');
-  assert.equal(badgePvp.textContent, '169%');
+  assert.equal(badgePvp.textContent, 'Está caro');
+  assert.equal(badgePvp.classList.contains('bad'), true);
+  assert.equal(badgePvp.classList.contains('good'), false);
   assert.equal(badgePvp.dataset.tooltip, '169% (1,69 P/VP)');
   assert.equal(badgePvp.classList.contains('radar-info-alvo'), true);
+});
+
+test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Com desconto" (verde) quando o P/VP calculado é < 1', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  // PMLL11 (FIIs): pvp 0.95 (< 1).
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linha = container.querySelector('.radar-table tbody tr');
+  const badgePvp = linha.querySelector('.radar-desconto-badge');
+  assert.equal(badgePvp.textContent, 'Com desconto');
+  assert.equal(badgePvp.classList.contains('good'), true);
+});
+
+test('renderRadarOportunidades(): célula de Desconto sobre P/L segue a palavra "acima"/"abaixo" que a planilha já calcula (comparado com a taxa de renda fixa)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  // WIZC3 (ranking 1): descontoPl '15,87% (1,62% acima - retorno em 6,30 anos)' -> caro.
+  const badgeWizc3 = linhas[0].querySelectorAll('.radar-desconto-badge')[1];
+  assert.equal(badgeWizc3.textContent, 'Está caro');
+  assert.equal(badgeWizc3.classList.contains('bad'), true);
+  // VAMO3 (ranking 2): descontoPl '8,58% (5,67% abaixo - retorno em 11,66 anos)' -> com desconto.
+  const badgeVamo3 = linhas[1].querySelectorAll('.radar-desconto-badge')[1];
+  assert.equal(badgeVamo3.textContent, 'Com desconto');
+  assert.equal(badgeVamo3.classList.contains('good'), true);
+});
+
+test('renderRadarOportunidades(): cabeçalho de Desconto sobre P/VP e P/L vira alvo de tooltip com o detalhe da conta', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const thPvp = container.querySelector('.radar-th-btn[data-campo="descontoPvp"]').closest('th');
+  const thPl = container.querySelector('.radar-th-btn[data-campo="descontoPl"]').closest('th');
+  assert.equal(thPvp.classList.contains('radar-info-alvo'), true);
+  assert.match(thPvp.dataset.tooltip, /menor que 1/);
+  assert.equal(thPl.classList.contains('radar-info-alvo'), true);
+  assert.match(thPl.dataset.tooltip, /taxa de renda fixa/);
+});
+
+test('renderRadarOportunidades(): linha "Comprar" pinta só a célula do Viés (não a linha inteira); "Aguardar" continua pintando a linha inteira', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, Comprar
+  const celulaVies = Array.from(primeiraLinha.children).find((td) => td.querySelector('.goal-badge'));
+  assert.equal(celulaVies.classList.contains('radar-vies-comprar'), true);
+  assert.equal(primeiraLinha.classList.contains('radar-linha-aguardar'), false);
+
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const linhaGprk = container.querySelector('.radar-table tbody tr'); // GPRK, Aguardar
+  assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), true);
+  const celulaViesGprk = Array.from(linhaGprk.children).find((td) => td.querySelector('.goal-badge'));
+  assert.equal(celulaViesGprk.classList.contains('radar-vies-comprar'), false);
 });
 
 test('renderRadarOportunidades(): Desconto sobre P/L "—" (sem badge/tooltip) quando a planilha não tem esse dado', () => {

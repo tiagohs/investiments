@@ -632,8 +632,8 @@ const COLUNAS_RADAR = [
   { chave: 'precoAtual', rotulo: 'Preço atual', numerica: true },
   { chave: 'precoTeto', rotulo: 'Preço-teto', editavel: true, numerica: true },
   { chave: 'vies', rotulo: 'Viés' },
-  { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true },
-  { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true },
+  { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true, dica: 'Com desconto quando o P/VP calculado (coluna H da planilha) é menor que 1 — está caro quando é maior ou igual a 1.' },
+  { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true, dica: 'Com desconto quando o retorno (1 ÷ P/L) fica abaixo da taxa de renda fixa atual — está caro quando fica acima. Calculado só pra Ações Nacionais.' },
   { chave: 'percentualDesejado', rotulo: '% desejado', editavel: true, numerica: true },
   { chave: 'percentualAtual', rotulo: '% atual', numerica: true },
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
@@ -677,16 +677,49 @@ function tituloLinhaRadar_(item, chaveTabela) {
 }
 
 /**
- * "121% (1,21 P/VP)" -> "121%" — o texto antes do primeiro "(" (o
- * resumo curto que cabe numa coluna). `null`/"Indisponivel" (comum em
- * Desconto sobre P/L de Ações Internacionais/FIIs, que não têm P/L na
- * planilha) devolve null pra célula mostrar só "—", sem badge/tooltip.
+ * Veredito de "Desconto sobre P/VP"/"Desconto sobre P/L" — texto direto
+ * (pedido do Tiago, 14/09/2026: "não quero só a porcentagem, quero Com
+ * Desconto / Está caro") em vez do texto cru que a planilha devolve,
+ * que é ambíguo: a MESMA fórmula usa "169% (1,69 P/VP)" tanto pra
+ * dizer "desconto de 169%" (quando H<1) quanto "169% do valor
+ * patrimonial" (quando H>=1, ou seja, ágio/caro) — só olhando o número
+ * não dá pra saber qual dos 2 é sem also saber se H passa de 1. O
+ * texto cru continua disponível no tooltip (dataset.tooltip).
+ *
+ *  - Desconto sobre P/VP: com desconto quando o P/VP calculado
+ *    (`item.pvp`, coluna H da planilha) é MENOR que 1; caro quando é
+ *    maior ou igual.
+ *  - Desconto sobre P/L: só existe pra Ações Nacionais hoje (as
+ *    outras 2 tabelas não têm P/L na planilha, `item.descontoPl` vem
+ *    null/"Indisponivel" - null aqui). A regra pedida (1/P/L comparado
+ *    com a taxa de renda fixa atual, célula I40) já vem calculada NO
+ *    TEXTO que `montarRadarOportunidades_` devolve ("... 1,62% acima
+ *    ..." ou "... 5,67% abaixo ..." da taxa) - em vez de refazer essa
+ *    conta aqui (arriscando divergir da planilha por arredondamento
+ *    ou por não ter a taxa disponível no front-end), só lê a palavra:
+ *    "abaixo" da taxa = com desconto, "acima" = caro.
  */
-function resumoDesconto_(valor) {
-  if (!valor || valor === 'Indisponivel') return null;
-  const str = String(valor).trim();
-  const idx = str.indexOf('(');
-  return idx > -1 ? str.slice(0, idx).trim() : str;
+function badgeDesconto_(chaveColuna, item) {
+  const bruto = item[chaveColuna];
+  if (!bruto || bruto === 'Indisponivel') return null;
+
+  let comDesconto;
+  if (chaveColuna === 'descontoPvp') {
+    if (typeof item.pvp !== 'number') return null;
+    comDesconto = item.pvp < 1;
+  } else if (chaveColuna === 'descontoPl') {
+    if (/abaixo/i.test(bruto)) comDesconto = true;
+    else if (/acima/i.test(bruto)) comDesconto = false;
+    else return null;
+  } else {
+    return null;
+  }
+
+  return {
+    texto: comDesconto ? 'Com desconto' : 'Está caro',
+    classe: comDesconto ? 'good' : 'bad',
+    tooltip: String(bruto).trim(),
+  };
 }
 
 /**
@@ -807,6 +840,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
     const td = doc.createElement('td');
     if (coluna.numerica) td.classList.add('num');
     if (coluna.chave === 'vies') {
+      if (item.vies === 'Comprar') td.classList.add('radar-vies-comprar');
       td.appendChild(criarBadgeVies_(doc, item.vies));
     } else if (coluna.chave === 'ranking') {
       td.classList.add('radar-rank');
@@ -818,16 +852,12 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
       td.classList.add('radar-preco-teto');
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
     } else if (coluna.chave === 'descontoPvp' || coluna.chave === 'descontoPl') {
-      const resumo = resumoDesconto_(item[coluna.chave]);
-      if (resumo) {
+      const info = badgeDesconto_(coluna.chave, item);
+      if (info) {
         const badge = doc.createElement('span');
-        badge.className = 'radar-desconto-badge';
-        badge.textContent = resumo;
-        const detalheCompleto = String(item[coluna.chave]).trim();
-        if (detalheCompleto !== resumo) {
-          badge.classList.add('radar-info-alvo');
-          badge.dataset.tooltip = detalheCompleto;
-        }
+        badge.className = `radar-desconto-badge ${info.classe} radar-info-alvo`;
+        badge.textContent = info.texto;
+        badge.dataset.tooltip = info.tooltip;
         td.appendChild(badge);
       } else {
         td.textContent = '—';
@@ -963,6 +993,10 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
   for (const coluna of colunas) {
     const th = doc.createElement('th');
     if (coluna.numerica) th.classList.add('num');
+    if (coluna.dica) {
+      th.classList.add('radar-info-alvo');
+      th.dataset.tooltip = coluna.dica;
+    }
     const btn = doc.createElement('button');
     btn.type = 'button';
     btn.className = 'radar-th-btn';
