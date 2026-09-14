@@ -564,6 +564,30 @@ function buscarChunkGoogleFinance_(celula, saidaRange, tickerCompleto, inicio, f
     esperaAcumulada += espera;
 
     var saida = saidaRange.getValues();
+
+    // 14/09/2026: uma célula de erro explícita bem no topo (ex.: #N/A,
+    // quando o pedaço pedido não tem NENHUM pregão - o caso mais comum
+    // sendo um fim de semana, exatamente o tipo de intervalo pequeno que
+    // a sincronização incremental diária pede, 1-3 dias por vez) é uma
+    // resposta DETERMINÍSTICA do GOOGLEFINANCE, não "ainda calculando" -
+    // continuar pelas próximas tentativas (até ~16,5s no total, POR
+    // TICKER) só queima tempo à toa. Antes disso não existia essa
+    // checagem: um fim de semana sozinho (ativo já sincronizado até
+    // sexta) fazia TODOS os ~29 ativos pagarem os ~16,5s inteiros cada
+    // um só pra concluir "sem dado mesmo" - Tiago viu isso na prática
+    // (13 ativos consumindo quase todo o orçamento de 4,5min da execução
+    // sozinhos, sobrando tempo de menos pros outros 16). Sai cedo nesse
+    // caso, contando como "esgotou tentativas" direto (mesmo resultado
+    // de sempre ter chegado ao fim do loop sem achar nada — só mais
+    // rápido).
+    var primeiraCelula = saida[0] && saida[0][0];
+    if (typeof primeiraCelula === 'string' && primeiraCelula.indexOf('#') === 0) {
+      Logger.log('  tentativa ' + tentativa + ' (espera acumulada ' + esperaAcumulada + 'ms): erro explícito (' + primeiraCelula + ') — provável ausência de pregão, não esperando mais.');
+      resultado = [];
+      esgotouTentativas = true;
+      break;
+    }
+
     resultado = [];
     // A primeira linha da saída é cabeçalho ("Date", "Close") — descarta.
     for (var i = 1; i < saida.length; i++) {

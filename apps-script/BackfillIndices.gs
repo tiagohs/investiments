@@ -238,15 +238,23 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
   var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   var dados = JSON.parse(resposta.getContentText());
-  // 14/09/2026: o BCB às vezes devolve algo que não é uma lista (erro,
-  // manutenção, rate limit) - sem essa checagem virava um "TypeError:
-  // dados.map is not a function" bem menos claro de diagnosticar (foi o
-  // que apareceu no Registro de Controle em 14/09). Mensagem melhor +
-  // ainda é um erro comum, então comRetry_ (chamado por quem chama esta
-  // função) trata igual.
+  // 14/09/2026 (revisado no mesmo dia): a 1ª versão disto lançava um erro
+  // quando o BCB devolvia algo que não é lista (era um "TypeError:
+  // dados.map is not a function" ainda menos claro antes desta checagem
+  // existir). Só que, na prática (confirmado pelo comRetry_ errando IGUAL
+  // antes e depois de 3 tentativas de 20s), essa resposta "estranha" do
+  // BCB é o jeito dele dizer "não tem nenhum dia útil nesse período" -
+  // CDI/SELIC só são publicados em dia útil, e a sincronização incremental
+  // diária pode perfeitamente pedir um intervalo que é só fim de semana.
+  // Não é transitório, então retry não resolve - trata como "sem dado
+  // disponível pro período" (mesmo padrão já usado pros ativos individuais
+  // em Sync.gs), só logando o corpo bruto pra quem quiser investigar um
+  // erro de fonte externa de verdade nas Execuções do Apps Script.
   if (!Array.isArray(dados)) {
-    throw new Error('BCB devolveu resposta inesperada (não é lista) pra ' + nomeIndice + ': ' +
-      resposta.getContentText().slice(0, 200));
+    Logger.log('AVISO: BCB devolveu resposta inesperada (não é lista) pra ' + nomeIndice + ' entre ' +
+      formatarDataIndice_(dataInicial) + ' e ' + formatarDataIndice_(dataFinal) + ': ' +
+      resposta.getContentText().slice(0, 200) + ' — tratando como sem dado disponível no período.');
+    return [];
   }
   return dados.map(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa
@@ -278,6 +286,7 @@ function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio,
     var valores = [];
     var tentativas = 0;
     var maxTentativas = 10;
+    var erroExplicito = null;
     while (tentativas < maxTentativas) {
       Utilities.sleep(1500);
       SpreadsheetApp.flush();
@@ -286,8 +295,23 @@ function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio,
 
       var primeiraCelula = brutos[0][0];
       if (typeof primeiraCelula === 'string' && primeiraCelula.indexOf('#') === 0) {
-        throw new Error('GOOGLEFINANCE devolveu erro pra ' + ticker + ' (' + formatarDataIndice_(inicioPedaco) +
-          ' - ' + formatarDataIndice_(fimPedaco) + '): ' + primeiraCelula);
+        // 14/09/2026: antes disso, uma célula de erro aqui (tipicamente
+        // #N/A) lançava um erro que derrubava a sincronização de Índices
+        // inteira. Só que #N/A é a resposta NORMAL e DETERMINÍSTICA do
+        // GOOGLEFINANCE quando o pedaço pedido não tem NENHUM pregão -
+        // o caso mais comum sendo justamente um fim de semana, que é
+        // exatamente o tipo de intervalo que a sincronização incremental
+        // diária pede (1-3 dias, não os 180 de um pedaço de backfill).
+        // Retry não ajuda aqui (comRetry_ confirmou isso na prática -
+        // errou igual antes e depois de 3 tentativas de 20s) porque não é
+        // transitório - é uma resposta correta pra uma pergunta sem
+        // resposta (não teve pregão). Trata igual ao caminho de baixo
+        // ("sem dado" depois de todas as tentativas): loga o valor bruto
+        // (útil se for mesmo um erro de fonte externa) mas não derruba a
+        // sincronização - resolvia sozinho na 2ª feira seguinte de
+        // qualquer jeito, só que gritando "Atenção" toda vez.
+        erroExplicito = primeiraCelula;
+        break;
       }
 
       valores = brutos.filter(function (linha) {
@@ -300,7 +324,10 @@ function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio,
 
     if (valores.length === 0) {
       Logger.log('AVISO: nenhum dado pra ' + ticker + ' entre ' + formatarDataIndice_(inicioPedaco) +
-        ' e ' + formatarDataIndice_(fimPedaco) + ' depois de ' + maxTentativas + ' tentativas — registrando como lacuna.');
+        ' e ' + formatarDataIndice_(fimPedaco) +
+        (erroExplicito ? ' (GOOGLEFINANCE devolveu ' + erroExplicito + ', provável ausência de pregão no período)'
+                        : ' depois de ' + maxTentativas + ' tentativas') +
+        ' — registrando como lacuna.');
     }
 
     valores.forEach(function (linha) {
@@ -405,7 +432,8 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
   try {
     var resultadoIndices = comRetry_(function () { return atualizarIndicesIncremental_(mapaUltimasDatasIndices); }, 'Índices');
     partes.push('Índices: ' + resultadoIndices.linhasNovas + ' linha(s) nova(s)' +
-      (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' : ''));
+      (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' :
+        (resultadoIndices.linhasNovas === 0 ? ' (sem pregão no período)' : '')));
   } catch (erro) {
     status = (status === 'Erro') ? 'Erro' : 'Atenção';
     partes.push('Índices falharam: ' + String(erro));
@@ -500,7 +528,7 @@ function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
     }
     var linhas = buscarTaxasBcbComoLinhas_(nome, inicio, ontem);
     linhasNovas = linhasNovas.concat(linhas);
-    detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)');
+    detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)' + (linhas.length === 0 ? ' (sem pregão no período)' : ''));
   });
 
   if (linhasNovas.length > 0) {
