@@ -75,6 +75,9 @@ function doPost(e) {
   if (action === 'salvarRadarItem') {
     return handleSalvarRadarItem(e);
   }
+  if (action === 'salvarSplitInterno') {
+    return handleSalvarSplitInterno(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

@@ -83,6 +83,7 @@ import {
   salvarMesesRendaEmergencial as salvarMesesRendaEmergencialApi,
   salvarObjetivosCarteira as salvarObjetivosCarteiraApi,
   salvarRadarItem as salvarRadarItemApi,
+  salvarSplitInterno as salvarSplitInternoApi,
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
@@ -339,9 +340,15 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
   const corFinal = cor || corParaTipoObjetivo(tipo);
   const pctAtual = Math.max(0, Math.min(typeof percentualAtual === 'number' ? percentualAtual : 0, 1)) * 100;
   const pctMeta = Math.max(0, Math.min(typeof percentualDesejado === 'number' ? percentualDesejado : 0, 1)) * 100;
-  // > 0.5 (meio real) em vez de > 0 pra não exibir "faltam R$ 0,01" por
-  // causa de arredondamento de ponto flutuante vindo da planilha.
+  // > 0.5 / < -0.5 (meio real) em vez de !== 0 pra não exibir "faltam
+  // R$ 0,01" por causa de arredondamento de ponto flutuante vindo da
+  // planilha. Negativo acontece nos splits que REDISTRIBUEM o que já
+  // existe (ex.: FIIs Tijolo/Papel/Híbrido, "Redistribuir" na
+  // planilha) em vez de só aportar mais (Objetivos da Carteira nunca
+  // pede pra vender, só aportar, então nunca cai nesse ramo) - nesse
+  // caso mostra "resgatar" em vez de "faltam".
   const faltaInvestir = typeof valorInvestir === 'number' && valorInvestir > 0.5;
+  const precisaResgatar = typeof valorInvestir === 'number' && valorInvestir < -0.5;
 
   linha.innerHTML = `
     <div class="obj-linha-head">
@@ -355,7 +362,7 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
     </div>
     <div class="obj-linha-foot">
       <span class="obj-valor-atual"></span>
-      <span class="goal-badge ${faltaInvestir ? 'warn' : 'good'}"></span>
+      <span class="goal-badge ${faltaInvestir || precisaResgatar ? 'warn' : 'good'}"></span>
     </div>
   `;
 
@@ -366,7 +373,9 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
   linha.querySelector('.obj-valor-atual').textContent = formatBRL(carteiraAtual);
   linha.querySelector('.goal-badge').textContent = faltaInvestir
     ? `faltam ${formatBRL(valorInvestir)}`
-    : '✓ na meta';
+    : precisaResgatar
+      ? `resgatar ${formatBRL(Math.abs(valorInvestir))}`
+      : '✓ na meta';
 
   return linha;
 }
@@ -543,6 +552,72 @@ export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPer
   }
 
   container.appendChild(grid);
+}
+
+/**
+ * Bloco de "distribuição desejada" que fica ACIMA da tabela do Radar
+ * (pedido do Tiago, 14/09/2026, "coloque ela acima da tabela
+ * principal... mostra a de ação quando eu clicar no botão de ação, e a
+ * de fiis quando clicar na de fiis") - diferente de "Objetivos da
+ * Carteira" lá em cima (aquele é o split ENTRE classes de ativo, este
+ * é o split DENTRO de uma classe: Ações Nacionais x Internacionais, ou
+ * Tijolo x Papel x Híbrido dentro de FIIs). Reaproveita o mesmo
+ * componente visual (criarBlocoObjetivo) - mesma barra, mesmo "Editar %
+ * desejado" - só muda o que aparece conforme a aba do Radar ativa:
+ *   - "acoesNacionais"/"acoesInternacionais" -> bloco de Ações (cobre
+ *     as 2 abas, já que a mesma tabela tem as 2 linhas) + os links da
+ *     Suno específicos daquela aba (Dividendos+Valor na Nacional, só
+ *     Internacional na outra).
+ *   - "fiis" -> bloco de FIIs + link FIIs.
+ * Os links ficam, na planilha real, logo antes do cabeçalho de cada
+ * tabela do Radar - por isso a associação aba -> link segue a mesma
+ * divisão.
+ */
+export function renderSplitInterno(doc, container, { splitsInternos, linksRecomendados, abaAtiva, onSalvarPercentuais } = {}) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!splitsInternos) return;
+
+  const linksPorAba = {
+    acoesNacionais: linksRecomendados
+      ? [linksRecomendados.acoesDividendos, linksRecomendados.acoesValor].filter(Boolean)
+      : [],
+    acoesInternacionais: linksRecomendados && linksRecomendados.acoesInternacional
+      ? [linksRecomendados.acoesInternacional]
+      : [],
+    fiis: linksRecomendados && linksRecomendados.fiis ? [linksRecomendados.fiis] : [],
+  };
+
+  const ehFiis = abaAtiva === 'fiis';
+  const bloco = ehFiis ? splitsInternos.fiis : splitsInternos.acoes;
+  if (bloco) {
+    container.appendChild(criarBlocoObjetivo(doc, {
+      titulo: ehFiis ? 'Distribuição desejada — FIIs' : 'Distribuição desejada — Ações',
+      tipos: bloco.itens,
+      total: bloco.total,
+      blocoId: ehFiis ? 'fiis' : 'acoes',
+      onSalvarPercentuais,
+    }));
+  }
+
+  const links = linksPorAba[abaAtiva] || [];
+  if (links.length > 0) {
+    const linksEl = doc.createElement('div');
+    linksEl.className = 'split-links';
+    for (const l of links) {
+      // .ext-link já existe em shell.css (link externo com iconezinho
+      // de seta) - reaproveitado aqui em vez de inventar um estilo novo.
+      const a = doc.createElement('a');
+      a.className = 'ext-link split-link';
+      a.href = l.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg><span></span>';
+      a.querySelector('span').textContent = l.texto;
+      linksEl.appendChild(a);
+    }
+    container.appendChild(linksEl);
+  }
 }
 
 /**
@@ -940,8 +1015,14 @@ const TABELAS_RADAR = [
  * "Salvar" bem-sucedido aciona onSalvarItem, que recarrega a página
  * inteira (por isso aba/ordenação voltam ao default depois de salvar —
  * mesmo comportamento que o resto desta tela já tem ao recarregar).
+ *
+ * `onTrocarAba` (opcional) é chamado com a aba ativa toda vez que ela
+ * muda (clique numa aba) e uma vez no desenho inicial - existe pra
+ * quem chama poder sincronizar o bloco de "distribuição desejada"
+ * (renderSplitInterno) que fica ACIMA desta tabela, já que ele mostra
+ * conteúdo diferente conforme a aba do Radar ativa.
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba } = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!radar) return;
@@ -991,12 +1072,14 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem }
       abaAtiva = chave;
       ordenacao = { campo: 'ranking', direcao: 'asc' };
       desenhar();
+      if (onTrocarAba) onTrocarAba(abaAtiva);
     });
     tabsEl.appendChild(btn);
   }
 
   container.append(tabsEl, tableContainer);
   desenhar();
+  if (onTrocarAba) onTrocarAba(abaAtiva);
 }
 
 /** Constrói e injeta os 3 cards de Metas da Carteira no container. */
@@ -1090,11 +1173,13 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarMesesRendaEmergencialImpl = salvarMesesRendaEmergencialApi,
   salvarObjetivosCarteiraImpl = salvarObjetivosCarteiraApi,
   salvarRadarItemImpl = salvarRadarItemApi,
+  salvarSplitInternoImpl = salvarSplitInternoApi,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
   const conteudoEl = doc.getElementById('metasConteudo');
   const objetivosContainer = doc.getElementById('objetivosCarteiraGrid');
+  const splitInternoContainer = doc.getElementById('splitInternoGrid');
   const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
   const refreshControlEl = doc.getElementById('refreshControl');
@@ -1129,6 +1214,18 @@ export async function montarPaginaDistribuicoesMetas(token, {
         const r = await salvarRadarItemImpl(token, tabela, item);
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
         await carregarERedesenhar();
+      },
+      onTrocarAba: (abaAtiva) => {
+        renderSplitInterno(doc, splitInternoContainer, {
+          splitsInternos: resposta.splitsInternos,
+          linksRecomendados: resposta.linksRecomendados,
+          abaAtiva,
+          onSalvarPercentuais: async (bloco, percentuais) => {
+            const r = await salvarSplitInternoImpl(token, bloco, percentuais);
+            if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+            await carregarERedesenhar();
+          },
+        });
       },
     });
 

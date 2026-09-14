@@ -17,6 +17,7 @@ import {
   criarBlocoObjetivo,
   renderObjetivosCarteira,
   renderRadarOportunidades,
+  renderSplitInterno,
 } from '../assets/js/pages/distribuicoes-metas.js';
 
 function makeDom(bodyHtml) {
@@ -383,6 +384,26 @@ test('criarLinhaObjetivo() põe um tooltip (title) na barra com % exato (atual e
   assert.match(tituloBarra, /40,00%/);
 });
 
+// 14/09/2026: valorInvestir negativo acontece nos splits internos que
+// REDISTRIBUEM o que já existe (ex.: FIIs Tijolo/Papel/Híbrido) - mostra
+// "resgatar" em vez de "faltam", e o badge continua "warn" (não é bom
+// nem ruim ficar acima OU abaixo da meta nesse tipo de split).
+test('criarLinhaObjetivo() mostra badge "resgatar R$ X" quando valorInvestir é negativo (split que redistribui)', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, { tipo: 'Tijolo', percentualDesejado: 0.4, percentualAtual: 0.42, carteiraAtual: 14801.55, valorInvestir: -673.21 });
+  const badge = linha.querySelector('.goal-badge');
+  assert.match(badge.className, /warn/);
+  assert.match(badge.textContent, /resgatar/);
+  assert.match(badge.textContent, /673,21/);
+  assert.equal(/faltam/.test(badge.textContent), false);
+});
+
+test('criarLinhaObjetivo() ignora valorInvestir residual negativo de arredondamento (> -R$ 0,50) como "na meta"', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, { tipo: 'X', percentualDesejado: 0.5, percentualAtual: 0.5, carteiraAtual: 100, valorInvestir: -0.02 });
+  assert.match(linha.querySelector('.goal-badge').textContent, /na meta/);
+});
+
 
 // --- criarBlocoObjetivo ------------------------------------------------------
 
@@ -572,6 +593,123 @@ test('renderObjetivosCarteira() repassa onSalvarPercentuais pros 2 blocos, com o
 });
 
 
+// --- renderSplitInterno ------------------------------------------------------
+
+// Dados reais confirmados na planilha (diagnosticarSplitsELinks,
+// 14/09/2026) - FIIs tem valorInvestir negativo de propósito (Tijolo
+// está acima da meta, precisa "resgatar", não "investir" - ver os
+// testes de criarLinhaObjetivo() acima pro mesmo caso isolado).
+const SPLITS_INTERNOS_EXEMPLO = {
+  acoes: {
+    itens: [
+      { tipo: 'Dividendos', percentualDesejado: 0.6, percentualAtual: 0.6257188358, carteiraAtual: 29975.54, novaCarteira: 29975.54, valorInvestir: 0 },
+      { tipo: 'Ações Internacionais', percentualDesejado: 0.4, percentualAtual: 0.3742811642, carteiraAtual: 17930.23, novaCarteira: 19983.69, valorInvestir: 2053.47 },
+    ],
+    total: { carteiraAtual: 47905.77, novaCarteira: 49959.23, valorInvestir: 2053.47 },
+  },
+  fiis: {
+    itens: [
+      { tipo: 'Tijolo', percentualDesejado: 0.4, percentualAtual: 0.4183682114, carteiraAtual: 14913.99, novaCarteira: 14259.2, valorInvestir: -654.79 },
+      { tipo: 'Papel', percentualDesejado: 0.3, percentualAtual: 0.3138675382, carteiraAtual: 11188.75, novaCarteira: 10694.4, valorInvestir: -494.35 },
+      { tipo: 'Híbrido', percentualDesejado: 0.3, percentualAtual: 0.2677642504, carteiraAtual: 9545.26, novaCarteira: 10694.4, valorInvestir: 1149.14 },
+    ],
+    total: { carteiraAtual: 35648, novaCarteira: 35648, valorInvestir: null }, // G76 é texto "Total:" na planilha, não fórmula - ver DistribuicoesMetas.gs
+  },
+};
+
+const LINKS_RECOMENDADOS_EXEMPLO = {
+  acoesDividendos: { texto: 'Carteira Recomendada Dividendos', url: 'https://investidor.suno.com.br/carteiras/dividendos' },
+  acoesValor: { texto: 'Carteira Recomendada Valor', url: 'https://investidor.suno.com.br/carteiras/valor' },
+  acoesInternacional: { texto: 'Carteira Recomendada Internacional', url: 'https://investidor.suno.com.br/carteiras/internacional' },
+  fiis: { texto: 'Carteira Recomendada FIIS', url: 'https://investidor.suno.com.br/carteiras/fiis' },
+};
+
+test('renderSplitInterno() na aba "acoesNacionais" mostra o bloco de Ações e os links de Dividendos + Valor', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderSplitInterno(doc, container, {
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    abaAtiva: 'acoesNacionais',
+  });
+  assert.match(container.querySelector('.obj-bloco-titulo').textContent, /Ações/);
+  assert.equal(container.querySelectorAll('.obj-linha').length, 2);
+  const links = container.querySelectorAll('.split-link');
+  assert.equal(links.length, 2);
+  assert.match(links[0].textContent, /Dividendos/);
+  assert.match(links[1].textContent, /Valor/);
+  assert.equal(links[0].href, 'https://investidor.suno.com.br/carteiras/dividendos');
+});
+
+test('renderSplitInterno() na aba "acoesInternacionais" mostra o MESMO bloco de Ações, mas só o link Internacional', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderSplitInterno(doc, container, {
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    abaAtiva: 'acoesInternacionais',
+  });
+  assert.match(container.querySelector('.obj-bloco-titulo').textContent, /Ações/);
+  assert.equal(container.querySelectorAll('.obj-linha').length, 2);
+  const links = container.querySelectorAll('.split-link');
+  assert.equal(links.length, 1);
+  assert.match(links[0].textContent, /Internacional/);
+});
+
+test('renderSplitInterno() na aba "fiis" mostra o bloco de FIIs (3 tipos) e o link FIIs', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderSplitInterno(doc, container, {
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    abaAtiva: 'fiis',
+  });
+  assert.match(container.querySelector('.obj-bloco-titulo').textContent, /FIIs/);
+  const linhas = container.querySelectorAll('.obj-linha');
+  assert.equal(linhas.length, 3);
+  assert.match(linhas[0].textContent, /Tijolo/);
+  const links = container.querySelectorAll('.split-link');
+  assert.equal(links.length, 1);
+  assert.match(links[0].textContent, /FIIS/);
+});
+
+test('renderSplitInterno() mostra "resgatar" (não "faltam") pro tipo de FII acima da meta', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderSplitInterno(doc, container, { splitsInternos: SPLITS_INTERNOS_EXEMPLO, linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO, abaAtiva: 'fiis' });
+  const linhaTijolo = container.querySelectorAll('.obj-linha')[0];
+  assert.match(linhaTijolo.querySelector('.goal-badge').textContent, /resgatar/);
+});
+
+test('renderSplitInterno() sem splitsInternos limpa o container e não quebra', () => {
+  const doc = makeDom('<div id="c"><p>antigo</p></div>');
+  const container = doc.getElementById('c');
+  renderSplitInterno(doc, container, { splitsInternos: null, abaAtiva: 'fiis' });
+  assert.equal(container.innerHTML, '');
+});
+
+test('renderSplitInterno() sem container não quebra', () => {
+  const doc = makeDom('');
+  assert.doesNotThrow(() => renderSplitInterno(doc, null, { splitsInternos: SPLITS_INTERNOS_EXEMPLO, abaAtiva: 'fiis' }));
+});
+
+test('renderSplitInterno() repassa onSalvarPercentuais com o blocoId certo ("acoes"/"fiis")', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const chamadas = [];
+  renderSplitInterno(doc, container, {
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    abaAtiva: 'fiis',
+    onSalvarPercentuais: async (bloco) => { chamadas.push(bloco); },
+  });
+  container.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  container.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(chamadas, ['fiis']);
+});
+
+
 // --- renderRadarOportunidades ------------------------------------------------------
 
 // WIZC3 (linha 42, ranking 1) intencionalmente listado DEPOIS de VAMO3
@@ -622,6 +760,29 @@ test('renderRadarOportunidades(): clicar na aba "FIIs" troca a tabela mostrada',
   assert.equal(abas[2].classList.contains('active'), true);
   assert.equal(abas[0].classList.contains('active'), false);
   assert.match(container.querySelector('.radar-table tbody').textContent, /PMLL11/);
+});
+
+// 14/09/2026: onTrocarAba existe pra sincronizar renderSplitInterno
+// (mostrado ACIMA desta tabela) com a aba ativa do Radar.
+test('renderRadarOportunidades() chama onTrocarAba uma vez no desenho inicial, com a aba default', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const chamadas = [];
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onTrocarAba: (aba) => chamadas.push(aba) });
+  assert.deepEqual(chamadas, ['acoesNacionais']);
+});
+
+test('renderRadarOportunidades() chama onTrocarAba de novo a cada troca de aba (não ao só reordenar)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const chamadas = [];
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onTrocarAba: (aba) => chamadas.push(aba) });
+
+  container.querySelector('.radar-th-btn[data-campo="ativo"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.deepEqual(chamadas, ['acoesNacionais']); // ordenar não chama de novo
+
+  container.querySelectorAll('.filter-tab')[2].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.deepEqual(chamadas, ['acoesNacionais', 'fiis']);
 });
 
 test('renderRadarOportunidades(): clicar no cabeçalho "Ativo" ordena por ele; clicar de novo inverte', () => {
@@ -886,6 +1047,7 @@ function makePaginaDom() {
     <div id="metasConteudo" hidden>
       <div class="avisos-banner" id="metasAvisos" hidden></div>
       <div id="objetivosCarteiraGrid"></div>
+      <div id="splitInternoGrid"></div>
       <div id="radarOportunidadesGrid"></div>
       <div id="metasCarteiraGrid"></div>
     </div>
@@ -1111,4 +1273,109 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar item do Radar mostra erro
 
   assert.equal(chamadasGet, 1);
   assert.match(primeiraLinha.querySelector('.radar-edit-status').textContent, /linha mudou de ativo/);
+});
+
+test('montarPaginaDistribuicoesMetas(): desenha o bloco de split interno sincronizado com a aba inicial do Radar (Ações Nacionais)', async () => {
+  const doc = makePaginaDom();
+  const getDistribuicoesMetasImpl = async () => ({
+    ok: true,
+    metas: METAS_EXEMPLO,
+    radar: RADAR_EXEMPLO,
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+  });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
+
+  const splitGrid = doc.getElementById('splitInternoGrid');
+  assert.match(splitGrid.querySelector('.obj-bloco-titulo').textContent, /Ações/);
+  assert.equal(splitGrid.querySelectorAll('.split-link').length, 2); // Dividendos + Valor
+});
+
+test('montarPaginaDistribuicoesMetas(): trocar pra aba "FIIs" no Radar troca o bloco de split interno junto', async () => {
+  const doc = makePaginaDom();
+  const getDistribuicoesMetasImpl = async () => ({
+    ok: true,
+    metas: METAS_EXEMPLO,
+    radar: RADAR_EXEMPLO,
+    splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+  });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
+
+  doc.getElementById('radarOportunidadesGrid').querySelectorAll('.filter-tab')[2]
+    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  const splitGrid = doc.getElementById('splitInternoGrid');
+  assert.match(splitGrid.querySelector('.obj-bloco-titulo').textContent, /FIIs/);
+  const links = splitGrid.querySelectorAll('.split-link');
+  assert.equal(links.length, 1);
+  assert.match(links[0].textContent, /FIIS/);
+});
+
+test('montarPaginaDistribuicoesMetas(): salvar % desejado do split interno (bloco "fiis") grava e recarrega os dados', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return {
+      ok: true,
+      metas: METAS_EXEMPLO,
+      radar: RADAR_EXEMPLO,
+      splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+      linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    };
+  };
+  let salvo;
+  const salvarSplitInternoImpl = async (token, bloco, percentuais) => {
+    salvo = { bloco, percentuais };
+    return { ok: true };
+  };
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarSplitInternoImpl });
+
+  doc.getElementById('radarOportunidadesGrid').querySelectorAll('.filter-tab')[2]
+    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  const splitGrid = doc.getElementById('splitInternoGrid');
+  splitGrid.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  splitGrid.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(salvo.bloco, 'fiis');
+  assert.equal(chamadasGet, 2); // busca inicial + recarregar após salvar
+});
+
+test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado do split interno mostra erro no bloco (sem recarregar)', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return {
+      ok: true,
+      metas: METAS_EXEMPLO,
+      radar: RADAR_EXEMPLO,
+      splitsInternos: SPLITS_INTERNOS_EXEMPLO,
+      linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    };
+  };
+  const salvarSplitInternoImpl = async () => ({ ok: false, erro: 'soma inválida' });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarSplitInternoImpl });
+
+  const splitGrid = doc.getElementById('splitInternoGrid');
+  splitGrid.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  splitGrid.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadasGet, 1);
+  assert.match(splitGrid.querySelector('.goal-edit-status').textContent, /soma inválida/);
 });

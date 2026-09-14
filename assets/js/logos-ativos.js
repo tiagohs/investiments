@@ -39,6 +39,7 @@ export const LOGOS_ATIVOS = {
   "TUPY3": "assets/imgs/acoes/TUPY3.png",
   "VALE3": "assets/imgs/acoes/VALE3.png",
   "VAMO3": "assets/imgs/acoes/VAMO3.png",
+  "VGIP11": "assets/imgs/fiis/VGIP11.png",
   "VNOM": "assets/imgs/acoes/VNOM.jpg",
   "WIZC3": "assets/imgs/acoes/WIZC3.png",
   "XPML11": "assets/imgs/fiis/XPML11.png",

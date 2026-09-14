@@ -1,8 +1,40 @@
 /**
  * DistribuicoesMetas.gs — ação "distribuicoesMetas" (doGet) e as ações
  * de escrita (doPost): salvarObjetivosCarteira, salvarRadarItem,
- * salvarMetaRendaPassiva, salvarMetaPatrimonio e
- * salvarMesesRendaEmergencial.
+ * salvarMetaRendaPassiva, salvarMetaPatrimonio,
+ * salvarMesesRendaEmergencial e salvarSplitInterno.
+ *
+ * 14/09/2026, 5ª fatia (rodada de feedback do Radar): `splitsInternos`
+ * e `linksRecomendados` — pedido do Tiago pra 2 tabelas de "distribuição
+ * desejada" DENTRO de uma classe de ativo (diferente de `objetivos`,
+ * que é o split ENTRE classes — Ações/FIIs/Renda Fixa) e os links de
+ * "carteira recomendada" da Suno. Confirmado célula a célula na
+ * planilha real (diagnosticarSplitsELinks em DiagnosticoAtivos.gs)
+ * antes de escrever isso — mesmo layout de colunas B:G que
+ * montarObjetivosCarteira_ já usa (Tipo/%desejado/%atual/carteira
+ * atual/nova carteira/R$ investir):
+ *   - Ações (Dividendos x Ações Internacionais): cabeçalho B33:G33,
+ *     dados B34:G35, total (só carteiraAtual/novaCarteira/valorInvestir)
+ *     em E36:G36. Editável (% desejado) grava C34:C35.
+ *   - FIIs (Tijolo x Papel x Híbrido): cabeçalho B72:G72, dados
+ *     B73:G75, total em E76:F76 — G76 (a coluna R$ Resgatar/investir)
+ *     NÃO tem fórmula de total, só o texto "Total:" de novo (esse
+ *     split redistribui o que já existe, "Redistribuir" em F71, em vez
+ *     de só aportar — a soma líquida é ~0 por construção, o Tiago não
+ *     colocou número ali). Editável grava C73:C75.
+ * Os 2 blocos, diferente de `radar`, sempre têm um número FIXO de
+ * linhas (2 e 3) — não precisa varrer linha a linha tipo lerBlocoRadar_.
+ *
+ * Links "carteira recomendada" (Suno) — cada um é hyperlink de
+ * verdade na própria célula (getRichTextValue().getLinkUrl()), texto
+ * com um prefixo decorativo "⋘ " que é removido aqui antes de devolver:
+ *   - C38 (Dividendos) e C39 (Valor) — ficam logo antes do cabeçalho
+ *     do Radar Ações Nacionais (B41).
+ *   - C56 (Internacional) — antes do cabeçalho do Radar Ações
+ *     Internacionais (B58). ATENÇÃO: o Tiago tinha citado C54 de
+ *     memória, mas C54 está vazia — o link real está em C56
+ *     (confirmado no diagnóstico).
+ *   - C79 (FIIs) — antes do cabeçalho do Radar FIIs (B81).
  *
  * 14/09/2026: 1ª fatia foi só "Metas da Carteira" (Renda Passiva,
  * Patrimônio, Renda Emergencial). 2ª fatia (mesmo dia) adiciona
@@ -86,6 +118,18 @@ function handleDistribuicoesMetas(e, auth) {
     resposta.radar = montarRadarOportunidades_();
   } catch (err) {
     avisos.radar = String(err);
+  }
+
+  try {
+    resposta.splitsInternos = montarSplitsInternos_();
+  } catch (err) {
+    avisos.splitsInternos = String(err);
+  }
+
+  try {
+    resposta.linksRecomendados = montarLinksRecomendados_();
+  } catch (err) {
+    avisos.linksRecomendados = String(err);
   }
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
@@ -289,6 +333,91 @@ function testarRadarOportunidadesDireto() {
 }
 
 /**
+ * Lê os 2 blocos de "distribuição desejada" DENTRO de uma classe de
+ * ativo (Ações: Dividendos x Ações Internacionais; FIIs: Tijolo x
+ * Papel x Híbrido) — ver o comentário no topo do arquivo pra estrutura
+ * completa confirmada na planilha real. Mesmo formato de item que
+ * montarObjetivosCarteira_ (linhaParaObjeto_ local, mesma forma).
+ */
+function montarSplitsInternos_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dm = ss.getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+
+  function linhaParaObjeto_(linha) {
+    return {
+      tipo: linha[0],
+      percentualDesejado: linha[1],
+      percentualAtual: linha[2],
+      carteiraAtual: linha[3],
+      novaCarteira: linha[4],
+      valorInvestir: linha[5]
+    };
+  }
+
+  var linhasAcoes = dm.getRange('B34:G35').getValues();
+  var totalAcoes = dm.getRange('E36:G36').getValues()[0];
+  var acoes = {
+    itens: linhasAcoes.map(linhaParaObjeto_),
+    total: { carteiraAtual: totalAcoes[0], novaCarteira: totalAcoes[1], valorInvestir: totalAcoes[2] }
+  };
+
+  var linhasFiis = dm.getRange('B73:G75').getValues();
+  var totalFiis = dm.getRange('E76:G76').getValues()[0];
+  var fiis = {
+    itens: linhasFiis.map(linhaParaObjeto_),
+    total: {
+      carteiraAtual: totalFiis[0],
+      novaCarteira: totalFiis[1],
+      // G76 é o texto "Total:" na planilha, não uma fórmula numérica
+      // (ver comentário no topo do arquivo) — só expõe se um dia virar
+      // número de verdade lá.
+      valorInvestir: typeof totalFiis[2] === 'number' ? totalFiis[2] : null
+    }
+  };
+
+  return { acoes: acoes, fiis: fiis };
+}
+
+function testarSplitsInternosDireto() {
+  var dados = montarSplitsInternos_();
+  Logger.log(JSON.stringify(dados, null, 2));
+}
+
+/**
+ * Lê os 4 links de "carteira recomendada" da Suno (hyperlink de
+ * verdade na célula, não texto/URL solto — ver comentário no topo do
+ * arquivo). Devolve null pro link que não tiver hyperlink (planilha
+ * mudou/célula ficou vazia), em vez de quebrar a resposta inteira.
+ */
+function montarLinksRecomendados_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dm = ss.getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+
+  function link_(celula) {
+    var range = dm.getRange(celula);
+    var rich = range.getRichTextValue();
+    var url = rich ? rich.getLinkUrl() : null;
+    if (!url) return null;
+    var texto = String(range.getValue() || '').replace(/^⋘\s*/, '').trim();
+    return { texto: texto, url: url };
+  }
+
+  return {
+    acoesDividendos: link_('C38'),
+    acoesValor: link_('C39'),
+    acoesInternacional: link_('C56'),
+    fiis: link_('C79')
+  };
+}
+
+function testarLinksRecomendadosDireto() {
+  var dados = montarLinksRecomendados_();
+  Logger.log(JSON.stringify(dados, null, 2));
+}
+
+/**
  * doPost, action=salvarRadarItem. Grava, pra UM ticker de UMA das 3
  * tabelas do Radar de oportunidades, os 3 campos manuais: Ranking,
  * Preço-teto e % desejado (% atual, carteira atual, nova carteira, R$
@@ -393,6 +522,59 @@ function handleSalvarObjetivosCarteira(e) {
     var percentuais = percentuaisStr.split(',').map(function (s) { return Number(s.trim()); });
 
     var linhasEsperadas = bloco === 'geral' ? 3 : 2;
+    if (percentuais.length !== linhasEsperadas) {
+      return jsonOut({ ok: false, erro: 'esperava ' + linhasEsperadas + ' valores, recebi ' + percentuais.length });
+    }
+    for (var i = 0; i < percentuais.length; i++) {
+      if (isNaN(percentuais[i]) || percentuais[i] < 0 || percentuais[i] > 1) {
+        return jsonOut({ ok: false, erro: 'percentual inválido (use fração 0-1): ' + percentuaisStr });
+      }
+    }
+    var soma = percentuais.reduce(function (a, b) { return a + b; }, 0);
+    if (Math.abs(soma - 1) > 0.01) {
+      return jsonOut({ ok: false, erro: 'os percentuais desse bloco precisam somar 100% (soma atual: ' + Math.round(soma * 100) + '%)' });
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dm = ss.getSheetByName('Distribuição e Metas');
+    if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+    dm.getRange(range).setValues(percentuais.map(function (v) { return [v]; }));
+
+    return jsonOut({ ok: true });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
+}
+
+/**
+ * doPost, action=salvarSplitInterno. Grava os "% desejado" de um dos 2
+ * splits internos por classe de ativo (novo bloco pedido pelo Tiago,
+ * 14/09/2026, mostrado acima da tabela do Radar — mesmo padrão de
+ * handleSalvarObjetivosCarteira, só muda o range):
+ *   - "bloco": "acoes" (Dividendos / Ações Internacionais → grava
+ *     C34:C35) ou "fiis" (Tijolo / Papel / Híbrido → grava C73:C75).
+ *   - "percentuais": valores separados por vírgula, uma fração (0-1)
+ *     por linha, NA MESMA ORDEM que montarSplitsInternos_ devolve esse
+ *     bloco (senão grava o % errado na linha errada).
+ * Valida cada valor (0-1) e que a soma do bloco feche perto de 100%
+ * (mesma margem de 1 ponto percentual usada em Objetivos da Carteira).
+ */
+function handleSalvarSplitInterno(e) {
+  try {
+    var bloco = e.parameter.bloco;
+    var range;
+    if (bloco === 'acoes') {
+      range = 'C34:C35';
+    } else if (bloco === 'fiis') {
+      range = 'C73:C75';
+    } else {
+      return jsonOut({ ok: false, erro: 'bloco inválido: ' + bloco });
+    }
+
+    var percentuaisStr = String(e.parameter.percentuais || '');
+    var percentuais = percentuaisStr.split(',').map(function (s) { return Number(s.trim()); });
+
+    var linhasEsperadas = bloco === 'acoes' ? 2 : 3;
     if (percentuais.length !== linhasEsperadas) {
       return jsonOut({ ok: false, erro: 'esperava ' + linhasEsperadas + ' valores, recebi ' + percentuais.length });
     }

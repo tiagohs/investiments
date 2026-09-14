@@ -145,17 +145,23 @@ export async function syncNow(token, { tickers = null, testOptions = null, onRou
 }
 
 /**
- * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas).
- * Primeira fatia traz só `metas` (Renda Passiva/Patrimônio/Renda
- * Emergencial) — ver apps-script/DistribuicoesMetas.gs. `objetivos` e
- * `radar` entram numa próxima rodada; o front-end deve tratar os dois
- * como ausentes por enquanto.
+ * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas)
+ * — ver apps-script/DistribuicoesMetas.gs pra estrutura completa de
+ * cada fatia. Além de `metas`, hoje também traz `objetivos` (split
+ * entre classes de ativo), `radar` (as 3 tabelas de ranking),
+ * `splitsInternos` (split dentro de Ações e dentro de FIIs, mostrado
+ * acima da tabela do Radar) e `linksRecomendados` (os 4 links de
+ * "carteira recomendada" da Suno) — qualquer seção que falhar aparece
+ * em `avisos` em vez de quebrar a resposta inteira.
  *
  * @return {Promise<Object>} `{ ok, metas: { rendaPassiva: { meta,
  *   mediaUlt12Meses, percentualAtingido }, patrimonio: { extra,
  *   percentualReinvestimento, rendimentoMedio, meta, carteiraAtual,
  *   percentualAtingido }, rendaEmergencial: { mediaGastos, meses, meta,
- *   carteiraAtual, percentualAtingido, atingida } }, avisos? }` or
+ *   carteiraAtual, percentualAtingido, atingida } }, objetivos, radar,
+ *   splitsInternos: { acoes: { itens, total }, fiis: { itens, total } },
+ *   linksRecomendados: { acoesDividendos, acoesValor, acoesInternacional,
+ *   fiis } (cada um `{ texto, url } | null`), avisos? }` or
  *   `{ ok:false, etapa, erro }`.
  */
 export async function getDistribuicoesMetas(token) {
@@ -204,6 +210,21 @@ export async function salvarMesesRendaEmergencial(token, meses) {
  */
 export async function salvarObjetivosCarteira(token, bloco, percentuais) {
   return request('POST', 'salvarObjetivosCarteira', token, { bloco, percentuais: percentuais.join(',') });
+}
+
+/**
+ * Grava os "% desejado" de um dos 2 splits internos por classe de
+ * ativo (action=salvarSplitInterno) — Ações (Dividendos x Ações
+ * Internacionais) ou FIIs (Tijolo x Papel x Híbrido), mostrados acima
+ * da tabela do Radar. Mesmo formato de salvarObjetivosCarteira: bloco
+ * inteiro de uma vez, na mesma ordem em que getDistribuicoesMetas
+ * devolveu os tipos desse bloco.
+ * @param {string} token
+ * @param {'acoes'|'fiis'} bloco
+ * @param {number[]} percentuais - frações 0-1, uma por tipo do bloco, devem somar ~1.
+ */
+export async function salvarSplitInterno(token, bloco, percentuais) {
+  return request('POST', 'salvarSplitInterno', token, { bloco, percentuais: percentuais.join(',') });
 }
 
 /**
