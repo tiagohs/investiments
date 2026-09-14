@@ -207,6 +207,27 @@ export async function salvarObjetivosCarteira(token, bloco, percentuais) {
 }
 
 /**
+ * Grava os 3 campos manuais de UM ticker do Radar de oportunidades
+ * (action=salvarRadarItem): Ranking, Preço-teto e % desejado. "linha" e
+ * "ativo" vêm do próprio item devolvido por getDistribuicoesMetas
+ * (resposta.radar.<tabela>.itens[i].linha) — o back-end confere que o
+ * ativo ainda é o mesmo nessa linha antes de gravar.
+ * @param {string} token
+ * @param {'acoesNacionais'|'acoesInternacionais'|'fiis'} tabela
+ * @param {{linha: number, ativo: string, ranking: number, precoTeto: number, percentualDesejado: number}} item
+ */
+export async function salvarRadarItem(token, tabela, item) {
+  return request('POST', 'salvarRadarItem', token, {
+    tabela,
+    linha: item.linha,
+    ativo: item.ativo,
+    ranking: item.ranking,
+    precoTeto: item.precoTeto,
+    percentualDesejado: item.percentualDesejado,
+  });
+}
+
+/**
  * Runs "importarTransacoesB3" — a single batch, no round logic (unlike
  * syncNow, a batch import never partially times out and resumes).
  *

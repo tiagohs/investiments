@@ -26,12 +26,12 @@
 
   <main hidden>
     <!-- 14/09/2026: 1ª fatia foi só "Metas da Carteira". 2ª fatia (mesmo
-         dia) acrescenta "Objetivos da Carteira" logo acima — ambas ligadas
-         à mesma ação distribuicoesMetas (apps-script/DistribuicoesMetas.gs),
-         por isso compartilham loading/erro. Radar de oportunidades
-         (Ações/EUA/FIIs) entra numa próxima rodada — ver
-         docs/plano-implementacao.html. Ordem das seções aqui é a ordem que
-         o Tiago pediu: Objetivos → Radar (futuro) → Metas. -->
+         dia) acrescenta "Objetivos da Carteira" e a 4ª "Radar de
+         oportunidades" (3ª foi só o back-end de leitura do Radar) — as 3
+         seções vêm juntas na mesma ação distribuicoesMetas
+         (apps-script/DistribuicoesMetas.gs), por isso compartilham
+         loading/erro. Ordem das seções aqui é a ordem que o Tiago pediu:
+         Objetivos → Radar → Metas. -->
 
     <div class="metas-loading" id="metasLoading" aria-hidden="true">
       <span class="skel skel-header"></span>
@@ -39,6 +39,8 @@
         <span class="skel" style="height:190px"></span>
         <span class="skel" style="height:190px"></span>
       </div>
+      <span class="skel skel-header" style="margin-top:8px"></span>
+      <span class="skel" style="height:260px"></span>
       <span class="skel skel-header" style="margin-top:8px"></span>
       <div class="goals-grid">
         <span class="skel" style="height:220px"></span>
@@ -57,6 +59,12 @@
         <span class="hint">Quanto você quer ter em cada tipo de ativo — e quanto falta investir pra chegar lá. Clique em "Editar % desejado" em cada bloco pra mudar direto na planilha.</span>
       </div>
       <div id="objetivosCarteiraGrid"></div>
+
+      <div class="area-header" style="margin-top:28px">
+        <h2>Radar de oportunidades</h2>
+        <span class="hint">Ranking de compra por classe de ativo. Clique no cabeçalho de qualquer coluna pra ordenar (default: Ranking) e em "Editar" numa linha pra mudar Ranking, Preço-teto ou % desejado direto na planilha.</span>
+      </div>
+      <div id="radarOportunidadesGrid"></div>
 
       <div class="area-header" style="margin-top:28px">
         <h2>Metas da carteira</h2>

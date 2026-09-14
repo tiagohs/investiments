@@ -16,6 +16,7 @@ import {
   criarLinhaObjetivo,
   criarBlocoObjetivo,
   renderObjetivosCarteira,
+  renderRadarOportunidades,
 } from '../assets/js/pages/distribuicoes-metas.js';
 
 function makeDom(bodyHtml) {
@@ -571,6 +572,171 @@ test('renderObjetivosCarteira() repassa onSalvarPercentuais pros 2 blocos, com o
 });
 
 
+// --- renderRadarOportunidades ------------------------------------------------------
+
+// WIZC3 (linha 42, ranking 1) intencionalmente listado DEPOIS de VAMO3
+// (linha 43, ranking 2) no array - assim um teste de "ordena por Ranking
+// crescente por padrao" so passa se a ordenacao de verdade acontecer (o
+// array de entrada, fora de ordem, nao passaria sozinho).
+const RADAR_EXEMPLO = {
+  acoesNacionais: {
+    itens: [
+      { linha: 43, ranking: 2, ativo: 'VAMO3', precoAtual: 3.27, precoTeto: 7.86, vies: 'Comprar', precoMedio: 2.94, pvp: 1.21, pl: 11.66, descontoPvp: '121% (1,21 P/VP)', descontoPl: '8,58% (5,67% abaixo - retorno em 11,66 anos)', percentualDesejado: 0.1, percentualAtual: 0.0565, carteiraAtual: 1569.6, percentualDiferenca: -0.0435, novaCarteira: 5336.26, valorInvestir: 3766.66, tipo: null },
+      { linha: 42, ranking: 1, ativo: 'WIZC3', precoAtual: 7.82, precoTeto: 10, vies: 'Comprar', precoMedio: 7.61, pvp: 1.69, pl: 6.3, descontoPvp: '169% (1,69 P/VP)', descontoPl: '15,87% (1,62% acima - retorno em 6,30 anos)', percentualDesejado: 0.11, percentualAtual: 0.0338, carteiraAtual: 938.4, percentualDiferenca: -0.0762, novaCarteira: 5869.89, valorInvestir: 4931.49, tipo: null },
+    ],
+    total: { carteiraAtual: 2508, novaCarteira: 11206.15, valorInvestir: 8698.15 },
+  },
+  acoesInternacionais: {
+    itens: [
+      { linha: 59, ranking: 1, ativo: 'GPRK', precoAtual: 11.48, precoTeto: 10.35, vies: 'Aguardar', precoMedio: 7.04, pvp: 31.89, pl: null, descontoPvp: '3189% (31,89 P/VP)', descontoPl: null, percentualDesejado: 0.15, percentualAtual: 0.159, carteiraAtual: 557.7, percentualDiferenca: 0.009, novaCarteira: 600, valorInvestir: 42.3, tipo: null },
+    ],
+    total: { carteiraAtual: 557.7, novaCarteira: 600, valorInvestir: 42.3 },
+  },
+  fiis: {
+    itens: [
+      { linha: 82, ranking: 1, ativo: 'PMLL11', precoAtual: 95, precoTeto: 100, vies: 'Comprar', precoMedio: 90, pvp: 0.95, pl: null, descontoPvp: '95% (0,95 P/VP)', descontoPl: null, percentualDesejado: 0.2, percentualAtual: 0.18, carteiraAtual: 3000, percentualDiferenca: -0.02, novaCarteira: 3500, valorInvestir: 500, tipo: 'Tijolo' },
+    ],
+    total: { carteiraAtual: 3000, novaCarteira: 3500, valorInvestir: 500 },
+  },
+};
+
+test('renderRadarOportunidades() desenha as 3 abas e a tabela da aba ativa (Ações Nacionais) ordenada por Ranking crescente por padrão', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const abas = container.querySelectorAll('.filter-tab');
+  assert.equal(abas.length, 3);
+  assert.equal(abas[0].classList.contains('active'), true);
+  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.equal(linhas.length, 2);
+  assert.match(linhas[0].textContent, /WIZC3/);
+  assert.match(linhas[1].textContent, /VAMO3/);
+});
+
+test('renderRadarOportunidades(): clicar na aba "FIIs" troca a tabela mostrada', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const abas = container.querySelectorAll('.filter-tab');
+  abas[2].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(abas[2].classList.contains('active'), true);
+  assert.equal(abas[0].classList.contains('active'), false);
+  assert.match(container.querySelector('.radar-table tbody').textContent, /PMLL11/);
+});
+
+test('renderRadarOportunidades(): clicar no cabeçalho "Ativo" ordena por ele; clicar de novo inverte', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+
+  container.querySelector('.radar-th-btn[data-campo="ativo"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  let linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.match(linhas[0].textContent, /VAMO3/);
+  assert.match(linhas[1].textContent, /WIZC3/);
+
+  container.querySelector('.radar-th-btn[data-campo="ativo"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  linhas = container.querySelectorAll('.radar-table tbody tr');
+  assert.match(linhas[0].textContent, /WIZC3/);
+  assert.match(linhas[1].textContent, /VAMO3/);
+});
+
+test('renderRadarOportunidades() sem onSalvarItem não desenha botão "Editar"', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  assert.equal(container.querySelector('.radar-editar-btn'), null);
+});
+
+test('renderRadarOportunidades(): "Editar" revela inputs pré-preenchidos de Ranking/Preço-teto/% desejado', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, ranking 1
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
+  assert.equal(inputs.length, 3);
+  assert.equal(inputs[0].value, '1');
+  assert.equal(inputs[1].value, '10');
+  assert.equal(inputs[2].value, '11');
+});
+
+test('renderRadarOportunidades(): "Salvar" chama onSalvarItem(tabela, item) com linha/ativo/ranking/precoTeto/percentualDesejado corretos', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamou;
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, {
+    onSalvarItem: async (tabela, item) => { chamou = { tabela, item }; },
+  });
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
+  inputs[0].value = '3';
+  inputs[1].value = '12.5';
+  inputs[2].value = '15';
+  primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamou.tabela, 'acoesNacionais');
+  assert.equal(chamou.item.linha, 42);
+  assert.equal(chamou.item.ativo, 'WIZC3');
+  assert.equal(chamou.item.ranking, 3);
+  assert.equal(chamou.item.precoTeto, 12.5);
+  assert.equal(chamou.item.percentualDesejado, 0.15);
+});
+
+test('renderRadarOportunidades(): campo em branco ao salvar mostra erro e não chama onSalvarItem', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  let chamou = false;
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, {
+    onSalvarItem: async () => { chamou = true; },
+  });
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
+  inputs[0].value = '';
+  primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+
+  assert.equal(chamou, false);
+  assert.match(primeiraLinha.querySelector('.radar-edit-status').textContent, /preencha/);
+});
+
+test('renderRadarOportunidades(): "Cancelar" reverte a linha pro estado original (sem inputs)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
+  let primeiraLinha = container.querySelector('.radar-table tbody tr');
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelectorAll('.radar-edit-input').length, 3);
+  container.querySelector('.radar-cancelar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(container.querySelectorAll('.radar-edit-input').length, 0);
+  primeiraLinha = container.querySelector('.radar-table tbody tr');
+  assert.notEqual(primeiraLinha.querySelector('.radar-editar-btn'), null);
+});
+
+test('renderRadarOportunidades() limpa o container quando radar é null/undefined', () => {
+  const doc = makeDom('<div id="c"><span>lixo antigo</span></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, null);
+  assert.equal(container.innerHTML, '');
+});
+
+test('renderRadarOportunidades() mostra aviso quando a tabela ativa não tem itens', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, {
+    acoesNacionais: { itens: [], total: {} },
+    acoesInternacionais: RADAR_EXEMPLO.acoesInternacionais,
+    fiis: RADAR_EXEMPLO.fiis,
+  });
+  assert.match(container.textContent, /Nenhum ativo/);
+});
+
+
 // --- montarPaginaDistribuicoesMetas ------------------------------------------------------
 
 function makePaginaDom() {
@@ -580,6 +746,7 @@ function makePaginaDom() {
     <div id="metasConteudo" hidden>
       <div class="avisos-banner" id="metasAvisos" hidden></div>
       <div id="objetivosCarteiraGrid"></div>
+      <div id="radarOportunidadesGrid"></div>
       <div id="metasCarteiraGrid"></div>
     </div>
   `);
@@ -752,4 +919,56 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado mostra erro no
 
   assert.equal(chamadasGet, 1);
   assert.match(blocoGeral.querySelector('.goal-edit-status').textContent, /soma inválida/);
+});
+
+test('montarPaginaDistribuicoesMetas(): salvar um item do Radar de oportunidades grava e recarrega os dados', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO, radar: RADAR_EXEMPLO };
+  };
+  let salvo;
+  const salvarRadarItemImpl = async (token, tabela, item) => {
+    salvo = { tabela, item };
+    return { ok: true };
+  };
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarRadarItemImpl });
+
+  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr');
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(salvo.tabela, 'acoesNacionais');
+  assert.equal(salvo.item.ativo, 'WIZC3');
+  assert.equal(chamadasGet, 2); // busca inicial + recarregar após salvar
+});
+
+test('montarPaginaDistribuicoesMetas(): erro ao salvar item do Radar mostra erro na linha (sem recarregar)', async () => {
+  const doc = makePaginaDom();
+  let chamadasGet = 0;
+  const getDistribuicoesMetasImpl = async () => {
+    chamadasGet += 1;
+    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO, radar: RADAR_EXEMPLO };
+  };
+  const salvarRadarItemImpl = async () => ({ ok: false, erro: 'linha mudou de ativo' });
+
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarRadarItemImpl });
+
+  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr');
+  primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadasGet, 1);
+  assert.match(primeiraLinha.querySelector('.radar-edit-status').textContent, /linha mudou de ativo/);
 });

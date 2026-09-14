@@ -72,6 +72,9 @@ function doPost(e) {
   if (action === 'salvarObjetivosCarteira') {
     return handleSalvarObjetivosCarteira(e);
   }
+  if (action === 'salvarRadarItem') {
+    return handleSalvarRadarItem(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

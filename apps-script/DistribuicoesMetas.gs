@@ -1,7 +1,8 @@
 /**
  * DistribuicoesMetas.gs — ação "distribuicoesMetas" (doGet) e as ações
- * de escrita de Metas da Carteira (doPost): salvarMetaRendaPassiva,
- * salvarMetaPatrimonio e salvarMesesRendaEmergencial.
+ * de escrita (doPost): salvarObjetivosCarteira, salvarRadarItem,
+ * salvarMetaRendaPassiva, salvarMetaPatrimonio e
+ * salvarMesesRendaEmergencial.
  *
  * 14/09/2026: 1ª fatia foi só "Metas da Carteira" (Renda Passiva,
  * Patrimônio, Renda Emergencial). 2ª fatia (mesmo dia) adiciona
@@ -19,10 +20,9 @@
  * Nenhuma tem linhas fixas (Tiago só adiciona ticker no fim, nunca no
  * meio), então a leitura varre linha a linha até achar a coluna Ativo
  * vazia (ver lerBlocoRadar_). 3 campos são manuais em cada linha —
- * Ranking, Preço-teto e % desejado — e o Tiago quer os 3 editáveis na
- * tela também, mas a escrita ainda não entra nesta rodada: primeiro só
- * leitura, pra validar contra a planilha real (mesmo padrão usado pra
- * Objetivos da Carteira).
+ * Ranking, Preço-teto e % desejado — e são editáveis na tela também,
+ * um ticker por vez (doPost action=salvarRadarItem, handler mais
+ * abaixo), gravando pela "linha" real da planilha que cada item traz.
  *
  * Objetivos da Carteira: a aba "Distribuição e Metas" guarda 2 blocos de
  * distribuição desejada x atual, ambos B:G — % atual, carteira atual,
@@ -200,10 +200,12 @@ function testarObjetivosCarteiraDireto() {
  * "Aguardar" se preço atual >= preço-teto, senão "Comprar"), desconto
  * sobre P/VP (e, só nas Nacionais, sobre P/L), % desejado/atual por
  * ticker e quanto falta investir pra chegar na meta dele. 3 campos são
- * manuais na planilha (ranking, preço-teto, % desejado) - o Tiago quer
- * os 3 editáveis na tela também, mas a escrita ainda não entra nesta
- * rodada: primeiro validar que a leitura bate com a planilha real
- * (mesmo padrão usado pra Objetivos da Carteira).
+ * manuais na planilha (ranking, preço-teto, % desejado) e editáveis na
+ * tela — cada item vem com "linha" (o número real da linha na
+ * planilha), usado por handleSalvarRadarItem (mais abaixo) pra gravar
+ * sem ambiguidade mesmo se a tela estiver ordenada por outra coluna.
+ * Validado contra a planilha real (mesmo padrão usado pra Objetivos da
+ * Carteira).
  *
  * As 3 tabelas ficam todas na aba "Distribuição e Metas", cada uma com
  * layout de coluna um pouco diferente (a de Ações Nacionais tem 2
@@ -227,7 +229,7 @@ function lerBlocoRadar_(sheet, primeiraLinha, colunas) {
   while (true) {
     var ativo = sheet.getRange(colunas.ativo + linha).getValue();
     if (!ativo) break;
-    var item = {};
+    var item = { linha: linha };
     for (var campo in colunas) {
       var col = colunas[campo];
       item[campo] = col ? sheet.getRange(col + linha).getValue() : null;
@@ -284,6 +286,79 @@ function montarRadarOportunidades_() {
 function testarRadarOportunidadesDireto() {
   var dados = montarRadarOportunidades_();
   Logger.log(JSON.stringify(dados, null, 2));
+}
+
+/**
+ * doPost, action=salvarRadarItem. Grava, pra UM ticker de UMA das 3
+ * tabelas do Radar de oportunidades, os 3 campos manuais: Ranking,
+ * Preço-teto e % desejado (% atual, carteira atual, nova carteira, R$
+ * investir e viés são fórmula e recalculam sozinhos a partir desses 3).
+ * Campos do formulário:
+ *   - "tabela": "acoesNacionais" | "acoesInternacionais" | "fiis".
+ *   - "linha": número da linha real na planilha (o item devolvido por
+ *     montarRadarOportunidades_ já traz isso em "linha") — grava direto
+ *     nela, não depende da ordem em que a tela está mostrando a tabela.
+ *   - "ativo": o ticker esperado nessa linha — conferido contra a
+ *     coluna Ativo antes de gravar, só pra evitar gravar na linha
+ *     errada se a planilha mudou de tamanho entre a leitura e o salvar
+ *     (ex.: Tiago adicionou/removeu um ticker nesse meio-tempo).
+ *   - "ranking": inteiro positivo.
+ *   - "precoTeto": número positivo.
+ *   - "percentualDesejado": fração 0-1.
+ * Não valida soma de % desejado entre tickers (diferente de Objetivos
+ * da Carteira) porque aqui não é um split fechado em 100% — cada
+ * ticker tem sua fatia dentro do bloco maior da classe de ativo.
+ */
+function handleSalvarRadarItem(e) {
+  try {
+    var COLUNAS_RADAR_ESCRITA = {
+      acoesNacionais: { primeiraLinha: 42, ativo: 'C', ranking: 'B', precoTeto: 'E', percentualDesejado: 'L' },
+      acoesInternacionais: { primeiraLinha: 59, ativo: 'C', ranking: 'B', precoTeto: 'E', percentualDesejado: 'K' },
+      fiis: { primeiraLinha: 82, ativo: 'C', ranking: 'B', precoTeto: 'E', percentualDesejado: 'K' }
+    };
+
+    var tabela = e.parameter.tabela;
+    var cols = COLUNAS_RADAR_ESCRITA[tabela];
+    if (!cols) {
+      return jsonOut({ ok: false, erro: 'tabela inválida: ' + tabela });
+    }
+
+    var linha = parseInt(e.parameter.linha, 10);
+    if (isNaN(linha) || linha < cols.primeiraLinha) {
+      return jsonOut({ ok: false, erro: 'linha inválida: ' + e.parameter.linha });
+    }
+
+    var ranking = Number(e.parameter.ranking);
+    if (isNaN(ranking) || ranking <= 0) {
+      return jsonOut({ ok: false, erro: 'ranking inválido: ' + e.parameter.ranking });
+    }
+    var precoTeto = Number(e.parameter.precoTeto);
+    if (isNaN(precoTeto) || precoTeto <= 0) {
+      return jsonOut({ ok: false, erro: 'preço-teto inválido: ' + e.parameter.precoTeto });
+    }
+    var percentualDesejado = Number(e.parameter.percentualDesejado);
+    if (isNaN(percentualDesejado) || percentualDesejado < 0 || percentualDesejado > 1) {
+      return jsonOut({ ok: false, erro: 'percentual desejado inválido (use fração 0-1): ' + e.parameter.percentualDesejado });
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dm = ss.getSheetByName('Distribuição e Metas');
+    if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+
+    var ativoNaPlanilha = String(dm.getRange(cols.ativo + linha).getValue() || '').trim();
+    var ativoEsperado = String(e.parameter.ativo || '').trim();
+    if (!ativoNaPlanilha || ativoNaPlanilha.toUpperCase() !== ativoEsperado.toUpperCase()) {
+      return jsonOut({ ok: false, erro: 'linha ' + linha + ' não é mais o ativo ' + ativoEsperado + ' (agora é "' + ativoNaPlanilha + '") — recarregue a tela e tente de novo' });
+    }
+
+    dm.getRange(cols.ranking + linha).setValue(ranking);
+    dm.getRange(cols.precoTeto + linha).setValue(precoTeto);
+    dm.getRange(cols.percentualDesejado + linha).setValue(percentualDesejado);
+
+    return jsonOut({ ok: true });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
 }
 
 /**

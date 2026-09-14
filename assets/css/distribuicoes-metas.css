@@ -129,3 +129,42 @@
 .obj-total-investir{ color:var(--warn-ink); }
 
 @media (max-width:640px){ .obj-grid{ grid-template-columns:1fr; } }
+
+/* ---- Radar de oportunidades (tabela de ranking por ticker, 3 abas:
+   Ações Nacionais/Internacionais/FIIs) — .radar-tabs reaproveita
+   .filter-tabs/.filter-tab de shell.css (mesmo componente da Início),
+   só o que é específico da tabela em si é novo aqui. Cabeçalho de
+   coluna é um <button> (não <th> puro) pra ordenar ao clicar, sem
+   precisar de nenhum JS fora do escopo do módulo pra isso. ---- */
+.radar-tabs{ margin-bottom:14px; }
+.radar-table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow); }
+.radar-table{ width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
+.radar-table th, .radar-table td{ padding:9px 12px; text-align:left; border-bottom:1px solid var(--border); }
+.radar-table tbody tr:last-child td{ border-bottom:none; }
+.radar-table td.num, .radar-table th.num{ text-align:right; font-family:var(--mono); }
+.radar-table tbody tr:hover{ background:var(--surface-3); }
+
+.radar-th-btn{ display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0;
+      font-family:var(--body-f); font-weight:700; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
+      color:var(--ink-faint); cursor:pointer; }
+.radar-th-btn:hover{ color:var(--ink-muted); }
+.radar-th-btn.active{ color:var(--acoes); }
+.radar-sort-seta{ font-size:8px; }
+
+.radar-linha.radar-linha-editando{ background:var(--surface-3); }
+.radar-edit-input{ width:78px; font-family:var(--mono); font-size:12px; padding:4px 6px; border-radius:6px;
+      border:1px solid var(--border); background:var(--bg); color:var(--ink); }
+.radar-edit-input:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
+
+.radar-acoes{ white-space:nowrap; }
+.radar-editar-btn, .radar-salvar-btn, .radar-cancelar-btn{ font-family:var(--body-f); font-weight:700; font-size:11px;
+      padding:5px 11px; border-radius:100px; cursor:pointer; border:1px solid var(--border); background:var(--surface);
+      color:var(--ink-muted); }
+.radar-editar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
+.radar-salvar-btn{ background:var(--acoes); border-color:var(--acoes); color:#fff; margin-right:6px; }
+:root[data-theme="dark"] .radar-salvar-btn, :root:not([data-theme="light"]) .radar-salvar-btn{ color:#071522; }
+.radar-salvar-btn:disabled{ opacity:.7; cursor:default; }
+.radar-cancelar-btn{ background:transparent; margin-right:6px; }
+.radar-edit-status{ font-size:10.5px; color:var(--ink-faint); }
+
+@media (max-width:640px){ .radar-table{ font-size:11px; } .radar-table th, .radar-table td{ padding:7px 9px; } }

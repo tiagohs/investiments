@@ -9,7 +9,7 @@
  * chamada só a distribuicoesMetas (ver apps-script/DistribuicoesMetas.gs),
  * então usam o mesmo loading/erro compartilhado. A ordem de exibição na
  * página segue a ordem que o Tiago pediu: Objetivos → Radar de
- * oportunidades (Ações/EUA/FIIs, ainda não construído) → Metas.
+ * oportunidades (Ações/EUA/FIIs).
  *
  * O anel de progresso (criarAnelProgresso) e o layout de card
  * (criarCardMeta) seguem o desenho já validado em docs/direcao-visual.html
@@ -39,6 +39,21 @@
  * progresso, barra de Objetivos, alguns stats dos cards de Meta —
  * mostrando o valor exato ou a conta por trás, sem precisar abrir a
  * planilha pra conferir.
+ *
+ * 14/09/2026 (4ª fatia, mesmo dia): Radar de oportunidades — as 3
+ * tabelas de ranking (Ações Nacionais/Internacionais/FIIs) que vêm em
+ * resposta.radar (ver montarRadarOportunidades_ em DistribuicoesMetas.gs).
+ * Trocadas por pill-buttons (.filter-tabs, mesma classe da Início — só
+ * uma tabela visível por vez). Cabeçalho de cada coluna é clicável e
+ * ordena a tabela (padrão de planilha: clique de novo alterna asc/desc);
+ * "Ranking" é o default. Ranking, Preço-teto e "% desejado" são
+ * editáveis por ticker (botão "Editar" na linha, grava só essa linha via
+ * salvarRadarItem — diferente de Objetivos da Carteira, aqui não tem
+ * soma que precise fechar 100%). Preço médio, descontos P/VP e P/L, %
+ * de diferença e nova carteira não viram coluna (a tabela já tem gente
+ * demais) — ficam num tooltip na célula do Ativo. Ações Internacionais
+ * mostra preço atual/teto em USD (formatUSD) — carteira atual e R$
+ * investir continuam em BRL, como o resto do app já agrega tudo.
  */
 
 import {
@@ -47,8 +62,9 @@ import {
   salvarMetaPatrimonio as salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencial as salvarMesesRendaEmergencialApi,
   salvarObjetivosCarteira as salvarObjetivosCarteiraApi,
+  salvarRadarItem as salvarRadarItemApi,
 } from '../api-client.js';
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD } from '../format.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -507,6 +523,316 @@ export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPer
   container.appendChild(grid);
 }
 
+/**
+ * Metadados das colunas da tabela do Radar de oportunidades — mesma
+ * lista pras 3 tabelas, "tipo" (Tijolo/Papel/Híbrido) é só dos FIIs.
+ * Preço médio, descontos P/VP e P/L, % de diferença e nova carteira NÃO
+ * viram coluna — ficam no tooltip da célula do Ativo (ver tituloLinha_).
+ */
+const COLUNAS_RADAR = [
+  { chave: 'ranking', rotulo: '#', editavel: true, numerica: true },
+  { chave: 'ativo', rotulo: 'Ativo' },
+  { chave: 'precoAtual', rotulo: 'Preço atual', numerica: true },
+  { chave: 'precoTeto', rotulo: 'Preço-teto', editavel: true, numerica: true },
+  { chave: 'vies', rotulo: 'Viés' },
+  { chave: 'percentualDesejado', rotulo: '% desejado', editavel: true, numerica: true },
+  { chave: 'percentualAtual', rotulo: '% atual', numerica: true },
+  { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
+  { chave: 'valorInvestir', rotulo: 'R$ investir/resgatar', numerica: true },
+];
+const COLUNA_TIPO_FII = { chave: 'tipo', rotulo: 'Tipo' };
+
+function colunasRadarPara_(chaveTabela) {
+  return chaveTabela === 'fiis' ? [...COLUNAS_RADAR, COLUNA_TIPO_FII] : COLUNAS_RADAR;
+}
+
+/** Preço atual/teto/médio de Ações Internacionais é em USD; o resto (carteira, R$ investir) já vem em BRL, igual às outras 2 tabelas. */
+function formatarPrecoRadar_(valor, chaveTabela) {
+  return chaveTabela === 'acoesInternacionais' ? formatUSD(valor) : formatBRL(valor);
+}
+
+function formatarCelulaRadar_(item, coluna, chaveTabela) {
+  const v = item[coluna.chave];
+  switch (coluna.chave) {
+    case 'ranking':
+      return typeof v === 'number' ? String(v) : '—';
+    case 'precoAtual':
+    case 'precoTeto':
+      return formatarPrecoRadar_(v, chaveTabela);
+    case 'percentualDesejado':
+    case 'percentualAtual':
+      return formatPercentualMeta(v);
+    case 'carteiraAtual':
+    case 'valorInvestir':
+      return formatBRL(v);
+    default:
+      return v || v === 0 ? String(v) : '—';
+  }
+}
+
+/** Tooltip da célula "Ativo" com o detalhe que não cabe na tabela (preço médio, descontos, % de diferença, nova carteira). */
+function tituloLinhaRadar_(item, chaveTabela) {
+  const partes = [`Preço médio: ${formatarPrecoRadar_(item.precoMedio, chaveTabela)}`];
+  if (item.descontoPvp) partes.push(`Desconto P/VP: ${item.descontoPvp}`);
+  if (item.descontoPl && item.descontoPl !== 'Indisponivel') partes.push(`Desconto P/L: ${item.descontoPl}`);
+  if (typeof item.percentualDiferenca === 'number') partes.push(`Diferença vs. meta: ${formatPercentualPreciso(item.percentualDiferenca)}`);
+  if (typeof item.novaCarteira === 'number') partes.push(`Nova carteira: ${formatBRL(item.novaCarteira)}`);
+  return partes.join(' · ');
+}
+
+function criarBadgeVies_(doc, vies) {
+  const span = doc.createElement('span');
+  const tipo = vies === 'Comprar' ? 'good' : vies === 'Aguardar' ? 'warn' : '';
+  span.className = tipo ? `goal-badge ${tipo}` : 'goal-badge';
+  span.textContent = vies || '—';
+  return span;
+}
+
+/**
+ * Uma linha da tabela do Radar — 1 ticker. Sem onSalvarItem (ex.: uso
+ * futuro só-leitura) não desenha o botão "Editar". "Editar" troca só as
+ * 3 células editáveis (Ranking/Preço-teto/% desejado) por inputs, sem
+ * recarregar nada; o "Salvar" grava só esse ticker (salvarRadarItem)
+ * e quem chamou (montarPaginaDistribuicoesMetas) recarrega a página
+ * inteira no sucesso — "Cancelar" só redesenha a linha a partir do
+ * `item` original, mais simples que reverter célula por célula.
+ */
+function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem) {
+  const colunas = colunasRadarPara_(chaveTabela);
+  const tr = doc.createElement('tr');
+  tr.className = 'radar-linha';
+
+  const celulas = {};
+  for (const coluna of colunas) {
+    const td = doc.createElement('td');
+    if (coluna.numerica) td.classList.add('num');
+    if (coluna.chave === 'vies') {
+      td.appendChild(criarBadgeVies_(doc, item.vies));
+    } else {
+      td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
+    }
+    if (coluna.chave === 'ativo') td.title = tituloLinhaRadar_(item, chaveTabela);
+    tr.appendChild(td);
+    celulas[coluna.chave] = td;
+  }
+
+  const tdAcoes = doc.createElement('td');
+  tdAcoes.className = 'radar-acoes';
+  tr.appendChild(tdAcoes);
+
+  if (!onSalvarItem) return tr;
+
+  const editarBtn = doc.createElement('button');
+  editarBtn.type = 'button';
+  editarBtn.className = 'radar-editar-btn';
+  editarBtn.textContent = 'Editar';
+  tdAcoes.appendChild(editarBtn);
+
+  editarBtn.addEventListener('click', () => {
+    tr.classList.add('radar-linha-editando');
+    const camposEditaveis = colunas.filter((c) => c.editavel);
+    const inputs = {};
+    for (const coluna of camposEditaveis) {
+      const td = celulas[coluna.chave];
+      td.innerHTML = '';
+      const input = doc.createElement('input');
+      input.type = 'number';
+      input.step = '0.01';
+      input.className = 'radar-edit-input';
+      const valorAtual = item[coluna.chave];
+      input.value = coluna.chave === 'percentualDesejado'
+        ? (typeof valorAtual === 'number' ? Math.round(valorAtual * 10000) / 100 : '')
+        : (typeof valorAtual === 'number' ? valorAtual : '');
+      td.appendChild(input);
+      inputs[coluna.chave] = input;
+    }
+
+    tdAcoes.innerHTML = '';
+    const salvarBtn = doc.createElement('button');
+    salvarBtn.type = 'button';
+    salvarBtn.className = 'radar-salvar-btn';
+    salvarBtn.textContent = 'Salvar';
+    const cancelarBtn = doc.createElement('button');
+    cancelarBtn.type = 'button';
+    cancelarBtn.className = 'radar-cancelar-btn';
+    cancelarBtn.textContent = 'Cancelar';
+    const statusEl = doc.createElement('span');
+    statusEl.className = 'radar-edit-status';
+    tdAcoes.append(salvarBtn, cancelarBtn, statusEl);
+
+    cancelarBtn.addEventListener('click', () => {
+      tr.replaceWith(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem));
+    });
+
+    salvarBtn.addEventListener('click', async () => {
+      const valores = {};
+      for (const [chave, input] of Object.entries(inputs)) {
+        if (input.value === '') {
+          statusEl.textContent = 'preencha todos os campos';
+          return;
+        }
+        const bruto = Number(input.value);
+        if (Number.isNaN(bruto)) {
+          statusEl.textContent = 'valor inválido';
+          return;
+        }
+        valores[chave] = chave === 'percentualDesejado' ? bruto / 100 : bruto;
+      }
+      salvarBtn.disabled = true;
+      statusEl.textContent = 'salvando…';
+      try {
+        await onSalvarItem(chaveTabela, {
+          linha: item.linha,
+          ativo: item.ativo,
+          ranking: valores.ranking,
+          precoTeto: valores.precoTeto,
+          percentualDesejado: valores.percentualDesejado,
+        });
+      } catch (err) {
+        statusEl.textContent = `erro ao salvar: ${err && err.message ? err.message : err}`;
+        salvarBtn.disabled = false;
+      }
+    });
+  });
+
+  return tr;
+}
+
+function compararRadar_(a, b, campo) {
+  const va = a[campo];
+  const vb = b[campo];
+  if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+  return String(va ?? '').localeCompare(String(vb ?? ''), 'pt-BR');
+}
+
+/**
+ * A tabela de UMA das 3 classes do Radar — cabeçalho com botão por
+ * coluna (clique ordena; clique de novo na mesma coluna alterna asc/
+ * desc, igual autofiltro de planilha) + uma linha por ticker.
+ * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
+ * pra sobreviver a troca de aba sem perder o estado.
+ */
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar }) {
+  const colunas = colunasRadarPara_(chaveTabela);
+  const wrap = doc.createElement('div');
+  wrap.className = 'radar-table-wrap';
+  const table = doc.createElement('table');
+  table.className = 'radar-table';
+
+  const thead = doc.createElement('thead');
+  const trHead = doc.createElement('tr');
+  for (const coluna of colunas) {
+    const th = doc.createElement('th');
+    if (coluna.numerica) th.classList.add('num');
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'radar-th-btn';
+    btn.dataset.campo = coluna.chave;
+    btn.textContent = coluna.rotulo;
+    if (ordenacao && ordenacao.campo === coluna.chave) {
+      btn.classList.add('active');
+      const seta = doc.createElement('span');
+      seta.className = 'radar-sort-seta';
+      seta.textContent = ordenacao.direcao === 'asc' ? '▲' : '▼';
+      btn.appendChild(seta);
+    }
+    btn.addEventListener('click', () => onOrdenar && onOrdenar(coluna.chave));
+    th.appendChild(btn);
+    trHead.appendChild(th);
+  }
+  trHead.appendChild(doc.createElement('th'));
+  thead.appendChild(trHead);
+  table.appendChild(thead);
+
+  const tbody = doc.createElement('tbody');
+  const ordenados = [...(itens || [])];
+  if (ordenacao) {
+    ordenados.sort((a, b) => {
+      const cmp = compararRadar_(a, b, ordenacao.campo);
+      return ordenacao.direcao === 'asc' ? cmp : -cmp;
+    });
+  }
+  for (const item of ordenados) {
+    tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem));
+  }
+  table.appendChild(tbody);
+
+  wrap.appendChild(table);
+  return wrap;
+}
+
+const TABELAS_RADAR = [
+  { chave: 'acoesNacionais', rotulo: 'Ações Nacionais' },
+  { chave: 'acoesInternacionais', rotulo: 'Ações Internacionais' },
+  { chave: 'fiis', rotulo: 'FIIs' },
+];
+
+/**
+ * Renderiza o Radar de oportunidades inteiro: pill-buttons (.filter-tabs,
+ * mesma classe da Início) pra trocar entre as 3 tabelas — só uma visível
+ * por vez — e a tabela ordenável da aba ativa, default Ranking/asc.
+ * Trocar de aba ou de ordenação é só redesenho local (os dados das 3
+ * tabelas já vieram juntos em `radar`, não busca nada de novo); só um
+ * "Salvar" bem-sucedido aciona onSalvarItem, que recarrega a página
+ * inteira (por isso aba/ordenação voltam ao default depois de salvar —
+ * mesmo comportamento que o resto desta tela já tem ao recarregar).
+ */
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem } = {}) {
+  if (!container) return;
+  container.innerHTML = '';
+  if (!radar) return;
+
+  let abaAtiva = 'acoesNacionais';
+  let ordenacao = { campo: 'ranking', direcao: 'asc' };
+
+  const tabsEl = doc.createElement('div');
+  tabsEl.className = 'filter-tabs radar-tabs';
+  const tableContainer = doc.createElement('div');
+
+  function desenhar() {
+    tabsEl.querySelectorAll('.filter-tab').forEach((b) => b.classList.toggle('active', b.dataset.tabela === abaAtiva));
+    tableContainer.innerHTML = '';
+    const bloco = radar[abaAtiva];
+    if (!bloco || !bloco.itens || bloco.itens.length === 0) {
+      const vazio = doc.createElement('p');
+      vazio.className = 'hint';
+      vazio.textContent = 'Nenhum ativo nesta tabela.';
+      tableContainer.appendChild(vazio);
+      return;
+    }
+    tableContainer.appendChild(criarTabelaRadar_(doc, {
+      chaveTabela: abaAtiva,
+      itens: bloco.itens,
+      onSalvarItem,
+      ordenacao,
+      onOrdenar: (campo) => {
+        ordenacao = ordenacao.campo === campo
+          ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
+          : { campo, direcao: 'asc' };
+        desenhar();
+      },
+    }));
+  }
+
+  for (const { chave, rotulo } of TABELAS_RADAR) {
+    const btn = doc.createElement('button');
+    btn.type = 'button';
+    btn.className = 'filter-tab';
+    btn.dataset.tabela = chave;
+    btn.textContent = rotulo;
+    btn.addEventListener('click', () => {
+      if (abaAtiva === chave) return;
+      abaAtiva = chave;
+      ordenacao = { campo: 'ranking', direcao: 'asc' };
+      desenhar();
+    });
+    tabsEl.appendChild(btn);
+  }
+
+  container.append(tabsEl, tableContainer);
+  desenhar();
+}
+
 /** Constrói e injeta os 3 cards de Metas da Carteira no container. */
 export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiva, onSalvarPatrimonio, onSalvarRendaEmergencial } = {}) {
   if (!container) return;
@@ -597,11 +923,13 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarMetaPatrimonioImpl = salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencialImpl = salvarMesesRendaEmergencialApi,
   salvarObjetivosCarteiraImpl = salvarObjetivosCarteiraApi,
+  salvarRadarItemImpl = salvarRadarItemApi,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
   const conteudoEl = doc.getElementById('metasConteudo');
   const objetivosContainer = doc.getElementById('objetivosCarteiraGrid');
+  const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
 
   async function carregarERedesenhar() {
@@ -624,6 +952,14 @@ export async function montarPaginaDistribuicoesMetas(token, {
     renderObjetivosCarteira(doc, objetivosContainer, resposta.objetivos, {
       onSalvarPercentuais: async (bloco, percentuais) => {
         const r = await salvarObjetivosCarteiraImpl(token, bloco, percentuais);
+        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+        await carregarERedesenhar();
+      },
+    });
+
+    renderRadarOportunidades(doc, radarContainer, resposta.radar, {
+      onSalvarItem: async (tabela, item) => {
+        const r = await salvarRadarItemImpl(token, tabela, item);
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
         await carregarERedesenhar();
       },
