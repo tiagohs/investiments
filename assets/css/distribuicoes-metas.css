@@ -1,0 +1,93 @@
+/**
+ * distribuicoes-metas.css — estilos da página "Distribuições e Metas".
+ * Tokens e o padrão de skeleton/erro/avisos (.skel*, .inicio-loading,
+ * .inicio-erro, .avisos-banner) já vêm de shell.css/inicio.css — aqui só
+ * o que é específico desta página.
+ *
+ * 14/09/2026: primeira fatia é só "Metas da Carteira" — .goal-card,
+ * .goal-donut-wrap etc. são as MESMAS classes já validadas em
+ * docs/direcao-visual.html ("Metas da carteira"), copiadas com o mesmo
+ * nome pra não divergir do que já foi revisto. O que é novo aqui (não
+ * existia no mockup, porque lá os cards eram só ilustrativos, sem
+ * edição) é o formulário de edição inline: .goal-editar-btn,
+ * .goal-edit-form, .goal-edit-field, .goal-edit-acoes, .goal-edit-status
+ * e o .goal-badge ("atingida", usado pela Renda Emergencial).
+ */
+
+/* ---- Cabeçalho de área (mesmo padrão de .area-header em inicio.css —
+   duplicado aqui porque esta página não carrega inicio.css). ---- */
+.area-header{ display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+      flex-wrap:wrap; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+.area-header h2{ font-size:18px; }
+.area-header .hint{ font-size:11.5px; color:var(--ink-faint); }
+
+/* ---- Avisos (falha parcial) — mesmo padrão de .avisos-banner em
+   inicio.css, duplicado aqui pelo mesmo motivo do .area-header acima. ---- */
+.avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
+      padding:11px 14px; font-size:12.5px; margin-bottom:16px; line-height:1.5; }
+.avisos-banner b{ font-weight:700; }
+
+/* ---- Skeleton shimmer (mesmo padrão de .skel em inicio.css). ---- */
+.skel{ display:block; background:linear-gradient(100deg, var(--surface-3) 30%, var(--border) 50%, var(--surface-3) 70%);
+      background-size:200% 100%; animation:skel-shimmer 1.4s ease-in-out infinite; border-radius:14px; }
+@keyframes skel-shimmer{ from{ background-position:120% 0; } to{ background-position:-20% 0; } }
+.skel-header{ width:180px; height:16px; border-radius:6px; }
+@media (prefers-reduced-motion: reduce){ .skel{ animation:none; } }
+
+/* ---- Skeleton de carregamento (mesmo padrão de .inicio-loading, ver
+   o comentário sobre a bug de especificidade de [hidden] em inicio.css —
+   vale igual aqui). ---- */
+.metas-loading{ display:flex; flex-direction:column; gap:10px; }
+.metas-loading[hidden]{ display:none; }
+.metas-erro{ display:flex; flex-direction:column; align-items:center; gap:10px;
+      padding:60px 20px; color:var(--bad-ink); text-align:center; }
+.metas-erro[hidden]{ display:none; }
+
+/* ---- Metas da carteira (3 cards: Renda Passiva / Patrimônio / Renda
+   Emergencial) — .goals-grid tem 1 coluna a mais que o mockup original
+   (que só tinha 2 cards ilustrativos); repeat(auto-fit, minmax(...))
+   deixa os 3 lado a lado em telas largas e empilhados no celular sem
+   precisar de um breakpoint manual pra cada contagem de card. ---- */
+.goals-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px; }
+.goal-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px;
+      box-shadow:var(--shadow); display:flex; flex-direction:column; }
+.goal-card-head{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:2px; }
+.goal-card-head h3{ font-size:14.5px; }
+.goal-donut-wrap{ display:flex; justify-content:center; margin:14px 0 4px; }
+.goal-donut-wrap svg text.big{ font-family:var(--mono); font-size:20px; font-weight:600; fill:var(--ink); }
+.goal-donut-wrap svg text.small{ font-size:9.5px; fill:var(--ink-faint); font-family:var(--body-f); }
+.goal-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; padding-top:12px; border-top:1px solid var(--border); }
+.goal-stats .k{ font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); margin-bottom:2px; }
+.goal-stats .v{ font-family:var(--mono); font-size:13.5px; font-weight:600; }
+
+/* ---- Badge "atingida" (Renda Emergencial) — mesmas cores good/warn do
+   .status-ico/.toast já usados no resto do app. ---- */
+.goal-badge{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+.goal-badge.good{ background:var(--good-soft); color:var(--good-ink); }
+.goal-badge.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+
+/* ---- Edição inline (novo — não existia no mockup, que era só
+   ilustrativo). "Editar" revela um formulário curto embutido no
+   próprio card, sem modal — o card já é pequeno o bastante pra não
+   precisar de um popup separado. ---- */
+.goal-editar-btn{ align-self:flex-start; margin-top:14px; border:1px solid var(--border); background:var(--surface);
+      color:var(--ink-muted); font-family:var(--body-f); font-size:11.5px; font-weight:700; padding:6px 14px;
+      border-radius:100px; cursor:pointer; }
+.goal-editar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
+.goal-edit-form{ margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex;
+      flex-direction:column; gap:10px; }
+.goal-edit-form[hidden]{ display:none; }
+.goal-edit-field{ display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--ink-muted); }
+.goal-edit-field input{ font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:8px;
+      border:1px solid var(--border); background:var(--bg); color:var(--ink); }
+.goal-edit-field input:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
+.goal-edit-acoes{ display:flex; align-items:center; gap:8px; margin-top:2px; }
+.goal-edit-acoes button{ font-family:var(--body-f); font-weight:700; font-size:12px; padding:7px 14px;
+      border-radius:100px; cursor:pointer; border:none; }
+.goal-edit-acoes button[type="submit"]{ background:var(--acoes); color:#fff; }
+:root[data-theme="dark"] .goal-edit-acoes button[type="submit"], :root:not([data-theme="light"]) .goal-edit-acoes button[type="submit"]{ color:#071522; }
+.goal-edit-acoes button[type="submit"]:disabled{ opacity:.7; cursor:default; }
+.goal-edit-acoes button[type="button"]{ background:transparent; color:var(--ink-faint); border:1px solid var(--border); }
+.goal-edit-status{ font-size:11px; color:var(--ink-faint); }
+
+@media (max-width:640px){ .goals-grid{ grid-template-columns:1fr; } }
