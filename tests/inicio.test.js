@@ -290,7 +290,7 @@ test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado su
   assert.match(container.textContent, /Sem dado/);
 });
 
-test('renderDistribuicao() põe um tooltip (title) com nome completo e % com 2 casas em cada item da legenda', () => {
+test('renderDistribuicao() põe um ícone "i" clicável (dataset.tooltip) com nome completo e % com 2 casas em cada item da legenda', () => {
   const doc = makeDom('<div id="distrib"></div>');
   const container = doc.getElementById('distrib');
   renderDistribuicao(doc, container, [
@@ -298,9 +298,11 @@ test('renderDistribuicao() põe um tooltip (title) com nome completo e % com 2 c
     { label: 'FIIs', cor: 'var(--fiis)', valor: 2 },
   ]);
   const [item1, item2] = container.querySelectorAll('.distrib-item');
-  assert.match(item1.title, /Renda Fixa - Tesouro Selic e afins/);
-  assert.match(item1.title, /33,33%/);
-  assert.match(item2.title, /66,67%/);
+  assert.equal(item1.classList.contains('info-alvo'), true);
+  assert.ok(item1.querySelector('.info-icon'));
+  assert.match(item1.dataset.tooltip, /Renda Fixa - Tesouro Selic e afins/);
+  assert.match(item1.dataset.tooltip, /33,33%/);
+  assert.match(item2.dataset.tooltip, /66,67%/);
 });
 
 test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de clique nenhum', () => {
@@ -335,6 +337,36 @@ test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio 
   const resumo = doc.getElementById('resumo');
   renderResumoPatrimonio(doc, resumo, {});
   assert.match(resumo.textContent, /Sem dado/);
+});
+
+// pedido do Tiago (16/09/2026), continuação: a legenda do donut também
+// usava `title` nativo - agora usa o mesmo tooltip por toque de
+// wireTooltipAtivos (mesma técnica), ligado 1x no container ESTÁVEL de
+// renderResumoPatrimonio (#resumoPatrimonio), não no de cada card.
+test('renderResumoPatrimonio() no toque, tocar no ícone "i" de um item da legenda abre a tooltip; 2º toque fecha; toque fora fecha', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
+
+  const alvo = resumo.querySelector('.distrib-item');
+  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  const tooltip = doc.querySelector('.info-tooltip');
+  assert.equal(tooltip.hidden, false);
+
+  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.info-tooltip').hidden, true);
+});
+
+test('renderResumoPatrimonio() redesenhar o mesmo container não duplica a div .info-tooltip', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
+  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
+  assert.equal(doc.querySelectorAll('.info-tooltip').length, 1);
 });
 
 // --- filtrarHistoricoPorPeriodo / normalizarSerieRentabilidade / gráfico ----

@@ -215,7 +215,7 @@ test('criarCardMeta(): erro em onSalvar aparece no status e reabilita o botão S
   assert.equal(card.querySelector('button[type="submit"]').disabled, false);
 });
 
-test('criarCardMeta() põe um tooltip (title) no stat quando o item vem com `title`', () => {
+test('criarCardMeta() põe um ícone "i" clicável (dataset.tooltip) no stat quando o item vem com `title`', () => {
   const doc = makeDom('');
   const card = criarCardMeta(doc, {
     titulo: 'X',
@@ -227,8 +227,12 @@ test('criarCardMeta() põe um tooltip (title) no stat quando o item vem com `tit
     ],
   });
   const statDivs = card.querySelectorAll('.goal-stats > div');
-  assert.equal(statDivs[0].title, 'explicação de A');
-  assert.equal(statDivs[1].title, '');
+  assert.equal(statDivs[0].classList.contains('info-alvo'), true);
+  assert.equal(statDivs[0].dataset.tooltip, 'explicação de A');
+  assert.ok(statDivs[0].querySelector('.info-icon'));
+  assert.equal(statDivs[1].classList.contains('info-alvo'), false);
+  assert.equal(statDivs[1].dataset.tooltip, undefined);
+  assert.equal(statDivs[1].querySelector('.info-icon'), null);
 });
 
 
@@ -375,10 +379,13 @@ test('criarLinhaObjetivo() usa a cor passada em `cor`, senão a do mapa fixo por
   assert.match(comCor.querySelector('.obj-dot').getAttribute('style'), /red/);
 });
 
-test('criarLinhaObjetivo() põe um tooltip (title) na barra com % exato (atual e meta) e o valor em R$', () => {
+test('criarLinhaObjetivo() põe um ícone "i" clicável em .obj-pcts com % exato (atual e meta) e o valor em R$', () => {
   const doc = makeDom('');
   const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs
-  const tituloBarra = linha.querySelector('.obj-barra').title;
+  const pcts = linha.querySelector('.obj-pcts');
+  assert.equal(pcts.classList.contains('info-alvo'), true);
+  assert.ok(pcts.querySelector('.info-icon'));
+  const tituloBarra = pcts.dataset.tooltip;
   assert.match(tituloBarra, /40,32%/);
   assert.match(tituloBarra, /35\.648,00/);
   assert.match(tituloBarra, /40,00%/);
@@ -418,6 +425,24 @@ test('criarBlocoObjetivo() monta o título, uma linha por tipo e o total', () =>
   assert.equal(bloco.querySelectorAll('.obj-linha').length, 3);
   assert.match(bloco.querySelector('.obj-total').textContent, /88\.402,95/);
   assert.match(bloco.querySelector('.obj-total-investir').textContent, /7\.596,45/);
+});
+
+test('criarBlocoObjetivo() "Total investido"/"Pra atingir a meta" ganham ícone "i" clicável (dataset.tooltip) em vez de title nativo', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'Ações, FIIs e Renda Fixa',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+  });
+  const totalKs = bloco.querySelectorAll('.obj-total-k');
+  assert.equal(totalKs.length, 2);
+  totalKs.forEach((k) => {
+    assert.equal(k.classList.contains('info-alvo'), true);
+    assert.ok(k.querySelector('.info-icon'));
+    assert.ok(k.dataset.tooltip);
+  });
+  assert.match(totalKs[0].dataset.tooltip, /Soma da carteira atual/);
+  assert.match(totalKs[1].dataset.tooltip, /Aporte novo/);
 });
 
 test('criarBlocoObjetivo() omite "pra atingir a meta" no total quando nada falta investir', () => {
@@ -592,6 +617,52 @@ test('renderObjetivosCarteira() repassa onSalvarPercentuais pros 2 blocos, com o
   assert.deepEqual(chamadas, ['geral', 'rendaFixa']);
 });
 
+// pedido do Tiago (16/09/2026), continuação: os stats de Meta e a
+// barra/total de Objetivos da Carteira também usavam `title` nativo -
+// agora usam o mesmo tooltip por toque (wirePointerTooltipInfo_,
+// mesma técnica do Radar) via .info-alvo/.info-icon/.info-tooltip.
+test('renderObjetivosCarteira() no toque, tocar no ícone "i" da barra abre a tooltip; 2º toque fecha; toque fora fecha', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderObjetivosCarteira(doc, container, OBJETIVOS_EXEMPLO);
+  const alvo = container.querySelector('.obj-pcts');
+
+  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  const tooltip = doc.querySelector('.info-tooltip');
+  assert.equal(tooltip.hidden, false);
+  assert.match(tooltip.textContent, /Atual:/);
+
+  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.info-tooltip').hidden, true);
+});
+
+test('renderMetasCarteira() no toque, tocar no ícone "i" de um stat abre a tooltip, e pointerleave (fim do toque) não fecha sozinho', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderMetasCarteira(doc, container, METAS_EXEMPLO);
+  const alvo = container.querySelector('.info-alvo');
+  assert.ok(alvo, 'algum stat de Meta tem tooltip (Média últ. 12 meses etc.)');
+
+  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.info-tooltip').hidden, false);
+
+  container.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true, pointerType: 'touch' }));
+  assert.equal(doc.querySelector('.info-tooltip').hidden, false, 'pointerleave no toque não esconde mais');
+});
+
+test('renderObjetivosCarteira() redesenhar o mesmo container não duplica a div .info-tooltip nem os listeners', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderObjetivosCarteira(doc, container, OBJETIVOS_EXEMPLO);
+  renderObjetivosCarteira(doc, container, OBJETIVOS_EXEMPLO);
+  assert.equal(doc.querySelectorAll('.info-tooltip').length, 1);
+});
 
 // --- renderSplitInterno ------------------------------------------------------
 

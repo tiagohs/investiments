@@ -265,6 +265,22 @@
       border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:11.5px; line-height:1.5;
       white-space:pre-line; max-width:260px; }
 .moeda-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); }
+/* .info-alvo/.info-icon/.info-tooltip — mesmo desenho de .radar-info-alvo/
+   .radar-info-icon/.radar-tooltip acima, versão genérica pro resto da
+   página (stats dos cards de Meta, barra e total de Objetivos da
+   Carteira - ver wirePointerTooltipInfo_ em distribuicoes-metas.js).
+   Duplicado em vez de reaproveitar o "radar-" prefixado porque esses
+   elementos não têm nada a ver com a tabela do Radar - mesmo motivo de
+   sempre pra duplicar um pedacinho de CSS (.skel/.moeda-conv/etc.). */
+.info-alvo{ cursor:pointer; }
+.info-alvo:hover .info-icon, .info-icon:hover{ color:var(--ink); border-color:var(--acoes); }
+.info-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
+      margin-left:6px; border-radius:50%; background:var(--surface-3); border:1px solid var(--border);
+      font-size:10px; font-style:italic; font-family:Georgia, 'Times New Roman', serif; color:var(--ink-muted);
+      vertical-align:middle; }
+.info-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
+      border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:11.5px; line-height:1.5;
+      white-space:pre-line; max-width:260px; }
 
 .radar-th-btn{ display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0;
       font-family:var(--body-f); font-weight:700; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;

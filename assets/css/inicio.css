@@ -244,6 +244,24 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .ativo-tooltip .tt-k{ color:var(--ink-muted); }
 .ativo-tooltip .tt-v{ font-family:var(--mono); font-weight:600; text-align:right; }
 .ativo-tooltip .tt-conv{ color:var(--ink-faint); font-weight:500; }
+/* .info-alvo/.info-icon/.info-tooltip — mesmo desenho de .ativo-info-icon
+   acima (e de .info-alvo/.info-icon/.info-tooltip em
+   distribuicoes-metas.css), versão genérica pro resto da página: a
+   legenda do donut de resumo de patrimônio (.distrib-item, ver
+   renderDistribuicao/wirePointerTooltipDistrib_ em
+   assets/js/pages/inicio.js) ainda usava `title` nativo - duplicado em
+   vez de reaproveitar ".ativo-*" porque esses elementos não têm nada a
+   ver com os cartões de ativo (mesmo motivo de sempre pra duplicar um
+   pedacinho de CSS - .skel/.moeda-conv/etc.). */
+.info-alvo{ cursor:pointer; }
+.info-alvo:hover .info-icon, .info-icon:hover{ color:var(--ink); border-color:var(--acoes); }
+.info-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
+      margin-left:6px; border-radius:50%; background:var(--surface-3); border:1px solid var(--border);
+      font-size:10px; font-style:italic; font-family:Georgia, 'Times New Roman', serif; color:var(--ink-muted);
+      vertical-align:middle; flex:none; }
+.info-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
+      border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:11.5px; line-height:1.5;
+      white-space:pre-line; max-width:260px; }
 @media (max-width:900px){ .ativos-grid{ grid-template-columns:repeat(3,1fr); } }
 @media (max-width:760px){ .ativos-grid{ grid-template-columns:repeat(2,1fr); } }
 /* 13/09/2026: .wrap ficou mais largo (ver shell.css) pra aproveitar

@@ -114,6 +114,16 @@
  * stopPropagation no click pra nunca navegar; fechar por toque fora é
  * um novo listener em document/pointerdown (captura). Mouse/hover no
  * cartão inteiro continuam exatamente como antes.
+ *
+ * 16/09/2026 (mesmo dia, continuação): a legenda do donut de resumo de
+ * patrimônio (renderDistribuicao/.distrib-item) também usava `title`
+ * nativo - virou .info-alvo com ícone "i" clicável, mesma técnica de
+ * toque/toque-fora de cima, ligada 1x em wirePointerTooltipDistrib_ (no
+ * container ESTÁVEL de renderResumoPatrimonio, não no de cada card -
+ * senão duplicaria a cada redesenho). Ficaram de fora desta rodada
+ * apenas os botões de ação com `title` (ex.: nenhum nesta página) - só
+ * o texto de valor "Editar" já é visível nos botões daqui, não tinha
+ * `title` escondendo nada.
  */
 
 import { getHome } from '../api-client.js';
@@ -432,17 +442,20 @@ export function renderDistribuicao(doc, container, fatias) {
     const pct = (f.valor / total) * 100;
     const cor = f.cor || `var(${PALETA_DISTRIB_FALLBACK[i % PALETA_DISTRIB_FALLBACK.length]})`;
     const item = doc.createElement('div');
-    item.className = 'distrib-item';
+    item.className = 'distrib-item info-alvo';
     // 14/09/2026: tooltip com nome completo (o .distrib-nome trunca com
     // "..." quando o rótulo é longo) + % com 2 casas (a legenda mostra só
     // 1 casa, pra caber) - sem precisar abrir a planilha pra ver o valor
-    // exato por trás do arredondamento.
-    item.title = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatBRL(f.valor)})`;
+    // exato por trás do arredondamento. 16/09/2026: era `title` nativo
+    // (não aparece no toque) - agora é .info-alvo com ícone "i" clicável,
+    // ver wirePointerTooltipDistrib_ logo abaixo.
+    item.dataset.tooltip = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatBRL(f.valor)})`;
     item.innerHTML = `
       <span class="distrib-dot" style="background:${cor}"></span>
       <span class="distrib-nome">${f.label}</span>
       <span class="distrib-valor"></span>
       <span class="distrib-pct"></span>
+      <span class="info-icon">i</span>
     `;
     // 16/09/2026: pedido do Tiago - a fatia de Ações EUA (investimento
     // internacional) mostra o valor em dólar, com o equivalente em reais
@@ -461,6 +474,94 @@ export function renderDistribuicao(doc, container, fatias) {
 }
 
 /**
+ * Mesma técnica/mesmo comportamento de wireTooltipAtivos logo acima
+ * (touch/pen alterna no pointerdown, nunca fecha sozinho no
+ * pointerleave, toque fora fecha) - versão genérica pro resto da
+ * página (16/09/2026, seguimento do pedido "todos os lugares que
+ * possuem um tooltip"): a legenda do donut de resumo de patrimônio
+ * (renderDistribuicao) ainda usava `title` nativo. Marcador genérico
+ * ".info-alvo"/".info-icon"/".info-tooltip" (mesmas classes usadas em
+ * distribuicoes-metas.js!wirePointerTooltipInfo_, duplicadas aqui pelo
+ * mesmo motivo de sempre - .moeda-conv/.skel/etc.) - ligado 1x no
+ * container ESTÁVEL de renderResumoPatrimonio (não no de
+ * renderDistribuicao, que é recriado a cada card).
+ */
+function wirePointerTooltipDistrib_(doc, container) {
+  if (!container || container._infoTooltipWired) return;
+  container._infoTooltipWired = true;
+
+  const janela = doc.defaultView;
+  const tooltip = doc.createElement('div');
+  tooltip.className = 'info-tooltip';
+  tooltip.hidden = true;
+  (doc.body || container).appendChild(tooltip);
+
+  let alvoAberto = null;
+
+  function esconder_() {
+    tooltip.hidden = true;
+    alvoAberto = null;
+  }
+
+  function mostrar_(alvo, clientX, clientY) {
+    const texto = alvo.dataset.tooltip;
+    if (!texto) {
+      esconder_();
+      return;
+    }
+    tooltip.textContent = texto;
+    tooltip.hidden = false;
+
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    let esquerda = clientX + 14;
+    let topo = clientY + 14;
+    if (esquerda + tw > larguraJanela - 12) esquerda = clientX - tw - 14;
+    if (topo + th > alturaJanela - 12) topo = clientY - th - 14;
+    tooltip.style.left = `${esquerda}px`;
+    tooltip.style.top = `${topo}px`;
+  }
+
+  function aoMoverOuTocar_(ev) {
+    const alvo = typeof ev.target.closest === 'function' ? ev.target.closest('.info-alvo') : null;
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+      if (ev.type !== 'pointerdown' || !alvo) return;
+      if (alvoAberto === alvo) {
+        esconder_();
+        return;
+      }
+      alvoAberto = alvo;
+      mostrar_(alvo, ev.clientX, ev.clientY);
+      return;
+    }
+    if (!alvo) {
+      esconder_();
+      return;
+    }
+    mostrar_(alvo, ev.clientX, ev.clientY);
+  }
+
+  function aoSairPonteiro_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+    esconder_();
+  }
+
+  function aoTocarFora_(ev) {
+    if (!alvoAberto) return;
+    const alvo = ev.target;
+    if (tooltip.contains(alvo) || alvoAberto.contains(alvo)) return;
+    esconder_();
+  }
+
+  container.addEventListener('pointermove', aoMoverOuTocar_);
+  container.addEventListener('pointerdown', aoMoverOuTocar_);
+  container.addEventListener('pointerleave', aoSairPonteiro_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
+}
+
+/**
  * Renderiza o resumo de patrimônio (Total / Longo Prazo / Renda
  * Emergencial) dentro de `container` (esvazia antes) - as 3 divisões
  * lado a lado, sempre visíveis de cara, sem aba/clique nenhum (mudança
@@ -472,6 +573,7 @@ export function renderDistribuicao(doc, container, fatias) {
  */
 export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cambio } = {}) {
   container.innerHTML = '';
+  wirePointerTooltipDistrib_(doc, container);
   if (!patrimonio) {
     container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
     return;

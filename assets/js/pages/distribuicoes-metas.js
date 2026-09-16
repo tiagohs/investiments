@@ -111,6 +111,19 @@
  * pelo Tiago: "clico no i, o tooltip aparece e some"); fechar por toque
  * fora do alvo aberto é um novo listener em document/pointerdown
  * (captura). Mouse/hover continuam exatamente como antes.
+ *
+ * 16/09/2026 (mesmo dia, continuação): os stats dos cards de Meta
+ * (criarCardMeta), a barra "% atual x meta" e o total de cada bloco de
+ * Objetivos da Carteira (criarLinhaObjetivo/criarBlocoObjetivo, usado
+ * também por renderSplitInterno) também usavam `title` nativo - viraram
+ * .info-alvo com ícone "i" clicável, mesma técnica de toque/toque-fora
+ * de cima só que num marcador genérico (wirePointerTooltipInfo_) em vez
+ * do "radar-" prefixado, já que não têm nada a ver com a tabela do
+ * Radar. Ficou de fora, de propósito: o `title`="Editar" do botão-lápis
+ * do Radar (radar-editar-btn-icone) - isso é o rótulo acessível de um
+ * botão de AÇÃO (já tem aria-label igual), não uma tooltip escondendo
+ * dado; tocar nele já dispara "Editar" direto, sem precisar de um passo
+ * a mais pra revelar nada.
  */
 
 import {
@@ -242,10 +255,21 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
   statsEl.className = 'goal-stats';
   for (const { k, v, title } of stats) {
     const div = doc.createElement('div');
-    if (title) div.title = title;
     const kEl = doc.createElement('div');
     kEl.className = 'k';
     kEl.textContent = k;
+    // 16/09/2026: era `title` nativo (não aparece no toque, sem hover
+    // no celular) - agora é .info-alvo com um ícone "i" clicável (ver
+    // wirePointerTooltipInfo_), mesmo tratamento já dado ao Radar de
+    // oportunidades.
+    if (title) {
+      div.classList.add('info-alvo');
+      div.dataset.tooltip = title;
+      const icone = doc.createElement('span');
+      icone.className = 'info-icon';
+      icone.textContent = 'i';
+      kEl.appendChild(icone);
+    }
     const vEl = doc.createElement('div');
     vEl.className = 'v';
     vEl.textContent = v;
@@ -391,7 +415,7 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
     <div class="obj-linha-head">
       <span class="obj-dot" style="background:${corFinal}"></span>
       <span class="obj-nome">${tipo || ''}</span>
-      <span class="obj-pcts"><b></b><span class="obj-meta-pct"></span></span>
+      <span class="obj-pcts info-alvo"><b></b><span class="obj-meta-pct"></span><span class="info-icon">i</span></span>
     </div>
     <div class="obj-barra">
       <div class="obj-barra-fill" style="width:${pctAtual.toFixed(1)}%; background:${corFinal}"></div>
@@ -405,8 +429,11 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
 
   linha.querySelector('.obj-pcts b').textContent = formatPercentualMeta(percentualAtual);
   linha.querySelector('.obj-meta-pct').textContent = `meta ${formatPercentualMeta(percentualDesejado)}`;
-  linha.querySelector('.obj-barra').title = `Atual: ${formatPercentualPreciso(percentualAtual)} (${formatBRL(carteiraAtual)}) · Meta: ${formatPercentualPreciso(percentualDesejado)}`;
-  linha.querySelector('.obj-barra-meta').title = `Meta: ${formatPercentualPreciso(percentualDesejado)}`;
+  // 16/09/2026: as 2 tooltips (title nativo, na barra e no traço da
+  // meta) viraram 1 só, consolidada em .obj-pcts (mesmo padrão já usado
+  // no Radar - ver criarCelulaPctAtualMeta_/wirePointerTooltipInfo_) -
+  // clicável/tocável, não só hover.
+  linha.querySelector('.obj-pcts').dataset.tooltip = `Atual: ${formatPercentualPreciso(percentualAtual)} (${formatBRL(carteiraAtual)}) · Meta: ${formatPercentualPreciso(percentualDesejado)}`;
   linha.querySelector('.obj-valor-atual').textContent = formatBRL(carteiraAtual);
   linha.querySelector('.goal-badge').textContent = faltaInvestir
     ? `faltam ${formatBRL(valorInvestir)}`
@@ -444,16 +471,19 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
     const totalEl = doc.createElement('div');
     totalEl.className = 'obj-total';
     totalEl.innerHTML = `
-      <span class="obj-total-k">Total investido</span><span class="obj-total-v"></span>
-      ${faltaInvestir ? '<span class="obj-total-k">Pra atingir a meta</span><span class="obj-total-v obj-total-investir"></span>' : ''}
+      <span class="obj-total-k info-alvo">Total investido<span class="info-icon">i</span></span><span class="obj-total-v"></span>
+      ${faltaInvestir ? '<span class="obj-total-k info-alvo">Pra atingir a meta<span class="info-icon">i</span></span><span class="obj-total-v obj-total-investir"></span>' : ''}
     `;
+    const totalKEls = totalEl.querySelectorAll('.obj-total-k');
     const totalVEl = totalEl.querySelector('.obj-total-v');
     totalVEl.textContent = formatBRL(total.carteiraAtual);
-    totalVEl.title = 'Soma da carteira atual de todos os tipos deste bloco.';
+    // 16/09/2026: title nativo -> .info-alvo (ver criarCardMeta/
+    // wirePointerTooltipInfo_ acima, mesmo motivo).
+    totalKEls[0].dataset.tooltip = 'Soma da carteira atual de todos os tipos deste bloco.';
     if (faltaInvestir) {
       const investirEl = totalEl.querySelector('.obj-total-investir');
       investirEl.textContent = `+ ${formatBRL(total.valorInvestir)}`;
-      investirEl.title = typeof total.novaCarteira === 'number'
+      totalKEls[1].dataset.tooltip = typeof total.novaCarteira === 'number'
         ? `Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada. Carteira projetada após o aporte: ${formatBRL(total.novaCarteira)}.`
         : 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.';
     }
@@ -565,6 +595,8 @@ export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPer
   container.innerHTML = '';
   if (!objetivos) return;
 
+  wirePointerTooltipInfo_(doc, container);
+
   const grid = doc.createElement('div');
   grid.className = 'obj-grid';
 
@@ -614,6 +646,8 @@ export function renderSplitInterno(doc, container, { splitsInternos, linksRecome
   if (!container) return;
   container.innerHTML = '';
   if (!splitsInternos) return;
+
+  wirePointerTooltipInfo_(doc, container);
 
   const linksPorAba = {
     acoesNacionais: linksRecomendados
@@ -952,6 +986,97 @@ function wirePointerTooltipRadar_(doc, container) {
   /** Toque fora do alvo aberto (e fora da própria tooltip) fecha - "se eu
    * clico fora, o tooltip some" (pedido do Tiago, 16/09/2026). Alheio ao
    * toque (alvoAberto null) não faz nada, nunca interfere no mouse/hover. */
+  function aoTocarFora_(ev) {
+    if (!alvoAberto) return;
+    const alvo = ev.target;
+    if (tooltip.contains(alvo) || alvoAberto.contains(alvo)) return;
+    esconder_();
+  }
+
+  container.addEventListener('pointermove', aoMoverOuTocar_);
+  container.addEventListener('pointerdown', aoMoverOuTocar_);
+  container.addEventListener('pointerleave', aoSairPonteiro_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
+}
+
+/**
+ * Mesma técnica/mesmo comportamento de wirePointerTooltipRadar_ logo
+ * acima (touch/pen alterna no pointerdown, nunca fecha sozinho no
+ * pointerleave, toque fora fecha) - versão genérica pro resto da
+ * página (16/09/2026, seguimento do pedido "todos os lugares que
+ * possuem um tooltip"): os stats dos cards de Meta (criarCardMeta), a
+ * barra "% atual x meta" e o total de cada bloco de Objetivos da
+ * Carteira (criarLinhaObjetivo/criarBlocoObjetivo) - esses ainda
+ * usavam `title` nativo (não aparece no toque - sem hover no celular).
+ * Marcador genérico ".info-alvo"/".info-icon"/".info-tooltip" (em vez
+ * de reaproveitar o "radar-" prefixado de cima, que é só da tabela do
+ * Radar) - chamada 1x por container em renderMetasCarteira/
+ * renderObjetivosCarteira/renderSplitInterno, cada um guardado por
+ * `container._infoTooltipWired` (mesmo motivo de sempre: não duplicar
+ * ao redesenhar depois de salvar/trocar de aba).
+ */
+function wirePointerTooltipInfo_(doc, container) {
+  if (!container || container._infoTooltipWired) return;
+  container._infoTooltipWired = true;
+
+  const janela = doc.defaultView;
+  const tooltip = doc.createElement('div');
+  tooltip.className = 'info-tooltip';
+  tooltip.hidden = true;
+  (doc.body || container).appendChild(tooltip);
+
+  let alvoAberto = null;
+
+  function esconder_() {
+    tooltip.hidden = true;
+    alvoAberto = null;
+  }
+
+  function mostrar_(alvo, clientX, clientY) {
+    const texto = alvo.dataset.tooltip;
+    if (!texto) {
+      esconder_();
+      return;
+    }
+    tooltip.textContent = texto;
+    tooltip.hidden = false;
+
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    let esquerda = clientX + 14;
+    let topo = clientY + 14;
+    if (esquerda + tw > larguraJanela - 12) esquerda = clientX - tw - 14;
+    if (topo + th > alturaJanela - 12) topo = clientY - th - 14;
+    tooltip.style.left = `${esquerda}px`;
+    tooltip.style.top = `${topo}px`;
+  }
+
+  function aoMoverOuTocar_(ev) {
+    const alvo = typeof ev.target.closest === 'function' ? ev.target.closest('.info-alvo') : null;
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+      if (ev.type !== 'pointerdown' || !alvo) return;
+      if (alvoAberto === alvo) {
+        esconder_();
+        return;
+      }
+      alvoAberto = alvo;
+      mostrar_(alvo, ev.clientX, ev.clientY);
+      return;
+    }
+    if (!alvo) {
+      esconder_();
+      return;
+    }
+    mostrar_(alvo, ev.clientX, ev.clientY);
+  }
+
+  function aoSairPonteiro_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+    esconder_();
+  }
+
   function aoTocarFora_(ev) {
     if (!alvoAberto) return;
     const alvo = ev.target;
@@ -1398,6 +1523,8 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
   if (!container) return;
   container.innerHTML = '';
   if (!metas) return;
+
+  wirePointerTooltipInfo_(doc, container);
 
   const { rendaPassiva, patrimonio, rendaEmergencial } = metas;
 
