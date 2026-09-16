@@ -95,11 +95,30 @@
  *  b) o "no período" só mostrava a % - Tiago também quer o valor em R$
  *     ganho/perdido (renderInfoRentabilidade agora calcula os dois a
  *     partir do MESMO par de pontos brutos, pra nunca divergir).
+ *
+ * 16/09/2026: Índices & Câmbio mostrava o dólar/euro com a chave "R$"
+ * em vez do símbolo certo (criarTileCambio ganhou o parâmetro `simbolo`,
+ * "US$"/"€" em vez do default "R$"). A fatia "Ações EUA" do resumo de
+ * Patrimônio (Total/Longo Prazo) agora mostra o valor em dólar primeiro,
+ * com o equivalente em R$ entre parênteses menor do lado
+ * (calcularDistribuicaoPorClasse acumula um valorUsd só nessa fatia,
+ * renderDistribuicao usa format.js!formatComConversao quando existe) -
+ * cálculo interno (somas/percentuais) continua 100% em BRL, só a
+ * exibição mudou. wireTooltipAtivos ganhou toque dedicado pro mesmo
+ * motivo do Radar (ver distribuicoes-metas.js) - como .ativo-card é um
+ * link de verdade (não uma célula de tabela), o toque não podia usar o
+ * cartão inteiro como gatilho (senão qualquer toque pra navegar
+ * mostraria a tooltip de relance antes de sair da página): entrou um
+ * ícone dedicado .ativo-info-icon, só ele responde a pointerdown com
+ * pointerType touch/pen (alterna - 2º toque fecha), com preventDefault/
+ * stopPropagation no click pra nunca navegar; fechar por toque fora é
+ * um novo listener em document/pointerdown (captura). Mouse/hover no
+ * cartão inteiro continuam exatamente como antes.
  */
 
 import { getHome } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
-import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
+import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR, formatComConversao } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
@@ -187,8 +206,17 @@ export function criarTileIndice(doc, { label, valor, variacaoDia, extLinkHref })
   return tile;
 }
 
-/** Widget-tile de câmbio (USD/EUR) - só valor; a API de hoje não devolve variação do dia pra esses dois (ver Home.gs!montarHome_). */
-export function criarTileCambio(doc, { label, valor, extLinkHref }) {
+/**
+ * Widget-tile de câmbio (USD/EUR) - só valor; a API de hoje não devolve
+ * variação do dia pra esses dois (ver Home.gs!montarHome_). `valor` É um
+ * número em reais (quantos R$ vale 1 unidade da moeda), mas o SÍMBOLO
+ * exibido é o da própria moeda do card (US$/€), não R$ - pedido do
+ * Tiago (16/09/2026): "o card do dólar está com a chave R$ ao invés do
+ * dólar, mesma coisa no card Euro". `simbolo` default 'R$' só por
+ * segurança (nunca deveria ser usado sem um símbolo explícito - ver
+ * renderIndicesCambio).
+ */
+export function criarTileCambio(doc, { label, valor, simbolo = 'R$', extLinkHref }) {
   const tile = criarElementoTile(doc, extLinkHref);
   tile.className = 'widget-tile';
 
@@ -201,7 +229,7 @@ export function criarTileCambio(doc, { label, valor, extLinkHref }) {
     </div>
     <div class="widget-delta" style="color:var(--ink-faint)">câmbio</div>
   `;
-  setValorComDec(tile.querySelector('.widget-value'), formatBRL(valor));
+  setValorComDec(tile.querySelector('.widget-value'), `${simbolo} ${formatNumeroBR(valor)}`);
   return tile;
 }
 
@@ -237,6 +265,7 @@ export function renderIndicesCambio(doc, container, { indices, cambio } = {}) {
     container.appendChild(criarTileCambio(doc, {
       label: 'Dólar (USD/BRL)',
       valor: cambio.usd,
+      simbolo: 'US$',
       extLinkHref: 'https://www.google.com/finance/quote/USD-BRL',
     }));
   }
@@ -244,6 +273,7 @@ export function renderIndicesCambio(doc, container, { indices, cambio } = {}) {
     container.appendChild(criarTileCambio(doc, {
       label: 'Euro (EUR/BRL)',
       valor: cambio.eur,
+      simbolo: '€',
       extLinkHref: 'https://www.google.com/finance/quote/EUR-BRL',
     }));
   }
@@ -305,14 +335,29 @@ function valorPosicaoAtivo_(ativo, cambioUsd) {
  */
 export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false } = {}) {
   const somas = { acoes: 0, fiis: 0, rf: 0, usa: 0 };
+  // Soma à parte, só pra 'usa', o valor de posição em DÓLAR (preço
+  // unitário em USD × quantidade - nunca convertido de volta a partir
+  // do BRL já somado acima, pra não acumular arredondamento de mais em
+  // cima do que precoAtualBRL/cambioUsd já podem ter introduzido).
+  // Alimenta o "US$ X (R$ Y)" da fatia Ações EUA - ver renderDistribuicao.
+  let somaUsaUsd = 0;
   (ativos || []).forEach((ativo) => {
     if (excluirEmergencial && ativo.classe === 'rf' && ativo.marca === 'emergencial') return;
     if (!(ativo.classe in somas)) return;
     somas[ativo.classe] += valorPosicaoAtivo_(ativo, cambioUsd);
+    if (ativo.classe === 'usa') {
+      const qtd = typeof ativo.quantidade === 'number' ? ativo.quantidade : 0;
+      if (typeof ativo.precoAtual === 'number') somaUsaUsd += ativo.precoAtual * qtd;
+    }
   });
   return ORDEM_CLASSE_DISTRIB
     .filter((classe) => somas[classe] > 0)
-    .map((classe) => ({ label: CLASSE_LABEL_DISTRIB[classe], cor: `var(${CLASSE_COR_DISTRIB[classe]})`, valor: somas[classe] }));
+    .map((classe) => ({
+      label: CLASSE_LABEL_DISTRIB[classe],
+      cor: `var(${CLASSE_COR_DISTRIB[classe]})`,
+      valor: somas[classe],
+      ...(classe === 'usa' ? { valorUsd: somaUsaUsd } : {}),
+    }));
 }
 
 /**
@@ -399,7 +444,15 @@ export function renderDistribuicao(doc, container, fatias) {
       <span class="distrib-valor"></span>
       <span class="distrib-pct"></span>
     `;
-    item.querySelector('.distrib-valor').textContent = formatBRL(f.valor);
+    // 16/09/2026: pedido do Tiago - a fatia de Ações EUA (investimento
+    // internacional) mostra o valor em dólar, com o equivalente em reais
+    // menor do lado, em vez de só R$ (cálculo continua todo em R$ por
+    // trás - "valor"/pct acima nunca mudam - só a EXIBIÇÃO muda).
+    if (typeof f.valorUsd === 'number') {
+      item.querySelector('.distrib-valor').innerHTML = formatComConversao(f.valorUsd, f.valor, formatUSD);
+    } else {
+      item.querySelector('.distrib-valor').textContent = formatBRL(f.valor);
+    }
     item.querySelector('.distrib-pct').textContent = `${formatNumeroBR(pct, 1)}%`;
     legenda.appendChild(item);
   });
@@ -1113,6 +1166,7 @@ export function criarAtivoCard(doc, ativo) {
       <div class="ativo-id">
         <span class="ativo-ticker">${ativo.ticker}</span>
         <span class="ativo-classe ${ativo.classe}">${CLASSE_LABEL_ATIVO[ativo.classe] || ativo.classe}</span>
+        <span class="ativo-info-icon" aria-label="Ver detalhes">i</span>
       </div>
       ${viesHtml}
     </div>
@@ -1203,8 +1257,16 @@ export function wireTooltipAtivos(doc, container) {
   tooltip.hidden = true;
   (doc.body || container).appendChild(tooltip);
 
+  // cardAberto: só usado no toque (touch/pen) - guarda qual .ativo-card
+  // está com a tooltip aberta por toque, pra 1) o 2º toque no mesmo "i"
+  // fechar (alternar) e 2) o listener de "toque fora" (mais abaixo) saber
+  // o que fechar. No mouse/hover isso fica sempre null (esconder_ já
+  // cuida de tudo via pointerleave, como sempre foi).
+  let cardAberto = null;
+
   function esconder_() {
     tooltip.hidden = true;
+    cardAberto = null;
   }
 
   function mostrar_(card, clientX, clientY) {
@@ -1228,7 +1290,34 @@ export function wireTooltipAtivos(doc, container) {
     tooltip.style.top = `${topo}px`;
   }
 
+  /**
+   * pointerType 'touch'/'pen': o cartão inteiro é um <a href> (navega pro
+   * Detalhe do Ativo), então no toque só o ícone ".ativo-info-icon" abre
+   * a tooltip (não o cartão inteiro, senão qualquer toque pra navegar
+   * mostraria a tooltip de relance antes de sair da página) - e
+   * pointerdown alterna (2º toque no mesmo ícone fecha) em vez de só
+   * mostrar, porque toque não tem "hover sustentado" pra saber quando
+   * esconder. O fechamento por toque-fora fica com aoTocarFora_ abaixo.
+   * Mouse/outros: continua exatamente como antes (hover no cartão
+   * inteiro mostra, pointerleave esconde) - nenhum teste que já passava
+   * com pointerType não informado (o default do PointerEvent) pode
+   * quebrar.
+   */
   function aoMoverOuTocar_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+      if (ev.type !== 'pointerdown') return;
+      const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-info-icon') : null;
+      if (!icone) return;
+      const card = icone.closest('.ativo-card');
+      if (!card) return;
+      if (cardAberto === card) {
+        esconder_();
+        return;
+      }
+      cardAberto = card;
+      mostrar_(card, ev.clientX, ev.clientY);
+      return;
+    }
     const card = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-card') : null;
     if (!card) {
       esconder_();
@@ -1237,9 +1326,38 @@ export function wireTooltipAtivos(doc, container) {
     mostrar_(card, ev.clientX, ev.clientY);
   }
 
+  function aoSairPonteiro_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+    esconder_();
+  }
+
+  /** Toque fora do cartão aberto (e fora da própria tooltip) fecha - "se
+   * eu clico fora, o tooltip some" (pedido do Tiago, 16/09/2026). Alheio
+   * ao toque (cardAberto null) não faz nada, então nunca interfere no
+   * fluxo de mouse/hover de cima. */
+  function aoTocarFora_(ev) {
+    if (!cardAberto) return;
+    const alvo = ev.target;
+    if (tooltip.contains(alvo) || cardAberto.contains(alvo)) return;
+    esconder_();
+  }
+
+  /** O ícone "i" nunca deve navegar (é dentro do <a> do cartão) - clique
+   * (mouse ou o "click" sintético que o toque dispara depois do
+   * pointerup) é sempre bloqueado, pra abrir/fechar a tooltip sem sair
+   * da página. */
+  function aoClicarIcone_(ev) {
+    const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-info-icon') : null;
+    if (!icone) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+
   container.addEventListener('pointermove', aoMoverOuTocar_);
   container.addEventListener('pointerdown', aoMoverOuTocar_);
-  container.addEventListener('pointerleave', esconder_);
+  container.addEventListener('pointerleave', aoSairPonteiro_);
+  container.addEventListener('click', aoClicarIcone_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
 }
 
 /** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. */

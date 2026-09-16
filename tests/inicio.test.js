@@ -104,6 +104,21 @@ test('criarTileCambio() com extLinkHref também vira o cartão inteiro clicável
   assert.equal(tile.getAttribute('href'), 'https://example.com/eur');
 });
 
+// 16/09/2026: pedido do Tiago - o valor do câmbio é em reais (1 unidade
+// da moeda = X reais), mas o SÍMBOLO mostrado tem que ser o da própria
+// moeda do card (US$/€), não "R$" - antes usava formatBRL sempre,
+// então o card do Dólar (e o do Euro) mostravam "R$" por engano.
+test('criarTileCambio() usa o símbolo passado (US$/€) em vez de "R$" quando informado', () => {
+  const doc = makeDom('');
+  const tileUsd = criarTileCambio(doc, { label: 'Dólar (USD/BRL)', valor: 5.09, simbolo: 'US$' });
+  assert.match(tileUsd.querySelector('.widget-value').textContent, /US\$/);
+  assert.equal(tileUsd.querySelector('.widget-value').textContent.includes('R$'), false);
+
+  const tileEur = criarTileCambio(doc, { label: 'Euro (EUR/BRL)', valor: 5.92, simbolo: '€' });
+  assert.match(tileEur.querySelector('.widget-value').textContent, /€/);
+  assert.equal(tileEur.querySelector('.widget-value').textContent.includes('R$'), false);
+});
+
 // --- renderIndicesCambio -----------------------------------------------------
 
 test('renderIndicesCambio() renders one tile per field present, in order', () => {
@@ -133,6 +148,16 @@ test('renderIndicesCambio() clears previous content before re-rendering', () => 
   renderIndicesCambio(doc, grid, { cambio: { eur: 5.9 } });
   assert.equal(grid.querySelectorAll('.widget-tile').length, 1);
   assert.match(grid.querySelector('.widget-label').textContent, /Euro/);
+});
+
+test('renderIndicesCambio() monta o card do Dólar com símbolo US$ e o do Euro com €, nunca R$', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderIndicesCambio(doc, grid, { cambio: { usd: 5.09, eur: 5.92 } });
+  const valores = Array.from(grid.querySelectorAll('.widget-value')).map((el) => el.textContent);
+  assert.ok(valores.some((v) => v.includes('US$')));
+  assert.ok(valores.some((v) => v.includes('€')));
+  assert.equal(valores.some((v) => v.includes('R$')), false);
 });
 
 // --- resolverVisao / renderResumoPatrimonio -----------------------------------
@@ -189,6 +214,24 @@ test('calcularDistribuicaoPorClasse() usa precoAtual×câmbio como fallback quan
   assert.equal(distrib.find((f) => f.label === 'Ações EUA').valor, 25000); // 100 * 50 * 5
 });
 
+// 16/09/2026: pedido do Tiago - a fatia de Ações EUA precisa do valor
+// em DÓLAR também (não só o BRL já somado acima), pra a legenda (ver
+// renderDistribuicao) mostrar "US$ X (R$ Y)" em vez de só R$. Somado
+// direto de precoAtual×quantidade (nunca convertido de volta a partir
+// do BRL, pra não acumular arredondamento).
+test('calcularDistribuicaoPorClasse() também devolve valorUsd (preço unitário em dólar × quantidade) na fatia Ações EUA', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5 });
+  const fatiaUsa = distrib.find((f) => f.label === 'Ações EUA');
+  assert.equal(fatiaUsa.valorUsd, 5000); // AAPL: 100 * 50
+});
+
+test('calcularDistribuicaoPorClasse() não adiciona valorUsd nas outras classes (Ações/FIIs/Renda Fixa)', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5 });
+  distrib.filter((f) => f.label !== 'Ações EUA').forEach((f) => {
+    assert.equal('valorUsd' in f, false);
+  });
+});
+
 test('calcularDistribuicaoRendaEmergencial() agrupa por tipo de investimento, maior valor primeiro', () => {
   const distrib = calcularDistribuicaoRendaEmergencial(ATIVOS_RESUMO_EXEMPLO);
   assert.deepEqual(distrib.map((f) => f.label), ['Tesouro Selic', 'CDB'], 'só as posições marca=emergencial entram, ordenadas do maior pro menor');
@@ -220,6 +263,24 @@ test('renderDistribuicao() mostra o valor em R$ de cada fatia, além da porcenta
   assert.deepEqual(valores, ['R$\xa060.000,00', 'R$\xa040.000,00']);
   assert.match(container.textContent, /60,0%/);
   assert.match(container.textContent, /40,0%/);
+});
+
+// 16/09/2026: pedido do Tiago - a fatia de Ações EUA (tem valorUsd)
+// mostra USD com o equivalente em R$ entre parênteses, menor - as
+// outras fatias (sem valorUsd) continuam só em R$, sem mudança.
+test('renderDistribuicao() com valorUsd numa fatia mostra USD com o equivalente em R$ entre parênteses (Ações EUA)', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Ações', cor: 'var(--acoes)', valor: 60000 },
+    { label: 'Ações EUA', cor: 'var(--usa)', valor: 27500, valorUsd: 5000 },
+  ]);
+  const valores = Array.from(container.querySelectorAll('.distrib-valor'));
+  assert.match(valores[0].textContent, /R\$/);
+  assert.equal(valores[0].textContent.includes('$5'), false);
+  assert.match(valores[1].textContent, /\$5,000\.00|US\$/);
+  assert.match(valores[1].textContent, /27\.500,00/);
+  assert.ok(valores[1].querySelector('.moeda-conv'), 'equivalente em R$ vem numa span separada (menor/apagada)');
 });
 
 test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado suficiente', () => {
@@ -936,6 +997,85 @@ test('wireTooltipAtivos() chamada de novo no mesmo container (refresh) não dupl
   const card = grid.querySelector('.ativo-card');
   card.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 50, clientY: 50, bubbles: true }));
   assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false);
+});
+
+// pedido do Tiago (16/09/2026): "quando é mobile, todos os lugares que
+// possuem um tooltip, faça com que tenha um i do lado, clicável... Se eu
+// clico fora, o tooltip some" - no toque (pointerType 'touch'/'pen'), só
+// o ícone .ativo-info-icon abre/fecha a tooltip (o cartão inteiro é um
+// link, não pode virar gatilho de toque sem disparar a navegação junto).
+
+test('wireTooltipAtivos() no toque (pointerType "touch"), só o ícone "i" abre a tooltip - tocar no resto do cartão não faz nada', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const card = grid.querySelector('.ativo-card');
+  card.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, true, 'tocar fora do ícone "i" não abre nada');
+
+  const icone = card.querySelector('.ativo-info-icon');
+  icone.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 52, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false, 'tocar no ícone "i" abre a tooltip');
+});
+
+test('wireTooltipAtivos() no toque, tocar de novo no mesmo ícone "i" fecha (alterna) - e pointerleave sozinho não fecha mais', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const icone = grid.querySelector('.ativo-card .ativo-info-icon');
+  icone.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 52, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false);
+
+  // No toque, o fim do toque já dispara pointerleave (o dedo "sai" da
+  // tela) - isso NÃO pode fechar a tooltip sozinho, senão é o bug
+  // relatado pelo Tiago ("o tooltip aparece e some").
+  grid.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true, pointerType: 'touch' }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false, 'pointerleave no toque não esconde');
+
+  icone.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 52, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, true, '2º toque no mesmo ícone fecha (alterna)');
+});
+
+test('wireTooltipAtivos() no toque, tocar fora do cartão aberto fecha a tooltip', () => {
+  const doc = makeDom('<div id="grid"></div><div id="fora">Fora do cartão</div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_FII_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const icone = grid.querySelectorAll('.ativo-card .ativo-info-icon')[0];
+  icone.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 52, clientY: 20, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, false);
+
+  doc.getElementById('fora').dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 900, clientY: 900, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.body.querySelector('.ativo-tooltip').hidden, true, 'toque fora do cartão fecha a tooltip aberta');
+});
+
+test('wireTooltipAtivos() clicar no ícone "i" nunca navega (preventDefault/stopPropagation), mesmo no mouse', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+
+  const icone = grid.querySelector('.ativo-card .ativo-info-icon');
+  const evento = new doc.defaultView.Event('click', { bubbles: true, cancelable: true });
+  icone.dispatchEvent(evento);
+  assert.equal(evento.defaultPrevented, true);
 });
 
 // --- renderAvisos ------------------------------------------------------------

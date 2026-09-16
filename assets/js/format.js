@@ -28,6 +28,27 @@ export function formatUSD(value) {
   return USD_FORMATTER.format(value);
 }
 
+/**
+ * "US$ 1.234,56 <span class="moeda-conv">(R$ 6.234,10)</span>" - valor
+ * principal formatado por `formatterPrincipal` + o equivalente em outra
+ * moeda (default BRL) menor do lado, entre parênteses. Sem conversão
+ * disponível (valorSecundario não numérico), devolve só o principal -
+ * nunca quebra por falta de câmbio. Pedido do Tiago (16/09/2026):
+ * investimento internacional tem que aparecer em dólar com o
+ * equivalente em reais do lado, menor - não escondido atrás de um
+ * ícone "i" (padrão que já existia, meio solto, em
+ * inicio.js!valorComConversaoBRL_ - essa função aqui é a versão
+ * compartilhada, pra distribuicoes-metas.js poder usar também). Usa
+ * innerHTML no chamador (o retorno tem uma <span> dentro) - a classe
+ * "moeda-conv" está duplicada em inicio.css e distribuicoes-metas.css
+ * (mesmo padrão de .skel/.area-header, ver o comentário lá).
+ */
+export function formatComConversao(valorPrincipal, valorSecundario, formatterPrincipal, formatterSecundario = formatBRL) {
+  const texto = formatterPrincipal(valorPrincipal);
+  if (typeof valorSecundario !== 'number' || !Number.isFinite(valorSecundario)) return texto;
+  return `${texto} <span class="moeda-conv">(${formatterSecundario(valorSecundario)})</span>`;
+}
+
 const NUMERO_BR_FORMATTER_2CASAS = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**

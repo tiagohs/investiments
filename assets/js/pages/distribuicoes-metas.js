@@ -95,6 +95,22 @@
  * acima da tabela (usa as 3 imagens que o Tiago organizou em
  * assets/imgs/fiis/) e o Segmento (ex. "Shopping") somado ao tooltip
  * do Ativo, formato "Segmento (Tipo)".
+ *
+ * 16/09/2026: Carteira atual e "R$ investir/resgatar" (Ações
+ * Internacionais) — o "R$" era só engano de rótulo herdado de quando o
+ * valor ainda não tinha equivalente à mostra; agora os 2 usam
+ * formatarPrecoRadarComConversao_ (dólar primeiro, R$ entre parênteses
+ * menor, direto no valor — ver format.js!formatComConversao), o ícone
+ * "i" que escondia essa conversão saiu (o "i" de Nova carteira continua,
+ * é outra informação). Coluna renomeada pra "Investir/resgatar" (o "R$"
+ * do rótulo não fazia mais sentido com o valor em dólar). Tooltip por
+ * Pointer Events (wirePointerTooltipRadar_) ganhou toque dedicado:
+ * pointerType touch/pen agora alterna no pointerdown (2º toque no mesmo
+ * alvo fecha) e ignora pointerleave (que o próprio fim do toque dispara,
+ * fechando a tooltip quase no mesmo instante em que abria — bug relatado
+ * pelo Tiago: "clico no i, o tooltip aparece e some"); fechar por toque
+ * fora do alvo aberto é um novo listener em document/pointerdown
+ * (captura). Mouse/hover continuam exatamente como antes.
  */
 
 import {
@@ -106,7 +122,7 @@ import {
   salvarRadarItem as salvarRadarItemApi,
   salvarSplitInterno as salvarSplitInternoApi,
 } from '../api-client.js';
-import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 
@@ -662,7 +678,7 @@ const COLUNAS_RADAR = [
   { chave: 'percentualDesejado', rotulo: '% atual x meta', editavel: true, numerica: true,
     dica: 'Barra mostra o % atual da carteira nesse ativo; o traço marca o % desejado (editável). Toque/passe o mouse pro valor exato de cada um.' },
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
-  { chave: 'valorInvestir', rotulo: 'R$ investir/resgatar', numerica: true },
+  { chave: 'valorInvestir', rotulo: 'Investir/resgatar', numerica: true },
 ];
 
 function colunasRadarPara_() {
@@ -672,6 +688,26 @@ function colunasRadarPara_() {
 /** Preço atual/teto/médio de Ações Internacionais é em USD; o resto (carteira, R$ investir) já vem em BRL, igual às outras 2 tabelas. */
 function formatarPrecoRadar_(valor, chaveTabela) {
   return chaveTabela === 'acoesInternacionais' ? formatUSD(valor) : formatBRL(valor);
+}
+
+/**
+ * Mesma ideia de formatarPrecoRadar_, mas devolve HTML (não texto puro)
+ * com o equivalente em R$ entre parênteses, menor, quando a tabela é
+ * Ações Internacionais E cotacaoDolar está disponível - pedido do Tiago
+ * (16/09/2026): "mesmo tratamento em Radar de oportunidade... dólar e
+ * reais entre parênteses", substituindo o ícone "i" que escondia essa
+ * conversão antes (ver criarLinhaRadar_). Usar com innerHTML no
+ * chamador, nunca com formatarPrecoRadar_ (que continua plain-text, só
+ * pra tooltip - ver tituloLinhaRadar_). Sem cotacaoDolar, ou fora de
+ * Ações Internacionais, cai em formatarPrecoRadar_ normal (sem
+ * parênteses) - continua seguro passar como innerHTML mesmo assim, já
+ * que "R$"/"US$" não têm caractere de HTML especial.
+ */
+function formatarPrecoRadarComConversao_(valor, chaveTabela, cotacaoDolar) {
+  if (chaveTabela !== 'acoesInternacionais' || typeof cotacaoDolar !== 'number' || typeof valor !== 'number') {
+    return formatarPrecoRadar_(valor, chaveTabela);
+  }
+  return formatComConversao(valor, valor * cotacaoDolar, formatUSD);
 }
 
 function formatarCelulaRadar_(item, coluna, chaveTabela) {
@@ -846,8 +882,16 @@ function wirePointerTooltipRadar_(doc, container) {
   tooltip.hidden = true;
   (doc.body || container).appendChild(tooltip);
 
+  // alvoAberto: só usado no toque (touch/pen) - guarda qual .radar-info-alvo
+  // está com a tooltip aberta por toque, pra 1) tocar de novo no mesmo alvo
+  // fechar (alternar) e 2) o listener de "toque fora" (mais abaixo) saber o
+  // que fechar. No mouse/hover fica sempre null (esconder_ cuida de tudo
+  // via pointerleave, como sempre foi).
+  let alvoAberto = null;
+
   function esconder_() {
     tooltip.hidden = true;
+    alvoAberto = null;
   }
 
   function mostrar_(alvo, clientX, clientY) {
@@ -871,8 +915,28 @@ function wirePointerTooltipRadar_(doc, container) {
     tooltip.style.top = `${topo}px`;
   }
 
+  /**
+   * pointerType 'touch'/'pen': pointerdown alterna (2º toque no mesmo
+   * alvo fecha) em vez de só mostrar, e nunca fecha sozinho no
+   * pointerleave - no toque, o fim do toque já dispara pointerleave (o
+   * ponteiro "sai" da tela), o que fechava a tooltip quase no mesmo
+   * instante em que abria ("aparece e some", relatado pelo Tiago
+   * 16/09/2026, sobre os cards de Ativo no Radar em mobile). Fechar por
+   * toque-fora é responsabilidade de aoTocarFora_ abaixo. Mouse/outros:
+   * continua exatamente como antes (hover mostra, pointerleave esconde).
+   */
   function aoMoverOuTocar_(ev) {
     const alvo = typeof ev.target.closest === 'function' ? ev.target.closest('.radar-info-alvo') : null;
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+      if (ev.type !== 'pointerdown' || !alvo) return;
+      if (alvoAberto === alvo) {
+        esconder_();
+        return;
+      }
+      alvoAberto = alvo;
+      mostrar_(alvo, ev.clientX, ev.clientY);
+      return;
+    }
     if (!alvo) {
       esconder_();
       return;
@@ -880,9 +944,25 @@ function wirePointerTooltipRadar_(doc, container) {
     mostrar_(alvo, ev.clientX, ev.clientY);
   }
 
+  function aoSairPonteiro_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+    esconder_();
+  }
+
+  /** Toque fora do alvo aberto (e fora da própria tooltip) fecha - "se eu
+   * clico fora, o tooltip some" (pedido do Tiago, 16/09/2026). Alheio ao
+   * toque (alvoAberto null) não faz nada, nunca interfere no mouse/hover. */
+  function aoTocarFora_(ev) {
+    if (!alvoAberto) return;
+    const alvo = ev.target;
+    if (tooltip.contains(alvo) || alvoAberto.contains(alvo)) return;
+    esconder_();
+  }
+
   container.addEventListener('pointermove', aoMoverOuTocar_);
   container.addEventListener('pointerdown', aoMoverOuTocar_);
-  container.addEventListener('pointerleave', esconder_);
+  container.addEventListener('pointerleave', aoSairPonteiro_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
 }
 
 /**
@@ -960,7 +1040,9 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
     } else if (coluna.chave === 'precoAtual') {
       const wrap = doc.createElement('span');
       wrap.className = 'radar-preco-wrap';
-      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
+      const valorPrecoAtual = doc.createElement('span');
+      valorPrecoAtual.innerHTML = formatarPrecoRadarComConversao_(item.precoAtual, chaveTabela, cotacaoDolar);
+      wrap.appendChild(valorPrecoAtual);
       if (typeof item.variacaoDia === 'number') {
         const variacao = doc.createElement('span');
         variacao.className = `radar-preco-variacao ${item.variacaoDia < 0 ? 'bad' : 'good'}`;
@@ -970,19 +1052,16 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       td.appendChild(wrap);
     } else if (coluna.chave === 'precoTeto') {
       td.classList.add('radar-preco-teto');
-      td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
+      td.innerHTML = formatarPrecoRadarComConversao_(item.precoTeto, chaveTabela, cotacaoDolar);
     } else if (coluna.chave === 'percentualDesejado') {
       td.appendChild(criarCelulaPctAtualMeta_(doc, item));
     } else if (coluna.chave === 'carteiraAtual') {
+      // 16/09/2026: o equivalente em R$ (Ações Internacionais) agora
+      // aparece direto aqui, menor, entre parênteses - antes ficava
+      // escondido atrás de um ícone "i" que só revelava no toque/hover
+      // (pedido do Tiago: quer ver de cara, sem precisar tocar em nada).
       const wrap = doc.createElement('span');
-      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
-      if (chaveTabela === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && typeof item.carteiraAtual === 'number') {
-        const info = doc.createElement('span');
-        info.className = 'radar-info-icon radar-info-alvo';
-        info.textContent = 'i';
-        info.dataset.tooltip = `≈ ${formatBRL(item.carteiraAtual * cotacaoDolar)} em reais (cotação: ${formatBRL(cotacaoDolar)})`;
-        wrap.appendChild(info);
-      }
+      wrap.innerHTML = formatarPrecoRadarComConversao_(item.carteiraAtual, chaveTabela, cotacaoDolar);
       td.appendChild(wrap);
     } else if (coluna.chave === 'descontoPvp' || coluna.chave === 'descontoPl') {
       const info = badgeDesconto_(coluna.chave, item);
@@ -1000,20 +1079,20 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       // na td) - no card do mobile a td vira flex com o rótulo do lado
       // (justify-content:space-between), então precisa ser 1 item só
       // do lado do valor, senão o rótulo entraria espremido no meio.
+      // 16/09/2026: o "i" que escondia o equivalente em R$ (Ações
+      // Internacionais) saiu - agora aparece direto no valor, entre
+      // parênteses (ver formatarPrecoRadarComConversao_). O ícone "i"
+      // continua existindo só quando há "Nova carteira" pra mostrar
+      // (info complementar, não a conversão de moeda).
       const wrap = doc.createElement('span');
-      wrap.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
-      const partesTooltip = [];
+      const valorInvestir = doc.createElement('span');
+      valorInvestir.innerHTML = formatarPrecoRadarComConversao_(item.valorInvestir, chaveTabela, cotacaoDolar);
+      wrap.appendChild(valorInvestir);
       if (typeof item.novaCarteira === 'number') {
-        partesTooltip.push(`Nova carteira: ${formatarPrecoRadar_(item.novaCarteira, chaveTabela)}`);
-      }
-      if (chaveTabela === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && typeof item.valorInvestir === 'number') {
-        partesTooltip.push(`≈ ${formatBRL(item.valorInvestir * cotacaoDolar)} em reais (cotação: ${formatBRL(cotacaoDolar)})`);
-      }
-      if (partesTooltip.length > 0) {
         const info = doc.createElement('span');
         info.className = 'radar-info-icon radar-info-alvo';
         info.textContent = 'i';
-        info.dataset.tooltip = partesTooltip.join('\n');
+        info.dataset.tooltip = `Nova carteira: ${formatarPrecoRadar_(item.novaCarteira, chaveTabela)}`;
         wrap.appendChild(info);
       }
       td.appendChild(wrap);

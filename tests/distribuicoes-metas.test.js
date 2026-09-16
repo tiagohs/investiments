@@ -1050,6 +1050,61 @@ test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o 
   assert.equal(doc.querySelector('.radar-tooltip').hidden, true);
 });
 
+// pedido do Tiago (16/09/2026): "Os cards de ativos em radar de
+// oportunidade estão com o header todo clicável, mas se eu clico no i,
+// o tooltip aparece e some" - no toque (pointerType "touch"/"pen"), o
+// pointerdown precisa alternar (não só mostrar) e o fim do toque
+// (pointerleave, que o próprio toque dispara ao "sair" da tela) não pode
+// mais fechar sozinho - só um toque fora fecha.
+test('renderRadarOportunidades(): no toque, tocar na célula do Ativo abre a tooltip e o pointerleave (fim do toque) não fecha mais sozinho', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+
+  celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, false);
+
+  container.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true, pointerType: 'touch' }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, false, 'pointerleave no toque não esconde mais (era o bug "aparece e some")');
+});
+
+test('renderRadarOportunidades(): no toque, tocar de novo na mesma célula do Ativo fecha a tooltip (alterna)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+
+  celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, false);
+
+  celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, true);
+});
+
+test('renderRadarOportunidades(): no toque, tocar fora da célula aberta fecha a tooltip ("se eu clico fora, o tooltip some")', () => {
+  const doc = makeDom('<div id="c"></div><div id="fora">Fora da tabela</div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+
+  celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, false);
+
+  doc.getElementById('fora').dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
+    clientX: 900, clientY: 900, bubbles: true, pointerType: 'touch',
+  }));
+  assert.equal(doc.querySelector('.radar-tooltip').hidden, true);
+});
+
 test('renderRadarOportunidades(): redesenhar o mesmo container (ex.: depois de "Atualizar dados") não duplica o tooltip nem os listeners', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
@@ -1228,7 +1283,7 @@ test('renderRadarOportunidades(): banner de cotação do dólar aparece só na a
   assert.match(banner.textContent, /5,12/);
 });
 
-test('renderRadarOportunidades(): ícone "i" de Carteira atual/R$ investir em Ações Internacionais mostra o equivalente em reais', () => {
+test('renderRadarOportunidades(): Carteira atual/Investir-resgatar em Ações Internacionais mostram dólar com o equivalente em reais entre parênteses', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   const dados = { ...RADAR_EXEMPLO, cotacaoDolar: 5 };
@@ -1236,11 +1291,12 @@ test('renderRadarOportunidades(): ícone "i" de Carteira atual/R$ investir em A�
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
-  const iconeCarteira = celulas[8].querySelector('.radar-info-icon');
-  assert.ok(iconeCarteira);
-  assert.match(iconeCarteira.dataset.tooltip, /2\.788,50/); // 557.7 * 5
-  const iconeInvestir = celulas[9].querySelector('.radar-info-icon');
-  assert.match(iconeInvestir.dataset.tooltip, /211,50/); // 42.3 * 5
+  assert.match(celulas[8].textContent, /\$557\.70/);
+  assert.match(celulas[8].textContent, /R\$\s*2\.788,50/); // 557.7 * 5
+  assert.ok(celulas[8].querySelector('.moeda-conv'));
+  assert.match(celulas[9].textContent, /\$42\.30/);
+  assert.match(celulas[9].textContent, /R\$\s*211,50/); // 42.3 * 5
+  assert.ok(celulas[9].querySelector('.moeda-conv'));
 });
 
 test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não ganham ícone de conversão nem banner', () => {
