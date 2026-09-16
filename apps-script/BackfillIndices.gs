@@ -481,6 +481,11 @@ function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
 
   var inicio = new Date(ultimaData);
   inicio.setDate(inicio.getDate() + 1);
+  // 16/09/2026: normaliza pra meia-noite — "ontem" (acima) já é, mas "inicio"
+  // não era, e buscarHistoricoGoogleFinanceEmPedacos_ compara os dois direto
+  // (while (inicioPedaco <= dataFim)) com timestamps completos. Mesmo bug do
+  // Sync.gs!buscarPrecoHistorico_, um nível abaixo do gate depoisPorDia_.
+  inicio.setHours(0, 0, 0, 0);
 
   // Correção de 16/09/2026 (mesmo bug do Sync.gs!depoisPorDia_): "inicio"
   // herda a hora fixa da última linha salva do Ibovespa (16:56), "ontem"

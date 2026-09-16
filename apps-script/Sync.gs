@@ -224,6 +224,15 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
 
   var ontem = new Date();
   ontem.setDate(ontem.getDate() - 1);
+  // 16/09/2026: normaliza pra meia-noite — sem isso "ontem" carrega a hora AO
+  // VIVO da execução, que mais abaixo (buscarPrecoHistorico_) é comparada
+  // contra "chunkInicio"/"inicio", que herdam a hora FIXA (16:56 BR / 16:00
+  // USA) da última linha salva. Sync rodado de manhã (hora ao vivo < hora
+  // fixa) fazia "chunkInicio <= fim" ser falso já na 1ª iteração do while,
+  // retornando silenciosamente {precos:[], completo:true} sem buscar nada —
+  // mesmo bug do depoisPorDia_ (ver abaixo), um nível mais fundo. Mesma
+  // correção já existia em BackfillIndices.gs (ontem.setHours(0,0,0,0)).
+  ontem.setHours(0, 0, 0, 0);
 
   var ok = [];
   var falharam = [];
@@ -263,6 +272,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
       var base = ultima || (historico.length ? umDiaAntes_(historico[0].data) : diasAtras_(31));
       var inicioT = new Date(base);
       inicioT.setDate(inicioT.getDate() + 1);
+      inicioT.setHours(0, 0, 0, 0);
       if (!depoisPorDia_(inicioT, ontem) && (!inicioMaisAntigoUsa || inicioT < inicioMaisAntigoUsa)) {
         inicioMaisAntigoUsa = inicioT;
       }
@@ -305,6 +315,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
       }
       var inicio = new Date(ultimaData);
       inicio.setDate(inicio.getDate() + 1);
+      inicio.setHours(0, 0, 0, 0);
 
       if (depoisPorDia_(inicio, ontem)) {
         ok.push(ticker); // já está em dia, nada a fazer
