@@ -394,7 +394,7 @@ function corParaTipoObjetivo(tipo) {
  * "na meta" em vez de pedir mais aporte - overalocação não é tratada
  * como problema aqui, só quem está abaixo da meta precisa de aporte.
  */
-export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAtual, carteiraAtual, valorInvestir, cor } = {}) {
+export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAtual, carteiraAtual, valorInvestir, carteiraAtualUsd, valorInvestirUsd, cor } = {}) {
   const linha = doc.createElement('div');
   linha.className = 'obj-linha';
 
@@ -434,12 +434,35 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
   // no Radar - ver criarCelulaPctAtualMeta_/wirePointerTooltipInfo_) -
   // clicável/tocável, não só hover.
   linha.querySelector('.obj-pcts').dataset.tooltip = `Atual: ${formatPercentualPreciso(percentualAtual)} (${formatBRL(carteiraAtual)}) · Meta: ${formatPercentualPreciso(percentualDesejado)}`;
-  linha.querySelector('.obj-valor-atual').textContent = formatBRL(carteiraAtual);
-  linha.querySelector('.goal-badge').textContent = faltaInvestir
-    ? `faltam ${formatBRL(valorInvestir)}`
-    : precisaResgatar
-      ? `resgatar ${formatBRL(Math.abs(valorInvestir))}`
-      : '✓ na meta';
+
+  // 16/09/2026: "Ações Internacionais" (dentro de "Distribuição
+  // desejada — Ações") ganha carteiraAtualUsd/valorInvestirUsd só nela
+  // (ver linhaParaObjeto_ em DistribuicoesMetas.gs) - carteiraAtual/
+  // valorInvestir (B:G) continuam em reais, sempre (precisam somar
+  // certo com "Dividendos" no total do bloco) - só a EXIBIÇÃO desta
+  // linha muda pra dólar primeiro, reais entre parênteses, quando o
+  // dado em dólar existe. Sem esses campos (Dividendos, FIIs), cai no
+  // formatBRL de sempre.
+  const valorAtualEl = linha.querySelector('.obj-valor-atual');
+  if (typeof carteiraAtualUsd === 'number') {
+    valorAtualEl.innerHTML = formatComConversao(carteiraAtualUsd, carteiraAtual, formatUSD);
+  } else {
+    valorAtualEl.textContent = formatBRL(carteiraAtual);
+  }
+
+  const badgeEl = linha.querySelector('.goal-badge');
+  if (faltaInvestir) {
+    badgeEl.innerHTML = typeof valorInvestirUsd === 'number'
+      ? `faltam ${formatComConversao(valorInvestirUsd, valorInvestir, formatUSD)}`
+      : `faltam ${formatBRL(valorInvestir)}`;
+  } else if (precisaResgatar) {
+    const absUsd = typeof valorInvestirUsd === 'number' ? Math.abs(valorInvestirUsd) : undefined;
+    badgeEl.innerHTML = typeof absUsd === 'number'
+      ? `resgatar ${formatComConversao(absUsd, Math.abs(valorInvestir), formatUSD)}`
+      : `resgatar ${formatBRL(Math.abs(valorInvestir))}`;
+  } else {
+    badgeEl.textContent = '✓ na meta';
+  }
 
   return linha;
 }

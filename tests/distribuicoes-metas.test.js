@@ -411,6 +411,55 @@ test('criarLinhaObjetivo() ignora valorInvestir residual negativo de arredondame
   assert.match(linha.querySelector('.goal-badge').textContent, /na meta/);
 });
 
+// pedido do Tiago (16/09/2026, 2ª vez): "Ações Internacionais" dentro
+// de "Distribuição desejada — Ações" ainda mostrava só reais -
+// carteiraAtual/valorInvestir (B:G da planilha) sempre foram o valor JÁ
+// convertido pra reais (precisa somar certo com "Dividendos" no
+// total), então não dava pra derivar o dólar sem um dado novo - o
+// Tiago criou H35/I35 na planilha com o valor bruto em dólar, expostos
+// aqui como carteiraAtualUsd/valorInvestirUsd (ver linhaParaObjeto_ em
+// DistribuicoesMetas.gs). Só quando esses 2 campos vêm preenchidos é
+// que a linha mostra dólar primeiro, reais entre parênteses - sem eles
+// (Dividendos, FIIs), continua só em reais como sempre.
+test('criarLinhaObjetivo() com carteiraAtualUsd/valorInvestirUsd mostra dólar com o equivalente em reais entre parênteses', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, {
+    tipo: 'Ações Internacionais', percentualDesejado: 0.4, percentualAtual: 0.3742811642,
+    carteiraAtual: 17930.23, valorInvestir: 2053.47,
+    carteiraAtualUsd: 3586.05, valorInvestirUsd: 410.69,
+  });
+  const valorAtual = linha.querySelector('.obj-valor-atual');
+  assert.match(valorAtual.textContent, /\$3,586\.05/);
+  assert.match(valorAtual.textContent, /17\.930,23/);
+  assert.ok(valorAtual.querySelector('.moeda-conv'));
+
+  const badge = linha.querySelector('.goal-badge');
+  assert.match(badge.textContent, /faltam/);
+  assert.match(badge.textContent, /\$410\.69/);
+  assert.match(badge.textContent, /2\.053,47/);
+});
+
+test('criarLinhaObjetivo() "resgatar" com valorInvestirUsd negativo mostra o valor absoluto em dólar, com reais entre parênteses', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, {
+    tipo: 'Ações Internacionais', percentualDesejado: 0.4, percentualAtual: 0.45,
+    carteiraAtual: 17930.23, valorInvestir: -673.21, carteiraAtualUsd: 3586.05, valorInvestirUsd: -134.64,
+  });
+  const badge = linha.querySelector('.goal-badge');
+  assert.match(badge.textContent, /resgatar/);
+  assert.match(badge.textContent, /\$134\.64/);
+  assert.match(badge.textContent, /673,21/);
+  assert.equal(/faltam/.test(badge.textContent), false);
+});
+
+test('criarLinhaObjetivo() sem carteiraAtualUsd/valorInvestirUsd (Dividendos, FIIs) continua só em reais', () => {
+  const doc = makeDom('');
+  const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs, sem os campos Usd
+  const valorAtual = linha.querySelector('.obj-valor-atual');
+  assert.equal(valorAtual.querySelector('.moeda-conv'), null);
+  assert.match(valorAtual.textContent, /^R\$/, 'sem o dado em dólar, continua o texto plano em reais de sempre');
+});
+
 
 // --- criarBlocoObjetivo ------------------------------------------------------
 
@@ -725,6 +774,37 @@ test('renderSplitInterno() na aba "acoesInternacionais" mostra o MESMO bloco de 
   const links = container.querySelectorAll('.split-link');
   assert.equal(links.length, 1);
   assert.match(links[0].textContent, /Internacional/);
+});
+
+test('renderSplitInterno() na linha "Ações Internacionais", quando o item vem com carteiraAtualUsd/valorInvestirUsd, mostra dólar com reais entre parênteses', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const splitsComUsd = {
+    ...SPLITS_INTERNOS_EXEMPLO,
+    acoes: {
+      ...SPLITS_INTERNOS_EXEMPLO.acoes,
+      itens: [
+        SPLITS_INTERNOS_EXEMPLO.acoes.itens[0], // Dividendos, sem campos Usd
+        { ...SPLITS_INTERNOS_EXEMPLO.acoes.itens[1], carteiraAtualUsd: 3586.05, valorInvestirUsd: 410.69 }, // Ações Internacionais
+      ],
+    },
+  };
+  renderSplitInterno(doc, container, {
+    splitsInternos: splitsComUsd,
+    linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
+    abaAtiva: 'acoesInternacionais',
+  });
+  const linhas = container.querySelectorAll('.obj-linha');
+  const linhaDividendos = linhas[0];
+  const linhaInternacional = linhas[1];
+
+  assert.match(linhaDividendos.querySelector('.obj-valor-atual').textContent, /^R\$/, 'Dividendos continua só em reais');
+
+  const valorInternacional = linhaInternacional.querySelector('.obj-valor-atual');
+  assert.match(valorInternacional.textContent, /\$3,586\.05/);
+  assert.match(valorInternacional.textContent, /17\.930,23/);
+  const badgeInternacional = linhaInternacional.querySelector('.goal-badge');
+  assert.match(badgeInternacional.textContent, /\$410\.69/);
 });
 
 test('renderSplitInterno() na aba "fiis" mostra o bloco de FIIs (3 tipos) e o link FIIs', () => {

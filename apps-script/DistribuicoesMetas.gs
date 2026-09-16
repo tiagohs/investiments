@@ -30,8 +30,10 @@
  * montarObjetivosCarteira_ já usa (Tipo/%desejado/%atual/carteira
  * atual/nova carteira/R$ investir):
  *   - Ações (Dividendos x Ações Internacionais): cabeçalho B33:G33,
- *     dados B34:G35, total (só carteiraAtual/novaCarteira/valorInvestir)
- *     em E36:G36. Editável (% desejado) grava C34:C35.
+ *     dados B34:G35 (+ H35/I35 pro valor em dólar da linha "Ações
+ *     Internacionais" - ver a nota de 16/09/2026 mais abaixo), total
+ *     (só carteiraAtual/novaCarteira/valorInvestir) em E36:G36.
+ *     Editável (% desejado) grava C34:C35.
  *   - FIIs (Tijolo x Papel x Híbrido): cabeçalho B72:G72, dados
  *     B73:G75, total em E76:F76 — G76 (a coluna R$ Resgatar/investir)
  *     NÃO tem fórmula de total, só o texto "Total:" de novo (esse
@@ -108,6 +110,18 @@
  * mesma fórmula que a Distribuição e Metas já usa), e "atingida" quando
  * a carteira atual >= meta (regra que o Tiago descreveu). Não precisa
  * de célula nova nenhuma — só ligar o que já existe.
+ *
+ * 16/09/2026: `splitsInternos.acoes.itens` ganhou 2 colunas novas, H e
+ * I (B34:I35 em vez de B34:G35) — só na linha "Ações Internacionais"
+ * (B35). B:G daquela linha SEMPRE foi o valor já convertido pra reais
+ * (precisa ser reais pra somar certo com "Dividendos" no total de
+ * E36:G36) - o Tiago descobriu isso testando o app ("radar de
+ * oportunidade continua mostrando reais") e criou H35 (carteira atual
+ * em dólar, bruto, sem a conversão) e I35 (valor a investir em dólar)
+ * na própria planilha pra resolver. "Dividendos" (B34) não tem H/I
+ * preenchido de propósito - ver linhaParaObjeto_ em
+ * montarSplitsInternos_ pra como isso vira carteiraAtualUsd/
+ * valorInvestirUsd só no item que tem o dado.
  */
 
 function handleDistribuicoesMetas(e, auth) {
@@ -413,7 +427,7 @@ function montarSplitsInternos_() {
   if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
 
   function linhaParaObjeto_(linha) {
-    return {
+    var obj = {
       tipo: linha[0],
       percentualDesejado: linha[1],
       percentualAtual: linha[2],
@@ -421,9 +435,21 @@ function montarSplitsInternos_() {
       novaCarteira: linha[4],
       valorInvestir: linha[5]
     };
+    // 16/09/2026: colunas H/I novas, só na linha "Ações Internacionais"
+    // (B35) - o Tiago criou na planilha com o valor BRUTO em dólar de
+    // carteira atual/valor a investir (H35/I35), sem a conversão pra
+    // reais que B:G já tem (necessária pra somar com "Dividendos" no
+    // total - por isso B:G continua em reais, sem mudar). "Dividendos"
+    // (B34) não tem H/I preenchido, então essas 2 chaves só aparecem no
+    // item que realmente tem o dado - linhaParaObjeto_ é a mesma função
+    // usada pra FIIs (B73:G75, só 6 colunas, sem H/I) - linha[6]/[7] lá
+    // vêm undefined, então o if abaixo nunca adiciona nada nesse caso.
+    if (typeof linha[6] === 'number') obj.carteiraAtualUsd = linha[6];
+    if (typeof linha[7] === 'number') obj.valorInvestirUsd = linha[7];
+    return obj;
   }
 
-  var linhasAcoes = dm.getRange('B34:G35').getValues();
+  var linhasAcoes = dm.getRange('B34:I35').getValues();
   var totalAcoes = dm.getRange('E36:G36').getValues()[0];
   var acoes = {
     itens: linhasAcoes.map(linhaParaObjeto_),
