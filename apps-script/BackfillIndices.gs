@@ -482,7 +482,12 @@ function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
   var inicio = new Date(ultimaData);
   inicio.setDate(inicio.getDate() + 1);
 
-  if (inicio > ontem) {
+  // Correção de 16/09/2026 (mesmo bug do Sync.gs!depoisPorDia_): "inicio"
+  // herda a hora fixa da última linha salva do Ibovespa (16:56), "ontem"
+  // é meia-noite — comparar Date completos fazia essa checagem dar TRUE
+  // pro MESMO dia de calendário sempre que o sync rodasse de manhã,
+  // marcando "já em dia" sem nunca buscar o Ibovespa daquele dia.
+  if (depoisPorDia_(inicio, ontem)) {
     return { linhasNovas: 0, jaEstavaEmDia: true };
   }
 

@@ -48,6 +48,13 @@ export async function getSyncStatus(token) {
   return request('GET', 'syncStatus', token);
 }
 
+/** Up to `limite` most recent rows of "Registro de Controle" (default 20) —
+ * feeds the full sync history list in the popover (action=syncHistorico),
+ * as opposed to getSyncStatus() above which only returns the latest one. */
+export async function getSyncHistorico(token, limite = 20) {
+  return request('GET', 'syncHistorico', token, { limite });
+}
+
 /**
  * Chamada única da tela Início (action=home) — desde 12/09/2026 devolve
  * patrimônio+índices+câmbio, a série histórica e a grade "Meus Ativos"

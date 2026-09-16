@@ -18,6 +18,8 @@ import {
   setupAuthGate,
   setupSyncNowButton,
   renderSyncStatus,
+  renderSyncLog,
+  categoriaSync_,
   carregarStatusSync,
   mountShell,
   mountRefreshControl,
@@ -268,24 +270,35 @@ test('renderSyncStatus() sempre aponta o link "ver todas" pra planilha real (SPR
   assert.match(doc.getElementById('syncSheetLink').href, /docs\.google\.com\/spreadsheets/);
 });
 
-test('carregarStatusSync() busca com o token e renderiza o resultado', async () => {
+test('carregarStatusSync() busca com o token e renderiza o resultado (badge + lista completa)', async () => {
   const doc = syncDom();
   let tokenRecebido = null;
   await carregarStatusSync(doc, {
     token: 'tok-123',
-    getSyncStatusImpl: async (token) => {
+    getSyncHistoricoImpl: async (token) => {
       tokenRecebido = token;
-      return { ok: true, resultado: { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' } };
+      return {
+        ok: true,
+        resultado: [
+          { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '29 de 29 ativos atualizados' },
+          { status: 'Atenção', timestamp: '2026-09-12T10:00:00.000Z', origem: 'app', detalhe: 'Renda Fixa: 1 linha(s) nova(s)' },
+        ],
+      };
     },
   });
   assert.equal(tokenRecebido, 'tok-123');
+  // Badge/pill refletem a MAIS RECENTE (lista[0]).
   assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('good'), true);
+  // A lista completa (não só a mais recente) chega no log.
+  const log = doc.getElementById('syncLog');
+  assert.match(log.textContent, /29 de 29 ativos atualizados/);
+  assert.match(log.textContent, /Renda Fixa: 1 linha\(s\) nova\(s\)/);
 });
 
 test('carregarStatusSync() sem token não busca nada', async () => {
   const doc = syncDom();
   let chamou = false;
-  await carregarStatusSync(doc, { token: null, getSyncStatusImpl: async () => { chamou = true; return { ok: true, resultado: {} }; } });
+  await carregarStatusSync(doc, { token: null, getSyncHistoricoImpl: async () => { chamou = true; return { ok: true, resultado: [] }; } });
   assert.equal(chamou, false);
 });
 
@@ -293,10 +306,102 @@ test('carregarStatusSync() trata falha (ok:false ou exceção) caindo no estado 
   const doc = syncDom();
   await assert.doesNotReject(carregarStatusSync(doc, {
     token: 'tok-123',
-    getSyncStatusImpl: async () => { throw new Error('rede fora'); },
+    getSyncHistoricoImpl: async () => { throw new Error('rede fora'); },
   }));
   assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), false);
   assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+test('carregarStatusSync() com lista vazia (nenhuma sincronização ainda) cai no estado neutro', async () => {
+  const doc = syncDom();
+  await carregarStatusSync(doc, {
+    token: 'tok-123',
+    getSyncHistoricoImpl: async () => ({ ok: true, resultado: [] }),
+  });
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('good'), false);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+// --- categoriaSync_ ---------------------------------------------------
+
+test('categoriaSync_() reconhece o formato de Renda Fixa/Índices ("Renda Fixa: ...")', () => {
+  assert.equal(categoriaSync_('Renda Fixa: 0 linha(s) nova(s) (14 posições) — Índices: 0 linha(s) nova(s)'), 'Renda Fixa');
+});
+
+test('categoriaSync_() reconhece o formato de Renda Variável/Patrimônio ("<N> de <M> ativos...")', () => {
+  assert.equal(categoriaSync_('29 de 29 ativos atualizados'), 'Renda Variável (Patrimônio)');
+  assert.equal(categoriaSync_('0 de 2 ativos atualizados — 2 falharam: A, B'), 'Renda Variável (Patrimônio)');
+});
+
+test('categoriaSync_() devolve null pra mensagem desconhecida, vazia ou ausente', () => {
+  assert.equal(categoriaSync_('algo inesperado'), null);
+  assert.equal(categoriaSync_(''), null);
+  assert.equal(categoriaSync_(undefined), null);
+});
+
+// --- renderSyncLog ------------------------------------------------------
+
+test('renderSyncLog() com lista vazia ou null mostra o texto neutro', () => {
+  const doc = syncDom();
+  renderSyncLog(doc, []);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+
+  renderSyncLog(doc, null);
+  assert.match(doc.getElementById('syncLog').textContent, /Nenhuma sincronização registrada ainda/);
+});
+
+test('renderSyncLog() renderiza UMA linha por item da lista (não só a mais recente)', () => {
+  const doc = syncDom();
+  renderSyncLog(doc, [
+    { status: 'Sucesso', timestamp: '2026-09-16T10:10:00.000Z', origem: 'Manual', detalhe: '29 de 29 ativos atualizados' },
+    { status: 'Sucesso', timestamp: '2026-09-16T09:52:00.000Z', origem: 'Automático', detalhe: 'Renda Fixa: 11 linha(s) nova(s)' },
+    { status: 'Atenção', timestamp: '2026-09-15T09:10:00.000Z', origem: 'Automático', detalhe: '19 de 29 ativos atualizados — 10 incompletos' },
+  ]);
+  const linhas = doc.querySelectorAll('#syncLog .sync-log-row');
+  assert.equal(linhas.length, 3);
+});
+
+test('renderSyncLog() mostra a categoria (Renda Fixa / Renda Variável) no título de cada linha', () => {
+  const doc = syncDom();
+  renderSyncLog(doc, [
+    { status: 'Sucesso', timestamp: '2026-09-16T10:10:00.000Z', origem: 'Manual', detalhe: '29 de 29 ativos atualizados' },
+    { status: 'Sucesso', timestamp: '2026-09-16T09:52:00.000Z', origem: 'Automático', detalhe: 'Renda Fixa: 11 linha(s) nova(s)' },
+  ]);
+  const linhas = doc.querySelectorAll('#syncLog .sync-log-row');
+  assert.match(linhas[0].querySelector('.top-line').textContent, /Renda Variável \(Patrimônio\)/);
+  assert.match(linhas[1].querySelector('.top-line').textContent, /Renda Fixa/);
+});
+
+test('renderSyncLog() esconde o Detalhe atrás de um botão "i" até o clique', () => {
+  const doc = syncDom();
+  renderSyncLog(doc, [
+    { status: 'Sucesso', timestamp: '2026-09-16T10:10:00.000Z', origem: 'Manual', detalhe: '29 de 29 ativos atualizados' },
+  ]);
+  const linha = doc.querySelector('#syncLog .sync-log-row');
+  const detalhe = linha.querySelector('.detail');
+  const botaoInfo = linha.querySelector('.sync-info-btn');
+
+  assert.ok(botaoInfo, 'botão "i" deveria existir quando há detalhe');
+  assert.equal(detalhe.hidden, true);
+  assert.equal(botaoInfo.getAttribute('aria-expanded'), 'false');
+
+  botaoInfo.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(detalhe.hidden, false);
+  assert.equal(botaoInfo.getAttribute('aria-expanded'), 'true');
+
+  botaoInfo.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(detalhe.hidden, true);
+  assert.equal(botaoInfo.getAttribute('aria-expanded'), 'false');
+});
+
+test('renderSyncLog() não desenha o botão "i" quando a linha não tem Detalhe', () => {
+  const doc = syncDom();
+  renderSyncLog(doc, [
+    { status: 'Sucesso', timestamp: '2026-09-16T10:10:00.000Z', origem: 'Manual', detalhe: '' },
+  ]);
+  const linha = doc.querySelector('#syncLog .sync-log-row');
+  assert.equal(linha.querySelector('.sync-info-btn'), null);
+  assert.equal(linha.querySelector('.detail'), null);
 });
 
 // --- setupSyncNowButton ---------------------------------------------------

@@ -30,6 +30,9 @@ function doGet(e) {
   if (action === 'syncStatus') {
     return handleSyncStatus(e);
   }
+  if (action === 'syncHistorico') {
+    return handleSyncHistorico(e);
+  }
   if (action === 'home') {
     return handleHome(e, auth);
   }

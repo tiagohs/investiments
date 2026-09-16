@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
-import { getSyncStatus, syncNow, syncRendaFixaEIndices } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 
@@ -331,6 +331,91 @@ const STATUS_CLASSE_SYNC = { Sucesso: 'good', Atenção: 'warn', Erro: 'bad' };
 const STATUS_ICONE_SYNC = { good: 'ico-check', warn: 'ico-warn', bad: 'ico-bad' };
 
 /**
+ * Categoria (Renda Fixa vs Renda Variável) inferida do texto de
+ * `detalhe` gravado em "Registro de Controle" - a aba não tem uma
+ * coluna própria pra isso (ver Sync.gs!gravarRegistroControle_), mas os
+ * dois fluxos escrevem mensagens em formatos bem distintos e estáveis:
+ * o de Renda Fixa/Índices/CDI-SELIC sempre começa com "Renda Fixa:"
+ * (ver atualizarRendaFixaEIndicesDiario_, BackfillIndices.gs) e o de
+ * Renda Variável (ações/FIIs/USA) sempre no formato "<N> de <M>
+ * ativos..." (ver atualizarHistoricoInterno_, Sync.gs) - inclusive nas
+ * linhas de teste (origem "Teste"), que reusam esse mesmo formato de
+ * propósito. null quando nenhum dos dois padrões bate (mensagem
+ * desconhecida) - o título cai só no status, sem categoria.
+ * Pedido do Tiago (16/09/2026): mostrar isso no título de cada linha do
+ * popover, já que "Sucesso"/"Atenção"/"Erro" sozinho não diz qual dos
+ * dois fluxos rodou.
+ */
+export function categoriaSync_(detalhe) {
+  if (typeof detalhe !== 'string' || !detalhe) return null;
+  if (detalhe.indexOf('Renda Fixa:') === 0) return 'Renda Fixa';
+  if (/^\d+ de \d+ ativos/.test(detalhe)) return 'Renda Variável (Patrimônio)';
+  return null;
+}
+
+const CATEGORIA_CLASSE_SYNC = { 'Renda Fixa': 'rf', 'Renda Variável (Patrimônio)': 'rv' };
+
+/**
+ * Renderiza a lista COMPLETA de "Registro de Controle" (action=
+ * syncHistorico - ver Sync.gs!handleSyncHistorico/lerRegistroControle_)
+ * dentro do popover - antes só a última linha aparecia lá (ver
+ * renderSyncStatus, que continua cuidando só do badge/pill do topo).
+ * Cada linha mostra a categoria (Renda Fixa / Renda Variável
+ * (Patrimônio), ver categoriaSync_) + status no título, e o texto de
+ * Detalhe fica escondido atrás de um botão "i" - pedido do Tiago
+ * (16/09/2026): a lista inteira com o texto de Detalhe sempre visível
+ * ficava grande e difícil de escanear rápido. `lista` é null/vazia
+ * quando não há sincronização registrada ainda OU a chamada falhou -
+ * os dois casos caem no mesmo texto neutro (mesmo padrão de
+ * renderSyncStatus).
+ */
+export function renderSyncLog(doc, lista) {
+  const log = doc.getElementById('syncLog');
+  if (!log) return;
+  log.innerHTML = '';
+
+  if (!lista || !lista.length) {
+    log.innerHTML = '<div class="hint" style="padding:9px 4px">Nenhuma sincronização registrada ainda.</div>';
+    return;
+  }
+
+  lista.forEach((item, indice) => {
+    const classe = STATUS_CLASSE_SYNC[item.status] || null;
+    const icone = classe ? STATUS_ICONE_SYNC[classe] : 'ico-check';
+    const categoria = categoriaSync_(item.detalhe);
+    const categoriaClasse = categoria ? CATEGORIA_CLASSE_SYNC[categoria] : '';
+    const temDetalhe = typeof item.detalhe === 'string' && item.detalhe.length > 0;
+    const detalheId = `syncDetail${indice}`;
+
+    const row = doc.createElement('div');
+    row.className = 'sync-log-row';
+    row.innerHTML = `
+      <span class="status-ico ${classe || ''}"><svg><use href="#${icone}"/></svg></span>
+      <div class="body">
+        <div class="top-line">
+          <span class="top-line-text">${categoria ? `<span class="sync-categoria ${categoriaClasse}">${categoria}</span> · ` : ''}${item.status}</span>
+          ${temDetalhe ? `<button class="sync-info-btn" type="button" aria-expanded="false" aria-controls="${detalheId}" title="Ver detalhes">i</button>` : ''}
+        </div>
+        <div class="origin">${item.origem || 'planilha'} · ${formatDateTimeBR(item.timestamp)}</div>
+        ${temDetalhe ? `<div class="detail" id="${detalheId}" hidden>${item.detalhe}</div>` : ''}
+      </div>
+    `;
+    log.appendChild(row);
+
+    if (temDetalhe) {
+      const botaoInfo = row.querySelector('.sync-info-btn');
+      const detalheEl = row.querySelector('.detail');
+      botaoInfo.addEventListener('click', () => {
+        const vaiAbrir = detalheEl.hidden;
+        detalheEl.hidden = !vaiAbrir;
+        botaoInfo.setAttribute('aria-expanded', String(vaiAbrir));
+        botaoInfo.classList.toggle('active', vaiAbrir);
+      });
+    }
+  });
+}
+
+/**
  * Renderiza o resultado de action=syncStatus (última linha de "Registro
  * de Controle" - ver Sync.gs!handleSyncStatus) no badge + popover do
  * topbar. `resultado` é null quando a chamada falhou (rede/token) - aí
@@ -410,14 +495,21 @@ export function renderSyncStatus(doc, resultado, agora = new Date()) {
  * getSyncStatusImpl é injetável pra teste, mesmo padrão de
  * setupAuthGate/setupThemeToggle.
  */
-export async function carregarStatusSync(doc, { token, getSyncStatusImpl = getSyncStatus } = {}) {
+export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = getSyncHistorico } = {}) {
   if (!token) return;
   try {
-    const resposta = await getSyncStatusImpl(token);
-    renderSyncStatus(doc, resposta.ok ? resposta.resultado : null);
+    const resposta = await getSyncHistoricoImpl(token);
+    const lista = resposta.ok ? resposta.resultado : null;
+    // badge/pill sempre refletem a MAIS RECENTE (lista[0], mesmo dado que
+    // action=syncStatus devolvia sozinho antes) - lista vazia (nenhuma
+    // sincronização ainda) e falha de rede caem no mesmo estado neutro,
+    // igual antes (ver renderSyncStatus).
+    renderSyncStatus(doc, lista && lista.length ? lista[0] : null);
+    renderSyncLog(doc, lista);
   } catch (error) {
     console.error('shell.js: falha ao carregar o status de sincronização', error);
     renderSyncStatus(doc, null);
+    renderSyncLog(doc, null);
   }
 }
 

@@ -189,13 +189,35 @@ svg{ display:block; }
 
 .sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; padding:2px 4px 0; }
 .sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
-.sync-log{ display:flex; flex-direction:column; margin-bottom:10px; }
+/* 16/09/2026: o popover passou a listar o histórico inteiro (antes só a
+   última sincronização - ver shell.js!renderSyncLog), não só 1 linha -
+   sem altura máxima própria, isso empurrava o popover inteiro (que em
+   telas >=640px não tem teto, ver .sync-wrap .overlay-panel acima) pra
+   uma altura enorme. A lista rola sozinha, o cabeçalho/botão/link do
+   popover continuam sempre visíveis. */
+.sync-log{ display:flex; flex-direction:column; margin-bottom:10px; max-height:360px; overflow-y:auto; }
 .sync-log-row{ display:flex; align-items:flex-start; gap:9px; padding:9px 4px; border-bottom:1px solid var(--border); }
 .sync-log-row:last-child{ border-bottom:none; }
 .sync-log-row .body{ flex:1; min-width:0; }
-.sync-log-row .top-line{ font-size:12px; font-weight:600; }
+.sync-log-row .top-line{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-size:12px; font-weight:600; }
+.sync-log-row .top-line-text{ flex:1; min-width:0; }
 .sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
-.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
+.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:4px; line-height:1.4; }
+/* Categoria (Renda Fixa / Renda Variável) inferida do texto de Detalhe -
+   ver shell.js!categoriaSync_ - reusa as mesmas cores de Renda Fixa/Ações
+   já usadas no resto do app (ver as variáveis --rf/--acoes no topo deste
+   arquivo), pra ficar consistente em vez de inventar uma cor nova. */
+.sync-categoria{ font-weight:700; }
+.sync-categoria.rf{ color:var(--rf); }
+.sync-categoria.rv{ color:var(--acoes); }
+/* Botão "i" que revela o texto de Detalhe de uma linha (pedido do
+   Tiago, 16/09/2026 - a lista inteira com Detalhe sempre visível ficava
+   grande demais pra escanear rápido). */
+.sync-info-btn{ flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--border);
+      background:var(--surface); color:var(--ink-muted); font-size:10px; font-weight:700; font-style:italic;
+      line-height:1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
+.sync-info-btn:hover{ color:var(--ink); border-color:var(--ink-faint); }
+.sync-info-btn.active{ background:var(--acoes-soft); color:var(--acoes); border-color:transparent; }
 .sync-wrap .ext-link{ padding:2px 4px; }
 .hint{ font-size:11.5px; color:var(--ink-faint); padding:0 4px; }
 

@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -47,6 +47,34 @@ test('getSyncStatus() calls action=syncStatus', async (t) => {
 
   assert.equal(result.resultado.status, 'Sucesso');
   assert.equal(new URL(capturedUrl).searchParams.get('action'), 'syncStatus');
+});
+
+test('getSyncHistorico() calls action=syncHistorico with the token and a default limite=20', async (t) => {
+  let capturedUrl;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    capturedUrl = url;
+    return jsonResponse({ ok: true, resultado: [{ status: 'Sucesso' }, { status: 'Atenção' }] });
+  });
+
+  const result = await getSyncHistorico('tok');
+
+  assert.equal(result.resultado.length, 2);
+  const params = new URL(capturedUrl).searchParams;
+  assert.equal(params.get('action'), 'syncHistorico');
+  assert.equal(params.get('token'), 'tok');
+  assert.equal(params.get('limite'), '20');
+});
+
+test('getSyncHistorico() aceita um limite customizado', async (t) => {
+  let capturedUrl;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    capturedUrl = url;
+    return jsonResponse({ ok: true, resultado: [] });
+  });
+
+  await getSyncHistorico('tok', 5);
+
+  assert.equal(new URL(capturedUrl).searchParams.get('limite'), '5');
 });
 
 test('getHome() calls action=home and returns patrimônio/índices/câmbio as-is', async (t) => {

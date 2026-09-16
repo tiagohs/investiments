@@ -263,7 +263,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
       var base = ultima || (historico.length ? umDiaAntes_(historico[0].data) : diasAtras_(31));
       var inicioT = new Date(base);
       inicioT.setDate(inicioT.getDate() + 1);
-      if (inicioT <= ontem && (!inicioMaisAntigoUsa || inicioT < inicioMaisAntigoUsa)) {
+      if (!depoisPorDia_(inicioT, ontem) && (!inicioMaisAntigoUsa || inicioT < inicioMaisAntigoUsa)) {
         inicioMaisAntigoUsa = inicioT;
       }
     });
@@ -306,7 +306,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
       var inicio = new Date(ultimaData);
       inicio.setDate(inicio.getDate() + 1);
 
-      if (inicio > ontem) {
+      if (depoisPorDia_(inicio, ontem)) {
         ok.push(ticker); // já está em dia, nada a fazer
         continue;
       }
@@ -734,6 +734,26 @@ function mesmoDia_(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+/**
+ * Compara duas datas só pela parte de CALENDÁRIO (ano/mês/dia), ignorando
+ * hora — devolve true se `a` é um dia de calendário estritamente DEPOIS de
+ * `b`. Correção de 16/09/2026 (Tiago reparou que terça, 15/09, sumiu da
+ * tabela de patrimônio mesmo com 2 sincronizações "Sucesso" na quarta de
+ * manhã): "início" (data seguinte à última linha salva) herda a MESMA hora
+ * fixa da última linha salva (16:56 pras ações/FIIs, 16:00 pras USA) —
+ * "ontem" é calculado na hora em que o sync roda. Comparando os dois Date
+ * completos (com hora), um sync de manhã (ontem às ~09:xx) fazia
+ * início (mesmo dia, 16:56) > ontem (mesmo dia, ~09:xx) dar TRUE mesmo
+ * sendo o MESMO dia de calendário — marcando o ticker como "já em dia"
+ * sem nunca buscar aquele dia de verdade. Isso só parava de acontecer
+ * depois que alguém rodasse o sync às 17h ou mais tarde no mesmo dia.
+ */
+function depoisPorDia_(a, b) {
+  var da = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  var db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return da > db;
+}
+
 /** Insere uma nova linha de histórico em "Registro de Controle" logo abaixo do cabeçalho (mais recente sempre no topo). */
 function gravarRegistroControle_(status, origem, detalhe) {
   var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
@@ -795,4 +815,33 @@ function lerUltimoRegistroControle_() {
   }
   var linha = aba.getRange(2, 1, 1, 4).getValues()[0];
   return { timestamp: linha[0], origem: linha[1], status: linha[2], detalhe: linha[3] };
+}
+
+/** Handler chamado pelo Router (doGet) — devolve as últimas N linhas de
+ * "Registro de Controle" (não só a mais recente, ver handleSyncStatus/
+ * lerUltimoRegistroControle_, que só alimentam o badge) pro popover
+ * mostrar a lista completa de sincronizações (pedido do Tiago,
+ * 16/09/2026). ?limite= é opcional (padrão 20, mesmo teto de leitura —
+ * a aba em si guarda até 300, ver gravarRegistroControle_). */
+function handleSyncHistorico(e) {
+  try {
+    var limite = (e && e.parameter && e.parameter.limite) ? parseInt(e.parameter.limite, 10) : 20;
+    if (!limite || limite < 1) limite = 20;
+    return jsonOut({ ok: true, resultado: lerRegistroControle_(limite) });
+  } catch (erro) {
+    return jsonOut({ ok: false, erro: String(erro) });
+  }
+}
+
+/** Lê até `limite` linhas mais recentes de "Registro de Controle", na
+ * mesma ordem em que gravarRegistroControle_ insere (mais recente
+ * primeiro — cada execução insere logo abaixo do cabeçalho). */
+function lerRegistroControle_(limite) {
+  var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
+  if (!aba || aba.getLastRow() < 2) return [];
+  var totalLinhas = Math.min(aba.getLastRow() - 1, limite);
+  var dados = aba.getRange(2, 1, totalLinhas, 4).getValues();
+  return dados.map(function (linha) {
+    return { timestamp: linha[0], origem: linha[1], status: linha[2], detalhe: linha[3] };
+  });
 }
