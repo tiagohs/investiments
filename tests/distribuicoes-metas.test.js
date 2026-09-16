@@ -1075,7 +1075,8 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Está c
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   // WIZC3 (ranking 1, 1ª linha por default): pvp 1.69 (>= 1), descontoPvp '169% (1,69 P/VP)'.
   const primeiraLinha = container.querySelector('.radar-table tbody tr');
-  const badgePvp = primeiraLinha.querySelector('.radar-desconto-badge');
+  // índice 0 dos badges agora é o de Preço médio (coluna nova) - o de P/VP é o 2º.
+  const badgePvp = primeiraLinha.querySelectorAll('.radar-desconto-badge')[1];
   assert.equal(badgePvp.textContent, 'Está caro');
   assert.equal(badgePvp.classList.contains('bad'), true);
   assert.equal(badgePvp.classList.contains('good'), false);
@@ -1090,7 +1091,8 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Com des
   // PMLL11 (FIIs): pvp 0.95 (< 1).
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linha = container.querySelector('.radar-table tbody tr');
-  const badgePvp = linha.querySelector('.radar-desconto-badge');
+  // índice 0 dos badges agora é o de Preço médio (coluna nova) - o de P/VP é o 2º.
+  const badgePvp = linha.querySelectorAll('.radar-desconto-badge')[1];
   assert.equal(badgePvp.textContent, 'Com desconto');
   assert.equal(badgePvp.classList.contains('good'), true);
 });
@@ -1100,12 +1102,13 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/L segue a palavra 
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   const linhas = container.querySelectorAll('.radar-table tbody tr');
+  // índice 0 dos badges = Preço médio, 1 = P/VP, 2 = P/L.
   // WIZC3 (ranking 1): descontoPl '15,87% (1,62% acima - retorno em 6,30 anos)' -> caro.
-  const badgeWizc3 = linhas[0].querySelectorAll('.radar-desconto-badge')[1];
+  const badgeWizc3 = linhas[0].querySelectorAll('.radar-desconto-badge')[2];
   assert.equal(badgeWizc3.textContent, 'Está caro');
   assert.equal(badgeWizc3.classList.contains('bad'), true);
   // VAMO3 (ranking 2): descontoPl '8,58% (5,67% abaixo - retorno em 11,66 anos)' -> com desconto.
-  const badgeVamo3 = linhas[1].querySelectorAll('.radar-desconto-badge')[1];
+  const badgeVamo3 = linhas[1].querySelectorAll('.radar-desconto-badge')[2];
   assert.equal(badgeVamo3.textContent, 'Com desconto');
   assert.equal(badgeVamo3.classList.contains('good'), true);
 });
@@ -1120,6 +1123,94 @@ test('renderRadarOportunidades(): cabeçalho de Desconto sobre P/VP e P/L vira a
   assert.match(thPvp.dataset.tooltip, /menor que 1/);
   assert.equal(thPl.classList.contains('radar-info-alvo'), true);
   assert.match(thPl.dataset.tooltip, /taxa de renda fixa/);
+});
+
+// 16/09/2026: Tiago pediu a coluna "Preço Médio" (coluna G da planilha,
+// antes só existia no tooltip do Ativo) de volta na tabela, dentro de
+// uma tag colorida - verde quando a cotação atual está em lucro sobre
+// o preço médio, vermelha quando está em prejuízo. Reaproveita o
+// mesmo badge visual dos descontos de P/VP e P/L.
+test('renderRadarOportunidades(): coluna "Preço médio" aparece com o rótulo certo, numa tag', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const th = container.querySelector('.radar-th-btn[data-campo="precoMedio"]');
+  assert.ok(th);
+  assert.match(th.textContent, /Preço médio/);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3: precoAtual 7.82, precoMedio 7.61
+  const celulaPrecoMedio = primeiraLinha.children[3];
+  const badge = celulaPrecoMedio.querySelector('.radar-desconto-badge');
+  assert.ok(badge);
+  assert.match(badge.textContent, /7,61/);
+});
+
+test('renderRadarOportunidades(): tag de Preço médio fica verde quando a cotação atual está acima do preço médio (lucro)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // WIZC3: precoAtual 7.82 > precoMedio 7.61
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const badge = primeiraLinha.children[3].querySelector('.radar-desconto-badge');
+  assert.equal(badge.classList.contains('good'), true);
+  assert.equal(badge.classList.contains('bad'), false);
+});
+
+test('renderRadarOportunidades(): tag de Preço médio fica vermelha quando a cotação atual está abaixo do preço médio (prejuízo)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = {
+    ...RADAR_EXEMPLO,
+    acoesNacionais: {
+      itens: [{ ...RADAR_EXEMPLO.acoesNacionais.itens[0], precoAtual: 2.5, precoMedio: 2.94 }],
+      total: {},
+    },
+  };
+  renderRadarOportunidades(doc, container, dados);
+  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const badge = primeiraLinha.children[3].querySelector('.radar-desconto-badge');
+  assert.equal(badge.classList.contains('bad'), true);
+  assert.equal(badge.classList.contains('good'), false);
+});
+
+test('renderRadarOportunidades(): tag de Preço médio sem cor (nem verde nem vermelha) quando os valores são iguais ou o dado falta', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const dados = {
+    ...RADAR_EXEMPLO,
+    acoesNacionais: {
+      itens: [
+        { ...RADAR_EXEMPLO.acoesNacionais.itens[0], precoAtual: 2.94, precoMedio: 2.94 },
+        { ...RADAR_EXEMPLO.acoesNacionais.itens[1], precoMedio: null },
+      ],
+      total: {},
+    },
+  };
+  renderRadarOportunidades(doc, container, dados);
+  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  for (const linha of linhas) {
+    const badge = linha.children[3].querySelector('.radar-desconto-badge');
+    assert.equal(badge.classList.contains('good'), false);
+    assert.equal(badge.classList.contains('bad'), false);
+  }
+});
+
+test('renderRadarOportunidades(): cabeçalho "Carteira atual" ganha um ícone "i" visível explicando o valor de Investir/resgatar embaixo', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  const th = container.querySelector('.radar-th-btn[data-campo="carteiraAtual"]').closest('th');
+  assert.equal(th.classList.contains('radar-info-alvo'), true);
+  assert.match(th.dataset.tooltip, /investir/i);
+  const icone = container.querySelector('.radar-th-btn[data-campo="carteiraAtual"] .radar-info-icon');
+  assert.ok(icone);
+});
+
+test('renderRadarOportunidades(): "Investir/resgatar" não existe mais como coluna própria no cabeçalho', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
+  assert.equal(container.querySelector('.radar-th-btn[data-campo="valorInvestir"]'), null);
+  const rotulos = Array.from(container.querySelectorAll('.radar-th-btn')).map((b) => b.childNodes[0].textContent);
+  assert.equal(rotulos.includes('Investir/resgatar'), false);
 });
 
 // 14/09/2026 (3ª rodada de feedback): uma rodada anterior tinha
@@ -1155,7 +1246,7 @@ test('renderRadarOportunidades(): Desconto sobre P/L "—" (sem badge/tooltip) q
   const linhaGprk = container.querySelector('.radar-table tbody tr'); // só tem 1 item nessa tabela no fixture
   const colunas = Array.from(linhaGprk.children).map((td) => td.textContent.trim());
   assert.ok(colunas.includes('—'));
-  assert.equal(linhaGprk.querySelectorAll('.radar-desconto-badge').length, 1); // só o de P/VP, P/L é '—'
+  assert.equal(linhaGprk.querySelectorAll('.radar-desconto-badge').length, 2); // Preço médio + P/VP, P/L é '—'
 });
 
 test('renderRadarOportunidades(): Ranking tem badge próprio e Preço-teto fica com classe de destaque (negrito)', () => {
@@ -1174,16 +1265,20 @@ test('renderRadarOportunidades(): R$ investir/resgatar ganha um ícone "i" com "
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, novaCarteira: 5869.89
-  // índice 9 = "R$ investir/resgatar" (0 ranking, 1 ativo, ... 8 carteira atual) -
-  // Ativo (1) e "% atual x meta" (7) também ganharam ícone "i" nesta
-  // rodada, então não dá mais pra pegar só o 1º .radar-info-icon da linha.
+  // índice 9 = "Carteira atual" (0 ranking, 1 ativo, 2 preço atual, 3
+  // preço médio, 4 preço-teto, 5 viés, 6 desc. P/VP, 7 desc. P/L, 8 %
+  // atual x meta, 9 carteira atual) - "Investir/resgatar" virou a 2ª
+  // linha (menor) dessa mesma célula (16/09/2026), com o ícone "i" de
+  // "Nova carteira" dentro dela. Ativo (1) e "% atual x meta" (8)
+  // também ganharam ícone "i" numa rodada anterior, então não dá pra
+  // pegar só o 1º .radar-info-icon da linha.
   const icone = primeiraLinha.children[9].querySelector('.radar-info-icon');
   assert.ok(icone);
   assert.match(icone.dataset.tooltip, /Nova carteira/);
   assert.match(icone.dataset.tooltip, /5\.869,89/);
 });
 
-test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o tooltip com Preço médio e % de diferença (funciona em toque, não só title)', () => {
+test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o tooltip com % de diferença (funciona em toque, não só title)', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
@@ -1194,7 +1289,7 @@ test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o 
   celulaAtivoReal.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 50, clientY: 50, bubbles: true }));
   const tooltip = doc.querySelector('.radar-tooltip');
   assert.equal(tooltip.hidden, false);
-  assert.match(tooltip.textContent, /Preço médio/);
+  // 16/09/2026: "Preço médio" saiu daqui - virou coluna própria (com tag verde/vermelha).
   assert.match(tooltip.textContent, /Diferença vs\. meta/);
 
   container.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true }));
@@ -1277,8 +1372,9 @@ test('renderRadarOportunidades(): cada célula tem data-label (pro card do mobil
   const celulas = Array.from(primeiraLinha.children);
   assert.equal(celulas[0].dataset.label, '#'); // ranking
   assert.equal(celulas[1].dataset.label, 'Ativo');
-  assert.equal(celulas[3].dataset.label, 'Preço-teto');
-  assert.equal(celulas[5].dataset.label, 'Desc. P/VP');
+  assert.equal(celulas[3].dataset.label, 'Preço médio');
+  assert.equal(celulas[4].dataset.label, 'Preço-teto');
+  assert.equal(celulas[6].dataset.label, 'Desc. P/VP');
 });
 
 test('renderRadarOportunidades(): Ranking e Ativo têm a classe radar-card-topo (topo do card no mobile); as outras colunas não', () => {
@@ -1290,7 +1386,7 @@ test('renderRadarOportunidades(): Ranking e Ativo têm a classe radar-card-topo 
   assert.equal(celulas[0].classList.contains('radar-card-topo'), true); // ranking
   assert.equal(celulas[1].classList.contains('radar-card-topo'), true); // ativo
   assert.equal(celulas[2].classList.contains('radar-card-topo'), false); // precoAtual
-  assert.equal(celulas[4].classList.contains('radar-card-topo'), false); // vies
+  assert.equal(celulas[5].classList.contains('radar-card-topo'), false); // vies
 });
 
 test('renderRadarOportunidades(): célula do Ativo mostra o logo (assets/imgs/, via logos-ativos.js) quando o ticker tem um mapeado', () => {
@@ -1372,7 +1468,11 @@ test('renderRadarOportunidades(): sem variacaoDia (null) não desenha o span de 
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // itens do fixture não têm variacaoDia
   const primeiraLinha = container.querySelector('.radar-table tbody tr');
-  assert.equal(primeiraLinha.querySelector('.radar-preco-variacao'), null);
+  // 16/09/2026: a célula de Carteira atual (índice 9) também usa
+  // .radar-preco-variacao pro valor de Investir/resgatar embaixo, então
+  // o teste precisa mirar só na célula de Preço atual (índice 2).
+  const celulaPrecoAtual = primeiraLinha.children[2];
+  assert.equal(celulaPrecoAtual.querySelector('.radar-preco-variacao'), null);
 });
 
 test('renderRadarOportunidades(): "% desejado" e "% atual" viram 1 coluna só ("% atual x meta") com barra visual, ainda editável', () => {
@@ -1417,9 +1517,10 @@ test('renderRadarOportunidades(): Ações Internacionais mostram Carteira atual 
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
-  assert.match(celulas[8].textContent, /\$557\.70/); // carteira atual
-  assert.match(celulas[9].textContent, /\$42\.30/); // r$ investir/resgatar
-  assert.equal(celulas[8].textContent.includes('R$'), false);
+  // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9).
+  assert.match(celulas[9].textContent, /\$557\.70/); // carteira atual
+  assert.match(celulas[9].textContent, /\$42\.30/); // investir/resgatar
+  assert.equal(celulas[9].textContent.includes('R$'), false);
 });
 
 test('renderRadarOportunidades(): banner de cotação do dólar aparece só na aba Ações Internacionais, quando radar.cotacaoDolar vem preenchido', () => {
@@ -1442,22 +1543,25 @@ test('renderRadarOportunidades(): Carteira atual/Investir-resgatar em Ações In
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
-  assert.match(celulas[8].textContent, /\$557\.70/);
-  assert.match(celulas[8].textContent, /R\$\s*2\.788,50/); // 557.7 * 5
-  assert.ok(celulas[8].querySelector('.moeda-conv'));
+  // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9), com 2 conversões.
+  assert.match(celulas[9].textContent, /\$557\.70/);
+  assert.match(celulas[9].textContent, /R\$\s*2\.788,50/); // 557.7 * 5
   assert.match(celulas[9].textContent, /\$42\.30/);
   assert.match(celulas[9].textContent, /R\$\s*211,50/); // 42.3 * 5
-  assert.ok(celulas[9].querySelector('.moeda-conv'));
+  assert.equal(celulas[9].querySelectorAll('.moeda-conv').length, 2);
 });
 
-test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não ganham ícone de conversão nem banner', () => {
+test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não ganham conversão em reais nem banner', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // sem cotacaoDolar no fixture
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(container.querySelector('.radar-cotacao-dolar'), null);
   const linha = container.querySelector('.radar-table tbody tr');
-  assert.equal(Array.from(linha.children)[8].querySelector('.radar-info-icon'), null);
+  // 16/09/2026: o ícone "i" de "Nova carteira" continua aparecendo (é
+  // info complementar, não conversão de moeda) - o que não deve
+  // aparecer sem cotacaoDolar é o .moeda-conv (equivalente em reais).
+  assert.equal(Array.from(linha.children)[9].querySelectorAll('.moeda-conv').length, 0);
 });
 
 // 14/09/2026 (3ª rodada de feedback): pintar a LINHA inteira "ficou
@@ -1587,7 +1691,7 @@ test('renderRadarOportunidades(): célula do Ativo e a barra "% atual x meta" ga
   const primeiraLinha = container.querySelector('.radar-table tbody tr');
   const celulaAtivo = primeiraLinha.children[1];
   assert.ok(celulaAtivo.querySelector('.radar-info-icon'));
-  const celulaPct = primeiraLinha.children[7];
+  const celulaPct = primeiraLinha.children[8];
   assert.ok(celulaPct.querySelector('.radar-pct-wrap .radar-info-icon'));
 });
 

@@ -728,14 +728,15 @@ const COLUNAS_RADAR = [
   { chave: 'ranking', rotulo: '#', editavel: true, numerica: true },
   { chave: 'ativo', rotulo: 'Ativo' },
   { chave: 'precoAtual', rotulo: 'Preço atual', numerica: true },
+  { chave: 'precoMedio', rotulo: 'Preço médio', numerica: true },
   { chave: 'precoTeto', rotulo: 'Preço-teto', editavel: true, numerica: true },
   { chave: 'vies', rotulo: 'Viés' },
   { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true, dica: 'Com desconto quando o P/VP calculado (coluna H da planilha) é menor que 1 — está caro quando é maior ou igual a 1.' },
   { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true, dica: 'Com desconto quando o retorno (1 ÷ P/L) fica abaixo da taxa de renda fixa atual — está caro quando fica acima. Calculado só pra Ações Nacionais.' },
   { chave: 'percentualDesejado', rotulo: '% atual x meta', editavel: true, numerica: true,
     dica: 'Barra mostra o % atual da carteira nesse ativo; o traço marca o % desejado (editável). Toque/passe o mouse pro valor exato de cada um.' },
-  { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true },
-  { chave: 'valorInvestir', rotulo: 'Investir/resgatar', numerica: true },
+  { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true, iconeDica: true,
+    dica: 'Valor atual investido nesse ativo. Abaixo, em fonte menor, o quanto falta investir (ou resgatar) pra bater a meta.' },
 ];
 
 function colunasRadarPara_() {
@@ -776,16 +777,15 @@ function formatarCelulaRadar_(item, coluna, chaveTabela) {
     case 'precoTeto':
       return formatarPrecoRadar_(v, chaveTabela);
     case 'carteiraAtual':
-    case 'valorInvestir':
       return formatarPrecoRadar_(v, chaveTabela);
     default:
       return v || v === 0 ? String(v) : '—';
   }
 }
 
-/** Tooltip da célula "Ativo": preço médio e % de diferença vs. meta (descontos e nova carteira agora têm seu próprio badge/ícone na linha). */
+/** Tooltip da célula "Ativo": % de diferença vs. meta e, nos FIIs, Segmento/Tipo (preço médio virou coluna própria; descontos e nova carteira têm seu próprio badge/ícone na linha). */
 function tituloLinhaRadar_(item, chaveTabela) {
-  const partes = [`Preço médio: ${formatarPrecoRadar_(item.precoMedio, chaveTabela)}`];
+  const partes = [];
   if (typeof item.percentualDiferenca === 'number') partes.push(`Diferença vs. meta: ${formatPercentualPreciso(item.percentualDiferenca)}`);
   if (chaveTabela === 'fiis' && item.segmento && item.tipo) partes.push(`${item.segmento} (${item.tipo})`);
   return partes.join('\n');
@@ -1198,18 +1198,47 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
         wrap.appendChild(variacao);
       }
       td.appendChild(wrap);
+    } else if (coluna.chave === 'precoMedio') {
+      // Tag colorida (pedido do Tiago, 16/09/2026): verde quando a
+      // cotação atual está acima do preço médio (lucro na posição),
+      // vermelha quando está abaixo (prejuízo) - reaproveita o mesmo
+      // badge visual usado nos descontos P/VP e P/L logo abaixo.
+      const badge = doc.createElement('span');
+      let classe = '';
+      if (typeof item.precoAtual === 'number' && typeof item.precoMedio === 'number') {
+        if (item.precoAtual > item.precoMedio) classe = 'good';
+        else if (item.precoAtual < item.precoMedio) classe = 'bad';
+      }
+      badge.className = `radar-desconto-badge${classe ? ` ${classe}` : ''}`;
+      badge.innerHTML = formatarPrecoRadarComConversao_(item.precoMedio, chaveTabela, cotacaoDolar);
+      td.appendChild(badge);
     } else if (coluna.chave === 'precoTeto') {
       td.classList.add('radar-preco-teto');
       td.innerHTML = formatarPrecoRadarComConversao_(item.precoTeto, chaveTabela, cotacaoDolar);
     } else if (coluna.chave === 'percentualDesejado') {
       td.appendChild(criarCelulaPctAtualMeta_(doc, item));
     } else if (coluna.chave === 'carteiraAtual') {
-      // 16/09/2026: o equivalente em R$ (Ações Internacionais) agora
-      // aparece direto aqui, menor, entre parênteses - antes ficava
-      // escondido atrás de um ícone "i" que só revelava no toque/hover
-      // (pedido do Tiago: quer ver de cara, sem precisar tocar em nada).
+      // 16/09/2026: Investir/resgatar (antes coluna própria) virou uma
+      // 2ª linha aqui embaixo, em fonte menor - pra economizar espaço
+      // (pedido do Tiago). O equivalente em R$ (Ações Internacionais)
+      // aparece direto em cada valor, entre parênteses - antes ficava
+      // escondido atrás de um ícone "i" que só revelava no toque/hover.
       const wrap = doc.createElement('span');
-      wrap.innerHTML = formatarPrecoRadarComConversao_(item.carteiraAtual, chaveTabela, cotacaoDolar);
+      wrap.className = 'radar-preco-wrap';
+      const valorCarteira = doc.createElement('span');
+      valorCarteira.innerHTML = formatarPrecoRadarComConversao_(item.carteiraAtual, chaveTabela, cotacaoDolar);
+      wrap.appendChild(valorCarteira);
+      const valorInvestir = doc.createElement('span');
+      valorInvestir.className = 'radar-preco-variacao';
+      valorInvestir.innerHTML = formatarPrecoRadarComConversao_(item.valorInvestir, chaveTabela, cotacaoDolar);
+      if (typeof item.novaCarteira === 'number') {
+        const info = doc.createElement('span');
+        info.className = 'radar-info-icon radar-info-alvo';
+        info.textContent = 'i';
+        info.dataset.tooltip = `Nova carteira: ${formatarPrecoRadar_(item.novaCarteira, chaveTabela)}`;
+        valorInvestir.appendChild(info);
+      }
+      wrap.appendChild(valorInvestir);
       td.appendChild(wrap);
     } else if (coluna.chave === 'descontoPvp' || coluna.chave === 'descontoPl') {
       const info = badgeDesconto_(coluna.chave, item);
@@ -1222,34 +1251,12 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       } else {
         td.textContent = '—';
       }
-    } else if (coluna.chave === 'valorInvestir') {
-      // Envolve valor + ícone num span só (em vez de 2 filhos soltos
-      // na td) - no card do mobile a td vira flex com o rótulo do lado
-      // (justify-content:space-between), então precisa ser 1 item só
-      // do lado do valor, senão o rótulo entraria espremido no meio.
-      // 16/09/2026: o "i" que escondia o equivalente em R$ (Ações
-      // Internacionais) saiu - agora aparece direto no valor, entre
-      // parênteses (ver formatarPrecoRadarComConversao_). O ícone "i"
-      // continua existindo só quando há "Nova carteira" pra mostrar
-      // (info complementar, não a conversão de moeda).
-      const wrap = doc.createElement('span');
-      const valorInvestir = doc.createElement('span');
-      valorInvestir.innerHTML = formatarPrecoRadarComConversao_(item.valorInvestir, chaveTabela, cotacaoDolar);
-      wrap.appendChild(valorInvestir);
-      if (typeof item.novaCarteira === 'number') {
-        const info = doc.createElement('span');
-        info.className = 'radar-info-icon radar-info-alvo';
-        info.textContent = 'i';
-        info.dataset.tooltip = `Nova carteira: ${formatarPrecoRadar_(item.novaCarteira, chaveTabela)}`;
-        wrap.appendChild(info);
-      }
-      td.appendChild(wrap);
     } else if (coluna.chave === 'ativo') {
       td.appendChild(criarLogoAtivo_(doc, item.ativo));
       td.appendChild(doc.createTextNode(formatarCelulaRadar_(item, coluna, chaveTabela)));
       // Ícone "i" — a célula inteira já é .radar-info-alvo com tooltip
-      // (preço médio, diferença vs. meta, Segmento/Tipo nos FIIs), mas
-      // isso sozinho não dava nenhuma pista visual de que dava pra
+      // (diferença vs. meta, Segmento/Tipo nos FIIs), mas isso sozinho
+      // não dava nenhuma pista visual de que dava pra
       // tocar/passar o mouse pra ver mais (pedido do Tiago, 14/09/2026,
       // 4ª rodada: "tudo que envolver tooltip, coloca o botão i").
       const infoAtivo = doc.createElement('span');
@@ -1396,6 +1403,12 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
     btn.className = 'radar-th-btn';
     btn.dataset.campo = coluna.chave;
     btn.textContent = coluna.rotulo;
+    if (coluna.dica && coluna.iconeDica) {
+      const info = doc.createElement('span');
+      info.className = 'radar-info-icon';
+      info.textContent = 'i';
+      btn.appendChild(info);
+    }
     if (ordenacao && ordenacao.campo === coluna.chave) {
       btn.classList.add('active');
       const seta = doc.createElement('span');
