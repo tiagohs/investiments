@@ -1,0 +1,162 @@
+<!--
+  assets/partials/pages.html — markup for the two SPA-routed pages
+  (Início / Distribuições e Metas), fetched and injected by
+  assets/js/router.js — mesmo padrão de assets/partials/shell.html
+  (fetch + <template>, injetado 1x só na inicialização do app).
+
+  16/09/2026: extraído de dentro de <main> em index.html e
+  distribuicoes-metas.html (que antes eram páginas HTML completas e
+  independentes — cada troca de aba era uma navegação de página cheia
+  do navegador, recarregando tudo, inclusive o popover de sincronização
+  do header) pra permitir que o router monte as duas "abas" dentro do
+  MESMO documento, trocando de uma pra outra só escondendo/mostrando
+  <main> e sem nenhum fetch de dado novo depois da 1ª visita de cada
+  uma (ver router.js). O <main> em si (id + hidden) é criado pelo
+  próprio router.js — aqui só o conteúdo de dentro dele.
+
+  Conteúdo idêntico ao que cada página tinha antes — nada mudou de
+  fato na marcação, só o arquivo onde ela mora.
+-->
+<template id="page-inicio-template">
+
+    <!-- Fase 2 (13/09/2026): cards de Índices & Câmbio + resumo de
+         Patrimônio (Total/Longo Prazo/Renda Emergencial, sempre juntos),
+         gráfico de Rentabilidade (com seletor de período) e a grade
+         "Meus Ativos" clicável — ver docs/plano-implementacao.html, Fase 2. -->
+
+    <!-- Skeleton de carregamento (13/09/2026) - placeholders no formato do
+         conteúdo real (grade de índices/câmbio + resumo de patrimônio) em
+         vez de um spinner central genérico, pra reduzir o "salto" visual
+         quando os dados chegam. Ver o bug de especificidade CSS documentado
+         em inicio.css sobre [hidden] - a mesma regra vale aqui. -->
+    <div class="inicio-loading" id="inicioLoading" aria-hidden="true">
+      <span class="skel skel-header"></span>
+      <div class="skel-grid">
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+        <span class="skel skel-tile"></span>
+      </div>
+      <span class="skel skel-header" style="margin-top:10px"></span>
+      <span class="skel skel-hero"></span>
+    </div>
+
+    <div class="inicio-erro" id="inicioErro" hidden></div>
+
+    <div id="inicioConteudo" hidden>
+      <div id="refreshControlInicio" class="refresh-control"></div>
+      <div class="avisos-banner" id="inicioAvisos" hidden></div>
+
+      <div class="area-header">
+        <h2>Índices &amp; câmbio</h2>
+        <span class="hint">referência de mercado — não é dado da sua carteira</span>
+      </div>
+      <div class="widget-grid" id="indicesCambioGrid"></div>
+
+      <div class="area-header">
+        <h2>Minha carteira — situação atual</h2>
+        <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
+      </div>
+      <!-- 13/09/2026: as 3 divisoes (Total/Longo Prazo/Renda Emergencial)
+           sempre visiveis juntas, sem aba - a pedido do Tiago. Ver
+           renderResumoPatrimonio em pages/inicio.js. -->
+      <div id="resumoPatrimonio"></div>
+
+      <div class="area-header" style="margin-top:26px">
+        <h2>Rentabilidade</h2>
+      </div>
+      <div class="filter-tabs" id="periodoTabs" style="margin-bottom:14px">
+        <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
+        <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
+        <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
+        <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
+        <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
+        <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
+      </div>
+
+      <div class="rentab-grid">
+        <div class="rentab-card rentab-card-total">
+          <div class="rentab-card-info" id="rentabInfoTotal"></div>
+          <div class="rentab-card-chart" id="rentabChartTotal"></div>
+          <div class="chart-legend2" id="rentabLegendaTotal"></div>
+        </div>
+        <div class="rentab-card">
+          <div class="rentab-card-info" id="rentabInfoLongoPrazo"></div>
+          <div class="rentab-card-chart" id="rentabChartLongoPrazo"></div>
+          <div class="chart-legend2" id="rentabLegendaLongoPrazo"></div>
+        </div>
+        <div class="rentab-card">
+          <div class="rentab-card-info" id="rentabInfoRendaEmergencial"></div>
+          <div class="rentab-card-chart" id="rentabChartRendaEmergencial"></div>
+          <div class="chart-legend2" id="rentabLegendaRendaEmergencial"></div>
+        </div>
+      </div>
+
+      <div class="area-header" style="margin-top:26px">
+        <h2>Meus ativos</h2>
+        <span class="hint">cartão inteiro é o link pro Detalhe do Ativo</span>
+      </div>
+      <div class="filter-tabs" id="filtroAtivosTabs" style="margin-bottom:12px">
+        <button class="filter-tab active" type="button" data-classe="todos">Todos</button>
+        <button class="filter-tab" type="button" data-classe="acoes">Ações</button>
+        <button class="filter-tab" type="button" data-classe="fiis">FIIs</button>
+        <button class="filter-tab" type="button" data-classe="usa">Ações EUA</button>
+        <button class="filter-tab" type="button" data-classe="rf">Renda Fixa</button>
+      </div>
+      <div class="ativos-grid" id="meusAtivosGrid"></div>
+    </div>
+  </template>
+
+<template id="page-distribuicoes-template">
+
+    <!-- 14/09/2026: 1ª fatia foi só "Metas da Carteira". 2ª fatia (mesmo
+         dia) acrescenta "Objetivos da Carteira" e a 4ª "Radar de
+         oportunidades" (3ª foi só o back-end de leitura do Radar) — as 3
+         seções vêm juntas na mesma ação distribuicoesMetas
+         (apps-script/DistribuicoesMetas.gs), por isso compartilham
+         loading/erro. Ordem das seções aqui é a ordem que o Tiago pediu:
+         Objetivos → Radar → Metas. -->
+
+    <div class="metas-loading" id="metasLoading" aria-hidden="true">
+      <span class="skel skel-header"></span>
+      <div class="obj-grid">
+        <span class="skel" style="height:190px"></span>
+        <span class="skel" style="height:190px"></span>
+      </div>
+      <span class="skel skel-header" style="margin-top:8px"></span>
+      <span class="skel" style="height:260px"></span>
+      <span class="skel skel-header" style="margin-top:8px"></span>
+      <div class="goals-grid">
+        <span class="skel" style="height:220px"></span>
+        <span class="skel" style="height:220px"></span>
+        <span class="skel" style="height:220px"></span>
+      </div>
+    </div>
+
+    <div class="metas-erro" id="metasErro" hidden></div>
+
+    <div id="metasConteudo" hidden>
+      <div id="refreshControlDistribuicoes" class="refresh-control"></div>
+      <div class="avisos-banner" id="metasAvisos" hidden></div>
+
+      <div class="area-header">
+        <h2>Objetivos da carteira</h2>
+        <span class="hint">Quanto você quer ter em cada tipo de ativo — e quanto falta investir pra chegar lá. Clique em "Editar % desejado" em cada bloco pra mudar direto na planilha.</span>
+      </div>
+      <div id="objetivosCarteiraGrid"></div>
+
+      <div class="area-header" style="margin-top:28px">
+        <h2>Radar de oportunidades</h2>
+        <span class="hint">Ranking de compra por classe de ativo. Clique no cabeçalho de qualquer coluna pra ordenar (default: Ranking) e em "Editar" numa linha pra mudar Ranking, Preço-teto ou % desejado direto na planilha.</span>
+      </div>
+      <div id="splitInternoGrid"></div>
+      <div id="radarOportunidadesGrid"></div>
+
+      <div class="area-header" style="margin-top:28px">
+        <h2>Metas da carteira</h2>
+        <span class="hint">Renda Passiva, Patrimônio e Renda Emergencial — clique em "Editar" em qualquer cartão pra mudar a meta direto na planilha</span>
+      </div>
+      <div class="goals-grid" id="metasCarteiraGrid"></div>
+    </div>
+  </template>

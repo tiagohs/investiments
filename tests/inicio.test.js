@@ -965,7 +965,7 @@ function makePaginaDom() {
     <div class="inicio-loading" id="inicioLoading"></div>
     <div class="inicio-erro" id="inicioErro" hidden></div>
     <div id="inicioConteudo" hidden>
-      <div id="refreshControl"></div>
+      <div id="refreshControlInicio"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
       <div class="widget-grid" id="indicesCambioGrid"></div>
       <div id="resumoPatrimonio"></div>
@@ -1058,8 +1058,8 @@ test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenh
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.match(doc.getElementById('resumoPatrimonio').textContent, /100\.000/);
 
-  const btn = doc.getElementById('refreshControl').querySelector('.refresh-btn');
-  assert.ok(btn, 'montarPaginaInicio precisa montar o botão de atualizar em #refreshControl');
+  const btn = doc.getElementById('refreshControlInicio').querySelector('.refresh-btn');
+  assert.ok(btn, 'montarPaginaInicio precisa montar o botão de atualizar em #refreshControlInicio');
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
   await Promise.resolve();

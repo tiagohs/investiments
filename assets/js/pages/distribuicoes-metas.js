@@ -1414,7 +1414,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const splitInternoContainer = doc.getElementById('splitInternoGrid');
   const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
-  const refreshControlEl = doc.getElementById('refreshControl');
+  const refreshControlEl = doc.getElementById('refreshControlDistribuicoes');
 
   async function carregarERedesenhar() {
     const resposta = await getDistribuicoesMetasImpl(token);

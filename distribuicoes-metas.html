@@ -17,6 +17,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/css/shell.css">
+<!-- 16/09/2026: as duas folhas carregam nos dois arquivos de entrada
+     (aqui e em index.html) — ver o mesmo comentário em index.html. -->
+<link rel="stylesheet" href="assets/css/inicio.css">
 <link rel="stylesheet" href="assets/css/distribuicoes-metas.css">
 </head>
 <body data-section="distribuicoes">
@@ -24,68 +27,23 @@
 <div class="wrap">
   <div id="shell-header"></div>
 
-  <main hidden>
-    <!-- 14/09/2026: 1ª fatia foi só "Metas da Carteira". 2ª fatia (mesmo
-         dia) acrescenta "Objetivos da Carteira" e a 4ª "Radar de
-         oportunidades" (3ª foi só o back-end de leitura do Radar) — as 3
-         seções vêm juntas na mesma ação distribuicoesMetas
-         (apps-script/DistribuicoesMetas.gs), por isso compartilham
-         loading/erro. Ordem das seções aqui é a ordem que o Tiago pediu:
-         Objetivos → Radar → Metas. -->
-
-    <div class="metas-loading" id="metasLoading" aria-hidden="true">
-      <span class="skel skel-header"></span>
-      <div class="obj-grid">
-        <span class="skel" style="height:190px"></span>
-        <span class="skel" style="height:190px"></span>
-      </div>
-      <span class="skel skel-header" style="margin-top:8px"></span>
-      <span class="skel" style="height:260px"></span>
-      <span class="skel skel-header" style="margin-top:8px"></span>
-      <div class="goals-grid">
-        <span class="skel" style="height:220px"></span>
-        <span class="skel" style="height:220px"></span>
-        <span class="skel" style="height:220px"></span>
-      </div>
-    </div>
-
-    <div class="metas-erro" id="metasErro" hidden></div>
-
-    <div id="metasConteudo" hidden>
-      <div id="refreshControl" class="refresh-control"></div>
-      <div class="avisos-banner" id="metasAvisos" hidden></div>
-
-      <div class="area-header">
-        <h2>Objetivos da carteira</h2>
-        <span class="hint">Quanto você quer ter em cada tipo de ativo — e quanto falta investir pra chegar lá. Clique em "Editar % desejado" em cada bloco pra mudar direto na planilha.</span>
-      </div>
-      <div id="objetivosCarteiraGrid"></div>
-
-      <div class="area-header" style="margin-top:28px">
-        <h2>Radar de oportunidades</h2>
-        <span class="hint">Ranking de compra por classe de ativo. Clique no cabeçalho de qualquer coluna pra ordenar (default: Ranking) e em "Editar" numa linha pra mudar Ranking, Preço-teto ou % desejado direto na planilha.</span>
-      </div>
-      <div id="splitInternoGrid"></div>
-      <div id="radarOportunidadesGrid"></div>
-
-      <div class="area-header" style="margin-top:28px">
-        <h2>Metas da carteira</h2>
-        <span class="hint">Renda Passiva, Patrimônio e Renda Emergencial — clique em "Editar" em qualquer cartão pra mudar a meta direto na planilha</span>
-      </div>
-      <div class="goals-grid" id="metasCarteiraGrid"></div>
-    </div>
-  </main>
+  <!-- 16/09/2026: o <main> de cada aba (Início / Distribuições e Metas)
+       era conteúdo fixo aqui — agora mora em assets/partials/pages.html
+       e é injetado dinamicamente por assets/js/router.js (mesmo padrão
+       do header/footer do shell), pra permitir trocar de aba sem
+       recarregar a página. Ver router.js pro porquê. -->
+  <div id="app-pages"></div>
 
   <div id="shell-footer"></div>
 </div>
 
 <script type="module">
   import { mountShell } from './assets/js/shell.js';
-  import { montarPaginaDistribuicoesMetas } from './assets/js/pages/distribuicoes-metas.js';
+  import { mountRouter } from './assets/js/router.js';
 
   mountShell({
     onAuthenticated(token) {
-      montarPaginaDistribuicoesMetas(token);
+      mountRouter(document, { token });
     },
   });
 </script>

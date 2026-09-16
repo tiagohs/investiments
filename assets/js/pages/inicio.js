@@ -1265,7 +1265,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
-  const refreshControlEl = doc.getElementById('refreshControl');
+  const refreshControlEl = doc.getElementById('refreshControlInicio');
 
   async function carregarERedesenhar() {
     const resposta = await getHomeImpl(token);
