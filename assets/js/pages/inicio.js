@@ -1163,6 +1163,9 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
 
 const CLASSE_LABEL_ATIVO = { acoes: 'Ação', fiis: 'FII', usa: 'EUA', rf: 'RF' };
 
+/** Ícone do botão "ver gráfico" (.ativo-grafico-icon, criarAtivoCard) - eixo + linha subindo, mesmo padrão de SVG inline (stroke, sem fill) já usado no botão "Editar" do Radar (distribuicoes-metas.js). */
+const ICONE_GRAFICO_ATIVO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>';
+
 /**
  * Linhas do tooltip de hover/touch de cada .ativo-card, por classe - layout
  * validado em docs/direcao-visual.html e decisão registrada em
@@ -1273,13 +1276,16 @@ export function criarAtivoCard(doc, ativo) {
       <div class="ativo-id">
         <span class="ativo-ticker">${ativo.ticker}</span>
         <span class="ativo-classe ${ativo.classe}">${CLASSE_LABEL_ATIVO[ativo.classe] || ativo.classe}</span>
-        <span class="ativo-info-icon" aria-label="Ver detalhes">i</span>
       </div>
       ${viesHtml}
     </div>
     ${precoHtml}
     ${deltaHtml}
     ${detalheHtml}
+    <div class="ativo-card-acoes">
+      <span class="ativo-grafico-icon" aria-label="Ver gráfico de preço">${ICONE_GRAFICO_ATIVO_SVG}</span>
+      <span class="ativo-info-icon" aria-label="Informações rápidas">i</span>
+    </div>
   `;
 
   const precoEl = card.querySelector('.ativo-price');
@@ -1467,6 +1473,115 @@ export function wireTooltipAtivos(doc, container) {
   (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
 }
 
+/**
+ * Liga o botão de gráfico (.ativo-grafico-icon, rodapé de cada
+ * .ativo-card - ver criarAtivoCard) a um popover ("alertinha", pedido
+ * do Tiago) com o gráfico de preço do ativo. Ao contrário da tooltip de
+ * info (wireTooltipAtivos, que mistura hover-no-mouse com toque-no-
+ * ícone), aqui é sempre "clique/toque pra abrir, clique/toque de novo
+ * (ou fora, ou no X) pra fechar" nos dois - um só listener de `click`
+ * cobre mouse E o clique sintético que o toque dispara depois do
+ * pointerup, sem precisar checar pointerType. Nunca navega pro Detalhe
+ * do Ativo (preventDefault+stopPropagation, mesmo motivo do ícone "i").
+ * 1 popover só, criado 1x e reposicionado por cartão - mesma técnica de
+ * wireTooltipAtivos/wirePointerTooltipDistrib_.
+ *
+ * 17/09/2026 (1ª fatia - só o posicionamento/interação dos 3 "gatilhos"
+ * do cartão, pedido do Tiago: "quero só reavaliar os botões, onde
+ * colocá-los", antes de mexer em dado de verdade): o CORPO do popover
+ * ainda é um placeholder ("gráfico chegando em breve") - buscar o
+ * histórico de preço de verdade (endpoint novo no Apps Script, lendo
+ * aux_historico-patrimonio, que já tem o preço de fechamento diário de
+ * cada ticker) fica pra próxima rodada, depois que o encaixe do botão
+ * em si estiver validado no desktop e no mobile.
+ */
+export function wireGraficoAtivo(doc, container) {
+  if (!container || container._graficoWired) return;
+  container._graficoWired = true;
+
+  const popover = doc.createElement('div');
+  popover.className = 'ativo-grafico-popover';
+  popover.hidden = true;
+  popover.innerHTML = `
+    <div class="ativo-grafico-popover-head">
+      <span class="ativo-grafico-popover-ticker"></span>
+      <button type="button" class="ativo-grafico-popover-fechar" aria-label="Fechar">×</button>
+    </div>
+    <div class="ativo-grafico-popover-corpo"></div>
+  `;
+  (doc.body || container).appendChild(popover);
+
+  let cardAberto = null;
+
+  function esconder_() {
+    popover.hidden = true;
+    cardAberto = null;
+  }
+
+  /** position:fixed ancorado no ícone clicado - mesma lógica de "não
+   * deixa vazar da tela" já usada em mostrar_ (ativo-tooltip acima) e
+   * mostrar_ (info-tooltip, wirePointerTooltipDistrib_), adaptada pra
+   * abrir colado embaixo do ícone (não seguindo o ponteiro). */
+  function posicionar_(icone) {
+    const janela = doc.defaultView;
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const rect = icone.getBoundingClientRect();
+    const pw = popover.offsetWidth;
+    const ph = popover.offsetHeight;
+    let esquerda = rect.right - pw;
+    if (esquerda < 12) esquerda = 12;
+    if (esquerda + pw > larguraJanela - 12) esquerda = larguraJanela - pw - 12;
+    let topo = rect.bottom + 8;
+    if (topo + ph > alturaJanela - 12) topo = rect.top - ph - 8;
+    popover.style.left = `${esquerda}px`;
+    popover.style.top = `${topo}px`;
+  }
+
+  function mostrar_(icone, card) {
+    const ativo = card._ativoTooltip;
+    popover.querySelector('.ativo-grafico-popover-ticker').textContent = ativo ? ativo.ticker : '';
+    popover.querySelector('.ativo-grafico-popover-corpo').innerHTML = '<p class="hint">Gráfico de preço chegando em breve.</p>';
+    popover.hidden = false;
+    posicionar_(icone);
+    cardAberto = card;
+  }
+
+  function aoClicar_(ev) {
+    const fechar = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-grafico-popover-fechar') : null;
+    if (fechar) {
+      ev.preventDefault();
+      esconder_();
+      return;
+    }
+    const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-grafico-icon') : null;
+    if (!icone) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const card = icone.closest('.ativo-card');
+    if (!card) return;
+    if (cardAberto === card) {
+      esconder_();
+      return;
+    }
+    mostrar_(icone, card);
+  }
+
+  /** Toque/clique fora do cartão aberto (e fora do próprio popover) fecha
+   * - mesmo padrão "se eu clico fora, some" já validado nas outras
+   * tooltips/popovers da página. */
+  function aoTocarFora_(ev) {
+    if (!cardAberto) return;
+    const alvo = ev.target;
+    if (popover.contains(alvo) || cardAberto.contains(alvo)) return;
+    esconder_();
+  }
+
+  container.addEventListener('click', aoClicar_);
+  popover.addEventListener('click', aoClicar_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
+}
+
 /** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. */
 export function renderAvisos(container, avisos) {
   if (!avisos || Object.keys(avisos).length === 0) {
@@ -1537,6 +1652,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
     wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
     wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
+    wireGraficoAtivo(doc, doc.getElementById('meusAtivosGrid'));
   }
 
   await carregarERedesenhar();

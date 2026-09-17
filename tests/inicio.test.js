@@ -25,6 +25,7 @@ import {
   renderMeusAtivos,
   wireFiltroAtivos,
   wireTooltipAtivos,
+  wireGraficoAtivo,
   renderAvisos,
   montarPaginaInicio,
 } from '../assets/js/pages/inicio.js';
@@ -1113,6 +1114,129 @@ test('wireTooltipAtivos() clicar no ícone "i" nunca navega (preventDefault/stop
   const evento = new doc.defaultView.Event('click', { bubbles: true, cancelable: true });
   icone.dispatchEvent(evento);
   assert.equal(evento.defaultPrevented, true);
+});
+
+// --- criarAtivoCard(): rodapé de ações (17/09/2026) --------------------------
+// Reorganização dos 3 "gatilhos" do cartão (clique geral -> Detalhe do
+// Ativo, ícone "i" -> info rápida, novo ícone de gráfico) numa linha de
+// ações dedicada no rodapé, a pedido do Tiago.
+
+test('criarAtivoCard() tem um rodapé de ações com os ícones de info e de gráfico, fora de .ativo-id', () => {
+  const doc = makeDom('');
+  const card = criarAtivoCard(doc, ATIVO_ACAO_EXEMPLO);
+  const rodape = card.querySelector('.ativo-card-acoes');
+  assert.ok(rodape);
+  assert.ok(rodape.querySelector('.ativo-info-icon'));
+  assert.ok(rodape.querySelector('.ativo-grafico-icon'));
+  // os 2 ícones saíram de dentro de .ativo-id (perto do ticker) - só o ticker/badge de classe continuam lá.
+  assert.equal(card.querySelector('.ativo-id .ativo-info-icon'), null);
+  assert.equal(card.querySelector('.ativo-id .ativo-grafico-icon'), null);
+});
+
+// --- wireGraficoAtivo() -------------------------------------------------------
+// Popover ("alertinha") do gráfico de preço - sempre clique/toque pra
+// abrir e fechar (nos 2), ao contrário do ícone "i" (que no mouse já
+// mostra com hover) - por isso 1 listener de `click` só cobre mouse e o
+// clique sintético do toque, sem precisar checar pointerType.
+
+test('wireGraficoAtivo() clicar no ícone de gráfico abre o popover com o ticker do ativo, sem navegar', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+
+  const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
+  const evento = new doc.defaultView.Event('click', { bubbles: true, cancelable: true });
+  icone.dispatchEvent(evento);
+
+  assert.equal(evento.defaultPrevented, true, 'nunca navega pro Detalhe do Ativo');
+  const popover = doc.body.querySelector('.ativo-grafico-popover');
+  assert.ok(popover);
+  assert.equal(popover.hidden, false);
+  assert.match(popover.querySelector('.ativo-grafico-popover-ticker').textContent, /BBAS3/);
+});
+
+test('wireGraficoAtivo() clicar de novo no mesmo ícone fecha o popover (alterna)', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+
+  const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, false);
+
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, true);
+});
+
+test('wireGraficoAtivo() o botão "×" do popover fecha', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  const popover = doc.body.querySelector('.ativo-grafico-popover');
+  assert.equal(popover.hidden, false);
+
+  popover.querySelector('.ativo-grafico-popover-fechar').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(popover.hidden, true);
+});
+
+test('wireGraficoAtivo() clicar fora do cartão aberto (e fora do popover) fecha', () => {
+  const doc = makeDom('<div id="grid"></div><div id="fora">Fora do cartão</div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, false);
+
+  doc.getElementById('fora').dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', { clientX: 900, clientY: 900, bubbles: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, true);
+});
+
+test('wireGraficoAtivo() abrir o gráfico de outro cartão troca o popover (fecha o anterior, abre o novo)', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_FII_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+
+  const icones = grid.querySelectorAll('.ativo-card .ativo-grafico-icon');
+  icones[0].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  const popover = doc.body.querySelector('.ativo-grafico-popover');
+  assert.match(popover.querySelector('.ativo-grafico-popover-ticker').textContent, /BBAS3/);
+
+  icones[1].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(popover.hidden, false);
+  assert.match(popover.querySelector('.ativo-grafico-popover-ticker').textContent, /HGRU11/);
+});
+
+test('wireGraficoAtivo() clicar no ícone "i" não abre o popover de gráfico (cada ícone com seu próprio gatilho)', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireTooltipAtivos(doc, grid);
+  wireGraficoAtivo(doc, grid);
+
+  grid.querySelector('.ativo-card .ativo-info-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, true);
+});
+
+test('wireGraficoAtivo() religar no mesmo container (ex.: depois de "Atualizar dados") não duplica o popover nem os listeners', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid);
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos'); // simula o redesenho de "Atualizar dados"
+  wireGraficoAtivo(doc, grid);
+
+  assert.equal(doc.body.querySelectorAll('.ativo-grafico-popover').length, 1);
+
+  const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, false);
 });
 
 // --- renderAvisos ------------------------------------------------------------

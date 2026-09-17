@@ -212,19 +212,6 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .vies-badge{ font-size:10px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; flex:none; }
 .vies-badge.comprar{ background:var(--good-soft); color:var(--good-ink); }
 .vies-badge.aguardar{ background:var(--warn-soft); color:var(--warn-ink); }
-/* .ativo-info-icon — mesmo desenho do .radar-info-icon (distribuicoes-
-   metas.css), duplicado aqui pelo mesmo motivo de sempre (.skel/
-   .moeda-conv/etc.). No toque, é o único gatilho da tooltip do cartão
-   (o cartão inteiro é um link pro Detalhe do Ativo - ver
-   wireTooltipAtivos, assets/js/pages/inicio.js) - pedido do Tiago
-   (16/09/2026): "todos os lugares que possuem um tooltip" ganham um "i"
-   do lado, clicável. No mouse, hover no cartão inteiro já mostra a
-   tooltip como sempre - o ícone é só a pista visual + o gatilho de toque. */
-.ativo-info-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
-      border-radius:50%; background:var(--surface-3); border:1px solid var(--border); font-size:10px;
-      font-style:italic; font-family:Georgia, 'Times New Roman', serif; color:var(--ink-muted);
-      vertical-align:middle; flex:none; cursor:pointer; }
-.ativo-info-icon:hover{ color:var(--ink); border-color:var(--acoes); }
 .ativo-price{ font-family:var(--mono); font-size:19px; font-weight:600; margin-top:2px; }
 .ativo-price .dec{ font-size:13px; opacity:.65; }
 .ativo-delta{ font-size:11px; font-weight:600; }
@@ -238,6 +225,58 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    folhas de estilo, mesmo padrão de .skel/.area-header/.avisos-banner. */
 .moeda-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); }
 .ativo-detalhe{ font-size:10.5px; color:var(--ink-faint); margin-top:1px; }
+
+/* ---- Rodapé de ações do cartão (17/09/2026) ----
+   Reorganização dos 3 "gatilhos" do .ativo-card a pedido do Tiago: o
+   cartão inteiro continua um link (Detalhe do Ativo), mas a tooltip de
+   info rápida ("i", já existia) e o novo botão de gráfico saíram de
+   dentro de .ativo-id (perto do ticker) e viraram uma linha de ações
+   dedicada no rodapé - separa "conteúdo" (topo) de "ações" (rodapé) e
+   dá mais espaço de toque pros 2 ícones no mobile, sem disputar espaço
+   com o ticker/badge de classe (que já usa flex-wrap ali em cima).
+   margin-top:auto empurra o rodapé pro fim do cartão mesmo quando o
+   conteúdo acima é mais curto que o do cartão vizinho - a grade
+   (.ativos-grid, display:grid) já estica todo cartão de uma linha pra
+   mesma altura, então isso alinha o rodapé entre cartões vizinhos em
+   vez de deixá-lo "flutuando" no meio de um cartão mais alto. */
+.ativo-card-acoes{ display:flex; justify-content:flex-end; align-items:center; gap:8px;
+      margin-top:auto; padding-top:8px; border-top:1px dashed var(--border); }
+/* .ativo-info-icon/.ativo-grafico-icon — mesmo desenho do
+   .radar-info-icon (distribuicoes-metas.css), duplicado aqui pelo mesmo
+   motivo de sempre (.skel/.moeda-conv/etc.), só que um pouco maior
+   (22px, era 15px) - no rodapé dedicado sobra espaço, e um alvo de
+   toque maior ajuda no mobile agora que são 2 ícones lado a lado em vez
+   de 1 espremido junto ao ticker. Comportamento de toque/clique: ver
+   wireTooltipAtivos (info) e wireGraficoAtivo (gráfico), ambos em
+   assets/js/pages/inicio.js - nenhum dos 2 navega pro Detalhe do Ativo
+   (preventDefault+stopPropagation), mesmo dentro do <a> do cartão. */
+.ativo-info-icon, .ativo-grafico-icon{ display:inline-flex; align-items:center; justify-content:center;
+      width:22px; height:22px; border-radius:50%; background:var(--surface-3); border:1px solid var(--border);
+      color:var(--ink-muted); flex:none; cursor:pointer; }
+.ativo-info-icon{ font-size:11px; font-style:italic; font-family:Georgia, 'Times New Roman', serif; }
+.ativo-grafico-icon svg{ width:13px; height:13px; }
+.ativo-info-icon:hover, .ativo-grafico-icon:hover{ color:var(--ink); border-color:var(--acoes); }
+
+/* Popover ("alertinha") do gráfico de preço - aberto/fechado no clique
+   do .ativo-grafico-icon (ver wireGraficoAtivo, assets/js/pages/inicio.js).
+   position:fixed ancorado no ícone clicado (não segue o ponteiro, ao
+   contrário de .ativo-tooltip/.info-tooltip - esse aqui fica aberto até
+   ser fechado, não faria sentido ele "correr atrás" do mouse). Mesma
+   linguagem visual de .ativo-tooltip (raio/sombra/borda), com cabeçalho
+   próprio (ticker + botão de fechar) por ser um painel persistente, não
+   passageiro. 17/09/2026: corpo ainda é um placeholder - ver o
+   comentário de wireGraficoAtivo. */
+.ativo-grafico-popover{ position:fixed; z-index:55; background:var(--surface); border:1px solid var(--border);
+      border-radius:12px; box-shadow:var(--shadow); width:260px; max-width:calc(100vw - 24px); }
+.ativo-grafico-popover-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
+      padding:10px 12px; border-bottom:1px solid var(--border); }
+.ativo-grafico-popover-ticker{ font-family:var(--body-f); font-weight:700; font-size:13px; }
+.ativo-grafico-popover-fechar{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+      border-radius:50%; border:1px solid var(--border); background:var(--surface-3); color:var(--ink-muted);
+      font-size:15px; line-height:1; cursor:pointer; padding:0; }
+.ativo-grafico-popover-fechar:hover{ color:var(--ink); border-color:var(--acoes); }
+.ativo-grafico-popover-corpo{ padding:14px 12px; min-height:120px; display:flex; align-items:center; justify-content:center; text-align:center; }
+.ativo-grafico-popover-corpo .hint{ margin:0; }
 
 /* Tooltip de hover/touch do .ativo-card - mesmo desenho validado em
    docs/direcao-visual.html, position:fixed (segue o ponteiro por cima de
