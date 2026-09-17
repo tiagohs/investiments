@@ -401,21 +401,34 @@ test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio 
 
 // 17/09/2026 #2: "ontem era: R$ X - Y%" - compara com o ÚLTIMO PREGÃO
 // antes de hoje, não o dia de calendário anterior (pedido do Tiago: "se
-// for segunda, em relação a sexta, último dia do pregão"). Sexta
-// (pregao:true) -> Sábado/Domingo (pregao:false, simulando fim de
-// semana sem atualização de Renda Variável) -> Segunda ("hoje",
-// historico[length-1]). Campos no historico usam os nomes de
-// HistoricoInicio.gs (patrimonio/longoPrazo/nacional/rendaEmergencial),
-// não os de Home.gs (total/...) - CAMPO_PRINCIPAL_POR_VISAO é quem faz
-// essa ponte.
+// for segunda, em relação a sexta, último dia do pregão"). Campos no
+// historico usam os nomes de HistoricoInicio.gs (patrimonio/longoPrazo/
+// nacional/rendaEmergencial), não os de Home.gs (total/...) -
+// CAMPO_PRINCIPAL_POR_VISAO é quem faz essa ponte.
+//
+// 17/09/2026 #3 (correção do bug reportado pelo Tiago em produção - ver
+// valorUltimoPregaoAntes_ em pages/inicio.js pro raciocínio completo):
+// historico[length-1] NUNCA é "hoje" de verdade na operação normal - é
+// sempre o último pregão JÁ FECHADO e sincronizado (o gatilho diário só
+// grava o dia depois que ele fecha). Por isso, ao contrário da versão
+// antiga deste fixture (que tinha uma linha extra de "segunda = hoje"
+// só pra ser pulada), sexta (pregao:true) já É o "ontem" que a função
+// deve devolver direto - é o ÚLTIMO item da série.
 const HISTORICO_ONTEM_EXEMPLO = [
-  { data: '2026-09-11', patrimonio: 140000, longoPrazo: 80000, nacional: 60000, rendaEmergencial: 60000, pregao: true }, // sexta
-  { data: '2026-09-12', patrimonio: 140500, longoPrazo: 80200, nacional: 60100, rendaEmergencial: 60300, pregao: false }, // sábado
-  { data: '2026-09-13', patrimonio: 140800, longoPrazo: 80300, nacional: 60150, rendaEmergencial: 60500, pregao: false }, // domingo
-  { data: '2026-09-14', patrimonio: 145000, longoPrazo: 83000, nacional: 62000, rendaEmergencial: 62000, pregao: true }, // segunda ("hoje")
+  { data: '2026-09-10', patrimonio: 138200, longoPrazo: 79400, nacional: 59400, rendaEmergencial: 59800, pregao: true }, // quinta
+  { data: '2026-09-11', patrimonio: 140000, longoPrazo: 80000, nacional: 60000, rendaEmergencial: 60000, pregao: true }, // sexta - último item da série = "ontem" (não "hoje")
 ];
 
-test('renderResumoPatrimonio() "ontem era" compara com o último PREGÃO antes de hoje (pula fim de semana sem pregão) e mostra verde quando melhora', () => {
+// Fixture separado pra cobrir o caso do último item da série NÃO ser
+// pregão (ex.: sincronizou num fim de semana) - a busca pra trás ainda
+// precisa achar sexta, agora a partir de length-1 (não mais length-2).
+const HISTORICO_ONTEM_FIM_DE_SEMANA_EXEMPLO = [
+  { data: '2026-09-11', patrimonio: 140000, longoPrazo: 80000, nacional: 60000, rendaEmergencial: 60000, pregao: true }, // sexta - é o que deve ser encontrado
+  { data: '2026-09-12', patrimonio: 140500, longoPrazo: 80200, nacional: 60100, rendaEmergencial: 60300, pregao: false }, // sábado
+  { data: '2026-09-13', patrimonio: 140800, longoPrazo: 80300, nacional: 60150, rendaEmergencial: 60500, pregao: false }, // domingo - último item da série, mas sem pregão
+];
+
+test('renderResumoPatrimonio() "ontem era" compara com o último item da série (que já É o último pregão fechado, não "hoje") e mostra verde quando melhora', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
   renderResumoPatrimonio(doc, resumo, {
@@ -427,10 +440,28 @@ test('renderResumoPatrimonio() "ontem era" compara com o último PREGÃO antes d
 
   const cardTotal = resumo.querySelector('.resumo-card-total');
   const ontemTotal = cardTotal.querySelector('.resumo-ontem');
-  // sexta (140.000) é o último pregão antes de hoje, não domingo (140.800).
+  // sexta (140.000, ÚLTIMO item da série) é o "ontem" - não pula pra quinta.
   assert.match(ontemTotal.textContent, /ontem era: R\$\s*140\.000,00/);
   assert.match(ontemTotal.textContent, /\+5,42%/); // (147.583,80 - 140.000) / 140.000
   assert.equal(ontemTotal.classList.contains('good'), true);
+});
+
+test('renderResumoPatrimonio() "ontem era" pula fim de semana sem pregão quando o último item sincronizado cai num dia sem pregão', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, {
+    patrimonio: PATRIMONIO_EXEMPLO,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+    historico: HISTORICO_ONTEM_FIM_DE_SEMANA_EXEMPLO,
+  });
+
+  const cardTotal = resumo.querySelector('.resumo-card-total');
+  const ontemTotal = cardTotal.querySelector('.resumo-ontem');
+  // domingo (último item, sem pregão) e sábado (sem pregão) são pulados -
+  // acha sexta (140.000), o último pregão de verdade.
+  assert.match(ontemTotal.textContent, /ontem era: R\$\s*140\.000,00/);
+  assert.match(ontemTotal.textContent, /\+5,42%/);
 });
 
 test('renderResumoPatrimonio() "ontem era" mostra vermelho quando o valor de hoje é menor que o do último pregão', () => {
@@ -476,6 +507,23 @@ test('renderResumoPatrimonio() "ontem era" fica em branco (classe na, sem lança
     ativos: ATIVOS_RESUMO_EXEMPLO,
     cambio: { usd: 5 },
   }));
+  const ontemTotal = resumo.querySelector('.resumo-card-total .resumo-ontem');
+  assert.equal(ontemTotal.classList.contains('na'), true);
+  assert.equal(ontemTotal.textContent, '');
+});
+
+test('renderResumoPatrimonio() "ontem era" fica em branco quando NENHUM dia do historico tem pregao=true', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, {
+    patrimonio: PATRIMONIO_EXEMPLO,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+    historico: [
+      { data: '2026-09-12', patrimonio: 140500, longoPrazo: 80200, nacional: 60100, rendaEmergencial: 60300, pregao: false },
+      { data: '2026-09-13', patrimonio: 140800, longoPrazo: 80300, nacional: 60150, rendaEmergencial: 60500, pregao: false },
+    ],
+  });
   const ontemTotal = resumo.querySelector('.resumo-card-total .resumo-ontem');
   assert.equal(ontemTotal.classList.contains('na'), true);
   assert.equal(ontemTotal.textContent, '');

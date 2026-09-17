@@ -587,20 +587,41 @@ function wirePointerTooltipDistrib_(doc, container) {
 }
 
 /**
- * Valor de `campo` no ÚLTIMO dia de pregão de verdade ANTES de hoje
- * (historico[length-1] é sempre "hoje" - ver comentário de
- * filtrarHistoricoPorPeriodo). "Último pregão" (não "ontem" no sentido
- * literal de calendário) a pedido do Tiago, 17/09/2026: "se for segunda,
- * em relação a sexta, último dia do pregão" - sábado/domingo/feriado sem
- * NENHUMA atualização de Renda Variável ficam com pregao=false
- * (HistoricoInicio.gs), então andar pra trás a partir de length-2 até
- * achar pregao===true pula naturalmente esses dias sem pregão, sem
- * precisar saber calendário nenhum aqui no front-end. null quando não
- * há histórico suficiente ou nenhum dia de pregão anterior é encontrado.
+ * Valor de `campo` no ÚLTIMO dia de pregão de verdade ANTES de hoje.
+ *
+ * Correção de 17/09/2026 #3 (Tiago reportou, com print da produção,
+ * "ontem era" mostrando ~2-4% de aumento de um dia pro outro quando o
+ * gráfico de Rentabilidade mal mostra diferença nenhuma - "Tenha certeza
+ * que o calculo esta correto"): a versão original pulava
+ * historico[length-1] achando que era "hoje" (o MESMO "hoje" de
+ * filtrarHistoricoPorPeriodo, acima - "o dia do ÚLTIMO item de
+ * historico"). Só que esse "hoje" ali é sempre o ÚLTIMO DIA SINCRONIZADO
+ * (aux_historico-patrimonio/aux_historico-renda-fixa/aux_historico-indices
+ * só ganham a linha de um dia depois que ele fecha, via gatilho diário -
+ * nunca durante o próprio dia) - e esta função aqui compara contra o
+ * patrimônio ATUAL, AO VIVO (patrimonio.total, Home.gs, buscado na hora
+ * da chamada), não contra o "hoje" do historico. Isso fazia
+ * historico[length-1] (que na prática É o último pregão já fechado, ou
+ * seja, exatamente o "ontem" que esta função deveria devolver) ser
+ * descartado como se já fosse "hoje" - e a função devolvia o pregão
+ * ANTERIOR a esse, comparando o valor de hoje contra 2 pregões atrás em
+ * vez de 1, inflando a % mostrada por um dia inteiro de movimento real a
+ * mais (e mostrando o valor de "ontem" errado também, não só a %).
+ * Confirmado reprocessando a planilha real do Tiago direto (mesmo
+ * algoritmo de montarSerieHistoricoInicio_, HistoricoInicio.gs): as 3
+ * abas-fonte paravam em 16/09 com "hoje" sendo 17/09 - ou seja,
+ * historico[length-1] nunca é de fato o dia de hoje na operação normal,
+ * é sempre o último pregão já fechado.
+ *
+ * Agora anda a partir de length-1 (não length-2) - sábado/domingo/
+ * feriado sem NENHUMA atualização de Renda Variável ficam com
+ * pregao=false (HistoricoInicio.gs), então segue pulando esses dias
+ * sozinho, sem precisar saber calendário nenhum aqui no front-end. null
+ * quando não há historico nenhum ou nenhum dia de pregão é encontrado.
  */
 function valorUltimoPregaoAntes_(historico, campo) {
-  if (!historico || historico.length < 2) return null;
-  for (let i = historico.length - 2; i >= 0; i -= 1) {
+  if (!historico || historico.length < 1) return null;
+  for (let i = historico.length - 1; i >= 0; i -= 1) {
     if (!historico[i].pregao) continue;
     const v = historico[i][campo];
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
