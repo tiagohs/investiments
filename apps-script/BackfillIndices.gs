@@ -264,10 +264,27 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   });
 }
 
-function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio, dataFim, nomeIndice) {
+function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio, dataFim, nomeIndice, valorAnteriorConhecido) {
   var linhas = [];
   var celula = abaAuxiliar.getRange(CELULA_RASCUNHO_GOOGLEFINANCE);
   var inicioPedaco = new Date(dataInicio);
+  // 17/09/2026: guarda de sanidade - Tiago reportou o gráfico de
+  // Rentabilidade "explodindo" pra +100%/-100% no dia 16/09/2026; a causa
+  // foi um valor absurdo (114.3) que o GOOGLEFINANCE devolveu pro
+  // Ibovespa naquele dia (o normal na época era ~186.500 pontos - 114.3 é
+  // claramente um soluço pontual da fonte externa, não um pregão real, o
+  // índice nunca despenca >99% num dia só). Esse valor passava direto
+  // pelo "valores.forEach" antigo (só checava se linha[0] era Date, nunca
+  // se linha[1] fazia sentido) e ia pra aux_historico-indices intacto,
+  // quebrando normalizarSerieRentabilidade (inicio.js), que usa esse
+  // ponto como base/fim de "% desde o início do período". `anterior`
+  // guarda o último valor ACEITO (começa no último já salvo na planilha,
+  // se veio via valorAnteriorConhecido) - uma linha nova mais de 2x maior
+  // ou menor que ele é rejeitada (log + "registrando como lacuna", mesmo
+  // caminho já usado pra #N/A) em vez de gravada - a lacuna se
+  // autocorrige sozinha no próximo sync (forward-fill em
+  // HistoricoInicio.gs carrega o último valor bom pra frente até lá).
+  var anterior = (typeof valorAnteriorConhecido === 'number' && Number.isFinite(valorAnteriorConhecido)) ? valorAnteriorConhecido : null;
 
   while (inicioPedaco <= dataFim) {
     var fimPedaco = new Date(inicioPedaco);
@@ -331,7 +348,14 @@ function buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio,
     }
 
     valores.forEach(function (linha) {
-      linhas.push([linha[0], nomeIndice, linha[1]]);
+      var valor = linha[1];
+      if (anterior && (valor < anterior * 0.5 || valor > anterior * 2)) {
+        Logger.log('AVISO: valor implausível pra ' + nomeIndice + ' em ' + formatarDataIndice_(linha[0]) +
+          ' (' + valor + ', esperado perto de ' + anterior + ') - provável soluço do GOOGLEFINANCE, registrando como lacuna.');
+        return;
+      }
+      linhas.push([linha[0], nomeIndice, valor]);
+      anterior = valor;
     });
 
     celula.clearContent();
@@ -496,7 +520,13 @@ function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
     return { linhasNovas: 0, jaEstavaEmDia: true };
   }
 
-  var linhas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', inicio, ontem, 'Ibovespa');
+  // 17/09/2026: último valor JÁ SALVO do Ibovespa, só pra alimentar a
+  // guarda de sanidade acima (buscarHistoricoGoogleFinanceEmPedacos_) -
+  // sem isso, a 1ª linha nova de cada sync incremental não teria "anterior"
+  // pra comparar (o backfill completo também não tem, mas ali faz sentido:
+  // é o início da série, não tem valor prévio mesmo).
+  var valorAnteriorIbovespa = ultimoValorIndiceSalvo_(abaIndices, 'Ibovespa');
+  var linhas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', inicio, ontem, 'Ibovespa', valorAnteriorIbovespa);
   if (linhas.length > 0) {
     var primeiraLinhaNova = abaIndices.getLastRow() + 1;
     abaIndices.getRange(primeiraLinhaNova, 1, linhas.length, 3).setValues(linhas);
@@ -559,6 +589,29 @@ function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
 function ultimaDataIndiceSalvo_(aba, nomeIndice, mapaCache) {
   var mapa = mapaCache || carregarTodasUltimasDatasIndices_(aba);
   return mapa[nomeIndice] || null;
+}
+
+/**
+ * Último VALOR salvo pra UM índice (par de ultimaDataIndiceSalvo_, que só
+ * devolve a data) - usado pela guarda de sanidade do Ibovespa (17/09/2026,
+ * ver buscarHistoricoGoogleFinanceEmPedacos_) pra saber "quanto era o
+ * valor esperado" antes de aceitar uma linha nova do GOOGLEFINANCE.
+ */
+function ultimoValorIndiceSalvo_(aba, nomeIndice) {
+  var ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) return null;
+  var dados = aba.getRange(2, 1, ultimaLinha - 1, 3).getValues(); // A=Data, B=Índice, C=Valor
+  var ultimaData = null;
+  var ultimoValor = null;
+  for (var i = 0; i < dados.length; i++) {
+    var data = dados[i][0];
+    if (dados[i][1] !== nomeIndice || !(data instanceof Date)) continue;
+    if (!ultimaData || data > ultimaData) {
+      ultimaData = data;
+      ultimoValor = Number(dados[i][2]);
+    }
+  }
+  return (typeof ultimoValor === 'number' && Number.isFinite(ultimoValor)) ? ultimoValor : null;
 }
 
 /**
