@@ -253,6 +253,32 @@ test('renderDistribuicao() desenha uma fatia (arco do donut + item de legenda) p
   assert.match(container.textContent, /40,0%/);
 });
 
+// 18/09/2026: dot+nome e valor+%+ícone agrupados em 2 wrappers
+// (.distrib-nome-wrap/.distrib-valores) - min-width:0 sozinho não
+// bastou num celular de verdade (Tiago testou e ainda vazava, mesmo
+// depois do card virar item de grid com min-width:0); com os 2 grupos,
+// .distrib-item empilha em 2 linhas abaixo de 480px (CSS), então cada
+// linha só precisa caber sozinha.
+test('renderDistribuicao() agrupa dot+nome (.distrib-nome-wrap) e valor+%+ícone (.distrib-valores) - permite empilhar em 2 linhas no mobile', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Ações', cor: 'var(--acoes)', valor: 60 },
+  ]);
+  const item = container.querySelector('.distrib-item');
+  const nomeWrap = item.querySelector('.distrib-nome-wrap');
+  const valores = item.querySelector('.distrib-valores');
+  assert.ok(nomeWrap);
+  assert.ok(valores);
+  assert.ok(nomeWrap.querySelector('.distrib-dot'));
+  assert.ok(nomeWrap.querySelector('.distrib-nome'));
+  assert.ok(valores.querySelector('.distrib-valor'));
+  assert.ok(valores.querySelector('.distrib-pct'));
+  assert.ok(valores.querySelector('.info-icon'));
+  // os 2 grupos são filhos diretos de .distrib-item, nessa ordem.
+  assert.deepEqual(Array.from(item.children).map((el) => el.className), ['distrib-nome-wrap', 'distrib-valores']);
+});
+
 test('renderDistribuicao() mostra o valor em R$ de cada fatia, além da porcentagem (Tiago pediu os dois de volta na legenda)', () => {
   const doc = makeDom('<div id="distrib"></div>');
   const container = doc.getElementById('distrib');

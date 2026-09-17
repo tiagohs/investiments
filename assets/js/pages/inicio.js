@@ -451,12 +451,25 @@ export function renderDistribuicao(doc, container, fatias) {
     // (não aparece no toque) - agora é .info-alvo com ícone "i" clicável,
     // ver wirePointerTooltipDistrib_ logo abaixo.
     item.dataset.tooltip = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatBRL(f.valor)})`;
+    // 18/09/2026: dot+nome e valor+%+ícone viraram 2 grupos (.distrib-nome-wrap/
+    // .distrib-valores) em vez de 5 filhos soltos - o min-width:0 (17/09/2026)
+    // não bastou sozinho num celular de verdade (Tiago testou e ainda vazava):
+    // AINDA existiam 3 pedaços flex:none/nowrap (valor, %, ícone) competindo
+    // por espaço na MESMA linha que o nome, então achavam largura suficiente
+    // pra vazar mesmo com o resto podendo encolher. Agrupar os 2 lados deixa
+    // .distrib-item virar 2 linhas empilhadas (flex-direction:column) abaixo
+    // de 480px (ver CSS) - cada linha só precisa caber sozinha, nunca mais
+    // todos os 5 pedaços juntos numa linha só.
     item.innerHTML = `
-      <span class="distrib-dot" style="background:${cor}"></span>
-      <span class="distrib-nome">${f.label}</span>
-      <span class="distrib-valor"></span>
-      <span class="distrib-pct"></span>
-      <span class="info-icon">i</span>
+      <span class="distrib-nome-wrap">
+        <span class="distrib-dot" style="background:${cor}"></span>
+        <span class="distrib-nome">${f.label}</span>
+      </span>
+      <span class="distrib-valores">
+        <span class="distrib-valor"></span>
+        <span class="distrib-pct"></span>
+        <span class="info-icon">i</span>
+      </span>
     `;
     // 16/09/2026: pedido do Tiago - a fatia de Ações EUA (investimento
     // internacional) mostra o valor em dólar, com o equivalente em reais
