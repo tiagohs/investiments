@@ -268,7 +268,7 @@ test('renderDistribuicao() mostra o valor em R$ de cada fatia, além da porcenta
 // 16/09/2026: pedido do Tiago - a fatia de Ações EUA (tem valorUsd)
 // mostra USD com o equivalente em R$ entre parênteses, menor - as
 // outras fatias (sem valorUsd) continuam só em R$, sem mudança.
-test('renderDistribuicao() com valorUsd numa fatia mostra USD com o equivalente em R$ entre parênteses (Ações EUA)', () => {
+test('renderDistribuicao() com valorUsd numa fatia mostra USD com o equivalente em R$ numa 2ª linha (Ações EUA)', () => {
   const doc = makeDom('<div id="distrib"></div>');
   const container = doc.getElementById('distrib');
   renderDistribuicao(doc, container, [
@@ -280,7 +280,12 @@ test('renderDistribuicao() com valorUsd numa fatia mostra USD com o equivalente 
   assert.equal(valores[0].textContent.includes('$5'), false);
   assert.match(valores[1].textContent, /\$5,000\.00|US\$/);
   assert.match(valores[1].textContent, /27\.500,00/);
-  assert.ok(valores[1].querySelector('.moeda-conv'), 'equivalente em R$ vem numa span separada (menor/apagada)');
+  // 17/09/2026: o equivalente em R$ virou uma 2ª linha (.distrib-valor-abaixo)
+  // embaixo do valor em dólar, em vez de ficar do lado na mesma linha
+  // (.moeda-conv) - estourava a largura do card no mobile.
+  const abaixo = valores[1].querySelector('.distrib-valor-abaixo');
+  assert.ok(abaixo, 'equivalente em R$ vem numa span separada (menor/apagada), numa 2ª linha');
+  assert.match(abaixo.textContent, /27\.500,00/);
 });
 
 test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado suficiente', () => {

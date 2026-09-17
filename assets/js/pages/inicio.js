@@ -100,11 +100,12 @@
  * em vez do símbolo certo (criarTileCambio ganhou o parâmetro `simbolo`,
  * "US$"/"€" em vez do default "R$"). A fatia "Ações EUA" do resumo de
  * Patrimônio (Total/Longo Prazo) agora mostra o valor em dólar primeiro,
- * com o equivalente em R$ entre parênteses menor do lado
- * (calcularDistribuicaoPorClasse acumula um valorUsd só nessa fatia,
- * renderDistribuicao usa format.js!formatComConversao quando existe) -
+ * com o equivalente em R$ entre parênteses
+ * (calcularDistribuicaoPorClasse acumula um valorUsd só nessa fatia) -
  * cálculo interno (somas/percentuais) continua 100% em BRL, só a
- * exibição mudou. wireTooltipAtivos ganhou toque dedicado pro mesmo
+ * exibição mudou (17/09/2026: o equivalente em R$ saiu da mesma linha e
+ * virou uma 2ª linha menor embaixo - ver renderDistribuicao, estourava
+ * a largura do card no mobile). wireTooltipAtivos ganhou toque dedicado pro mesmo
  * motivo do Radar (ver distribuicoes-metas.js) - como .ativo-card é um
  * link de verdade (não uma célula de tabela), o toque não podia usar o
  * cartão inteiro como gatilho (senão qualquer toque pra navegar
@@ -128,7 +129,7 @@
 
 import { getHome } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
-import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR, formatComConversao } from '../format.js';
+import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
@@ -459,10 +460,14 @@ export function renderDistribuicao(doc, container, fatias) {
     `;
     // 16/09/2026: pedido do Tiago - a fatia de Ações EUA (investimento
     // internacional) mostra o valor em dólar, com o equivalente em reais
-    // menor do lado, em vez de só R$ (cálculo continua todo em R$ por
-    // trás - "valor"/pct acima nunca mudam - só a EXIBIÇÃO muda).
+    // (cálculo continua todo em R$ por trás - "valor"/pct acima nunca
+    // mudam - só a EXIBIÇÃO muda). 17/09/2026: o equivalente em reais
+    // saiu do lado (mesma linha, entre parênteses) e virou uma 2ª linha
+    // embaixo do valor em dólar - "US$ X (R$ Y)" numa linha só, com nome
+    // + % do lado, estourava a largura do card no mobile (linha cortando
+    // na tela, pedido do Tiago pra corrigir).
     if (typeof f.valorUsd === 'number') {
-      item.querySelector('.distrib-valor').innerHTML = formatComConversao(f.valorUsd, f.valor, formatUSD);
+      item.querySelector('.distrib-valor').innerHTML = `${formatUSD(f.valorUsd)}<span class="distrib-valor-abaixo">(${formatBRL(f.valor)})</span>`;
     } else {
       item.querySelector('.distrib-valor').textContent = formatBRL(f.valor);
     }
