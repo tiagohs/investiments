@@ -295,13 +295,16 @@ export function renderIndicesCambio(doc, container, { indices, cambio } = {}) {
 }
 
 /**
- * As 3 visões de patrimônio que a Home.gs devolve hoje. porClasse
+ * As 4 visões de patrimônio que a Home.gs devolve hoje. porClasse
  * (Ações/FIIs/Renda Fixa/Ações EUA) só existe pro total - não é um
- * recorte por classe dentro de Longo Prazo ou Renda Emergencial.
+ * recorte por classe dentro de Longo Prazo, Nacional ou Renda
+ * Emergencial. Nacional (17/09/2026) = Longo Prazo sem os investimentos
+ * internacionais (Ações EUA) - ver Home.gs!montarHome_.
  */
 const VISOES = {
   total: { chave: 'total', label: 'Patrimônio total' },
   longoPrazo: { chave: 'longoPrazo', label: 'Longo Prazo' },
+  nacional: { chave: 'nacional', label: 'Patrimônio Nacional' },
   rendaEmergencial: { chave: 'rendaEmergencial', label: 'Renda Emergencial' },
 };
 
@@ -311,7 +314,7 @@ export function resolverVisao(patrimonio, visaoId) {
   return { valor: patrimonio ? patrimonio[visao.chave] : undefined, label: visao.label };
 }
 
-const ORDEM_RESUMO = ['total', 'longoPrazo', 'rendaEmergencial'];
+const ORDEM_RESUMO = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'];
 
 const CLASSE_LABEL_DISTRIB = { acoes: 'Ações', fiis: 'FIIs', rf: 'Renda Fixa', usa: 'Ações EUA' };
 const CLASSE_COR_DISTRIB = { acoes: '--acoes', fiis: '--fiis', rf: '--rf', usa: '--usa' };
@@ -340,11 +343,14 @@ function valorPosicaoAtivo_(ativo, cambioUsd) {
  * posições de Renda Fixa marcadas "Renda Emergencial" (marca==='emergencial')
  * da soma - é assim que a distribuição de Longo Prazo difere da do
  * Total (mesmas 4 classes, só que a fatia de Renda Fixa fica menor,
- * já que a reserva de emergência saiu). Calculado a partir do array
+ * já que a reserva de emergência saiu). `excluirInternacional`
+ * (17/09/2026) tira as posições classe 'usa' inteiras - é assim que a
+ * distribuição de Nacional difere da de Longo Prazo (fica só com
+ * Ações/FIIs/Renda Fixa não-emergencial). Calculado a partir do array
  * `ativos` (não de patrimonio.porClasse, que só existe pro total
  * combinado - ver Home.gs) - classes com valor zero/ausente não entram.
  */
-export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false } = {}) {
+export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false, excluirInternacional = false } = {}) {
   const somas = { acoes: 0, fiis: 0, rf: 0, usa: 0 };
   // Soma à parte, só pra 'usa', o valor de posição em DÓLAR (preço
   // unitário em USD × quantidade - nunca convertido de volta a partir
@@ -353,6 +359,7 @@ export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmerge
   // Alimenta o "US$ X (R$ Y)" da fatia Ações EUA - ver renderDistribuicao.
   let somaUsaUsd = 0;
   (ativos || []).forEach((ativo) => {
+    if (excluirInternacional && ativo.classe === 'usa') return;
     if (excluirEmergencial && ativo.classe === 'rf' && ativo.marca === 'emergencial') return;
     if (!(ativo.classe in somas)) return;
     somas[ativo.classe] += valorPosicaoAtivo_(ativo, cambioUsd);
@@ -580,16 +587,45 @@ function wirePointerTooltipDistrib_(doc, container) {
 }
 
 /**
- * Renderiza o resumo de patrimônio (Total / Longo Prazo / Renda
- * Emergencial) dentro de `container` (esvazia antes) - as 3 divisões
+ * Valor de `campo` no ÚLTIMO dia de pregão de verdade ANTES de hoje
+ * (historico[length-1] é sempre "hoje" - ver comentário de
+ * filtrarHistoricoPorPeriodo). "Último pregão" (não "ontem" no sentido
+ * literal de calendário) a pedido do Tiago, 17/09/2026: "se for segunda,
+ * em relação a sexta, último dia do pregão" - sábado/domingo/feriado sem
+ * NENHUMA atualização de Renda Variável ficam com pregao=false
+ * (HistoricoInicio.gs), então andar pra trás a partir de length-2 até
+ * achar pregao===true pula naturalmente esses dias sem pregão, sem
+ * precisar saber calendário nenhum aqui no front-end. null quando não
+ * há histórico suficiente ou nenhum dia de pregão anterior é encontrado.
+ */
+function valorUltimoPregaoAntes_(historico, campo) {
+  if (!historico || historico.length < 2) return null;
+  for (let i = historico.length - 2; i >= 0; i -= 1) {
+    if (!historico[i].pregao) continue;
+    const v = historico[i][campo];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  }
+  return null;
+}
+
+/**
+ * Renderiza o resumo de patrimônio (Total / Longo Prazo / Nacional /
+ * Renda Emergencial) dentro de `container` (esvazia antes) - as divisões
  * lado a lado, sempre visíveis de cara, sem aba/clique nenhum (mudança
  * de 13/09/2026 a pedido do Tiago: "mostre também os números das três
  * divisões, sem eu precisar clicar em botão"). Cada cartão traz também
- * a distribuição (donut) da própria divisão - Total e Longo Prazo por
- * classe, Renda Emergencial por tipo de investimento (ver
+ * a distribuição (donut) da própria divisão - Total/Longo Prazo/Nacional
+ * por classe, Renda Emergencial por tipo de investimento (ver
  * calcularDistribuicaoPorClasse/calcularDistribuicaoRendaEmergencial).
+ *
+ * 17/09/2026 #2: abaixo do valor atual, uma linha menor "ontem era: R$ X
+ * - Y%" (a pedido do Tiago) - compara o valor ATUAL (patrimonio, tempo
+ * real) com o valor da mesma visão no último dia de pregão ANTES de hoje
+ * (valorUltimoPregaoAntes_, acima), lido de `historico`. Verde/vermelho
+ * no mesmo padrão de .rentab-card-delta/.ativo-delta já usado no resto
+ * do app.
  */
-export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cambio } = {}) {
+export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cambio, historico } = {}) {
   container.innerHTML = '';
   wirePointerTooltipDistrib_(doc, container);
   if (!patrimonio) {
@@ -608,9 +644,23 @@ export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cam
     card.innerHTML = `
       <div class="resumo-label">${label}</div>
       <div class="resumo-value"></div>
+      <div class="resumo-ontem"></div>
       <div class="resumo-distrib"></div>
     `;
     setValorComDec(card.querySelector('.resumo-value'), formatBRL(valor));
+
+    const ontemEl = card.querySelector('.resumo-ontem');
+    const campoHistorico = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+    const valorOntem = valorUltimoPregaoAntes_(historico, campoHistorico);
+    if (typeof valor === 'number' && typeof valorOntem === 'number' && valorOntem !== 0) {
+      const variacao = (valor - valorOntem) / valorOntem;
+      const good = variacao >= 0;
+      ontemEl.className = `resumo-ontem ${good ? 'good' : 'bad'}`;
+      ontemEl.textContent = `ontem era: ${formatBRL(valorOntem)} - ${formatPercentFromFraction(variacao)}`;
+    } else {
+      ontemEl.className = 'resumo-ontem na';
+      ontemEl.textContent = '';
+    }
 
     const distribContainer = card.querySelector('.resumo-distrib');
     if (visaoId === 'rendaEmergencial') {
@@ -618,7 +668,8 @@ export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cam
     } else {
       renderDistribuicao(doc, distribContainer, calcularDistribuicaoPorClasse(ativos, {
         cambioUsd,
-        excluirEmergencial: visaoId === 'longoPrazo',
+        excluirEmergencial: visaoId === 'longoPrazo' || visaoId === 'nacional',
+        excluirInternacional: visaoId === 'nacional',
       }));
     }
 
@@ -664,7 +715,7 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
   return historico.slice(-dias);
 }
 
-const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo', rendaEmergencial: 'rendaEmergencial' };
+const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial' };
 
 /** Campo de fluxo de caixa liquido diario (aporte/retirada/provento, ver
  * FluxoCaixaInicio.gs) correspondente a cada visao - usado so pra
@@ -673,11 +724,12 @@ const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo
 const CAMPO_FLUXO_POR_VISAO = {
   total: 'fluxoCaixaPatrimonio',
   longoPrazo: 'fluxoCaixaLongoPrazo',
+  nacional: 'fluxoCaixaNacional',
   rendaEmergencial: 'fluxoCaixaRendaEmergencial',
 };
 
-/** Benchmarks por visão - Total/Longo Prazo contra Ibovespa+CDI, Renda
- * Emergencial contra CDI+Selic (decisão registrada em
+/** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
+ * Renda Emergencial contra CDI+Selic (decisão registrada em
  * docs/plano-implementacao.html - não compara reserva de emergência com bolsa). */
 const BENCHMARKS_POR_VISAO = {
   total: [
@@ -685,6 +737,10 @@ const BENCHMARKS_POR_VISAO = {
     { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
   ],
   longoPrazo: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
+  ],
+  nacional: [
     { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
     { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
   ],
@@ -1018,6 +1074,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
 const LABEL_POR_VISAO_RENTABILIDADE = {
   total: 'Patrimônio total',
   longoPrazo: 'Patrimônio de Longo Prazo',
+  nacional: 'Patrimônio Nacional',
   rendaEmergencial: 'Renda Emergencial',
 };
 
@@ -1878,11 +1935,13 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       patrimonio: resposta.patrimonio,
       ativos: resposta.ativos,
       cambio: resposta.cambio,
+      historico: resposta.historico,
     });
 
     const PAINEIS_RENTABILIDADE = [
       { visaoId: 'total', sufixo: 'Total' },
       { visaoId: 'longoPrazo', sufixo: 'LongoPrazo' },
+      { visaoId: 'nacional', sufixo: 'Nacional' },
       { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial' },
     ];
     wireGraficoRentabilidade(doc, {

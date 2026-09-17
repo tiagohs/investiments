@@ -48,18 +48,26 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 /* ---- Resumo de patrimônio ----
    13/09/2026: antes era um "hero" com abas (Total/Longo Prazo/Renda
    Emergencial) mostrando só UMA visão por vez - Tiago pediu pra mostrar
-   as 3 juntas, sem precisar clicar em nada. .resumo-grid: 3 cartões
-   iguais lado a lado (a mesma ideia compacta do print que ele mandou -
-   um cartão por número, em vez de um bloco grande só). O detalhamento
-   por classe (Ações/FIIs/Renda Fixa/Ações EUA, só existe pro total)
-   entra dentro do próprio cartão Total como "chips" pequenos, sem virar
-   uma seção extra na página. */
-.resumo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:26px; }
+   as 3 juntas, sem precisar clicar em nada. .resumo-grid: cartões iguais
+   lado a lado (a mesma ideia compacta do print que ele mandou - um
+   cartão por número, em vez de um bloco grande só). O detalhamento por
+   classe (Ações/FIIs/Renda Fixa/Ações EUA, só existe pro total) entra
+   dentro do próprio cartão Total como "chips" pequenos, sem virar uma
+   seção extra na página. 17/09/2026 #2: grid vira 2x2 com a chegada do
+   4º cartão (Patrimônio Nacional, ao lado de Total/Longo Prazo/Renda
+   Emergencial). */
+.resumo-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-bottom:26px; }
 .resumo-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
       padding:18px 20px; box-shadow:var(--shadow); min-width:0; }
 .resumo-label{ color:var(--ink-muted); font-size:12.5px; margin-bottom:6px; }
 .resumo-value{ font-family:var(--mono); font-size:28px; font-weight:600; line-height:1; }
 .resumo-value .dec{ font-size:16px; opacity:.62; }
+/* "ontem era: R$ X - Y%" (17/09/2026 #2, comparativo com o último
+   pregão) - mesmo padrão verde/vermelho de .rentab-card-delta/.ativo-delta. */
+.resumo-ontem{ font-size:11.5px; font-weight:600; margin-top:4px; font-family:var(--mono); }
+.resumo-ontem.good{ color:var(--good-ink); }
+.resumo-ontem.bad{ color:var(--bad-ink); }
+.resumo-ontem.na{ color:var(--ink-faint); font-weight:500; }
 @media (max-width:760px){ .resumo-grid{ grid-template-columns:1fr; } }
 
 /* ---- Distribuição (donut) dentro de um cartão do resumo ----
@@ -147,14 +155,17 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 /* ---- Grafico de Rentabilidade (Parte 2, 13/09/2026; reorganizado no
    mesmo dia a pedido do Tiago: os 3 cartoes - Total/Longo Prazo/Renda
    Emergencial - ficam sempre visiveis ao mesmo tempo, cada um com seu
-   valor+variacao JUNTO do proprio grafico) ----
-   .rentab-grid: Total ocupa a linha inteira (grid-column:1/-1), Longo
-   Prazo e Renda Emergencial caem naturalmente lado a lado na 2a linha
-   (mesma grade de 2 colunas). Em telas estreitas as 2 colunas empilham. */
+   valor+variacao JUNTO do proprio grafico; reorganizado de novo em
+   17/09/2026 #2 com a chegada da visao "Nacional" - Total e Longo Prazo
+   passam a ocupar uma linha inteira CADA UM, e Nacional/Renda Emergencial
+   caem lado a lado na linha seguinte) ----
+   .rentab-grid: cartoes com .rentab-card-full ocupam a linha inteira
+   (grid-column:1/-1); os demais caem naturalmente lado a lado (mesma
+   grade de 2 colunas). Em telas estreitas as 2 colunas empilham. */
 .rentab-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:26px; }
 .rentab-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
       padding:18px 20px; box-shadow:var(--shadow); min-width:0; }
-.rentab-card-total{ grid-column:1 / -1; }
+.rentab-card-full{ grid-column:1 / -1; }
 @media (max-width:760px){ .rentab-grid{ grid-template-columns:1fr; } }
 
 .rentab-card-info{ display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 12px; margin-bottom:14px; }

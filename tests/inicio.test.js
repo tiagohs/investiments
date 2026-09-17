@@ -166,6 +166,9 @@ test('renderIndicesCambio() monta o card do Dólar com símbolo US$ e o do Euro 
 const PATRIMONIO_EXEMPLO = {
   total: 147583.80,
   longoPrazo: 87356.59,
+  // 17/09/2026: nacional = longoPrazo - porClasse.acoesEua (mesma fórmula
+  // de Home.gs!montarHome_) = 87356.59 - 25227.21.
+  nacional: 62129.38,
   rendaEmergencial: 60227.21,
   porClasse: { acoes: 20000, fiis: 15000, rendaFixa: 87356.59, acoesEua: 25227.21 },
 };
@@ -173,6 +176,7 @@ const PATRIMONIO_EXEMPLO = {
 test('resolverVisao() picks the right field + label for each known visão', () => {
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'total').valor, 147583.80);
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'longoPrazo').valor, 87356.59);
+  assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'nacional').valor, 62129.38);
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'rendaEmergencial').valor, 60227.21);
 });
 
@@ -207,6 +211,26 @@ test('calcularDistribuicaoPorClasse() com excluirEmergencial tira a reserva de e
   const porLabel = Object.fromEntries(distrib.map((f) => [f.label, f.valor]));
   assert.equal(porLabel['Renda Fixa'], 50000, 'só a posição marca=longo-prazo (Tesouro IPCA) deveria sobrar');
   assert.equal(porLabel['Ações'], 20000, 'as outras classes não mudam - a reserva de emergência é só Renda Fixa');
+});
+
+// 17/09/2026 #2: base da distribuição do novo card/painel "Patrimônio
+// Nacional" - mesmo fixture, agora tirando também a classe 'usa' inteira.
+test('calcularDistribuicaoPorClasse() com excluirInternacional tira a classe Ações EUA inteira (base do "Patrimônio Nacional")', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5, excluirInternacional: true });
+  const porLabel = Object.fromEntries(distrib.map((f) => [f.label, f.valor]));
+  assert.equal(porLabel['Ações EUA'], undefined, 'Ações EUA não deveria aparecer nem como fatia zerada');
+  assert.equal(porLabel['Ações'], 20000);
+  assert.equal(porLabel['FIIs'], 15000);
+  assert.equal(porLabel['Renda Fixa'], 90000, 'sozinho, excluirInternacional não mexe na Renda Fixa');
+});
+
+test('calcularDistribuicaoPorClasse() com excluirEmergencial + excluirInternacional juntos (Nacional de verdade) só sobra Ações/FIIs/RF não-emergencial', () => {
+  const distrib = calcularDistribuicaoPorClasse(ATIVOS_RESUMO_EXEMPLO, { cambioUsd: 5, excluirEmergencial: true, excluirInternacional: true });
+  const porLabel = Object.fromEntries(distrib.map((f) => [f.label, f.valor]));
+  assert.equal(porLabel['Ações EUA'], undefined);
+  assert.equal(porLabel['Renda Fixa'], 50000);
+  assert.equal(porLabel['Ações'], 20000);
+  assert.equal(porLabel['FIIs'], 15000);
 });
 
 test('calcularDistribuicaoPorClasse() usa precoAtual×câmbio como fallback quando o ativo EUA não vem com precoAtualBRL', () => {
@@ -337,19 +361,21 @@ test('renderDistribuicao() põe um ícone "i" clicável (dataset.tooltip) com no
   assert.match(item2.dataset.tooltip, /66,67%/);
 });
 
-test('renderResumoPatrimonio() mostra as 3 divisões juntas, sem precisar de clique nenhum', () => {
+test('renderResumoPatrimonio() mostra as 4 divisões juntas, sem precisar de clique nenhum', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
   renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
 
   const cards = resumo.querySelectorAll('.resumo-card');
-  assert.equal(cards.length, 3, 'Total + Longo Prazo + Renda Emergencial de cara, nenhuma aba pra clicar');
+  // 17/09/2026 #2: Total + Longo Prazo + Nacional + Renda Emergencial.
+  assert.equal(cards.length, 4, 'Total + Longo Prazo + Nacional + Renda Emergencial de cara, nenhuma aba pra clicar');
   assert.match(resumo.textContent, /147\.583/);
   assert.match(resumo.textContent, /87\.356/);
+  assert.match(resumo.textContent, /62\.129/, 'valor de Patrimônio Nacional (nacional: 62.129,38 no fixture)');
   assert.match(resumo.textContent, /60\.227/);
 });
 
-test('renderResumoPatrimonio() mostra a distribuição (donut) nos 3 cartões - Total/Longo Prazo por classe, Renda Emergencial por tipo', () => {
+test('renderResumoPatrimonio() mostra a distribuição (donut) nos 4 cartões - Total/Longo Prazo/Nacional por classe, Renda Emergencial por tipo', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');
   renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
@@ -359,8 +385,10 @@ test('renderResumoPatrimonio() mostra a distribuição (donut) nos 3 cartões - 
   assert.ok(cardTotal.querySelector('.distrib-arco'), 'total deveria mostrar o donut de distribuição por classe');
 
   const outrosCards = Array.from(resumo.querySelectorAll('.resumo-card')).filter((c) => c !== cardTotal);
-  const [cardLongoPrazo, cardRendaEmergencial] = outrosCards;
+  const [cardLongoPrazo, cardNacional, cardRendaEmergencial] = outrosCards;
   assert.ok(cardLongoPrazo.querySelector('.distrib-arco'), 'Longo Prazo também mostra o donut agora');
+  assert.ok(cardNacional.querySelector('.distrib-arco'), 'Nacional também mostra o donut, sem Ações EUA');
+  assert.doesNotMatch(cardNacional.textContent, /Ações EUA/, 'Nacional exclui a classe Ações EUA da distribuição');
   assert.match(cardRendaEmergencial.textContent, /Tesouro Selic/, 'Renda Emergencial mostra por tipo de investimento, não por classe');
 });
 
@@ -369,6 +397,88 @@ test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio 
   const resumo = doc.getElementById('resumo');
   renderResumoPatrimonio(doc, resumo, {});
   assert.match(resumo.textContent, /Sem dado/);
+});
+
+// 17/09/2026 #2: "ontem era: R$ X - Y%" - compara com o ÚLTIMO PREGÃO
+// antes de hoje, não o dia de calendário anterior (pedido do Tiago: "se
+// for segunda, em relação a sexta, último dia do pregão"). Sexta
+// (pregao:true) -> Sábado/Domingo (pregao:false, simulando fim de
+// semana sem atualização de Renda Variável) -> Segunda ("hoje",
+// historico[length-1]). Campos no historico usam os nomes de
+// HistoricoInicio.gs (patrimonio/longoPrazo/nacional/rendaEmergencial),
+// não os de Home.gs (total/...) - CAMPO_PRINCIPAL_POR_VISAO é quem faz
+// essa ponte.
+const HISTORICO_ONTEM_EXEMPLO = [
+  { data: '2026-09-11', patrimonio: 140000, longoPrazo: 80000, nacional: 60000, rendaEmergencial: 60000, pregao: true }, // sexta
+  { data: '2026-09-12', patrimonio: 140500, longoPrazo: 80200, nacional: 60100, rendaEmergencial: 60300, pregao: false }, // sábado
+  { data: '2026-09-13', patrimonio: 140800, longoPrazo: 80300, nacional: 60150, rendaEmergencial: 60500, pregao: false }, // domingo
+  { data: '2026-09-14', patrimonio: 145000, longoPrazo: 83000, nacional: 62000, rendaEmergencial: 62000, pregao: true }, // segunda ("hoje")
+];
+
+test('renderResumoPatrimonio() "ontem era" compara com o último PREGÃO antes de hoje (pula fim de semana sem pregão) e mostra verde quando melhora', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, {
+    patrimonio: PATRIMONIO_EXEMPLO,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+    historico: HISTORICO_ONTEM_EXEMPLO,
+  });
+
+  const cardTotal = resumo.querySelector('.resumo-card-total');
+  const ontemTotal = cardTotal.querySelector('.resumo-ontem');
+  // sexta (140.000) é o último pregão antes de hoje, não domingo (140.800).
+  assert.match(ontemTotal.textContent, /ontem era: R\$\s*140\.000,00/);
+  assert.match(ontemTotal.textContent, /\+5,42%/); // (147.583,80 - 140.000) / 140.000
+  assert.equal(ontemTotal.classList.contains('good'), true);
+});
+
+test('renderResumoPatrimonio() "ontem era" mostra vermelho quando o valor de hoje é menor que o do último pregão', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  const patrimonioQueda = { ...PATRIMONIO_EXEMPLO, total: 130000 };
+  renderResumoPatrimonio(doc, resumo, {
+    patrimonio: patrimonioQueda,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+    historico: HISTORICO_ONTEM_EXEMPLO,
+  });
+
+  const cardTotal = resumo.querySelector('.resumo-card-total');
+  const ontemTotal = cardTotal.querySelector('.resumo-ontem');
+  assert.match(ontemTotal.textContent, /-7,14%/); // (130.000 - 140.000) / 140.000
+  assert.equal(ontemTotal.classList.contains('bad'), true);
+});
+
+test('renderResumoPatrimonio() "ontem era" também aparece no card Nacional, comparando o campo `nacional` do historico', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  renderResumoPatrimonio(doc, resumo, {
+    patrimonio: PATRIMONIO_EXEMPLO,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+    historico: HISTORICO_ONTEM_EXEMPLO,
+  });
+
+  const cardNacional = Array.from(resumo.querySelectorAll('.resumo-card'))
+    .find((c) => c.querySelector('.resumo-label').textContent === 'Patrimônio Nacional');
+  const ontemNacional = cardNacional.querySelector('.resumo-ontem');
+  // sexta: nacional=60.000; PATRIMONIO_EXEMPLO.nacional=62.129,38.
+  assert.match(ontemNacional.textContent, /ontem era: R\$\s*60\.000,00/);
+  assert.equal(ontemNacional.classList.contains('good'), true);
+});
+
+test('renderResumoPatrimonio() "ontem era" fica em branco (classe na, sem lançar) quando não há historico ou nenhum pregão anterior', () => {
+  const doc = makeDom('<div id="resumo"></div>');
+  const resumo = doc.getElementById('resumo');
+  assert.doesNotThrow(() => renderResumoPatrimonio(doc, resumo, {
+    patrimonio: PATRIMONIO_EXEMPLO,
+    ativos: ATIVOS_RESUMO_EXEMPLO,
+    cambio: { usd: 5 },
+  }));
+  const ontemTotal = resumo.querySelector('.resumo-card-total .resumo-ontem');
+  assert.equal(ontemTotal.classList.contains('na'), true);
+  assert.equal(ontemTotal.textContent, '');
 });
 
 // pedido do Tiago (16/09/2026), continuação: a legenda do donut também
@@ -413,6 +523,7 @@ function gerarHistoricoExemplo(dias = 40) {
       data: d.toISOString().slice(0, 10),
       patrimonio: 100000 + i * 1000,
       longoPrazo: 80000 + i * 800,
+      nacional: 60000 + i * 600, // 17/09/2026 #2: base da visão "Patrimônio Nacional"
       rendaEmergencial: 20000 + i * 200,
       indiceCdi: 100 * (1 + i * 0.001),
       indiceSelic: 100 * (1 + i * 0.0009),
@@ -541,6 +652,21 @@ test('renderGraficoRentabilidade() troca os benchmarks pra CDI+Selic na visão "
   assert.doesNotMatch(legenda.textContent, /Ibovespa/);
 });
 
+// 17/09/2026 #2: a visão "nacional" usa os MESMOS benchmarks de "total"
+// (Ibovespa+CDI) - decisão registrada em BENCHMARKS_POR_VISAO.
+test('renderGraficoRentabilidade() visão "nacional" desenha a linha do portfólio + Ibovespa+CDI (mesmos benchmarks de "total")', () => {
+  const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
+  const container = doc.getElementById('chart');
+  const legenda = doc.getElementById('legenda');
+  renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'nacional', periodoId: '30d', legendaContainer: legenda });
+  const svg = container.querySelector('svg.rentab-chart');
+  assert.ok(svg);
+  assert.equal(svg.querySelectorAll('path').length, 3); // portfólio + ibovespa + cdi
+  assert.match(legenda.textContent, /Ibovespa/);
+  assert.match(legenda.textContent, /CDI/);
+  assert.doesNotMatch(legenda.textContent, /Selic/);
+});
+
 test('renderGraficoRentabilidade() mostra, junto do nome de cada benchmark, o quanto o PORTFÓLIO ganhou ou perdeu EM RELAÇÃO a ele (não o retorno absoluto do benchmark)', () => {
   const doc = makeDom('<div id="chart"></div><div id="legenda"></div>');
   const container = doc.getElementById('chart');
@@ -653,7 +779,7 @@ test('renderGraficoRentabilidade() pointerleave esconde a tooltip e os pontos de
 
 // --- renderInfoRentabilidade -------------------------------------------------
 
-const PATRIMONIO_RENTAB_EXEMPLO = { total: 104000, longoPrazo: 90000, rendaEmergencial: 14000 };
+const PATRIMONIO_RENTAB_EXEMPLO = { total: 104000, longoPrazo: 90000, nacional: 70000, rendaEmergencial: 14000 };
 
 test('renderInfoRentabilidade() mostra o valor atual + o R$ ganho/perdido + a variação em % no período (mesmo par de pontos que alimenta a linha do gráfico)', () => {
   const doc = makeDom('<div id="info"></div>');
@@ -715,6 +841,28 @@ test('renderInfoRentabilidade() sem histórico suficiente no período mostra o v
   const container = doc.getElementById('info');
   assert.doesNotThrow(() => renderInfoRentabilidade(doc, container, { patrimonio: PATRIMONIO_RENTAB_EXEMPLO, historico: [], visaoId: 'total' }));
   assert.equal(container.querySelector('.rentab-card-delta').classList.contains('na'), true);
+});
+
+// 17/09/2026 #2: visão "nacional" - rótulo certo + usa o campo `nacional`
+// (não `longoPrazo`) do historico pra calcular a % do período.
+test('renderInfoRentabilidade() visão "nacional" mostra o rótulo "Patrimônio Nacional" e calcula a partir do campo `nacional` do historico', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const container = doc.getElementById('info');
+  const historico = [
+    { data: '2026-01-01', nacional: 60000, fluxoCaixaNacional: 0 },
+    { data: '2026-01-02', nacional: 63000, fluxoCaixaNacional: 0 },
+  ];
+  renderInfoRentabilidade(doc, container, {
+    patrimonio: PATRIMONIO_RENTAB_EXEMPLO,
+    historico,
+    visaoId: 'nacional',
+    periodoId: 'tudo',
+  });
+  assert.match(container.querySelector('.rentab-card-label').textContent, /Patrimônio Nacional/);
+  assert.match(container.querySelector('.rentab-card-value').textContent, /70\.000/, 'valor atual vem de patrimonio.nacional, não do historico');
+  const textoDelta = container.querySelector('.rentab-card-delta').textContent;
+  assert.match(textoDelta, /\+R\$\s*3\.000,00/);
+  assert.match(textoDelta, /\+5,00%/);
 });
 
 // --- wireGraficoRentabilidade -------------------------------------------------
@@ -1507,6 +1655,7 @@ function makePaginaDom() {
       </div>
       <div id="rentabInfoTotal"></div><div id="rentabChartTotal"></div><div id="rentabLegendaTotal"></div>
       <div id="rentabInfoLongoPrazo"></div><div id="rentabChartLongoPrazo"></div><div id="rentabLegendaLongoPrazo"></div>
+      <div id="rentabInfoNacional"></div><div id="rentabChartNacional"></div><div id="rentabLegendaNacional"></div>
       <div id="rentabInfoRendaEmergencial"></div><div id="rentabChartRendaEmergencial"></div><div id="rentabLegendaRendaEmergencial"></div>
       <div class="filter-tabs" id="filtroAtivosTabs">
         <button class="filter-tab active" data-classe="todos">Todos</button>
@@ -1533,6 +1682,27 @@ test('montarPaginaInicio() renders every section and hides the loading state on 
   assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3); // ibovespa + usd + eur
   assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.resumo-value'));
   assert.equal(doc.getElementById('inicioErro').hidden, true);
+});
+
+// 17/09/2026 #2: painel de Rentabilidade Nacional (#rentabChartNacional)
+// e o 4º card do resumo (Patrimônio Nacional) precisam vir montados de
+// cara, junto com os outros 3 já existentes - mesmo fio (PAINEIS_RENTABILIDADE/
+// ORDEM_RESUMO) que já monta Total/Longo Prazo/Renda Emergencial.
+test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e o 4º card do resumo', async () => {
+  const doc = makePaginaDom();
+  const getHomeImpl = async () => ({
+    ok: true,
+    patrimonio: PATRIMONIO_EXEMPLO,
+    historico: HISTORICO_ONTEM_EXEMPLO,
+    indices: { ibovespa: { valor: 185600, variacaoDia: -0.9 } },
+    cambio: { usd: 5.09, eur: 5.92 },
+  });
+
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+
+  assert.ok(doc.getElementById('rentabChartNacional').querySelector('svg'), 'painel de Rentabilidade Nacional precisa desenhar de cara, igual aos outros 3');
+  assert.match(doc.getElementById('rentabInfoNacional').textContent, /Patrimônio Nacional/);
+  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.resumo-card').length, 4);
 });
 
 test('montarPaginaInicio() shows the error state (and keeps the content hidden) when the back-end rejects the call', async () => {
