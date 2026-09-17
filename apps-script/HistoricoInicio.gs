@@ -223,7 +223,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // sem esse bump, uma chave v2 já cacheada (mesmas contagens de linha,
   // já que nenhuma aba ganhou linha nova) devolveria o resultado ANTIGO
   // (com as quedas) por até 6h depois do Tiago colar o código novo.
-  var chaveCacheSerie = 'historico_serie_v3_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  // v4 (17/09/2026, ponto ruim do Ibovespa): a chave só muda quando a
+  // CONTAGEM de linhas de alguma das 3 abas muda - um valor ERRADO
+  // corrigido NO LUGAR (mesma linha, mesma contagem - foi o caso aqui:
+  // Ibovespa de 16/09 tinha um valor absurdo, Tiago corrigiu a célula na
+  // planilha, mas linhasIndices continuou igual) não invalida o cache
+  // sozinho - o app continuava mostrando a % velha (Ibovespa -99,94%)
+  // por até 6h mesmo com a planilha já certa. Sem jeito barato de saber
+  // "o CONTEÚDO mudou" sem reler as abas inteiras (o que anularia a
+  // otimização de cache pra começo de conversa) - bump manual de versão,
+  // mesmo remédio já usado no v3, pra forçar todo mundo a recalcular
+  // agora em vez de esperar o TTL.
+  var chaveCacheSerie = 'historico_serie_v4_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 
   // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
   // leitura do cache, pra parar de inferir "tá cacheando?" só olhando o
