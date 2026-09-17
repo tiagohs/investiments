@@ -127,7 +127,7 @@
  * `title` escondendo nada.
  */
 
-import { getHome } from '../api-client.js';
+import { getHome, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
@@ -1508,7 +1508,212 @@ export function wireTooltipAtivos(doc, container) {
  * cada ticker) fica pra próxima rodada, depois que o encaixe do botão
  * em si estiver validado no desktop e no mobile.
  */
-export function wireGraficoAtivo(doc, container) {
+/** Rótulos/ids dos filtros de período do gráfico de preço do ativo -
+ * MESMO conjunto/ordem usado no filtro de período da Rentabilidade
+ * (#periodoTabs, pages.html) - pedido explícito do Tiago (17/09/2026):
+ * "Siga o filtro que usamos na sessao Rentabilidade, onde o default é
+ * mes atual". Gerado aqui em JS (não em pages.html) porque o popover
+ * inteiro é montado dinamicamente - 1 popover só, reaproveitado pra
+ * qualquer card, nunca um HTML estático por ativo. */
+const PERIODOS_GRAFICO_ATIVO = [
+  { id: 'mes', label: 'Mês atual' },
+  { id: '30d', label: '30 dias' },
+  { id: '6m', label: '6 meses' },
+  { id: '12m', label: '12 meses' },
+  { id: '3a', label: '3 anos' },
+  { id: 'tudo', label: 'Desde o início' },
+];
+
+/** Rótulo compacto do eixo Y do gráfico de preço - só o número (sem
+ * "R$"/"US$" repetido em cada marca, a moeda já aparece no tooltip ao
+ * passar o mouse) porque o popover é bem mais estreito (300px) que um
+ * cartão de Rentabilidade. */
+function formatEixoPrecoAtivo_(v) {
+  return formatNumeroBR(v, 2);
+}
+
+/**
+ * Liga o hover (mouse) e o touch do gráfico de preço de 1 ativo -
+ * adaptado de ligarInteracaoGrafico_ (gráfico de Rentabilidade, acima):
+ * mesma técnica de Pointer Events sobre um <rect> transparente, mas com
+ * 1 série só (sem benchmark) e tooltip mostrando o preço bruto
+ * (formatMoeda: formatBRL ou formatUSD, conforme ativo.classe) em vez
+ * de %. Não reaproveita ligarInteracaoGrafico_ direto porque aquela
+ * função é específica da Rentabilidade (várias séries, tooltip em %) -
+ * ver decisão registrada na 1ª rodada desta feature (17/09/2026).
+ */
+function ligarInteracaoGraficoAtivo_(container, { janela, valores, x, y, padL, plotW, W, formatMoeda }) {
+  const svgEl = container.querySelector('svg.ativo-grafico-chart');
+  const hitarea = container.querySelector('.ativo-grafico-hitarea');
+  const hoverGroup = container.querySelector('.ativo-grafico-hover');
+  const linhaHover = container.querySelector('.ativo-grafico-hover-linha');
+  const pontoHover = container.querySelector('.ativo-grafico-hover-ponto');
+  const tooltip = container.querySelector('.ativo-grafico-tooltip');
+  if (!svgEl || !hitarea || !hoverGroup || !linhaHover || !pontoHover || !tooltip) return;
+
+  function indiceNoClientX_(clientX) {
+    const rect = svgEl.getBoundingClientRect();
+    const svgX = clientX - rect.left;
+    const fracao = plotW > 0 ? (svgX - padL) / plotW : 0;
+    return Math.min(janela.length - 1, Math.max(0, Math.round(fracao * (janela.length - 1))));
+  }
+
+  function mostrar_(clientX) {
+    const i = indiceNoClientX_(clientX);
+    const xx = x(i, janela.length);
+
+    linhaHover.setAttribute('x1', xx.toFixed(1));
+    linhaHover.setAttribute('x2', xx.toFixed(1));
+    pontoHover.removeAttribute('hidden');
+    pontoHover.setAttribute('cx', xx.toFixed(1));
+    pontoHover.setAttribute('cy', y(valores[i]).toFixed(1));
+    hoverGroup.removeAttribute('hidden');
+
+    tooltip.innerHTML = `<div class="ativo-grafico-tooltip-data">${formatDateBR(janela[i].data)}</div><b>${formatMoeda(valores[i])}</b>`;
+    tooltip.hidden = false;
+
+    const larguraTooltip = tooltip.offsetWidth || 90;
+    const esquerda = Math.min(Math.max(xx - larguraTooltip / 2, 4), Math.max(W - larguraTooltip - 4, 4));
+    tooltip.style.left = `${esquerda}px`;
+  }
+
+  function esconder_() {
+    hoverGroup.setAttribute('hidden', '');
+    tooltip.hidden = true;
+  }
+
+  hitarea.addEventListener('pointermove', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerdown', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerleave', esconder_);
+}
+
+/**
+ * Desenha o gráfico de PREÇO BRUTO (não %) de 1 ativo só, dentro do
+ * popover "Ver gráfico" (pedido do Tiago, 17/09/2026: "Preço bruto (R$
+ * ou US$, conforme o ativo)"). Reaproveita os primitivos já validados
+ * do gráfico de Rentabilidade (filtrarHistoricoPorPeriodo, larguraReal_,
+ * pathDRentabilidade_), mas SEM normalizar pra % - a série (`serie`,
+ * vinda de getHistoricoAtivo) já está na unidade final (preço cru), só
+ * plota direto. Layout mais simples (1 série, sem benchmark/legenda) e
+ * mais compacto (popover é bem mais estreito que um cartão de
+ * Rentabilidade) que renderGraficoRentabilidade.
+ */
+function renderGraficoPrecoAtivo_(doc, container, { serie, periodoId = 'mes', formatMoeda }) {
+  const janela = filtrarHistoricoPorPeriodo(serie, periodoId);
+  if (janela.length < 2) {
+    container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
+    return;
+  }
+
+  const valores = janela.map((item) => item.preco);
+  const W = larguraReal_(container);
+  const H = 140;
+  const padL = 42, padR = 8, padT = 10, padB = 20;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  let minV = Math.min(...valores);
+  let maxV = Math.max(...valores);
+  const folga = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.05 || 1;
+  minV -= folga; maxV += folga;
+
+  const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
+  const x = (i, n) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
+
+  const ticks = 3;
+  let gridSvg = '';
+  for (let t = 0; t <= ticks; t += 1) {
+    const v = minV + (maxV - minV) * (t / ticks);
+    const yy = y(v);
+    gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
+    gridSvg += `<text class="axislabel" x="${padL - 6}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatEixoPrecoAtivo_(v)}</text>`;
+  }
+
+  const passos = 3;
+  let xLabelsSvg = '';
+  for (let i = 0; i < passos; i += 1) {
+    const idx = Math.round((janela.length - 1) * (i / (passos - 1)));
+    const xx = padL + plotW * (i / (passos - 1));
+    const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
+    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 5}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
+  }
+
+  const pathSvg = `<path d="${pathDRentabilidade_(valores, x, y)}" fill="none" stroke="var(--acoes)" stroke-width="2.2"/>`;
+
+  container.innerHTML = `
+    <svg class="ativo-grafico-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      ${gridSvg}${xLabelsSvg}${pathSvg}
+      <g class="ativo-grafico-hover" hidden>
+        <line class="ativo-grafico-hover-linha" x1="0" x2="0" y1="${padT}" y2="${H - padB}"/>
+        <circle class="ativo-grafico-hover-ponto" r="3.4" fill="var(--acoes)" hidden/>
+      </g>
+      <rect class="ativo-grafico-hitarea" x="${padL}" y="${padT}" width="${Math.max(plotW, 0)}" height="${Math.max(plotH, 0)}" fill="transparent" pointer-events="all"/>
+    </svg>
+    <div class="ativo-grafico-tooltip" hidden></div>
+  `;
+
+  ligarInteracaoGraficoAtivo_(container, { janela, valores, x, y, padL, plotW, W, formatMoeda });
+}
+
+/**
+ * Monta o corpo "carregado" do popover: filtro de período (filter-tabs,
+ * mesmo componente/CSS de #periodoTabs) + o gráfico de preço bruto.
+ * `serie` já veio inteira do back-end (getHistoricoAtivo) numa única
+ * chamada - trocar de período aqui é só filtrar/redesenhar em memória,
+ * sem nova chamada de rede (mesmo padrão de wireGraficoRentabilidade).
+ */
+function montarCorpoGraficoAtivo_(doc, corpo, { ativo, serie }) {
+  const pillsHtml = PERIODOS_GRAFICO_ATIVO
+    .map(({ id, label }) => `<button class="filter-tab${id === 'mes' ? ' active' : ''}" type="button" data-periodo="${id}">${label}</button>`)
+    .join('');
+  corpo.innerHTML = `
+    <div class="ativo-grafico-periodo filter-tabs">${pillsHtml}</div>
+    <div class="ativo-grafico-chart-wrap"></div>
+  `;
+
+  const chartWrap = corpo.querySelector('.ativo-grafico-chart-wrap');
+  const formatMoeda = ativo.classe === 'usa' ? formatUSD : formatBRL;
+  const botoesPeriodo = Array.from(corpo.querySelectorAll('.filter-tab'));
+
+  function redesenhar_(periodoId) {
+    renderGraficoPrecoAtivo_(doc, chartWrap, { serie, periodoId, formatMoeda });
+  }
+
+  botoesPeriodo.forEach((botao) => {
+    botao.addEventListener('click', () => {
+      botoesPeriodo.forEach((b) => b.classList.toggle('active', b === botao));
+      redesenhar_(botao.dataset.periodo);
+    });
+  });
+
+  redesenhar_('mes');
+}
+
+/**
+ * Liga o popover "Ver gráfico" de cada .ativo-card (ícone
+ * .ativo-grafico-icon, criarAtivoCard) - 1 popover só, reaproveitado
+ * pra qualquer card (mesmo padrão de wireTooltipAtivos), criado 1 vez
+ * (idempotente via container._graficoWired) e reposicionado/redesenhado
+ * a cada clique. `token` é passado pelo orquestrador (montarPaginaInicio)
+ * pra buscar o histórico (getHistoricoAtivoImpl, injetável pra teste).
+ *
+ * 17/09/2026 (2ª rodada - pedido do Tiago: "continue com os gráficos
+ * dos cards"): busca sob demanda (getHistoricoAtivo, ver api-client.js)
+ * na 1ª vez que o popover de um ticker abre - o resultado fica em cache
+ * no próprio nó do card (`card._historicoAtivoSerie`) pras aberturas
+ * seguintes do MESMO card não baterem na rede de novo (a série inteira
+ * já veio, trocar de período é só filtrar em memória - ver
+ * montarCorpoGraficoAtivo_). `aberturaId` (incrementado a cada
+ * mostrar_/esconder_) descarta uma resposta que chega depois do usuário
+ * já ter fechado o popover ou aberto outro card - sem isso, uma busca
+ * lenta do card A poderia sobrescrever o card B já aberto.
+ *
+ * Renda Fixa (ativo.classe==='rf') não tem preço diário por ticker
+ * nesse formato (aux_historico-patrimonio guarda saldo pra RF, não
+ * cotação de mercado - ver cabeçalho de apps-script/HistoricoAtivo.gs);
+ * o ícone continua visível em todo card (evita UI que muda de forma por
+ * classe), mas mostra um aviso direto, sem tentar buscar.
+ */
+export function wireGraficoAtivo(doc, container, { token, getHistoricoAtivoImpl = getHistoricoAtivo } = {}) {
   if (!container || container._graficoWired) return;
   container._graficoWired = true;
 
@@ -1525,10 +1730,12 @@ export function wireGraficoAtivo(doc, container) {
   (doc.body || container).appendChild(popover);
 
   let cardAberto = null;
+  let aberturaId = 0;
 
   function esconder_() {
     popover.hidden = true;
     cardAberto = null;
+    aberturaId += 1; // invalida qualquer busca em andamento (ver mostrar_)
   }
 
   /** position:fixed ancorado no ícone clicado - mesma lógica de "não
@@ -1553,11 +1760,40 @@ export function wireGraficoAtivo(doc, container) {
 
   function mostrar_(icone, card) {
     const ativo = card._ativoTooltip;
+    const corpo = popover.querySelector('.ativo-grafico-popover-corpo');
     popover.querySelector('.ativo-grafico-popover-ticker').textContent = ativo ? ativo.ticker : '';
-    popover.querySelector('.ativo-grafico-popover-corpo').innerHTML = '<p class="hint">Gráfico de preço chegando em breve.</p>';
     popover.hidden = false;
     posicionar_(icone);
     cardAberto = card;
+
+    const minhaAbertura = (aberturaId += 1);
+
+    if (!ativo) {
+      corpo.innerHTML = '<div class="ativo-grafico-popover-hint"><p class="hint">Ativo não encontrado.</p></div>';
+      return;
+    }
+
+    if (ativo.classe === 'rf') {
+      corpo.innerHTML = '<div class="ativo-grafico-popover-hint"><p class="hint">Gráfico de preço não disponível para Renda Fixa.</p></div>';
+      return;
+    }
+
+    if (card._historicoAtivoSerie) {
+      montarCorpoGraficoAtivo_(doc, corpo, { ativo, serie: card._historicoAtivoSerie });
+      return;
+    }
+
+    corpo.innerHTML = '<div class="ativo-grafico-popover-hint"><p class="hint">Carregando…</p></div>';
+
+    getHistoricoAtivoImpl(token, ativo.ticker).then((resposta) => {
+      if (minhaAbertura !== aberturaId) return; // popover fechou/trocou de card enquanto buscava
+      if (!resposta.ok || !resposta.resultado) {
+        corpo.innerHTML = '<div class="ativo-grafico-popover-hint"><p class="hint">Não deu pra carregar o histórico agora.</p></div>';
+        return;
+      }
+      card._historicoAtivoSerie = resposta.resultado.serie || [];
+      montarCorpoGraficoAtivo_(doc, corpo, { ativo, serie: card._historicoAtivoSerie });
+    });
   }
 
   function aoClicar_(ev) {
@@ -1665,7 +1901,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
     wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
     wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
-    wireGraficoAtivo(doc, doc.getElementById('meusAtivosGrid'));
+    wireGraficoAtivo(doc, doc.getElementById('meusAtivosGrid'), { token });
   }
 
   await carregarERedesenhar();

@@ -289,7 +289,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    passageiro. 17/09/2026: corpo ainda é um placeholder - ver o
    comentário de wireGraficoAtivo. */
 .ativo-grafico-popover{ position:fixed; z-index:55; background:var(--surface); border:1px solid var(--border);
-      border-radius:12px; box-shadow:var(--shadow); width:260px; max-width:calc(100vw - 24px); }
+      border-radius:12px; box-shadow:var(--shadow); width:300px; max-width:calc(100vw - 24px); }
 .ativo-grafico-popover-head{ display:flex; align-items:center; justify-content:space-between; gap:8px;
       padding:10px 12px; border-bottom:1px solid var(--border); }
 .ativo-grafico-popover-ticker{ font-family:var(--body-f); font-weight:700; font-size:13px; }
@@ -297,8 +297,35 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
       border-radius:50%; border:1px solid var(--border); background:var(--surface-3); color:var(--ink-muted);
       font-size:15px; line-height:1; cursor:pointer; padding:0; }
 .ativo-grafico-popover-fechar:hover{ color:var(--ink); border-color:var(--acoes); }
-.ativo-grafico-popover-corpo{ padding:14px 12px; min-height:120px; display:flex; align-items:center; justify-content:center; text-align:center; }
-.ativo-grafico-popover-corpo .hint{ margin:0; }
+/* 17/09/2026 (2ª rodada): corpo virou "block" simples (era flex/centralizado
+   pro placeholder antigo) - os 2 estados agora divergem de layout: um aviso
+   (Carregando/erro/RF/não encontrado) usa .ativo-grafico-popover-hint (flex
+   centralizado, como antes); o corpo "carregado" (filtro de período + o
+   próprio gráfico) empilha em bloco normal, sem centralizar nada. */
+.ativo-grafico-popover-corpo{ padding:12px; min-height:96px; }
+.ativo-grafico-popover-hint{ display:flex; align-items:center; justify-content:center; min-height:96px; text-align:center; }
+.ativo-grafico-popover-hint .hint{ margin:0; }
+
+.ativo-grafico-periodo{ margin-bottom:10px; }
+.ativo-grafico-periodo .filter-tab{ font-size:10px; padding:5px 8px; }
+
+/* ---- Gráfico de preço bruto do ativo (17/09/2026, 2ª rodada) ----
+   Mesma técnica de .rentab-chart/.rentab-hitarea/.rentab-tooltip (ver
+   acima), mas mais compacto (popover de 300px é bem mais estreito que um
+   cartão de Rentabilidade) e 1 série só (sem benchmark/legenda) - ver
+   renderGraficoPrecoAtivo_/ligarInteracaoGraficoAtivo_ (pages/inicio.js). */
+.ativo-grafico-chart-wrap{ position:relative; }
+.ativo-grafico-chart{ width:100%; height:140px; display:block; touch-action:none; }
+.ativo-grafico-chart .gridline{ stroke:var(--border); stroke-width:1; }
+.ativo-grafico-chart .axislabel{ font-family:var(--mono); font-size:9px; fill:var(--ink-faint); }
+.ativo-grafico-hitarea{ cursor:crosshair; }
+.ativo-grafico-hover-linha{ stroke:var(--ink-faint); stroke-width:1; stroke-dasharray:3 3; }
+.ativo-grafico-hover-ponto{ stroke:var(--surface); stroke-width:1.5; }
+.ativo-grafico-tooltip{ position:absolute; top:2px; z-index:2; min-width:76px; background:var(--surface);
+      border:1px solid var(--border); border-radius:10px; padding:6px 9px; box-shadow:var(--shadow-lg);
+      pointer-events:none; }
+.ativo-grafico-tooltip-data{ font-size:9.5px; color:var(--ink-faint); margin-bottom:3px; }
+.ativo-grafico-tooltip b{ font-family:var(--mono); font-weight:600; font-size:12px; color:var(--ink); }
 
 /* Tooltip de hover/touch do .ativo-card - mesmo desenho validado em
    docs/direcao-visual.html, position:fixed (segue o ponteiro por cima de

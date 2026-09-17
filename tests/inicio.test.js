@@ -1164,12 +1164,37 @@ test('criarAtivoCard() tem um rodapé de ações com os ícones de info e de gr�
 // abrir e fechar (nos 2), ao contrário do ícone "i" (que no mouse já
 // mostra com hover) - por isso 1 listener de `click` só cobre mouse e o
 // clique sintético do toque, sem precisar checar pointerType.
+//
+// getHistoricoAtivoImpl é injetável (mesmo padrão de getHomeImpl em
+// montarPaginaInicio) - os testes que só checam abrir/fechar o popover
+// usam implHistoricoFake_() (resolve rápido, sem se importar com o
+// conteúdo) pra não depender de fetch/rede de verdade; os testes da
+// próxima seção (17/09/2026, 2ª rodada) exercitam a busca em si
+// (token/ticker passados certos, cache, troca de período, Renda Fixa,
+// resposta que chega atrasada).
+
+// 3ª data dentro do Mês atual (setembro/2026, mesmo mês da última linha) -
+// o filtro padrão ('mes') só mantém dias do MESMO mês da última data (ver
+// filtrarHistoricoPorPeriodo) - com 1 dia só em setembro a janela ficaria
+// com <2 pontos e o gráfico cairia no aviso "sem histórico suficiente" em
+// vez de desenhar, o que quebraria os testes que esperam ver o <svg>.
+const SERIE_ATIVO_EXEMPLO = [
+  { data: '2026-07-01', preco: 20.10 },
+  { data: '2026-08-01', preco: 21.50 },
+  { data: '2026-09-01', preco: 21.80 },
+  { data: '2026-09-15', preco: 22.14 },
+];
+
+function implHistoricoFake_(serie = SERIE_ATIVO_EXEMPLO) {
+  return async () => ({ ok: true, resultado: { ticker: 'BBAS3', serie } });
+}
+
 
 test('wireGraficoAtivo() clicar no ícone de gráfico abre o popover com o ticker do ativo, sem navegar', () => {
   const doc = makeDom('<div id="grid"></div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
   const evento = new doc.defaultView.Event('click', { bubbles: true, cancelable: true });
@@ -1186,7 +1211,7 @@ test('wireGraficoAtivo() clicar de novo no mesmo ícone fecha o popover (alterna
   const doc = makeDom('<div id="grid"></div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
   icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
@@ -1200,7 +1225,7 @@ test('wireGraficoAtivo() o botão "×" do popover fecha', () => {
   const doc = makeDom('<div id="grid"></div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   const popover = doc.body.querySelector('.ativo-grafico-popover');
@@ -1214,7 +1239,7 @@ test('wireGraficoAtivo() clicar fora do cartão aberto (e fora do popover) fecha
   const doc = makeDom('<div id="grid"></div><div id="fora">Fora do cartão</div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, false);
@@ -1227,7 +1252,7 @@ test('wireGraficoAtivo() abrir o gráfico de outro cartão troca o popover (fech
   const doc = makeDom('<div id="grid"></div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_FII_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   const icones = grid.querySelectorAll('.ativo-card .ativo-grafico-icon');
   icones[0].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
@@ -1244,7 +1269,7 @@ test('wireGraficoAtivo() clicar no ícone "i" não abre o popover de gráfico (c
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
   wireTooltipAtivos(doc, grid);
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   grid.querySelector('.ativo-card .ativo-info-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, true);
@@ -1254,15 +1279,195 @@ test('wireGraficoAtivo() religar no mesmo container (ex.: depois de "Atualizar d
   const doc = makeDom('<div id="grid"></div>');
   const grid = doc.getElementById('grid');
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
   renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos'); // simula o redesenho de "Atualizar dados"
-  wireGraficoAtivo(doc, grid);
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
 
   assert.equal(doc.body.querySelectorAll('.ativo-grafico-popover').length, 1);
 
   const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
   icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   assert.equal(doc.body.querySelector('.ativo-grafico-popover').hidden, false);
+});
+
+// --- wireGraficoAtivo(): busca do histórico de preço (17/09/2026, 2ª rodada) --
+// Pedido do Tiago após a 1ª rodada (placeholder "chegando em breve"):
+// "continue com os gráficos dos cards". O período padrão segue o mesmo
+// filtro da Rentabilidade ("Siga o filtro que usamos na sessao
+// Rentabilidade, onde o default é mes atual") e o gráfico plota
+// "Preço bruto (R$ ou US$, conforme o ativo)" - as 2 respostas do
+// Tiago às perguntas de esclarecimento desta feature.
+
+test('wireGraficoAtivo() ao abrir, busca o histórico com o token e o ticker do ativo, mostrando "Carregando…" antes da resposta chegar', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+
+  const chamadas = [];
+  let resolver;
+  const promessa = new Promise((r) => { resolver = r; });
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok-123',
+    getHistoricoAtivoImpl: async (token, ticker) => { chamadas.push([token, ticker]); return promessa; },
+  });
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+
+  assert.deepEqual(chamadas, [['tok-123', 'BBAS3']]);
+  assert.match(doc.body.querySelector('.ativo-grafico-popover-corpo').textContent, /Carregando/);
+
+  resolver({ ok: true, resultado: { ticker: 'BBAS3', serie: SERIE_ATIVO_EXEMPLO } });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  const corpo = doc.body.querySelector('.ativo-grafico-popover-corpo');
+  assert.ok(corpo.querySelector('.ativo-grafico-periodo'), 'monta o filtro de período');
+  assert.ok(corpo.querySelector('svg.ativo-grafico-chart'), 'desenha o gráfico');
+});
+
+test('wireGraficoAtivo() o filtro de período vem com os mesmos 6 presets da Rentabilidade, "Mês atual" ativo por padrão', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid, { token: 'tok', getHistoricoAtivoImpl: implHistoricoFake_() });
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  const pills = Array.from(doc.body.querySelectorAll('.ativo-grafico-periodo .filter-tab'));
+  assert.deepEqual(pills.map((p) => p.dataset.periodo), ['mes', '30d', '6m', '12m', '3a', 'tudo']);
+  assert.equal(pills.find((p) => p.dataset.periodo === 'mes').classList.contains('active'), true);
+});
+
+test('wireGraficoAtivo() trocar de período redesenha o gráfico sem nova busca de rede', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  let chamadas = 0;
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async () => { chamadas += 1; return { ok: true, resultado: { ticker: 'BBAS3', serie: SERIE_ATIVO_EXEMPLO } }; },
+  });
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  const pill12m = doc.body.querySelector('.filter-tab[data-periodo="12m"]');
+  pill12m.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+
+  assert.equal(pill12m.classList.contains('active'), true);
+  assert.equal(doc.body.querySelector('.filter-tab[data-periodo="mes"]').classList.contains('active'), false);
+  assert.equal(chamadas, 1, 'trocar de período não bate na API de novo');
+});
+
+test('wireGraficoAtivo() reabrir o MESMO card não busca de novo (cache no próprio card)', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  let chamadas = 0;
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async () => { chamadas += 1; return { ok: true, resultado: { ticker: 'BBAS3', serie: SERIE_ATIVO_EXEMPLO } }; },
+  });
+
+  const icone = grid.querySelector('.ativo-card .ativo-grafico-icon');
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // abre
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // fecha
+  icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // abre de novo
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  assert.equal(chamadas, 1);
+  assert.ok(doc.body.querySelector('svg.ativo-grafico-chart'), 'redesenha o gráfico na 2ª abertura, do cache');
+});
+
+test('wireGraficoAtivo() ativo de Renda Fixa mostra aviso de indisponível, sem tentar buscar', () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_RF_EXEMPLO], 'todos');
+  let chamado = false;
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async () => { chamado = true; return { ok: true, resultado: { ticker: 'x', serie: [] } }; },
+  });
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+
+  assert.equal(chamado, false);
+  assert.match(doc.body.querySelector('.ativo-grafico-popover-corpo').textContent, /Renda Fixa/);
+});
+
+test('wireGraficoAtivo() resposta de erro do back-end mostra aviso, sem quebrar', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async () => ({ ok: false, etapa: 'historicoAtivo', erro: 'boom' }),
+  });
+
+  grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  assert.match(doc.body.querySelector('.ativo-grafico-popover-corpo').textContent, /Não deu pra carregar/);
+});
+
+test('wireGraficoAtivo() troca de card antes da resposta chegar descarta a resposta antiga (não sobrescreve o card novo)', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_FII_EXEMPLO], 'todos');
+
+  let resolverLenta;
+  const promessaLenta = new Promise((r) => { resolverLenta = r; });
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async (token, ticker) => {
+      if (ticker === 'BBAS3') return promessaLenta; // fica pendurada
+      return { ok: true, resultado: { ticker, serie: SERIE_ATIVO_EXEMPLO } };
+    },
+  });
+
+  const icones = grid.querySelectorAll('.ativo-card .ativo-grafico-icon');
+  icones[0].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // abre BBAS3 (fica "Carregando…")
+  icones[1].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // troca pra HGRU11 antes da 1ª resposta
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  assert.match(doc.body.querySelector('.ativo-grafico-popover-ticker').textContent, /HGRU11/);
+  assert.ok(doc.body.querySelector('svg.ativo-grafico-chart'), 'HGRU11 já mostra o gráfico normalmente');
+
+  // Resposta antiga (BBAS3) chega tarde - não pode sobrescrever o corpo do HGRU11.
+  resolverLenta({ ok: true, resultado: { ticker: 'BBAS3', serie: SERIE_ATIVO_EXEMPLO } });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  assert.match(doc.body.querySelector('.ativo-grafico-popover-ticker').textContent, /HGRU11/, 'continua mostrando o card que está aberto de verdade');
+});
+
+test('wireGraficoAtivo() hover no gráfico mostra o tooltip com o preço formatado na moeda do ativo (R$ pra Ações, US$ pra USA)', async () => {
+  const doc = makeDom('<div id="grid"></div>');
+  const grid = doc.getElementById('grid');
+  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_USA_EXEMPLO], 'todos');
+  wireGraficoAtivo(doc, grid, {
+    token: 'tok',
+    getHistoricoAtivoImpl: async (token, ticker) => ({ ok: true, resultado: { ticker, serie: SERIE_ATIVO_EXEMPLO } }),
+  });
+
+  const icones = grid.querySelectorAll('.ativo-card .ativo-grafico-icon');
+  icones[0].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // BBAS3 (acoes)
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  // Mesmo fallback de largura de renderGraficoRentabilidade (sem layout de
+  // verdade em jsdom -> 640px, ver larguraReal_): padL=42, padR=8 -> plotW=590.
+  doc.body.querySelector('.ativo-grafico-hitarea')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 337, clientY: 50, bubbles: true }));
+  assert.match(doc.body.querySelector('.ativo-grafico-tooltip').textContent, /R\$/);
+
+  icones[1].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // CHTR (usa)
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+  doc.body.querySelector('.ativo-grafico-hitarea')
+    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 337, clientY: 50, bubbles: true }));
+  const tooltipUsd = doc.body.querySelector('.ativo-grafico-tooltip').textContent;
+  assert.match(tooltipUsd, /\$/);
+  assert.doesNotMatch(tooltipUsd, /R\$/);
 });
 
 // --- renderAvisos ------------------------------------------------------------

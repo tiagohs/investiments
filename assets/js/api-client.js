@@ -191,6 +191,22 @@ export async function limparCacheHistorico(token) {
 }
 
 /**
+ * Histórico diário de PREÇO de 1 ticker só, na moeda nativa do ativo
+ * (action=historicoAtivo) — alimenta o gráfico do popover "Ver gráfico"
+ * de cada .ativo-card em Meus Ativos (Início). Sob demanda: só chamado
+ * quando o popover de um card abre pela 1ª vez (ver inicio.js!wireGraficoAtivo),
+ * não faz parte da chamada única de getHome().
+ *
+ * @param {string} token
+ * @param {string} ticker - mesmo texto exato de ativo.ticker (Auxiliar_ativos col. B).
+ * @return {Promise<Object>} `{ ok, resultado: { ticker, serie: [{ data:
+ *   'yyyy-MM-dd', preco: number }] } }` or `{ ok:false, etapa, erro }`.
+ */
+export async function getHistoricoAtivo(token, ticker) {
+  return request('GET', 'historicoAtivo', token, { ticker });
+}
+
+/**
  * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas)
  * — ver apps-script/DistribuicoesMetas.gs pra estrutura completa de
  * cada fatia. Além de `metas`, hoje também traz `objetivos` (split

@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -75,6 +75,22 @@ test('getSyncHistorico() aceita um limite customizado', async (t) => {
   await getSyncHistorico('tok', 5);
 
   assert.equal(new URL(capturedUrl).searchParams.get('limite'), '5');
+});
+
+test('getHistoricoAtivo() calls action=historicoAtivo with the token and the ticker', async (t) => {
+  let capturedUrl;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    capturedUrl = url;
+    return jsonResponse({ ok: true, resultado: { ticker: 'BBAS3', serie: [{ data: '2026-09-01', preco: 22.14 }] } });
+  });
+
+  const result = await getHistoricoAtivo('tok', 'BBAS3');
+
+  assert.equal(result.resultado.serie.length, 1);
+  const params = new URL(capturedUrl).searchParams;
+  assert.equal(params.get('action'), 'historicoAtivo');
+  assert.equal(params.get('token'), 'tok');
+  assert.equal(params.get('ticker'), 'BBAS3');
 });
 
 test('getHome() calls action=home and returns patrimônio/índices/câmbio as-is', async (t) => {
