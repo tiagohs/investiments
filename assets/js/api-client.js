@@ -173,6 +173,24 @@ export async function syncRendaFixaEIndices(token) {
 }
 
 /**
+ * "Limpar cache" (botão no popover "Registro de Controle", topo do app,
+ * 17/09/2026 - ver apps-script/HistoricoInicio.gs!limparCacheHistoricoInicio_
+ * e shell.js!setupLimparCacheButton). Apaga o cache (CacheService, TTL de
+ * 6h) da série combinada que alimenta o gráfico de Rentabilidade - existe
+ * pra um caso específico: um valor corrigido DIRETO NA CÉLULA da planilha
+ * (sem apagar/inserir linha) não muda a chave do cache sozinho, então o
+ * app continua servindo o resultado velho por até 6h até esse botão ser
+ * usado (ou o TTL expirar sozinho).
+ *
+ * @param {string} token
+ * @return {Promise<Object>} `{ ok, resultado: { limpou, chave,
+ *   pedacosRemovidos? } }` or `{ ok:false, etapa, erro }`.
+ */
+export async function limparCacheHistorico(token) {
+  return request('POST', 'limparCacheHistorico', token);
+}
+
+/**
  * Chamada única da tela Distribuições e Metas (action=distribuicoesMetas)
  * — ver apps-script/DistribuicoesMetas.gs pra estrutura completa de
  * cada fatia. Além de `metas`, hoje também traz `objetivos` (split

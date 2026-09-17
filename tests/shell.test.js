@@ -17,6 +17,7 @@ import {
   redirectParaLogin,
   setupAuthGate,
   setupSyncNowButton,
+  setupLimparCacheButton,
   renderSyncStatus,
   renderSyncLog,
   categoriaSync_,
@@ -32,6 +33,7 @@ const SHELL_PARTIAL_HTML = `
     <div class="sync-wrap">
       <button id="syncBadgeBtn" data-toggle-panel="syncPanel" aria-expanded="false">sync</button>
       <div class="overlay-panel" id="syncPanel">
+        <button id="limparCacheBtn" type="button">Limpar cache</button>
         <button id="syncNowBtn" type="button">Sincronizar agora</button>
         <div class="sync-log" id="syncLog"><div class="hint">Nenhuma sincronização registrada ainda.</div></div>
         <a id="syncSheetLink" href="#">link</a>
@@ -130,6 +132,19 @@ test('setupAuthGate() também liga o botão "Sincronizar agora" (setupSyncNowBut
   assert.equal(calledWith, 'token-existente');
 });
 
+test('setupAuthGate() também liga o botão "Limpar cache" (setupLimparCacheButtonImpl) quando autenticado', () => {
+  const doc = makeDom();
+  let calledWith = null;
+  setupAuthGate(doc, {
+    getTokenImpl: () => 'token-existente',
+    redirectImpl: () => { throw new Error('não deveria redirecionar - já tinha token'); },
+    carregarStatusSyncImpl: () => {},
+    setupSyncNowButtonImpl: () => {},
+    setupLimparCacheButtonImpl: (_doc, { token }) => { calledWith = token; },
+  });
+  assert.equal(calledWith, 'token-existente');
+});
+
 test('setupAuthGate() nunca liga o botão de sincronizar quando não há token', () => {
   const doc = makeDom();
   let called = false;
@@ -137,6 +152,17 @@ test('setupAuthGate() nunca liga o botão de sincronizar quando não há token',
     getTokenImpl: () => null,
     redirectImpl: () => {},
     setupSyncNowButtonImpl: () => { called = true; },
+  });
+  assert.equal(called, false);
+});
+
+test('setupAuthGate() nunca liga o botão "Limpar cache" quando não há token', () => {
+  const doc = makeDom();
+  let called = false;
+  setupAuthGate(doc, {
+    getTokenImpl: () => null,
+    redirectImpl: () => {},
+    setupLimparCacheButtonImpl: () => { called = true; },
   });
   assert.equal(called, false);
 });
@@ -551,6 +577,165 @@ test('setupSyncNowButton() sem token nao liga nada (clicar nao chama syncNowImpl
 test('setupSyncNowButton() nao quebra quando a pagina nao tem #syncNowBtn', () => {
   const doc = makeDom();
   assert.doesNotThrow(() => setupSyncNowButton(doc, { token: 'token-abc' }));
+});
+
+// --- setupLimparCacheButton ------------------------------------------------
+// 17/09/2026: botão "Limpar cache" - ação SEPARADA de setupSyncNowButton
+// (chama limparCacheHistoricoImpl sozinho, nunca junto de syncNowImpl/
+// syncRendaFixaEIndicesImpl) - ver comentário da função em shell.js pro
+// motivo (a maioria dos syncs não precisa disso).
+
+test('setupLimparCacheButton() chama limparCacheHistoricoImpl com o token, mostra confirmação e agenda o reload', async () => {
+  const doc = mountedDoc();
+  let chamadoCom = null;
+  let reloadChamado = false;
+  const fakeWin = { location: { reload: () => { reloadChamado = true; } } };
+  let callbackAgendado = null;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async (token) => { chamadoCom = token; return { ok: true, resultado: { limpou: true, chave: 'historico_serie_v4_1_2_3_4' } }; },
+    win: fakeWin,
+    setTimeoutImpl: (cb) => { callbackAgendado = cb; },
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(chamadoCom, 'token-abc');
+  assert.equal(btn.textContent, 'Cache limpo ✓');
+  assert.equal(btn.disabled, true); // ainda desabilitado - só o reload (agendado) resolveria isso
+  assert.ok(callbackAgendado, 'deveria ter agendado o reload via setTimeoutImpl');
+
+  callbackAgendado();
+  assert.equal(reloadChamado, true);
+});
+
+test('setupLimparCacheButton() quando o backend diz que já estava sem cache, ainda confirma e agenda o reload', async () => {
+  const doc = mountedDoc();
+  let callbackAgendado = null;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => ({ ok: true, resultado: { limpou: false, motivo: 'já estava frio' } }),
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: (cb) => { callbackAgendado = cb; },
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(btn.textContent, 'Já estava sem cache');
+  assert.ok(callbackAgendado);
+});
+
+test('setupLimparCacheButton() desabilita o botao e troca o texto enquanto esta em voo', async () => {
+  const doc = mountedDoc();
+  let resolver;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: () => new Promise((r) => { resolver = r; }),
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: () => {},
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  const textoOriginal = btn.textContent;
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(btn.disabled, true);
+  assert.equal(btn.textContent, 'Limpando…');
+
+  resolver({ ok: true, resultado: { limpou: true } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.notEqual(btn.textContent, textoOriginal); // ficou na mensagem de confirmação, esperando o reload
+});
+
+test('setupLimparCacheButton() clique duplo enquanto ja esta em voo nao chama limparCacheHistoricoImpl 2 vezes', async () => {
+  const doc = mountedDoc();
+  let chamadas = 0;
+  let resolver;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: () => { chamadas += 1; return new Promise((r) => { resolver = r; }); },
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: () => {},
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+
+  assert.equal(chamadas, 1);
+  resolver({ ok: true, resultado: { limpou: true } });
+});
+
+test('setupLimparCacheButton() trata falha sem lancar, mostra mensagem de erro e reabilita o botao (sem agendar reload)', async () => {
+  const doc = mountedDoc();
+  let reloadChamado = false;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => { throw new Error('rede caiu'); },
+    win: { location: { reload: () => { reloadChamado = true; } } },
+    setTimeoutImpl: () => { reloadChamado = true; },
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  const textoOriginal = btn.textContent;
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, textoOriginal);
+  assert.equal(reloadChamado, false);
+});
+
+test('setupLimparCacheButton() sem win/setTimeoutImpl nao agenda reload - so restaura o botao', async () => {
+  const doc = mountedDoc();
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => ({ ok: true, resultado: { limpou: true } }),
+    win: undefined,
+    setTimeoutImpl: undefined,
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  const textoOriginal = btn.textContent;
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, textoOriginal);
+});
+
+test('setupLimparCacheButton() sem token nao liga nada (clicar nao chama limparCacheHistoricoImpl)', () => {
+  const doc = mountedDoc();
+  let chamado = false;
+  setupLimparCacheButton(doc, {
+    token: null,
+    limparCacheHistoricoImpl: async () => { chamado = true; },
+  });
+
+  const btn = doc.getElementById('limparCacheBtn');
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  assert.equal(chamado, false);
+});
+
+test('setupLimparCacheButton() nao quebra quando a pagina nao tem #limparCacheBtn', () => {
+  const doc = makeDom();
+  assert.doesNotThrow(() => setupLimparCacheButton(doc, { token: 'token-abc' }));
 });
 
 // --- parseShellPartial ---------------------------------------------------

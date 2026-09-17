@@ -66,6 +66,9 @@ function doPost(e) {
   if (action === 'sincronizarRendaFixaEIndices') {
     return handleSincronizarRendaFixaEIndices(e);
   }
+  if (action === 'limparCacheHistorico') {
+    return handleLimparCacheHistorico(e);
+  }
   if (action === 'salvarMetaRendaPassiva') {
     return handleSalvarMetaRendaPassiva(e);
   }

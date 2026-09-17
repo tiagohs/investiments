@@ -55,7 +55,11 @@
         <div class="overlay-panel" id="syncPanel">
           <div class="sync-panel-head">
             <h3>Registro de Controle</h3>
-            <button class="btn btn-primary" id="syncNowBtn" type="button" style="padding:6px 12px; font-size:11.5px">Sincronizar agora</button>
+            <div class="sync-panel-actions">
+              <button class="btn btn-ghost" id="limparCacheBtn" type="button" style="padding:6px 10px; font-size:11px"
+                      title="Limpa o cache do gráfico de Rentabilidade - use se corrigiu um valor direto na planilha e o app ainda mostra o número antigo">Limpar cache</button>
+              <button class="btn btn-primary" id="syncNowBtn" type="button" style="padding:6px 12px; font-size:11.5px">Sincronizar agora</button>
+            </div>
           </div>
           <div class="sync-log" id="syncLog">
             <div class="hint" style="padding:9px 4px">Carregando…</div>

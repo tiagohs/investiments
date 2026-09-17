@@ -234,7 +234,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // otimização de cache pra começo de conversa) - bump manual de versão,
   // mesmo remédio já usado no v3, pra forçar todo mundo a recalcular
   // agora em vez de esperar o TTL.
-  var chaveCacheSerie = 'historico_serie_v4_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  var chaveCacheSerie = montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa);
 
   // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
   // leitura do cache, pra parar de inferir "tá cacheando?" só olhando o
@@ -413,6 +413,76 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
 // CacheService: 100KB por chave — a série inteira (hoje ~2090 itens, só
 // tende a crescer) passa disso, então grava em pedaços (chunks) sob um
 // prefixo comum + uma chave "_meta" com a contagem de pedaços.
+
+/**
+ * Monta a chave do cache da série combinada a partir das 4 contagens que a
+ * definem - função à parte (17/09/2026) só pra garantir que
+ * montarSerieHistoricoInicio_ e limparCacheHistoricoInicio_ (botão "Limpar
+ * cache", ver mais abaixo) NUNCA divirjam na fórmula - o prefixo de versão
+ * ("v4" hoje, ver histórico de bumps logo acima) só precisa existir num
+ * lugar só.
+ */
+function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa) {
+  return 'historico_serie_v4_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+}
+
+/**
+ * Botão "Limpar cache" (topo do app, dentro do popover "Registro de
+ * Controle" - pedido do Tiago em 17/09/2026, depois de um caso real: ele
+ * corrigiu um valor ruim do Ibovespa DIRETO NA CÉLULA da planilha - mesma
+ * linha, mesma contagem - e o app continuou mostrando o número velho, já
+ * que chaveCacheSerie só muda quando a CONTAGEM de linhas muda, nunca
+ * quando um valor existente é editado no lugar. Até aqui só um bump manual
+ * de versão no código (precisa colar/publicar) resolvia isso).
+ *
+ * Recalcula a MESMA chave que montarSerieHistoricoInicio_ calcularia agora
+ * (montarChaveCacheSerie_, acima) e apaga os pedaços dela do
+ * CacheService, garantindo que a PRÓXIMA leitura da Home recalcula do
+ * zero em vez de servir algo cacheado por até 6h - sem precisar saber de
+ * antemão quantos pedaços existem (lê a chave "_meta" primeiro, mesmo
+ * padrão de lerSerieHistoricoCache_ logo abaixo).
+ */
+function limparCacheHistoricoInicio_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var abaPatrimonio = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
+  if (!abaPatrimonio) throw new Error('aba não encontrada: ' + ABA_PATRIMONIO_INICIO);
+  var linhasPatrimonio = Math.max(abaPatrimonio.getLastRow() - 1, 0);
+
+  var abaRendaFixa = ss.getSheetByName(ABA_HISTORICO_RF);
+  if (!abaRendaFixa) throw new Error('aba não encontrada: ' + ABA_HISTORICO_RF);
+  var linhasRendaFixaCount = Math.max(abaRendaFixa.getLastRow() - 1, 0);
+
+  var abaIndices = ss.getSheetByName(ABA_INDICES_INICIO);
+  if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_INDICES_INICIO);
+  var linhasIndices = Math.max(abaIndices.getLastRow() - 1, 0);
+
+  var contagemFluxoCaixa = contarLinhasFluxoCaixa_(ss);
+
+  var chave = montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa);
+  var cache = CacheService.getScriptCache();
+  var qtdPedacosTexto = cache.get(chave + '_meta');
+  if (!qtdPedacosTexto) {
+    return { limpou: false, motivo: 'já não havia cache pra essa chave (estava frio)', chave: chave };
+  }
+
+  var qtdPedacos = Number(qtdPedacosTexto);
+  var chavesParaRemover = [chave + '_meta'];
+  for (var i = 0; i < qtdPedacos; i++) chavesParaRemover.push(chave + '_' + i);
+  cache.removeAll(chavesParaRemover);
+
+  return { limpou: true, chave: chave, pedacosRemovidos: qtdPedacos };
+}
+
+/** Handler chamado pelo Router (doPost, action=limparCacheHistorico) - ver limparCacheHistoricoInicio_ acima. */
+function handleLimparCacheHistorico(e) {
+  try {
+    return jsonOut({ ok: true, resultado: limparCacheHistoricoInicio_() });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'limparCacheHistorico', erro: String(erro) });
+  }
+}
+
 var CACHE_SERIE_HISTORICO_TTL = 21600; // 6h — o máximo permitido pelo CacheService
 var CACHE_SERIE_HISTORICO_TAMANHO_PEDACO = 90000; // caracteres por pedaço, com folga do limite de 100KB/chave
 

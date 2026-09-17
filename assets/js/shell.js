@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken } from './auth.js';
-import { getSyncHistorico, syncNow, syncRendaFixaEIndices } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices, limparCacheHistorico } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 
@@ -559,19 +559,67 @@ export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRend
 }
 
 /**
+ * Wires #limparCacheBtn (dentro do popover "Registro de Controle", ao
+ * lado do "Sincronizar agora") - botão "Limpar cache" pedido pelo Tiago
+ * em 17/09/2026, depois de um caso real: corrigiu um valor ruim do
+ * Ibovespa direto na célula da planilha e o app continuou mostrando o
+ * número velho por até 6h (o cache da série combinada só percebe linha
+ * NOVA/removida, nunca um valor editado no lugar - ver
+ * apps-script/HistoricoInicio.gs!limparCacheHistoricoInicio_). Ação
+ * deliberadamente SEPARADA de "Sincronizar agora" - a maioria dos syncs
+ * não corrige nada manualmente na planilha, então limpar esse cache
+ * sempre que sincroniza jogaria fora uma otimização que normalmente é
+ * válida; este botão é a válvula de escape só pra quando precisa.
+ *
+ * Depois de limpar com sucesso, recarrega a página (winImpl.location.
+ * reload()) num pequeno atraso - dá tempo do texto de confirmação
+ * aparecer antes da tela sumir, e garante que a PRÓXIMA leitura da Home
+ * (ou de qualquer página aberta) vem fresca de verdade, sem precisar o
+ * Tiago lembrar de atualizar sozinho. winImpl/setTimeoutImpl são
+ * injetáveis pros testes (mesmo padrão de winImpl em setupAuthGate) -
+ * sem win (ambiente de teste), pula o reload.
+ */
+export function setupLimparCacheButton(doc, { token, limparCacheHistoricoImpl = limparCacheHistorico, win = typeof window !== 'undefined' ? window : undefined, setTimeoutImpl = typeof setTimeout !== 'undefined' ? setTimeout : undefined } = {}) {
+  const button = doc.getElementById('limparCacheBtn');
+  if (!button || !token) return;
+
+  button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    const textoOriginal = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Limpando…';
+    try {
+      const resposta = await limparCacheHistoricoImpl(token);
+      const limpou = resposta && resposta.ok && resposta.resultado && resposta.resultado.limpou;
+      button.textContent = limpou ? 'Cache limpo ✓' : 'Já estava sem cache';
+      if (win && setTimeoutImpl) {
+        setTimeoutImpl(() => win.location.reload(), 900);
+        return; // a página vai recarregar - não reabilita o botão à toa
+      }
+    } catch (error) {
+      console.error('shell.js: falha ao limpar o cache do histórico', error);
+      button.textContent = 'Falhou - tenta de novo';
+    }
+    button.disabled = false;
+    button.textContent = textoOriginal;
+  });
+}
+
+/**
  * Decides, once per page load, whether <main> can be shown right away
  * or the browser needs to leave for login.html — see the header
  * comment above ("Login gate"). getTokenImpl/redirectImpl are
  * injectable for tests, same pattern as setupThemeToggle takes its two
  * theme.js functions as params.
  */
-export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, setupSyncNowButtonImpl = setupSyncNowButton, win = typeof window !== 'undefined' ? window : undefined } = {}) {
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, setupSyncNowButtonImpl = setupSyncNowButton, setupLimparCacheButtonImpl = setupLimparCacheButton, win = typeof window !== 'undefined' ? window : undefined } = {}) {
   const token = getTokenImpl();
   if (token) {
     setMainVisible(doc, true);
     onAuthenticated(token);
     carregarStatusSyncImpl(doc, { token });
     setupSyncNowButtonImpl(doc, { token });
+    setupLimparCacheButtonImpl(doc, { token });
     return;
   }
 

@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -247,6 +247,22 @@ test('getDistribuicoesMetas() calls action=distribuicoesMetas as GET', async (t)
   assert.equal(result.ok, true);
   assert.equal(result.metas.rendaPassiva.meta, 500);
   assert.equal(new URL(capturedUrl).searchParams.get('action'), 'distribuicoesMetas');
+});
+
+test('limparCacheHistorico() POSTs action=limparCacheHistorico with the token', async (t) => {
+  let capturedBody;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedBody = opts.body;
+    assert.equal(opts.method, 'POST');
+    return jsonResponse({ ok: true, resultado: { limpou: true, chave: 'historico_serie_v4_1_2_3_4', pedacosRemovidos: 2 } });
+  });
+
+  const result = await limparCacheHistorico('tok');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.resultado.limpou, true);
+  assert.equal(capturedBody.get('action'), 'limparCacheHistorico');
+  assert.equal(capturedBody.get('token'), 'tok');
 });
 
 test('salvarMetaRendaPassiva() POSTs action + valor as form-urlencoded fields', async (t) => {

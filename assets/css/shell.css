@@ -188,6 +188,11 @@ svg{ display:block; }
 }
 
 .sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; padding:2px 4px 0; }
+/* 17/09/2026: .sync-panel-actions agrupa "Limpar cache" + "Sincronizar
+   agora" do lado direito de .sync-panel-head - antes só tinha o botão de
+   sync sozinho ali; com 2 botões, precisam de um wrapper próprio (senão
+   viram 3 filhos disputando o space-between em vez de 2). */
+.sync-panel-actions{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 .sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
 /* 16/09/2026: o popover passou a listar o histórico inteiro (antes só a
    última sincronização - ver shell.js!renderSyncLog), não só 1 linha -
@@ -255,6 +260,11 @@ svg{ display:block; }
       font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
 .btn-primary{ background:var(--acoes); color:#fff; }
 :root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary{ color:#071522; }
+/* 17/09/2026: variante secundária/discreta - pro botão "Limpar cache", que
+   não deve competir visualmente com o CTA principal ("Sincronizar agora",
+   .btn-primary) ao lado dele. */
+.btn-ghost{ background:transparent; color:var(--ink-muted); border:1px solid var(--border); }
+.btn-ghost:hover{ background:var(--surface-2); color:var(--ink); }
 .btn:disabled{ opacity:.75; cursor:default; }
 .btn .spinner{ width:13px; height:13px; border-radius:50%; border:2px solid rgba(255,255,255,.4);
       border-top-color:#fff; animation:spin .7s linear infinite; flex:none; }
