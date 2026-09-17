@@ -45,6 +45,9 @@ function doGet(e) {
   if (action === 'distribuicoesMetas') {
     return handleDistribuicoesMetas(e, auth);
   }
+  if (action === 'historicoAtivo') {
+    return handleHistoricoAtivo(e, auth);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
