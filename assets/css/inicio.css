@@ -25,7 +25,7 @@
    só criam <a> quando há extLinkHref; sem link, cai num <div> normal. */
 .widget-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:26px; }
 .widget-tile{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
-      padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px;
+      padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px; min-width:0;
       text-decoration:none; color:inherit; transition:transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
 a.widget-tile:hover{ transform:translateY(-2px); border-color:var(--acoes); box-shadow:0 4px 16px -4px rgba(27,36,48,.18), var(--shadow); }
 a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
@@ -56,7 +56,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    uma seção extra na página. */
 .resumo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:26px; }
 .resumo-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
-      padding:18px 20px; box-shadow:var(--shadow); }
+      padding:18px 20px; box-shadow:var(--shadow); min-width:0; }
 .resumo-label{ color:var(--ink-muted); font-size:12.5px; margin-bottom:6px; }
 .resumo-value{ font-family:var(--mono); font-size:28px; font-weight:600; line-height:1; }
 .resumo-value .dec{ font-size:16px; opacity:.62; }
@@ -85,6 +85,11 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    metas.css). */
 .distrib-valor-abaixo{ font-size:9.5px; font-weight:500; color:var(--ink-faint); }
 .distrib-pct{ padding-left:8px; font-family:var(--mono); font-weight:600; color:var(--ink); white-space:nowrap; flex:none; }
+@media (max-width:480px){
+  .distrib{ gap:10px; }
+  .distrib-donut{ width:44px; height:44px; }
+  .distrib-item{ font-size:10.5px; gap:5px; }
+}
 
 /* ---- Avisos (falha parcial de alguma seção) ---- */
 .avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
@@ -131,7 +136,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    (mesma grade de 2 colunas). Em telas estreitas as 2 colunas empilham. */
 .rentab-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:26px; }
 .rentab-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px;
-      padding:18px 20px; box-shadow:var(--shadow); }
+      padding:18px 20px; box-shadow:var(--shadow); min-width:0; }
 .rentab-card-total{ grid-column:1 / -1; }
 @media (max-width:760px){ .rentab-grid{ grid-template-columns:1fr; } }
 
@@ -196,7 +201,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    essenciais já vão direto no cartão). */
 .ativos-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
 .ativo-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
-      padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px;
+      padding:13px 14px 12px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:5px; min-width:0;
       text-decoration:none; color:inherit; transition:transform .12s ease, border-color .12s ease, box-shadow .12s ease; }
 .ativo-card:hover{ transform:translateY(-2px); border-color:var(--acoes); box-shadow:0 4px 16px -4px rgba(27,36,48,.18), var(--shadow); }
 .ativo-card:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
