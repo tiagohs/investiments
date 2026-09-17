@@ -99,10 +99,12 @@ function cambioUsdParaData_(mapaCambio, chavesOrdenadas, chaveData) {
 /**
  * Lê Transações / Transações - USA / Transações Renda Fixa / Proventos /
  * Proventos - USA e devolve o fluxo de caixa líquido POR DIA (chave
- * 'yyyy-MM-dd') em dois mapas — `total` (tudo) e `rendaEmergencial` (só a
- * parte que pertence a Renda Fixa classificada como Renda Emergencial) —
- * pra cada visão da Início poder neutralizar exatamente o fluxo que é
- * dela (longoPrazo = total − rendaEmergencial, mesma conta que
+ * 'yyyy-MM-dd') em três mapas — `total` (tudo), `rendaEmergencial` (só a
+ * parte que pertence a Renda Fixa classificada como Renda Emergencial) e
+ * `usa` (só Transações - USA / Proventos - USA, já convertido pro câmbio
+ * do dia) — pra cada visão da Início poder neutralizar exatamente o
+ * fluxo que é dela (longoPrazo = total − rendaEmergencial, nacional =
+ * total − rendaEmergencial − usa, mesma conta que
  * montarSerieHistoricoInicio_ já faz pro patrimônio em si).
  *
  * @param {Object} mapaCambioUsd chave 'yyyy-MM-dd' -> câmbio USD/BRL do
@@ -114,6 +116,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var porDia = {};
   var porDiaRendaEmergencial = {};
+  var porDiaUsa = {};
 
   function somar(mapa, chave, valor) {
     if (!valor) return;
@@ -145,6 +148,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
         valorBrl = totalTaxa * cambio;
       }
       somar(porDia, chave, sinal * valorBrl);
+      if (info.cambio) somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
     });
   });
 
@@ -200,11 +204,13 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
     aba.getRange(linhaInicio, 1, qtd, 7).getValues().forEach(function (linha) {
       var data = linha[1], liquido = Number(linha[6]);
       if (!(data instanceof Date) || isNaN(liquido)) return;
-      somar(porDia, chaveDiaISOInicio_(data), -liquido);
+      var chave = chaveDiaISOInicio_(data);
+      somar(porDia, chave, -liquido);
+      if (nomeAba === ABA_PROVENTOS_USA_FLUXO) somar(porDiaUsa, chave, -liquido);
     });
   });
 
-  return { total: porDia, rendaEmergencial: porDiaRendaEmergencial };
+  return { total: porDia, rendaEmergencial: porDiaRendaEmergencial, usa: porDiaUsa };
 }
 
 /** Contagem de linhas das 5 abas-fonte do fluxo de caixa, pra entrar na

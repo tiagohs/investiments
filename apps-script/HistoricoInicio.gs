@@ -173,6 +173,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // mudaram - nunca zera um pedaço inteiro do patrimônio por um gap
   // pontual de 1 dia num ticker só.
   var atualizacoesPorDiaTicker = {}; // chave -> { ticker: valorBrl (só quando não está em branco) }
+  var classePorTicker = {};        // ticker -> 'BR'/'FII'/'USA' (última classe vista) - base do forward-fill "Nacional" (exclui USA) mais abaixo
   var porDiaRendaFixaTotal = {};   // chave -> soma Valor BRL (todas as posições RF)
   var porDiaRendaEmergencial = {}; // chave -> soma Valor BRL (só Classificação = Renda Emergencial)
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
@@ -234,6 +235,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // otimização de cache pra começo de conversa) - bump manual de versão,
   // mesmo remédio já usado no v3, pra forçar todo mundo a recalcular
   // agora em vez de esperar o TTL.
+  // v5 (17/09/2026 #2, "Patrimônio Nacional" + comparativo "ontem era"):
+  // o item da série ganhou os campos nacional/pregao/fluxoCaixaNacional -
+  // mesmo motivo do bump v2, pra nunca devolver um item cacheado da v4
+  // sem esses campos novos.
   var chaveCacheSerie = montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa);
 
   // Instrumentação de 13/09/2026: log explícito de HIT/MISS + tempo de
@@ -265,6 +270,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
         if (!isNaN(valorBrl)) {
           if (!atualizacoesPorDiaTicker[chave]) atualizacoesPorDiaTicker[chave] = {};
           atualizacoesPorDiaTicker[chave][ticker] = valorBrl;
+          classePorTicker[ticker] = linha[2]; // 'BR'/'FII'/'USA' - só atualiza quando o ticker teve uma linha de verdade
         }
       }
       // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.
@@ -343,6 +349,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // contribuindo com o valor que já estava somado, nunca some da soma.
   var valorAtualPorTicker = {};
   var somaVariavelAtual = 0;
+  var somaVariavelNacionalAtual = 0; // igual somaVariavelAtual, mas ignora tickers de classe USA - base do "Patrimônio Nacional"
   var ultimoIbovespa = null;
 
   var dataAtual = new Date(primeiraData);
@@ -358,11 +365,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       for (var tickerAtualizado in atualizacoesHoje) {
         var valorNovo = atualizacoesHoje[tickerAtualizado];
         var valorAntigo = valorAtualPorTicker[tickerAtualizado] || 0;
-        somaVariavelAtual += (valorNovo - valorAntigo);
+        var deltaTicker = valorNovo - valorAntigo;
+        somaVariavelAtual += deltaTicker;
+        if (classePorTicker[tickerAtualizado] !== 'USA') somaVariavelNacionalAtual += deltaTicker;
         valorAtualPorTicker[tickerAtualizado] = valorNovo;
       }
     }
+    // Teve pelo menos 1 linha nova de Renda Variável hoje (pregão de
+    // verdade em algum mercado) - base do "último pregão" usado no
+    // front-end pro comparativo "ontem era" (fins de semana/feriados sem
+    // NENHUMA atualização ficam com pregao=false).
+    var pregaoHoje = !!atualizacoesHoje;
     var ultimoVariavel = somaVariavelAtual;
+    var ultimoVariavelNacional = somaVariavelNacionalAtual;
 
     // Ibovespa: fecha só em dia de pregão B3, então "carrega" o último valor
     // conhecido nos fins de semana/feriados.
@@ -378,6 +393,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // Emergencial já usada pro patrimônio em si, logo abaixo.
     var fluxoTotalHoje = fluxoCaixa.total[chaveAtual] || 0;
     var fluxoRendaEmergencialHoje = fluxoCaixa.rendaEmergencial[chaveAtual] || 0;
+    var fluxoUsaHoje = fluxoCaixa.usa[chaveAtual] || 0;
 
     var chaveBcb = formatarDataBcbRF_(dataAtual);
     var fatorCdi = fatoresCdi[chaveBcb];
@@ -386,17 +402,24 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     if (fatorSelic) indiceSelic *= fatorSelic;
 
     var patrimonioTotal = ultimoVariavel + rendaFixaHoje;
+    // Nacional = Longo Prazo menos tudo que é classe USA (ver
+    // somaVariavelNacionalAtual acima) - mesma fórmula que Home.gs usa
+    // pro valor atual (longoPrazo - porClasse.acoesEua), só que dia a dia.
+    var patrimonioNacional = ultimoVariavelNacional + rendaFixaHoje - rendaEmergencialHoje;
 
     serie.push({
       data: chaveAtual,
       patrimonio: arredondar2Inicio_(patrimonioTotal),
       longoPrazo: arredondar2Inicio_(patrimonioTotal - rendaEmergencialHoje),
+      nacional: arredondar2Inicio_(patrimonioNacional),
       rendaEmergencial: arredondar2Inicio_(rendaEmergencialHoje),
       indiceCdi: arredondar2Inicio_(indiceCdi),
       indiceSelic: arredondar2Inicio_(indiceSelic),
       ibovespa: ultimoIbovespa,
+      pregao: pregaoHoje,
       fluxoCaixaPatrimonio: arredondar2Inicio_(fluxoTotalHoje),
       fluxoCaixaLongoPrazo: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje),
+      fluxoCaixaNacional: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje - fluxoUsaHoje),
       fluxoCaixaRendaEmergencial: arredondar2Inicio_(fluxoRendaEmergencialHoje)
     });
 
@@ -419,11 +442,11 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
  * definem - função à parte (17/09/2026) só pra garantir que
  * montarSerieHistoricoInicio_ e limparCacheHistoricoInicio_ (botão "Limpar
  * cache", ver mais abaixo) NUNCA divirjam na fórmula - o prefixo de versão
- * ("v4" hoje, ver histórico de bumps logo acima) só precisa existir num
+ * ("v5" hoje, ver histórico de bumps logo acima) só precisa existir num
  * lugar só.
  */
 function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa) {
-  return 'historico_serie_v4_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v5_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

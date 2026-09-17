@@ -171,6 +171,10 @@ function montarHome_() {
 
   var rendaEmergencial = carteiraRF.getRange('M6').getValue();
   var longoPrazo = total - rendaEmergencial;
+  // Nacional = Longo Prazo sem os investimentos internacionais (Ações
+  // EUA) - pedido do Tiago em 17/09/2026. Mesma fórmula, dia a dia, em
+  // HistoricoInicio.gs!montarSerieHistoricoInicio_ (campo `nacional`).
+  var nacional = longoPrazo - acoesEua;
 
   var blocoAux = auxiliarApp.getRange('B7:B16').getValues(); // coluna B, linhas 7(0)..16(9)
   var ibovespaValor = blocoAux[0][0]; // B7
@@ -187,6 +191,7 @@ function montarHome_() {
     patrimonio: {
       total: total,
       longoPrazo: longoPrazo,
+      nacional: nacional,
       rendaEmergencial: rendaEmergencial,
       porClasse: {
         acoes: acoes,
