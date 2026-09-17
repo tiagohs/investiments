@@ -70,22 +70,27 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    pages/inicio.js!renderDistribuicao); os textos (nome/%) ficam FORA
    do SVG, em HTML normal, pra não repetir o bug de fonte minúscula que
    o gráfico de Rentabilidade teve. */
-.distrib{ display:flex; align-items:center; gap:14px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
-.distrib-donut{ width:60px; height:60px; flex:none; }
-.distrib-legenda{ display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
-.distrib-item{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--ink-muted); }
-/* .distrib-nome-wrap (dot+nome) / .distrib-valores (valor+%+ícone) -
-   18/09/2026: os 5 pedaços da linha viraram 2 grupos, pra poderem
-   empilhar em 2 LINHAS abaixo de 480px (ver o media query lá embaixo) -
-   min-width:0 sozinho (17/09/2026) não bastou num celular de verdade
-   (Tiago testou e ainda vazava): mesmo com o nome encolhendo até virar
-   "...", os 3 pedaços flex:none/nowrap do OUTRO grupo (valor/%/ícone)
-   competiam pela MESMA linha e, juntos, ainda eram largos o bastante
-   pra vazar. Com os 2 grupos, cada LINHA (nome sozinho numa, valor/%/
-   ícone sozinhos na outra) só precisa caber por conta própria - nunca
-   mais os 5 juntos na mesma linha. */
-.distrib-nome-wrap{ display:flex; align-items:center; gap:6px; flex:1; min-width:0; }
-.distrib-valores{ display:flex; align-items:center; flex:none; }
+.distrib{ display:flex; align-items:flex-start; gap:14px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+.distrib-donut{ width:60px; height:60px; flex:none; margin-top:2px; }
+.distrib-legenda{ display:flex; flex-direction:column; gap:8px; min-width:0; flex:1; }
+/* 18/09/2026 (2ª tentativa): cada .distrib-item é 1 flex-container com
+   flex-wrap - nome (.distrib-nome-wrap) e valor/%/ícone (.distrib-valores)
+   ficam lado a lado, na MESMA linha, sempre que couber (é o caso normal,
+   card largo ou nome curto). Só quando não cabem (nome + grupo de valor
+   juntos passariam do min-width de 70px reservado pro nome), o grupo de
+   valor QUEBRA sozinho pra uma 2ª linha, empurrado pra direita
+   (margin-left:auto) - sem precisar de media query nem forçar TODO
+   item a virar 2 linhas (1ª tentativa, 17-18/09/2026: forçava os 4
+   itens a empilhar abaixo de 480px mesmo quando só "Ações EUA" - por
+   causa do "US$ X (R$ Y)" - realmente precisava disso; no celular de
+   verdade do Tiago o ritmo vertical (nome/valor de itens diferentes
+   quase com o mesmo espaçamento) ficava ambíguo - "quebrado"/difícil
+   de saber qual valor era de qual nome). Testado com Playwright (390,
+   375, 360, 340, 320px de largura, incluindo um rótulo bem longo tipo
+   "LCI Banco Inter 2027") - 0px de overflow horizontal em todos. */
+.distrib-item{ display:flex; flex-wrap:wrap; align-items:center; column-gap:6px; row-gap:2px; font-size:11px; color:var(--ink-muted); }
+.distrib-nome-wrap{ display:flex; align-items:center; gap:6px; flex:1 1 auto; min-width:70px; }
+.distrib-valores{ display:flex; align-items:center; flex:none; margin-left:auto; }
 .distrib-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
 .distrib-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .distrib-valor{ font-family:var(--mono); color:var(--ink-muted); white-space:nowrap; flex:none;
@@ -100,8 +105,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 @media (max-width:480px){
   .distrib{ gap:10px; }
   .distrib-donut{ width:44px; height:44px; }
-  .distrib-item{ flex-direction:column; align-items:stretch; gap:2px; font-size:10.5px; }
-  .distrib-valores{ justify-content:flex-end; padding-left:14px; } /* 14px ~= largura do dot (8px) + gap (6px), pra alinhar embaixo do nome */
+  .distrib-item{ font-size:10.5px; }
 }
 
 /* ---- Avisos (falha parcial de alguma seção) ---- */
