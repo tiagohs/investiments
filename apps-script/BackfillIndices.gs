@@ -634,3 +634,63 @@ function carregarTodasUltimasDatasIndices_(aba) {
   }
   return mapa;
 }
+
+/**
+ * Benchmarks "de hoje" de CDI/SELIC/IPCA (pedido pelo Tiago em Carteiras ->
+ * Renda Fixa, e no card de CDI ao lado do Ibovespa em Carteiras -> Ações,
+ * 18/09/2026).
+ *
+ * CDI/SELIC: reaproveita o ÚLTIMO valor diário já cacheado em
+ * aux_historico-indices (mesma fonte que a ação "home" usa pro histórico
+ * — ver nota em BackfillRendaFixa.gs — sem fazer fetch novo ao BCB) via
+ * ultimoValorIndiceSalvo_ (já existe neste arquivo), convertido de taxa
+ * DIÁRIA pra taxa ANUALIZADA (252 dias úteis) — formato padrão do
+ * mercado ("CDI: 13,25% a.a."), não a taxa diária crua (~0,04%) que fica
+ * salva na aba.
+ *
+ * IPCA: não tem cache diário (só é usado projetado mês a mês dentro da
+ * Renda Fixa, nunca como "hoje" isolado) — busca direto os últimos 13
+ * valores mensais da série 433 do BCB (endpoint /dados/ultimos/13, sem
+ * precisar montar range de datas) e acumula os últimos 12, formato
+ * padrão "IPCA: 4,50% em 12 meses" (a 13ª entrada é só margem, caso o
+ * mês corrente ainda não tenha sido publicado quando isso roda).
+ */
+function buscarCdiSelicAnualizadosHoje_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
+  var cdiDiario = abaIndices ? ultimoValorIndiceSalvo_(abaIndices, 'CDI') : null;
+  var selicDiario = abaIndices ? ultimoValorIndiceSalvo_(abaIndices, 'SELIC') : null;
+  return {
+    cdi: cdiDiario != null ? arredondarBenchmarkRf_(anualizarTaxaDiariaBcb_(cdiDiario)) : null,
+    selic: selicDiario != null ? arredondarBenchmarkRf_(anualizarTaxaDiariaBcb_(selicDiario)) : null
+  };
+}
+
+function buscarIpcaAcumulado12Meses_() {
+  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/13?formato=json';
+  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var dados = JSON.parse(resposta.getContentText());
+  if (!Array.isArray(dados) || dados.length === 0) return null;
+  var ultimos12 = dados.slice(-12);
+  var fator = ultimos12.reduce(function (acumulado, item) {
+    return acumulado * (1 + parseFloat(item.valor) / 100);
+  }, 1);
+  return arredondarBenchmarkRf_(fator - 1);
+}
+
+/** Taxa diária do BCB (formato "% do dia", ex.: 0.043) -> taxa anualizada (252 dias úteis, fração). */
+function anualizarTaxaDiariaBcb_(taxaDiariaPercentual) {
+  return Math.pow(1 + (taxaDiariaPercentual / 100), 252) - 1;
+}
+
+function arredondarBenchmarkRf_(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+/** Roda direto no editor, pra conferir os 3 valores antes de plugar nas Carteiras. */
+function testarBenchmarksRendaFixaHojeDireto() {
+  Logger.log(JSON.stringify({
+    cdiSelic: buscarCdiSelicAnualizadosHoje_(),
+    ipca: buscarIpcaAcumulado12Meses_()
+  }, null, 2));
+}

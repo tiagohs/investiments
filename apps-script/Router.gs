@@ -48,6 +48,24 @@ function doGet(e) {
   if (action === 'historicoAtivo') {
     return handleHistoricoAtivo(e, auth);
   }
+  if (action === 'irRendaFixa') {
+    return handleIRRendaFixa(e, auth);
+  }
+  if (action === 'carteirasHome') {
+    return handleCarteirasHome(e, auth);
+  }
+  if (action === 'carteirasAcoes') {
+    return handleCarteirasAcoes(e, auth);
+  }
+  if (action === 'carteirasFiis') {
+    return handleCarteirasFiis(e, auth);
+  }
+  if (action === 'carteirasAcoesEua') {
+    return handleCarteirasAcoesEua(e, auth);
+  }
+  if (action === 'carteirasRendaFixa') {
+    return handleCarteirasRendaFixa(e, auth);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
