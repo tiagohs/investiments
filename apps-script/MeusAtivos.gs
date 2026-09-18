@@ -136,19 +136,26 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
   var variacoesRF = montarVariacoesDiaRF_(dadosRendaFixaCache);
   var ultimaLinhaRF = abaRF.getLastRow();
   if (ultimaLinhaRF >= LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS) {
+    // 18/09/2026: Tiago inseriu uma coluna nova ("Nome") logo depois de
+    // Marca (nova coluna C) em Carteira Renda Fixa — todo o resto (Tipo
+    // de Investimento em diante) deslocou 1 posição pra direita. Faixa
+    // de leitura cresceu de 11 pra 12 colunas (A até L, pra alcançar
+    // Valor Atualizado que virou L) e os índices abaixo foram todos
+    // corrigidos pra bater com o novo layout real da aba.
     var dadosRF = abaRF.getRange(
       LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS, 1,
-      ultimaLinhaRF - LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS + 1, 11
+      ultimaLinhaRF - LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS + 1, 12
     ).getValues();
     dadosRF.forEach(function (linha, i) {
       var codigo = linha[0];
-      var tipoInvestimento = linha[2];
+      var tipoInvestimento = linha[3];
       if (!codigo && !tipoInvestimento) return; // linha em branco no fim da aba
 
       var marca = linha[1];       // 'Renda Emergencial' | 'Renda Fixa' (a nossa "Longo Prazo")
-      var indexador = linha[3];
-      var instituicao = linha[4]; // Instituição (mesma coluna que Transações Renda Fixa usa)
-      var vencimento = linha[9];
+      var nome = linha[2] || null; // C: Nome personalizado (coluna nova, 18/09/2026)
+      var indexador = linha[4];
+      var instituicao = linha[5]; // Instituição (mesma coluna que Transações Renda Fixa usa)
+      var vencimento = linha[10];
       var vencimentoTexto = vencimento instanceof Date
         ? formatarMesAnoAtivos_(vencimento)
         : (vencimento || null);
@@ -161,14 +168,19 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         // Código se repete entre linhas (a mesma posição pode estar
         // dividida entre Renda Emergencial e Longo Prazo) — o par
         // tipo+marca+vencimento é o que realmente identifica o cartão.
+        // Continua usando tipoInvestimento (não nome) pro título do
+        // cartão de propósito — troca de exibição fica pra quando o
+        // Tiago confirmar (ver conversa de 18/09/2026); nome já vai
+        // no payload pra quem quiser usar.
         ticker: (tipoInvestimento || codigo) + (vencimentoTexto ? ' · ' + vencimentoTexto : ''),
         codigo: codigo || null,
+        nome: nome,
         marca: marca === 'Renda Emergencial' ? 'emergencial' : 'longo-prazo',
         tipoInvestimento: tipoInvestimento || null,
         indexador: indexador || null,
-        quantidade: numeroOuNulo_(linha[5]),
+        quantidade: numeroOuNulo_(linha[6]),
         vencimento: vencimentoTexto,
-        valorAtualizado: numeroOuNulo_(linha[10]),
+        valorAtualizado: numeroOuNulo_(linha[11]),
         variacaoDia: (chaveVariacao && chaveVariacao in variacoesRF) ? variacoesRF[chaveVariacao] : null,
         moeda: 'R$'
       });

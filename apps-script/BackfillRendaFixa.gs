@@ -471,10 +471,14 @@ function montarMapaClassificacaoRF_(abaCarteira) {
   var dados = abaCarteira.getRange(LINHA_CABECALHO_CARTEIRA_RF + 1, 1, qtdLinhas, 13).getValues();
   dados.forEach(function (linha) {
     var marca = linha[1]; // B: Renda Emergencial / Renda Fixa
-    var tipo = linha[2]; // C: Tipo de Investimento
-    var indexador = linha[3]; // D: SELIC / CDI / IPCA
-    var instituicao = linha[4]; // E: Instituição
-    var vencimento = linha[9]; // J: Vencimento
+    // 18/09/2026: Tiago inseriu uma coluna nova ("Nome", C) em Carteira
+    // Renda Fixa - Tipo de Investimento em diante deslocou 1 posição pra
+    // direita (C->D, D->E, E->F, J->K). Índices corrigidos pra bater com
+    // o layout real (ver MeusAtivos.gs, mesmo ajuste).
+    var tipo = linha[3]; // D: Tipo de Investimento
+    var indexador = linha[4]; // E: SELIC / CDI / IPCA
+    var instituicao = linha[5]; // F: Instituição
+    var vencimento = linha[10]; // K: Vencimento
     if (!marca || !instituicao) return;
 
     var institNorm = normalizarInstituicaoRF_(instituicao);
