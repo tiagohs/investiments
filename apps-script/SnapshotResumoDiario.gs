@@ -146,11 +146,29 @@ function encontrarOuReservarLinhaSnapshot_(abaAuxiliar, chaveData) {
     if (valor === '' || valor == null) {
       return { linha: LINHA_SNAPSHOT_PRIMEIRA_DADO + i, existente: null }; // primeira linha vazia - anexa aqui
     }
-    if (String(valor) === chaveData) {
+    if (chaveDiaSnapshot_(valor) === chaveData) {
       return { linha: LINHA_SNAPSHOT_PRIMEIRA_DADO + i, existente: [linha[1], linha[2], linha[3], linha[4], linha[5]] }; // já tem linha dessa data
     }
   }
   throw new Error('encontrarOuReservarLinhaSnapshot_: limite de ' + LIMITE_LINHAS_SNAPSHOT + ' linhas atingido, precisa aumentar LIMITE_LINHAS_SNAPSHOT');
+}
+
+/**
+ * 18/09/2026 (bug real encontrado no 1º teste do Tiago): normaliza a
+ * chave de data lida de volta da célula E pro formato "yyyy-MM-dd" -
+ * mesmo se gravamos uma STRING ('2026-09-17'), o Google Sheets pode
+ * "detectar" sozinho que aquilo parece uma data e converter a célula
+ * pra um valor de Data de verdade (não texto) - nesse caso getValues()
+ * devolve um objeto Date, não a string original, e comparar direto com
+ * String(data) (formato tipo "Thu Sep 17 2026 00:00:00 GMT-0300...")
+ * nunca bate com a chave "yyyy-MM-dd" esperada, fazendo a busca por
+ * data e o obterUltimoSnapshotPregao_ falharem silenciosamente ("ontem"
+ * sempre null, mesmo com a linha gravada certinha). Aqui trata os dois
+ * casos: se veio como Date, formata com chaveDiaISOInicio_ (mesmo
+ * padrão/fuso do resto do arquivo); se veio como string, usa direto.
+ */
+function chaveDiaSnapshot_(valor) {
+  return valor instanceof Date ? chaveDiaISOInicio_(valor) : String(valor);
 }
 
 /**
@@ -175,7 +193,7 @@ function obterUltimoSnapshotPregao_() {
     var linha = bloco[i];
     var data = linha[0];
     if (data === '' || data == null) break; // fim dos dados gravados (linhas em ordem cronológica)
-    var chaveLinha = String(data);
+    var chaveLinha = chaveDiaSnapshot_(data); // ver comentário de chaveDiaSnapshot_ acima - Sheets pode ter convertido a célula pra Data de verdade
     var pregao = linha[5] === true;
     if (pregao && chaveLinha < chaveHoje) {
       ultimo = { data: chaveLinha, total: linha[1], longoPrazo: linha[2], nacional: linha[3], rendaEmergencial: linha[4] };
