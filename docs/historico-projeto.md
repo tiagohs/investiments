@@ -184,6 +184,7 @@ Dois gatilhos diários independentes, cada um com seu próprio orçamento de exe
 
 - **`gatilhoDiario()`** (Sync.gs, ~10h, seg-sáb) → `atualizarHistorico('Automático', null)` — Renda Variável (Ações/FIIs/USA), incremental por ticker.
 - **`gatilhoDiarioRendaFixaEIndices()`** (BackfillIndices.gs, ~11h, seg-sáb) → `atualizarRendaFixaEIndicesDiario_()`, que roda `executarBackfillRendaFixaIncremental_()` e `atualizarIndicesIncremental_()` em sequência, cada um em try/catch separado (uma falha não bloqueia a outra), e grava uma entrada própria no Registro de Controle.
+- **`gatilhoSnapshotResumoDiario()`** (SnapshotResumoDiario.gs, ~21h, seg-sáb) → `gravarSnapshotResumoHoje_()` — grava 1 linha (Auxiliar_app!E:J) com os 4 valores de patrimônio que `montarHome_()` já lê ao vivo (Total/Longo Prazo/Nacional/Renda Emergencial). 18/09/2026: caminho separado pro comparativo "ontem era" (resumo cards, tela Início) — não depende da série histórica combinada (`montarSerieHistoricoInicio_`), que tem 3 fontes com gatilhos em horários diferentes e pode ficar incompleta no dia mais recente sem erro nenhum. Roda depois do fechamento da B3 (18h) E depois do gatilho de Renda Fixa/Índices (~11h) já terem passado no mesmo dia, pra gravar o fechamento OFICIAL do dia, não um valor parcial.
 
 Outros pontos já documentados que continuam valendo:
 

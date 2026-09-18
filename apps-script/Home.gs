@@ -130,6 +130,22 @@ function handleHome(e, auth) {
   }
   console.log('handleHome: montarMeusAtivos_ levou ' + (Date.now() - marca) + 'ms');
 
+  // 18/09/2026: "ontem" pro comparativo "ontem era" (resumo cards) passou
+  // a vir do snapshot diário (SnapshotResumoDiario.gs), não mais da série
+  // histórica combinada (historico, acima) - ver cabeçalho daquele arquivo
+  // pro motivo (série combinada tem 3 fontes com gatilhos em horários
+  // diferentes, dia mais recente pode sair incompleto sem erro nenhum).
+  // null é resultado válido (app novo, ou antes do 1º snapshot existir) -
+  // front-end já trata "sem ontem" mostrando o card em branco, mesmo
+  // comportamento de antes.
+  marca = Date.now();
+  try {
+    resposta.ontem = obterUltimoSnapshotPregao_();
+  } catch (err) {
+    avisos.ontem = String(err);
+  }
+  console.log('handleHome: obterUltimoSnapshotPregao_ levou ' + (Date.now() - marca) + 'ms');
+
   console.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
