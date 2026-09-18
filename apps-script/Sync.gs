@@ -94,6 +94,20 @@ function gatilhoDiario() {
     // comentário do wrapper, correção de 14/09/2026).
     Logger.log('gatilhoDiario: atualizarHistorico falhou (já registrado e notificado) - ' + erro);
   }
+
+  // 18/09/2026 (a pedido do Tiago - ver SnapshotResumoDiario.gs pro
+  // raciocínio completo): passo a mais, no MESMO gatilho, sem instalar
+  // nada novo nem gravar linha nova no Registro de Controle - só grava/
+  // atualiza (idempotente por data) o snapshot do dia de HOJE em
+  // Auxiliar_app!E:J, que vira a referência de "ontem" do comparativo
+  // "ontem era" (resumo cards, tela Início) a partir de amanhã. Try/catch
+  // próprio, separado do de cima - uma falha aqui nunca deve impedir nem
+  // ser impedida pela sincronização de Renda Variável em si.
+  try {
+    gravarSnapshotResumoHoje_();
+  } catch (erro) {
+    Logger.log('gatilhoDiario: gravarSnapshotResumoHoje_ falhou - ' + erro);
+  }
 }
 
 /**

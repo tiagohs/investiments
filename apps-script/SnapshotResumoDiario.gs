@@ -38,14 +38,31 @@
  *       grava um valor igual ao do dia anterior, então não distorce nada
  *       - ver obterUltimoSnapshotPregao_ mais abaixo)
  *
- * Gatilho: roda 1x por dia às ~21h (depois do fechamento da B3, 18h, E
- * depois do gatilho de Renda Fixa/Índices, às ~11h, já ter rodado no
- * mesmo dia - então quando ESTE gatilho roda, os 4 valores de
- * montarHome_() já refletem o fechamento OFICIAL do dia inteiro, não um
- * valor parcial de manhã). Mesmo padrão dos outros 2 gatilhos diários já
- * existentes (gatilhoDiario, Sync.gs, ~10h; gatilhoDiarioRendaFixaEIndices,
- * BackfillIndices.gs, ~11h) - só que à noite, e também só pula domingo
- * (trigger time-driven do Apps Script não tem opção nativa "seg-sáb").
+ * Quando grava: NÃO tem gatilho próprio - gravarSnapshotResumoHoje_() é
+ * chamada como um passo A MAIS dentro do gatilhoDiario() já existente
+ * (Sync.gs, ~10h, seg-sáb) - pedido explícito do Tiago, pra não precisar
+ * instalar um gatilho novo nem criar linha nova no Registro de Controle
+ * (só loga em Logger.log, igual esta função já fazia). A linha grava com
+ * a data do PRÓPRIO DIA em que o gatilho roda (não "ontem") - ex.: o
+ * gatilho de terça-feira grava a linha de terça-feira.
+ *
+ * Ressalva consciente: às ~10h a B3 acabou de abrir, então o valor "ao
+ * vivo" de montarHome_() nesse momento ainda está bem próximo do
+ * FECHAMENTO DE ONTEM, não do fechamento de hoje (mesma premissa que
+ * atualizarHistoricoInterno_, em Sync.gs, já usa pra decidir até que dia
+ * fazer backfill - var ontem = ...; ontem.setDate(ontem.getDate()-1)).
+ * Na prática isso é uma imprecisão pequena (abertura vs. fechamento
+ * anterior costuma variar pouco) e que NÃO ACUMULA de um dia pro outro
+ * (cada linha é uma captura nova, independente das anteriores) - bem
+ * diferente do bug original (pular um pregão inteiro, ~3-4% de erro
+ * real). Se algum dia isso incomodar na prática, dá pra mover a captura
+ * pra depois do fechamento (18h) - hoje está assim por pedido explícito
+ * do Tiago (18/09/2026), preferindo reaproveitar o gatilho existente.
+ *
+ * Idempotente por data: se o gatilho já rodou hoje (ou alguém roda a
+ * mesma rotina de novo manualmente), sobrescreve a mesma linha em vez de
+ * duplicar - e só regrava de fato quando o valor mudou (loga "sem
+ * mudança" quando é idêntico ao que já estava salvo).
  *
  * "Ontem" pro comparativo: SEMPRE o último snapshot com Pregão=TRUE e
  * Data anterior a hoje (obterUltimoSnapshotPregao_) - cobre
@@ -63,47 +80,12 @@ var COLUNA_SNAPSHOT_PREGAO = 10; // J
 var LINHA_SNAPSHOT_PRIMEIRA_DADO = 2; // linha 1 = cabeçalho
 var LIMITE_LINHAS_SNAPSHOT = 3650; // ~10 anos de linhas diárias - folga generosa, mesmo espírito do CELULA_RASCUNHO_SAIDA (Sync.gs)
 
-/** Instala o gatilho diário — rodar UMA VEZ, manualmente, no editor. */
-function instalarGatilhoSnapshotResumoDiario() {
-  var jaExiste = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'gatilhoSnapshotResumoDiario';
-  });
-  if (jaExiste) {
-    Logger.log('Gatilho já existe, nada a fazer.');
-    return;
-  }
-  ScriptApp.newTrigger('gatilhoSnapshotResumoDiario')
-    .timeBased()
-    .everyDays(1)
-    .atHour(21)
-    .nearMinute(1)
-    .create();
-  Logger.log('Gatilho diário do snapshot de resumo instalado (dispara por volta de 21h, todo dia — domingo é ignorado dentro da própria função).');
-}
-
-/** Chamada pelo gatilho — só filtra domingo, mesmo padrão de gatilhoDiario (Sync.gs). */
-function gatilhoSnapshotResumoDiario() {
-  if (new Date().getDay() === 0) { // 0 = domingo
-    Logger.log('Hoje é domingo, gatilho do snapshot não faz nada.');
-    return;
-  }
-  try {
-    gravarSnapshotResumoHoje_();
-  } catch (erro) {
-    Logger.log('gatilhoSnapshotResumoDiario: falhou - ' + erro);
-  }
-}
-
-/** Roda a mesma rotina do gatilho, na hora, pra testar/forçar direto no editor. */
-function rodarSnapshotResumoDiretoDireto() {
-  var resultado = gravarSnapshotResumoHoje_();
-  Logger.log('Snapshot gravado: ' + JSON.stringify(resultado));
-}
-
 /**
- * Lê os 4 valores ao vivo (montarHome_(), mesma fonte que a tela Início já
- * mostra como "hoje") e grava (ou sobrescreve, se já rodou hoje - seguro
- * rodar mais de uma vez no mesmo dia, nunca duplica) 1 linha em
+ * Chamada por gatilhoDiario() (Sync.gs), como passo extra do gatilho já
+ * existente - ver cabeçalho do arquivo pro motivo de não ter gatilho
+ * próprio. Lê os 4 valores ao vivo (montarHome_(), mesma fonte que a
+ * tela Início já mostra como "hoje") e grava/atualiza (idempotente por
+ * data - seguro rodar mais de uma vez no mesmo dia) 1 linha em
  * Auxiliar_app!E:J com a data de hoje.
  */
 function gravarSnapshotResumoHoje_() {
@@ -119,36 +101,53 @@ function gravarSnapshotResumoHoje_() {
   var dadosHome = montarHome_();
   var p = dadosHome.patrimonio;
 
-  return gravarLinhaSnapshot_(abaAuxiliar, chaveHoje, p.total, p.longoPrazo, p.nacional, p.rendaEmergencial, pregao);
+  var resultado = gravarLinhaSnapshot_(abaAuxiliar, chaveHoje, p.total, p.longoPrazo, p.nacional, p.rendaEmergencial, pregao);
+  Logger.log('gravarSnapshotResumoHoje_: ' + (resultado.mudou ? 'salvo' : 'sem mudança') + ' - ' + JSON.stringify(resultado));
+  return resultado;
 }
 
 /**
- * Grava (idempotente por data) 1 linha do snapshot - função à parte de
- * gravarSnapshotResumoHoje_ pra semearSnapshotManual_ (mais abaixo) poder
- * gravar uma data passada sem duplicar a lógica de "achar a linha certa".
+ * Grava (idempotente por data, só regrava de fato se o valor mudou) 1
+ * linha do snapshot - função à parte de gravarSnapshotResumoHoje_ pra
+ * semearSnapshotManual_ (mais abaixo) poder gravar uma data passada sem
+ * duplicar a lógica de "achar a linha certa".
  */
 function gravarLinhaSnapshot_(abaAuxiliar, chaveData, total, longoPrazo, nacional, rendaEmergencial, pregao) {
-  var linhaAlvo = encontrarOuReservarLinhaSnapshot_(abaAuxiliar, chaveData);
-  abaAuxiliar.getRange(linhaAlvo, COLUNA_SNAPSHOT_DATA, 1, 6).setValues([[
-    chaveData, total, longoPrazo, nacional, rendaEmergencial, pregao
-  ]]);
-  return { linha: linhaAlvo, data: chaveData, pregao: pregao, total: total, longoPrazo: longoPrazo, nacional: nacional, rendaEmergencial: rendaEmergencial };
+  var busca = encontrarOuReservarLinhaSnapshot_(abaAuxiliar, chaveData);
+  var linhaAlvo = busca.linha;
+
+  var mudou = true;
+  if (busca.existente) {
+    var v = busca.existente;
+    mudou = !(v[0] === total && v[1] === longoPrazo && v[2] === nacional && v[3] === rendaEmergencial && v[4] === pregao);
+  }
+
+  if (mudou) {
+    abaAuxiliar.getRange(linhaAlvo, COLUNA_SNAPSHOT_DATA, 1, 6).setValues([[
+      chaveData, total, longoPrazo, nacional, rendaEmergencial, pregao
+    ]]);
+  }
+
+  return { linha: linhaAlvo, data: chaveData, pregao: pregao, total: total, longoPrazo: longoPrazo, nacional: nacional, rendaEmergencial: rendaEmergencial, mudou: mudou };
 }
 
 /**
- * Acha a linha da data pedida se já existe (pra sobrescrever, idempotente)
- * ou a próxima linha vazia depois do cabeçalho (pra anexar). Lê a coluna
- * Data inteira de uma vez só (1 chamada), não célula por célula.
+ * Acha a linha da data pedida se já existe (devolve também os valores
+ * atuais dela, pra gravarLinhaSnapshot_ decidir se precisa regravar) ou a
+ * próxima linha vazia depois do cabeçalho (pra anexar). Lê a coluna Data
+ * + as 5 colunas seguintes de uma vez só (1 chamada), não célula por
+ * célula.
  */
 function encontrarOuReservarLinhaSnapshot_(abaAuxiliar, chaveData) {
-  var coluna = abaAuxiliar.getRange(LINHA_SNAPSHOT_PRIMEIRA_DADO, COLUNA_SNAPSHOT_DATA, LIMITE_LINHAS_SNAPSHOT, 1).getValues();
-  for (var i = 0; i < coluna.length; i++) {
-    var valor = coluna[i][0];
+  var bloco = abaAuxiliar.getRange(LINHA_SNAPSHOT_PRIMEIRA_DADO, COLUNA_SNAPSHOT_DATA, LIMITE_LINHAS_SNAPSHOT, 6).getValues();
+  for (var i = 0; i < bloco.length; i++) {
+    var linha = bloco[i];
+    var valor = linha[0];
     if (valor === '' || valor == null) {
-      return LINHA_SNAPSHOT_PRIMEIRA_DADO + i; // primeira linha vazia - anexa aqui
+      return { linha: LINHA_SNAPSHOT_PRIMEIRA_DADO + i, existente: null }; // primeira linha vazia - anexa aqui
     }
     if (String(valor) === chaveData) {
-      return LINHA_SNAPSHOT_PRIMEIRA_DADO + i; // já tem linha dessa data - sobrescreve
+      return { linha: LINHA_SNAPSHOT_PRIMEIRA_DADO + i, existente: [linha[1], linha[2], linha[3], linha[4], linha[5]] }; // já tem linha dessa data
     }
   }
   throw new Error('encontrarOuReservarLinhaSnapshot_: limite de ' + LIMITE_LINHAS_SNAPSHOT + ' linhas atingido, precisa aumentar LIMITE_LINHAS_SNAPSHOT');
@@ -160,7 +159,7 @@ function encontrarOuReservarLinhaSnapshot_(abaAuxiliar, chaveData) {
  * voltando pra sexta (pedido explícito do Tiago em 18/09/2026), sem
  * depender da série histórica combinada nem dos horários dos outros
  * gatilhos. null se ainda não há nenhum snapshot gravado (app novo, ou
- * antes do 1º gatilho/semeadura rodar) - Home.gs trata esse caso como
+ * antes da 1ª semeadura/gatilho rodar) - Home.gs trata esse caso como
  * "sem aviso, ontem só ainda não existe" (ver handleHome).
  */
 function obterUltimoSnapshotPregao_() {
@@ -186,25 +185,36 @@ function obterUltimoSnapshotPregao_() {
 }
 
 /**
- * Semeadura manual, ÚNICA VEZ, pra não esperar até o gatilho de 21h de
- * hoje pra ter um "ontem" já disponível - rodar direto no editor
- * (mesmo padrão de testarHomeDireto/testarHistoricoInicioDireto). Os 4
- * valores de 17/09 abaixo são PLACEHOLDER - o Tiago ainda precisa
- * confirmar os números certos antes de rodar isso (ver conversa) -
- * idempotente por data, então rodar de novo com os valores corrigidos
- * simplesmente sobrescreve a mesma linha.
+ * Semeadura manual, ÚNICA VEZ, pra não esperar o próximo gatilhoDiario
+ * automático (Sync.gs, ~10h de amanhã) pra ter um "ontem" já disponível -
+ * rodar direto no editor (mesmo padrão de testarHomeDireto/
+ * testarHistoricoInicioDireto). 18/09/2026 é um dia especial (pedido do
+ * Tiago): semeia ONTEM (17/09) E hoje (18/09) de uma vez, já que o
+ * gatilhoDiario de hoje já rodou de manhã, ANTES desse código existir -
+ * a partir de segunda (21/09) o fluxo normal (gatilhoDiario, todo dia)
+ * assume sozinho. Os valores abaixo são PLACEHOLDER - confirmar os
+ * números certos antes de rodar isso. Idempotente por data, então rodar
+ * de novo com valores corrigidos simplesmente sobrescreve a mesma linha.
  */
-function semearSnapshot17Setembro_() {
+function semearSnapshotManual17E18Setembro_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abaAuxiliar = ss.getSheetByName(ABA_AUXILIAR_APP_SNAPSHOT);
   if (!abaAuxiliar) throw new Error('aba não encontrada: ' + ABA_AUXILIAR_APP_SNAPSHOT);
 
-  // TODO(Tiago): confirmar estes 4 valores antes de rodar esta função.
-  var resultado = gravarLinhaSnapshot_(abaAuxiliar, '2026-09-17',
+  // TODO(Tiago): confirmar os 8 valores (2 dias x 4 campos) antes de rodar esta função.
+  var ontem = gravarLinhaSnapshot_(abaAuxiliar, '2026-09-17',
     /* total */ 0,
     /* longoPrazo */ 0,
     /* nacional */ 0,
     /* rendaEmergencial */ 0,
     /* pregao */ true);
-  Logger.log('Semeado: ' + JSON.stringify(resultado));
+  Logger.log('Semeado 17/09: ' + JSON.stringify(ontem));
+
+  var hoje = gravarLinhaSnapshot_(abaAuxiliar, '2026-09-18',
+    /* total */ 0,
+    /* longoPrazo */ 0,
+    /* nacional */ 0,
+    /* rendaEmergencial */ 0,
+    /* pregao */ true);
+  Logger.log('Semeado 18/09: ' + JSON.stringify(hoje));
 }
