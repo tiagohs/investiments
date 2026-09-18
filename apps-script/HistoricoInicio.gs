@@ -335,8 +335,32 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   }
   todasAsChaves.sort();
 
-  var primeiraData = new Date(todasAsChaves[0]);
-  var ultimaData = new Date(todasAsChaves[todasAsChaves.length - 1]);
+  // Correção de 18/09/2026 (raiz de verdade do bug "ontem era" - a
+  // correção de 17/09 #3 em valorUltimoPregaoAntes_, front-end, era
+  // necessária mas não bastava: o Tiago voltou a reportar, com print,
+  // que mesmo já batendo o fechamento de ontem na planilha e limpando o
+  // cache, o app continuava mostrando um "ontem" de dois dias atrás):
+  // `new Date('2026-09-17')` (string de data pura, sem hora) é
+  // interpretado pelo JS como MEIA-NOITE UTC, não meia-noite local - mas
+  // o resto desta função (dataAtual.setDate/getDate mais abaixo, e
+  // chaveDiaISOInicio_ via Intl com Session.getScriptTimeZone(),
+  // America/Sao_Paulo = UTC-3) opera em hora LOCAL. Meia-noite UTC de um
+  // dia D é 21h do dia (D-1) em São Paulo - então o ÚLTIMO passo do loop
+  // (dataAtual === ultimaData) ficava rotulado com chaveAtual = (D-1),
+  // um dia ANTES do verdadeiro último dia disponível em todasAsChaves -
+  // e como esse (D-1) É um dia real (o penúltimo pregão, não o último),
+  // a série saía sem erro nenhum visível, só faltando silenciosamente o
+  // último dia de verdade (D) inteiro. Mesma classe de bug já corrigida
+  // antes em Sync.gs/BackfillIndices.gs (commit 85a5622) e nas datas
+  // gravadas em aux_historico-renda-fixa/aux_historico-indices (commits
+  // 9a25f92/148b18a) - dessa vez dentro do loop de montagem da série
+  // combinada, nunca coberta por aqueles fixes. parseChaveDiaLocal_
+  // (abaixo) constrói a data via ano/mês/dia explícitos - meia-noite
+  // LOCAL sempre, igual o padrão já usado em atualizarTaxasBcbIncremental_
+  // (BackfillIndices.gs) - eliminando o descompasso UTC/local dos dois
+  // lados da comparação `dataAtual <= ultimaData`.
+  var primeiraData = parseChaveDiaLocal_(todasAsChaves[0]);
+  var ultimaData = parseChaveDiaLocal_(todasAsChaves[todasAsChaves.length - 1]);
 
   var serie = [];
   var indiceCdi = 100;
@@ -566,6 +590,22 @@ function chaveDiaISOInicio_(data) {
     });
   }
   return _formatadorChaveDiaISOInicio_.format(data); // "yyyy-MM-dd" (en-CA formata assim)
+}
+
+/**
+ * Constrói uma Date em MEIA-NOITE LOCAL a partir de uma chave "yyyy-MM-dd"
+ * (o formato que chaveDiaISOInicio_ produz) - ao contrário de
+ * `new Date("yyyy-MM-dd")`, que o JS sempre interpreta como meia-noite
+ * UTC (ambíguo com qualquer timezone local que não seja UTC - ver
+ * correção de 18/09/2026 em montarSerieHistoricoInicio_, acima, pro
+ * bug real que esse descompasso causou). `new Date(ano, mes, dia)`
+ * (construtor de 3+ argumentos) é sempre meia-noite LOCAL, sem
+ * ambiguidade - mesmo padrão já usado em atualizarTaxasBcbIncremental_
+ * (BackfillIndices.gs).
+ */
+function parseChaveDiaLocal_(chave) {
+  var partes = chave.split('-');
+  return new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
 }
 
 function arredondar2Inicio_(n) {
