@@ -139,7 +139,13 @@
    Internacionais/Renda Fixa) — tiles de resumo, chips de benchmark,
    donut + tabela lado a lado. ================= */
 .cc-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
-.cc-tile{ background:var(--surface-2); border-radius:12px; padding:12px 14px; border-top:3px solid var(--tile-accent,var(--acoes)); }
+/* 19/09/2026 #2 (Tiago reportou com print - "sem esse background forte
+   azul"): era var(--surface-2), bem saturado no tema escuro (#1D3350) -
+   virou o fundo normal do cartão (var(--surface)) + borda fina, só a
+   faixa de cima (border-top) continua colorida marcando a classe -
+   igual ao mockup (fundo branco liso + faixa de cor só no topo). */
+.cc-tile{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
+      border-top:3px solid var(--tile-accent,var(--acoes)); }
 .cc-tile-label{ display:block; font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; margin-bottom:5px; }
 .cc-tile-valor{ font-family:var(--mono); font-weight:600; font-size:15px; }
 .cc-tile-sub{ display:inline-block; margin-left:6px; font-size:11px; font-weight:600; }
@@ -183,4 +189,22 @@
 .status-pill{ display:inline-block; margin-top:3px; font-size:10px; font-weight:700; padding:2px 8px;
       border-radius:100px; background:var(--surface-3); color:var(--ink-muted); }
 .status-pill.good{ background:var(--good-soft); color:var(--good-ink); }
+
+/* Logo redondo do ativo na tabela (19/09/2026 #2, pedido do Tiago -
+   "as fotos dos ativos estao em assets") - mesmo tamanho/fallback do
+   Radar de oportunidades (distribuicoes-metas.css!.radar-logo), só que
+   com nome de classe próprio de Carteiras (esta folha não carrega
+   distribuicoes-metas.css). */
+.cc-ativo-cel{ display:flex; align-items:center; gap:9px; }
+.cc-logo{ position:relative; display:inline-flex; align-items:center; justify-content:center; flex:none;
+      width:28px; height:28px; border-radius:50%; overflow:hidden; background:var(--surface-3);
+      font-size:10px; font-weight:700; color:var(--ink-muted); font-family:var(--mono); }
+.cc-logo img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+
+/* Linha de totais no rodapé da tabela de ativos (19/09/2026 #2 - "você
+   não trouxe os totais") - cada page module monta o HTML certo (colspan
+   varia com o nº de colunas de cada classe), ver
+   montarLinhaTotalAtivos_ em carteiras-acoes.js. */
+.cc-tabela tfoot tr{ border-top:2px solid var(--border); background:var(--surface-2); font-weight:700; }
+.cc-tabela tfoot td{ padding:11px 10px; }
 .status-pill.warn{ background:var(--warn-soft); color:var(--warn-ink); }

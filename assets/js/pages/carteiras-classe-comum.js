@@ -13,6 +13,8 @@
 
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { renderDistribuicao } from './inicio.js';
+import { LOGOS_ATIVOS } from '../logos-ativos.js';
+import { resolveSiteRootUrl } from '../shell.js';
 
 /**
  * 4-5 "tiles" com os números do resumo (mesmo padrão visual de
@@ -72,14 +74,42 @@ export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao) {
 }
 
 /**
+ * Logo redondo do ativo (LOGOS_ATIVOS, gerado por
+ * scripts/gerar-logos-ativos.mjs a partir de assets/imgs/acoes|fiis/ que
+ * o Tiago organizou por ticker) - mesmo padrão visual/fallback que a
+ * grade "Radar de oportunidades" já usa
+ * (distribuicoes-metas.js!criarLogoAtivo_), só que como HTML-string (as
+ * tabelas de Carteiras montam a linha inteira via innerHTML, não
+ * createElement) - a <img> tem onerror inline que remove ela mesma se a
+ * imagem falhar, revelando o fallback de iniciais que já está por baixo
+ * no HTML (não depende de religar listener depois de um re-render).
+ * new URL(caminho, resolveSiteRootUrl()) resolve certo mesmo de dentro
+ * de carteiras/index.html (1 nível mais fundo que a raiz do site - ver
+ * o comentário de resolveSiteRootUrl em shell.js).
+ */
+export function logoAtivoHtml(ticker) {
+  const iniciais = (ticker || '?').slice(0, 2).toUpperCase();
+  const caminho = LOGOS_ATIVOS[ticker];
+  if (!caminho) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
+  const url = new URL(caminho, resolveSiteRootUrl()).href;
+  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
+}
+
+/**
  * Tabela de ativos genérica. `colunas` é `[{ label, formatar(ativo) =>
  * string HTML, alinhar?: 'right' }]` — cada page module monta as
  * colunas certas pra sua classe (ver carteiras-acoes.js/carteiras-fiis.js/
  * carteiras-acoes-eua.js/carteiras-renda-fixa.js). Ordenado por Total
  * atualizado (maior primeiro) sempre que o campo existir - mesma
  * hierarquia visual da Home consolidada (maior posição primeiro).
+ *
+ * `linhaTotalHtml` (opcional) - 1 <tr> pronto (o chamador já sabe quantas
+ * colunas tem e quais das últimas são Total/Lucro, então monta o
+ * colspan+valores certos sozinho - ver montarLinhaTotalAtivos_ em
+ * carteiras-acoes.js) - some quando null/vazio (tabela filtrada por
+ * busca com 0 resultado, por ex., não faz sentido mostrar total ali).
  */
-export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { campoOrdenacao = 'totalAtualizado' } = {}) {
+export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { campoOrdenacao = 'totalAtualizado', linhaTotalHtml = '' } = {}) {
   if (!container) return;
   if (!ativos || !ativos.length) {
     container.innerHTML = '<p class="hint">Nenhum ativo encontrado nesta carteira.</p>';
@@ -98,6 +128,7 @@ export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { c
       <table class="cc-tabela">
         <thead><tr>${cabecalho}</tr></thead>
         <tbody>${linhas}</tbody>
+        ${linhaTotalHtml ? `<tfoot>${linhaTotalHtml}</tfoot>` : ''}
       </table>
     </div>
   `;

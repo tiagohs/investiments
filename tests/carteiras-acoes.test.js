@@ -74,9 +74,29 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
     assert.match(linhas[0].textContent, /EGIE3/);
     assert.match(linhas[1].textContent, /BBAS3/);
-    // status "Comprar"/"Aguardar" aparecem na tabela
-    assert.match(doc.getElementById('acoesConteudo').innerHTML, /Comprar/);
-    assert.match(doc.getElementById('acoesConteudo').innerHTML, /Aguardar/);
+    // status "Comprar"/"Aguardar" aparecem na tabela (coluna Status, com
+    // o preço-teto abaixo do badge - 19/09/2026 #2: não é mais coluna
+    // separada de "Preço teto")
+    const htmlTabela = doc.getElementById('acoesConteudo').innerHTML;
+    assert.match(htmlTabela, /Comprar/);
+    assert.match(htmlTabela, /Aguardar/);
+    assert.match(doc.getElementById('acoesConteudo').textContent, /teto R\$\s?30,00/);
+    // cabeçalhos das colunas novas (P\/L, P\/VP, % cart.) - 19/09/2026 #2
+    const cabecalhos = [...doc.querySelectorAll('.cc-tabela thead th')].map((th) => th.textContent);
+    assert.ok(cabecalhos.some((t) => t.includes('P/L')));
+    assert.ok(cabecalhos.some((t) => t.includes('P/VP')));
+    assert.ok(cabecalhos.some((t) => t.includes('cart.')));
+    assert.ok(cabecalhos.some((t) => t.includes('Status')));
+    assert.ok(cabecalhos.some((t) => t.includes('DY')));
+    assert.ok(!cabecalhos.some((t) => t.includes('Preço teto')));
+    // logo do ativo (LOGOS_ATIVOS/fallback de iniciais) - 19/09/2026 #2
+    assert.equal(doc.querySelectorAll('.cc-logo').length, 2);
+    // linha de totais no rodapé (19/09/2026 #2 - "você não trouxe os totais")
+    const totalRow = doc.querySelector('.cc-tabela tfoot tr');
+    assert.ok(totalRow, 'deveria ter uma linha de totais no tfoot');
+    assert.match(totalRow.textContent, /Total \(2 ativos\)/);
+    assert.match(totalRow.textContent, /29\.968,40/);
+    assert.match(totalRow.textContent, /4\.311,01/);
   });
 });
 
