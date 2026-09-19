@@ -7,7 +7,11 @@
  * já usado em distribuicoes-metas.css, ver comentário lá) — aqui só
  * entra o que é específico de Carteiras: hero + donut da Visão geral,
  * os 4 cards de classe, e os blocos genéricos das 4 subpáginas
- * (tiles de resumo, chips de benchmark, tabela de ativos).
+ * (resumo em destaque, chips de benchmark, tabela de ativos). O
+ * marcador de tooltip ".info-alvo"/".info-icon"/".info-tooltip"
+ * também já vem pronto de inicio.css (esta folha carrega inicio.css,
+ * ver carteiras/index.html) - só falta ligar o wiring, ver
+ * wirePointerTooltipCarteiras_ em carteiras-classe-comum.js.
  *
  * 19/09/2026: mobile NÃO vira pílula horizontal (diferente do mockup
  * de design que o Tiago aprovou antes do sidebar existir) — o sidebar
@@ -18,6 +22,9 @@
  * de Transações/Proventos/Organização Financeira no futuro) bateu
  * mais consistência com o resto do app do que reintroduzir pílulas só
  * pra esta seção — troca sinalizada ao Tiago junto com a entrega.
+ * 19/09/2026 #4 (pedido do Tiago): virou uma barra HORIZONTAL de
+ * ícones acima do conteúdo em mobile - ver o media query de .side-nav
+ * em shell.css.
  * .carteiras-mobile-title cobre o rótulo que o rail-de-ícone esconde.
  */
 
@@ -136,22 +143,41 @@
 #vgEvolucaoChart .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
 
 /* ================= Subpáginas de classe (Ações/FIIs/Ações
-   Internacionais/Renda Fixa) — tiles de resumo, chips de benchmark,
+   Internacionais/Renda Fixa) — resumo em destaque, chips de benchmark,
    donut + tabela lado a lado. ================= */
-.cc-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
-/* 19/09/2026 #2 (Tiago reportou com print - "sem esse background forte
-   azul"): era var(--surface-2), bem saturado no tema escuro (#1D3350) -
-   virou o fundo normal do cartão (var(--surface)) + borda fina, só a
-   faixa de cima (border-top) continua colorida marcando a classe -
-   igual ao mockup (fundo branco liso + faixa de cor só no topo). */
-.cc-tile{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px;
-      border-top:3px solid var(--tile-accent,var(--acoes)); }
-.cc-tile-label{ display:block; font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; margin-bottom:5px; }
-.cc-tile-valor{ font-family:var(--mono); font-weight:600; font-size:15px; }
-.cc-tile-sub{ display:inline-block; margin-left:6px; font-size:11px; font-weight:600; }
-.cc-tile-sub.good, .cc-tile.good .cc-tile-valor{ color:var(--good-ink); }
-.cc-tile-sub.bad, .cc-tile.bad .cc-tile-valor{ color:var(--bad-ink); }
-@media (max-width:640px){ .cc-tiles{ grid-template-columns:repeat(2,1fr); } }
+
+/* Resumo em destaque, estilo cotação (19/09/2026 #4 - ver comentário
+   grande em renderResumoClasseCarteiras, carteiras-classe-comum.js;
+   Ações EUA monta o MESMO html/classes na mão, em carteiras-acoes-eua.js,
+   porque os valores são em US$ - não dá pra reaproveitar a função
+   genérica que já assume formatBRL). Total atualizado em destaque à
+   esquerda + Total investido embaixo, dividido por uma linha vertical
+   das estatísticas menores (Lucro/Prejuízo, Ativos na carteira,
+   Proventos) à direita - troca do grid de "tiles" iguais que tinha
+   antes. `--tile-accent` (definido inline pelo chamador) tinge só a
+   borda esquerda, uma pista discreta de qual classe é (Ações/FIIs/
+   Ações EUA/Renda Fixa), sem voltar pros blocos coloridos de antes. */
+.cc-resumo{ display:flex; align-items:center; gap:24px; flex-wrap:wrap; background:var(--surface);
+      border:1px solid var(--border); border-left:3px solid var(--tile-accent,var(--acoes));
+      border-radius:14px; padding:18px 22px; margin-bottom:14px; box-shadow:var(--shadow); }
+.cc-resumo-principal{ flex:none; }
+.cc-resumo-valor{ display:block; font-family:var(--mono); font-size:30px; font-weight:600; line-height:1.05;
+      color:var(--ink); font-variant-numeric:tabular-nums; }
+.cc-resumo-investido{ display:block; font-size:12.5px; color:var(--ink-muted); margin-top:5px; }
+.cc-resumo-sep{ width:1px; align-self:stretch; background:var(--border); flex:none; }
+.cc-resumo-stats{ display:flex; gap:26px; flex-wrap:wrap; flex:1; min-width:0; }
+.cc-resumo-stat{ display:flex; flex-direction:column; gap:5px; min-width:0; }
+.cc-resumo-stat-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); white-space:nowrap; }
+.cc-resumo-stat-valor{ font-family:var(--mono); font-size:15px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+.cc-resumo-stat.good .cc-resumo-stat-valor{ color:var(--good-ink); }
+.cc-resumo-stat.bad .cc-resumo-stat-valor{ color:var(--bad-ink); }
+.cc-resumo-stat-pct{ margin-left:6px; font-size:11px; font-weight:600; }
+@media (max-width:640px){
+  .cc-resumo{ flex-direction:column; align-items:flex-start; gap:14px; padding:16px 18px; }
+  .cc-resumo-sep{ display:none; }
+  .cc-resumo-stats{ width:100%; gap:14px 22px; }
+  .cc-resumo-valor{ font-size:26px; }
+}
 
 .cc-benchmarks{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
 .cc-benchmark-chip{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted);
@@ -168,8 +194,30 @@
    carteiras-acoes.js/fiis.js/acoes-eua.js/renda-fixa.js), então virar
    1 coluna já empilha na ordem certa sem mexer no JS. */
 .cc-layout-donut-tabela{ display:flex; flex-direction:column; gap:18px; }
-.cc-donut-card{ padding:0 0 4px; }
+.cc-donut-card{ padding:4px 0 8px; }
 .cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; }
+
+/* 19/09/2026 #4 (pedido do Tiago: "a divisão de setores está mal
+   posicionado. Aumente a pizza, e divida em duas rows a lista de
+   setores/segmentos") - pizza de 60px (tamanho padrão de .distrib,
+   pensado pro cartão pequeno de resumo da Início) pra 120px, e a
+   legenda vira uma grade de EXATAMENTE 2 linhas (grid-auto-flow:column
+   preenche a 1ª coluna inteira - 2 itens - antes de abrir a próxima
+   coluna), não importa quantos grupos existirem (2 ou 7) - flex-wrap
+   com "2 por linha" daria um número de linhas variável (3, 4...)
+   dependendo da contagem, o pedido foi especificamente 2 LINHAS.
+   Escopado a `.cc-donut-card` (dentro do donut do card de resumo da
+   Início continua do jeito que já era - é o mesmo componente
+   `renderDistribuicao`, só o CONTEXTO de card muda o tamanho). */
+.cc-donut-card .distrib{ align-items:center; gap:26px; }
+.cc-donut-card .distrib-donut{ width:120px; height:120px; }
+.cc-donut-card .distrib-legenda{ display:grid; grid-template-rows:repeat(2,auto); grid-auto-flow:column;
+      grid-auto-columns:minmax(180px,1fr); column-gap:24px; row-gap:10px; }
+@media (max-width:760px){
+  .cc-donut-card .distrib{ flex-wrap:wrap; }
+  .cc-donut-card .distrib-donut{ width:90px; height:90px; }
+  .cc-donut-card .distrib-legenda{ grid-template-rows:none; grid-auto-flow:row; display:flex; flex-direction:column; }
+}
 
 /* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
    scroll"): FIIs ganhou 4 colunas nessa rodada (Status/DY/P-VP/
@@ -180,10 +228,19 @@
    deixar ela ilegível. */
 .cc-tabela-wrap{ overflow-x:auto; }
 .cc-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; }
-.cc-tabela th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
-      color:var(--ink-faint); font-weight:600; padding:0 8px 8px; white-space:nowrap; }
-.cc-tabela th.right, .cc-tabela td.right{ text-align:right; }
-.cc-tabela td{ padding:7px 8px; border-top:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+/* 19/09/2026 #4 (pedido do Tiago, inspirado na tabela do Radar de
+   oportunidades - distribuicoes-metas.css!.radar-table: "todas as
+   colunas, tirando o Ativo, centralize o conteúdo. Em Ativo, só
+   centralize o título") - CENTRO é o padrão pra th E td; só a coluna
+   marcada com `alinharEsquerda` (a de Ativo, com logo+ticker+nome - ver
+   renderTabelaAtivosCarteiras) recebe `.cc-td-esquerda` na CÉLULA, não
+   no cabeçalho - por isso o título "Ativo" fica centralizado como
+   qualquer outro, mas o conteúdo da linha (logo + texto) continua à
+   esquerda, mais legível pra um bloco com ícone + 2 linhas de texto. */
+.cc-tabela th{ font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
+      color:var(--ink-faint); font-weight:600; padding:0 8px 8px; white-space:nowrap; text-align:center; }
+.cc-tabela td{ padding:7px 8px; border-top:1px solid var(--border); vertical-align:middle; white-space:nowrap; text-align:center; }
+.cc-tabela td.cc-td-esquerda{ text-align:left; }
 .cc-tabela tbody tr:hover{ background:var(--surface-3); }
 .cc-ativo-nome{ display:block; font-size:10.5px; color:var(--ink-faint); font-weight:400; max-width:160px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -216,18 +273,18 @@
 .cc-tabela tfoot td{ padding:11px 10px; }
 .status-pill.warn{ background:var(--warn-soft); color:var(--warn-ink); }
 
-/* Ordenação por clique no cabeçalho + botão "i" de ajuda (19/09/2026
-   #3, pedido do Tiago - "quero poder ordenar clicando no título",
-   "inclua o botão i pra explicar o que é cada coluna") - mesmo padrão
-   visual do mockup (bolinha outline com "i" dentro, cursor:help). */
+/* Ordenação por clique no cabeçalho (19/09/2026 #3, pedido do Tiago -
+   "quero poder ordenar clicando no título"). O ícone "i" de ajuda do
+   cabeçalho usa o marcador genérico ".info-alvo"/".info-icon" (já vem
+   de inicio.css) em vez de um botão próprio daqui - ver botaoInfoHtml
+   em carteiras-classe-comum.js. */
 .cc-tabela th.cc-th-ordenavel{ cursor:pointer; }
 .cc-tabela th.cc-th-ordenavel:hover{ color:var(--ink); }
 .cc-th-seta{ color:var(--ink); }
-.cc-th-info{ display:inline-flex; align-items:center; justify-content:center; width:12px; height:12px;
-      border-radius:50%; border:1px solid var(--ink-faint); background:none; color:var(--ink-faint);
-      font-size:8px; line-height:1; padding:0; margin-left:4px; cursor:help; font-family:var(--body-f);
-      vertical-align:middle; }
-.cc-th-info-sm{ width:11px; height:11px; font-size:7.5px; margin-left:3px; }
+/* Ícone "i" reduzido dentro de célula (nota de ativo, equivalente em
+   R$) - versão menor do .info-icon padrão (15x15), que é pensado pro
+   cabeçalho/texto corrido. */
+.cc-info-icon-sm{ width:12px; height:12px; font-size:8px; margin-left:3px; }
 
 /* Busca (+ chips de filtro por grupo, só FIIs por enquanto) acima da
    tabela de Ativos (19/09/2026 #3, fiel ao mockup - ver

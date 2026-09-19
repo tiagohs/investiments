@@ -24,7 +24,7 @@ const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v1';
 
 const COLUNAS_ATIVOS_RENDA_FIXA = [
   {
-    label: 'Título', formatar: (a) => {
+    label: 'Título', alinharEsquerda: true, formatar: (a) => {
       const nome = a.nomePersonalizado || a.tipoInvestimento || a.codigo || '—';
       const carteiraPill = a.tipoCarteira === 'emergencial'
         ? '<span class="status-pill warn">Reserva de emergência</span>'

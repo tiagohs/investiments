@@ -17,20 +17,27 @@ import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
 
 /**
- * 4-5 "tiles" com os números do resumo (mesmo padrão visual de
- * .resumo-card, mas mais simples - sem distribuição interna). `extras`
- * é uma lista opcional de tiles a mais (ex.: Proventos totais, só nas
- * 3 classes de renda variável).
+ * Resumo em destaque, estilo cotação (19/09/2026 #4, pedido do Tiago
+ * revisando o resultado: "não ficou muito bom os cards... em destaque,
+ * o valor atualizado, abaixo dele, o valor investido... ao lado, as
+ * infos de Lucro/Prejuízo, Ativos na carteira e Proventos", com um
+ * print de referência de uma cotação de ação - valor grande + Min/Max/
+ * Volume do lado). Trocou o grid de 4-5 "tiles" iguais por 1 cartão só:
+ * Total atualizado em destaque (fonte grande) com Total investido
+ * embaixo (menor), e um grupo de estatísticas menores do lado (Lucro/
+ * Prejuízo + Ativos na carteira + `extras`, hoje só Proventos
+ * recebidos nas 3 classes de renda variável) - ver .cc-resumo* em
+ * carteiras.css, que já cuida de empilhar tudo em mobile.
+ * `formatarValor` (padrão formatBRL) permite reaproveitar em Ações EUA,
+ * que já vem nativamente em US$ (formatUSD) - ver carteiras-acoes-eua.js.
  */
-export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [] } = {}) {
+export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL } = {}) {
   if (!container || !resumo) return;
   const lucroBom = resumo.lucroPrejuizo >= 0;
-  const tiles = [
-    { label: 'Total investido', valor: formatBRL(resumo.totalInvestido) },
-    { label: 'Total atualizado', valor: formatBRL(resumo.totalAtualizado) },
+  const stats = [
     {
       label: 'Lucro / Prejuízo',
-      valor: `${formatBRL(resumo.lucroPrejuizo)} <span class="cc-tile-sub ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
+      valor: `${formatarValor(resumo.lucroPrejuizo)}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
       classe: lucroBom ? 'good' : 'bad',
     },
     { label: 'Ativos na carteira', valor: String(resumo.quantidadeAtivos) },
@@ -38,13 +45,20 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
   ];
 
   container.innerHTML = `
-    <div class="cc-tiles" style="--tile-accent:var(${corToken})">
-      ${tiles.map((t) => `
-        <div class="cc-tile${t.classe ? ` ${t.classe}` : ''}">
-          <span class="cc-tile-label">${t.label}</span>
-          <span class="cc-tile-valor">${t.valor}</span>
-        </div>
-      `).join('')}
+    <div class="cc-resumo" style="--tile-accent:var(${corToken})">
+      <div class="cc-resumo-principal">
+        <span class="cc-resumo-valor">${formatarValor(resumo.totalAtualizado)}</span>
+        <span class="cc-resumo-investido">Investido: ${formatarValor(resumo.totalInvestido)}</span>
+      </div>
+      <div class="cc-resumo-sep" aria-hidden="true"></div>
+      <div class="cc-resumo-stats">
+        ${stats.map((s) => `
+          <div class="cc-resumo-stat${s.classe ? ` ${s.classe}` : ''}">
+            <span class="cc-resumo-stat-label">${s.label}</span>
+            <span class="cc-resumo-stat-valor">${s.valor}</span>
+          </div>
+        `).join('')}
+      </div>
     </div>
   `;
 }
@@ -66,7 +80,13 @@ export function renderBenchmarksClasseCarteiras(doc, container, itens) {
 
 /** Donut "por grupo" (Setor/Segmento pra RV, Indexador pra Renda Fixa) —
  * reaproveita renderDistribuicao (inicio.js) sem cor fixa por fatia (a
- * própria função cicla pela paleta de fallback quando `cor` não vem). */
+ * própria função cicla pela paleta de fallback quando `cor` não vem).
+ * Pizza maior + legenda em 2 linhas (fica bem mais compacto vertical -
+ * pedido do Tiago revisando o resultado: "a divisão de setores está
+ * mal posicionado... aumente a pizza, e divida em duas rows a lista de
+ * setores") - o tamanho/grid é escopado a `.cc-donut-card` em
+ * carteiras.css, não mexe no donut da Início (mesmo componente,
+ * contextos de card diferentes). */
 export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao) {
   if (!container) return;
   const fatias = (distribuicao || []).map((d) => ({ label: d.grupo, valor: d.totalAtualizado }));
@@ -95,18 +115,118 @@ export function logoAtivoHtml(ticker) {
   return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
 }
 
-/** Botão redondo "i" com tooltip nativo (title) - mesmo padrão visual
- * do mockup, usado tanto no cabeçalho das colunas (explicar o que é
- * DY/P-L/P-VP/Status) quanto dentro de uma célula (ex.: equivalente em
- * R\$ de um valor em US$, ou uma observação sobre um ativo específico -
- * ver notaAtivoHtml abaixo). `pequeno` usa o tamanho reduzido que o
- * mockup usa dentro de célula (11px em vez de 12px). Sem texto, não
- * desenha nada (colunas sem ajuda não ganham botão à toa). */
+/**
+ * "i" que abre uma tooltip por toque/hover - NÃO é mais `title` nativo
+ * (19/09/2026 #4, pedido do Tiago: "as tooltips não estão funcionando.
+ * O botão do i só deve ser clicável no mobile. No desktop, é um
+ * tooltip que quando eu passo o mouse, aparece"). `title` nativo não
+ * aparece no toque (sem hover no celular) - mesmo problema que a
+ * Início/Distribuição e Metas já resolveram com o marcador genérico
+ * ".info-alvo"/".info-icon"/".info-tooltip" (CSS já vem de inicio.css,
+ * que esta página já carrega - só falta ligar o wiring, ver
+ * wirePointerTooltipCarteiras_ abaixo). Reaproveita essas MESMAS
+ * classes em vez de inventar um "cc-" prefixado - mesmo motivo de
+ * sempre pra duplicar em vez de importar uma função privada de outro
+ * módulo (ver o comentário de wirePointerTooltipDistrib_/
+ * wirePointerTooltipInfo_ nos outros 2 arquivos). `pequeno` usa um
+ * tamanho reduzido pro ícone dentro de célula (nota de ativo,
+ * equivalente em R$) - ver .cc-info-icon-sm em carteiras.css. */
 export function botaoInfoHtml(texto, { pequeno = false } = {}) {
   if (!texto) return '';
-  const classe = pequeno ? 'cc-th-info cc-th-info-sm' : 'cc-th-info';
   const escapado = String(texto).replace(/"/g, '&quot;');
-  return ` <button type="button" class="${classe}" title="${escapado}">i</button>`;
+  const classeIcone = pequeno ? 'info-icon cc-info-icon-sm' : 'info-icon';
+  return ` <span class="info-alvo" data-tooltip="${escapado}"><span class="${classeIcone}">i</span></span>`;
+}
+
+/**
+ * Tooltip por Pointer Events (funciona em mouse E toque, ao contrário
+ * de `title` nativo) - cópia do mesmo padrão já usado em
+ * pages/inicio.js!wirePointerTooltipDistrib_ e
+ * pages/distribuicoes-metas.js!wirePointerTooltipInfo_ (documentado lá:
+ * duplicado de propósito, cada arquivo com sua própria cópia, mesmo
+ * motivo de sempre - .moeda-conv/.skel/etc.). Delegado no container
+ * ESTÁVEL de cada subpágina (o <div id="xxxConteudo">, nunca recriado -
+ * só o innerHTML dele é trocado a cada desenhar()/atualização), pra
+ * qualquer ".info-alvo" com `dataset.tooltip` dentro dele: ícones "i"
+ * de cabeçalho de coluna, nota de ativo (AXIA15G), equivalente em R$
+ * (Ações EUA) e a legenda do donut "por grupo" (que já vinha com essa
+ * marcação de renderDistribuicao, só faltava este wiring - por isso as
+ * tooltips do donut também não funcionavam antes). Guardado por
+ * `container._ccTooltipWired` pra nunca ligar 2x no mesmo container.
+ */
+export function wirePointerTooltipCarteiras_(doc, container) {
+  if (!container || container._ccTooltipWired) return;
+  container._ccTooltipWired = true;
+
+  const janela = doc.defaultView;
+  const tooltip = doc.createElement('div');
+  tooltip.className = 'info-tooltip';
+  tooltip.hidden = true;
+  (doc.body || container).appendChild(tooltip);
+
+  let alvoAberto = null;
+
+  function esconder_() {
+    tooltip.hidden = true;
+    alvoAberto = null;
+  }
+
+  function mostrar_(alvo, clientX, clientY) {
+    const texto = alvo.dataset.tooltip;
+    if (!texto) {
+      esconder_();
+      return;
+    }
+    tooltip.textContent = texto;
+    tooltip.hidden = false;
+
+    const larguraJanela = (janela && janela.innerWidth) || 1000;
+    const alturaJanela = (janela && janela.innerHeight) || 800;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    let esquerda = clientX + 14;
+    let topo = clientY + 14;
+    if (esquerda + tw > larguraJanela - 12) esquerda = clientX - tw - 14;
+    if (topo + th > alturaJanela - 12) topo = clientY - th - 14;
+    tooltip.style.left = `${esquerda}px`;
+    tooltip.style.top = `${topo}px`;
+  }
+
+  function aoMoverOuTocar_(ev) {
+    const alvo = typeof ev.target.closest === 'function' ? ev.target.closest('.info-alvo') : null;
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
+      if (ev.type !== 'pointerdown' || !alvo) return;
+      if (alvoAberto === alvo) {
+        esconder_();
+        return;
+      }
+      alvoAberto = alvo;
+      mostrar_(alvo, ev.clientX, ev.clientY);
+      return;
+    }
+    if (!alvo) {
+      esconder_();
+      return;
+    }
+    mostrar_(alvo, ev.clientX, ev.clientY);
+  }
+
+  function aoSairPonteiro_(ev) {
+    if (ev.pointerType === 'touch' || ev.pointerType === 'pen') return;
+    esconder_();
+  }
+
+  function aoTocarFora_(ev) {
+    if (!alvoAberto) return;
+    const alvo = ev.target;
+    if (tooltip.contains(alvo) || alvoAberto.contains(alvo)) return;
+    esconder_();
+  }
+
+  container.addEventListener('pointermove', aoMoverOuTocar_);
+  container.addEventListener('pointerdown', aoMoverOuTocar_);
+  container.addEventListener('pointerleave', aoSairPonteiro_);
+  (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
 }
 
 /** Observações curtas por ticker específico (19/09/2026 #3, pedido do
@@ -182,17 +302,29 @@ export function renderFiltrosTabelaCarteiras(doc, container, { busca = '', onBus
 }
 
 /**
- * Tabela de ativos genérica. `colunas` é `[{ label, alinhar?, ajuda?,
- * campo?, ordenarPor?(ativo)=>valor bruto, formatar(ativo)=>string
- * HTML }]` — cada page module monta as colunas certas pra sua classe
- * (ver carteiras-acoes.js/carteiras-fiis.js/carteiras-acoes-eua.js/
- * carteiras-renda-fixa.js). `ajuda` vira um botão "i" com tooltip no
- * cabeçalho (19/09/2026 #3); `campo`+`ordenarPor` deixam a coluna
- * clicável pra ordenar (19/09/2026 #3, pedido do Tiago - "quero poder
- * ordenar clicando no título de cada coluna") - sem `ordenarPor` a
- * coluna não vira clicável. Sem uma ordenação ativa (ou ordenacao=null),
- * cai no padrão de sempre: Total atualizado desc (maior posição
- * primeiro, mesma hierarquia da Home consolidada).
+ * Tabela de ativos genérica. `colunas` é `[{ label, alinharEsquerda?,
+ * ajuda?, campo?, ordenarPor?(ativo)=>valor bruto,
+ * formatar(ativo)=>string HTML }]` — cada page module monta as colunas
+ * certas pra sua classe (ver carteiras-acoes.js/carteiras-fiis.js/
+ * carteiras-acoes-eua.js/carteiras-renda-fixa.js). Conteúdo de toda
+ * coluna é CENTRALIZADO por padrão (19/09/2026 #4, pedido do Tiago -
+ * "todas as colunas, tirando o Ativo, centralize o conteúdo. Em Ativo,
+ * só centralize o título", inspirado na tabela do Radar de
+ * oportunidades) - só a coluna com `alinharEsquerda:true` (a de Ativo,
+ * com logo+ticker+nome) tem a CÉLULA (não o cabeçalho) alinhada à
+ * esquerda, ver .cc-td-esquerda em carteiras.css.
+ *
+ * `ajuda` vira um ícone "i" com tooltip no cabeçalho (19/09/2026 #3,
+ * ver botaoInfoHtml); `campo`+`ordenarPor` deixam a coluna clicável pra
+ * ordenar (19/09/2026 #3, pedido do Tiago - "quero poder ordenar
+ * clicando no título de cada coluna") - sem `ordenarPor` a coluna não
+ * vira clicável. O clique no ícone "i" do cabeçalho NUNCA ordena (só
+ * abre a tooltip) - o listener de ordenação ignora cliques que vieram
+ * de dentro de ".info-alvo", senão tocar no "i" no celular também
+ * dispararia uma ordenação junto (os 2 elementos dividem o mesmo <th>).
+ * Sem uma ordenação ativa (ou ordenacao=null), cai no padrão de
+ * sempre: Total atualizado desc (maior posição primeiro, mesma
+ * hierarquia da Home consolidada).
  *
  * `linhaTotalHtml` (opcional) - 1 <tr> pronto (o chamador já sabe quantas
  * colunas tem e quais das últimas são Total/Lucro, então monta o
@@ -223,13 +355,12 @@ export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { l
   const cabecalho = colunas.map((c) => {
     const ordenavel = typeof c.ordenarPor === 'function';
     const ativa = ordenavel && ordenacao && ordenacao.campo === c.campo;
-    const classes = [c.alinhar === 'right' ? 'right' : '', ordenavel ? 'cc-th-ordenavel' : ''].filter(Boolean).join(' ');
     const seta = ativa ? ` <span class="cc-th-seta">${ordenacao.direcao === 'asc' ? '▲' : '▼'}</span>` : '';
     const ajuda = c.ajuda ? botaoInfoHtml(c.ajuda) : '';
-    return `<th${classes ? ` class="${classes}"` : ''}${ordenavel ? ` data-campo="${c.campo}"` : ''}>${c.label}${ajuda}${seta}</th>`;
+    return `<th${ordenavel ? ' class="cc-th-ordenavel"' : ''}${ordenavel ? ` data-campo="${c.campo}"` : ''}>${c.label}${ajuda}${seta}</th>`;
   }).join('');
   const linhas = lista.map((ativo) => {
-    const celulas = colunas.map((c) => `<td${c.alinhar === 'right' ? ' class="right"' : ''}>${c.formatar(ativo)}</td>`).join('');
+    const celulas = colunas.map((c) => `<td${c.alinharEsquerda ? ' class="cc-td-esquerda"' : ''}>${c.formatar(ativo)}</td>`).join('');
     return `<tr>${celulas}</tr>`;
   }).join('');
 
@@ -245,7 +376,10 @@ export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { l
 
   if (onOrdenar) {
     container.querySelectorAll('.cc-th-ordenavel').forEach((th) => {
-      th.addEventListener('click', () => onOrdenar(th.dataset.campo));
+      th.addEventListener('click', (ev) => {
+        if (ev.target.closest && ev.target.closest('.info-alvo')) return;
+        onOrdenar(th.dataset.campo);
+      });
     });
   }
 }

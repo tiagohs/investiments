@@ -71,7 +71,10 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com S
 
     assert.equal(doc.getElementById('fiisLoading').hidden, true);
     assert.equal(doc.getElementById('fiisConteudo').hidden, false);
-    assert.equal(doc.querySelectorAll('.cc-tile.bad').length, 1);
+    // Resumo em destaque (19/09/2026 #4): 1 cartão .cc-resumo, com o
+    // stat de Lucro/Prejuízo em vermelho (fixture está no prejuízo).
+    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
+    assert.equal(doc.querySelectorAll('.cc-resumo-stat.bad').length, 1);
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 3);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
 
@@ -89,8 +92,12 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com S
     assert.match(doc.getElementById('fiisConteudo').textContent, /R\$\s1,2\sbi/);
     assert.match(doc.getElementById('fiisConteudo').textContent, /R\$\s450\smi/);
 
-    // botões "i" de ajuda no cabeçalho (Pr.médio/Status/DY/P-VP = 4)
-    assert.equal(doc.querySelectorAll('.cc-tabela thead .cc-th-info').length, 4);
+    // botões "i" de ajuda no cabeçalho (Pr.médio/Status/DY/P-VP = 4) - agora
+    // via .info-alvo/.info-icon (Pointer Events), não mais <button
+    // class="cc-th-info" title>, que não funcionava no toque (19/09/2026 #4).
+    assert.equal(doc.querySelectorAll('.cc-tabela thead .info-alvo').length, 4);
+    assert.equal(doc.querySelectorAll('.cc-th-info').length, 0);
+    assert.ok(doc.body.querySelector('.info-tooltip'), 'wirePointerTooltipCarteiras_ deveria criar a div .info-tooltip no body');
 
     // ordenado por padrão (totalAtualizado desc): HGLG11 (35577,49) antes de XPML11 (12000)
     const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
@@ -109,6 +116,13 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com S
 
     // caixa de busca presente
     assert.ok(doc.querySelector('.cc-busca-input'));
+
+    // 19/09/2026 #4: só a célula (<td>) da coluna Ativo fica alinhada à
+    // esquerda - o resto centraliza por padrão (CSS), e não sobra nenhuma
+    // célula com a classe antiga .right.
+    const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
+    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0);
   });
 });
 

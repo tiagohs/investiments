@@ -77,22 +77,48 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     assert.match(html, /R\$ 5,14/); // dólar hoje, formatado em BRL
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
 
+    // Resumo em destaque (19/09/2026 #4), mas em US$ (formatarValor:
+    // formatUSD - página inteira é em dólar) - sem "Proventos recebidos"
+    // (Ações EUA não traz esse dado à parte).
+    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
+    const textoResumo = doc.getElementById('acoesEuaResumo').textContent;
+    assert.match(textoResumo, /\$4,103\.79/);
+    assert.match(textoResumo, /Investido: \$3,701\.85/);
+    assert.ok(!textoResumo.includes('Proventos recebidos'));
+    assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 2); // só Lucro/Prejuízo + Ativos na carteira
+
     // cabeçalhos novos (Status/DY/P-VP com tooltip) - sem P/L (EUA nunca teve)
     const cabecalhos = [...doc.querySelectorAll('.cc-tabela thead th')].map((th) => th.textContent);
     assert.ok(cabecalhos.some((t) => t.includes('Status')));
     assert.ok(cabecalhos.some((t) => t.includes('DY')));
     assert.ok(cabecalhos.some((t) => t.includes('P/VP')));
     assert.ok(!cabecalhos.some((t) => t.includes('P/L')));
-    assert.equal(doc.querySelectorAll('.cc-tabela thead .cc-th-info').length, 3); // Status/DY/P-VP
+    // botões "i" de ajuda no cabeçalho (Status/DY/P-VP = 3) - agora via
+    // .info-alvo/.info-icon (Pointer Events), não mais <button
+    // class="cc-th-info" title>, que não funcionava no toque (19/09/2026 #4).
+    assert.equal(doc.querySelectorAll('.cc-tabela thead .info-alvo').length, 3);
+    assert.equal(doc.querySelectorAll('.cc-th-info').length, 0);
+    assert.ok(doc.body.querySelector('.info-tooltip'), 'wirePointerTooltipCarteiras_ deveria criar a div .info-tooltip no body');
 
-    // Pr. médio: só US$ no corpo da célula + botão "i" com o equivalente (não escrito por extenso)
+    // Pr. médio: só US$ no corpo da célula + ícone "i" com o equivalente
+    // (não escrito por extenso) - o texto da tooltip fica em
+    // data-tooltip, não mais em `title`.
     const linhaAapl = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('AAPL'));
     assert.match(linhaAapl.innerHTML, /\$200\.12/);
-    assert.match(linhaAapl.innerHTML, /cc-th-info-sm" title="Equivalente em reais: R\$&nbsp;1\.029,02/);
+    const iconePrecoMedio = linhaAapl.querySelector('td:nth-child(4) .info-alvo');
+    assert.ok(iconePrecoMedio, 'célula de Pr. médio deveria ter o ícone de equivalente em reais');
+    assert.match(iconePrecoMedio.dataset.tooltip, /Equivalente em reais:\sR\$\s1\.029,02/);
+    assert.ok(iconePrecoMedio.querySelector('.info-icon.cc-info-icon-sm'));
 
     // sem chips de segmento (só FIIs tem) - mas a busca continua presente
     assert.equal(doc.querySelectorAll('.cc-filtro-chips').length, 0);
     assert.ok(doc.querySelector('.cc-busca-input'));
+
+    // 19/09/2026 #4: só a célula (<td>) da coluna Ativo fica alinhada à
+    // esquerda - resto centraliza por padrão, sem sobrar .right.
+    const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
+    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0);
 
     // ordenado por padrão (totalAtualizado desc): AAPL (3303,79) antes de GPRK (800)
     const linhas = doc.querySelectorAll('.cc-tabela tbody tr');

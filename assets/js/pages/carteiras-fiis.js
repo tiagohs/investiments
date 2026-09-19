@@ -19,6 +19,7 @@ import {
   renderTabelaAtivosCarteiras,
   renderFiltrosTabelaCarteiras,
   filtrarAtivosPorBusca,
+  wirePointerTooltipCarteiras_,
   logoAtivoHtml,
   notaAtivoHtml,
   statusVies,
@@ -28,20 +29,20 @@ const CHAVE_CACHE_FIIS = 'carteiras_fiis_v1';
 
 const COLUNAS_ATIVOS_FIIS = [
   {
-    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, formatar: (a) => {
+    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
       const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
       return `<div class="cc-ativo-cel">${logoAtivoHtml(a.ticker)}<div><b>${notaAtivoHtml(a.ticker)}${a.ticker}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
     },
   },
   {
-    label: 'Preço / dia', alinhar: 'right', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
+    label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
       const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
       return `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
     },
   },
-  { label: 'Qtd', alinhar: 'right', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
+  { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
   {
-    label: 'Pr. médio', alinhar: 'right', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
+    label: 'Pr. médio', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
     ajuda: 'Preço médio pago por cota, ponderado por todas as compras feitas.',
     formatar: (a) => formatBRL(a.precoMedio),
   },
@@ -56,7 +57,7 @@ const COLUNAS_ATIVOS_FIIS = [
     },
   },
   {
-    label: 'DY', alinhar: 'right', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
+    label: 'DY', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
     ajuda: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pelo preço atual da cota.',
     formatar: (a) => {
       const cor = typeof a.dyPercentual === 'number' ? (a.dyPercentual >= 0 ? 'good' : 'bad') : '';
@@ -65,21 +66,21 @@ const COLUNAS_ATIVOS_FIIS = [
     },
   },
   {
-    label: 'P/VP', alinhar: 'right', campo: 'pvp', ordenarPor: (a) => a.pvp,
+    label: 'P/VP', campo: 'pvp', ordenarPor: (a) => a.pvp,
     ajuda: 'Preço/Valor Patrimonial: preço da cota dividido pelo valor patrimonial por cota do fundo.',
     formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—'),
   },
   {
-    label: 'Patrim. fundo', alinhar: 'right', campo: 'patrimonio', ordenarPor: (a) => a.patrimonio,
+    label: 'Patrim. fundo', campo: 'patrimonio', ordenarPor: (a) => a.patrimonio,
     formatar: (a) => (typeof a.patrimonio === 'number' ? formatBRLCompacto(a.patrimonio) : '—'),
   },
-  { label: '% cart.', alinhar: 'right', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
+  { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
   {
-    label: 'Total', alinhar: 'right', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
+    label: 'Total', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
     formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
   },
   {
-    label: 'Lucro / Prejuízo', alinhar: 'right', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
+    label: 'Lucro / Prejuízo', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
     formatar: (a) => {
       const cor = a.lucroPrejuizo >= 0 ? 'good' : 'bad';
       return `<span class="${cor}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub ${cor}">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>`;
@@ -102,8 +103,8 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
   const qtd = ativosExibidos.length;
   return `<tr>
     <td colspan="${COLUNAS_ATIVOS_FIIS.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td class="right">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
-    <td class="right"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
+    <td>${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
+    <td><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
   </tr>`;
 }
 
@@ -125,6 +126,11 @@ function desenhar(doc, dados) {
       </div>
     </div>
   `;
+
+  // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
+  // 1x no container estável (19/09/2026 #4, ver
+  // wirePointerTooltipCarteiras_ em carteiras-classe-comum.js).
+  wirePointerTooltipCarteiras_(doc, conteudoEl);
 
   renderResumoClasseCarteiras(doc, doc.getElementById('fiisResumo'), dados.resumo, {
     corToken: '--fiis',

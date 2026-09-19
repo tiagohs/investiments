@@ -67,7 +67,16 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     assert.equal(doc.getElementById('acoesLoading').hidden, true);
     assert.equal(doc.getElementById('acoesConteudo').hidden, false);
     assert.equal(doc.getElementById('acoesErro').hidden, true);
-    assert.equal(doc.querySelectorAll('.cc-tile').length, 5); // 4 + proventos
+    // Resumo em destaque (19/09/2026 #4): 1 cartão .cc-resumo (Total
+    // atualizado em destaque + Total investido embaixo) com 3 stats do
+    // lado (Lucro/Prejuízo, Ativos na carteira, Proventos recebidos via
+    // extras) - substituiu a grade antiga de .cc-tile.
+    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
+    assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 3);
+    const textoResumo = doc.getElementById('acoesResumo').textContent;
+    assert.match(textoResumo, /29\.968,40/);
+    assert.match(textoResumo, /Investido:\sR\$\s25\.657,39/);
+    assert.match(textoResumo, /Proventos recebidos/);
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 2);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
     // ordenado por totalAtualizado desc: EGIE3 (21050) antes de BBAS3 (8550)
@@ -104,6 +113,46 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     assert.match(totalRow.textContent, /Total \(2 ativos\)/);
     assert.match(totalRow.textContent, /29\.600,00/);
     assert.match(totalRow.textContent, /3\.945,00/);
+  });
+});
+
+test('montarPaginaCarteirasAcoes(): tooltips "i" funcionam por Pointer Events (não mais title nativo) e alinhamento da tabela (só Ativo à esquerda)', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl });
+
+    // 19/09/2026 #4: "as tooltips não estão funcionando" - os ícones "i"
+    // (cabeçalho de coluna, legenda do donut) agora usam o marcador
+    // .info-alvo/.info-icon (não <button title>), com 1 <div
+    // class="info-tooltip"> criado e anexado ao body pelo wiring.
+    assert.ok(doc.querySelectorAll('.info-alvo').length > 0, 'deveria ter pelo menos 1 marcador .info-alvo (cabeçalho/donut)');
+    assert.equal(doc.querySelectorAll('.cc-th-info').length, 0, 'não deveria sobrar nenhum ícone antigo .cc-th-info');
+    assert.ok(doc.body.querySelector('.info-tooltip'), 'wirePointerTooltipCarteiras_ deveria criar a div .info-tooltip no body');
+
+    // hover (mouse) num ícone "i" do cabeçalho mostra a tooltip
+    const icone = doc.querySelector('.cc-tabela thead .info-alvo');
+    assert.ok(icone, 'cabeçalho deveria ter pelo menos um ícone de ajuda');
+    icone.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 10, clientY: 10 }));
+    assert.equal(doc.body.querySelector('.info-tooltip').hidden, false);
+
+    // clicar no ícone "i" dentro do <th> ordenável NÃO deve disparar
+    // ordenação (19/09/2026 #4 - guarda closest('.info-alvo') no listener
+    // de clique do cabeçalho).
+    const linhasAntes = [...doc.querySelectorAll('.cc-tabela tbody tr')].map((tr) => tr.textContent);
+    icone.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+    const linhasDepois = [...doc.querySelectorAll('.cc-tabela tbody tr')].map((tr) => tr.textContent);
+    assert.deepEqual(linhasDepois, linhasAntes, 'clicar no ícone de ajuda não deveria reordenar a tabela');
+
+    // 19/09/2026 #4: "todas as colunas, tirando o Ativo, centralize o
+    // conteúdo. Em ativo, só centralize o título" - só a célula (<td>) da
+    // coluna Ativo tem a classe de alinhamento à esquerda; o <th> nunca
+    // tem (fica centralizado por padrão, igual as outras colunas).
+    const thAtivo = doc.querySelector('.cc-tabela thead th');
+    assert.ok(!thAtivo.classList.contains('cc-td-esquerda'));
+    const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
+    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0, 'não deveria sobrar nenhuma célula com a classe antiga .right');
   });
 });
 

@@ -36,10 +36,9 @@ var LINHA_DADOS_AUXILIAR_ATIVOS_CLASSES = 2;
 var ABA_CARTEIRA_FIIS_CLASSES = 'Carteira FIIs';
 var LINHA_DADOS_CARTEIRA_FIIS_CLASSES = 9;
 
-function handleCarteirasAcoes(e, auth) {
-  if (!auth || !auth.ok) {
-    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
-  }
+function handleCarteirasAcoes(e) {
+  var auth = verificarToken(e.parameter.token);
+  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasAcoes_() });
   } catch (err) {
@@ -47,10 +46,9 @@ function handleCarteirasAcoes(e, auth) {
   }
 }
 
-function handleCarteirasFiis(e, auth) {
-  if (!auth || !auth.ok) {
-    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
-  }
+function handleCarteirasFiis(e) {
+  var auth = verificarToken(e.parameter.token);
+  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasFiis_() });
   } catch (err) {
@@ -58,10 +56,9 @@ function handleCarteirasFiis(e, auth) {
   }
 }
 
-function handleCarteirasAcoesEua(e, auth) {
-  if (!auth || !auth.ok) {
-    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
-  }
+function handleCarteirasAcoesEua(e) {
+  var auth = verificarToken(e.parameter.token);
+  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasAcoesEua_() });
   } catch (err) {
@@ -82,28 +79,14 @@ function testarCarteirasAcoesEuaDireto() {
 function montarCarteirasAcoes_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações');
-  // 19/09/2026 #2 (correção do Tiago, fiel ao mockup de design): os 3
-  // chips de índice de mercado (Ibovespa/IFIX/S&P 500) mostram a
-  // VARIAÇÃO DO DIA (.variacaoDia, ver Home.gs!montarHome_), não o
-  // valor em pontos do índice (.valor) - o mockup mostra "Ibovespa hoje
-  // −0,39%" colorido, não "128.500". CDI continua em fração (a.a.),
-  // sem cor - é taxa de referência, não "ganho/perda do dia".
-  dados.benchmarks = { ibovespa: home.indices.ibovespa.variacaoDia, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
+  dados.benchmarks = { ibovespa: home.indices.ibovespa, cdi: null };
   return dados;
 }
 
 function montarCarteirasFiis_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('FIIs');
-  // 19/09/2026 #2 (pedido do Tiago - "pode fazer", confirmando a
-  // sugestão): FIIs ganhou Ibovespa/CDI junto do IFIX, igual às outras
-  // 3 subpáginas já tinham (só IFIX ficava sozinho antes). Mesma
-  // correção de variação do dia do comentário acima.
-  dados.benchmarks = {
-    ifix: home.indices.ifix.variacaoDia,
-    ibovespa: home.indices.ibovespa.variacaoDia,
-    cdi: buscarCdiSelicAnualizadosHoje_().cdi
-  };
+  dados.benchmarks = { ifix: home.indices.ifix };
   enriquecerAtivosComCarteiraFiis_(dados.ativos);
   return dados;
 }
@@ -111,9 +94,7 @@ function montarCarteirasFiis_() {
 function montarCarteirasAcoesEua_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações EUA');
-  // Dólar fica como cotação (R$ x,xxxx), não variação - mesma correção
-  // de Ibovespa/S&P 500 dos comentários acima.
-  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.variacaoDia, spx: home.indices.spx.variacaoDia };
+  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa, spx: home.indices.spx };
   return dados;
 }
 
