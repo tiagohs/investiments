@@ -1083,17 +1083,33 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
  * pontos brutos (1º valor válido da janela e o último) que já alimentam
  * a % acima - nunca um R$ e uma % contando históricos diferentes.
  */
-export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
-  if (!container) return;
-  // campo (nomes de HistoricoInicio.gs: patrimonio/longoPrazo/rendaEmergencial) só
-  // vale pro historico - o objeto `patrimonio` (Home.gs) usa 'total' pra visão
-  // "total", daí reaproveitar resolverVisao (já usado pelo resumo) pro valor atual.
+/**
+ * Núcleo de cálculo por trás de renderInfoRentabilidade (extraído em
+ * 19/09/2026 pra ser reaproveitado fora da Início - ver
+ * carteiras-visao-geral.js!renderHeroStats_, que usa isso com
+ * periodoId:'tudo' pro resumo "Investido/Resultado/Rentabilidade" do
+ * hero de Carteiras). Devolve os 3 números brutos (valor atual, ganho em
+ * R$ já líquido de aporte/retirada - TWR -, e a % correspondente) sem
+ * tocar em DOM nenhum - renderInfoRentabilidade só formata isso.
+ *
+ * Existir separado garante que qualquer tela que precise de um resumo
+ * "desde o início" (ou qualquer outro período) sempre usa a MESMA conta
+ * já validada contra o Gorilla (ver correção de 13/09/2026 logo abaixo),
+ * em vez de cada tela reimplementar sua própria soma de fluxo de caixa -
+ * foi exatamente reimplementar essa soma "por fora" (somando
+ * card.totalInvestido/lucroPrejuizo dos cards de classe, que só olham
+ * pra posição ATUAL, sem realizado nem proventos) que fez o hero de
+ * Carteiras sair batendo muito menor do que o Gorilla (R$13.169,88/+9,75%
+ * contra os ~R$37.504,84/+75,23% reais) - bug relatado pelo Tiago em
+ * 19/09/2026, ver comentário em renderHeroStats_.
+ */
+export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = 'total', periodoId = '12m' } = {}) {
   const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const campoFluxo = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
   const valorAtual = resolverVisao(patrimonio, visaoId).valor;
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo) : [];
-  const ultimoValido = ultimoValidoDe_(serieNormalizada);
+  const percentual = ultimoValidoDe_(serieNormalizada);
 
   // 13/09/2026 (correção Gorilla): o ganho em R$ também precisa descontar o
   // fluxo de caixa líquido do período (mesma lógica da % acima, TWR) - senão
@@ -1120,6 +1136,13 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
       }
     }
   }
+
+  return { valorAtual, ganhoReais, percentual };
+}
+
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
+  if (!container) return;
+  const { valorAtual, ganhoReais, percentual: ultimoValido } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
   container.innerHTML = `
     <div class="rentab-card-label">${LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>

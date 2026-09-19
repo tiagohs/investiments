@@ -117,14 +117,27 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     assert.equal(doc.getElementById('vgErro').hidden, true);
     assert.equal(doc.getElementById('vgAvisos').hidden, true);
 
-    // cartão 1: valor do patrimônio + resumo (Investido/Lucro-Prejuízo/
-    // Rentabilidade) + benchmarks - SEM repetir o mesmo valor 2x.
+    // cartão 1: valor do patrimônio + resumo (Investido/Resultado desde o
+    // início/Rentabilidade) + benchmarks - SEM repetir o mesmo valor 2x.
+    //
+    // 19/09/2026 (bug relatado pelo Tiago): o resumo NÃO soma mais
+    // card.totalInvestido/lucroPrejuizo (isso é só a posição atual, sem
+    // realizado/proventos - ficava muito menor que o "desde o início" de
+    // verdade) - agora vem de calcularResumoRentabilidade (inicio.js,
+    // periodoId:'tudo'), a MESMA conta TWR já validada contra o Gorila.
+    // Com o historicoExemplo()/HOME_EXEMPLO deste arquivo (ver acima):
+    // ganhoReais=11.700 (valor bruto final 148.200 − base 135.000 − fluxo
+    // acumulado 1.500), investido = valorAtual(148.234,71) − 11.700 =
+    // 136.534,71, rentabilidade ≈ +8,64% (TWR composto, não uma divisão
+    // simples) - conferido calculando a série à mão em Python.
     assert.match(doc.getElementById('vgPatrimonioTotal').textContent, /148\.234,71/);
     const resumoTexto = doc.getElementById('vgResumo').textContent;
     assert.match(resumoTexto, /Investido/);
-    assert.match(resumoTexto, /135\.064,83/); // soma dos 4 totalInvestido dos cards
-    assert.match(resumoTexto, /Lucro\/Prejuízo/);
+    assert.match(resumoTexto, /136\.534,71/);
+    assert.match(resumoTexto, /Resultado \(desde o início\)/);
+    assert.match(resumoTexto, /\+R\$\s*11\.700,00/);
     assert.match(resumoTexto, /Rentabilidade/);
+    assert.match(resumoTexto, /\+8,6\d%/);
     const chipsBenchmark = doc.querySelectorAll('#vgBenchmarks .cc-benchmark-chip');
     assert.equal(chipsBenchmark.length, 2); // Ibovespa hoje + CDI a.a.
     assert.match(doc.getElementById('vgBenchmarks').textContent, /Ibovespa hoje/);
@@ -135,6 +148,15 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     assert.equal(doc.querySelectorAll('#vgDonut .distrib-item').length, 4);
 
     assert.equal(doc.querySelectorAll('#vgCardsGrid .cg-card').length, 4);
+
+    // 19/09/2026 (pedido do Tiago pós-teste): cada card de classe também
+    // mostra o rodapé de benchmarks (mesmos 2 valores globais do hero).
+    doc.querySelectorAll('#vgCardsGrid .cg-card').forEach((card) => {
+      const benchmarksCard = card.querySelector('.cg-card-benchmarks');
+      assert.ok(benchmarksCard, `card "${card.querySelector('.cg-card-nome').textContent}" deveria ter o rodapé de benchmarks`);
+      assert.match(benchmarksCard.textContent, /Ibovespa/);
+      assert.match(benchmarksCard.textContent, /CDI/);
+    });
 
     // Evolução do patrimônio: 2 séries (patrimônio + investido) + legenda.
     const evolucaoSvg = doc.getElementById('vgEvolucaoChart').querySelector('svg');
@@ -263,7 +285,7 @@ test('montarPaginaCarteirasVisaoGeral(): trocar o período 2 vezes não dobra os
   });
 });
 
-test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos mas mantém os cards e o hero (que só dependem de carteirasHome)', () => {
+test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos mas mantém os cards e o hero (que caem pro método antigo - só posição atual)', () => {
   return withFakeSessionStorage(async () => {
     const doc = makeDom();
     await montarPaginaCarteirasVisaoGeral('token-fake', {
@@ -275,10 +297,23 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
     assert.equal(doc.getElementById('vgConteudo').hidden, false);
     assert.equal(doc.getElementById('vgAvisos').hidden, false);
     assert.equal(doc.querySelectorAll('#vgCardsGrid .cg-card').length, 4);
-    assert.notEqual(doc.getElementById('vgResumo').textContent.trim(), '');
-    // Sem home, o benchmark "Ibovespa hoje" cai pro placeholder "—", mas
-    // o chip de CDI (que só depende de carteirasHome) continua.
+    // Sem `home`, calcularResumoRentabilidade (que precisa de historico)
+    // não roda - renderHeroStats_ cai pro fallback (soma de
+    // card.totalInvestido/lucroPrejuizo, ver comentário na função) -
+    // pior que o cálculo "desde o início" de verdade, mas melhor que
+    // mostrar nada.
+    const resumoTexto = doc.getElementById('vgResumo').textContent;
+    assert.match(resumoTexto, /135\.064,83/); // soma dos 4 totalInvestido dos cards
+    assert.match(resumoTexto, /Resultado \(desde o início\)/);
+    assert.match(resumoTexto, /\+R\$\s*13\.169,88/); // soma dos 4 lucroPrejuizo dos cards
+    // Sem home, o benchmark "Ibovespa hoje" (hero E cada card) cai pro
+    // placeholder "—", mas o chip de CDI (que só depende de
+    // carteirasHome) continua nos dois lugares.
     assert.match(doc.getElementById('vgBenchmarks').textContent, /CDI/);
+    assert.match(doc.getElementById('vgBenchmarks').textContent, /—/);
+    const primeiroCard = doc.querySelector('#vgCardsGrid .cg-card');
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /—/);
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /CDI/);
     assert.equal(doc.getElementById('vgEvolucaoChart').querySelector('svg'), null);
   });
 });

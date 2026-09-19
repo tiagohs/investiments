@@ -75,7 +75,11 @@
       padding:16px 16px 6px; position:relative; }
 
 /* ---- cards de classe ---- */
-.cg-cards-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+/* 19/09/2026 (pedido do Tiago pós-teste): fixo em 2 colunas (2 cards por
+   linha) em vez de auto-fit - da mais espaco pra cada card mostrar a
+   barra de vies + o rodape de benchmarks sem espremer. */
+.cg-cards-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+@media (max-width:640px){ .cg-cards-grid{ grid-template-columns:1fr; } }
 .cg-card{ all:unset; box-sizing:border-box; cursor:pointer; display:flex; flex-direction:column; gap:8px;
       background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px;
       transition:box-shadow .15s, border-color .15s; }
@@ -109,6 +113,14 @@
 .cg-card-vies-legenda{ font-size:10px; color:var(--ink-faint); }
 .cg-card-rodape{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:10.5px; color:var(--ink-faint); }
 .cg-card-ver-detalhes{ color:var(--accent); font-weight:600; }
+
+/* 19/09/2026: rodape de benchmarks por card (Ibovespa hoje / CDI a.a. -
+   mesmos 2 valores globais do hero, nao um benchmark especifico da
+   classe - pedido do Tiago apos ver o mockup mostrando isso em cada
+   card). */
+.cg-card-benchmarks{ font-size:11px; color:var(--ink-muted); padding-top:8px;
+      border-top:1px dashed var(--border); font-variant-numeric:tabular-nums; }
+.cg-card-benchmarks b{ color:var(--ink); font-weight:600; }
 
 /* SVG "Evolução do patrimônio" (assets/js/pages/carteiras-visao-geral.js)
    — mesmas classes gridline/axislabel do gráfico de Rentabilidade

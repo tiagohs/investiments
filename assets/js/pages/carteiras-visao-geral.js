@@ -50,6 +50,7 @@ import {
   renderInfoRentabilidade,
   wireGraficoRentabilidade,
   filtrarHistoricoPorPeriodo,
+  calcularResumoRentabilidade,
 } from './inicio.js';
 import { renderBenchmarksClasseCarteiras } from './carteiras-classe-comum.js';
 
@@ -65,20 +66,62 @@ const CORES_CARD = {
 const COMPACTO_BRL = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
 
 /**
- * Linha "Investido / Lucro-Prejuízo / Rentabilidade" do hero (print que
- * o Tiago mandou junto do mockup) - soma os 4 cards de classe (já
- * validado: 25.657,39+39.071,39+15.435,49+54.900,56 = 135.064,83, bate
- * exatamente com o "Investido" do mockup) em vez de buscar algo novo.
+ * Linha "Investido / Resultado (desde o início) / Rentabilidade" do hero.
+ *
+ * 19/09/2026 (bug relatado pelo Tiago pós-teste, comparando com o
+ * Gorila): a 1ª versão somava card.totalInvestido/lucroPrejuizo dos 4
+ * cards de classe (validado só contra o "Investido" do mockup - ver
+ * histórico do commit) - mas isso é só a posição ATUAL (custo de
+ * aquisição do que está em carteira hoje), sem nenhum ganho/perda
+ * REALIZADO (venda) nem provento recebido ao longo do tempo. Por isso
+ * saía R$13.169,88/+9,75% mesmo o "desde o início" de verdade (Gorila:
+ * ~+R$37.504,84/+75,23%; e o próprio gráfico de "Rentabilidade
+ * acumulada" desta mesma tela, quando o período "Desde o início" está
+ * selecionado: ~+R$32.940,04/+70,52% - a pequena diferença pro Gorila é
+ * só a defasagem normal de 1 dia do histórico, ver comentário em
+ * comHistoricoInvestidoAcumulado_ mais abaixo) ficava MUITO menor.
+ *
+ * Trocado pra reaproveitar calcularResumoRentabilidade (inicio.js,
+ * extraída desta correção - mesma conta TWR já validada contra o Gorila
+ * pelo Tiago em 13/09/2026) com periodoId:'tudo' - a MESMA fonte que
+ * alimenta "Rentabilidade acumulada" logo abaixo, nunca dois cálculos de
+ * "desde o início" podendo divergir entre si.
+ *
+ * "Investido" = valorAtual - resultado (o que sobra depois de tirar o
+ * ganho líquido de tudo que está na carteira hoje) - consistente por
+ * construção com "Resultado" ao lado, e deve ficar PRÓXIMO (não
+ * idêntico, por arredondamento dia a dia) da linha tracejada "Quanto
+ * investi" do gráfico de Evolução logo abaixo, que soma o mesmo fluxo de
+ * caixa por um caminho um pouco diferente.
+ *
+ * Sem `home` (getHome falhou - ver montarPaginaCarteirasVisaoGeral), cai
+ * de volta pro método antigo (só posição atual) - os 4 cards de classe
+ * não dependem de getHome, só esse cálculo "desde o início" depende.
  */
-function renderHeroStats_(doc, container, cards) {
-  const totalInvestido = cards.reduce((soma, c) => soma + (c.totalInvestido || 0), 0);
-  const totalLucroPrejuizo = cards.reduce((soma, c) => soma + (c.lucroPrejuizo || 0), 0);
-  const rentabilidade = totalInvestido !== 0 ? totalLucroPrejuizo / totalInvestido : 0;
-  const lucroBom = totalLucroPrejuizo >= 0;
+function renderHeroStats_(doc, container, cards, home) {
+  let investido = null, resultado = null, rentabilidade = null;
+
+  if (home && home.patrimonio && home.historico) {
+    const resumo = calcularResumoRentabilidade(home.patrimonio, home.historico, { visaoId: 'total', periodoId: 'tudo' });
+    if (typeof resumo.valorAtual === 'number' && typeof resumo.ganhoReais === 'number') {
+      resultado = resumo.ganhoReais;
+      investido = resumo.valorAtual - resumo.ganhoReais;
+      rentabilidade = typeof resumo.percentual === 'number' ? resumo.percentual / 100 : null;
+    }
+  }
+
+  if (investido == null) {
+    // fallback (ver comentário acima) - só posição atual, sem realizado/proventos.
+    investido = cards.reduce((soma, c) => soma + (c.totalInvestido || 0), 0);
+    resultado = cards.reduce((soma, c) => soma + (c.lucroPrejuizo || 0), 0);
+    rentabilidade = investido !== 0 ? resultado / investido : 0;
+  }
+
+  const bom = resultado >= 0;
   container.innerHTML = `
-    <span>Investido: <b>${formatBRL(totalInvestido)}</b></span>
-    <span>Lucro/Prejuízo: <b class="${lucroBom ? 'good' : 'bad'}">${lucroBom ? '+' : ''}${formatBRL(totalLucroPrejuizo)}</b></span>
-    <span>Rentabilidade: <b class="${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(rentabilidade)}</b></span>
+    <span>Investido: <b>${formatBRL(investido)}</b></span>
+    <span>Resultado (desde o início): <b class="${bom ? 'good' : 'bad'}">${bom ? '+' : ''}${formatBRL(resultado)}</b></span>
+    <span>Rentabilidade: <b class="${bom ? 'good' : 'bad'}">${typeof rentabilidade === 'number' ? formatPercentFromFraction(rentabilidade) : '—'}</b></span>
   `;
 }
 
@@ -262,7 +305,7 @@ function ligarInteracaoEvolucao_(container, { janela, valoresPatrimonio, valores
   hitarea.addEventListener('pointerleave', esconder_);
 }
 
-function renderCardsClasse(doc, container, cards) {
+function renderCardsClasse(doc, container, cards, benchmarksCards) {
   container.innerHTML = cards.map((card) => {
     const corToken = CORES_CARD[card.nome] || '--acoes';
     const lucroBom = card.lucroPrejuizo >= 0;
@@ -288,6 +331,16 @@ function renderCardsClasse(doc, container, cards) {
       `;
     }
 
+    // 19/09/2026 (pedido do Tiago pós-teste): benchmarks globais
+    // (Ibovespa hoje / CDI a.a. - os MESMOS 2 valores do hero, não um
+    // benchmark específico da classe) repetidos no rodapé de cada card.
+    // Um benchmark por-classe (IFIX pra FIIs, Selic pra Renda Fixa etc)
+    // replicaria a lógica que cada subpágina já busca sozinha - ver
+    // comentário no cabeçalho do arquivo - então fica de fora por ora.
+    const benchmarksHtml = benchmarksCards
+      ? `<div class="cg-card-benchmarks">Ibovespa <b>${benchmarksCards.ibovespaHoje}</b> hoje · CDI <b>${benchmarksCards.cdiAnual}</b> a.a.</div>`
+      : '';
+
     return `
       <button class="cg-card" type="button" data-ir-para="${chaveDaPagina_(card.nome)}" style="--accent:var(${corToken})">
         <div class="cg-card-top">
@@ -304,6 +357,7 @@ function renderCardsClasse(doc, container, cards) {
           <span class="${lucroBom ? 'good' : 'bad'}">${lucroBom ? '+' : ''}${formatBRL(card.lucroPrejuizo)}</span>
         </div>
         ${viesHtml}
+        ${benchmarksHtml}
         <div class="cg-card-rodape">
           <span>${card.quantidadeAtivos} ${card.quantidadeAtivos === 1 ? 'ativo' : 'ativos'}</span>
           <span class="cg-card-ver-detalhes">Ver detalhes →</span>
@@ -326,10 +380,16 @@ function chaveDaPagina_(nomeCard) {
 
 function desenhar(doc, { carteiras, home }) {
   doc.getElementById('vgPatrimonioTotal').textContent = formatBRL(carteiras.patrimonioTotal);
-  renderHeroStats_(doc, doc.getElementById('vgResumo'), carteiras.cards);
+  renderHeroStats_(doc, doc.getElementById('vgResumo'), carteiras.cards, home);
+
+  // Calculados 1 vez só e reaproveitados no hero E no rodapé de cada card
+  // de classe (ver comentário em renderCardsClasse) - nunca dois textos
+  // pra "Ibovespa hoje"/"CDI (a.a.)" podendo divergir na mesma tela.
+  const ibovespaHojeTexto = typeof home?.indices?.ibovespa?.variacaoDia === 'number' ? formatPercentFromPoints(home.indices.ibovespa.variacaoDia) : '—';
+  const cdiAnualTexto = formatPercentFromFraction(carteiras.benchmarks?.cdi);
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('vgBenchmarks'), [
-    { label: 'Ibovespa hoje', valor: typeof home?.indices?.ibovespa?.variacaoDia === 'number' ? formatPercentFromPoints(home.indices.ibovespa.variacaoDia) : '—' },
-    { label: 'CDI (a.a.)', valor: formatPercentFromFraction(carteiras.benchmarks?.cdi) },
+    { label: 'Ibovespa hoje', valor: ibovespaHojeTexto },
+    { label: 'CDI (a.a.)', valor: cdiAnualTexto },
   ]);
 
   const fatias = carteiras.cards.map((card) => ({
@@ -340,7 +400,7 @@ function desenhar(doc, { carteiras, home }) {
   }));
   renderDistribuicao(doc, doc.getElementById('vgDonut'), fatias);
 
-  renderCardsClasse(doc, doc.getElementById('vgCardsGrid'), carteiras.cards);
+  renderCardsClasse(doc, doc.getElementById('vgCardsGrid'), carteiras.cards, { ibovespaHoje: ibovespaHojeTexto, cdiAnual: cdiAnualTexto });
 
   if (home?.patrimonio && home?.historico) {
     const periodoTabsContainer = doc.getElementById('vgPeriodoTabs');
