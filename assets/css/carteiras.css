@@ -110,6 +110,10 @@
 .cg-card-vies-bar span{ display:block; height:100%; }
 .cg-card-vies-bar .comprar{ background:var(--good-ink); }
 .cg-card-vies-bar .aguardar{ background:var(--warn-ink); }
+/* Faixa neutra do card de Renda Fixa (19/09/2026, pedido do Tiago) -
+   sem proporção/viés, só pra manter o mesmo ritmo visual dos outros 3
+   cards que têm a faixa comprar/aguardar. */
+.cg-card-vies-bar .neutro{ background:var(--ink-faint); }
 .cg-card-vies-legenda{ font-size:10px; color:var(--ink-faint); }
 .cg-card-rodape{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:10.5px; color:var(--ink-faint); }
 .cg-card-ver-detalhes{ color:var(--accent); font-weight:600; }
@@ -121,6 +125,8 @@
 .cg-card-benchmarks{ font-size:11px; color:var(--ink-muted); padding-top:8px;
       border-top:1px dashed var(--border); font-variant-numeric:tabular-nums; }
 .cg-card-benchmarks b{ color:var(--ink); font-weight:600; }
+.cg-card-benchmarks b.good{ color:var(--good-ink); }
+.cg-card-benchmarks b.bad{ color:var(--bad-ink); }
 
 /* SVG "Evolução do patrimônio" (assets/js/pages/carteiras-visao-geral.js)
    — mesmas classes gridline/axislabel do gráfico de Rentabilidade
@@ -145,10 +151,19 @@
 .cc-benchmark-chip{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted);
       background:var(--surface-3); border-radius:100px; padding:5px 12px; }
 .cc-benchmark-chip b{ font-family:var(--mono); color:var(--ink); }
+.cc-benchmark-chip b.good{ color:var(--good-ink); }
+.cc-benchmark-chip b.bad{ color:var(--bad-ink); }
 
-.cc-layout-donut-tabela{ display:grid; grid-template-columns:280px 1fr; gap:18px; align-items:start; }
-.cc-donut-card, .cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; }
-@media (max-width:900px){ .cc-layout-donut-tabela{ grid-template-columns:1fr; } }
+/* 19/09/2026 (pedido do Tiago pós-teste, fiel ao print 4 do mockup):
+   "Por setor" empilhado ACIMA da tabela de Ativos (era lado a lado) e
+   sem o cartão/fundo em volta (minimalista - só o donut+legenda soltos),
+   diferente de .cc-tabela-card que continua com o fundo/borda normal. A
+   ordem no HTML das 4 subpáginas já é [donut, tabela] (ver
+   carteiras-acoes.js/fiis.js/acoes-eua.js/renda-fixa.js), então virar
+   1 coluna já empilha na ordem certa sem mexer no JS. */
+.cc-layout-donut-tabela{ display:flex; flex-direction:column; gap:18px; }
+.cc-donut-card{ padding:0 0 4px; }
+.cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; }
 
 .cc-tabela-wrap{ overflow-x:auto; }
 .cc-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; }

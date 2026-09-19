@@ -4,7 +4,7 @@
  */
 
 import { getCarteirasAcoes } from '../api-client.js';
-import { formatBRL, formatPercentFromFraction, formatNumeroBR } from '../format.js';
+import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -65,8 +65,9 @@ function desenhar(doc, dados) {
     corToken: '--acoes',
     extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
   });
+  const ibovespaVar = dados.benchmarks?.ibovespa;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('acoesBenchmarks'), [
-    { label: 'Ibovespa hoje', valor: formatNumeroBR(dados.benchmarks?.ibovespa, 0) },
+    { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesDistribuicao'), dados.distribuicaoPorGrupo);

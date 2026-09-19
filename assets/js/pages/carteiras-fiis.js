@@ -8,7 +8,7 @@
  */
 
 import { getCarteirasFiis } from '../api-client.js';
-import { formatBRL, formatPercentFromFraction, formatNumeroBR } from '../format.js';
+import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -73,8 +73,15 @@ function desenhar(doc, dados) {
     corToken: '--fiis',
     extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
   });
+  // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do
+  // IFIX, igual às outras 3 subpáginas de RV) - IFIX/Ibovespa em
+  // variação do dia (coloridos), CDI em fração a.a. (sem cor).
+  const ifixVar = dados.benchmarks?.ifix;
+  const ibovespaVar = dados.benchmarks?.ibovespa;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('fiisBenchmarks'), [
-    { label: 'IFIX hoje', valor: formatNumeroBR(dados.benchmarks?.ifix, 0) },
+    { label: 'IFIX hoje', valor: typeof ifixVar === 'number' ? formatPercentFromPoints(ifixVar) : '—', cor: typeof ifixVar === 'number' ? (ifixVar >= 0 ? 'good' : 'bad') : undefined },
+    { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
+    { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('fiisDistribuicao'), dados.distribuicaoPorGrupo);
   renderTabelaAtivosCarteiras(doc, doc.getElementById('fiisTabela'), dados.ativos, COLUNAS_ATIVOS_FIIS);

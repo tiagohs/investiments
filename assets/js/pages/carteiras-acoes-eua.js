@@ -8,7 +8,7 @@
  */
 
 import { getCarteirasAcoesEua } from '../api-client.js';
-import { formatUSD, formatPercentFromFraction, formatNumeroBR } from '../format.js';
+import { formatUSD, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -70,10 +70,15 @@ function desenhar(doc, dados) {
     </div>
   `;
 
+  // 19/09/2026 #2 (correção do Tiago, fiel ao mockup): Ibovespa/S&P 500
+  // em variação do dia (coloridos) - Dólar continua cotação (R$), sem
+  // cor, não é "ganho/perda do dia".
+  const ibovespaVar = dados.benchmarks?.ibovespa;
+  const spxVar = dados.benchmarks?.spx;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('acoesEuaBenchmarks'), [
     { label: 'Dólar hoje', valor: typeof dados.benchmarks?.dolar === 'number' ? `R$ ${formatNumeroBR(dados.benchmarks.dolar, 2)}` : '—' },
-    { label: 'Ibovespa hoje', valor: formatNumeroBR(dados.benchmarks?.ibovespa, 0) },
-    { label: 'S&P 500 hoje', valor: formatNumeroBR(dados.benchmarks?.spx, 0) },
+    { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
+    { label: 'S&P 500 hoje', valor: typeof spxVar === 'number' ? formatPercentFromPoints(spxVar) : '—', cor: typeof spxVar === 'number' ? (spxVar >= 0 ? 'good' : 'bad') : undefined },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesEuaDistribuicao'), dados.distribuicaoPorGrupo);
   renderTabelaAtivosCarteiras(doc, doc.getElementById('acoesEuaTabela'), dados.ativos, COLUNAS_ATIVOS_ACOES_EUA);

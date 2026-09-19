@@ -54,7 +54,7 @@ const CARTEIRA_ACOES_EXEMPLO = {
       totalComprado: 18425, totalAtualizado: 21050, lucroPrejuizo: 2625, percentualLucroPrejuizo: 0.1425, proventosTotais: 412.5,
     },
   ],
-  benchmarks: { ibovespa: 128430, cdi: 0.134 },
+  benchmarks: { ibovespa: -0.39, cdi: 0.134 }, // ibovespa em variação do dia (%), não pontos (19/09/2026 #2)
 };
 
 test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e esconde o loading no sucesso', async () => {

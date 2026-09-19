@@ -47,14 +47,18 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
   `;
 }
 
-/** Chips de benchmark (ex.: "Ibovespa · 128.430" · "CDI · 13,4% a.a.") —
- * `itens` é `[{ label, valor }]`, já formatado pelo chamador (cada
- * classe tem sua própria mistura de índice/%/câmbio). */
+/** Chips de benchmark (ex.: "Ibovespa hoje · +0,54%" · "CDI (a.a.) ·
+ * 13,4%") — `itens` é `[{ label, valor, cor? }]`, já formatado pelo
+ * chamador (cada classe tem sua própria mistura de índice/%/câmbio).
+ * `cor` é opcional ('good'/'bad') - só pros índices que representam
+ * variação do dia (Ibovespa/IFIX/S&P 500), igual ao mockup (verde/
+ * vermelho); CDI/Selic/IPCA/Dólar são taxas/cotação de referência, sem
+ * viés de alta/baixa, ficam sem cor (neutro). */
 export function renderBenchmarksClasseCarteiras(doc, container, itens) {
   if (!container) return;
   if (!itens || !itens.length) { container.innerHTML = ''; return; }
   container.innerHTML = itens.map((i) => `
-    <span class="cc-benchmark-chip"><span class="cc-benchmark-label">${i.label}</span><b>${i.valor}</b></span>
+    <span class="cc-benchmark-chip"><span class="cc-benchmark-label">${i.label}</span><b${i.cor ? ` class="${i.cor}"` : ''}>${i.valor}</b></span>
   `).join('');
 }
 

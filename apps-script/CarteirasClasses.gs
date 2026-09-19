@@ -82,24 +82,28 @@ function testarCarteirasAcoesEuaDireto() {
 function montarCarteirasAcoes_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações');
-  // 19/09/2026: home.indices.X é um objeto ({valor, variacaoDia} -
-  // ver Home.gs!montarHome_) desde que os índices ganharam variação do
-  // dia (Fase 2), mas os 3 benchmarks aqui embaixo sempre foram
-  // consumidos como número puro no front (carteiras-acoes.js/
-  // carteiras-fiis.js/carteiras-acoes-eua.js, com formatNumeroBR) -
-  // ficou faltando o ".valor" nessa atribuição, então os 3 chips
-  // ("Ibovespa hoje"/"IFIX hoje"/"S&P 500 hoje") vinham mostrando
-  // "—" (formatNumeroBR rejeita não-número). Tiago reportou. Sem
-  // teste automatizado pegando isso porque os mocks usavam número
-  // solto direto (não bateram com o formato real) - corrigidos junto.
-  dados.benchmarks = { ibovespa: home.indices.ibovespa.valor, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
+  // 19/09/2026 #2 (correção do Tiago, fiel ao mockup de design): os 3
+  // chips de índice de mercado (Ibovespa/IFIX/S&P 500) mostram a
+  // VARIAÇÃO DO DIA (.variacaoDia, ver Home.gs!montarHome_), não o
+  // valor em pontos do índice (.valor) - o mockup mostra "Ibovespa hoje
+  // −0,39%" colorido, não "128.500". CDI continua em fração (a.a.),
+  // sem cor - é taxa de referência, não "ganho/perda do dia".
+  dados.benchmarks = { ibovespa: home.indices.ibovespa.variacaoDia, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
   return dados;
 }
 
 function montarCarteirasFiis_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('FIIs');
-  dados.benchmarks = { ifix: home.indices.ifix.valor };
+  // 19/09/2026 #2 (pedido do Tiago - "pode fazer", confirmando a
+  // sugestão): FIIs ganhou Ibovespa/CDI junto do IFIX, igual às outras
+  // 3 subpáginas já tinham (só IFIX ficava sozinho antes). Mesma
+  // correção de variação do dia do comentário acima.
+  dados.benchmarks = {
+    ifix: home.indices.ifix.variacaoDia,
+    ibovespa: home.indices.ibovespa.variacaoDia,
+    cdi: buscarCdiSelicAnualizadosHoje_().cdi
+  };
   enriquecerAtivosComCarteiraFiis_(dados.ativos);
   return dados;
 }
@@ -107,7 +111,9 @@ function montarCarteirasFiis_() {
 function montarCarteirasAcoesEua_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações EUA');
-  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.valor, spx: home.indices.spx.valor };
+  // Dólar fica como cotação (R$ x,xxxx), não variação - mesma correção
+  // de Ibovespa/S&P 500 dos comentários acima.
+  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.variacaoDia, spx: home.indices.spx.variacaoDia };
   return dados;
 }
 

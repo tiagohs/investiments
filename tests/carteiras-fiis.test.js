@@ -43,7 +43,7 @@ const CARTEIRA_FIIS_EXEMPLO = {
     totalComprado: 39071.39, totalAtualizado: 35577.49, lucroPrejuizo: -3493.9, percentualLucroPrejuizo: -0.0894,
     proventosTotais: 1580.2, liquidezDiaria: 850000, percentualEmCaixa: 0.02, patrimonio: 1200000000,
   }],
-  benchmarks: { ifix: 3350 },
+  benchmarks: { ifix: -0.39, ibovespa: 0.12, cdi: 0.1075 },
 };
 
 test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela, inclusive com prejuízo (classe "bad")', async () => {
@@ -56,8 +56,12 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela, incl
     assert.equal(doc.getElementById('fiisLoading').hidden, true);
     assert.equal(doc.getElementById('fiisConteudo').hidden, false);
     assert.equal(doc.querySelectorAll('.cc-tile.bad').length, 1);
-    assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 1);
+    // 19/09/2026 #2: FIIs ganhou Ibovespa/CDI junto do IFIX (pedido do
+    // Tiago - "pode fazer") - 3 chips agora, não só IFIX.
+    assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 3);
     assert.match(doc.getElementById('fiisConteudo').innerHTML, /IFIX/);
+    assert.match(doc.getElementById('fiisConteudo').innerHTML, /Ibovespa/);
+    assert.match(doc.getElementById('fiisConteudo').innerHTML, /CDI/);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 1);
     // coluna extra de FIIs (% em caixa) aparece
     assert.match(doc.getElementById('fiisConteudo').innerHTML, /% em caixa/);

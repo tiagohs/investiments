@@ -159,21 +159,29 @@ function montarCarteirasHome_() {
   // Mesmos campos/nomes que cada subpágina de detalhe já usa nos
   // próprios benchmarks (CarteirasClasses.gs/CarteirasRendaFixa.gs) -
   // pra "Ver detalhes" nunca mostrar um número diferente do card.
+  //
+  // 19/09/2026 #3 (Tiago corrigiu de novo, fiel ao mockup de design):
+  // Ibovespa/IFIX/S&P 500 aqui viram VARIAÇÃO DO DIA (.variacaoDia, %
+  // em pontos - mesma escala do chip "Ibovespa hoje" do hero), não o
+  // valor em pontos do índice (.valor) - o mockup mostra "Ibovespa hoje
+  // −0,39%"/"IFIX hoje +0,12%" coloridos, não "128.500". Front formata
+  // com formatPercentFromPoints + verde/vermelho (ver
+  // formatarBenchmarksCard_ em carteiras-visao-geral.js).
   var cdiSelic = buscarCdiSelicAnualizadosHoje_();
   var ipca = buscarIpcaAcumulado12Meses_();
 
   var cardAcoes = montarCard_('Ações', home.patrimonio.porClasse.acoes, agSomaRV['Ações']);
-  cardAcoes.benchmarks = { ibovespa: home.indices.ibovespa.valor, cdi: cdiSelic.cdi };
+  cardAcoes.benchmarks = { ibovespa: home.indices.ibovespa.variacaoDia, cdi: cdiSelic.cdi };
 
   var cardFiis = montarCard_('FIIs', home.patrimonio.porClasse.fiis, agSomaRV['FIIs']);
-  cardFiis.benchmarks = { ifix: home.indices.ifix.valor, ibovespa: home.indices.ibovespa.valor, cdi: cdiSelic.cdi };
+  cardFiis.benchmarks = { ifix: home.indices.ifix.variacaoDia, ibovespa: home.indices.ibovespa.variacaoDia, cdi: cdiSelic.cdi };
 
   var cardAcoesEua = montarCard_('Ações Internacionais', home.patrimonio.porClasse.acoesEua, agSomaAcoesEuaBrl);
   cardAcoesEua.totalAtualizadoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado);
   cardAcoesEua.totalInvestidoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].comprado);
   cardAcoesEua.lucroPrejuizoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado - agSomaRV['Ações EUA'].comprado);
   cardAcoesEua.cambioUsd = cambioUsd;
-  cardAcoesEua.benchmarks = { spx: home.indices.spx.valor, ibovespa: home.indices.ibovespa.valor };
+  cardAcoesEua.benchmarks = { spx: home.indices.spx.variacaoDia, ibovespa: home.indices.ibovespa.variacaoDia };
 
   var cardRendaFixa = montarCard_('Renda Fixa', home.patrimonio.porClasse.rendaFixa, somaRF);
   cardRendaFixa.benchmarks = { cdi: cdiSelic.cdi, selic: cdiSelic.selic, ipca: ipca };

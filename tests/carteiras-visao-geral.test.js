@@ -76,16 +76,18 @@ const CARTEIRAS_HOME_EXEMPLO = {
     {
       nome: 'Ações', totalAtualizado: 29968.4, percentualDoPatrimonio: 0.2022, totalInvestido: 25657.39, lucroPrejuizo: 4311.01, rentabilidade: 0.168, quantidadeAtivos: 14,
       comprar: 3, aguardar: 11,
-      benchmarks: { ibovespa: 128500, cdi: 0.1075 },
+      // 19/09/2026 #3: ibovespa/ifix/spx viraram variação do dia (% em
+      // pontos, não o valor em pontos do índice) - fiel ao mockup.
+      benchmarks: { ibovespa: -0.41, cdi: 0.1075 },
     },
     {
       nome: 'FIIs', totalAtualizado: 35577.49, percentualDoPatrimonio: 0.24, totalInvestido: 39071.39, lucroPrejuizo: -3493.9, rentabilidade: -0.0894, quantidadeAtivos: 10, comprar: 4, aguardar: 6,
-      benchmarks: { ifix: 3100, ibovespa: 128500, cdi: 0.1075 },
+      benchmarks: { ifix: 0.18, ibovespa: -0.41, cdi: 0.1075 },
     },
     {
       nome: 'Ações Internacionais', totalAtualizado: 16988.1, percentualDoPatrimonio: 0.1146, totalInvestido: 15435.49, lucroPrejuizo: 1552.61, rentabilidade: 0.1006, quantidadeAtivos: 1,
       totalAtualizadoUsd: 3303.79, totalInvestidoUsd: 3001.85, lucroPrejuizoUsd: 301.94, cambioUsd: 5.142, comprar: 1, aguardar: 0,
-      benchmarks: { spx: 5600, ibovespa: 128500 },
+      benchmarks: { spx: 0.72, ibovespa: -0.41 },
     },
     {
       nome: 'Renda Fixa', totalAtualizado: 65700.72, percentualDoPatrimonio: 0.4432, totalInvestido: 54900.56, lucroPrejuizo: 10800.16, rentabilidade: 0.1967, quantidadeAtivos: 9,
@@ -166,21 +168,29 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
       cardsPorNome[card.querySelector('.cg-card-nome').textContent] = card;
     });
 
-    const bmAcoes = cardsPorNome['Ações'].querySelector('.cg-card-benchmarks').textContent;
+    // 19/09/2026 #3: valores agora são variação do dia (%), coloridos
+    // verde/vermelho (bad quando negativo) - CDI/Selic/IPCA continuam
+    // sem cor (taxa de referência, não "ganho/perda do dia").
+    const cardAcoesEl = cardsPorNome['Ações'];
+    const bmAcoes = cardAcoesEl.querySelector('.cg-card-benchmarks').textContent;
     assert.match(bmAcoes, /Ibovespa/);
-    assert.match(bmAcoes, /128\.500/);
+    assert.match(bmAcoes, /-0,41%/);
     assert.match(bmAcoes, /CDI/);
     assert.doesNotMatch(bmAcoes, /IFIX|S&P|Selic|IPCA/);
+    assert.ok(cardAcoesEl.querySelector('.cg-card-benchmarks b.bad')); // Ibovespa negativo hoje
 
-    const bmFiis = cardsPorNome['FIIs'].querySelector('.cg-card-benchmarks').textContent;
+    const cardFiisEl = cardsPorNome['FIIs'];
+    const bmFiis = cardFiisEl.querySelector('.cg-card-benchmarks').textContent;
     assert.match(bmFiis, /IFIX/);
-    assert.match(bmFiis, /3\.100/);
+    assert.match(bmFiis, /\+0,18%/);
     assert.match(bmFiis, /Ibovespa/);
     assert.match(bmFiis, /CDI/);
+    assert.ok(cardFiisEl.querySelector('.cg-card-benchmarks b.good')); // IFIX positivo hoje
+    assert.ok(cardFiisEl.querySelector('.cg-card-benchmarks b.bad')); // Ibovespa negativo hoje
 
     const bmAcoesEua = cardsPorNome['Ações Internacionais'].querySelector('.cg-card-benchmarks').textContent;
     assert.match(bmAcoesEua, /S&P 500/);
-    assert.match(bmAcoesEua, /5\.600/);
+    assert.match(bmAcoesEua, /\+0,72%/);
     assert.match(bmAcoesEua, /Ibovespa/);
     assert.doesNotMatch(bmAcoesEua, /CDI|IFIX|Selic|IPCA/);
 
@@ -228,7 +238,12 @@ test('montarPaginaCarteirasVisaoGeral(): card de Ações mostra o badge de renta
   });
 });
 
-test('montarPaginaCarteirasVisaoGeral(): card de Renda Fixa (sem Vies) não desenha a barra comprar/aguardar', () => {
+test('montarPaginaCarteirasVisaoGeral(): card de Renda Fixa (sem Vies) desenha uma faixa neutra (cinza, sem legenda comprar/aguardar)', () => {
+  // 19/09/2026 #3 (pedido do Tiago pós-teste): Renda Fixa não tem Vies
+  // mesmo, mas ganhou uma faixa CINZA (sem proporção/legenda) só pra
+  // manter o mesmo ritmo visual dos outros 3 cards - antes este teste
+  // checava que NÃO tinha faixa nenhuma; agora checa que tem a faixa
+  // neutra e não a colorida (comprar/aguardar).
   return withFakeSessionStorage(async () => {
     const doc = makeDom();
     await montarPaginaCarteirasVisaoGeral('token-fake', {
@@ -240,7 +255,10 @@ test('montarPaginaCarteirasVisaoGeral(): card de Renda Fixa (sem Vies) não dese
     const cards = doc.querySelectorAll('#vgCardsGrid .cg-card');
     const cardRf = Array.from(cards).find((c) => c.textContent.includes('Renda Fixa'));
     assert.ok(cardRf);
-    assert.equal(cardRf.querySelector('.cg-card-vies-bar'), null);
+    assert.ok(cardRf.querySelector('.cg-card-vies-bar'));
+    assert.ok(cardRf.querySelector('.cg-card-vies-bar .neutro'));
+    assert.equal(cardRf.querySelector('.cg-card-vies-bar .comprar'), null);
+    assert.equal(cardRf.querySelector('.cg-card-vies-legenda'), null);
     assert.ok(cardRf.querySelector('.cg-card-rentab'));
   });
 });
@@ -349,7 +367,7 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
     // fixture (Ibovespa e CDI), não "—".
     const primeiroCard = doc.querySelector('#vgCardsGrid .cg-card');
     assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /Ibovespa/);
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /128\.500/);
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /-0,41%/);
     assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /CDI/);
     assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /\+10,75%/);
     assert.doesNotMatch(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /—/);

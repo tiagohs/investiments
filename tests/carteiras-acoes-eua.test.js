@@ -43,7 +43,7 @@ const CARTEIRA_ACOES_EUA_EXEMPLO = {
     pl: null, descontoPl: null, grupo: 'Tecnologia', dyPercentual: 0.005, dyValor: 1.1,
     totalComprado: 3001.85, totalAtualizado: 3303.79, lucroPrejuizo: 301.94, percentualLucroPrejuizo: 0.1006, proventosTotais: 0,
   }],
-  benchmarks: { dolar: 5.142, ibovespa: 128430, spx: 5820 },
+  benchmarks: { dolar: 5.142, ibovespa: -0.39, spx: 0.54 }, // ibovespa/spx em variação do dia (%), não pontos
 };
 
 test('montarPaginaCarteirasAcoesEua() formata tudo em US$ e mostra o dólar/Ibovespa/SPX como benchmark', async () => {

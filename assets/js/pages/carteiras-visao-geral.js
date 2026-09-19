@@ -68,16 +68,19 @@ const COMPACTO_BRL = new Intl.NumberFormat('pt-BR', { notation: 'compact', maxim
 /**
  * 19/09/2026 #2 (correção do Tiago - "cada carteira tem seus índices",
  * não os mesmos 2 globais repetidos nos 4 cards): mapa campo -> como
- * mostrar, usado por formatarBenchmarksCard_ abaixo. Ibovespa/IFIX/S&P
- * 500 vêm em PONTOS (mesma convenção das subpáginas de detalhe -
- * carteiras-acoes.js/carteiras-fiis.js/carteiras-acoes-eua.js, todas já
- * usam formatNumeroBR pra esses 3, nunca %) - CDI/Selic/IPCA vêm em
- * fração (mesma convenção de carteiras-renda-fixa.js).
+ * mostrar, usado por formatarBenchmarksCard_ abaixo. 19/09/2026 #3
+ * (correção do Tiago, fiel ao mockup de design) - Ibovespa/IFIX/S&P 500
+ * viraram VARIAÇÃO DO DIA em pontos percentuais (mesma escala do chip
+ * "Ibovespa hoje" do hero, formatPercentFromPoints - GOOGLEFINANCE
+ * changepct), coloridos verde/vermelho conforme o sinal: são índices de
+ * mercado, "hoje" É uma variação, faz sentido ter viés de alta/baixa.
+ * CDI/Selic/IPCA continuam em fração (formatPercentFromFraction) e SEM
+ * cor - são taxa/inflação de referência, não "ganho ou perda do dia".
  */
 const CAMPO_BENCHMARK_CARD = {
-  ibovespa: { label: 'Ibovespa', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
-  ifix: { label: 'IFIX', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
-  spx: { label: 'S&P 500', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
+  ibovespa: { label: 'Ibovespa', sufixo: 'hoje', formatar: (v) => formatPercentFromPoints(v), colorir: true },
+  ifix: { label: 'IFIX', sufixo: 'hoje', formatar: (v) => formatPercentFromPoints(v), colorir: true },
+  spx: { label: 'S&P 500', sufixo: 'hoje', formatar: (v) => formatPercentFromPoints(v), colorir: true },
   cdi: { label: 'CDI', sufixo: 'a.a.', formatar: (v) => formatPercentFromFraction(v) },
   selic: { label: 'Selic', sufixo: 'a.a.', formatar: (v) => formatPercentFromFraction(v) },
   ipca: { label: 'IPCA', sufixo: '12m', formatar: (v) => formatPercentFromFraction(v) },
@@ -98,7 +101,8 @@ function formatarBenchmarksCard_(benchmarks) {
     if (!meta) return null;
     const valor = benchmarks[chave];
     const texto = typeof valor === 'number' ? meta.formatar(valor) : '—';
-    return `${meta.label} <b>${texto}</b> ${meta.sufixo}`;
+    const corClasse = meta.colorir && typeof valor === 'number' ? (valor >= 0 ? ' good' : ' bad') : '';
+    return `${meta.label} <b class="${corClasse.trim()}">${texto}</b> ${meta.sufixo}`;
   }).filter(Boolean);
   if (!partes.length) return '';
   return `<div class="cg-card-benchmarks">${partes.join(' · ')}</div>`;
@@ -354,6 +358,10 @@ function renderCardsClasse(doc, container, cards) {
 
     // Barra "comprar/aguardar" (19/09/2026) - só quando a API manda os 2
     // campos (Ações/FIIs/Ações Internacionais); Renda Fixa não tem Vies).
+    // 19/09/2026 #3 (pedido do Tiago): Renda Fixa não tem Vies mesmo,
+    // mas pra manter o mesmo "peso" visual dos outros 3 cards, ganha uma
+    // faixa cinza sólida (sem proporção nenhuma - "não tem viés nem
+    // nada", só decorativa) em vez de ficar sem faixa.
     let viesHtml = '';
     if (typeof card.comprar === 'number' && typeof card.aguardar === 'number' && (card.comprar + card.aguardar) > 0) {
       const totalVies = card.comprar + card.aguardar;
@@ -366,6 +374,12 @@ function renderCardsClasse(doc, container, cards) {
             <span class="aguardar" style="width:${pctAguardar.toFixed(1)}%"></span>
           </div>
           <span class="cg-card-vies-legenda">${card.comprar} comprar · ${card.aguardar} aguardar</span>
+        </div>
+      `;
+    } else {
+      viesHtml = `
+        <div class="cg-card-vies">
+          <div class="cg-card-vies-bar"><span class="neutro" style="width:100%"></span></div>
         </div>
       `;
     }
@@ -420,10 +434,11 @@ function desenhar(doc, { carteiras, home }) {
   // Calculados 1 vez só e reaproveitados no hero E no rodapé de cada card
   // de classe (ver comentário em renderCardsClasse) - nunca dois textos
   // pra "Ibovespa hoje"/"CDI (a.a.)" podendo divergir na mesma tela.
-  const ibovespaHojeTexto = typeof home?.indices?.ibovespa?.variacaoDia === 'number' ? formatPercentFromPoints(home.indices.ibovespa.variacaoDia) : '—';
+  const ibovespaVariacaoDia = home?.indices?.ibovespa?.variacaoDia;
+  const ibovespaHojeTexto = typeof ibovespaVariacaoDia === 'number' ? formatPercentFromPoints(ibovespaVariacaoDia) : '—';
   const cdiAnualTexto = formatPercentFromFraction(carteiras.benchmarks?.cdi);
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('vgBenchmarks'), [
-    { label: 'Ibovespa hoje', valor: ibovespaHojeTexto },
+    { label: 'Ibovespa hoje', valor: ibovespaHojeTexto, cor: typeof ibovespaVariacaoDia === 'number' ? (ibovespaVariacaoDia >= 0 ? 'good' : 'bad') : undefined },
     { label: 'CDI (a.a.)', valor: cdiAnualTexto },
   ]);
 

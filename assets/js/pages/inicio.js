@@ -1239,6 +1239,32 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
   }
 
   estado.atualizar();
+
+  // 19/09/2026 (bug relatado pelo Tiago com print): ao entrar na Início,
+  // o gráfico às vezes desenha "torto" por alguns segundos e depois volta
+  // ao normal sozinho, sem o usuário redimensionar a janela. Causa:
+  // larguraReal_ mede clientWidth do cartão no momento do 1º desenho
+  // (linha acima), mas a fonte 'IBM Plex Mono'/'Fraunces' (index.html usa
+  // display=swap no Google Fonts) pode ainda não ter carregado - o
+  // primeiro desenho usa a fonte de fallback do navegador, e quando a
+  // fonte troca (font swap) o layout do cartão pode mudar de largura o
+  // suficiente pra deixar o SVG (que usa 1 unidade = 1px da largura
+  // MEDIDA naquele instante) com a proporção errada, até algo redesenhar
+  // de novo - hoje só "resize" da janela fazia isso, então sem o usuário
+  // redimensionar, ficava torto pro resto da visita. document.fonts.ready
+  // resolve assim que as 3 fontes terminam de carregar (1x só, sem
+  // religar o listener de novo em cada refresh - por isso está fora de
+  // periodoTabsContainer._graficoEstado, que já lida com "não religar 2x").
+  // Ambiente sem essa API (jsdom dos testes) - document.fonts não existe -
+  // simplesmente não redesenha de novo, sem erro (fica só o desenho normal).
+  const fontsReady = doc.fonts && typeof doc.fonts.ready?.then === 'function' ? doc.fonts.ready : null;
+  if (fontsReady && !(periodoTabsContainer && periodoTabsContainer._fontsReadyLigado)) {
+    if (periodoTabsContainer) periodoTabsContainer._fontsReadyLigado = true;
+    fontsReady.then(() => {
+      const estadoAtual = periodoTabsContainer ? periodoTabsContainer._graficoEstado : estado;
+      if (estadoAtual) estadoAtual.atualizar();
+    });
+  }
 }
 
 // ============================================================================
