@@ -42,7 +42,7 @@
  */
 
 import { getCarteirasHome, getHome } from '../api-client.js';
-import { formatBRL, formatDateBR, formatPercentFromFraction, formatPercentFromPoints } from '../format.js';
+import { formatBRL, formatDateBR, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -64,6 +64,45 @@ const CORES_CARD = {
 };
 
 const COMPACTO_BRL = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+
+/**
+ * 19/09/2026 #2 (correção do Tiago - "cada carteira tem seus índices",
+ * não os mesmos 2 globais repetidos nos 4 cards): mapa campo -> como
+ * mostrar, usado por formatarBenchmarksCard_ abaixo. Ibovespa/IFIX/S&P
+ * 500 vêm em PONTOS (mesma convenção das subpáginas de detalhe -
+ * carteiras-acoes.js/carteiras-fiis.js/carteiras-acoes-eua.js, todas já
+ * usam formatNumeroBR pra esses 3, nunca %) - CDI/Selic/IPCA vêm em
+ * fração (mesma convenção de carteiras-renda-fixa.js).
+ */
+const CAMPO_BENCHMARK_CARD = {
+  ibovespa: { label: 'Ibovespa', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
+  ifix: { label: 'IFIX', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
+  spx: { label: 'S&P 500', sufixo: 'hoje', formatar: (v) => formatNumeroBR(v, 0) },
+  cdi: { label: 'CDI', sufixo: 'a.a.', formatar: (v) => formatPercentFromFraction(v) },
+  selic: { label: 'Selic', sufixo: 'a.a.', formatar: (v) => formatPercentFromFraction(v) },
+  ipca: { label: 'IPCA', sufixo: '12m', formatar: (v) => formatPercentFromFraction(v) },
+};
+
+/**
+ * Rodapé de benchmarks de UM card de classe - os índices que essa
+ * classe específica usa (Ações: Ibovespa/CDI; FIIs: IFIX/Ibovespa/CDI;
+ * Ações Internacionais: S&P 500/Ibovespa; Renda Fixa: CDI/Selic/IPCA -
+ * exatamente a mesma lista que CarteirasHome.gs manda em card.benchmarks
+ * e que cada subpágina de "Ver detalhes" já mostra), na ordem em que o
+ * backend manda os campos.
+ */
+function formatarBenchmarksCard_(benchmarks) {
+  if (!benchmarks) return '';
+  const partes = Object.keys(benchmarks).map((chave) => {
+    const meta = CAMPO_BENCHMARK_CARD[chave];
+    if (!meta) return null;
+    const valor = benchmarks[chave];
+    const texto = typeof valor === 'number' ? meta.formatar(valor) : '—';
+    return `${meta.label} <b>${texto}</b> ${meta.sufixo}`;
+  }).filter(Boolean);
+  if (!partes.length) return '';
+  return `<div class="cg-card-benchmarks">${partes.join(' · ')}</div>`;
+}
 
 /**
  * Linha "Investido / Resultado (desde o início) / Rentabilidade" do hero.
@@ -305,7 +344,7 @@ function ligarInteracaoEvolucao_(container, { janela, valoresPatrimonio, valores
   hitarea.addEventListener('pointerleave', esconder_);
 }
 
-function renderCardsClasse(doc, container, cards, benchmarksCards) {
+function renderCardsClasse(doc, container, cards) {
   container.innerHTML = cards.map((card) => {
     const corToken = CORES_CARD[card.nome] || '--acoes';
     const lucroBom = card.lucroPrejuizo >= 0;
@@ -331,15 +370,11 @@ function renderCardsClasse(doc, container, cards, benchmarksCards) {
       `;
     }
 
-    // 19/09/2026 (pedido do Tiago pós-teste): benchmarks globais
-    // (Ibovespa hoje / CDI a.a. - os MESMOS 2 valores do hero, não um
-    // benchmark específico da classe) repetidos no rodapé de cada card.
-    // Um benchmark por-classe (IFIX pra FIIs, Selic pra Renda Fixa etc)
-    // replicaria a lógica que cada subpágina já busca sozinha - ver
-    // comentário no cabeçalho do arquivo - então fica de fora por ora.
-    const benchmarksHtml = benchmarksCards
-      ? `<div class="cg-card-benchmarks">Ibovespa <b>${benchmarksCards.ibovespaHoje}</b> hoje · CDI <b>${benchmarksCards.cdiAnual}</b> a.a.</div>`
-      : '';
+    // 19/09/2026 #2 (correção do Tiago - a 1ª versão repetia Ibovespa/CDI
+    // globais nos 4 cards; o certo é cada card mostrar os índices DA SUA
+    // classe) - vem pronto em card.benchmarks (CarteirasHome.gs), ver
+    // formatarBenchmarksCard_ acima.
+    const benchmarksHtml = formatarBenchmarksCard_(card.benchmarks);
 
     return `
       <button class="cg-card" type="button" data-ir-para="${chaveDaPagina_(card.nome)}" style="--accent:var(${corToken})">
@@ -400,7 +435,7 @@ function desenhar(doc, { carteiras, home }) {
   }));
   renderDistribuicao(doc, doc.getElementById('vgDonut'), fatias);
 
-  renderCardsClasse(doc, doc.getElementById('vgCardsGrid'), carteiras.cards, { ibovespaHoje: ibovespaHojeTexto, cdiAnual: cdiAnualTexto });
+  renderCardsClasse(doc, doc.getElementById('vgCardsGrid'), carteiras.cards);
 
   if (home?.patrimonio && home?.historico) {
     const periodoTabsContainer = doc.getElementById('vgPeriodoTabs');

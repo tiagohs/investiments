@@ -76,13 +76,21 @@ const CARTEIRAS_HOME_EXEMPLO = {
     {
       nome: 'Ações', totalAtualizado: 29968.4, percentualDoPatrimonio: 0.2022, totalInvestido: 25657.39, lucroPrejuizo: 4311.01, rentabilidade: 0.168, quantidadeAtivos: 14,
       comprar: 3, aguardar: 11,
+      benchmarks: { ibovespa: 128500, cdi: 0.1075 },
     },
-    { nome: 'FIIs', totalAtualizado: 35577.49, percentualDoPatrimonio: 0.24, totalInvestido: 39071.39, lucroPrejuizo: -3493.9, rentabilidade: -0.0894, quantidadeAtivos: 10, comprar: 4, aguardar: 6 },
+    {
+      nome: 'FIIs', totalAtualizado: 35577.49, percentualDoPatrimonio: 0.24, totalInvestido: 39071.39, lucroPrejuizo: -3493.9, rentabilidade: -0.0894, quantidadeAtivos: 10, comprar: 4, aguardar: 6,
+      benchmarks: { ifix: 3100, ibovespa: 128500, cdi: 0.1075 },
+    },
     {
       nome: 'Ações Internacionais', totalAtualizado: 16988.1, percentualDoPatrimonio: 0.1146, totalInvestido: 15435.49, lucroPrejuizo: 1552.61, rentabilidade: 0.1006, quantidadeAtivos: 1,
       totalAtualizadoUsd: 3303.79, totalInvestidoUsd: 3001.85, lucroPrejuizoUsd: 301.94, cambioUsd: 5.142, comprar: 1, aguardar: 0,
+      benchmarks: { spx: 5600, ibovespa: 128500 },
     },
-    { nome: 'Renda Fixa', totalAtualizado: 65700.72, percentualDoPatrimonio: 0.4432, totalInvestido: 54900.56, lucroPrejuizo: 10800.16, rentabilidade: 0.1967, quantidadeAtivos: 9 },
+    {
+      nome: 'Renda Fixa', totalAtualizado: 65700.72, percentualDoPatrimonio: 0.4432, totalInvestido: 54900.56, lucroPrejuizo: 10800.16, rentabilidade: 0.1967, quantidadeAtivos: 9,
+      benchmarks: { cdi: 0.1075, selic: 0.1090, ipca: 0.045 },
+    },
   ],
 };
 
@@ -149,14 +157,38 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
 
     assert.equal(doc.querySelectorAll('#vgCardsGrid .cg-card').length, 4);
 
-    // 19/09/2026 (pedido do Tiago pós-teste): cada card de classe também
-    // mostra o rodapé de benchmarks (mesmos 2 valores globais do hero).
+    // 19/09/2026 #2 (correção do Tiago: cada carteira tem seus próprios
+    // índices, não o Ibovespa/CDI globais repetidos nos 4) - confere o
+    // rodapé de benchmarks de CADA card contra a lista específica da
+    // classe (mesma que CarteirasHome.gs manda em card.benchmarks).
+    const cardsPorNome = {};
     doc.querySelectorAll('#vgCardsGrid .cg-card').forEach((card) => {
-      const benchmarksCard = card.querySelector('.cg-card-benchmarks');
-      assert.ok(benchmarksCard, `card "${card.querySelector('.cg-card-nome').textContent}" deveria ter o rodapé de benchmarks`);
-      assert.match(benchmarksCard.textContent, /Ibovespa/);
-      assert.match(benchmarksCard.textContent, /CDI/);
+      cardsPorNome[card.querySelector('.cg-card-nome').textContent] = card;
     });
+
+    const bmAcoes = cardsPorNome['Ações'].querySelector('.cg-card-benchmarks').textContent;
+    assert.match(bmAcoes, /Ibovespa/);
+    assert.match(bmAcoes, /128\.500/);
+    assert.match(bmAcoes, /CDI/);
+    assert.doesNotMatch(bmAcoes, /IFIX|S&P|Selic|IPCA/);
+
+    const bmFiis = cardsPorNome['FIIs'].querySelector('.cg-card-benchmarks').textContent;
+    assert.match(bmFiis, /IFIX/);
+    assert.match(bmFiis, /3\.100/);
+    assert.match(bmFiis, /Ibovespa/);
+    assert.match(bmFiis, /CDI/);
+
+    const bmAcoesEua = cardsPorNome['Ações Internacionais'].querySelector('.cg-card-benchmarks').textContent;
+    assert.match(bmAcoesEua, /S&P 500/);
+    assert.match(bmAcoesEua, /5\.600/);
+    assert.match(bmAcoesEua, /Ibovespa/);
+    assert.doesNotMatch(bmAcoesEua, /CDI|IFIX|Selic|IPCA/);
+
+    const bmRendaFixa = cardsPorNome['Renda Fixa'].querySelector('.cg-card-benchmarks').textContent;
+    assert.match(bmRendaFixa, /CDI/);
+    assert.match(bmRendaFixa, /Selic/);
+    assert.match(bmRendaFixa, /IPCA/);
+    assert.doesNotMatch(bmRendaFixa, /Ibovespa|IFIX|S&P/);
 
     // Evolução do patrimônio: 2 séries (patrimônio + investido) + legenda.
     const evolucaoSvg = doc.getElementById('vgEvolucaoChart').querySelector('svg');
@@ -311,9 +343,16 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
     // carteirasHome) continua nos dois lugares.
     assert.match(doc.getElementById('vgBenchmarks').textContent, /CDI/);
     assert.match(doc.getElementById('vgBenchmarks').textContent, /—/);
+    // Os benchmarks POR CARD vêm inteiramente de carteirasHome
+    // (card.benchmarks), então não dependem de getHome() - mesmo com
+    // getHome() falhando, o card de Ações mostra os valores reais da
+    // fixture (Ibovespa e CDI), não "—".
     const primeiroCard = doc.querySelector('#vgCardsGrid .cg-card');
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /—/);
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /Ibovespa/);
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /128\.500/);
     assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /CDI/);
+    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /\+10,75%/);
+    assert.doesNotMatch(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /—/);
     assert.equal(doc.getElementById('vgEvolucaoChart').querySelector('svg'), null);
   });
 });

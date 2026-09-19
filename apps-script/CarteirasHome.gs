@@ -148,27 +148,47 @@ function montarCarteirasHome_() {
     comprar: agSomaRV['Ações EUA'].comprar,
     aguardar: agSomaRV['Ações EUA'].aguardar
   };
+
+  // 19/09/2026 #2 (Tiago corrigiu o pedido anterior - cada card deve
+  // mostrar os benchmarks DA PRÓPRIA classe, não o Ibovespa/CDI globais
+  // repetidos nos 4): CDI/Selic (buscarCdiSelicAnualizadosHoje_(),
+  // BackfillIndices.gs) e IPCA (buscarIpcaAcumulado12Meses_(), mesmo
+  // arquivo, já usada por CarteirasRendaFixa.gs) calculados 1 vez só
+  // aqui e reaproveitados nos cards que precisam - Ibovespa/IFIX/S&P
+  // 500 já vêm de home.indices (Home.gs), sem custo extra nenhum.
+  // Mesmos campos/nomes que cada subpágina de detalhe já usa nos
+  // próprios benchmarks (CarteirasClasses.gs/CarteirasRendaFixa.gs) -
+  // pra "Ver detalhes" nunca mostrar um número diferente do card.
+  var cdiSelic = buscarCdiSelicAnualizadosHoje_();
+  var ipca = buscarIpcaAcumulado12Meses_();
+
+  var cardAcoes = montarCard_('Ações', home.patrimonio.porClasse.acoes, agSomaRV['Ações']);
+  cardAcoes.benchmarks = { ibovespa: home.indices.ibovespa.valor, cdi: cdiSelic.cdi };
+
+  var cardFiis = montarCard_('FIIs', home.patrimonio.porClasse.fiis, agSomaRV['FIIs']);
+  cardFiis.benchmarks = { ifix: home.indices.ifix.valor, ibovespa: home.indices.ibovespa.valor, cdi: cdiSelic.cdi };
+
   var cardAcoesEua = montarCard_('Ações Internacionais', home.patrimonio.porClasse.acoesEua, agSomaAcoesEuaBrl);
   cardAcoesEua.totalAtualizadoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado);
   cardAcoesEua.totalInvestidoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].comprado);
   cardAcoesEua.lucroPrejuizoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado - agSomaRV['Ações EUA'].comprado);
   cardAcoesEua.cambioUsd = cambioUsd;
+  cardAcoesEua.benchmarks = { spx: home.indices.spx.valor, ibovespa: home.indices.ibovespa.valor };
+
+  var cardRendaFixa = montarCard_('Renda Fixa', home.patrimonio.porClasse.rendaFixa, somaRF);
+  cardRendaFixa.benchmarks = { cdi: cdiSelic.cdi, selic: cdiSelic.selic, ipca: ipca };
 
   return {
     patrimonioTotal: home.patrimonio.total,
-    cards: [
-      montarCard_('Ações', home.patrimonio.porClasse.acoes, agSomaRV['Ações']),
-      montarCard_('FIIs', home.patrimonio.porClasse.fiis, agSomaRV['FIIs']),
-      cardAcoesEua,
-      montarCard_('Renda Fixa', home.patrimonio.porClasse.rendaFixa, somaRF)
-    ],
+    cards: [cardAcoes, cardFiis, cardAcoesEua, cardRendaFixa],
     // 19/09/2026: "vs CDI (a.a.)" no hero da Visão geral (a pedido do
-    // Tiago) - reaproveita buscarCdiSelicAnualizadosHoje_() (já usada
-    // em CarteirasClasses.gs pro mesmo card de Ações). O "vs Ibovespa
-    // hoje" NÃO precisa de campo novo aqui - o front usa
-    // home.indices.ibovespa.variacaoDia, que a própria tela já busca
-    // via getHome() em paralelo (ver carteiras-visao-geral.js).
-    benchmarks: { cdi: buscarCdiSelicAnualizadosHoje_().cdi }
+    // Tiago) - reaproveita cdiSelic calculado acima. O "vs Ibovespa
+    // hoje" do HERO (diferente dos benchmarks por card acima - esse é
+    // em % de variação do dia, não em pontos) NÃO precisa de campo novo
+    // aqui - o front usa home.indices.ibovespa.variacaoDia, que a
+    // própria tela já busca via getHome() em paralelo (ver
+    // carteiras-visao-geral.js).
+    benchmarks: { cdi: cdiSelic.cdi }
   };
 }
 
