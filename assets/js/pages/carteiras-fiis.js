@@ -23,6 +23,7 @@ import {
   logoAtivoHtml,
   notaAtivoHtml,
   statusVies,
+  contarVies_,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_FIIS = 'carteiras_fiis_v1';
@@ -103,8 +104,8 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
   const qtd = ativosExibidos.length;
   return `<tr>
     <td colspan="${COLUNAS_ATIVOS_FIIS.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td>${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
-    <td><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
+    <td data-label="Total atualizado">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
+    <td data-label="Lucro / Prejuízo"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
   </tr>`;
 }
 
@@ -116,7 +117,7 @@ function desenhar(doc, dados) {
     <div id="fiisBenchmarks" class="cc-benchmarks"></div>
     <div class="cc-layout-donut-tabela">
       <div class="cc-donut-card">
-        <div class="area-header" style="margin-top:0"><h2>Por segmento</h2></div>
+        <div class="area-header" style="margin-top:0"><h2>Por tipo</h2></div>
         <div id="fiisDistribuicao"></div>
       </div>
       <div class="cc-tabela-card">
@@ -135,6 +136,7 @@ function desenhar(doc, dados) {
   renderResumoClasseCarteiras(doc, doc.getElementById('fiisResumo'), dados.resumo, {
     corToken: '--fiis',
     extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
+    vies: contarVies_(dados.ativos),
   });
   // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do
   // IFIX, igual às outras 3 subpáginas já tinham (só IFIX ficava

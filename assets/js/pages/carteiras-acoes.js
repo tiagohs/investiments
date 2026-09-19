@@ -18,6 +18,7 @@ import {
   logoAtivoHtml,
   notaAtivoHtml,
   statusVies,
+  contarVies_,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_ACOES = 'carteiras_acoes_v1';
@@ -99,8 +100,8 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
   const qtd = ativosExibidos.length;
   return `<tr>
     <td colspan="${COLUNAS_ATIVOS_ACOES.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td>${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
-    <td><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
+    <td data-label="Total atualizado">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
+    <td data-label="Lucro / Prejuízo"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
   </tr>`;
 }
 
@@ -131,6 +132,7 @@ function desenhar(doc, dados) {
   renderResumoClasseCarteiras(doc, doc.getElementById('acoesResumo'), dados.resumo, {
     corToken: '--acoes',
     extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
+    vies: contarVies_(dados.ativos),
   });
   const ibovespaVar = dados.benchmarks?.ibovespa;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('acoesBenchmarks'), [

@@ -9,6 +9,7 @@ import {
   renderDistribuicaoGrupoCarteiras,
   renderTabelaAtivosCarteiras,
   statusVies,
+  contarVies_,
 } from '../assets/js/pages/carteiras-classe-comum.js';
 
 function makeDom(bodyHtml = '') {
@@ -86,6 +87,43 @@ test('renderResumoClasseCarteiras() não lança quando container ou resumo falta
   assert.doesNotThrow(() => renderResumoClasseCarteiras(doc, doc.createElement('div'), null));
 });
 
+// 19/09/2026 #5 (pedido do Tiago revisando o resultado: "voce só manteve o
+// numero de ativos, mas remoeu o gadget de comprar/aguardar (com a
+// barrinha)") - faixa comprar/aguardar embaixo do stat "Ativos na
+// carteira", só desenhada quando `vies` vem com pelo menos 1 item.
+test('renderResumoClasseCarteiras() com `vies` desenha a faixa comprar/aguardar e a legenda "N compr. · M aguard." no stat "Ativos na carteira"', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderResumoClasseCarteiras(doc, doc.getElementById('alvo'), {
+    totalInvestido: 100, totalAtualizado: 110, lucroPrejuizo: 10, percentualLucroPrejuizo: 0.1, quantidadeAtivos: 5,
+  }, { vies: { comprar: 3, aguardar: 2 } });
+
+  const statAtivos = doc.querySelectorAll('.cc-resumo-stat')[1];
+  assert.match(statAtivos.textContent, /5/);
+  assert.match(statAtivos.textContent, /3 compr\. · 2 aguard\./);
+  const barra = statAtivos.querySelector('.cc-resumo-vies-bar');
+  assert.ok(barra, 'deveria desenhar .cc-resumo-vies-bar');
+  assert.match(barra.querySelector('.comprar').getAttribute('style'), /width:60\.0%/);
+  assert.match(barra.querySelector('.aguardar').getAttribute('style'), /width:40\.0%/);
+});
+
+test('renderResumoClasseCarteiras() sem `vies` (ex.: Renda Fixa) não desenha a faixa comprar/aguardar', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderResumoClasseCarteiras(doc, doc.getElementById('alvo'), {
+    totalInvestido: 100, totalAtualizado: 110, lucroPrejuizo: 10, percentualLucroPrejuizo: 0.1, quantidadeAtivos: 5,
+  });
+  const statAtivos = doc.querySelectorAll('.cc-resumo-stat')[1];
+  assert.equal(statAtivos.querySelector('.cc-resumo-vies-bar'), null);
+});
+
+test('renderResumoClasseCarteiras() com `vies` todo zerado (comprar:0, aguardar:0) não desenha a faixa', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderResumoClasseCarteiras(doc, doc.getElementById('alvo'), {
+    totalInvestido: 100, totalAtualizado: 110, lucroPrejuizo: 10, percentualLucroPrejuizo: 0.1, quantidadeAtivos: 0,
+  }, { vies: { comprar: 0, aguardar: 0 } });
+  const statAtivos = doc.querySelectorAll('.cc-resumo-stat')[1];
+  assert.equal(statAtivos.querySelector('.cc-resumo-vies-bar'), null);
+});
+
 // --- renderBenchmarksClasseCarteiras ------------------------------------
 
 test('renderBenchmarksClasseCarteiras() desenha um chip por item', () => {
@@ -121,14 +159,16 @@ test('renderDistribuicaoGrupoCarteiras() converte distribuicaoPorGrupo em fatias
   assert.match(container.textContent, /Energia/);
 });
 
-// 19/09/2026 #5 (correção do Tiago revisando o resultado no mobile: "você
-// dividiu demais. Divida em duas rows (a quantidade por row depende da
-// quantidade de itens)") - a divisão em 2 linhas agora é feita no DOM
-// (dividirLegendaEmDuasLinhas_), não em CSS/media query, então tem que
-// valer em QUALQUER contagem de itens e não depende de largura de tela
-// (jsdom não tem viewport, então esses testes cobrem exatamente o que a
-// versão anterior (CSS Grid + fallback mobile) não garantia).
-test('renderDistribuicaoGrupoCarteiras() divide a legenda em exatamente 2 linhas, com a linha 1 levando o item a mais quando ímpar', () => {
+// 19/09/2026 #5 (correção do Tiago revisando o resultado no mobile: pediu
+// "duas rows" primeiro, depois se corrigiu - "eu me confundi nas
+// palavras: na verdade, quero que seja duas COLUNAS... divida entre elas
+// de acordo com o numero de itens na lista") - a divisão em 2 colunas é
+// feita no DOM (dividirLegendaEmDuasColunas_), não em CSS/media query,
+// então tem que valer em QUALQUER contagem de itens e não depende de
+// largura de tela (jsdom não tem viewport, então esses testes cobrem
+// exatamente o que a versão anterior (CSS Grid + fallback mobile) não
+// garantia).
+test('renderDistribuicaoGrupoCarteiras() divide a legenda em exatamente 2 colunas, com a coluna 1 levando o item a mais quando ímpar', () => {
   const doc = makeDom('<div id="alvo"></div>');
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
     { grupo: 'Financeiro', totalAtualizado: 7000 },
@@ -140,20 +180,20 @@ test('renderDistribuicaoGrupoCarteiras() divide a legenda em exatamente 2 linhas
     { grupo: 'Bens Industriais', totalAtualizado: 1000 },
   ]);
   const container = doc.getElementById('alvo');
-  const linhas = container.querySelectorAll('.cc-donut-legenda-row');
-  assert.equal(linhas.length, 2); // sempre 2, nunca N linhas de 1 item cada
-  assert.equal(linhas[0].querySelectorAll('.distrib-item').length, 4); // 7 itens -> 4 + 3
-  assert.equal(linhas[1].querySelectorAll('.distrib-item').length, 3);
+  const colunas = container.querySelectorAll('.cc-donut-legenda-col');
+  assert.equal(colunas.length, 2); // sempre 2, nunca N colunas de 1 item cada
+  assert.equal(colunas[0].querySelectorAll('.distrib-item').length, 4); // 7 itens -> 4 + 3
+  assert.equal(colunas[1].querySelectorAll('.distrib-item').length, 3);
   assert.equal(container.querySelectorAll('.distrib-item').length, 7); // nenhum item se perdeu no reagrupamento
 });
 
-test('renderDistribuicaoGrupoCarteiras() com 1 grupo só não cria linhas vazias', () => {
+test('renderDistribuicaoGrupoCarteiras() com 1 grupo só não cria colunas vazias', () => {
   const doc = makeDom('<div id="alvo"></div>');
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
     { grupo: 'Logística', totalAtualizado: 5000 },
   ]);
   const container = doc.getElementById('alvo');
-  assert.equal(container.querySelectorAll('.cc-donut-legenda-row').length, 0);
+  assert.equal(container.querySelectorAll('.cc-donut-legenda-col').length, 0);
   assert.equal(container.querySelectorAll('.distrib-item').length, 1);
 });
 
@@ -202,6 +242,34 @@ test('renderTabelaAtivosCarteiras() só a célula da coluna com `alinharEsquerda
   assert.equal(tds[1].classList.contains('cc-td-esquerda'), false); // Total atualizado
 });
 
+// 19/09/2026 #5 (pedido do Tiago: "NAO USAR TABELA EM MOBIle... em modo
+// mobile, cada item seria um card", mesma técnica da tabela do Radar de
+// oportunidades - distribuicoes-metas.js!criarLinhaRadar_): a coluna com
+// `alinharEsquerda:true` (Ativo) vira o "topo" do card sem rótulo
+// (.cc-td-topo, sem data-label); as demais ganham `data-label` com o
+// `label` da coluna, pro CSS mobile desenhar "rótulo: valor" via
+// `content:attr(data-label)`.
+test('renderTabelaAtivosCarteiras() marca a célula alinharEsquerda com .cc-td-topo e sem data-label, e as demais com data-label = c.label', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderTabelaAtivosCarteiras(doc, doc.getElementById('alvo'), [{ ticker: 'X', totalAtualizado: 1 }], COLUNAS_TESTE);
+  const tds = doc.querySelectorAll('.cc-tabela tbody td');
+  assert.equal(tds[0].classList.contains('cc-td-topo'), true); // Ticker (alinharEsquerda)
+  assert.equal(tds[0].hasAttribute('data-label'), false);
+  assert.equal(tds[1].classList.contains('cc-td-topo'), false); // Total atualizado
+  assert.equal(tds[1].getAttribute('data-label'), 'Total atualizado');
+});
+
+test('renderTabelaAtivosCarteiras() escapa aspas no data-label (rótulo com aspas não quebra o HTML)', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  const colunas = [
+    { label: 'Ticker', alinharEsquerda: true, formatar: (a) => a.ticker },
+    { label: 'Preço "hoje"', formatar: (a) => String(a.totalAtualizado) },
+  ];
+  renderTabelaAtivosCarteiras(doc, doc.getElementById('alvo'), [{ ticker: 'X', totalAtualizado: 1 }], colunas);
+  const tds = doc.querySelectorAll('.cc-tabela tbody td');
+  assert.equal(tds[1].getAttribute('data-label'), 'Preço "hoje"');
+});
+
 test('renderTabelaAtivosCarteiras() clique no cabeçalho ordena, mas clique num ícone ".info-alvo" dentro dele não', () => {
   const doc = makeDom('<div id="alvo"></div>');
   const colunas = [
@@ -246,4 +314,22 @@ test('statusVies() devolve travessão sem classe pra null/vazio/valor desconheci
   assert.deepEqual(statusVies(null), { texto: '—', classe: '' });
   assert.deepEqual(statusVies(''), { texto: '—', classe: '' });
   assert.deepEqual(statusVies('outra coisa'), { texto: '—', classe: '' });
+});
+
+// --- contarVies_ -------------------------------------------------------
+
+test('contarVies_() conta "Comprar"/"Aguardar" (statusVies) e ignora ativos sem viés reconhecido', () => {
+  const ativos = [
+    { vies: 'Comprar' },
+    { vies: 'comprar' },
+    { vies: 'Aguardar' },
+    { vies: null },
+    { vies: 'outra coisa' },
+  ];
+  assert.deepEqual(contarVies_(ativos), { comprar: 2, aguardar: 1 });
+});
+
+test('contarVies_() devolve {comprar:0, aguardar:0} pra lista vazia ou undefined', () => {
+  assert.deepEqual(contarVies_([]), { comprar: 0, aguardar: 0 });
+  assert.deepEqual(contarVies_(undefined), { comprar: 0, aguardar: 0 });
 });

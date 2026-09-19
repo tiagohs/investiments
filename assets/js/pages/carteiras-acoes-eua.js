@@ -26,6 +26,7 @@ import {
   notaAtivoHtml,
   botaoInfoHtml,
   statusVies,
+  contarVies_,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v1';
@@ -119,8 +120,8 @@ function montarLinhaTotalAtivos_(ativosExibidos, colunas, cambio) {
   const lucroHtml = formatComConversao(somaLucro, typeof cambio === 'number' ? somaLucro * cambio : null, formatUSD);
   return `<tr>
     <td colspan="${colunas.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td>${totalHtml}<span class="cc-sub">de ${investidoHtml}</span></td>
-    <td><span class="${corLucro}">${lucroHtml}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
+    <td data-label="Total atualizado">${totalHtml}<span class="cc-sub">de ${investidoHtml}</span></td>
+    <td data-label="Lucro / Prejuízo"><span class="${corLucro}">${lucroHtml}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
   </tr>`;
 }
 
@@ -154,6 +155,7 @@ function desenhar(doc, dados) {
   renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), dados.resumo, {
     corToken: '--usa',
     formatarValor: formatUSD,
+    vies: contarVies_(dados.ativos),
   });
 
   // 19/09/2026 #2 (correção do Tiago, fiel ao mockup): Ibovespa/S&P 500

@@ -30,17 +30,35 @@ import { resolveSiteRootUrl } from '../shell.js';
  * carteiras.css, que já cuida de empilhar tudo em mobile.
  * `formatarValor` (padrão formatBRL) permite reaproveitar em Ações EUA,
  * que já vem nativamente em US$ (formatUSD) - ver carteiras-acoes-eua.js.
+ * `vies` ({comprar,aguardar}, opcional - ver contarVies_ abaixo) desenha
+ * a faixinha comprar/aguardar embaixo do stat "Ativos na carteira",
+ * igual aos cards de classe da Visão Geral (19/09/2026 #5, "voce só
+ * manteve o numero de ativos, mas remoeu o gadget de comprar/aguardar
+ * (com a barrinha)") - Renda Fixa não passa `vies` (não tem essa
+ * coluna), então continua mostrando só o número, sem faixa.
  */
-export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL } = {}) {
+export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL, vies = null } = {}) {
   if (!container || !resumo) return;
   const lucroBom = resumo.lucroPrejuizo >= 0;
+
+  let ativosValorHtml = String(resumo.quantidadeAtivos);
+  if (vies && typeof vies.comprar === 'number' && typeof vies.aguardar === 'number' && (vies.comprar + vies.aguardar) > 0) {
+    const totalVies = vies.comprar + vies.aguardar;
+    const pctComprar = (vies.comprar / totalVies) * 100;
+    const pctAguardar = 100 - pctComprar;
+    ativosValorHtml += `
+      <div class="cc-resumo-vies-bar"><span class="comprar" style="width:${pctComprar.toFixed(1)}%"></span><span class="aguardar" style="width:${pctAguardar.toFixed(1)}%"></span></div>
+      <span class="cc-resumo-vies-legenda">${vies.comprar} compr. · ${vies.aguardar} aguard.</span>
+    `;
+  }
+
   const stats = [
     {
       label: 'Lucro / Prejuízo',
       valor: `${formatarValor(resumo.lucroPrejuizo)}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
       classe: lucroBom ? 'good' : 'bad',
     },
-    { label: 'Ativos na carteira', valor: String(resumo.quantidadeAtivos) },
+    { label: 'Ativos na carteira', valor: ativosValorHtml },
     ...extras,
   ];
 
@@ -81,54 +99,56 @@ export function renderBenchmarksClasseCarteiras(doc, container, itens) {
 /** Donut "por grupo" (Setor/Segmento pra RV, Indexador pra Renda Fixa) —
  * reaproveita renderDistribuicao (inicio.js) sem cor fixa por fatia (a
  * própria função cicla pela paleta de fallback quando `cor` não vem).
- * Pizza maior + legenda em 2 linhas (fica bem mais compacto vertical -
- * pedido do Tiago revisando o resultado: "a divisão de setores está
- * mal posicionado... aumente a pizza, e divida em duas rows a lista de
- * setores") - o tamanho é escopado a `.cc-donut-card` em carteiras.css,
- * não mexe no donut da Início (mesmo componente, contextos de card
- * diferentes). A divisão em 2 linhas é feita aqui no DOM (ver
- * dividirLegendaEmDuasLinhas_ abaixo), não mais em CSS - ver o
- * comentário lá pro porquê. */
+ * Pizza maior + legenda em 2 COLUNAS lado a lado (pedido do Tiago,
+ * revisando o resultado: "a divisão de setores está mal posicionado...
+ * aumente a pizza" - e depois, corrigindo a própria palavra: "eu me
+ * confundi... na verdade, quero que seja duas COLUNAS") - o tamanho é
+ * escopado a `.cc-donut-card` em carteiras.css, não mexe no donut da
+ * Início (mesmo componente, contextos de card diferentes). A divisão
+ * em 2 colunas é feita aqui no DOM (ver dividirLegendaEmDuasColunas_
+ * abaixo), não em CSS - ver o comentário lá pro porquê. */
 export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao) {
   if (!container) return;
   const fatias = (distribuicao || []).map((d) => ({ label: d.grupo, valor: d.totalAtualizado }));
   renderDistribuicao(doc, container, fatias);
-  dividirLegendaEmDuasLinhas_(doc, container);
+  dividirLegendaEmDuasColunas_(doc, container);
 }
 
 /**
- * Reagrupa os itens de `.distrib-legenda` em EXATAMENTE 2 linhas
- * (`.cc-donut-legenda-row`), a quantidade por linha dependendo da
- * contagem total - metade pra cada, a 1ª linha leva o item a mais
- * quando o total é ímpar (19/09/2026 #5, correção do Tiago revisando o
- * resultado no mobile: "você dividiu demais. Divida em duas rows (a
- * quantidade por row depende da quantidade de itens)"). A 1ª tentativa
- * fez essa divisão via CSS Grid (grid-auto-flow:column, só no
- * desktop), com um fallback mobile que virava 1 coluna corrida - ou
- * seja, N linhas (1 item por linha) no celular, não 2 - exatamente o
- * bug que o Tiago pegou. Fazer a divisão AQUI, no DOM, garante
- * exatamente 2 linhas em QUALQUER largura de tela, sem precisar de
- * nenhum fallback por media query. Só reorganiza a legenda DENTRO do
- * `.cc-donut-card` de Carteiras (chamada só por
- * renderDistribuicaoGrupoCarteiras) - o donut de resumo da Início
- * (mesma renderDistribuicao, chamada direto por lá) continua intocado.
+ * Reagrupa os itens de `.distrib-legenda` em EXATAMENTE 2 COLUNAS
+ * (`.cc-donut-legenda-col`), a quantidade por coluna dependendo da
+ * contagem total - metade pra cada, a 1ª coluna leva o item a mais
+ * quando o total é ímpar (19/09/2026 #5, pedido do Tiago: "divida
+ * entre elas de acordo com o numero de itens na lista"). Uma 1ª
+ * tentativa fez a divisão em 2 LINHAS horizontais em vez de colunas
+ * (mal-entendido da própria palavra que o Tiago usou antes de
+ * corrigir), o que numa tela estreita forçava os itens de cada linha a
+ * quebrar em várias linhas mesmo assim (linha muito comprida pro
+ * celular) - 2 colunas verticais lado a lado é o mesmo
+ * `.distrib-legenda` estreito de sempre (o que já funciona bem no
+ * card pequeno da Início), só que 2 vezes lado a lado, então funciona
+ * em qualquer largura de tela sem precisar de fallback por media
+ * query. Só reorganiza a legenda DENTRO do `.cc-donut-card` de
+ * Carteiras (chamada só por renderDistribuicaoGrupoCarteiras) - o
+ * donut de resumo da Início (mesma renderDistribuicao, chamada direto
+ * por lá) continua intocado.
  */
-function dividirLegendaEmDuasLinhas_(doc, container) {
+function dividirLegendaEmDuasColunas_(doc, container) {
   const legenda = container.querySelector('.distrib-legenda');
   if (!legenda) return;
   const itens = [...legenda.children];
-  if (itens.length <= 1) return; // 0-1 item já cabe numa linha só.
+  if (itens.length <= 1) return; // 0-1 item já cabe numa coluna só.
 
   const meio = Math.ceil(itens.length / 2);
-  const linha1 = doc.createElement('div');
-  linha1.className = 'cc-donut-legenda-row';
-  const linha2 = doc.createElement('div');
-  linha2.className = 'cc-donut-legenda-row';
-  itens.forEach((item, i) => (i < meio ? linha1 : linha2).appendChild(item));
+  const col1 = doc.createElement('div');
+  col1.className = 'cc-donut-legenda-col';
+  const col2 = doc.createElement('div');
+  col2.className = 'cc-donut-legenda-col';
+  itens.forEach((item, i) => (i < meio ? col1 : col2).appendChild(item));
 
   legenda.innerHTML = '';
-  legenda.appendChild(linha1);
-  legenda.appendChild(linha2);
+  legenda.appendChild(col1);
+  legenda.appendChild(col2);
 }
 
 /**
@@ -369,6 +389,21 @@ export function renderFiltrosTabelaCarteiras(doc, container, { busca = '', onBus
  * colspan+valores certos sozinho - ver montarLinhaTotalAtivos_ em
  * carteiras-acoes.js) - some quando null/vazio (tabela filtrada por
  * busca com 0 resultado, por ex., não faz sentido mostrar total ali).
+ *
+ * MOBILE (19/09/2026 #5, pedido do Tiago: "NAO USAR TABELA EM MOBIle...
+ * la ja decidimos que em modo mobile, cada item seria um card. [...] a
+ * tela de distribuicao e metas ja resolve bem a adaptacao das tabelas
+ * em mobile") - mesma técnica do Radar de oportunidades
+ * (distribuicoes-metas.js!criarLinhaRadar_ + o media query em
+ * distribuicoes-metas.css): a MESMA <table>/<tr>/<td> vira 1 card por
+ * ativo só com CSS (ver `@media (max-width:640px)` em carteiras.css) -
+ * <thead> some, cada <tr> vira um cartão e cada <td> vira uma linha
+ * "rótulo: valor", com o rótulo vindo de `data-label` (setado aqui
+ * embaixo, cópia de `c.label`). A coluna Ativo (`alinharEsquerda:true`,
+ * sempre a 1ª) vira o "topo" do card (`.cc-td-topo`), sem rótulo - o
+ * conteúdo (logo+ticker+nome) já fala por si, igual Ranking+Ativo no
+ * Radar. Não precisa duplicar a lógica de desenho pra isso - o mesmo
+ * HTML serve pras 2 telas, só a CSS muda por largura.
  */
 export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { linhaTotalHtml = '', ordenacao = null, onOrdenar = null } = {}) {
   if (!container) return;
@@ -398,7 +433,18 @@ export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { l
     return `<th${ordenavel ? ' class="cc-th-ordenavel"' : ''}${ordenavel ? ` data-campo="${c.campo}"` : ''}>${c.label}${ajuda}${seta}</th>`;
   }).join('');
   const linhas = lista.map((ativo) => {
-    const celulas = colunas.map((c) => `<td${c.alinharEsquerda ? ' class="cc-td-esquerda"' : ''}>${c.formatar(ativo)}</td>`).join('');
+    const celulas = colunas.map((c) => {
+      // .cc-td-topo (só na coluna Ativo, sempre alinharEsquerda:true) -
+      // vira o "cabeçalho" do card no mobile (sem rótulo); o resto leva
+      // data-label pro rótulo "coluna: valor" do card (ver o comentário
+      // grande acima). rotuloEscapado protege contra aspas no label
+      // (nenhum label atual tem, mas por segurança - mesmo padrão de
+      // botaoInfoHtml).
+      const classe = c.alinharEsquerda ? ' class="cc-td-esquerda cc-td-topo"' : '';
+      const rotuloEscapado = String(c.label).replace(/"/g, '&quot;');
+      const dataLabel = c.alinharEsquerda ? '' : ` data-label="${rotuloEscapado}"`;
+      return `<td${classe}${dataLabel}>${c.formatar(ativo)}</td>`;
+    }).join('');
     return `<tr>${celulas}</tr>`;
   }).join('');
 
@@ -430,4 +476,25 @@ export function statusVies(vies) {
   if (v === 'comprar') return { texto: 'Comprar', classe: 'good' };
   if (v === 'aguardar') return { texto: 'Aguardar', classe: 'warn' };
   return { texto: '—', classe: '' };
+}
+
+/** Conta quantos ativos estão "Comprar" vs "Aguardar" (statusVies) numa
+ * lista de ativos - usado pra faixa comprar/aguardar do stat "Ativos na
+ * carteira" no resumo (19/09/2026 #5, pedido do Tiago revisando o
+ * resultado: "voce só manteve o numero de ativos, mas remoeu o gadget
+ * de comprar/aguardar (com a barrinha)" - existia nos cards de classe
+ * da Visão Geral, carteiras-visao-geral.js!renderCardsClasse, e também
+ * nas 3 subpáginas de renda variável antes do redesenho do resumo -
+ * ficou pra trás sem querer). Ativos sem viés reconhecido (ex.: Renda
+ * Fixa, que não tem essa coluna) não entram em nenhum dos 2 totais -
+ * ver o `if` em renderResumoClasseCarteiras que só desenha a faixa
+ * quando a soma é > 0. */
+export function contarVies_(ativos) {
+  let comprar = 0, aguardar = 0;
+  (ativos || []).forEach((a) => {
+    const status = statusVies(a.vies);
+    if (status.classe === 'good') comprar += 1;
+    else if (status.classe === 'warn') aguardar += 1;
+  });
+  return { comprar, aguardar };
 }

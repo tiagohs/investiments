@@ -15,7 +15,13 @@
  *
  * Exceção: os 3 campos que só existem em FIIs (Liquidez Diária, % em
  * caixa, Patrimônio) não estão em Auxiliar_ativos — são buscados direto
- * em "Carteira FIIs" por ticker, só dentro de montarCarteirasFiis_.
+ * em "Carteira FIIs" por ticker, só dentro de montarCarteirasFiis_. Em
+ * FIIs, o agrupamento/filtro por "setor" (donut + chips da tabela) usa
+ * o Tipo (Tijolo/Híbrido/Papel) em vez do Segmento livre de
+ * Auxiliar_ativos — ver enriquecerFiisComTipoRadar_ (19/09/2026 #4,
+ * pedido do Tiago, confirmado: o Tipo vem da coluna S do bloco de FIIs
+ * da própria "Distribuição e Metas", a MESMA fonte que o Radar de
+ * oportunidades já usa - não da aba "Carteira FIIs").
  *
  * Benchmarks (valor de HOJE): reaproveita as mesmas células que Home.gs
  * já lê (Auxiliar_app!B7/B9/B15 pra Ibovespa/IFIX/S&P 500, Distribuição
@@ -35,10 +41,13 @@ var ABA_AUXILIAR_ATIVOS_CLASSES = 'Auxiliar_ativos';
 var LINHA_DADOS_AUXILIAR_ATIVOS_CLASSES = 2;
 var ABA_CARTEIRA_FIIS_CLASSES = 'Carteira FIIs';
 var LINHA_DADOS_CARTEIRA_FIIS_CLASSES = 9;
+var ABA_DISTRIBUICAO_METAS_CLASSES = 'Distribuição e Metas';
+var LINHA_INICIO_BLOCO_FIIS_RADAR_CLASSES = 82; // mesmo início do bloco de FIIs do Radar de oportunidades - ver DistribuicoesMetas.gs!montarRadarOportunidades_ (colunasFiis: ativo='C', tipo='S').
 
-function handleCarteirasAcoes(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleCarteirasAcoes(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasAcoes_() });
   } catch (err) {
@@ -46,9 +55,10 @@ function handleCarteirasAcoes(e) {
   }
 }
 
-function handleCarteirasFiis(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleCarteirasFiis(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasFiis_() });
   } catch (err) {
@@ -56,9 +66,10 @@ function handleCarteirasFiis(e) {
   }
 }
 
-function handleCarteirasAcoesEua(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
+function handleCarteirasAcoesEua(e, auth) {
+  if (!auth || !auth.ok) {
+    return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  }
   try {
     return jsonOut({ ok: true, carteira: montarCarteirasAcoesEua_() });
   } catch (err) {
@@ -79,22 +90,39 @@ function testarCarteirasAcoesEuaDireto() {
 function montarCarteirasAcoes_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações');
-  dados.benchmarks = { ibovespa: home.indices.ibovespa, cdi: null };
+  // 19/09/2026 #2 (correção do Tiago, fiel ao mockup de design): os 3
+  // chips de índice de mercado (Ibovespa/IFIX/S&P 500) mostram a
+  // VARIAÇÃO DO DIA (.variacaoDia, ver Home.gs!montarHome_), não o
+  // valor em pontos do índice (.valor) - o mockup mostra "Ibovespa hoje
+  // −0,39%" colorido, não "128.500". CDI continua em fração (a.a.),
+  // sem cor - é taxa de referência, não "ganho/perda do dia".
+  dados.benchmarks = { ibovespa: home.indices.ibovespa.variacaoDia, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
   return dados;
 }
 
 function montarCarteirasFiis_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('FIIs');
-  dados.benchmarks = { ifix: home.indices.ifix };
+  // 19/09/2026 #2 (pedido do Tiago - "pode fazer", confirmando a
+  // sugestão): FIIs ganhou Ibovespa/CDI junto do IFIX, igual às outras
+  // 3 subpáginas já tinham (só IFIX ficava sozinho antes). Mesma
+  // correção de variação do dia do comentário acima.
+  dados.benchmarks = {
+    ifix: home.indices.ifix.variacaoDia,
+    ibovespa: home.indices.ibovespa.variacaoDia,
+    cdi: buscarCdiSelicAnualizadosHoje_().cdi
+  };
   enriquecerAtivosComCarteiraFiis_(dados.ativos);
+  enriquecerFiisComTipoRadar_(dados);
   return dados;
 }
 
 function montarCarteirasAcoesEua_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações EUA');
-  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa, spx: home.indices.spx };
+  // Dólar fica como cotação (R$ x,xxxx), não variação - mesma correção
+  // de Ibovespa/S&P 500 dos comentários acima.
+  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.variacaoDia, spx: home.indices.spx.variacaoDia };
   return dados;
 }
 
@@ -209,6 +237,89 @@ function enriquecerAtivosComCarteiraFiis_(ativos) {
     ativo.percentualEmCaixa = extra ? extra.percentualEmCaixa : null;
     ativo.patrimonio = extra ? extra.patrimonio : null;
   });
+}
+
+/**
+ * Reclassifica os FIIs por "Tipo" (Tijolo/Híbrido/Papel) em vez do
+ * Segmento livre de Auxiliar_ativos (19/09/2026 #4, pedido do Tiago:
+ * "em FIIs, o filtro e divisão de setor deve usar como referência a
+ * coluna C [Tipo]" - confirmado depois, junto com ele, que o Tipo vem
+ * da coluna S do bloco de FIIs da própria "Distribuição e Metas" (linha
+ * 82 em diante), a MESMA fonte que o Radar de oportunidades já usa pra
+ * colorir por tipo (ver DistribuicoesMetas.gs!montarRadarOportunidades_/
+ * chaveTipoFii_ no front-end) - não a coluna C da aba "Carteira FIIs"
+ * (essa é o Ticker, não o Tipo).
+ *
+ * Sobrescreve `ativo.grupo` (usado pelo filtro de chips e pelo donut
+ * "por setor" da página) só quando o ticker tem um Tipo reconhecido lá;
+ * um FII sem ranking no Radar (raro, mas possível - ex.: recém
+ * comprado, ainda não incluído na lista) mantém o Segmento de
+ * Auxiliar_ativos como retaguarda, em vez de sumir de todo
+ * agrupamento. A normalização acento-insensível (normalizarTipoFii_)
+ * resolve de brinde a duplicidade "Híbrido"/"Hibrido" que aparecia
+ * como 2 segmentos separados antes (mesmo texto, acentuação
+ * inconsistente em Auxiliar_ativos).
+ */
+function enriquecerFiisComTipoRadar_(dados) {
+  var mapaTipo = lerMapaTipoFiisPorTicker_();
+  dados.ativos.forEach(function (ativo) {
+    var tipo = mapaTipo[ativo.ticker];
+    if (tipo) ativo.grupo = tipo;
+  });
+  dados.distribuicaoPorGrupo = recomputarDistribuicaoPorGrupoClasses_(dados.ativos, dados.resumo.totalAtualizado);
+}
+
+/** ticker -> "Tijolo"/"Híbrido"/"Papel", lido do bloco de FIIs da
+ * própria "Distribuição e Metas" (reaproveita lerBlocoRadar_, de
+ * DistribuicoesMetas.gs - mesmas colunas/linha inicial que
+ * montarRadarOportunidades_ usa pra esse bloco). {} se a aba não
+ * existir (não deveria bloquear o resto da página). */
+function lerMapaTipoFiisPorTicker_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dm = ss.getSheetByName(ABA_DISTRIBUICAO_METAS_CLASSES);
+  if (!dm) return {};
+  var bloco = lerBlocoRadar_(dm, LINHA_INICIO_BLOCO_FIIS_RADAR_CLASSES, { ativo: 'C', tipo: 'S' });
+  var mapa = {};
+  bloco.itens.forEach(function (item) {
+    var tipo = normalizarTipoFii_(item.tipo);
+    if (tipo) mapa[item.ativo] = tipo;
+  });
+  return mapa;
+}
+
+/** Normaliza o texto bruto da coluna Tipo (acentuação inconsistente às
+ * vezes, ex.: "Hibrido" vs "Híbrido") pro rótulo canônico - mesma
+ * lógica de chaveTipoFii_ no front-end (distribuicoes-metas.js), só que
+ * devolvendo o rótulo acentuado pra exibição (grupo do donut/chip) em
+ * vez da chave em minúsculo (usada lá só pra classe CSS). null quando
+ * não reconhece (fica de fora do reagrupamento, mantém o Segmento). */
+function normalizarTipoFii_(tipoBruto) {
+  var normalizado = String(tipoBruto || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim();
+  if (normalizado === 'tijolo') return 'Tijolo';
+  if (normalizado === 'hibrido') return 'Híbrido';
+  if (normalizado === 'papel') return 'Papel';
+  return null;
+}
+
+/** Reconstrói distribuicaoPorGrupo a partir do `grupo` ATUAL de cada
+ * ativo (usado depois de enriquecerFiisComTipoRadar_ sobrescrever
+ * `grupo` pro Tipo - o distribuicaoPorGrupo que montarCarteiraClasse_
+ * calculou antes ainda reflete o Segmento antigo). */
+function recomputarDistribuicaoPorGrupoClasses_(ativos, totalAtualizado) {
+  var porGrupo = {};
+  ativos.forEach(function (ativo) {
+    var grupo = ativo.grupo || 'Sem classificação';
+    porGrupo[grupo] = (porGrupo[grupo] || 0) + (ativo.totalAtualizado || 0);
+  });
+  return Object.keys(porGrupo).map(function (grupo) {
+    return {
+      grupo: grupo,
+      totalAtualizado: arredondarCarteirasClasses_(porGrupo[grupo]),
+      percentual: totalAtualizado ? arredondarCarteirasClasses_(porGrupo[grupo] / totalAtualizado) : 0
+    };
+  }).sort(function (a, b) { return b.totalAtualizado - a.totalAtualizado; });
 }
 
 function arredondarCarteirasClasses_(valor) {

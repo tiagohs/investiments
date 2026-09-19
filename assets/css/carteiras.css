@@ -172,6 +172,22 @@
 .cc-resumo-stat.good .cc-resumo-stat-valor{ color:var(--good-ink); }
 .cc-resumo-stat.bad .cc-resumo-stat-valor{ color:var(--bad-ink); }
 .cc-resumo-stat-pct{ margin-left:6px; font-size:11px; font-weight:600; }
+/* Faixa comprar/aguardar embaixo do stat "Ativos na carteira"
+   (19/09/2026 #5, pedido do Tiago revisando o resultado: "voce só
+   manteve o numero de ativos, mas remoeu o gadget de comprar/aguardar
+   (com a barrinha)") - mesmo padrão visual de
+   carteiras-visao-geral.js!renderCardsClasse (.cg-card-vies-bar),
+   duplicado aqui em tamanho menor (o stat do resumo é bem mais
+   compacto que o card inteiro da Visão Geral) - mesmo motivo de sempre
+   pra duplicar em vez de importar (ver o comentário de
+   wirePointerTooltipCarteiras_ mais acima). */
+.cc-resumo-vies-bar{ display:flex; height:4px; border-radius:100px; overflow:hidden; background:var(--surface-3);
+      margin-top:5px; width:100%; max-width:120px; }
+.cc-resumo-vies-bar span{ display:block; height:100%; }
+.cc-resumo-vies-bar .comprar{ background:var(--good-ink); }
+.cc-resumo-vies-bar .aguardar{ background:var(--warn-ink); }
+.cc-resumo-vies-legenda{ display:block; font-size:9.5px; color:var(--ink-faint); margin-top:3px;
+      font-weight:400; text-transform:none; letter-spacing:0; }
 @media (max-width:640px){
   .cc-resumo{ flex-direction:column; align-items:flex-start; gap:14px; padding:16px 18px; }
   .cc-resumo-sep{ display:none; }
@@ -197,33 +213,34 @@
 .cc-donut-card{ padding:4px 0 8px; }
 .cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; }
 
-/* 19/09/2026 #4 (pedido do Tiago: "a divisão de setores está mal
-   posicionado. Aumente a pizza, e divida em duas rows a lista de
-   setores/segmentos") - pizza de 60px (tamanho padrão de .distrib,
-   pensado pro cartão pequeno de resumo da Início) pra 120px. Legenda em
-   EXATAMENTE 2 linhas: a 1ª tentativa usou CSS Grid (grid-auto-flow:
-   column), mas isso é dependente de LARGURA DE TELA (o fallback mobile
-   caía pra 1 coluna corrida = N linhas, 1 item por linha) - o Tiago
-   pegou esse bug no celular ("você dividiu demais. Divida em duas
-   rows"). Agora a divisão em 2 grupos é feita no DOM (ver
-   dividirLegendaEmDuasLinhas_ em carteiras-classe-comum.js, chamada
-   logo após renderDistribuicaoGrupoCarteiras), não em CSS - a função
-   envolve os itens em 2 `.cc-donut-legenda-row`, e aqui só estiliza
-   cada linha (flex-wrap, quebra só DENTRO da própria linha se não
-   couber, nunca criando uma 3ª linha). `.distrib-legenda` continua com
-   o `flex-direction:column` padrão de inicio.css pra empilhar as 2
-   linhas - não precisa de override aqui. Escopado a `.cc-donut-card`
-   (o donut de resumo da Início continua do jeito que já era - mesmo
-   componente `renderDistribuicao`, só o CONTEXTO de card muda). */
+/* 19/09/2026 #4/#5 (pedido do Tiago: "a divisão de setores está mal
+   posicionado. Aumente a pizza" - e depois, corrigindo a própria
+   palavra: "eu me confundi... na verdade, quero que seja duas COLUNAS
+   a sessao de setor. E divida entre elas de acordo com o numero de
+   itens na lista") - pizza de 60px (tamanho padrão de .distrib, pensado
+   pro cartão pequeno de resumo da Início) pra 120px. Legenda em
+   EXATAMENTE 2 COLUNAS lado a lado (cada uma é só o mesmo
+   `.distrib-legenda` de sempre, empilhado verticalmente - a mesma
+   coisa que já funciona bem no card estreito da Início, só que 2 vezes
+   lado a lado): a divisão dos itens entre as 2 colunas é feita no DOM
+   (ver dividirLegendaEmDuasColunas_ em carteiras-classe-comum.js,
+   chamada logo após renderDistribuicaoGrupoCarteiras), metade pra cada
+   uma (a 1ª coluna leva o item a mais quando o total é ímpar) - não em
+   CSS/media query, então vale em QUALQUER largura de tela, celular
+   incluso. A função envolve os itens em 2 `.cc-donut-legenda-col`, e
+   aqui só estiliza a linha que os contém (`.distrib-legenda` vira
+   `flex-direction:row`, cada coluna com `flex-direction:column` por
+   dentro). Escopado a `.cc-donut-card` (o donut de resumo da Início
+   continua do jeito que já era - mesmo componente `renderDistribuicao`,
+   só o CONTEXTO de card muda). */
 .cc-donut-card .distrib{ align-items:center; gap:26px; }
 .cc-donut-card .distrib-donut{ width:120px; height:120px; }
-.cc-donut-card .cc-donut-legenda-row{ display:flex; flex-wrap:wrap; gap:10px 24px; }
-.cc-donut-card .cc-donut-legenda-row .distrib-item{ flex:1 1 170px; min-width:150px; }
+.cc-donut-card .distrib-legenda{ display:flex; flex-direction:row; gap:20px; }
+.cc-donut-card .cc-donut-legenda-col{ display:flex; flex-direction:column; gap:8px; flex:1 1 0; min-width:0; }
 @media (max-width:760px){
   .cc-donut-card .distrib{ flex-wrap:wrap; }
   .cc-donut-card .distrib-donut{ width:90px; height:90px; }
-  .cc-donut-card .cc-donut-legenda-row{ gap:8px 16px; }
-  .cc-donut-card .cc-donut-legenda-row .distrib-item{ flex:1 1 130px; min-width:0; }
+  .cc-donut-card .distrib-legenda{ gap:12px; }
 }
 
 /* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
@@ -279,6 +296,60 @@
 .cc-tabela tfoot tr{ border-top:2px solid var(--border); background:var(--surface-2); font-weight:700; }
 .cc-tabela tfoot td{ padding:11px 10px; }
 .status-pill.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+
+/**
+ * Tabela de Ativos em telas estreitas (celular) - 19/09/2026 #5,
+ * correção forte do Tiago: "NAO USAR TABELA EM MOBIle... isso ja foi
+ * resolvido na etapa do mockup... la ja decidimos que em modo mobile,
+ * cada item seria um card... a tela de distribuicao e metas ja resolve
+ * bem a adaptacao das tabelas em mobile". Mesma técnica de lá
+ * (distribuicoes-metas.css!.radar-table, mesmo media query 640px do
+ * resto do site - .cc-resumo/.side-nav): a MESMA <table>/<tr>/<td> vira
+ * 1 card por ativo só com CSS, sem duplicar a lógica de desenho -
+ * <thead> some, cada <tr> vira um cartão com borda+sombra, e cada <td>
+ * vira uma linha "rótulo: valor" (rótulo puxado de `data-label`, setado
+ * em renderTabelaAtivosCarteiras). A coluna Ativo (sempre a 1ª,
+ * alinharEsquerda:true) vira o "topo" do card via `.cc-td-topo` (sem
+ * rótulo - logo+ticker+nome já fala por si, igual Ranking+Ativo no
+ * Radar). Isso também resolve o menu de topo ficando com scroll
+ * horizontal sem querer: era a <table> (`white-space:nowrap` em toda
+ * célula) forçando a página inteira mais larga que a tela - virando
+ * cards com `display:flex` isso some.
+ */
+@media (max-width:640px){
+  .cc-tabela-wrap{ overflow-x:visible; }
+  .cc-tabela{ font-size:12.5px; }
+  .cc-tabela thead{ display:none; }
+  .cc-tabela, .cc-tabela tbody{ display:block; }
+  .cc-tabela tbody tr{ display:flex; flex-wrap:wrap; background:var(--surface); border:1px solid var(--border);
+        border-radius:14px; box-shadow:var(--shadow); padding:0 0 4px; margin-bottom:10px; overflow:hidden; }
+  .cc-tabela tbody tr:last-child{ margin-bottom:0; }
+  .cc-tabela td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding:8px 14px; border-top:none; border-bottom:1px solid var(--border); text-align:right; white-space:normal; }
+  .cc-tabela tbody tr td:last-child{ border-bottom:none; }
+  .cc-tabela td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
+        letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
+  .cc-tabela td.cc-td-esquerda{ text-align:right; } /* mobile ignora o alinhamento de desktop - vira label:valor igual o resto */
+  .cc-tabela td.cc-td-topo{ order:0; flex:0 1 100%; justify-content:flex-start; gap:10px; border-bottom:1px solid var(--border);
+        padding:12px 14px 10px; font-weight:700; text-align:left; }
+  .cc-tabela td.cc-td-topo::before{ content:none; }
+
+  /* Linha de totais no rodapé: mesmo tratamento de card, com fundo
+     destacado (era só uma <tr> mais forte na tabela desktop) - a 1ª
+     célula ("Total (N ativos)", sem data-label - o texto já fala por
+     si) vira o topo do card; as outras 2 (Total atualizado/Lucro/
+     Prejuízo) ganham data-label (ver montarLinhaTotalAtivos_ em cada
+     page module). */
+  .cc-tabela tfoot{ display:block; }
+  .cc-tabela tfoot tr{ display:flex; flex-wrap:wrap; border-top:none; border-radius:14px; background:var(--surface-2);
+        padding:0; margin-top:2px; }
+  .cc-tabela tfoot td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding:9px 14px; border-bottom:1px solid var(--border); text-align:right; }
+  .cc-tabela tfoot td:last-child{ border-bottom:none; }
+  .cc-tabela tfoot td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
+        letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
+  .cc-tabela tfoot td:first-child{ flex:0 1 100%; justify-content:flex-start; }
+}
 
 /* Ordenação por clique no cabeçalho (19/09/2026 #3, pedido do Tiago -
    "quero poder ordenar clicando no título"). O ícone "i" de ajuda do
