@@ -115,7 +115,16 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
    não mudou muito (ele pediu só um respiro a mais, não uma reforma),
    mas dá mais respiro real pra tabela de Ativos de Carteiras, que é a
    mais larga do app. */
-.wrap{ max-width:1360px; margin:0 auto; padding:18px 16px 40px; }
+/* 19/09/2026 #5 (pedido do Tiago - "preciso ainda de mais espaço dos
+   lados, pois a tabela de fiis começou com scroll"): a tabela de FIIs
+   ganhou colunas nessa mesma rodada (Status/DY/P-VP/Patrim.fundo) e
+   passou a rolar horizontalmente em telas largas - então além de
+   apertar mais a margem (16px -> 12px), o max-width do conteúdo
+   subiu de 1360 pra 1520px, pra usar mais da tela em monitores
+   grandes em vez de deixar espaço sobrando dos dois lados enquanto a
+   tabela precisa rolar (ver também o ajuste de padding/fonte em
+   .cc-tabela th/td, em carteiras.css). */
+.wrap{ max-width:1520px; margin:0 auto; padding:18px 12px 40px; }
 .eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
 svg{ display:block; }
 

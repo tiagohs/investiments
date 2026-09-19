@@ -169,14 +169,21 @@
    1 coluna já empilha na ordem certa sem mexer no JS. */
 .cc-layout-donut-tabela{ display:flex; flex-direction:column; gap:18px; }
 .cc-donut-card{ padding:0 0 4px; }
-.cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; }
+.cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; }
 
+/* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
+   scroll"): FIIs ganhou 4 colunas nessa rodada (Status/DY/P-VP/
+   Patrim.fundo) e passou a estourar a largura disponível. Além de dar
+   mais espaço de conteúdo no .wrap (shell.css), apertei o padding de
+   célula (9px 10px -> 7px 8px, cabeçalho 10px -> 8px) - dá uns 30-40px
+   a menos de largura total na tabela mais cheia (FIIs, 11 colunas) sem
+   deixar ela ilegível. */
 .cc-tabela-wrap{ overflow-x:auto; }
 .cc-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; }
 .cc-tabela th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
-      color:var(--ink-faint); font-weight:600; padding:0 10px 8px; white-space:nowrap; }
+      color:var(--ink-faint); font-weight:600; padding:0 8px 8px; white-space:nowrap; }
 .cc-tabela th.right, .cc-tabela td.right{ text-align:right; }
-.cc-tabela td{ padding:9px 10px; border-top:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+.cc-tabela td{ padding:7px 8px; border-top:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
 .cc-tabela tbody tr:hover{ background:var(--surface-3); }
 .cc-ativo-nome{ display:block; font-size:10.5px; color:var(--ink-faint); font-weight:400; max-width:160px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
