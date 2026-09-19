@@ -65,6 +65,38 @@ export function resolveShellPartialUrl() {
   return new URL('../partials/shell.html', import.meta.url).href;
 }
 
+/**
+ * The main-nav links in shell.html are written relative to the site
+ * root (e.g. href="distribuicoes-metas.html", href="carteiras/index.html").
+ * That's correct when the shell is mounted on a top-level page, but on
+ * a page nested one level deep (e.g. carteiras/index.html) the browser
+ * resolves them relative to the CURRENT page instead, so
+ * "distribuicoes-metas.html" becomes
+ * ".../carteiras/distribuicoes-metas.html" - a 404 on GitHub Pages
+ * (bug reported 19/09/2026: Carteiras -> Ações -> Distribuições e
+ * Metas no menu principal).
+ *
+ * resolveSiteRootUrl() gives the site root as an absolute URL, using
+ * the same import.meta.url trick as resolveShellPartialUrl() above -
+ * robust to both page nesting depth and GitHub Pages subpath
+ * deployment. fixNavLinkHrefs() then rewrites every main-nav href to
+ * be resolved against that root instead of the current page.
+ */
+export function resolveSiteRootUrl() {
+  return new URL('../../', import.meta.url).href;
+}
+
+/**
+ * Rewrites every #mainnav .nav-link href to an absolute URL resolved
+ * against rootUrl, so it always points at the right page regardless of
+ * how deeply nested the current page is.
+ */
+export function fixNavLinkHrefs(doc, rootUrl) {
+  doc.querySelectorAll('#mainnav .nav-link[href]').forEach((link) => {
+    link.setAttribute('href', new URL(link.getAttribute('href'), rootUrl).href);
+  });
+}
+
 /** Fetches the shell partial's raw HTML text. */
 export async function fetchShellPartial(url, fetchImpl = fetch) {
   const response = await fetchImpl(url);
@@ -648,6 +680,7 @@ export async function mountShell(options = {}) {
     const html = await fetchShellPartial(partialUrl, fetchImpl);
     const { headerContent, footerContent } = parseShellPartial(html, doc);
     injectShell(doc, { headerContent, footerContent });
+    fixNavLinkHrefs(doc, options.siteRootUrl || resolveSiteRootUrl());
     markActiveSection(doc, doc.body.dataset.section || null);
     setupPopovers(doc);
     setupThemeToggle(doc, { initTheme, toggleTheme });

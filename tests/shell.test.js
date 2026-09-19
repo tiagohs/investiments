@@ -10,6 +10,8 @@ import {
   parseShellPartial,
   injectShell,
   markActiveSection,
+  fixNavLinkHrefs,
+  resolveSiteRootUrl,
   setupPopovers,
   setupThemeToggle,
   registerServiceWorker,
@@ -44,8 +46,9 @@ const SHELL_PARTIAL_HTML = `
       <div class="overlay-panel" id="outroPanel">outro panel</div>
     </div>
     <nav id="mainnav">
-      <div class="nav-item" data-section="inicio"><a class="nav-link" data-section="inicio">Início</a></div>
-      <div class="nav-item" data-section="carteiras"><a class="nav-link" data-section="carteiras">Carteiras</a></div>
+      <div class="nav-item" data-section="inicio"><a class="nav-link" href="index.html" data-section="inicio">Início</a></div>
+      <div class="nav-item" data-section="carteiras"><a class="nav-link" href="carteiras/index.html" data-section="carteiras">Carteiras</a></div>
+      <div class="nav-item" data-section="distribuicoes"><a class="nav-link" href="distribuicoes-metas.html" data-section="distribuicoes">Distribuições e Metas</a></div>
     </nav>
   </template>
   <template id="shell-footer-template">
@@ -799,6 +802,45 @@ test('markActiveSection() leaves every item inactive when sectionKey is null', (
   });
 });
 
+// --- fixNavLinkHrefs / resolveSiteRootUrl -------------------------------
+
+test('fixNavLinkHrefs() resolves every #mainnav .nav-link href against the given root, fixing nested-page relative paths', () => {
+  const doc = mountedDoc();
+  const root = 'https://tiago.github.io/investiments/';
+
+  fixNavLinkHrefs(doc, root);
+
+  const hrefs = Array.from(doc.querySelectorAll('#mainnav .nav-link')).map((a) => a.getAttribute('href'));
+  assert.deepEqual(hrefs, [
+    'https://tiago.github.io/investiments/index.html',
+    'https://tiago.github.io/investiments/carteiras/index.html',
+    'https://tiago.github.io/investiments/distribuicoes-metas.html',
+  ]);
+});
+
+test('fixNavLinkHrefs() makes a link from a page nested under carteiras/ resolve to the site root, not the current page', () => {
+  const doc = mountedDoc();
+  // simulates being on .../carteiras/index.html: without the fix, the
+  // browser would resolve "distribuicoes-metas.html" relative to
+  // carteiras/, landing on the 404'd carteiras/distribuicoes-metas.html.
+  const root = 'https://tiago.github.io/investiments/';
+  fixNavLinkHrefs(doc, root);
+
+  const distribuicoesLink = doc.querySelector('.nav-item[data-section="distribuicoes"] .nav-link');
+  assert.equal(distribuicoesLink.getAttribute('href'), 'https://tiago.github.io/investiments/distribuicoes-metas.html');
+});
+
+test('fixNavLinkHrefs() does not throw and touches nothing when there is no #mainnav yet', () => {
+  const doc = makeDom(); // un-injected, no #mainnav
+  assert.doesNotThrow(() => fixNavLinkHrefs(doc, 'https://example.com/'));
+});
+
+test('resolveSiteRootUrl() returns a URL (the exact value depends on where shell.js itself is served from)', () => {
+  const url = resolveSiteRootUrl();
+  assert.equal(typeof url, 'string');
+  assert.ok(url.endsWith('/'));
+});
+
 // --- setupPopovers ------------------------------------------------------
 
 test('setupPopovers() opens a panel and the backdrop on trigger click, closes on backdrop click', () => {
@@ -921,6 +963,21 @@ test('mountShell() fetches the partial, injects it, marks the section, and wires
   assert.ok(doc.getElementById('mainnav'), 'header content should be injected');
   const carteirasItem = doc.querySelector('.nav-item[data-section="carteiras"]');
   assert.equal(carteirasItem.classList.contains('current'), true);
+});
+
+test('mountShell() also fixes the main-nav hrefs against the site root, using the given siteRootUrl', async () => {
+  const doc = makeDom();
+  const fetchImpl = async () => ({ ok: true, text: async () => SHELL_PARTIAL_HTML });
+
+  await mountShell({
+    document: doc,
+    fetchImpl,
+    partialUrl: 'fake://shell.html',
+    siteRootUrl: 'https://tiago.github.io/investiments/',
+  });
+
+  const distribuicoesLink = doc.querySelector('.nav-item[data-section="distribuicoes"] .nav-link');
+  assert.equal(distribuicoesLink.getAttribute('href'), 'https://tiago.github.io/investiments/distribuicoes-metas.html');
 });
 
 test('mountShell() logs and does not throw when the fetch fails', async () => {

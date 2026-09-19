@@ -51,11 +51,16 @@
  *   - 📊Dash Geral!I18 = Renda fixa (BRL) — mesmo valor de
  *     Carteira Renda Fixa!K6 ("Total atualizado"), os dois batem
  *   - 📊Dash Geral!I19 = Bolsa americana (BRL, já convertida)
- *   - Carteira Renda Fixa!M6 = Renda Emergencial — valor atualizado só
+ *   - Carteira Renda Fixa!N6 = Renda Emergencial — valor atualizado só
  *     das posições marcadas "Renda Emergencial" na coluna B (o restante
  *     de Renda Fixa está marcado "Renda Fixa", que no app é a parte
  *     "Longo Prazo" dessa classe). Fórmula já existia na planilha —
  *     não precisou criar nada novo aqui.
+ *     [19/09/2026] Era M6 até o Tiago inserir uma coluna nova na aba
+ *     "Carteira Renda Fixa" (mesmo padrão do bug corrigido no commit
+ *     c71eca5): M6 passou a ser só o rótulo de texto "Renda
+ *     Emergencial:" e o valor numérico empurrou pra N6. Ajustado aqui
+ *     pra ler N6 — conferido direto na planilha real antes de mexer.
  *   - Patrimônio Longo Prazo = Total − Renda Emergencial. Ações, FIIs e
  *     Ações EUA são sempre Longo Prazo; dentro de Renda Fixa, tudo que
  *     NÃO está marcado "Renda Emergencial" é Longo Prazo — por isso a
@@ -185,7 +190,7 @@ function montarHome_() {
   var rendaFixaClasse = blocoDash[14][4]; // I18
   var acoesEua = blocoDash[15][4]; // I19
 
-  var rendaEmergencial = carteiraRF.getRange('M6').getValue();
+  var rendaEmergencial = carteiraRF.getRange('N6').getValue();
   var longoPrazo = total - rendaEmergencial;
   // Nacional = Longo Prazo sem os investimentos internacionais (Ações
   // EUA) - pedido do Tiago em 17/09/2026. Mesma fórmula, dia a dia, em

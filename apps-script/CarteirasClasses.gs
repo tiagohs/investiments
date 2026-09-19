@@ -82,14 +82,24 @@ function testarCarteirasAcoesEuaDireto() {
 function montarCarteirasAcoes_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações');
-  dados.benchmarks = { ibovespa: home.indices.ibovespa, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
+  // 19/09/2026: home.indices.X é um objeto ({valor, variacaoDia} -
+  // ver Home.gs!montarHome_) desde que os índices ganharam variação do
+  // dia (Fase 2), mas os 3 benchmarks aqui embaixo sempre foram
+  // consumidos como número puro no front (carteiras-acoes.js/
+  // carteiras-fiis.js/carteiras-acoes-eua.js, com formatNumeroBR) -
+  // ficou faltando o ".valor" nessa atribuição, então os 3 chips
+  // ("Ibovespa hoje"/"IFIX hoje"/"S&P 500 hoje") vinham mostrando
+  // "—" (formatNumeroBR rejeita não-número). Tiago reportou. Sem
+  // teste automatizado pegando isso porque os mocks usavam número
+  // solto direto (não bateram com o formato real) - corrigidos junto.
+  dados.benchmarks = { ibovespa: home.indices.ibovespa.valor, cdi: buscarCdiSelicAnualizadosHoje_().cdi };
   return dados;
 }
 
 function montarCarteirasFiis_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('FIIs');
-  dados.benchmarks = { ifix: home.indices.ifix };
+  dados.benchmarks = { ifix: home.indices.ifix.valor };
   enriquecerAtivosComCarteiraFiis_(dados.ativos);
   return dados;
 }
@@ -97,7 +107,7 @@ function montarCarteirasFiis_() {
 function montarCarteirasAcoesEua_() {
   var home = montarHome_();
   var dados = montarCarteiraClasse_('Ações EUA');
-  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa, spx: home.indices.spx };
+  dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.valor, spx: home.indices.spx.valor };
   return dados;
 }
 

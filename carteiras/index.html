@@ -55,28 +55,24 @@
               style="--accent:var(--acoes); --accent-soft:var(--acoes-soft)">
         <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V10M10 19V5M16 19v-7M4 19h16"/></svg></span>
         <span class="side-label">Ações</span>
-        <span class="side-pct" id="sidePct-acoes"></span>
       </button>
 
       <button class="side-item" type="button" data-page="fiis"
               style="--accent:var(--fiis); --accent-soft:var(--fiis-soft)">
         <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/></svg></span>
         <span class="side-label">FIIs</span>
-        <span class="side-pct" id="sidePct-fiis"></span>
       </button>
 
       <button class="side-item" type="button" data-page="acoes-eua"
               style="--accent:var(--usa); --accent-soft:var(--usa-soft)">
         <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.3 3.7 5.3 3.7 8.5s-1.3 6.2-3.7 8.5c-2.4-2.3-3.7-5.3-3.7-8.5S9.6 5.8 12 3.5Z"/></svg></span>
         <span class="side-label">Ações Internacionais</span>
-        <span class="side-pct" id="sidePct-acoes-eua"></span>
       </button>
 
       <button class="side-item" type="button" data-page="renda-fixa"
               style="--accent:var(--rf); --accent-soft:var(--rf-soft)">
         <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/><ellipse cx="15" cy="12" rx="6" ry="3"/></svg></span>
         <span class="side-label">Renda Fixa</span>
-        <span class="side-pct" id="sidePct-renda-fixa"></span>
       </button>
     </nav>
 
@@ -97,25 +93,30 @@
           <div id="refreshControlVisaoGeral" class="refresh-control"></div>
           <div class="avisos-banner" id="vgAvisos" hidden></div>
 
-          <div class="cg-hero">
-            <div class="cg-hero-total">
+          <!-- 19/09/2026: 2 cartões separados (era 1 só, ver comentário em
+               carteiras.css) - o da esquerda ganhou o resumo
+               Investido/Lucro-Prejuízo/Rentabilidade + benchmarks
+               (vs Ibovespa/CDI) que faltava (renderHeroStats_/
+               renderBenchmarksClasseCarteiras em carteiras-visao-geral.js). -->
+          <div class="cg-hero-grid">
+            <div class="cg-hero-card">
               <span class="eyebrow">Patrimônio em carteiras</span>
               <div class="cg-hero-valor" id="vgPatrimonioTotal">—</div>
-              <div class="cg-hero-info" id="vgInfoRentabilidade"></div>
+              <div class="cg-hero-stats" id="vgResumo"></div>
+              <div id="vgBenchmarks" class="cc-benchmarks"></div>
             </div>
-            <div class="cg-hero-donut" id="vgDonut"></div>
+            <div class="cg-hero-card cg-hero-donut" id="vgDonut"></div>
           </div>
 
+          <!-- 19/09/2026: filtro de período sobe pro topo do 1º gráfico
+               (Evolução) - mesmo padrão da Início (#periodoTabs sempre no
+               topo do 1º gráfico da seção, afeta todos abaixo dele: aqui
+               afeta Evolução E Rentabilidade acumulada). Antes ficava
+               entre os 2 gráficos, meio "pendurado" sem dono claro -
+               Tiago reportou. -->
           <div class="area-header" style="margin-top:24px">
             <h2>Evolução do patrimônio</h2>
-            <span class="hint">valor de mercado da carteira, dia a dia</span>
-          </div>
-          <div class="cg-chart-card">
-            <div id="vgEvolucaoChart"></div>
-          </div>
-
-          <div class="area-header" style="margin-top:22px">
-            <h2>Rentabilidade acumulada</h2>
+            <span class="hint">quanto você tem vs. quanto investiu, dia a dia</span>
           </div>
           <div class="filter-tabs" id="vgPeriodoTabs" style="margin-bottom:12px">
             <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
@@ -125,6 +126,20 @@
             <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
           </div>
           <div class="cg-chart-card">
+            <div id="vgEvolucaoChart"></div>
+            <div class="chart-legend2" id="vgEvolucaoLegenda"></div>
+          </div>
+
+          <!-- vgInfoRentabilidade morava dentro do hero acima (duplicava o
+               "Patrimônio total" que já aparece lá - Tiago reportou) - o
+               lugar certo dele é aqui, junto do próprio gráfico que ele
+               descreve (mesmo padrão de .rentab-card-info+.rentab-card-chart
+               na Início, sempre juntos no mesmo cartão). -->
+          <div class="area-header" style="margin-top:22px">
+            <h2>Rentabilidade acumulada</h2>
+          </div>
+          <div class="cg-chart-card">
+            <div class="rentab-card-info" id="vgInfoRentabilidade"></div>
             <div id="vgRentabChart"></div>
             <div class="chart-legend2" id="vgRentabLegenda"></div>
           </div>

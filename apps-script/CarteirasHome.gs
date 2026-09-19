@@ -62,10 +62,16 @@ function montarCarteirasHome_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var home = montarHome_(); // Home.gs — já testado ✓, reaproveita patrimônio total e por classe
 
+  // 19/09/2026: comprar/aguardar por classe (barra "9 comprar · 5 aguardar"
+  // nos 4 cards da Visão geral, a pedido do Tiago) - mesma coluna Vies
+  // (linha[10]) que CarteirasClasses.gs!montarCarteiraClasse_ já lê pra
+  // cada subpágina, só que agregada aqui em vez de por ativo. Não existe
+  // pra Renda Fixa (sem coluna Vies em "Carteira Renda Fixa") - o card
+  // de Renda Fixa fica sem essa barra, de propósito.
   var agSomaRV = {
-    'Ações': { comprado: 0, atualizado: 0, qtd: 0 },
-    'FIIs': { comprado: 0, atualizado: 0, qtd: 0 },
-    'Ações EUA': { comprado: 0, atualizado: 0, qtd: 0 }
+    'Ações': { comprado: 0, atualizado: 0, qtd: 0, comprar: 0, aguardar: 0 },
+    'FIIs': { comprado: 0, atualizado: 0, qtd: 0, comprar: 0, aguardar: 0 },
+    'Ações EUA': { comprado: 0, atualizado: 0, qtd: 0, comprar: 0, aguardar: 0 }
   };
 
   var abaAux = ss.getSheetByName(ABA_AUXILIAR_ATIVOS_CARTEIRAS_HOME);
@@ -77,12 +83,15 @@ function montarCarteirasHome_() {
       ultimaAux - LINHA_DADOS_AUXILIAR_ATIVOS_CARTEIRAS_HOME + 1, 23
     ).getValues();
     dadosAux.forEach(function (linha) {
-      var classe = linha[0], ticker = linha[1],
+      var classe = linha[0], ticker = linha[1], vies = linha[10],
         totalComprado = linha[18], totalAtualizado = linha[19];
       if (!ticker || !agSomaRV[classe]) return;
       agSomaRV[classe].comprado += (totalComprado || 0);
       agSomaRV[classe].atualizado += (totalAtualizado || 0);
       agSomaRV[classe].qtd += 1;
+      var viesTexto = (vies || '').toString().toLowerCase();
+      if (viesTexto === 'comprar') agSomaRV[classe].comprar += 1;
+      else if (viesTexto === 'aguardar') agSomaRV[classe].aguardar += 1;
     });
   }
 
@@ -107,7 +116,7 @@ function montarCarteirasHome_() {
   function montarCard_(nome, totalAtualizado, agSoma) {
     var lucroPrejuizo = agSoma.atualizado - agSoma.comprado;
     var percLucroPrejuizo = agSoma.comprado !== 0 ? (lucroPrejuizo / agSoma.comprado) : 0;
-    return {
+    var card = {
       nome: nome,
       totalAtualizado: arredondarCarteirasHome_(totalAtualizado),
       percentualDoPatrimonio: home.patrimonio.total !== 0 ?
@@ -117,6 +126,13 @@ function montarCarteirasHome_() {
       rentabilidade: arredondarCarteirasHome_(percLucroPrejuizo),
       quantidadeAtivos: agSoma.qtd
     };
+    // só RV tem Vies (agSomaRV acima) - Renda Fixa (somaRF) não passa
+    // comprar/aguardar, e o card sai sem esses 2 campos de propósito.
+    if (typeof agSoma.comprar === 'number' || typeof agSoma.aguardar === 'number') {
+      card.comprar = agSoma.comprar || 0;
+      card.aguardar = agSoma.aguardar || 0;
+    }
+    return card;
   }
 
   // Ações EUA: converte agSoma (US$, nativo de Auxiliar_ativos) pra
@@ -128,7 +144,9 @@ function montarCarteirasHome_() {
   var agSomaAcoesEuaBrl = {
     comprado: agSomaRV['Ações EUA'].comprado * cambioUsd,
     atualizado: agSomaRV['Ações EUA'].atualizado * cambioUsd,
-    qtd: agSomaRV['Ações EUA'].qtd
+    qtd: agSomaRV['Ações EUA'].qtd,
+    comprar: agSomaRV['Ações EUA'].comprar,
+    aguardar: agSomaRV['Ações EUA'].aguardar
   };
   var cardAcoesEua = montarCard_('Ações Internacionais', home.patrimonio.porClasse.acoesEua, agSomaAcoesEuaBrl);
   cardAcoesEua.totalAtualizadoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado);
@@ -143,7 +161,14 @@ function montarCarteirasHome_() {
       montarCard_('FIIs', home.patrimonio.porClasse.fiis, agSomaRV['FIIs']),
       cardAcoesEua,
       montarCard_('Renda Fixa', home.patrimonio.porClasse.rendaFixa, somaRF)
-    ]
+    ],
+    // 19/09/2026: "vs CDI (a.a.)" no hero da Visão geral (a pedido do
+    // Tiago) - reaproveita buscarCdiSelicAnualizadosHoje_() (já usada
+    // em CarteirasClasses.gs pro mesmo card de Ações). O "vs Ibovespa
+    // hoje" NÃO precisa de campo novo aqui - o front usa
+    // home.indices.ibovespa.variacaoDia, que a própria tela já busca
+    // via getHome() em paralelo (ver carteiras-visao-geral.js).
+    benchmarks: { cdi: buscarCdiSelicAnualizadosHoje_().cdi }
   };
 }
 
