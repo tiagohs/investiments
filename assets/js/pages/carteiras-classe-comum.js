@@ -95,13 +95,104 @@ export function logoAtivoHtml(ticker) {
   return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
 }
 
+/** Botão redondo "i" com tooltip nativo (title) - mesmo padrão visual
+ * do mockup, usado tanto no cabeçalho das colunas (explicar o que é
+ * DY/P-L/P-VP/Status) quanto dentro de uma célula (ex.: equivalente em
+ * R\$ de um valor em US$, ou uma observação sobre um ativo específico -
+ * ver notaAtivoHtml abaixo). `pequeno` usa o tamanho reduzido que o
+ * mockup usa dentro de célula (11px em vez de 12px). Sem texto, não
+ * desenha nada (colunas sem ajuda não ganham botão à toa). */
+export function botaoInfoHtml(texto, { pequeno = false } = {}) {
+  if (!texto) return '';
+  const classe = pequeno ? 'cc-th-info cc-th-info-sm' : 'cc-th-info';
+  const escapado = String(texto).replace(/"/g, '&quot;');
+  return ` <button type="button" class="${classe}" title="${escapado}">i</button>`;
+}
+
+/** Observações curtas por ticker específico (19/09/2026 #3, pedido do
+ * Tiago: "AXIA15G é uma ação de subscrição, inclua um i na frente,
+ * explique o que é"). Mapa fixo, não um padrão automático de sufixo de
+ * ticker - o padrão do B3 pra direito/recibo de subscrição (normalmente
+ * termina em 1/2/9/10 + uma letra de série) tem exceções demais pra
+ * confiar cegamente (ações PNA/PNB, por ex., também podem terminar em
+ * 5/6) - arriscaria rotular errado um ativo de verdade. Cresce
+ * conforme o Tiago for confirmando outros tickers. */
+const NOTAS_ATIVOS = {
+  AXIA15G: 'Ação de subscrição: um direito que dá ao acionista a opção de comprar novas ações emitidas pela empresa num aumento de capital, geralmente por um preço menor que o de mercado. Não tem histórico de preço nem fundamentos (P/L, P/VP, DY) como uma ação normal — por isso essas colunas aparecem vazias para este ativo.',
+};
+
+/** "i" pequeno antes do ticker quando o ativo tem uma nota conhecida
+ * (ver NOTAS_ATIVOS) - '' quando não tem (maioria dos ativos). */
+export function notaAtivoHtml(ticker) {
+  return botaoInfoHtml(NOTAS_ATIVOS[ticker], { pequeno: true });
+}
+
+/** Filtra ativos por ticker/nome (substring, sem diferenciar
+ * maiúsculas/minúsculas) - usado pela caixa de busca das 3 subpáginas
+ * de renda variável (19/09/2026 #3). Busca vazia devolve a lista
+ * inteira sem cópia desnecessária. */
+export function filtrarAtivosPorBusca(ativos, busca) {
+  const termo = (busca || '').trim().toLowerCase();
+  if (!termo) return ativos;
+  return (ativos || []).filter((a) => (a.ticker || '').toLowerCase().includes(termo) || (a.nome || '').toLowerCase().includes(termo));
+}
+
 /**
- * Tabela de ativos genérica. `colunas` é `[{ label, formatar(ativo) =>
- * string HTML, alinhar?: 'right' }]` — cada page module monta as
- * colunas certas pra sua classe (ver carteiras-acoes.js/carteiras-fiis.js/
- * carteiras-acoes-eua.js/carteiras-renda-fixa.js). Ordenado por Total
- * atualizado (maior primeiro) sempre que o campo existir - mesma
- * hierarquia visual da Home consolidada (maior posição primeiro).
+ * Barra de busca (+ opcionalmente chips de filtro por grupo, hoje só
+ * FIIs usa - "Todos"/"Papel (TVM)"/"Shopping"/etc., vindos dinamicamente
+ * de distribuicaoPorGrupo, não hard-coded, pra não ficar errado se o
+ * Tiago reclassificar um ativo) acima da tabela de Ativos, igual ao
+ * mockup nas 3 subpáginas de renda variável (19/09/2026 #3). Renderiza
+ * o HTML só 1x por desenho de página inteiro - re-renderizar a cada
+ * tecla digitada tiraria o foco do <input> a cada letra - o page module
+ * chama onBuscar/onFiltrarGrupo pra re-renderizar só a TABELA (ver
+ * carteiras-fiis.js).
+ */
+export function renderFiltrosTabelaCarteiras(doc, container, { busca = '', onBuscar, grupos = null, filtroGrupo = null, onFiltrarGrupo } = {}) {
+  if (!container) return;
+  const chipsHtml = grupos ? `
+    <div class="filter-tabs cc-filtro-chips">
+      <button type="button" class="filter-tab${filtroGrupo === null ? ' active' : ''}" data-grupo="">Todos</button>
+      ${grupos.map((g) => `<button type="button" class="filter-tab${filtroGrupo === g ? ' active' : ''}" data-grupo="${g}">${g}</button>`).join('')}
+    </div>
+  ` : '';
+  container.innerHTML = `
+    <div class="cc-filtros-linha">
+      ${chipsHtml}
+      <label class="cc-busca-caixa">
+        <span class="cc-busca-icone" aria-hidden="true">🔍</span>
+        <input type="search" class="cc-busca-input" placeholder="Buscar por ticker ou nome">
+      </label>
+    </div>
+    <div class="hint cc-filtros-dica">${grupos ? 'O filtro por segmento também recalcula os totais no rodapé da tabela · ' : ''}Clique no título de uma coluna pra ordenar por ela</div>
+  `;
+  const inputEl = container.querySelector('.cc-busca-input');
+  if (inputEl) {
+    inputEl.value = busca;
+    if (onBuscar) inputEl.addEventListener('input', (ev) => onBuscar(ev.target.value));
+  }
+  if (onFiltrarGrupo) {
+    container.querySelectorAll('[data-grupo]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('[data-grupo]').forEach((b) => b.classList.toggle('active', b === btn));
+        onFiltrarGrupo(btn.dataset.grupo || null);
+      });
+    });
+  }
+}
+
+/**
+ * Tabela de ativos genérica. `colunas` é `[{ label, alinhar?, ajuda?,
+ * campo?, ordenarPor?(ativo)=>valor bruto, formatar(ativo)=>string
+ * HTML }]` — cada page module monta as colunas certas pra sua classe
+ * (ver carteiras-acoes.js/carteiras-fiis.js/carteiras-acoes-eua.js/
+ * carteiras-renda-fixa.js). `ajuda` vira um botão "i" com tooltip no
+ * cabeçalho (19/09/2026 #3); `campo`+`ordenarPor` deixam a coluna
+ * clicável pra ordenar (19/09/2026 #3, pedido do Tiago - "quero poder
+ * ordenar clicando no título de cada coluna") - sem `ordenarPor` a
+ * coluna não vira clicável. Sem uma ordenação ativa (ou ordenacao=null),
+ * cai no padrão de sempre: Total atualizado desc (maior posição
+ * primeiro, mesma hierarquia da Home consolidada).
  *
  * `linhaTotalHtml` (opcional) - 1 <tr> pronto (o chamador já sabe quantas
  * colunas tem e quais das últimas são Total/Lucro, então monta o
@@ -109,15 +200,34 @@ export function logoAtivoHtml(ticker) {
  * carteiras-acoes.js) - some quando null/vazio (tabela filtrada por
  * busca com 0 resultado, por ex., não faz sentido mostrar total ali).
  */
-export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { campoOrdenacao = 'totalAtualizado', linhaTotalHtml = '' } = {}) {
+export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { linhaTotalHtml = '', ordenacao = null, onOrdenar = null } = {}) {
   if (!container) return;
   if (!ativos || !ativos.length) {
     container.innerHTML = '<p class="hint">Nenhum ativo encontrado nesta carteira.</p>';
     return;
   }
-  const lista = [...ativos].sort((a, b) => (b[campoOrdenacao] || 0) - (a[campoOrdenacao] || 0));
 
-  const cabecalho = colunas.map((c) => `<th${c.alinhar === 'right' ? ' class="right"' : ''}>${c.label}</th>`).join('');
+  const colunaAtiva = ordenacao ? colunas.find((c) => c.campo === ordenacao.campo && typeof c.ordenarPor === 'function') : null;
+  const lista = [...ativos].sort((a, b) => {
+    if (colunaAtiva) {
+      const va = colunaAtiva.ordenarPor(a);
+      const vb = colunaAtiva.ordenarPor(b);
+      const cmp = (typeof va === 'string' || typeof vb === 'string')
+        ? String(va ?? '').localeCompare(String(vb ?? ''), 'pt-BR')
+        : (va ?? -Infinity) - (vb ?? -Infinity);
+      return ordenacao.direcao === 'asc' ? cmp : -cmp;
+    }
+    return (b.totalAtualizado || 0) - (a.totalAtualizado || 0);
+  });
+
+  const cabecalho = colunas.map((c) => {
+    const ordenavel = typeof c.ordenarPor === 'function';
+    const ativa = ordenavel && ordenacao && ordenacao.campo === c.campo;
+    const classes = [c.alinhar === 'right' ? 'right' : '', ordenavel ? 'cc-th-ordenavel' : ''].filter(Boolean).join(' ');
+    const seta = ativa ? ` <span class="cc-th-seta">${ordenacao.direcao === 'asc' ? '▲' : '▼'}</span>` : '';
+    const ajuda = c.ajuda ? botaoInfoHtml(c.ajuda) : '';
+    return `<th${classes ? ` class="${classes}"` : ''}${ordenavel ? ` data-campo="${c.campo}"` : ''}>${c.label}${ajuda}${seta}</th>`;
+  }).join('');
   const linhas = lista.map((ativo) => {
     const celulas = colunas.map((c) => `<td${c.alinhar === 'right' ? ' class="right"' : ''}>${c.formatar(ativo)}</td>`).join('');
     return `<tr>${celulas}</tr>`;
@@ -132,6 +242,12 @@ export function renderTabelaAtivosCarteiras(doc, container, ativos, colunas, { c
       </table>
     </div>
   `;
+
+  if (onOrdenar) {
+    container.querySelectorAll('.cc-th-ordenavel').forEach((th) => {
+      th.addEventListener('click', () => onOrdenar(th.dataset.campo));
+    });
+  }
 }
 
 /** "Comprar" (good) / "Aguardar" (warn) / sem dado (—) — Auxiliar_ativos

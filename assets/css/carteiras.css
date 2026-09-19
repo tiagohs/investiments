@@ -208,3 +208,30 @@
 .cc-tabela tfoot tr{ border-top:2px solid var(--border); background:var(--surface-2); font-weight:700; }
 .cc-tabela tfoot td{ padding:11px 10px; }
 .status-pill.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+
+/* Ordenação por clique no cabeçalho + botão "i" de ajuda (19/09/2026
+   #3, pedido do Tiago - "quero poder ordenar clicando no título",
+   "inclua o botão i pra explicar o que é cada coluna") - mesmo padrão
+   visual do mockup (bolinha outline com "i" dentro, cursor:help). */
+.cc-tabela th.cc-th-ordenavel{ cursor:pointer; }
+.cc-tabela th.cc-th-ordenavel:hover{ color:var(--ink); }
+.cc-th-seta{ color:var(--ink); }
+.cc-th-info{ display:inline-flex; align-items:center; justify-content:center; width:12px; height:12px;
+      border-radius:50%; border:1px solid var(--ink-faint); background:none; color:var(--ink-faint);
+      font-size:8px; line-height:1; padding:0; margin-left:4px; cursor:help; font-family:var(--body-f);
+      vertical-align:middle; }
+.cc-th-info-sm{ width:11px; height:11px; font-size:7.5px; margin-left:3px; }
+
+/* Busca (+ chips de filtro por grupo, só FIIs por enquanto) acima da
+   tabela de Ativos (19/09/2026 #3, fiel ao mockup - ver
+   renderFiltrosTabelaCarteiras em carteiras-classe-comum.js). Sem
+   chips, a caixa de busca fica sozinha à esquerda (Ações/Ações EUA);
+   com chips, eles crescem (flex:1) e empurram a busca pra direita
+   (FIIs) - sem precisar de margin-left:auto condicional. */
+.cc-filtros-linha{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+.cc-filtro-chips{ flex:1; min-width:0; }
+.cc-busca-caixa{ display:flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border);
+      border-radius:100px; padding:7px 14px; flex:none; width:220px; }
+.cc-busca-icone{ font-size:12px; color:var(--ink-faint); }
+.cc-busca-input{ border:none; outline:none; font-size:12px; font-family:var(--body-f); background:transparent; width:100%; color:var(--ink); }
+.cc-filtros-dica{ margin-bottom:10px; }

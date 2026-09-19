@@ -92,11 +92,18 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     // logo do ativo (LOGOS_ATIVOS/fallback de iniciais) - 19/09/2026 #2
     assert.equal(doc.querySelectorAll('.cc-logo').length, 2);
     // linha de totais no rodapé (19/09/2026 #2 - "você não trouxe os totais")
+    // - somada a partir da lista de ativos EXIBIDA (não de dados.resumo
+    // direto), pra continuar batendo quando a busca filtra a tabela
+    // (19/09/2026 #3) - por isso o valor aqui (8550+21050=29.600,00) é
+    // diferente do resumo.totalAtualizado do fixture (29.968,40, testado
+    // separadamente no tile "Total atualizado" acima) - a divergência
+    // proposital entre os dois no fixture é o que garante que cada parte
+    // está mesmo lendo a fonte certa.
     const totalRow = doc.querySelector('.cc-tabela tfoot tr');
     assert.ok(totalRow, 'deveria ter uma linha de totais no tfoot');
     assert.match(totalRow.textContent, /Total \(2 ativos\)/);
-    assert.match(totalRow.textContent, /29\.968,40/);
-    assert.match(totalRow.textContent, /4\.311,01/);
+    assert.match(totalRow.textContent, /29\.600,00/);
+    assert.match(totalRow.textContent, /3\.945,00/);
   });
 });
 

@@ -110,7 +110,12 @@ h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin
    todo o espaco horizontal, utilize-o, pra ter mais espaco pra
    trabalhar") - mais espaco pras grades de indices/ativos e pros
    2 cartoes lado a lado de Rentabilidade. */
-.wrap{ max-width:1360px; margin:0 auto; padding:18px 24px 40px; }
+/* 19/09/2026 #3 (pedido do Tiago - "ainda acho que tem pouco espaço [de
+   conteúdo] em desktop"): margem horizontal era 24px, foi pra 16px -
+   não mudou muito (ele pediu só um respiro a mais, não uma reforma),
+   mas dá mais respiro real pra tabela de Ativos de Carteiras, que é a
+   mais larga do app. */
+.wrap{ max-width:1360px; margin:0 auto; padding:18px 16px 40px; }
 .eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
 svg{ display:block; }
 
@@ -349,10 +354,23 @@ svg{ display:block; }
       border-radius:16px; padding:22px; box-shadow:var(--shadow); min-height:220px; }
 .section-content h2{ font-size:16px; margin-bottom:8px; }
 
+/* 19/09/2026 #4 (pedido do Tiago, versão mobile: "o menu das carteiras
+   esta na vertical, ele deveria ficar no topo, de forma horizontal,
+   logo abaixo do menu principal") - .side-nav vira uma barra
+   horizontal de ícones ACIMA do conteúdo (.section-layout empilha em
+   coluna), em vez do trilho vertical ao lado. overflow-x:auto garante
+   que, mesmo com mais itens do que cabem na tela, ela role
+   horizontalmente em vez de forçar layout ou quebrar - nunca gera
+   scroll horizontal na PÁGINA toda (mesma garantia que o comentário
+   da .mainnav já documenta). O rótulo "Carteiras" (.eyebrow) some
+   aqui - já fica redundante com a aba "Carteiras" ativa no menu
+   principal, logo acima. */
 @media (max-width:640px){
-  .section-layout{ gap:10px; }
-  .side-nav{ flex:0 0 58px; gap:8px; }
-  .side-item{ justify-content:center; padding:9px 4px; border-radius:14px; }
+  .section-layout{ flex-direction:column; gap:12px; }
+  .side-nav{ flex:0 0 auto; flex-direction:row; width:100%; gap:8px; overflow-x:auto; -ms-overflow-style:none; scrollbar-width:none; }
+  .side-nav::-webkit-scrollbar{ display:none; }
+  .side-nav .eyebrow{ display:none; }
+  .side-item{ flex:0 0 auto; justify-content:center; padding:9px 4px; border-radius:14px; }
   .side-chev{ display:none; }
   .side-item .side-label{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .section-content{ padding:16px; }

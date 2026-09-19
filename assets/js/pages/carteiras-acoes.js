@@ -12,7 +12,10 @@ import {
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
   renderTabelaAtivosCarteiras,
+  renderFiltrosTabelaCarteiras,
+  filtrarAtivosPorBusca,
   logoAtivoHtml,
+  notaAtivoHtml,
   statusVies,
 } from './carteiras-classe-comum.js';
 
@@ -20,21 +23,27 @@ const CHAVE_CACHE_ACOES = 'carteiras_acoes_v1';
 
 const COLUNAS_ATIVOS_ACOES = [
   {
-    label: 'Ativo', formatar: (a) => {
+    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, formatar: (a) => {
       const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
-      return `<div class="cc-ativo-cel">${logoAtivoHtml(a.ticker)}<div><b>${a.ticker}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
+      return `<div class="cc-ativo-cel">${logoAtivoHtml(a.ticker)}<div><b>${notaAtivoHtml(a.ticker)}${a.ticker}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
     },
   },
   {
-    label: 'Preço / dia', alinhar: 'right', formatar: (a) => {
+    label: 'Preço / dia', alinhar: 'right', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
       const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
       return `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
     },
   },
-  { label: 'Qtd', alinhar: 'right', formatar: (a) => formatNumeroBR(a.quantidade, 0) },
-  { label: 'Pr. médio', alinhar: 'right', formatar: (a) => formatBRL(a.precoMedio) },
+  { label: 'Qtd', alinhar: 'right', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
   {
-    label: 'Status', formatar: (a) => {
+    label: 'Pr. médio', alinhar: 'right', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
+    ajuda: 'Preço médio pago por ação, ponderado por todas as compras feitas.',
+    formatar: (a) => formatBRL(a.precoMedio),
+  },
+  {
+    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto,
+    ajuda: 'Compara o preço atual com o preço-teto definido por você: abaixo do teto = Comprar, acima = Aguardar.',
+    formatar: (a) => {
       const status = statusVies(a.vies);
       const badge = status.classe ? `<span class="status-pill ${status.classe}">${status.texto}</span>` : (status.texto || '—');
       const teto = typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : '';
@@ -42,20 +51,32 @@ const COLUNAS_ATIVOS_ACOES = [
     },
   },
   {
-    label: 'DY', alinhar: 'right', formatar: (a) => {
+    label: 'DY', alinhar: 'right', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
+    ajuda: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pelo preço atual da ação.',
+    formatar: (a) => {
       const cor = typeof a.dyPercentual === 'number' ? (a.dyPercentual >= 0 ? 'good' : 'bad') : '';
       const pct = typeof a.dyPercentual === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.dyPercentual)}</span>` : '';
       return `${formatBRL(a.dyValor)}${pct}`;
     },
   },
-  { label: 'P/L', alinhar: 'right', formatar: (a) => (typeof a.pl === 'number' ? formatNumeroBR(a.pl, 2) : '—') },
-  { label: 'P/VP', alinhar: 'right', formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—') },
-  { label: '% cart.', alinhar: 'right', formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
   {
-    label: 'Total', alinhar: 'right', formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
+    label: 'P/L', alinhar: 'right', campo: 'pl', ordenarPor: (a) => a.pl,
+    ajuda: 'Preço/Lucro: preço da ação dividido pelo lucro por ação dos últimos 12 meses — quantos anos de lucro pagam o preço atual.',
+    formatar: (a) => (typeof a.pl === 'number' ? formatNumeroBR(a.pl, 2) : '—'),
   },
   {
-    label: 'Lucro / Prejuízo', alinhar: 'right', formatar: (a) => {
+    label: 'P/VP', alinhar: 'right', campo: 'pvp', ordenarPor: (a) => a.pvp,
+    ajuda: 'Preço/Valor Patrimonial: preço da ação dividido pelo valor patrimonial por ação — compara o preço de mercado com o valor contábil.',
+    formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—'),
+  },
+  { label: '% cart.', alinhar: 'right', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
+  {
+    label: 'Total', alinhar: 'right', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
+    formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
+  },
+  {
+    label: 'Lucro / Prejuízo', alinhar: 'right', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
+    formatar: (a) => {
       const cor = a.lucroPrejuizo >= 0 ? 'good' : 'bad';
       return `<span class="${cor}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub ${cor}">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>`;
     },
@@ -63,17 +84,22 @@ const COLUNAS_ATIVOS_ACOES = [
 ];
 
 /** Linha de totais no rodapé (19/09/2026 #2 - "você não trouxe os
- * totais") - colspan cobre todas as colunas menos as 2 últimas
- * (Total/Lucro), que mostram a soma vinda do resumo (já reflete a
- * carteira inteira, não só os ativos individuais listados). */
-function montarLinhaTotalAtivos_(dados) {
-  const resumo = dados.resumo;
-  const qtd = dados.resumo.quantidadeAtivos;
-  const corLucro = resumo.lucroPrejuizo >= 0 ? 'good' : 'bad';
+ * totais") - somada a partir da lista efetivamente exibida (não de
+ * dados.resumo direto), pra continuar batendo quando a busca filtra a
+ * tabela (19/09/2026 #3) - sem filtro nenhum dá exatamente igual ao
+ * resumo, já que é a mesma soma. colspan cobre todas as colunas menos
+ * as 2 últimas (Total/Lucro). */
+function montarLinhaTotalAtivos_(ativosExibidos) {
+  const somaAtualizado = ativosExibidos.reduce((s, a) => s + (a.totalAtualizado || 0), 0);
+  const somaComprado = ativosExibidos.reduce((s, a) => s + (a.totalComprado || 0), 0);
+  const somaLucro = somaAtualizado - somaComprado;
+  const percLucro = somaComprado ? somaLucro / somaComprado : 0;
+  const corLucro = somaLucro >= 0 ? 'good' : 'bad';
+  const qtd = ativosExibidos.length;
   return `<tr>
     <td colspan="${COLUNAS_ATIVOS_ACOES.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td class="right">${formatBRL(resumo.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(resumo.totalInvestido, 2)}</span></td>
-    <td class="right"><span class="${corLucro}">${formatBRL(resumo.lucroPrejuizo)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span></td>
+    <td class="right">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
+    <td class="right"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
   </tr>`;
 }
 
@@ -90,6 +116,7 @@ function desenhar(doc, dados) {
       </div>
       <div class="cc-tabela-card">
         <div class="area-header" style="margin-top:0"><h2>Ativos</h2><span class="hint">${dados.resumo.quantidadeAtivos} ${dados.resumo.quantidadeAtivos === 1 ? 'ativo' : 'ativos'}</span></div>
+        <div id="acoesFiltros"></div>
         <div id="acoesTabela"></div>
       </div>
     </div>
@@ -107,13 +134,37 @@ function desenhar(doc, dados) {
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesDistribuicao'), dados.distribuicaoPorGrupo);
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
-  const ativos = (dados.ativos || []).map((a) => ({
+  const ativosBase = (dados.ativos || []).map((a) => ({
     ...a,
     percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0,
   }));
-  renderTabelaAtivosCarteiras(doc, doc.getElementById('acoesTabela'), ativos, COLUNAS_ATIVOS_ACOES, {
-    linhaTotalHtml: montarLinhaTotalAtivos_(dados),
+
+  // Ordenação (clique no cabeçalho) e busca (ticker/nome) são estado
+  // local deste desenho - resetam a cada carregamento/atualização de
+  // página, igual ao padrão já usado no Radar de oportunidades
+  // (distribuicoes-metas.js) - 19/09/2026 #3.
+  let ordenacao = null;
+  let busca = '';
+
+  function renderizarTabela() {
+    const exibidos = filtrarAtivosPorBusca(ativosBase, busca);
+    renderTabelaAtivosCarteiras(doc, doc.getElementById('acoesTabela'), exibidos, COLUNAS_ATIVOS_ACOES, {
+      linhaTotalHtml: exibidos.length ? montarLinhaTotalAtivos_(exibidos) : '',
+      ordenacao,
+      onOrdenar: (campo) => {
+        ordenacao = ordenacao && ordenacao.campo === campo
+          ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
+          : { campo, direcao: 'asc' };
+        renderizarTabela();
+      },
+    });
+  }
+
+  renderFiltrosTabelaCarteiras(doc, doc.getElementById('acoesFiltros'), {
+    busca,
+    onBuscar: (valor) => { busca = valor; renderizarTabela(); },
   });
+  renderizarTabela();
 }
 
 export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes } = {}) {

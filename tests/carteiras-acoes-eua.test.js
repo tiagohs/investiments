@@ -1,6 +1,10 @@
 // Unit tests for assets/js/pages/carteiras-acoes-eua.js — mesmo molde de
-// tests/carteiras-acoes.test.js, mas valores em US$ (a página inteira
-// formata em dólar, sem conversão — ver comentário no próprio arquivo).
+// tests/carteiras-acoes.test.js. Atualizado em 19/09/2026 #3: página
+// ganhou dupla moeda (US$ com "(R$ ...)" do lado nos valores grandes -
+// Total/Lucro - e um botão "i" com o equivalente nos valores menores -
+// Pr.médio/teto), Status/DY/P-VP com tooltip "i", ordenação por clique
+// no cabeçalho e busca por ticker/nome (sem chips de segmento, que são
+// só de FIIs).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -29,24 +33,35 @@ function makeDom() {
 const CARTEIRA_ACOES_EUA_EXEMPLO = {
   classe: 'Ações EUA',
   resumo: {
-    totalInvestido: 3001.85,
-    totalAtualizado: 3303.79,
-    lucroPrejuizo: 301.94,
-    percentualLucroPrejuizo: 0.1006,
+    totalInvestido: 3701.85,
+    totalAtualizado: 4103.79,
+    lucroPrejuizo: 401.94,
+    percentualLucroPrejuizo: 0.1086,
     proventosTotais: 0,
-    quantidadeAtivos: 1,
+    quantidadeAtivos: 2,
   },
-  distribuicaoPorGrupo: [{ grupo: 'Tecnologia', totalAtualizado: 3303.79, percentual: 1 }],
-  ativos: [{
-    ticker: 'AAPL', nome: 'Apple Inc.', moeda: 'US$', precoAtual: 220.25, variacaoDia: 0.008,
-    quantidade: 15, precoMedio: 200.12, precoTeto: null, vies: null, pvp: 45.2, descontoPvp: null,
-    pl: null, descontoPl: null, grupo: 'Tecnologia', dyPercentual: 0.005, dyValor: 1.1,
-    totalComprado: 3001.85, totalAtualizado: 3303.79, lucroPrejuizo: 301.94, percentualLucroPrejuizo: 0.1006, proventosTotais: 0,
-  }],
-  benchmarks: { dolar: 5.142, ibovespa: -0.39, spx: 0.54 }, // ibovespa/spx em variação do dia (%), não pontos
+  distribuicaoPorGrupo: [
+    { grupo: 'Tecnologia', totalAtualizado: 3303.79, percentual: 0.8051 },
+    { grupo: 'Energia', totalAtualizado: 800, percentual: 0.1949 },
+  ],
+  ativos: [
+    {
+      ticker: 'AAPL', nome: 'Apple Inc.', moeda: 'US$', precoAtual: 220.25, variacaoDia: 0.008,
+      quantidade: 15, precoMedio: 200.12, precoTeto: null, vies: null, pvp: 45.2, descontoPvp: null,
+      pl: null, descontoPl: null, grupo: 'Tecnologia', dyPercentual: 0.005, dyValor: 1.1,
+      totalComprado: 3001.85, totalAtualizado: 3303.79, lucroPrejuizo: 301.94, percentualLucroPrejuizo: 0.1006, proventosTotais: 0,
+    },
+    {
+      ticker: 'GPRK', nome: 'GeoPark Limited', moeda: 'US$', precoAtual: 25.5, variacaoDia: -0.011,
+      quantidade: 30, precoMedio: 23.33, precoTeto: 30, vies: 'Comprar', pvp: 1.1, descontoPvp: null,
+      pl: null, descontoPl: null, grupo: 'Energia', dyPercentual: 0.02, dyValor: 0.5,
+      totalComprado: 700, totalAtualizado: 800, lucroPrejuizo: 100, percentualLucroPrejuizo: 0.1429, proventosTotais: 0,
+    },
+  ],
+  benchmarks: { dolar: 5.142, ibovespa: -0.39, spx: 0.54 },
 };
 
-test('montarPaginaCarteirasAcoesEua() formata tudo em US$ e mostra o dólar/Ibovespa/SPX como benchmark', async () => {
+test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalente em R$ do lado, e mostra dólar/Ibovespa/SPX', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
@@ -56,10 +71,76 @@ test('montarPaginaCarteirasAcoesEua() formata tudo em US$ e mostra o dólar/Ibov
     assert.equal(doc.getElementById('acoesEuaLoading').hidden, true);
     assert.equal(doc.getElementById('acoesEuaConteudo').hidden, false);
     const html = doc.getElementById('acoesEuaConteudo').innerHTML;
-    assert.match(html, /\$3,303\.79/); // formatUSD do total atualizado
+    assert.match(html, /\$3,303\.79/); // Total do AAPL em US$
+    assert.match(html, /class="moeda-conv">\(R\$&nbsp;16\.988,09\)/); // equivalente em R\$ do Total (câmbio 5,142) - innerHTML serializa NBSP (U+00A0) como &nbsp; (não U+00A0 cru)
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 3);
     assert.match(html, /R\$ 5,14/); // dólar hoje, formatado em BRL
-    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 1);
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
+
+    // cabeçalhos novos (Status/DY/P-VP com tooltip) - sem P/L (EUA nunca teve)
+    const cabecalhos = [...doc.querySelectorAll('.cc-tabela thead th')].map((th) => th.textContent);
+    assert.ok(cabecalhos.some((t) => t.includes('Status')));
+    assert.ok(cabecalhos.some((t) => t.includes('DY')));
+    assert.ok(cabecalhos.some((t) => t.includes('P/VP')));
+    assert.ok(!cabecalhos.some((t) => t.includes('P/L')));
+    assert.equal(doc.querySelectorAll('.cc-tabela thead .cc-th-info').length, 3); // Status/DY/P-VP
+
+    // Pr. médio: só US$ no corpo da célula + botão "i" com o equivalente (não escrito por extenso)
+    const linhaAapl = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('AAPL'));
+    assert.match(linhaAapl.innerHTML, /\$200\.12/);
+    assert.match(linhaAapl.innerHTML, /cc-th-info-sm" title="Equivalente em reais: R\$&nbsp;1\.029,02/);
+
+    // sem chips de segmento (só FIIs tem) - mas a busca continua presente
+    assert.equal(doc.querySelectorAll('.cc-filtro-chips').length, 0);
+    assert.ok(doc.querySelector('.cc-busca-input'));
+
+    // ordenado por padrão (totalAtualizado desc): AAPL (3303,79) antes de GPRK (800)
+    const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
+    assert.match(linhas[0].textContent, /AAPL/);
+    assert.match(linhas[1].textContent, /GPRK/);
+
+    // linha de totais no rodapé, com conversão também
+    const totalRow = doc.querySelector('.cc-tabela tfoot tr');
+    assert.ok(totalRow, 'deveria ter uma linha de totais no tfoot');
+    assert.match(totalRow.textContent, /Total \(2 ativos\)/);
+    assert.match(totalRow.innerHTML, /\$4,103\.79/);
+    assert.match(totalRow.innerHTML, /moeda-conv/);
+  });
+});
+
+test('montarPaginaCarteirasAcoesEua(): digitar na busca filtra por ticker e recalcula os totais', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+
+    const input = doc.querySelector('.cc-busca-input');
+    input.value = 'gprk';
+    input.dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
+
+    const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
+    assert.equal(linhas.length, 1);
+    assert.match(linhas[0].textContent, /GPRK/);
+    const totalRow = doc.querySelector('.cc-tabela tfoot tr');
+    assert.match(totalRow.textContent, /Total \(1 ativo\)/);
+    assert.match(totalRow.innerHTML, /\$800\.00/);
+  });
+});
+
+test('montarPaginaCarteirasAcoesEua(): clicar no cabeçalho de uma coluna ordena a tabela por ela', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+
+    // Qtd: AAPL (15) < GPRK (30) - clicar ordena asc por padrão
+    const thQtd = doc.querySelector('.cc-tabela thead th[data-campo="quantidade"]');
+    thQtd.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+    const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
+    assert.match(linhas[0].textContent, /AAPL/);
+    assert.match(linhas[1].textContent, /GPRK/);
+    assert.match(doc.querySelector('.cc-tabela thead th[data-campo="quantidade"]').textContent, /▲/);
   });
 });
 

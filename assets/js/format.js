@@ -15,11 +15,22 @@
 
 const BRL_FORMATTER = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const USD_FORMATTER = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const BRL_COMPACTO_FORMATTER = new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL', notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1,
+});
 
 /** "R$ 1.234,56". Non-finite input (NaN, null->NaN, etc.) renders as "—". */
 export function formatBRL(value) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
   return BRL_FORMATTER.format(value);
+}
+
+/** "R$ 3,8 bi" / "R$ 450 mi" - versão compacta pra valores grandes que
+ * não precisam do centavo (ex.: Patrimônio do fundo, na tabela de FIIs
+ * de Carteiras - 19/09/2026 #3, fiel ao mockup). */
+export function formatBRLCompacto(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return BRL_COMPACTO_FORMATTER.format(value);
 }
 
 /** "$1,234.56" - for Ações Internacionais fields still in USD. */

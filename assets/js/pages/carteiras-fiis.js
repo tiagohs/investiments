@@ -2,13 +2,14 @@
  * carteiras-fiis.js — subpágina Carteiras > FIIs (action=carteirasFiis,
  * ver apps-script/CarteirasClasses.gs!montarCarteirasFiis_). Mesmo
  * molde de carteiras-acoes.js — a diferença real é P/VP no lugar de
- * P/L (FIIs não tem P/L) e 3 colunas extra só de FIIs (Liquidez
- * Diária, % em caixa) que Auxiliar_ativos não tem e vêm enriquecidas
- * direto de "Carteira FIIs" no back-end.
+ * P/L (FIIs não tem P/L) e Patrimônio do fundo no lugar de %/P-L, além
+ * dos chips de filtro por segmento (Papel/Shopping/etc.), que só FIIs
+ * tem (19/09/2026 #3, fiel ao mockup + pedido do Tiago: "lembre-se dos
+ * filtros dos FIIS por tipo").
  */
 
 import { getCarteirasFiis } from '../api-client.js';
-import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
+import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -16,6 +17,10 @@ import {
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
   renderTabelaAtivosCarteiras,
+  renderFiltrosTabelaCarteiras,
+  filtrarAtivosPorBusca,
+  logoAtivoHtml,
+  notaAtivoHtml,
   statusVies,
 } from './carteiras-classe-comum.js';
 
@@ -23,33 +28,84 @@ const CHAVE_CACHE_FIIS = 'carteiras_fiis_v1';
 
 const COLUNAS_ATIVOS_FIIS = [
   {
-    label: 'Ativo', formatar: (a) => {
-      const status = statusVies(a.vies);
-      return `<b>${a.ticker}</b>${a.nome ? `<span class="cc-ativo-nome">${a.nome}</span>` : ''}${status.classe ? `<span class="status-pill ${status.classe}">${status.texto}</span>` : ''}`;
+    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, formatar: (a) => {
+      const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
+      return `<div class="cc-ativo-cel">${logoAtivoHtml(a.ticker)}<div><b>${notaAtivoHtml(a.ticker)}${a.ticker}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
     },
   },
   {
-    label: 'Preço atual', alinhar: 'right', formatar: (a) => {
+    label: 'Preço / dia', alinhar: 'right', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
       const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
       return `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
     },
   },
-  { label: 'Qtd', alinhar: 'right', formatar: (a) => formatNumeroBR(a.quantidade, 0) },
-  { label: 'Preço médio', alinhar: 'right', formatar: (a) => formatBRL(a.precoMedio) },
-  { label: 'Preço teto', alinhar: 'right', formatar: (a) => formatBRL(a.precoTeto) },
-  { label: 'DY', alinhar: 'right', formatar: (a) => formatPercentFromFraction(a.dyPercentual) },
+  { label: 'Qtd', alinhar: 'right', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
   {
-    label: '% em caixa', alinhar: 'right',
-    formatar: (a) => (typeof a.percentualEmCaixa === 'number' ? formatPercentFromFraction(a.percentualEmCaixa) : '—'),
+    label: 'Pr. médio', alinhar: 'right', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
+    ajuda: 'Preço médio pago por cota, ponderado por todas as compras feitas.',
+    formatar: (a) => formatBRL(a.precoMedio),
   },
-  { label: 'Total atualizado', alinhar: 'right', formatar: (a) => formatBRL(a.totalAtualizado) },
   {
-    label: 'Lucro / Prejuízo', alinhar: 'right', formatar: (a) => {
+    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto,
+    ajuda: 'Compara o preço atual com o preço-teto definido por você: abaixo do teto = Comprar, acima = Aguardar.',
+    formatar: (a) => {
+      const status = statusVies(a.vies);
+      const badge = status.classe ? `<span class="status-pill ${status.classe}">${status.texto}</span>` : (status.texto || '—');
+      const teto = typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : '';
+      return `${badge}${teto}`;
+    },
+  },
+  {
+    label: 'DY', alinhar: 'right', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
+    ajuda: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pelo preço atual da cota.',
+    formatar: (a) => {
+      const cor = typeof a.dyPercentual === 'number' ? (a.dyPercentual >= 0 ? 'good' : 'bad') : '';
+      const pct = typeof a.dyPercentual === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.dyPercentual)}</span>` : '';
+      return `${formatBRL(a.dyValor)}${pct}`;
+    },
+  },
+  {
+    label: 'P/VP', alinhar: 'right', campo: 'pvp', ordenarPor: (a) => a.pvp,
+    ajuda: 'Preço/Valor Patrimonial: preço da cota dividido pelo valor patrimonial por cota do fundo.',
+    formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—'),
+  },
+  {
+    label: 'Patrim. fundo', alinhar: 'right', campo: 'patrimonio', ordenarPor: (a) => a.patrimonio,
+    formatar: (a) => (typeof a.patrimonio === 'number' ? formatBRLCompacto(a.patrimonio) : '—'),
+  },
+  { label: '% cart.', alinhar: 'right', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
+  {
+    label: 'Total', alinhar: 'right', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
+    formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
+  },
+  {
+    label: 'Lucro / Prejuízo', alinhar: 'right', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
+    formatar: (a) => {
       const cor = a.lucroPrejuizo >= 0 ? 'good' : 'bad';
       return `<span class="${cor}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub ${cor}">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>`;
     },
   },
 ];
+
+/** Linha de totais no rodapé - somada a partir da lista efetivamente
+ * exibida (não de dados.resumo direto), pra continuar batendo com o
+ * filtro de segmento OU a busca aplicados (19/09/2026 #3: "o filtro
+ * por segmento também recalcula os totais no rodapé da tabela",
+ * dica do próprio mockup). Sem filtro nenhum dá exatamente igual ao
+ * resumo, já que é a mesma soma. */
+function montarLinhaTotalAtivos_(ativosExibidos) {
+  const somaAtualizado = ativosExibidos.reduce((s, a) => s + (a.totalAtualizado || 0), 0);
+  const somaComprado = ativosExibidos.reduce((s, a) => s + (a.totalComprado || 0), 0);
+  const somaLucro = somaAtualizado - somaComprado;
+  const percLucro = somaComprado ? somaLucro / somaComprado : 0;
+  const corLucro = somaLucro >= 0 ? 'good' : 'bad';
+  const qtd = ativosExibidos.length;
+  return `<tr>
+    <td colspan="${COLUNAS_ATIVOS_FIIS.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
+    <td class="right">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
+    <td class="right"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
+  </tr>`;
+}
 
 function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('fiisConteudo');
@@ -64,6 +120,7 @@ function desenhar(doc, dados) {
       </div>
       <div class="cc-tabela-card">
         <div class="area-header" style="margin-top:0"><h2>Ativos</h2><span class="hint">${dados.resumo.quantidadeAtivos} ${dados.resumo.quantidadeAtivos === 1 ? 'ativo' : 'ativos'}</span></div>
+        <div id="fiisFiltros"></div>
         <div id="fiisTabela"></div>
       </div>
     </div>
@@ -74,8 +131,9 @@ function desenhar(doc, dados) {
     extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
   });
   // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do
-  // IFIX, igual às outras 3 subpáginas de RV) - IFIX/Ibovespa em
-  // variação do dia (coloridos), CDI em fração a.a. (sem cor).
+  // IFIX, igual às outras 3 subpáginas já tinham (só IFIX ficava
+  // sozinho antes). IFIX/Ibovespa em variação do dia (coloridos), CDI
+  // em fração a.a. (sem cor).
   const ifixVar = dados.benchmarks?.ifix;
   const ibovespaVar = dados.benchmarks?.ibovespa;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('fiisBenchmarks'), [
@@ -84,7 +142,45 @@ function desenhar(doc, dados) {
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('fiisDistribuicao'), dados.distribuicaoPorGrupo);
-  renderTabelaAtivosCarteiras(doc, doc.getElementById('fiisTabela'), dados.ativos, COLUNAS_ATIVOS_FIIS);
+
+  const totalCarteira = dados.resumo.totalAtualizado || 0;
+  const ativosBase = (dados.ativos || []).map((a) => ({
+    ...a,
+    percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0,
+  }));
+  // Chips "Todos"/segmento vêm de distribuicaoPorGrupo (já ordenada por
+  // totalAtualizado desc) - dinâmico, nunca hard-coded (se o Tiago
+  // reclassificar um FII de segmento na planilha, os chips já
+  // acompanham sem precisar mexer em código).
+  const grupos = (dados.distribuicaoPorGrupo || []).map((d) => d.grupo);
+
+  let ordenacao = null;
+  let busca = '';
+  let filtroGrupo = null;
+
+  function renderizarTabela() {
+    let exibidos = filtroGrupo ? ativosBase.filter((a) => a.grupo === filtroGrupo) : ativosBase;
+    exibidos = filtrarAtivosPorBusca(exibidos, busca);
+    renderTabelaAtivosCarteiras(doc, doc.getElementById('fiisTabela'), exibidos, COLUNAS_ATIVOS_FIIS, {
+      linhaTotalHtml: exibidos.length ? montarLinhaTotalAtivos_(exibidos) : '',
+      ordenacao,
+      onOrdenar: (campo) => {
+        ordenacao = ordenacao && ordenacao.campo === campo
+          ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
+          : { campo, direcao: 'asc' };
+        renderizarTabela();
+      },
+    });
+  }
+
+  renderFiltrosTabelaCarteiras(doc, doc.getElementById('fiisFiltros'), {
+    busca,
+    onBuscar: (valor) => { busca = valor; renderizarTabela(); },
+    grupos,
+    filtroGrupo,
+    onFiltrarGrupo: (grupo) => { filtroGrupo = grupo; renderizarTabela(); },
+  });
+  renderizarTabela();
 }
 
 export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis } = {}) {
