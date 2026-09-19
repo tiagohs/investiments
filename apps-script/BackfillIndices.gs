@@ -50,6 +50,29 @@
  * comentário na função). É PRECISO rodar rodarBackfillTaxasBcbDireto()
  * de novo depois de colar este arquivo pra regravar CDI/SELIC com a data
  * certa (ele preserva as linhas de Ibovespa, só regrava CDI/SELIC).
+ *
+ * IFIX / S&P 500 / IPCA (19/09/2026): backfill de histórico adicionado pros
+ * 3, pedido do Tiago pra viabilizar o gráfico "Rentabilidade acumulada" nas
+ * 4 telas de Carteiras (só Ações×Ibovespa e Renda Fixa×CDI já tinham
+ * histórico suficiente; FIIs×IFIX, Ações EUA×S&P 500 e Renda Fixa×IPCA
+ * estavam bloqueados por falta de série histórica). IFIX e S&P 500 usam a
+ * MESMA técnica de pedaços do GOOGLEFINANCE que já existia pro Ibovespa
+ * (buscarHistoricoGoogleFinanceEmPedacos_, agora genérica via
+ * executarBackfillIndiceGoogleFinance_ — ver TICKERS_INDICES_GOOGLEFINANCE).
+ * Tickers CONFIRMADOS direto na planilha real que o Tiago mandou
+ * (Auxiliar_app!B9 = IFIX, B15 = S&P 500) — essas fórmulas só existem na UI
+ * da planilha, não em nenhum .gs, então não dava pra saber sem confirmar.
+ * IPCA usa a mesma API BCB/SGS que CDI/SELIC já usavam
+ * (buscarTaxasBcbComoLinhas_, série 433 — a mesma que
+ * buscarIpcaAcumulado12Meses_ já usa pro valor "de hoje"), só que com
+ * granularidade MENSAL em vez de diária (1 linha por mês, não por dia
+ * útil). Rodar 1x cada, manualmente, depois de colar este arquivo:
+ * rodarBackfillIfixDireto(), rodarBackfillSp500Direto(),
+ * rodarBackfillTaxasBcbDireto() (esta última já existia, agora também traz
+ * IPCA junto com CDI/SELIC). O gatilho diário (atualizarIndicesIncremental_)
+ * já foi generalizado pra manter os 3 do GOOGLEFINANCE em dia sozinho dali
+ * em diante — só não faz nada por um índice que ainda não teve o backfill
+ * inicial rodado (não derruba o gatilho por causa disso).
  */
 
 var ABA_HISTORICO_INDICES = 'aux_historico-indices';
@@ -57,7 +80,8 @@ var ABA_AUXILIAR_APP = 'Auxiliar_app';
 var CELULA_RASCUNHO_GOOGLEFINANCE = 'AZ1';
 var DIAS_POR_PEDACO_INDICE = 180;
 var DATA_INICIO_HISTORICO_INDICES = new Date(2020, 11, 22); // mesmo início do restante do histórico (aux_historico-renda-fixa começa 22/12/2020)
-var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11 }; // nome persistido -> código da série SGS/BCB
+var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11, IPCA: 433 }; // nome persistido -> código da série SGS/BCB (IPCA: variação mensal, série 433 — mesma que buscarIpcaAcumulado12Meses_ já usa pro "hoje")
+var TICKERS_INDICES_GOOGLEFINANCE = { Ibovespa: 'INDEXBVMF:IBOV', IFIX: 'INDEXBVMF:IFIX', 'S&P 500': 'INDEXSP:.INX' }; // nome persistido -> ticker GOOGLEFINANCE (confirmado com Tiago via planilha real, 19/09/2026: Auxiliar_app!B9 e B15)
 
 /**
  * Roda fn() até funcionar, tentando de novo em caso de erro. Usado pelos
@@ -130,7 +154,7 @@ function handleSincronizarRendaFixaEIndices(e) {
   }
 }
 
-/** Roda direto no editor, pra popular CDI/SELIC do zero (rodar 1x depois de colar este arquivo). */
+/** Roda direto no editor, pra popular CDI/SELIC/IPCA do zero (rodar 1x depois de colar este arquivo). */
 function rodarBackfillTaxasBcbDireto() {
   Logger.log(JSON.stringify(executarBackfillTaxasBcb_(), null, 2));
 }
@@ -149,8 +173,20 @@ function lerTodasLinhasIndices_(abaIndices) {
   });
 }
 
-/** Regrava aux_historico-indices INTEIRA do zero (2020-12-23 até hoje) — uso manual. */
-function executarBackfillIndices_() {
+/**
+ * Regrava aux_historico-indices INTEIRA do zero pra UM índice via
+ * GOOGLEFINANCE (Ibovespa/IFIX/S&P 500), preservando os demais índices já
+ * salvos (CDI/SELIC/IPCA e os outros 2 desta família) — uso manual.
+ *
+ * 19/09/2026: generalizado a partir do executarBackfillIndices_() original
+ * (que só fazia Ibovespa) pra popular IFIX e S&P 500 do zero também — ver
+ * nota no cabeçalho do arquivo. Cada índice roda como sua PRÓPRIA execução
+ * manual (rodarBackfillIfixDireto/rodarBackfillSp500Direto/
+ * rodarBackfillIndicesDireto, abaixo) em vez de tudo numa chamada só, pra
+ * não estourar o limite de 6min de execução do Apps Script — ~12 pedaços de
+ * 180 dias cada um, só de 1 índice, já é o que o Ibovespa levava sozinho.
+ */
+function executarBackfillIndiceGoogleFinance_(nomeIndice, ticker) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abaIndices = ss.getSheetByName(ABA_HISTORICO_INDICES);
   if (!abaIndices) throw new Error('aba não encontrada: ' + ABA_HISTORICO_INDICES);
@@ -161,29 +197,58 @@ function executarBackfillIndices_() {
   var hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
 
-  var linhasIbovespa = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', dataInicio, hoje, 'Ibovespa');
+  var linhasNovas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, dataInicio, hoje, nomeIndice);
 
-  // Preserva CDI/SELIC (ou qualquer outro índice) já salvos — só substitui
-  // as linhas de Ibovespa (12/09/2026: antes regravava a aba inteira,
-  // apagando CDI/SELIC se rodado de novo depois do backfill de taxas).
+  // Preserva os demais índices (CDI/SELIC/IPCA e os outros 2 do
+  // GOOGLEFINANCE) já salvos — só substitui as linhas deste índice
+  // (12/09/2026: antes regravava a aba inteira, apagando CDI/SELIC se
+  // rodado de novo depois do backfill de taxas).
   var linhasMantidas = lerTodasLinhasIndices_(abaIndices).filter(function (linha) {
-    return linha[1] !== 'Ibovespa';
+    return linha[1] !== nomeIndice;
   });
-  var linhasFinal = linhasMantidas.concat(linhasIbovespa);
+  var linhasFinal = linhasMantidas.concat(linhasNovas);
 
   var linhasAntigasCount = Math.max(abaIndices.getLastRow() - 1, 0);
   if (linhasAntigasCount > 0) abaIndices.getRange(2, 1, linhasAntigasCount, 3).clearContent();
   if (linhasFinal.length > 0) abaIndices.getRange(2, 1, linhasFinal.length, 3).setValues(linhasFinal);
 
-  return { linhasGravadas: linhasIbovespa.length, totalNaAba: linhasFinal.length };
+  return { linhasGravadas: linhasNovas.length, totalNaAba: linhasFinal.length };
+}
+
+/** Regrava aux_historico-indices INTEIRA do zero pro Ibovespa (2020-12-23 até hoje) — uso manual. */
+function executarBackfillIndices_() {
+  return executarBackfillIndiceGoogleFinance_('Ibovespa', TICKERS_INDICES_GOOGLEFINANCE.Ibovespa);
+}
+
+/** Roda direto no editor, pra popular IFIX do zero (rodar 1x). */
+function rodarBackfillIfixDireto() {
+  Logger.log(JSON.stringify(executarBackfillIndiceGoogleFinance_('IFIX', TICKERS_INDICES_GOOGLEFINANCE.IFIX), null, 2));
+}
+
+/** Roda direto no editor, pra popular S&P 500 do zero (rodar 1x). */
+function rodarBackfillSp500Direto() {
+  Logger.log(JSON.stringify(executarBackfillIndiceGoogleFinance_('S&P 500', TICKERS_INDICES_GOOGLEFINANCE['S&P 500']), null, 2));
 }
 
 /**
- * Regrava as taxas diárias de CDI e SELIC (Índice = 'CDI'/'SELIC', Valor =
- * taxa % do dia, do jeito que a API do BCB devolve) em aux_historico-indices,
- * do zero, de 22/12/2020 até ontem — uso manual, rodar 1x (rodarBackfillTaxasBcbDireto())
- * depois de colar este arquivo pra já deixar a Início rápida na 1ª chamada.
- * Preserva as linhas de Ibovespa (ou qualquer outro índice) já salvas.
+ * Regrava as taxas/índices de CDI, SELIC e IPCA (Índice = 'CDI'/'SELIC'/'IPCA',
+ * Valor = taxa % do dia (CDI/SELIC) ou variação % do mês (IPCA, série 433),
+ * do jeito que a API do BCB devolve) em aux_historico-indices, do zero, de
+ * 22/12/2020 até ontem — uso manual, rodar 1x (rodarBackfillTaxasBcbDireto())
+ * depois de colar este arquivo pra já deixar a Início rápida na 1ª chamada
+ * (e os gráficos de Rentabilidade acumulada × IPCA, 19/09/2026, com dado
+ * disponível). Preserva as linhas de Ibovespa/IFIX/S&P 500 (ou qualquer
+ * outro índice fora de INDICES_TAXA_BCB) já salvas.
+ *
+ * 19/09/2026: IPCA adicionado a INDICES_TAXA_BCB (série 433, igual à que
+ * buscarIpcaAcumulado12Meses_ já usa pro valor "de hoje", só que aqui com
+ * range dataInicial/dataFinal em vez de /dados/ultimos/13) — pedido do
+ * Tiago, pra viabilizar o gráfico de Rentabilidade acumulada × IPCA em
+ * Renda Fixa. A granularidade é MENSAL (1 linha por mês, não por dia útil
+ * como CDI/SELIC) — quem consumir esta série (task de gráficos) precisa
+ * tratar isso, mesmo padrão de forward-fill que já existe pra dias
+ * não-úteis em montarSerieHistoricoInicio_ resolve igual, só que com
+ * lacunas maiores entre pontos.
  */
 function executarBackfillTaxasBcb_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -200,7 +265,7 @@ function executarBackfillTaxasBcb_() {
   });
 
   var linhasMantidas = lerTodasLinhasIndices_(abaIndices).filter(function (linha) {
-    return !(linha[1] === 'CDI' || linha[1] === 'SELIC');
+    return !INDICES_TAXA_BCB.hasOwnProperty(linha[1]);
   });
   var linhasFinal = linhasMantidas.concat(linhasNovas);
 
@@ -481,11 +546,18 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
 }
 
 /**
- * Atualiza aux_historico-indices de forma incremental: acha a última data
- * salva do Ibovespa e busca só o que falta até ontem — evita repetir a
- * história inteira desde 2020 a cada execução diária. Se nunca rodou o
- * backfill completo ainda, lança erro (rode rodarBackfillIndicesDireto()
- * manualmente primeiro).
+ * Atualiza aux_historico-indices de forma incremental pros 3 índices de
+ * TICKERS_INDICES_GOOGLEFINANCE (Ibovespa/IFIX/S&P 500): pra cada um, acha
+ * a última data salva e busca só o que falta até ontem — evita repetir a
+ * história inteira desde 2020 a cada execução diária.
+ *
+ * 19/09/2026: generalizado (só fazia Ibovespa antes) pra também manter
+ * IFIX/S&P 500 em dia sozinho, depois que o backfill inicial de cada um
+ * rodar (rodarBackfillIfixDireto()/rodarBackfillSp500Direto()). Diferente
+ * do Ibovespa (lança erro se não tem backfill — nunca deveria acontecer em
+ * produção, já roda há tempos), IFIX/S&P 500 sem backfill ainda NÃO
+ * derrubam o gatilho — só ficam de fora do resultado (com "sem backfill
+ * ainda" no detalhe) até o Tiago rodar o backfill manual de cada um.
  */
 function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -494,56 +566,83 @@ function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
   var abaAuxiliar = ss.getSheetByName(ABA_AUXILIAR_APP);
   if (!abaAuxiliar) throw new Error('aba não encontrada: ' + ABA_AUXILIAR_APP);
 
-  var ultimaData = ultimaDataIndiceSalvo_(abaIndices, 'Ibovespa', mapaUltimasDatasCache);
-  if (!ultimaData) {
-    throw new Error('nenhum dado em ' + ABA_HISTORICO_INDICES + ' ainda — rode rodarBackfillIndicesDireto() primeiro.');
-  }
-
   var ontem = new Date();
   ontem.setDate(ontem.getDate() - 1);
   ontem.setHours(0, 0, 0, 0);
 
-  var inicio = new Date(ultimaData);
-  inicio.setDate(inicio.getDate() + 1);
-  // 16/09/2026: normaliza pra meia-noite — "ontem" (acima) já é, mas "inicio"
-  // não era, e buscarHistoricoGoogleFinanceEmPedacos_ compara os dois direto
-  // (while (inicioPedaco <= dataFim)) com timestamps completos. Mesmo bug do
-  // Sync.gs!buscarPrecoHistorico_, um nível abaixo do gate depoisPorDia_.
-  inicio.setHours(0, 0, 0, 0);
+  var linhasNovasTotal = [];
+  var detalhe = [];
+  var algumSemBackfill = false;
 
-  // Correção de 16/09/2026 (mesmo bug do Sync.gs!depoisPorDia_): "inicio"
-  // herda a hora fixa da última linha salva do Ibovespa (16:56), "ontem"
-  // é meia-noite — comparar Date completos fazia essa checagem dar TRUE
-  // pro MESMO dia de calendário sempre que o sync rodasse de manhã,
-  // marcando "já em dia" sem nunca buscar o Ibovespa daquele dia.
-  if (depoisPorDia_(inicio, ontem)) {
-    return { linhasNovas: 0, jaEstavaEmDia: true };
-  }
+  Object.keys(TICKERS_INDICES_GOOGLEFINANCE).forEach(function (nomeIndice) {
+    var ticker = TICKERS_INDICES_GOOGLEFINANCE[nomeIndice];
+    var ultimaData = ultimaDataIndiceSalvo_(abaIndices, nomeIndice, mapaUltimasDatasCache);
+    if (!ultimaData) {
+      if (nomeIndice === 'Ibovespa') {
+        throw new Error('nenhum dado de Ibovespa em ' + ABA_HISTORICO_INDICES + ' ainda — rode rodarBackfillIndicesDireto() primeiro.');
+      }
+      algumSemBackfill = true;
+      detalhe.push(nomeIndice + ': sem backfill ainda');
+      return;
+    }
 
-  // 17/09/2026: último valor JÁ SALVO do Ibovespa, só pra alimentar a
-  // guarda de sanidade acima (buscarHistoricoGoogleFinanceEmPedacos_) -
-  // sem isso, a 1ª linha nova de cada sync incremental não teria "anterior"
-  // pra comparar (o backfill completo também não tem, mas ali faz sentido:
-  // é o início da série, não tem valor prévio mesmo).
-  var valorAnteriorIbovespa = ultimoValorIndiceSalvo_(abaIndices, 'Ibovespa');
-  var linhas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, 'INDEXBVMF:IBOV', inicio, ontem, 'Ibovespa', valorAnteriorIbovespa);
-  if (linhas.length > 0) {
+    var inicio = new Date(ultimaData);
+    inicio.setDate(inicio.getDate() + 1);
+    // 16/09/2026: normaliza pra meia-noite — "ontem" (acima) já é, mas "inicio"
+    // não era, e buscarHistoricoGoogleFinanceEmPedacos_ compara os dois direto
+    // (while (inicioPedaco <= dataFim)) com timestamps completos. Mesmo bug do
+    // Sync.gs!buscarPrecoHistorico_, um nível abaixo do gate depoisPorDia_.
+    inicio.setHours(0, 0, 0, 0);
+
+    // Correção de 16/09/2026 (mesmo bug do Sync.gs!depoisPorDia_): "inicio"
+    // herda a hora fixa da última linha salva (16:56), "ontem" é meia-noite
+    // — comparar Date completos fazia essa checagem dar TRUE pro MESMO dia
+    // de calendário sempre que o sync rodasse de manhã, marcando "já em
+    // dia" sem nunca buscar o índice daquele dia.
+    if (depoisPorDia_(inicio, ontem)) {
+      detalhe.push(nomeIndice + ': já em dia');
+      return;
+    }
+
+    // 17/09/2026: último valor JÁ SALVO deste índice, só pra alimentar a
+    // guarda de sanidade (buscarHistoricoGoogleFinanceEmPedacos_) - sem
+    // isso, a 1ª linha nova de cada sync incremental não teria "anterior"
+    // pra comparar (o backfill completo também não tem, mas ali faz
+    // sentido: é o início da série, não tem valor prévio mesmo).
+    var valorAnterior = ultimoValorIndiceSalvo_(abaIndices, nomeIndice);
+    var linhas = buscarHistoricoGoogleFinanceEmPedacos_(abaAuxiliar, ticker, inicio, ontem, nomeIndice, valorAnterior);
+    linhasNovasTotal = linhasNovasTotal.concat(linhas);
+    detalhe.push(nomeIndice + ': ' + linhas.length + ' linha(s) nova(s)');
+  });
+
+  if (linhasNovasTotal.length > 0) {
     var primeiraLinhaNova = abaIndices.getLastRow() + 1;
-    abaIndices.getRange(primeiraLinhaNova, 1, linhas.length, 3).setValues(linhas);
+    abaIndices.getRange(primeiraLinhaNova, 1, linhasNovasTotal.length, 3).setValues(linhasNovasTotal);
   }
 
-  return { linhasNovas: linhas.length, jaEstavaEmDia: false };
+  return {
+    linhasNovas: linhasNovasTotal.length,
+    jaEstavaEmDia: linhasNovasTotal.length === 0 && !algumSemBackfill,
+    detalhe: detalhe.join(', '),
+  };
 }
 
 /**
- * Atualiza os fatores diários de CDI e SELIC salvos em aux_historico-indices,
- * de forma incremental (só o que falta desde a última data salva de cada
- * índice até ontem) — usado pelo gatilho diário, junto com Renda Fixa e
- * Ibovespa. Se ainda não existir nenhuma linha de um dos dois (1ª vez),
- * faz o backfill completo dele desde 22/12/2020 automaticamente — não
- * PRECISA rodar rodarBackfillTaxasBcbDireto() manual antes, mas rodar
- * manualmente uma vez (fora do horário do gatilho) é mais rápido pra ver
- * o resultado sem esperar o próximo disparo das 11h.
+ * Atualiza os fatores/variações de CDI, SELIC e IPCA salvos em
+ * aux_historico-indices, de forma incremental (só o que falta desde a
+ * última data salva de cada índice até ontem) — usado pelo gatilho diário,
+ * junto com Renda Fixa e os 3 índices do GOOGLEFINANCE. Se ainda não
+ * existir nenhuma linha de um deles (1ª vez), faz o backfill completo dele
+ * desde 22/12/2020 automaticamente — não PRECISA rodar
+ * rodarBackfillTaxasBcbDireto() manual antes, mas rodar manualmente uma vez
+ * (fora do horário do gatilho) é mais rápido pra ver o resultado sem
+ * esperar o próximo disparo das 11h.
+ *
+ * 19/09/2026: IPCA entrou no loop de graça (Object.keys(INDICES_TAXA_BCB)
+ * já era genérico) ao ser adicionado em INDICES_TAXA_BCB — só o texto do
+ * detalhe abaixo foi ajustado, já que "sem pregão" é uma framing
+ * específica de CDI/SELIC (dia não-útil); pro IPCA (mensal) o motivo mais
+ * comum de "0 linhas novas" é o mês corrente ainda não ter sido publicado.
  */
 function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -568,7 +667,7 @@ function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
     }
     var linhas = buscarTaxasBcbComoLinhas_(nome, inicio, ontem);
     linhasNovas = linhasNovas.concat(linhas);
-    detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)' + (linhas.length === 0 ? ' (sem pregão no período)' : ''));
+    detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)' + (linhas.length === 0 ? ' (sem dado publicado no período)' : ''));
   });
 
   if (linhasNovas.length > 0) {
