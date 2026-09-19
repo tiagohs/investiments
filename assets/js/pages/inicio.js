@@ -415,9 +415,21 @@ const PALETA_DISTRIB_FALLBACK = ['--rf', '--fiis', '--usa', '--acoes', '--warn',
  * mesmo risco de fonte minúscula que o gráfico de linha teve (ver
  * renderGraficoRentabilidade). `fatias` é `[{ label, valor, cor? }]` -
  * `cor` é opcional (cai na paleta PALETA_DISTRIB_FALLBACK quando não
- * vem, caso da Renda Emergencial).
+ * vem, caso da Renda Emergencial). `formatarValor` (padrão formatBRL) e
+ * `formatarValorTooltip` (padrão = o mesmo `formatarValor`) permitem
+ * mostrar o valor principal numa moeda e o valor entre parênteses da
+ * tooltip em outra - 19/09/2026 #6, pedido do Tiago pro donut "Por
+ * setor" de Ações EUA (carteiras-classe-comum.js!renderDistribuicaoGrupoCarteiras):
+ * "por default, mostra em dolar aqui, e no i, mantenha a versao em
+ * reais" - ali `formatarValor=formatUSD` (os valores de Ações EUA já
+ * vêm nativamente em US$) e `formatarValorTooltip=(v)=>formatBRL(v*cambio)`.
+ * Não mexe no caminho `f.valorUsd` abaixo (2ª linha US$/R$ empilhada,
+ * usado só no resumo de Patrimônio da própria Início, que mistura
+ * classes em R$ com uma fatia em US$ na mesma legenda) - são 2
+ * necessidades diferentes: aqui é a legenda INTEIRA numa moeda só,
+ * variável por chamador.
  */
-export function renderDistribuicao(doc, container, fatias) {
+export function renderDistribuicao(doc, container, fatias, { formatarValor = formatBRL, formatarValorTooltip = formatarValor } = {}) {
   container.innerHTML = '';
   const total = (fatias || []).reduce((soma, f) => soma + f.valor, 0);
   if (!fatias || !fatias.length || total <= 0) {
@@ -457,7 +469,7 @@ export function renderDistribuicao(doc, container, fatias) {
     // exato por trás do arredondamento. 16/09/2026: era `title` nativo
     // (não aparece no toque) - agora é .info-alvo com ícone "i" clicável,
     // ver wirePointerTooltipDistrib_ logo abaixo.
-    item.dataset.tooltip = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatBRL(f.valor)})`;
+    item.dataset.tooltip = `${f.label}: ${formatNumeroBR(pct, 2)}% (${formatarValorTooltip(f.valor)})`;
     // 18/09/2026: dot+nome e valor+%+ícone viraram 2 grupos (.distrib-nome-wrap/
     // .distrib-valores) em vez de 5 filhos soltos - o min-width:0 (17/09/2026)
     // não bastou sozinho num celular de verdade (Tiago testou e ainda vazava):
@@ -489,7 +501,7 @@ export function renderDistribuicao(doc, container, fatias) {
     if (typeof f.valorUsd === 'number') {
       item.querySelector('.distrib-valor').innerHTML = `${formatUSD(f.valorUsd)}<span class="distrib-valor-abaixo">(${formatBRL(f.valor)})</span>`;
     } else {
-      item.querySelector('.distrib-valor').textContent = formatBRL(f.valor);
+      item.querySelector('.distrib-valor').textContent = formatarValor(f.valor);
     }
     item.querySelector('.distrib-pct').textContent = `${formatNumeroBR(pct, 1)}%`;
     legenda.appendChild(item);

@@ -10,6 +10,7 @@ import {
   renderTabelaAtivosCarteiras,
   statusVies,
   contarVies_,
+  equivalenteBrlHtml_,
 } from '../assets/js/pages/carteiras-classe-comum.js';
 
 function makeDom(bodyHtml = '') {
@@ -124,6 +125,35 @@ test('renderResumoClasseCarteiras() com `vies` todo zerado (comprar:0, aguardar:
   assert.equal(statAtivos.querySelector('.cc-resumo-vies-bar'), null);
 });
 
+// 19/09/2026 #6 (pedido do Tiago, só Ações EUA: "coloque um i com a
+// conversao nesses tres valores em dolar" - Total atualizado, Total
+// investido e Lucro/Prejuízo) - `cambio` acrescenta um botão "i"
+// (equivalenteBrlHtml_) depois de cada um desses 3 valores; sem
+// `cambio` (Ações/FIIs/Renda Fixa), nenhum "i" novo aparece.
+test('renderResumoClasseCarteiras() com `cambio` acrescenta um "i" com o equivalente em reais no Total atualizado, Total investido e Lucro/Prejuízo', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  const container = doc.getElementById('alvo');
+  renderResumoClasseCarteiras(doc, container, {
+    totalInvestido: 3001.85, totalAtualizado: 3303.79, lucroPrejuizo: 301.95, percentualLucroPrejuizo: 0.1, quantidadeAtivos: 7,
+  }, { cambio: 5.14 });
+
+  const principalIcones = container.querySelector('.cc-resumo-principal').querySelectorAll('.info-alvo');
+  assert.equal(principalIcones.length, 2); // Total atualizado + Total investido
+  assert.match(principalIcones[0].dataset.tooltip, /R\$/);
+
+  const statLucro = doc.querySelectorAll('.cc-resumo-stat')[0];
+  assert.ok(statLucro.querySelector('.info-alvo'), 'Lucro/Prejuízo também deveria ganhar o "i"');
+});
+
+test('renderResumoClasseCarteiras() sem `cambio` (Ações/FIIs/Renda Fixa) não acrescenta nenhum "i" de conversão', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  const container = doc.getElementById('alvo');
+  renderResumoClasseCarteiras(doc, container, {
+    totalInvestido: 100, totalAtualizado: 110, lucroPrejuizo: 10, percentualLucroPrejuizo: 0.1, quantidadeAtivos: 2,
+  });
+  assert.equal(container.querySelectorAll('.info-alvo').length, 0);
+});
+
 // --- renderBenchmarksClasseCarteiras ------------------------------------
 
 test('renderBenchmarksClasseCarteiras() desenha um chip por item', () => {
@@ -195,6 +225,49 @@ test('renderDistribuicaoGrupoCarteiras() com 1 grupo só não cria colunas vazia
   const container = doc.getElementById('alvo');
   assert.equal(container.querySelectorAll('.cc-donut-legenda-col').length, 0);
   assert.equal(container.querySelectorAll('.distrib-item').length, 1);
+});
+
+// 19/09/2026 #6 (pedido do Tiago sobre o donut "Por setor" de Ações EUA -
+// print mostrando "Financeiro/Bancário R$ 312,48" quando o valor real já
+// era em US$: "por default, mostra em dolar aqui, e no i, mantenha a
+// versao em reais") - sem `cambio` (Ações/FIIs, nativamente em R$),
+// comportamento idêntico a antes.
+test('renderDistribuicaoGrupoCarteiras() sem `cambio` mostra os valores em R$ (Ações/FIIs, sem mudança)', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
+    { grupo: 'Bancos', totalAtualizado: 6000 },
+  ]);
+  const container = doc.getElementById('alvo');
+  assert.match(container.querySelector('.distrib-valor').textContent, /R\$/);
+});
+
+test('renderDistribuicaoGrupoCarteiras() com `cambio` mostra os valores em US$ na legenda e o equivalente em R$ na tooltip do item (Ações EUA)', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
+    { grupo: 'Financeiro / Bancário', totalAtualizado: 312.48 },
+  ], { cambio: 5.14 });
+  const container = doc.getElementById('alvo');
+  const valorEl = container.querySelector('.distrib-valor');
+  assert.match(valorEl.textContent, /\$312\.48|US\$/);
+  assert.equal(valorEl.textContent.includes('R$'), false);
+  const item = container.querySelector('.distrib-item');
+  assert.match(item.dataset.tooltip, /R\$\s*1\.606,15/); // 312.48 * 5.14
+});
+
+// --- equivalenteBrlHtml_ -----------------------------------------------
+
+test('equivalenteBrlHtml_() devolve um botão "i" pequeno com o valor convertido pro câmbio de hoje', () => {
+  const html = equivalenteBrlHtml_(100, 5);
+  assert.match(html, /info-alvo/);
+  assert.match(html, /cc-info-icon-sm/);
+  assert.match(html, /R\$\s*500,00/);
+});
+
+test('equivalenteBrlHtml_() devolve string vazia sem câmbio numérico ou sem valor numérico', () => {
+  assert.equal(equivalenteBrlHtml_(100, null), '');
+  assert.equal(equivalenteBrlHtml_(100, undefined), '');
+  assert.equal(equivalenteBrlHtml_(null, 5), '');
+  assert.equal(equivalenteBrlHtml_(undefined, 5), '');
 });
 
 // --- renderTabelaAtivosCarteiras -----------------------------------------

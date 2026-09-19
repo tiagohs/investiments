@@ -11,7 +11,7 @@
  * e formatadores.
  */
 
-import { formatBRL, formatPercentFromFraction } from '../format.js';
+import { formatBRL, formatUSD, formatPercentFromFraction } from '../format.js';
 import { renderDistribuicao } from './inicio.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
@@ -36,8 +36,16 @@ import { resolveSiteRootUrl } from '../shell.js';
  * manteve o numero de ativos, mas remoeu o gadget de comprar/aguardar
  * (com a barrinha)") - Renda Fixa não passa `vies` (não tem essa
  * coluna), então continua mostrando só o número, sem faixa.
+ * `cambio` (opcional, só Ações EUA) acrescenta um "i" com o equivalente
+ * em reais (equivalenteBrlHtml_) depois do Total atualizado, do Total
+ * investido e do valor de Lucro/Prejuízo (19/09/2026 #6, pedido do
+ * Tiago: "coloque um i com a conversao nesses tres valores em dolar") -
+ * no caso de Lucro/Prejuízo, o "i" fica entre o valor e a % (que pode
+ * quebrar pra uma 2ª linha se não couber, o próprio Tiago topou: "a
+ * porcentagem pode ir pra baixo" - nenhum CSS novo precisou pra isso, o
+ * <span> da % já é inline e quebra sozinho quando falta espaço).
  */
-export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL, vies = null } = {}) {
+export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL, vies = null, cambio = null } = {}) {
   if (!container || !resumo) return;
   const lucroBom = resumo.lucroPrejuizo >= 0;
 
@@ -52,10 +60,14 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
     `;
   }
 
+  const equivTotal = equivalenteBrlHtml_(resumo.totalAtualizado, cambio);
+  const equivInvestido = equivalenteBrlHtml_(resumo.totalInvestido, cambio);
+  const equivLucro = equivalenteBrlHtml_(resumo.lucroPrejuizo, cambio);
+
   const stats = [
     {
       label: 'Lucro / Prejuízo',
-      valor: `${formatarValor(resumo.lucroPrejuizo)}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
+      valor: `${formatarValor(resumo.lucroPrejuizo)}${equivLucro}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
       classe: lucroBom ? 'good' : 'bad',
     },
     { label: 'Ativos na carteira', valor: ativosValorHtml },
@@ -65,8 +77,8 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
   container.innerHTML = `
     <div class="cc-resumo" style="--tile-accent:var(${corToken})">
       <div class="cc-resumo-principal">
-        <span class="cc-resumo-valor">${formatarValor(resumo.totalAtualizado)}</span>
-        <span class="cc-resumo-investido">Investido: ${formatarValor(resumo.totalInvestido)}</span>
+        <span class="cc-resumo-valor">${formatarValor(resumo.totalAtualizado)}${equivTotal}</span>
+        <span class="cc-resumo-investido">Investido: ${formatarValor(resumo.totalInvestido)}${equivInvestido}</span>
       </div>
       <div class="cc-resumo-sep" aria-hidden="true"></div>
       <div class="cc-resumo-stats">
@@ -106,11 +118,24 @@ export function renderBenchmarksClasseCarteiras(doc, container, itens) {
  * escopado a `.cc-donut-card` em carteiras.css, não mexe no donut da
  * Início (mesmo componente, contextos de card diferentes). A divisão
  * em 2 colunas é feita aqui no DOM (ver dividirLegendaEmDuasColunas_
- * abaixo), não em CSS - ver o comentário lá pro porquê. */
-export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao) {
+ * abaixo), não em CSS - ver o comentário lá pro porquê.
+ * `cambio` (opcional, só Ações EUA) corrige um bug de rótulo: os totais
+ * de `distribuicao` em Ações EUA já vêm nativamente em US$ (mesmo dado
+ * que preenche a tabela/resumo), mas a legenda mostrava "R$" na frente
+ * de um número que na verdade era dólar (19/09/2026 #6, print do Tiago:
+ * "Financeiro/Bancário R$ 312,48" quando o valor real era em US$) -
+ * "por default, mostra em dolar aqui, e no i, mantenha a versao em
+ * reais". Com `cambio`, a legenda passa a mostrar formatUSD (o valor
+ * como ele já É) e o "i" de cada item mostra o equivalente convertido
+ * pro câmbio de hoje; sem `cambio` (Ações/FIIs, nativamente em R$),
+ * comportamento igual a antes. */
+export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao, { cambio = null } = {}) {
   if (!container) return;
   const fatias = (distribuicao || []).map((d) => ({ label: d.grupo, valor: d.totalAtualizado }));
-  renderDistribuicao(doc, container, fatias);
+  const opcoesFormato = typeof cambio === 'number'
+    ? { formatarValor: formatUSD, formatarValorTooltip: (v) => formatBRL(v * cambio) }
+    : {};
+  renderDistribuicao(doc, container, fatias, opcoesFormato);
   dividirLegendaEmDuasColunas_(doc, container);
 }
 
@@ -194,6 +219,28 @@ export function botaoInfoHtml(texto, { pequeno = false } = {}) {
   const escapado = String(texto).replace(/"/g, '&quot;');
   const classeIcone = pequeno ? 'info-icon cc-info-icon-sm' : 'info-icon';
   return ` <span class="info-alvo" data-tooltip="${escapado}"><span class="${classeIcone}">i</span></span>`;
+}
+
+/**
+ * "i" com o equivalente em reais de um valor em US$ (câmbio de hoje) -
+ * só Ações EUA passa `cambio` (câmbio do dia, `dados.benchmarks.dolar`),
+ * que já vem nativamente em US$ (resumo/tabela/donut) - 19/09/2026 #6,
+ * pedido do Tiago: "coloque um i com a conversao" no resumo (Total
+ * atualizado/Investido/Lucro-Prejuízo) e na coluna Preço/dia da tabela;
+ * "por default, mostra em dolar... no i, mantenha a versao em reais" no
+ * donut "Por setor" (ver o `cambio` de renderDistribuicaoGrupoCarteiras
+ * abaixo). '' quando não há câmbio disponível (sem quebrar a tela).
+ * Compartilhada aqui (em vez de duplicada por página) porque é um puro
+ * helper de formatação sem estado nem efeito colateral - ao contrário
+ * das funções de wiring que este projeto duplica de propósito (ver o
+ * comentário de wirePointerTooltipCarteiras_ logo abaixo). Usada
+ * também na coluna "Pr. médio"/teto de carteiras-acoes-eua.js, que já
+ * tinha essa MESMA função como cópia local antes desta rodada - migrada
+ * pra cá quando um 3º lugar (resumo) passou a precisar dela também.
+ */
+export function equivalenteBrlHtml_(valorUsd, cambio) {
+  if (typeof valorUsd !== 'number' || typeof cambio !== 'number') return '';
+  return botaoInfoHtml(`Equivalente em reais: ${formatBRL(valorUsd * cambio)} (câmbio de hoje).`, { pequeno: true });
 }
 
 /**

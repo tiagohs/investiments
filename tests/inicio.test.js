@@ -361,6 +361,47 @@ test('renderDistribuicao() põe um ícone "i" clicável (dataset.tooltip) com no
   assert.match(item2.dataset.tooltip, /66,67%/);
 });
 
+// 19/09/2026 #6 (pedido do Tiago pro donut "Por setor" de Ações EUA, em
+// carteiras-classe-comum.js!renderDistribuicaoGrupoCarteiras: "por
+// default, mostra em dolar aqui, e no i, mantenha a versao em reais") -
+// `formatarValor`/`formatarValorTooltip` deixam o valor principal da
+// legenda (.distrib-valor) e o valor entre parênteses da tooltip usarem
+// moedas/formatadores diferentes do padrão (formatBRL nos dois) - sem
+// passar nada, comportamento idêntico a antes (ver os testes acima).
+test('renderDistribuicao() com `formatarValor` mostra o valor principal nessa moeda (mantendo o padrão pra quem não passa nada)', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  const formatarValor = (v) => `US$ ${v.toFixed(2)}`;
+  renderDistribuicao(doc, container, [
+    { label: 'Financeiro', valor: 1835.11 },
+  ], { formatarValor });
+  assert.equal(container.querySelector('.distrib-valor').textContent, 'US$ 1835.11');
+});
+
+test('renderDistribuicao() sem `formatarValorTooltip` explícito usa o mesmo `formatarValor` também na tooltip', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  const formatarValor = (v) => `US$ ${v.toFixed(2)}`;
+  renderDistribuicao(doc, container, [
+    { label: 'Financeiro', valor: 1835.11 },
+  ], { formatarValor });
+  assert.match(container.querySelector('.distrib-item').dataset.tooltip, /US\$ 1835\.11/);
+});
+
+test('renderDistribuicao() com `formatarValor` e `formatarValorTooltip` diferentes mostra 1 moeda na legenda e outra na tooltip', () => {
+  const doc = makeDom('<div id="distrib"></div>');
+  const container = doc.getElementById('distrib');
+  renderDistribuicao(doc, container, [
+    { label: 'Financeiro', valor: 1835.11 },
+  ], {
+    formatarValor: (v) => `US$ ${v.toFixed(2)}`,
+    formatarValorTooltip: (v) => `R$ ${(v * 5).toFixed(2)}`,
+  });
+  assert.equal(container.querySelector('.distrib-valor').textContent, 'US$ 1835.11');
+  assert.match(container.querySelector('.distrib-item').dataset.tooltip, /R\$ 9175\.55/);
+  assert.equal(container.querySelector('.distrib-valor').textContent.includes('R$'), false);
+});
+
 test('renderResumoPatrimonio() mostra as 4 divisões juntas, sem precisar de clique nenhum', () => {
   const doc = makeDom('<div id="resumo"></div>');
   const resumo = doc.getElementById('resumo');

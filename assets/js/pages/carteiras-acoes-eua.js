@@ -11,7 +11,7 @@
  */
 
 import { getCarteirasAcoesEua } from '../api-client.js';
-import { formatBRL, formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
+import { formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
@@ -24,22 +24,12 @@ import {
   wirePointerTooltipCarteiras_,
   logoAtivoHtml,
   notaAtivoHtml,
-  botaoInfoHtml,
+  equivalenteBrlHtml_,
   statusVies,
   contarVies_,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v1';
-
-/** "i" com o equivalente em reais de um valor em US$ (câmbio de hoje) -
- * usado nos valores menores da tabela (Pr. médio, teto), que no mockup
- * ganham só um botão de ajuda em vez do "(R\$ ...)" por extenso que os
- * valores grandes (Total/Lucro) usam via formatComConversao. '' quando
- * não há câmbio disponível (sem quebrar a tabela). */
-function equivalenteBrlHtml_(valorUsd, cambio) {
-  if (typeof valorUsd !== 'number' || typeof cambio !== 'number') return '';
-  return botaoInfoHtml(`Equivalente em reais: ${formatBRL(valorUsd * cambio)} (câmbio de hoje).`, { pequeno: true });
-}
 
 function montarColunas_(cambio) {
   return [
@@ -50,9 +40,12 @@ function montarColunas_(cambio) {
       },
     },
     {
+      // 19/09/2026 #6 (pedido do Tiago, print da coluna sem conversão nenhuma:
+      // "inclua o i com a conversao em reais (coluna preço/dia)") - mesmo
+      // padrão de equivalenteBrlHtml_ já usado em Pr. médio/teto logo abaixo.
       label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
         const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
-        return `${formatUSD(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
+        return `${formatUSD(a.precoAtual)}${equivalenteBrlHtml_(a.precoAtual, cambio)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
       },
     },
     { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
@@ -149,13 +142,21 @@ function desenhar(doc, dados) {
   // wirePointerTooltipCarteiras_ em carteiras-classe-comum.js).
   wirePointerTooltipCarteiras_(doc, conteudoEl);
 
+  // Câmbio de hoje (USD->BRL) - precisa vir antes do resumo porque
+  // 19/09/2026 #6 (pedido do Tiago: "coloque um i com a conversao
+  // nesses tres valores em dolar") também usa pra desenhar o "i" com o
+  // equivalente em reais no Total atualizado/Investido/Lucro-Prejuízo.
+  const cambio = dados.benchmarks?.dolar;
+
   // Resumo em destaque, igual Ações/FIIs - mas em US$ (formatarValor:
   // formatUSD), sem "Proventos recebidos" (Ações EUA não traz esse dado
-  // separado do back-end, 19/09/2026 #4).
+  // separado do back-end, 19/09/2026 #4). `cambio` acrescenta o "i" com
+  // o equivalente em reais nos 3 valores em dólar (19/09/2026 #6).
   renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), dados.resumo, {
     corToken: '--usa',
     formatarValor: formatUSD,
     vies: contarVies_(dados.ativos),
+    cambio,
   });
 
   // 19/09/2026 #2 (correção do Tiago, fiel ao mockup): Ibovespa/S&P 500
@@ -163,13 +164,17 @@ function desenhar(doc, dados) {
   // cor, não é "ganho/perda do dia".
   const ibovespaVar = dados.benchmarks?.ibovespa;
   const spxVar = dados.benchmarks?.spx;
-  const cambio = dados.benchmarks?.dolar;
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('acoesEuaBenchmarks'), [
     { label: 'Dólar hoje', valor: typeof cambio === 'number' ? `R$ ${formatNumeroBR(cambio, 2)}` : '—' },
     { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
     { label: 'S&P 500 hoje', valor: typeof spxVar === 'number' ? formatPercentFromPoints(spxVar) : '—', cor: typeof spxVar === 'number' ? (spxVar >= 0 ? 'good' : 'bad') : undefined },
   ]);
-  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesEuaDistribuicao'), dados.distribuicaoPorGrupo);
+  // 19/09/2026 #6 (pedido do Tiago, print com "Financeiro/Bancário R$
+  // 312,48" quando o valor real já era em US$ - bug de rótulo, não só
+  // de preferência: "por default, mostra em dolar aqui, e no i, mantenha
+  // a versao em reais") - `cambio` faz a legenda mostrar US$ (o valor
+  // como ele já É) com o "i" trazendo o equivalente em reais.
+  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesEuaDistribuicao'), dados.distribuicaoPorGrupo, { cambio });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
   const ativosBase = (dados.ativos || []).map((a) => ({

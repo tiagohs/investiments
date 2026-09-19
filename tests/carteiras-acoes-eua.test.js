@@ -134,6 +134,47 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
   });
 });
 
+// 19/09/2026 #6 (pedido do Tiago, 3 prints): "coloque um i com a
+// conversao" nos 3 valores em dólar do resumo (Total atualizado/
+// Investido/Lucro-Prejuízo) e na coluna Preço/dia da tabela; no donut
+// "Por setor", "por default, mostra em dolar aqui, e no i, mantenha a
+// versao em reais" (antes mostrava "R$" na frente de um número que já
+// era dólar - bug de rótulo, não só de preferência).
+test('montarPaginaCarteirasAcoesEua() acrescenta o "i" com o equivalente em reais no resumo (Total/Investido/Lucro) e na coluna Preço/dia, e o donut "Por setor" mostra US$ com o "i" trazendo o equivalente em reais', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+
+    // Resumo: Total atualizado + Total investido (bloco .cc-resumo-principal)
+    // e o stat de Lucro/Prejuízo ganham cada um o seu próprio "i".
+    const resumoEl = doc.getElementById('acoesEuaResumo');
+    const iconesPrincipal = resumoEl.querySelector('.cc-resumo-principal').querySelectorAll('.info-alvo');
+    assert.equal(iconesPrincipal.length, 2);
+    assert.match(iconesPrincipal[0].dataset.tooltip, /R\$\s21\.101,69/); // Total atualizado (4103,79 * 5,142)
+    assert.match(iconesPrincipal[1].dataset.tooltip, /R\$\s19\.034,91/); // Total investido (3701,85 * 5,142)
+    const statLucro = resumoEl.querySelectorAll('.cc-resumo-stat')[0];
+    assert.match(statLucro.querySelector('.info-alvo').dataset.tooltip, /R\$\s2\.066,78/); // Lucro/Prejuízo (401,94 * 5,142)
+
+    // Tabela: coluna Preço/dia (2ª coluna) ganha o mesmo botão "i" que já
+    // existia em Pr. médio/teto.
+    const linhaAapl = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('AAPL'));
+    const iconePrecoDia = linhaAapl.querySelector('td:nth-child(2) .info-alvo');
+    assert.ok(iconePrecoDia, 'célula de Preço/dia deveria ter o ícone de equivalente em reais');
+    assert.match(iconePrecoDia.dataset.tooltip, /R\$\s1\.132,53/); // 220,25 * 5,142
+
+    // Donut "Por setor": valor principal em US$ (não mais "R$" na frente
+    // de um número que já era dólar), com o equivalente em reais no "i"
+    // de cada item da legenda.
+    const distribEl = doc.getElementById('acoesEuaDistribuicao');
+    const valores = [...distribEl.querySelectorAll('.distrib-valor')].map((el) => el.textContent);
+    assert.ok(valores.some((v) => v.includes('$3,303.79')), 'Tecnologia deveria aparecer em US$');
+    assert.equal(valores.some((v) => v.includes('R$')), false, 'a legenda não deveria mais mostrar "R$" na frente de um valor que é dólar');
+    const itemTecnologia = [...distribEl.querySelectorAll('.distrib-item')].find((el) => el.textContent.includes('Tecnologia'));
+    assert.match(itemTecnologia.dataset.tooltip, /R\$\s16\.988,09/); // 3303,79 * 5,142
+  });
+});
+
 test('montarPaginaCarteirasAcoesEua(): digitar na busca filtra por ticker e recalcula os totais', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
