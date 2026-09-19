@@ -1,0 +1,115 @@
+/**
+ * carteiras.css — estilos NOVOS da seção Carteiras (a sidebar de
+ * contexto em si — .side-nav/.side-item/.section-content — já vem de
+ * shell.css, reservada especificamente pra essa seção, ver comentário
+ * lá). Skeleton/erro/avisos/filter-tabs/area-header/hint já vêm de
+ * shell.css+inicio.css (mesmo padrão de reaproveitamento entre folhas
+ * já usado em distribuicoes-metas.css, ver comentário lá) — aqui só
+ * entra o que é específico de Carteiras: hero + donut da Visão geral,
+ * os 4 cards de classe, e os blocos genéricos das 4 subpáginas
+ * (tiles de resumo, chips de benchmark, tabela de ativos).
+ *
+ * 19/09/2026: mobile NÃO vira pílula horizontal (diferente do mockup
+ * de design que o Tiago aprovou antes do sidebar existir) — o sidebar
+ * de contexto já tem um comportamento mobile pronto e pensado em
+ * shell.css (colapsa pra um rail só de ícone, 58px, abaixo de 640px,
+ * ver comentário lá: "ainda uma lista vertical, nunca causa scroll
+ * horizontal"). Usar esse sistema já existente (que vai ser o mesmo
+ * de Transações/Proventos/Organização Financeira no futuro) bateu
+ * mais consistência com o resto do app do que reintroduzir pílulas só
+ * pra esta seção — troca sinalizada ao Tiago junto com a entrega.
+ * .carteiras-mobile-title cobre o rótulo que o rail-de-ícone esconde.
+ */
+
+.carteiras-mobile-title{ display:none; }
+@media (max-width:640px){
+  .carteiras-mobile-title{ display:block; font-size:17px; margin-bottom:14px; }
+}
+
+.carteiras-loading{ display:flex; flex-direction:column; gap:12px; }
+.carteiras-erro{ display:flex; flex-direction:column; align-items:center; gap:10px;
+      text-align:center; color:var(--ink-muted); padding:32px 12px; font-size:13px; }
+.carteiras-erro[hidden]{ display:none; }
+
+/* ---- tiles de skeleton das 4 subpáginas de classe ---- */
+.cc-skel-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:10px; }
+.cc-skel-tiles .skel{ height:64px; border-radius:12px; }
+@media (max-width:640px){ .cc-skel-tiles{ grid-template-columns:repeat(2,1fr); } }
+
+/* ================= Visão geral — hero + donut ================= */
+.cg-hero{ display:flex; gap:28px; align-items:center; flex-wrap:wrap;
+      background:var(--surface-2); border-radius:16px; padding:22px 26px; }
+.cg-hero-total{ flex:1 1 240px; min-width:0; }
+.cg-hero-valor{ font-family:var(--display); font-weight:600; font-size:clamp(28px,4vw,38px);
+      color:var(--ink); margin-top:4px; font-variant-numeric:tabular-nums; }
+.cg-hero-info{ margin-top:8px; }
+.cg-hero-donut{ flex:1 1 260px; min-width:220px; }
+
+.cg-chart-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:16px 16px 6px; }
+
+/* ---- cards de classe ---- */
+.cg-cards-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+.cg-card{ all:unset; box-sizing:border-box; cursor:pointer; display:flex; flex-direction:column; gap:8px;
+      background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px;
+      transition:box-shadow .15s, border-color .15s; }
+.cg-card:hover{ box-shadow:var(--shadow); border-color:var(--accent); }
+.cg-card-top{ display:flex; align-items:center; gap:8px; }
+.cg-card-dot{ width:9px; height:9px; border-radius:50%; background:var(--accent); flex:none; }
+.cg-card-nome{ font-weight:700; font-size:13.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cg-card-pct{ font-size:10.5px; color:var(--ink-faint); font-family:var(--mono); flex:none; }
+.cg-card-valor{ font-family:var(--display); font-weight:600; font-size:21px; font-variant-numeric:tabular-nums; }
+.cg-card-usd{ display:block; font-family:var(--mono); font-size:11px; color:var(--ink-faint); font-weight:400; margin-top:2px; }
+.cg-card-linha{ display:flex; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-muted);
+      font-variant-numeric:tabular-nums; flex-wrap:wrap; }
+.cg-card-linha .good{ color:var(--good-ink); font-weight:700; }
+.cg-card-linha .bad{ color:var(--bad-ink); font-weight:700; }
+.cg-card-rodape{ font-size:10.5px; color:var(--ink-faint); }
+
+/* SVG "Evolução do patrimônio" (assets/js/pages/carteiras-visao-geral.js)
+   — mesmas classes gridline/axislabel do gráfico de Rentabilidade
+   (inicio.css), mas escopadas ao container (o padrão do projeto namespaces
+   por container, nunca global — ver .rentab-chart .gridline lá). */
+#vgEvolucaoChart .gridline{ stroke:var(--border); stroke-width:1; }
+#vgEvolucaoChart .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
+
+/* ================= Subpáginas de classe (Ações/FIIs/Ações
+   Internacionais/Renda Fixa) — tiles de resumo, chips de benchmark,
+   donut + tabela lado a lado. ================= */
+.cc-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+.cc-tile{ background:var(--surface-2); border-radius:12px; padding:12px 14px; border-top:3px solid var(--tile-accent,var(--acoes)); }
+.cc-tile-label{ display:block; font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; margin-bottom:5px; }
+.cc-tile-valor{ font-family:var(--mono); font-weight:600; font-size:15px; }
+.cc-tile-sub{ display:inline-block; margin-left:6px; font-size:11px; font-weight:600; }
+.cc-tile-sub.good, .cc-tile.good .cc-tile-valor{ color:var(--good-ink); }
+.cc-tile-sub.bad, .cc-tile.bad .cc-tile-valor{ color:var(--bad-ink); }
+@media (max-width:640px){ .cc-tiles{ grid-template-columns:repeat(2,1fr); } }
+
+.cc-benchmarks{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.cc-benchmark-chip{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted);
+      background:var(--surface-3); border-radius:100px; padding:5px 12px; }
+.cc-benchmark-chip b{ font-family:var(--mono); color:var(--ink); }
+
+.cc-layout-donut-tabela{ display:grid; grid-template-columns:280px 1fr; gap:18px; align-items:start; }
+.cc-donut-card, .cc-tabela-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; }
+@media (max-width:900px){ .cc-layout-donut-tabela{ grid-template-columns:1fr; } }
+
+.cc-tabela-wrap{ overflow-x:auto; }
+.cc-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; }
+.cc-tabela th{ text-align:left; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
+      color:var(--ink-faint); font-weight:600; padding:0 10px 8px; white-space:nowrap; }
+.cc-tabela th.right, .cc-tabela td.right{ text-align:right; }
+.cc-tabela td{ padding:9px 10px; border-top:1px solid var(--border); vertical-align:middle; white-space:nowrap; }
+.cc-tabela tbody tr:hover{ background:var(--surface-3); }
+.cc-ativo-nome{ display:block; font-size:10.5px; color:var(--ink-faint); font-weight:400; max-width:160px;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cc-sub{ display:block; font-size:10.5px; color:var(--ink-faint); font-variant-numeric:tabular-nums; }
+.cc-sub.good{ color:var(--good-ink); }
+.cc-sub.bad{ color:var(--bad-ink); }
+.cc-tabela .good{ color:var(--good-ink); }
+.cc-tabela .bad{ color:var(--bad-ink); }
+
+.status-pill{ display:inline-block; margin-top:3px; font-size:10px; font-weight:700; padding:2px 8px;
+      border-radius:100px; background:var(--surface-3); color:var(--ink-muted); }
+.status-pill.good{ background:var(--good-soft); color:var(--good-ink); }
+.status-pill.warn{ background:var(--warn-soft); color:var(--warn-ink); }

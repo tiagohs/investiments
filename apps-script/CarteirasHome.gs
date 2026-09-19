@@ -20,6 +20,22 @@
  * (Total/Longo Prazo × Ibovespa+CDI) — confirmado com o Tiago que dá pra
  * reaproveitar, sem precisar de rota nova. O donut "por carteira" usa o
  * campo percentualDoPatrimonio de cada card abaixo.
+ *
+ * 18/09/2026: card de Ações Internacionais corrigido — agSomaRV['Ações
+ * EUA'] vem de Auxiliar_ativos na moeda nativa (US$), mas o
+ * totalAtualizado do card (home.patrimonio.porClasse.acoesEua) já vem
+ * em BRL, porque precisa somar no patrimonioTotal. Sem converter
+ * agSoma também, totalInvestido/lucroPrejuizo do card ficavam em
+ * dólar "escondidos" atrás de um totalAtualizado em R$ — o Tiago
+ * reparou comparando com a subpágina. Agora o card sai todo em BRL
+ * (convertido pelo câmbio de hoje, home.cambio.usd), com os valores
+ * originais em dólar à parte em totalAtualizadoUsd/totalInvestidoUsd/
+ * lucroPrejuizoUsd, pra quem quiser montar o "US$ X (R$ Y)" que a
+ * subpágina (CarteirasClasses.gs) já usa. Pode haver um resíduo de
+ * poucos centavos entre totalAtualizado (vindo de home.patrimonio,
+ * uma conversão independente) e totalInvestido+lucroPrejuizo (vindos
+ * da conversão de agSoma aqui) — é só arredondamento entre as duas
+ * fontes, não é bug.
  */
 
 var ABA_AUXILIAR_ATIVOS_CARTEIRAS_HOME = 'Auxiliar_ativos';
@@ -103,12 +119,29 @@ function montarCarteirasHome_() {
     };
   }
 
+  // Ações EUA: converte agSoma (US$, nativo de Auxiliar_ativos) pra
+  // BRL antes de montar o card, pro card sair coerente com
+  // totalAtualizado (que já vem em BRL de home.patrimonio). Guarda os
+  // valores originais em dólar à parte (ver comentário no topo do
+  // arquivo).
+  var cambioUsd = home.cambio.usd;
+  var agSomaAcoesEuaBrl = {
+    comprado: agSomaRV['Ações EUA'].comprado * cambioUsd,
+    atualizado: agSomaRV['Ações EUA'].atualizado * cambioUsd,
+    qtd: agSomaRV['Ações EUA'].qtd
+  };
+  var cardAcoesEua = montarCard_('Ações Internacionais', home.patrimonio.porClasse.acoesEua, agSomaAcoesEuaBrl);
+  cardAcoesEua.totalAtualizadoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado);
+  cardAcoesEua.totalInvestidoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].comprado);
+  cardAcoesEua.lucroPrejuizoUsd = arredondarCarteirasHome_(agSomaRV['Ações EUA'].atualizado - agSomaRV['Ações EUA'].comprado);
+  cardAcoesEua.cambioUsd = cambioUsd;
+
   return {
     patrimonioTotal: home.patrimonio.total,
     cards: [
       montarCard_('Ações', home.patrimonio.porClasse.acoes, agSomaRV['Ações']),
       montarCard_('FIIs', home.patrimonio.porClasse.fiis, agSomaRV['FIIs']),
-      montarCard_('Ações Internacionais', home.patrimonio.porClasse.acoesEua, agSomaRV['Ações EUA']),
+      cardAcoesEua,
       montarCard_('Renda Fixa', home.patrimonio.porClasse.rendaFixa, somaRF)
     ]
   };

@@ -231,6 +231,78 @@ export async function getDistribuicoesMetas(token) {
 }
 
 /**
+ * Chamada única da tela Carteiras > Home consolidada (action=carteirasHome)
+ * — ver apps-script/CarteirasHome.gs!montarCarteirasHome_. Devolve o
+ * patrimônio total em Carteiras e um card por classe (Ações/FIIs/Ações
+ * Internacionais/Renda Fixa) com totalAtualizado/totalInvestido/
+ * lucroPrejuizo/rentabilidade/percentualDoPatrimonio/quantidadeAtivos,
+ * todos em BRL (18/09/2026: o card de Ações Internacionais também traz
+ * totalAtualizadoUsd/totalInvestidoUsd/lucroPrejuizoUsd/cambioUsd, pra
+ * montar o "US$ X (R$ Y)" sem chamada extra). Não traz índices/câmbio
+ * nem a série histórica pros gráficos — a página de Carteiras > Home
+ * busca esses dois pedaços com getHome() (mesmos campos indices/cambio/
+ * historico que a Início já usa) em paralelo, sem endpoint novo.
+ *
+ * @return {Promise<Object>} `{ ok, carteiras: { patrimonioTotal, cards:
+ *   Array<{ nome, totalAtualizado, percentualDoPatrimonio, totalInvestido,
+ *   lucroPrejuizo, rentabilidade, quantidadeAtivos, totalAtualizadoUsd?,
+ *   totalInvestidoUsd?, lucroPrejuizoUsd?, cambioUsd? }> } }` or
+ *   `{ ok:false, etapa, erro }`.
+ */
+export async function getCarteirasHome(token) {
+  return request('GET', 'carteirasHome', token);
+}
+
+/**
+ * Chamada da subpágina Carteiras > Ações (action=carteirasAcoes) — ver
+ * apps-script/CarteirasClasses.gs!montarCarteirasAcoes_.
+ * @return {Promise<Object>} `{ ok, carteira: { classe, resumo: {
+ *   totalInvestido, totalAtualizado, lucroPrejuizo, percentualLucroPrejuizo,
+ *   proventosTotais, quantidadeAtivos }, distribuicaoPorGrupo: Array<{
+ *   grupo, totalAtualizado, percentual }>, ativos: Array<Object>,
+ *   benchmarks: { ibovespa, cdi } } }` or `{ ok:false, etapa, erro }`.
+ */
+export async function getCarteirasAcoes(token) {
+  return request('GET', 'carteirasAcoes', token);
+}
+
+/**
+ * Chamada da subpágina Carteiras > FIIs (action=carteirasFiis) — ver
+ * apps-script/CarteirasClasses.gs!montarCarteirasFiis_. Mesmo formato de
+ * getCarteirasAcoes(), com benchmarks: { ifix } e cada ativo trazendo
+ * também liquidezDiaria/percentualEmCaixa/patrimonio (só em FIIs).
+ */
+export async function getCarteirasFiis(token) {
+  return request('GET', 'carteirasFiis', token);
+}
+
+/**
+ * Chamada da subpágina Carteiras > Ações Internacionais
+ * (action=carteirasAcoesEua) — ver
+ * apps-script/CarteirasClasses.gs!montarCarteirasAcoesEua_. Mesmo
+ * formato de getCarteirasAcoes(), com benchmarks: { dolar, ibovespa,
+ * spx } e valores de resumo/ativos em US$ (moeda nativa dos ativos).
+ */
+export async function getCarteirasAcoesEua(token) {
+  return request('GET', 'carteirasAcoesEua', token);
+}
+
+/**
+ * Chamada da subpágina Carteiras > Renda Fixa (action=carteirasRendaFixa)
+ * — ver apps-script/CarteirasRendaFixa.gs!montarCarteirasRendaFixa_.
+ * @return {Promise<Object>} `{ ok, carteira: { resumo: { totalInvestido,
+ *   totalAtualizado, lucroPrejuizo, percentualLucroPrejuizo,
+ *   quantidadeAtivos }, benchmarks: { cdi, selic, ipca },
+ *   distribuicaoPorIndexador: Array<{ grupo, totalAtualizado, percentual }>,
+ *   ativos: Array<{ ..., tipoCarteira: 'longo-prazo'|'emergencial',
+ *   rentabilidadeContratada, irSeResgatasseHoje }> } }` or
+ *   `{ ok:false, etapa, erro }`.
+ */
+export async function getCarteirasRendaFixa(token) {
+  return request('GET', 'carteirasRendaFixa', token);
+}
+
+/**
  * Grava a meta mensal de Renda Passiva (action=salvarMetaRendaPassiva).
  * @param {string} token
  * @param {number} valor - R$ por mês.
