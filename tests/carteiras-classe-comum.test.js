@@ -121,6 +121,42 @@ test('renderDistribuicaoGrupoCarteiras() converte distribuicaoPorGrupo em fatias
   assert.match(container.textContent, /Energia/);
 });
 
+// 19/09/2026 #5 (correção do Tiago revisando o resultado no mobile: "você
+// dividiu demais. Divida em duas rows (a quantidade por row depende da
+// quantidade de itens)") - a divisão em 2 linhas agora é feita no DOM
+// (dividirLegendaEmDuasLinhas_), não em CSS/media query, então tem que
+// valer em QUALQUER contagem de itens e não depende de largura de tela
+// (jsdom não tem viewport, então esses testes cobrem exatamente o que a
+// versão anterior (CSS Grid + fallback mobile) não garantia).
+test('renderDistribuicaoGrupoCarteiras() divide a legenda em exatamente 2 linhas, com a linha 1 levando o item a mais quando ímpar', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
+    { grupo: 'Financeiro', totalAtualizado: 7000 },
+    { grupo: 'Petróleo, Gás e Biocombustíveis', totalAtualizado: 4000 },
+    { grupo: 'Utilidade Pública', totalAtualizado: 3000 },
+    { grupo: 'Consumo Cíclico', totalAtualizado: 2000 },
+    { grupo: 'Materiais Básicos', totalAtualizado: 2000 },
+    { grupo: 'Consumo não Cíclico', totalAtualizado: 1500 },
+    { grupo: 'Bens Industriais', totalAtualizado: 1000 },
+  ]);
+  const container = doc.getElementById('alvo');
+  const linhas = container.querySelectorAll('.cc-donut-legenda-row');
+  assert.equal(linhas.length, 2); // sempre 2, nunca N linhas de 1 item cada
+  assert.equal(linhas[0].querySelectorAll('.distrib-item').length, 4); // 7 itens -> 4 + 3
+  assert.equal(linhas[1].querySelectorAll('.distrib-item').length, 3);
+  assert.equal(container.querySelectorAll('.distrib-item').length, 7); // nenhum item se perdeu no reagrupamento
+});
+
+test('renderDistribuicaoGrupoCarteiras() com 1 grupo só não cria linhas vazias', () => {
+  const doc = makeDom('<div id="alvo"></div>');
+  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('alvo'), [
+    { grupo: 'Logística', totalAtualizado: 5000 },
+  ]);
+  const container = doc.getElementById('alvo');
+  assert.equal(container.querySelectorAll('.cc-donut-legenda-row').length, 0);
+  assert.equal(container.querySelectorAll('.distrib-item').length, 1);
+});
+
 // --- renderTabelaAtivosCarteiras -----------------------------------------
 
 const COLUNAS_TESTE = [

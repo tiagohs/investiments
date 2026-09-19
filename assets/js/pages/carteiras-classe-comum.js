@@ -84,13 +84,51 @@ export function renderBenchmarksClasseCarteiras(doc, container, itens) {
  * Pizza maior + legenda em 2 linhas (fica bem mais compacto vertical -
  * pedido do Tiago revisando o resultado: "a divisão de setores está
  * mal posicionado... aumente a pizza, e divida em duas rows a lista de
- * setores") - o tamanho/grid é escopado a `.cc-donut-card` em
- * carteiras.css, não mexe no donut da Início (mesmo componente,
- * contextos de card diferentes). */
+ * setores") - o tamanho é escopado a `.cc-donut-card` em carteiras.css,
+ * não mexe no donut da Início (mesmo componente, contextos de card
+ * diferentes). A divisão em 2 linhas é feita aqui no DOM (ver
+ * dividirLegendaEmDuasLinhas_ abaixo), não mais em CSS - ver o
+ * comentário lá pro porquê. */
 export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao) {
   if (!container) return;
   const fatias = (distribuicao || []).map((d) => ({ label: d.grupo, valor: d.totalAtualizado }));
   renderDistribuicao(doc, container, fatias);
+  dividirLegendaEmDuasLinhas_(doc, container);
+}
+
+/**
+ * Reagrupa os itens de `.distrib-legenda` em EXATAMENTE 2 linhas
+ * (`.cc-donut-legenda-row`), a quantidade por linha dependendo da
+ * contagem total - metade pra cada, a 1ª linha leva o item a mais
+ * quando o total é ímpar (19/09/2026 #5, correção do Tiago revisando o
+ * resultado no mobile: "você dividiu demais. Divida em duas rows (a
+ * quantidade por row depende da quantidade de itens)"). A 1ª tentativa
+ * fez essa divisão via CSS Grid (grid-auto-flow:column, só no
+ * desktop), com um fallback mobile que virava 1 coluna corrida - ou
+ * seja, N linhas (1 item por linha) no celular, não 2 - exatamente o
+ * bug que o Tiago pegou. Fazer a divisão AQUI, no DOM, garante
+ * exatamente 2 linhas em QUALQUER largura de tela, sem precisar de
+ * nenhum fallback por media query. Só reorganiza a legenda DENTRO do
+ * `.cc-donut-card` de Carteiras (chamada só por
+ * renderDistribuicaoGrupoCarteiras) - o donut de resumo da Início
+ * (mesma renderDistribuicao, chamada direto por lá) continua intocado.
+ */
+function dividirLegendaEmDuasLinhas_(doc, container) {
+  const legenda = container.querySelector('.distrib-legenda');
+  if (!legenda) return;
+  const itens = [...legenda.children];
+  if (itens.length <= 1) return; // 0-1 item já cabe numa linha só.
+
+  const meio = Math.ceil(itens.length / 2);
+  const linha1 = doc.createElement('div');
+  linha1.className = 'cc-donut-legenda-row';
+  const linha2 = doc.createElement('div');
+  linha2.className = 'cc-donut-legenda-row';
+  itens.forEach((item, i) => (i < meio ? linha1 : linha2).appendChild(item));
+
+  legenda.innerHTML = '';
+  legenda.appendChild(linha1);
+  legenda.appendChild(linha2);
 }
 
 /**

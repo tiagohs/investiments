@@ -200,23 +200,30 @@
 /* 19/09/2026 #4 (pedido do Tiago: "a divisão de setores está mal
    posicionado. Aumente a pizza, e divida em duas rows a lista de
    setores/segmentos") - pizza de 60px (tamanho padrão de .distrib,
-   pensado pro cartão pequeno de resumo da Início) pra 120px, e a
-   legenda vira uma grade de EXATAMENTE 2 linhas (grid-auto-flow:column
-   preenche a 1ª coluna inteira - 2 itens - antes de abrir a próxima
-   coluna), não importa quantos grupos existirem (2 ou 7) - flex-wrap
-   com "2 por linha" daria um número de linhas variável (3, 4...)
-   dependendo da contagem, o pedido foi especificamente 2 LINHAS.
-   Escopado a `.cc-donut-card` (dentro do donut do card de resumo da
-   Início continua do jeito que já era - é o mesmo componente
-   `renderDistribuicao`, só o CONTEXTO de card muda o tamanho). */
+   pensado pro cartão pequeno de resumo da Início) pra 120px. Legenda em
+   EXATAMENTE 2 linhas: a 1ª tentativa usou CSS Grid (grid-auto-flow:
+   column), mas isso é dependente de LARGURA DE TELA (o fallback mobile
+   caía pra 1 coluna corrida = N linhas, 1 item por linha) - o Tiago
+   pegou esse bug no celular ("você dividiu demais. Divida em duas
+   rows"). Agora a divisão em 2 grupos é feita no DOM (ver
+   dividirLegendaEmDuasLinhas_ em carteiras-classe-comum.js, chamada
+   logo após renderDistribuicaoGrupoCarteiras), não em CSS - a função
+   envolve os itens em 2 `.cc-donut-legenda-row`, e aqui só estiliza
+   cada linha (flex-wrap, quebra só DENTRO da própria linha se não
+   couber, nunca criando uma 3ª linha). `.distrib-legenda` continua com
+   o `flex-direction:column` padrão de inicio.css pra empilhar as 2
+   linhas - não precisa de override aqui. Escopado a `.cc-donut-card`
+   (o donut de resumo da Início continua do jeito que já era - mesmo
+   componente `renderDistribuicao`, só o CONTEXTO de card muda). */
 .cc-donut-card .distrib{ align-items:center; gap:26px; }
 .cc-donut-card .distrib-donut{ width:120px; height:120px; }
-.cc-donut-card .distrib-legenda{ display:grid; grid-template-rows:repeat(2,auto); grid-auto-flow:column;
-      grid-auto-columns:minmax(180px,1fr); column-gap:24px; row-gap:10px; }
+.cc-donut-card .cc-donut-legenda-row{ display:flex; flex-wrap:wrap; gap:10px 24px; }
+.cc-donut-card .cc-donut-legenda-row .distrib-item{ flex:1 1 170px; min-width:150px; }
 @media (max-width:760px){
   .cc-donut-card .distrib{ flex-wrap:wrap; }
   .cc-donut-card .distrib-donut{ width:90px; height:90px; }
-  .cc-donut-card .distrib-legenda{ grid-template-rows:none; grid-auto-flow:row; display:flex; flex-direction:column; }
+  .cc-donut-card .cc-donut-legenda-row{ gap:8px 16px; }
+  .cc-donut-card .cc-donut-legenda-row .distrib-item{ flex:1 1 130px; min-width:0; }
 }
 
 /* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
