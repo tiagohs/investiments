@@ -705,7 +705,7 @@ const DIAS_POR_PERIODO = { '30d': 30, '6m': 182, '12m': 365, '3a': 365 * 3 };
  * 'tudo' (ou um id desconhecido que não seja 'mes'/'tudo') devolve o
  * array inteiro.
  */
-export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
+export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDesdeInicio = null) {
   if (!historico || !historico.length) return [];
   if (periodoId === 'mes') {
     const ultimaData = historico[historico.length - 1].data;
@@ -714,7 +714,32 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
     return historico.filter((item) => typeof item.data === 'string' && item.data.startsWith(anoMes));
   }
   const dias = DIAS_POR_PERIODO[periodoId];
-  if (!dias) return historico;
+  if (!dias) {
+    // periodoId === 'tudo' ("Desde o início") - ou qualquer id desconhecido,
+    // mesmo comportamento de sempre (devolve o historico inteiro).
+    //
+    // 20/09/2026 (pedido do Tiago, comparando as 4 subpáginas de Carteiras):
+    // "o desde o início de cada carteira varia, é sempre a 1ª data que
+    // comecei a investir naquele tipo" - Ações EUA/FIIs/as 2 sub-visões de
+    // Renda Fixa começaram bem depois do início do patrimônio total
+    // (22/12/2020) - historico é o MESMO array pra todas as visões (só o
+    // campo muda), então "Desde o início" sem nenhum corte nascia com
+    // anos de linha reta em zero antes da 1ª posição de verdade daquele
+    // tipo específico (Ações/Renda Fixa Total, que já existem desde o
+    // início de tudo, continuam batendo com o array inteiro - só as
+    // visões mais novas mudam de verdade). campoDesdeInicio (opcional,
+    // omitido = comportamento antigo, nunca corta) deixa cada chamador
+    // dizer QUAL campo define "o início desta visão" - corta pro primeiro
+    // dia em que ELE tem valor válido, reaproveitando
+    // primeiroIndiceValidoInicio_ (mesma função que já decide a base do
+    // cálculo de % "desde o início" logo abaixo - nunca 2 critérios de
+    // "onde essa visão começa" podendo divergir entre si).
+    if (campoDesdeInicio) {
+      const idxInicio = primeiroIndiceValidoInicio_(historico, campoDesdeInicio);
+      if (idxInicio > 0) return historico.slice(idxInicio);
+    }
+    return historico;
+  }
   return historico.slice(-dias);
 }
 
@@ -1034,17 +1059,22 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
  * montar o SVG.
  */
 export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer } = {}) {
-  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  // 20/09/2026: campoPrincipal precisa existir ANTES de filtrar - "Desde o
+  // início" (periodoId:'tudo') corta pro início desta visão específica
+  // (ver comentário de filtrarHistoricoPorPeriodo) - sem isso, o gráfico
+  // de FIIs/Ações EUA/Renda Fixa (sub-visões) "desde o início" nascia com
+  // anos de linha reta em zero antes da 1ª posição de verdade.
+  const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const campoFluxoPrincipal = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
+  const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
+  const corPrincipal = COR_PRINCIPAL_POR_VISAO[visaoId] || COR_PRINCIPAL_POR_VISAO.total;
+
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoPrincipal);
   if (janela.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
     if (legendaContainer) legendaContainer.innerHTML = '';
     return;
   }
-
-  const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
-  const campoFluxoPrincipal = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
-  const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
-  const corPrincipal = COR_PRINCIPAL_POR_VISAO[visaoId] || COR_PRINCIPAL_POR_VISAO.total;
 
   const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal, campoFluxoPrincipal);
   const seriesBenchmark = benchmarks.map((b) => {
@@ -1200,7 +1230,9 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const campoFluxo = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
   const valorAtual = resolverVisao(patrimonio, visaoId).valor;
-  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  // 20/09/2026: mesmo corte de "Desde o início" por visão - ver comentário
+  // de filtrarHistoricoPorPeriodo/renderGraficoRentabilidade.
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campo);
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo) : [];
   const percentual = ultimoValidoDe_(serieNormalizada);
 

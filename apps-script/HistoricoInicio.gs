@@ -322,7 +322,25 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
         if (!isNaN(valorBrl)) {
           if (!atualizacoesPorDiaTicker[chave]) atualizacoesPorDiaTicker[chave] = {};
           atualizacoesPorDiaTicker[chave][ticker] = valorBrl;
-          classePorTicker[ticker] = linha[2]; // 'BR'/'FII'/'USA' - só atualiza quando o ticker teve uma linha de verdade
+          // 20/09/2026 (bug real, achado com dados reais do Tiago —
+          // "gráfico de Ações considerando o patrimônio de Renda Variável
+          // todo, não só Ações"): linha[2] (coluna "Classe" de
+          // aux_historico-patrimonio) SÓ existe como 'BR' ou 'USA' — quem
+          // escreve essa coluna (Sync.gs!gravarLinhasHistorico_) nunca
+          // grava 'FII', só distingue USA de "o resto". Usar linha[2]
+          // direto aqui fazia TODO ticker BR (Ações E FIIs juntos) cair
+          // em classeDoTicker === 'BR' mais abaixo — somaFiisAtual ficava
+          // sempre 0 e somaAcoesAtual = Ações+FIIs somados (e o mesmo bug
+          // se repetia em fluxoCaixaAcoes/fluxoCaixaFiis, ver
+          // FluxoCaixaInicio.gs, que consome este mesmo mapa). Corrigido
+          // reclassificando aqui, na leitura, contra TICKERS_FIIS_BR
+          // (Sync.gs, mesmo projeto Apps Script/namespace global) — sem
+          // precisar mudar o que já está gravado na planilha nem
+          // reescrever histórico nenhum.
+          var classeBruta = linha[2]; // 'BR' ou 'USA', nunca 'FII' (ver acima)
+          classePorTicker[ticker] = (classeBruta === 'BR' && typeof TICKERS_FIIS_BR !== 'undefined' && TICKERS_FIIS_BR.indexOf(ticker) !== -1)
+            ? 'FII'
+            : classeBruta; // 'BR' (Ações) / 'FII' / 'USA' - só atualiza quando o ticker teve uma linha de verdade
         }
       }
       // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.

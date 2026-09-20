@@ -49,9 +49,30 @@ var NOME_ABA_REGISTRO = 'Registro de Controle';
 var CELULA_RASCUNHO = 'Auxiliar_app!AZ1';
 var CELULA_RASCUNHO_SAIDA = 'Auxiliar_app!AZ1:BA4000'; // ~15+ anos de pregões — margem de segurança pro backfill completo
 
-// 22 ativos BR = 12 Ações + 10 FIIs (bate com "22 BR" do backfill validado).
-var TICKERS_BR = ['WIZC3', 'VAMO3', 'SEER3', 'TUPY3', 'AXIA7', 'AGRO3', 'B3SA3', 'BBAS3', 'BBSE3', 'EGIE3', 'PETR4', 'VALE3',
-                   'BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11', 'RBRY11', 'KNUQ11', 'HGRU11', 'XPML11'];
+// 20/09/2026 (bug real, achado com dados reais do Tiago — Controle 30.xlsx):
+// TICKERS_BR era 1 array só, misturando Ações e FIIs sem preservar QUAL É
+// QUAL — e faltava AXIA3 (a ON da Axia Energia; só a AXIA7/PNC estava na
+// lista), então aux_historico-patrimonio NUNCA teve 1 linha sequer de
+// AXIA3 desde a 1ª compra (12/06/2025) — confirmado direto na planilha
+// real (0 linhas). Isso sozinho já subestimava "Ações" (e o patrimônio
+// total) em todo gráfico/rentabilidade/TWR que depende do histórico.
+// Separado agora em TICKERS_ACOES_BR/TICKERS_FIIS_BR (com AXIA3 incluída)
+// — TICKERS_BR continua existindo como a UNIÃO dos dois, pra não quebrar
+// nada que já usava a lista combinada (o loop de sincronização em si não
+// precisa saber Ações x FII, só HistoricoInicio.gs precisa — ver
+// classePorTicker lá, que agora usa TICKERS_FIIS_BR pra essa distinção
+// em vez de confiar na coluna "Classe" da aba, que só guarda 'BR'/'USA',
+// nunca 'FII' — a MESMA causa raiz do bug de "gráfico de Ações somando
+// Ações+FIIs juntos" que o Tiago reportou).
+// AXIA15G (direito de subscrição, recebido 13/09/2026, ainda sem preço/
+// histórico nenhum) foi DELIBERADAMENTE deixado de fora por enquanto —
+// confirmar com o Tiago se a GOOGLEFINANCE cota esse ticker antes de
+// adicionar (valor irrisório hoje, não vale o risco de testar às cegas
+// num job que roda sozinho todo dia).
+var TICKERS_ACOES_BR = ['WIZC3', 'VAMO3', 'SEER3', 'TUPY3', 'AXIA3', 'AXIA7', 'AGRO3', 'B3SA3', 'BBAS3', 'BBSE3', 'EGIE3', 'PETR4', 'VALE3'];
+var TICKERS_FIIS_BR = ['BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11', 'RBRY11', 'KNUQ11', 'HGRU11', 'XPML11'];
+// 23 ativos BR = 13 Ações (12 + AXIA3, que faltava) + 10 FIIs.
+var TICKERS_BR = TICKERS_ACOES_BR.concat(TICKERS_FIIS_BR);
 // 7 ativos USA (confirmado — Carteira Ações USA tem 7, não 8).
 var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 
@@ -198,8 +219,43 @@ var LIMITE_MS_ABSOLUTO = 5.5 * 60 * 1000;
  * Registro de Controle, e dispara notificarFalhaSincronizacao_ (e-mail
  * pro Tiago) quando é o gatilho automático que falhou de verdade - nunca
  * mais dias de silêncio até um print do Gorilla entregar o problema.
+ *
+ * TRAVA DE EXECUÇÃO (20/09/2026 — bug real, achado com dados reais do
+ * Tiago): BBAS3 apareceu com preço R$5,1256 em 17/09/2026 (o certo era
+ * ~R$22,78 — bate CASO ISSO SEJA na verdade um câmbio USD/BRL de outra
+ * sincronização rodando ao MESMO tempo) bem no meio de uma sequência de
+ * 4 sincronizações em ~3 minutos (Manual 09:08, Manual 09:09 RF, o
+ * gatilho Automático 09:10, Manual 09:11) — Registro de Controle mostra
+ * isso claramente. Causa raiz: TODAS as buscas de preço (aqui e em
+ * BackfillIndices.gs) escrevem a fórmula GOOGLEFINANCE na MESMA célula
+ * de rascunho compartilhada (Auxiliar_app!AZ1) e leem o resultado da
+ * MESMA saidaRange (AZ1:BA4000) — sem nenhuma trava, 2 execuções ao
+ * mesmo tempo (gatilho automático + clique manual, ou 2 cliques
+ * seguidos) pisam uma na leitura da outra, e um ticker pode acabar
+ * lendo o resultado do OUTRO ticker/execução por coincidência de
+ * timing. lock.tryLock() aqui serializa: só 1 sincronização de preço
+ * (patrimônio OU Renda Fixa/Índices, ver o mesmo lock em
+ * BackfillIndices.gs!atualizarRendaFixaEIndicesDiario_ — LockService é
+ * por SCRIPT inteiro, não por função, então as duas se bloqueiam
+ * mutuamente) roda por vez; se já tem uma rodando, desiste rápido (não
+ * fica esperando minutos, e nunca chega perto do limite de 6min do
+ * Apps Script) e grava "Atenção" — a próxima chamada (gatilho de
+ * amanhã, ou o Tiago clicando de novo) resolve sozinha, sem nunca
+ * arriscar corromper preço nenhum.
  */
 function atualizarHistorico(origem, tickersEspecificos, opcoes) {
+  var lock = LockService.getScriptLock();
+  var conseguiuLock = false;
+  try {
+    conseguiuLock = lock.tryLock(10000);
+  } catch (erroLock) {
+    conseguiuLock = false;
+  }
+  if (!conseguiuLock) {
+    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora (gatilho automático, outra aba ou "Renda Fixa + Índices") — pulado de propósito pra não arriscar corromper preço nenhum (as duas usam a MESMA célula de rascunho do GOOGLEFINANCE). Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
+    gravarRegistroControle_('Atenção', origem, detalheOcupado);
+    return { status: 'Atenção', ok: [], falharam: [], naoProcessados: [], lacunas: [], detalhe: detalheOcupado };
+  }
   try {
     return atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes);
   } catch (erro) {
@@ -207,6 +263,8 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
     gravarRegistroControle_('Erro', origem, detalheErro);
     notificarFalhaSincronizacao_(origem, detalheErro);
     throw erro; // handleSincronizarAgora (botão manual) continua devolvendo ok:false pro site
+  } finally {
+    lock.releaseLock();
   }
 }
 

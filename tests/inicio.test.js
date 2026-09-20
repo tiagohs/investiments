@@ -595,6 +595,36 @@ test('filtrarHistoricoPorPeriodo() com "tudo" (ou preset desconhecido) devolve o
   assert.equal(filtrarHistoricoPorPeriodo(historico, 'nao-existe').length, 40);
 });
 
+// 20/09/2026 (pedido do Tiago: "o desde o início de cada carteira varia, é
+// sempre a 1ª data que comecei a investir naquele tipo") - Ações EUA/FIIs/
+// Renda Fixa (sub-visões) começaram bem depois do início do patrimônio
+// total, então "Desde o início" nessas telas tem que cortar pro início
+// daquele CAMPO específico, não do historico inteiro.
+test('filtrarHistoricoPorPeriodo("tudo", campoDesdeInicio) corta pro 1º dia em que ESSE campo específico tem valor válido', () => {
+  const historico = gerarHistoricoExemplo(40); // ibovespa é null nos 3 primeiros dias (ver gerarHistoricoExemplo)
+  const janela = filtrarHistoricoPorPeriodo(historico, 'tudo', 'ibovespa');
+  assert.equal(janela.length, 37);
+  assert.equal(janela[0], historico[3]);
+});
+
+test('filtrarHistoricoPorPeriodo("tudo", campoDesdeInicio) não corta nada quando o campo já é válido desde o 1º dia', () => {
+  const historico = gerarHistoricoExemplo(40); // patrimonio é válido em todos os 40 dias
+  const janela = filtrarHistoricoPorPeriodo(historico, 'tudo', 'patrimonio');
+  assert.equal(janela.length, 40);
+  assert.equal(janela[0], historico[0]);
+});
+
+test('filtrarHistoricoPorPeriodo("tudo") sem campoDesdeInicio continua devolvendo o array inteiro (comportamento antigo, default nunca corta)', () => {
+  const historico = gerarHistoricoExemplo(40);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, 'tudo').length, 40);
+});
+
+test('filtrarHistoricoPorPeriodo() com preset de dias fixos (ex.: "30d") ignora campoDesdeInicio - só "tudo" usa esse corte', () => {
+  const historico = gerarHistoricoExemplo(40);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa').length, 30);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa')[0], historico[10]);
+});
+
 test('filtrarHistoricoPorPeriodo() sem histórico (ou vazio) devolve array vazio, nunca lança', () => {
   assert.deepEqual(filtrarHistoricoPorPeriodo(undefined, '30d'), []);
   assert.deepEqual(filtrarHistoricoPorPeriodo([], '30d'), []);

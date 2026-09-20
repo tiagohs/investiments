@@ -491,58 +491,89 @@ function rodarRendaFixaEIndicesDiretoDireto() {
 
 function atualizarRendaFixaEIndicesDiario_(origem) {
   origem = origem || 'Automático';
+
+  // 20/09/2026: MESMA trava de Sync.gs!atualizarHistorico (ver o
+  // comentário lá pro bug real que motivou isso) — LockService é por
+  // SCRIPT inteiro, então essa chamada e a de Sync.gs brigam pelo MESMO
+  // lock, nunca rodam junto. As duas escrevem na MESMA célula de
+  // rascunho do GOOGLEFINANCE (Auxiliar_app!AZ1), então rodar ao mesmo
+  // tempo é o que corrompia preço (ex.: BBAS3 com R$5,1256 em vez de
+  // ~R$22,78 em 17/09/2026, achado comparando com dados reais do
+  // Tiago).
+  var lock = LockService.getScriptLock();
+  var conseguiuLock = false;
+  try {
+    conseguiuLock = lock.tryLock(10000);
+  } catch (erroLock) {
+    conseguiuLock = false;
+  }
+  if (!conseguiuLock) {
+    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora (gatilho automático ou o botão "Sincronizar agora") — pulado de propósito pra não arriscar corromper preço nenhum (as duas usam a MESMA célula de rascunho do GOOGLEFINANCE). Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
+    gravarRegistroControle_('Atenção', origem, detalheOcupado);
+    return { status: 'Atenção', detalhe: detalheOcupado };
+  }
+
   var partes = [];
   var status = 'Sucesso';
 
+  // trava por finally (lock.releaseLock() lá embaixo, fecha só depois do
+  // "return { status: status, detalhe: detalhe };") engloba TODO o corpo
+  // dali pra baixo — os try/catch de cada passo (Renda Fixa/Índices/
+  // Taxas) continuam existindo do jeito que já estavam, cada um dentro
+  // deste try externo novo.
   try {
-    var resultadoRf = comRetry_(function () { return executarBackfillRendaFixaIncremental_(); }, 'Renda Fixa');
-    partes.push('Renda Fixa: ' + resultadoRf.linhasGravadas + ' linha(s) nova(s) (' + resultadoRf.posicoes + ' posições)');
-  } catch (erro) {
-    status = 'Erro';
-    partes.push('Renda Fixa falhou: ' + String(erro));
-  }
+    try {
+      var resultadoRf = comRetry_(function () { return executarBackfillRendaFixaIncremental_(); }, 'Renda Fixa');
+      partes.push('Renda Fixa: ' + resultadoRf.linhasGravadas + ' linha(s) nova(s) (' + resultadoRf.posicoes + ' posições)');
+    } catch (erro) {
+      status = 'Erro';
+      partes.push('Renda Fixa falhou: ' + String(erro));
+    }
 
-  // 13/09/2026: lê aux_historico-indices UMA vez aqui (mapa índice -> última
-  // data salva) e passa pros dois passos abaixo — antes, Índices (Ibovespa)
-  // e Taxas (CDI+SELIC) reliam a aba inteira cada um por conta própria (até
-  // 3 leituras completas da mesma aba nesta única execução do gatilho).
-  var mapaUltimasDatasIndices = null;
-  try {
-    var abaIndicesCache = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HISTORICO_INDICES);
-    if (abaIndicesCache) mapaUltimasDatasIndices = carregarTodasUltimasDatasIndices_(abaIndicesCache);
-  } catch (erro) {
-    mapaUltimasDatasIndices = null; // cada passo abaixo cai no fallback de ler sozinho
-  }
+    // 13/09/2026: lê aux_historico-indices UMA vez aqui (mapa índice -> última
+    // data salva) e passa pros dois passos abaixo — antes, Índices (Ibovespa)
+    // e Taxas (CDI+SELIC) reliam a aba inteira cada um por conta própria (até
+    // 3 leituras completas da mesma aba nesta única execução do gatilho).
+    var mapaUltimasDatasIndices = null;
+    try {
+      var abaIndicesCache = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HISTORICO_INDICES);
+      if (abaIndicesCache) mapaUltimasDatasIndices = carregarTodasUltimasDatasIndices_(abaIndicesCache);
+    } catch (erro) {
+      mapaUltimasDatasIndices = null; // cada passo abaixo cai no fallback de ler sozinho
+    }
 
-  // 14/09/2026: os dois passos abaixo (GOOGLEFINANCE pro Ibovespa, BCB pra
-  // CDI/SELIC) agora tentam de novo em caso de erro (comRetry_, 3x, 20s de
-  // espera) antes de desistir e virar "Atenção"/"Erro" - ver comentário de
-  // comRetry_ no topo do arquivo.
-  try {
-    var resultadoIndices = comRetry_(function () { return atualizarIndicesIncremental_(mapaUltimasDatasIndices); }, 'Índices');
-    partes.push('Índices: ' + resultadoIndices.linhasNovas + ' linha(s) nova(s)' +
-      (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' :
-        (resultadoIndices.linhasNovas === 0 ? ' (sem pregão no período)' : '')));
-  } catch (erro) {
-    status = (status === 'Erro') ? 'Erro' : 'Atenção';
-    partes.push('Índices falharam: ' + String(erro));
-  }
+    // 14/09/2026: os dois passos abaixo (GOOGLEFINANCE pro Ibovespa, BCB pra
+    // CDI/SELIC) agora tentam de novo em caso de erro (comRetry_, 3x, 20s de
+    // espera) antes de desistir e virar "Atenção"/"Erro" - ver comentário de
+    // comRetry_ no topo do arquivo.
+    try {
+      var resultadoIndices = comRetry_(function () { return atualizarIndicesIncremental_(mapaUltimasDatasIndices); }, 'Índices');
+      partes.push('Índices: ' + resultadoIndices.linhasNovas + ' linha(s) nova(s)' +
+        (resultadoIndices.jaEstavaEmDia ? ' (já estava em dia)' :
+          (resultadoIndices.linhasNovas === 0 ? ' (sem pregão no período)' : '')));
+    } catch (erro) {
+      status = (status === 'Erro') ? 'Erro' : 'Atenção';
+      partes.push('Índices falharam: ' + String(erro));
+    }
 
-  try {
-    var resultadoTaxas = comRetry_(function () { return atualizarTaxasBcbIncremental_(mapaUltimasDatasIndices); }, 'Taxas CDI/SELIC');
-    partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
-  } catch (erro) {
-    status = (status === 'Erro') ? 'Erro' : 'Atenção';
-    partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
-  }
+    try {
+      var resultadoTaxas = comRetry_(function () { return atualizarTaxasBcbIncremental_(mapaUltimasDatasIndices); }, 'Taxas CDI/SELIC');
+      partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
+    } catch (erro) {
+      status = (status === 'Erro') ? 'Erro' : 'Atenção';
+      partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
+    }
 
-  var detalhe = partes.join(' — ');
-  gravarRegistroControle_(status, origem, detalhe);
-  // notificarFalhaSincronizacao_ (Sync.gs) já só envia e-mail quando
-  // origem === 'Automático' - seguro chamar sempre aqui, mesmo quando
-  // origem é 'Manual' (clique no botão "Sincronizar agora").
-  if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
-  return { status: status, detalhe: detalhe };
+    var detalhe = partes.join(' — ');
+    gravarRegistroControle_(status, origem, detalhe);
+    // notificarFalhaSincronizacao_ (Sync.gs) já só envia e-mail quando
+    // origem === 'Automático' - seguro chamar sempre aqui, mesmo quando
+    // origem é 'Manual' (clique no botão "Sincronizar agora").
+    if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
+    return { status: status, detalhe: detalhe };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /**

@@ -729,7 +729,10 @@ function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, va
  */
 export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor investido' } = {}) {
   if (!container || !campoValor) return;
-  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  // 20/09/2026 (pedido do Tiago): "Desde o início" (periodoId:'tudo') corta
+  // pro início desta visão/classe específica, não o início do patrimônio
+  // total - ver comentário de filtrarHistoricoPorPeriodo (inicio.js).
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoValor);
   const valoresPrincipal = janela.map((item) => (typeof item[campoValor] === 'number' && Number.isFinite(item[campoValor]) ? item[campoValor] : null));
   const valoresInvestido = comInvestido
     ? janela.map((item) => (typeof item[campoInvestido] === 'number' && Number.isFinite(item[campoInvestido]) ? item[campoInvestido] : null))

@@ -196,7 +196,11 @@ function comHistoricoInvestidoAcumulado_(historico) {
 // definidas em inicio.css em vez de duplicar CSS novo).
 // ============================================================================
 function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaContainer) {
-  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  // 20/09/2026: passa 'patrimonio' como campo de corte de "Desde o início"
+  // (ver filtrarHistoricoPorPeriodo, inicio.js) só por consistência com as
+  // 4 subpáginas de Carteiras - na prática nunca corta nada aqui, porque
+  // o patrimônio TOTAL já existe desde o 1º dia do historico (22/12/2020).
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, 'patrimonio');
   const valoresPatrimonio = janela.map((item) => (typeof item.patrimonio === 'number' && Number.isFinite(item.patrimonio) ? item.patrimonio : null));
   const valoresInvestido = janela.map((item) => (typeof item.investidoAcumulado === 'number' && Number.isFinite(item.investidoAcumulado) ? item.investidoAcumulado : null));
   const validos = valoresPatrimonio.filter((v) => v != null);
