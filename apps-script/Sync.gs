@@ -74,7 +74,14 @@ var TICKERS_FIIS_BR = ['BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11
 // 23 ativos BR = 13 Ações (12 + AXIA3, que faltava) + 10 FIIs.
 var TICKERS_BR = TICKERS_ACOES_BR.concat(TICKERS_FIIS_BR);
 // 7 ativos USA (confirmado — Carteira Ações USA tem 7, não 8).
-var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
+// 20/09/2026 (bug real, achado com dados reais do Tiago - mesmo padrão
+// do AXIA3 que faltava em TICKERS_ACOES_BR, ver comentário acima): STR
+// tem Compra registrada em "Transações - USA" desde 11/06/2025 mas nunca
+// esteve nesta lista, então nunca foi sincronizado nem 1 dia em
+// aux_historico-patrimonio - ficava de fora de TODO o patrimônio
+// Internacional/Total (não é como AXIA15G, que é direito de subscrição
+// com preço 0 - STR tem preço/qtd normais, parece só esquecimento).
+var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM', 'STR'];
 
 /**
  * Instala o gatilho diário — rodar UMA VEZ, manualmente, no editor.

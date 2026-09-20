@@ -449,10 +449,21 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // (feriado da B3 não fecha Ações EUA, e vice-versa) - forward-fill por
     // ticker, não por "o dia teve alguma linha" (ver correção de 13/09/2026
     // no cabeçalho do arquivo).
+    // 20/09/2026 (bug real - ver cabeçalho do arquivo e de
+    // FluxoCaixaInicio.gs!calcularFluxoCaixaDiario_): fluxo IMPLÍCITO de
+    // hoje, só pras séries POR CLASSE usadas no TWR das subpáginas de
+    // Carteiras (fluxoCaixaAcoes/Fiis/AcoesEua) - nunca em
+    // fluxoCaixaPatrimonio/LongoPrazo/Nacional (usados por "quanto
+    // investi" da Início), que já vêm certos direto de Transações, sem
+    // depender de quando o preço foi sincronizado.
+    var flowExtraAcoesHoje = 0;
+    var flowExtraFiisHoje = 0;
+    var flowExtraUsaHoje = 0;
     var atualizacoesHoje = atualizacoesPorDiaTicker[chaveAtual];
     if (atualizacoesHoje) {
       for (var tickerAtualizado in atualizacoesHoje) {
         var valorNovo = atualizacoesHoje[tickerAtualizado];
+        var jaTinhaValor = Object.prototype.hasOwnProperty.call(valorAtualPorTicker, tickerAtualizado);
         var valorAntigo = valorAtualPorTicker[tickerAtualizado] || 0;
         var deltaTicker = valorNovo - valorAntigo;
         somaVariavelAtual += deltaTicker;
@@ -465,6 +476,23 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
         if (classeDoTicker === 'BR') somaAcoesAtual += deltaTicker;
         else if (classeDoTicker === 'FII') somaFiisAtual += deltaTicker;
         else if (classeDoTicker === 'USA') somaUsaAtual += deltaTicker;
+        // 20/09/2026 (ver cabeçalho do arquivo): 1ª vez que ESTE ticker
+        // aparece na série - se o preço só chegou (aux_historico-
+        // patrimonio) DEPOIS da 1ª Compra de verdade (Transações), esse
+        // delta inteiro é posição nova entrando, nunca "retorno de
+        // mercado" - soma como fluxo implícito só na classe dele. Sem
+        // atraso real (o caso normal - preço e compra no mesmo dia), a
+        // Compra já neutraliza isso sozinha (fluxoCaixa.acoes/fiis/usa,
+        // FluxoCaixaInicio.gs) - não soma de novo aqui, senão conta a
+        // mesma coisa 2x.
+        if (!jaTinhaValor) {
+          var primeiraCompra = fluxoCaixa.primeiraCompraPorTicker && fluxoCaixa.primeiraCompraPorTicker[tickerAtualizado];
+          if (primeiraCompra && dataAtual > primeiraCompra) {
+            if (classeDoTicker === 'BR') flowExtraAcoesHoje += deltaTicker;
+            else if (classeDoTicker === 'FII') flowExtraFiisHoje += deltaTicker;
+            else if (classeDoTicker === 'USA') flowExtraUsaHoje += deltaTicker;
+          }
+        }
         valorAtualPorTicker[tickerAtualizado] = valorNovo;
       }
     }
@@ -493,11 +521,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // Emergencial já usada pro patrimônio em si, logo abaixo.
     var fluxoTotalHoje = fluxoCaixa.total[chaveAtual] || 0;
     var fluxoRendaEmergencialHoje = fluxoCaixa.rendaEmergencial[chaveAtual] || 0;
+    // fluxoUsaHoje (bruto, SEM a correção de 20/09/2026 abaixo) - usado
+    // em fluxoCaixaNacional logo adiante (total − rendaEmergencial − usa,
+    // igual sempre foi); a correção de backfill atrasado é só pro TWR da
+    // subpágina Internacional (fluxoCaixaAcoesEua), variável separada.
     var fluxoUsaHoje = fluxoCaixa.usa[chaveAtual] || 0;
     // 19/09/2026 (ver cabeçalho do arquivo): fluxo por classe, pro TWR dos
     // gráficos de Rentabilidade acumulada das subpáginas de Carteiras.
-    var fluxoAcoesHoje = fluxoCaixa.acoes[chaveAtual] || 0;
-    var fluxoFiisHoje = fluxoCaixa.fiis[chaveAtual] || 0;
+    // 20/09/2026: + flowExtra*Hoje (ver bloco de detecção de 1ª aparição,
+    // acima nesta mesma iteração do laço de dias) - backfill de preço
+    // atrasado (GOOGLEFINANCE) nunca mais devia contar como "retorno".
+    var fluxoAcoesHoje = (fluxoCaixa.acoes[chaveAtual] || 0) + flowExtraAcoesHoje;
+    var fluxoFiisHoje = (fluxoCaixa.fiis[chaveAtual] || 0) + flowExtraFiisHoje;
+    var fluxoAcoesEuaHoje = fluxoUsaHoje + flowExtraUsaHoje;
     var fluxoRendaFixaTotalHoje = fluxoCaixa.rendaFixaTotal[chaveAtual] || 0;
 
     var chaveBcb = formatarDataBcbRF_(dataAtual);
@@ -544,7 +580,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       indiceIpca: arredondar2Inicio_(indiceIpca),
       fluxoCaixaAcoes: arredondar2Inicio_(fluxoAcoesHoje),
       fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
-      fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoUsaHoje),
+      fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoAcoesEuaHoje),
       fluxoCaixaRendaFixaTotal: arredondar2Inicio_(fluxoRendaFixaTotalHoje),
       fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje)
     });

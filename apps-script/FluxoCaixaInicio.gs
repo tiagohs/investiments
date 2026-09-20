@@ -147,7 +147,11 @@ function cambioUsdParaData_(mapaCambio, chavesOrdenadas, chaveData) {
  *   aux_historico-patrimonio (19/09/2026, ver cabeçalho do arquivo).
  *   Opcional: sem ele, os baldes `acoes`/`fiis` do retorno ficam vazios,
  *   mas `total`/`rendaEmergencial`/`usa` continuam funcionando igual.
- * @return {Object} { total, rendaEmergencial, usa, acoes, fiis, rendaFixaTotal }
+ * @return {Object} { total, rendaEmergencial, usa, acoes, fiis,
+ *   rendaFixaTotal, primeiraCompraPorTicker } - o último (20/09/2026, ver
+ *   cabeçalho do arquivo) é ticker (maiúsculo) -> Date da 1ª Compra
+ *   encontrada, usado só por HistoricoInicio.gs pra detectar backfill de
+ *   preço atrasado.
  */
 function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -158,6 +162,20 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var porDiaFiis = {};
   var porDiaRendaFixaTotal = {};
   var classes = mapaClassePorTicker || {};
+  // 20/09/2026 (bug real, achado com dados reais do Tiago - FIIs "Desde o
+  // início" mostrando +229% muito acima do IFIX/CDI): primeira data de
+  // Compra de cada ticker (BR e USA), montada na MESMA passada de leitura
+  // de Transações/Transações - USA logo abaixo (nenhuma leitura a mais) -
+  // usada por HistoricoInicio.gs pra saber se o 1º preço backfillado de
+  // um ticker (aux_historico-patrimonio) chegou DEPOIS da compra de
+  // verdade (GOOGLEFINANCE às vezes só acha o preço vários dias, ou até
+  // semanas, depois - ver "lacuna" no Registro de Controle). Quando isso
+  // acontece, o dia em que o preço finalmente aparece não tem fluxo de
+  // caixa registrado (a compra já foi contabilizada no dia real da
+  // transação), e SEM essa referência, HistoricoInicio.gs contaria a
+  // posição inteira como "retorno de mercado" daquele dia só, distorcendo
+  // pra sempre a rentabilidade acumulada (TWR composto) da classe.
+  var primeiraCompraPorTicker = {};
 
   function somar(mapa, chave, valor) {
     if (!valor) return;
@@ -183,6 +201,12 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       var ticker = String(linha[0] || '').trim().toUpperCase();
       var data = linha[1], tipo = linha[2], totalTaxa = Number(linha[7]);
       if (!(data instanceof Date) || isNaN(totalTaxa)) return;
+      // 20/09/2026 (ver comentário de primeiraCompraPorTicker acima) -
+      // registra ANTES do "if (!sinal) return" de baixo, mas só importa
+      // pra tipo === 'Compra' mesmo (Venda não é "1ª aparição" de nada).
+      if (tipo === 'Compra' && ticker && (!primeiraCompraPorTicker[ticker] || data < primeiraCompraPorTicker[ticker])) {
+        primeiraCompraPorTicker[ticker] = data;
+      }
       var sinal = tipo === 'Compra' ? 1 : (tipo === 'Venda' ? -1 : 0);
       if (!sinal) return;
 
@@ -285,7 +309,8 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     usa: porDiaUsa,
     acoes: porDiaAcoes,
     fiis: porDiaFiis,
-    rendaFixaTotal: porDiaRendaFixaTotal
+    rendaFixaTotal: porDiaRendaFixaTotal,
+    primeiraCompraPorTicker: primeiraCompraPorTicker
   };
 }
 
