@@ -3,3 +3,8 @@ node_modules/
 
 # fixtures extraídas da planilha real (dado financeiro pessoal) - nunca commitar
 tests/harness/fixtures.json
+
+# 20/09/2026: arquivos de diagnóstico temporários (alguns com dado financeiro real,
+# ex.: cópias de fixtures.json) que não pude apagar do device (sem permissão de
+# delete) - movidos aqui em vez de apagados, nunca commitar
+tests/harness/_to_delete/
