@@ -714,6 +714,71 @@ test('normalizarSerieRentabilidade() sem campoFluxo mantém o cálculo antigo (c
   assert.ok(Math.abs(serie[1] - 10) < 1e-9);
 });
 
+// 20/09/2026 (bug real achado com dados reais do Tiago via tests/harness/ -
+// "Desde o início" travado perto de -100% pra sempre em Total/Longo Prazo/
+// Nacional/Renda Fixa Total/Renda Emergencial, -101% em Carteira de Ações e
+// -126% em Carteira de Ações EUA) - quando `fluxo` de um único dia é grande
+// o bastante perto do `v` daquele dia (fontes desalinhadas - Transações e
+// aux_historico-* não nasceram no mesmo instante), o retorno diário bruto
+// vira algo tipo "-99,99%", e como o cálculo é COMPOSTO (multiplicativo),
+// esse único dia trava o acumulado perto de -100% PRA SEMPRE, mesmo que
+// todo o resto da série seja positivo. O clamp de sanidade em
+// normalizarSerieRentabilidade neutraliza (retorno = 0%) qualquer dia fora
+// da faixa fisicamente plausível pra uma carteira diversificada
+// (-50% a +100%) em vez de deixar contaminar o resto da série.
+test('normalizarSerieRentabilidade() com campoFluxo NEUTRALIZA um dia com fluxo desalinhado (bug real: trava perto de -100% pra sempre)', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    // fluxo (100.000) quase do tamanho do patrimonio anterior (100.000) -
+    // sem o clamp, retornoDiaBruto = (100050 - 100000) / 100000 - 1 = -99,95%
+    { data: '2026-01-02', patrimonio: 100050, fluxoCaixaPatrimonio: 100000 },
+    // dia seguinte, totalmente normal (+~4,95% orgânico, sem fluxo)
+    { data: '2026-01-03', patrimonio: 105000, fluxoCaixaPatrimonio: 0 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1]) < 1e-9, `dia com fluxo desalinhado devia virar 0% (neutro), veio ${serie[1]}`);
+  // sem o clamp, isso ficaria travado em ~-99,95% - com o clamp, o ganho
+  // orgânico do dia 3 aparece normalmente por cima do 0% do dia 2
+  // (105000 / 100050 - 1 = 4,9475...%)
+  assert.ok(Math.abs(serie[2] - 4.9475) < 1e-2, `esperado ~4,9475% (não mais travado perto de -100%), veio ${serie[2]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo NEUTRALIZA um dia com retorno bruto abaixo de -100% (fluxo maior que o próprio saldo)', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    // retornoDiaBruto = (50000 - 160000) / 100000 - 1 = -2,10 (-210%) - caso
+    // real: Carteira de Ações em 19/01/2023 (retornoDia = -101,12%)
+    { data: '2026-01-02', patrimonio: 50000, fluxoCaixaPatrimonio: 160000 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1]) < 1e-9, `retorno bruto < -100% devia virar 0% (neutro), veio ${serie[1]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo NEUTRALIZA um dia com retorno bruto acima de +100% (fluxo negativo desalinhado)', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    // retornoDiaBruto = (100000 - (-150000)) / 100000 - 1 = 1,50 (+150%)
+    { data: '2026-01-02', patrimonio: 100000, fluxoCaixaPatrimonio: -150000 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1]) < 1e-9, `retorno bruto > +100% devia virar 0% (neutro), veio ${serie[1]}`);
+});
+
+test('normalizarSerieRentabilidade() com campoFluxo NÃO mexe num dia ruim de verdade (queda de mercado plausível, dentro da faixa)', () => {
+  // o "Black Monday" de 1987 (pior dia de bolsa já registrado) foi -20,5% -
+  // a faixa do clamp (-50% a +100%) tem que deixar isso passar ileso
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 80000, fluxoCaixaPatrimonio: 0 }, // -20% real, sem fluxo
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie[0], 0);
+  assert.ok(Math.abs(serie[1] - (-20)) < 1e-9, `queda real de -20% não devia ser clampada, veio ${serie[1]}`);
+});
+
 test('renderGraficoRentabilidade() desenha um <svg> com uma linha principal + 2 benchmarks pra visão "total"', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');

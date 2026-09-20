@@ -916,7 +916,51 @@ export function normalizarSerieRentabilidade(historico, campo, campoFluxo) {
     }
     if (anterior) {
       const fluxo = historico[i][campoFluxo] || 0;
-      const retornoDia = (v - fluxo) / anterior - 1;
+      const retornoDiaBruto = (v - fluxo) / anterior - 1;
+      // 20/09/2026 (bug real, achado com dados reais do Tiago via
+      // tests/harness/ - "Desde o início" de Total/Longo Prazo/Nacional/
+      // Renda Fixa Total travado perto de -100% pra sempre, Carteira de
+      // Ações em -101% e Renda Emergencial em -100% - comprovado rodando
+      // montarSerieHistoricoInicio_ de verdade contra a planilha real):
+      // esta conta só é segura quando `v` (valor bruto do dia) JÁ
+      // reflete o `fluxo` que está sendo descontado dele - ou seja, as
+      // duas fontes nasceram no MESMO instante. Na prática, várias
+      // combinações de fonte podem desalinhar isso: o caso mais comum é
+      // o fluxo (Transações, data real da compra) chegar um dia (ou
+      // mais) ANTES do preço/saldo aparecer em v (aux_historico-
+      // patrimonio, sujeito a atraso de backfill do GOOGLEFINANCE -
+      // "lacuna" no Registro de Controle; HistoricoInicio.gs!
+      // primeiraCompraPorTicker já corrige isso pra Ações/FIIs/Ações
+      // EUA, mas nunca cobriu Total/Longo Prazo/Nacional/Renda Fixa) -
+      // mas o mesmo tipo de desalinhamento pode nascer de qualquer outra
+      // combinação fonte-a-fonte (ex.: duas linhas de Transações Renda
+      // Fixa muito próximas no tempo já bastou pra travar
+      // "Renda Emergencial" com dado real do Tiago). Quando isso
+      // acontece, `v - fluxo` fica artificialmente baixo (às vezes até
+      // negativo) só naquele dia - matematicamente equivale a "o
+      // mercado caiu quase 100% hoje", o que nunca é real - e como o
+      // retorno é COMPOSTO (multiplicativo), um único dia assim TRAVA o
+      // acumulado perto de -100% PRA SEMPRE, mesmo que todo o resto da
+      // história seja positivo (comprovado com dado real: o 2º dia de
+      // toda a carteira, 23/12/2020, já dispara isso sozinho).
+      // Em vez de caçar cada combinação fonte-a-fonte que pode
+      // desalinhar (jogo de gato-e-rato - o padrão de bug recorrente que
+      // motivou pedir o harness de testes, ver tests/harness/README.md),
+      // trava aqui, na fórmula em si: nenhum dia sozinho pode implicar
+      // um retorno fora da faixa fisicamente plausível pra uma carteira
+      // diversificada num único pregão (o pior dia de bolsa já
+      // registrado, o "Black Monday" de 1987, foi -20,5% - a faixa até
+      // -50%/+100% é generosa o bastante pra nunca recortar um dia real,
+      // mas pequena o bastante pra pegar qualquer desalinhamento
+      // fonte-a-fonte). Um dia fora da faixa é tratado como "sem dado
+      // confiável hoje" (retorno neutro, 0%, em vez de contaminar todo o
+      // resto da série) - normalizarSerieRentabilidade.test.js tem os
+      // casos com dado real que provam isso.
+      const RETORNO_DIARIO_MIN_PLAUSIVEL = -0.5;
+      const RETORNO_DIARIO_MAX_PLAUSIVEL = 1;
+      const retornoDia = (retornoDiaBruto < RETORNO_DIARIO_MIN_PLAUSIVEL || retornoDiaBruto > RETORNO_DIARIO_MAX_PLAUSIVEL)
+        ? 0
+        : retornoDiaBruto;
       cumulativo = (1 + cumulativo) * (1 + retornoDia) - 1;
       resultado[i] = cumulativo * 100;
     } else {

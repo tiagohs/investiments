@@ -81,7 +81,20 @@ var TICKERS_BR = TICKERS_ACOES_BR.concat(TICKERS_FIIS_BR);
 // aux_historico-patrimonio - ficava de fora de TODO o patrimônio
 // Internacional/Total (não é como AXIA15G, que é direito de subscrição
 // com preço 0 - STR tem preço/qtd normais, parece só esquecimento).
-var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM', 'STR'];
+// 20/09/2026 (bug real - STR virou fantasma no backfill, ver
+// tests/harness/carteiras-real.test.js!'ticker fantasma' e relatorio
+// enviado ao Tiago): Sitio Royalties (STR) foi incorporada pela Viper
+// Energy (VNOM) num merge all-stock fechado em 19/08/2025 (razao
+// 0,4855 VNOM por 1 STR) - a posicao ja foi migrada corretamente pro
+// ticker VNOM em "Transacoes - USA", entao STR NUNCA MAIS deveria
+// aparecer aqui (senao o sync diario continua gravando "preco" pra um
+// papel delistado em aux_historico-patrimonio, e o backfill
+// (HistoricoInicio.gs) soma esse valor fantasma JUNTO com o VNOM real,
+// dobrando a posicao no grafico "Evolucao do patrimonio"). Se ALGUM
+// ticker daqui for incorporado/trocar de nome/deslistar de novo no
+// futuro, o mesmo cuidado se aplica: tirar da lista abaixo E fechar a
+// posicao fantasma no historico (ver README/relatorio pra como).
+var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 
 /**
  * Instala o gatilho diário — rodar UMA VEZ, manualmente, no editor.

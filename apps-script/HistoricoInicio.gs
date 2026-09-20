@@ -414,8 +414,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   }
   todasAsChaves.sort();
 
-  var primeiraData = new Date(todasAsChaves[0]);
-  var ultimaData = new Date(todasAsChaves[todasAsChaves.length - 1]);
+  var primeiraData = dataLocalDeChaveInicio_(todasAsChaves[0]);
+  var ultimaData = dataLocalDeChaveInicio_(todasAsChaves[todasAsChaves.length - 1]);
 
   var serie = [];
   var indiceCdi = 100;
@@ -608,7 +608,16 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
  * lugar só.
  */
 function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa) {
-  return 'historico_serie_v6_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  // v7 (20/09/2026): fluxoCaixaAcoes/Fiis/AcoesEua mudaram de CONTEÚDO
+  // (correção do backfill atrasado - ver cabeçalho do arquivo e de
+  // FluxoCaixaInicio.gs!calcularFluxoCaixaDiario_), sem nenhuma aba
+  // ganhar linha nova por causa disso - mesmo caso do v3/v4/v6 (conta
+  // mudou, formato/contagem não) - sem esse bump, uma chave já cacheada
+  // ficaria servindo o valor ANTIGO (calculado com o código de ONTEM)
+  // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
+  // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
+  // abaixo) ou esse bump força o recálculo na hora.
+  return 'historico_serie_v7_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**
@@ -728,6 +737,33 @@ function chaveDiaISOInicio_(data) {
     });
   }
   return _formatadorChaveDiaISOInicio_.format(data); // "yyyy-MM-dd" (en-CA formata assim)
+}
+
+/**
+ * 20/09/2026 (bug real, achado com dados reais do Tiago via
+ * tests/harness/ - a Renda Fixa de 19/09 (11 posições, valores reais de
+ * Tesouro/LCI) nunca aparecia em nenhum lugar da série, e a série
+ * ganhava 1 dia "fantasma" vazio antes do primeiro dia real de verdade):
+ * `new Date("yyyy-MM-dd")` (string ISO "date-only", como as chaves de
+ * todasAsChaves) é SEMPRE interpretado como MEIA-NOITE UTC pelo motor
+ * JS - nunca meia-noite no fuso do projeto (America/Sao_Paulo, UTC-3).
+ * Meia-noite UTC de um dia já é 21h do dia ANTERIOR em SP - então rodar
+ * esse Date de volta por chaveDiaISOInicio_ (que formata em
+ * America/Sao_Paulo) sempre devolvia o dia ANTERIOR ao pedido,
+ * empurrando primeiraData/ultimaData/dataAtual (montarSerieHistoricoInicio_,
+ * mais abaixo) 1 dia inteiro pra trás: a série nunca alcançava o último
+ * dia real (a chave máxima de todasAsChaves nunca era lida dentro do
+ * laço) e ganhava 1 dia extra vazio no início. Corrige construindo a
+ * partir dos componentes ano/mês/dia direto, ancorado ao MEIO-DIA UTC
+ * (não meia-noite) - Brasil é sempre UTC-3 desde o fim do horário de
+ * verão em 2019, então meio-dia UTC nunca cruza a fronteira de
+ * meia-noite em nenhum fuso próximo, e chaveDiaISOInicio_ sempre
+ * recupera o dia certo de volta, não importa o fuso de quem estiver
+ * rodando (produção real ou o harness de testes locais).
+ */
+function dataLocalDeChaveInicio_(chaveIso) {
+  var partes = chaveIso.split('-');
+  return new Date(Date.UTC(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]), 12, 0, 0));
 }
 
 function arredondar2Inicio_(n) {

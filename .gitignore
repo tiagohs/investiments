@@ -1,2 +1,5 @@
 node_modules/
 .DS_Store
+
+# fixtures extraídas da planilha real (dado financeiro pessoal) - nunca commitar
+tests/harness/fixtures.json
