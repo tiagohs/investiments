@@ -718,17 +718,37 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m') {
   return historico.slice(-dias);
 }
 
-const CAMPO_PRINCIPAL_POR_VISAO = { total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial' };
+// 19/09/2026: "carteiraX" abaixo são as visões por classe das 4
+// subpáginas de Carteiras (Ações/FIIs/Ações EUA/Renda Fixa×3) - ver
+// cabeçalho de HistoricoInicio.gs pros campos novos que alimentam elas.
+// Não são "visões da Início" de verdade (a Início nunca usa essas 6),
+// mas moram aqui porque renderGraficoRentabilidade/wireGraficoRentabilidade
+// (o "motor" de gráfico) já é reaproveitado por Carteiras (ver
+// carteiras-visao-geral.js, visaoId:'total') - mesmo precedente já
+// confirmado com o Tiago, estender essas 3 tabelas em vez de duplicar o
+// motor inteiro numa cópia dentro de carteiras-classe-comum.js.
+export const CAMPO_PRINCIPAL_POR_VISAO = {
+  total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial',
+  carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'acoesEua',
+  carteiraRendaFixaTotal: 'rendaFixaTotal', carteiraRendaFixaLongoPrazo: 'rendaFixaLongoPrazo',
+  carteiraRendaFixaEmergencial: 'rendaEmergencial', // mesmo campo da Início - RF-emergencial é o mesmo número
+};
 
 /** Campo de fluxo de caixa liquido diario (aporte/retirada/provento, ver
  * FluxoCaixaInicio.gs) correspondente a cada visao - usado so pra
  * "neutralizar" a serie do PORTFOLIO em normalizarSerieRentabilidade (TWR),
  * nunca pros benchmarks (Ibovespa/CDI/Selic nao tem aporte). */
-const CAMPO_FLUXO_POR_VISAO = {
+export const CAMPO_FLUXO_POR_VISAO = {
   total: 'fluxoCaixaPatrimonio',
   longoPrazo: 'fluxoCaixaLongoPrazo',
   nacional: 'fluxoCaixaNacional',
   rendaEmergencial: 'fluxoCaixaRendaEmergencial',
+  carteiraAcoes: 'fluxoCaixaAcoes',
+  carteiraFiis: 'fluxoCaixaFiis',
+  carteiraAcoesEua: 'fluxoCaixaAcoesEua',
+  carteiraRendaFixaTotal: 'fluxoCaixaRendaFixaTotal',
+  carteiraRendaFixaLongoPrazo: 'fluxoCaixaRendaFixaLongoPrazo',
+  carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
 };
 
 /** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
@@ -751,6 +771,54 @@ const BENCHMARKS_POR_VISAO = {
     { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
     { campo: 'indiceSelic', label: 'Selic', cor: '--fiis', dash: '1.5 4.5' },
   ],
+  // 19/09/2026 (ver comentário de CAMPO_PRINCIPAL_POR_VISAO acima) - cores
+  // e estilo de traço conferidos pixel-a-pixel no mockup real
+  // (docs/direcao-visual do Design "Carteiras", artboards Acoes/Fiis/
+  // AcoesEua/RendaFixa.dc.html): o benchmark de "índice de mercado"
+  // (Ibovespa/IFIX) desenha em linha CHEIA (dash:null, ver
+  // renderGraficoRentabilidade acima), só o benchmark de "taxa" (CDI/
+  // IPCA/S&P 500) vem tracejado - diferente da Início, que tracejava os
+  // dois. dash:null só funciona por causa do guard adicionado nesta
+  // mesma rodada em benchmarkPathsSvg/cls logo acima.
+  carteiraAcoes: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
+  carteiraFiis: [
+    { campo: 'ifix', label: 'IFIX', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
+  carteiraAcoesEua: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--ink-faint', dash: null },
+    { campo: 'sp500', label: 'S&P 500', cor: '--acoes', dash: '6 4' },
+  ],
+  // Renda Fixa não tem "índice de mercado" (não tem preço de bolsa) -
+  // CDI e IPCA vêm os 2 tracejados, igual o mockup de RendaFixa.dc.html.
+  // As 3 sub-visões (total/longoPrazo/emergencial) comparam com os MESMOS
+  // 2 benchmarks - só o campo principal (Portfólio) muda entre elas.
+  carteiraRendaFixaTotal: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
+    { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
+  ],
+  carteiraRendaFixaLongoPrazo: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
+    { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
+  ],
+  carteiraRendaFixaEmergencial: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
+    { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
+  ],
+};
+
+// 19/09/2026: cor da linha do Portfólio (a série principal) por visão -
+// na Início é sempre --acoes (azul), mas cada subpágina de Carteiras usa
+// a cor da própria classe (mesmo token de shell.css usado no resto da
+// página) - conferido pixel-a-pixel no mockup real. default 'total'
+// preserva o valor hardcoded que já existia antes desta rodada.
+export const COR_PRINCIPAL_POR_VISAO = {
+  total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes',
+  carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa',
+  carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
 };
 
 /** Índice do primeiro valor numérico válido (não-nulo, finito) e diferente de
@@ -880,7 +948,7 @@ function larguraReal_(container) {
  * gráfico sem nenhuma conta de escala - só subtrair a borda esquerda do
  * próprio <svg> (svgEl.getBoundingClientRect().left).
  */
-function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W }) {
+function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal = '--acoes' }) {
   const svgEl = container.querySelector('svg.rentab-chart');
   const hitarea = container.querySelector('.rentab-hitarea');
   const hoverGroup = container.querySelector('.rentab-hover');
@@ -920,7 +988,7 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
     hoverGroup.removeAttribute('hidden');
 
     const linhasTooltip = [
-      { label: 'Portfólio', cor: 'var(--acoes)', valor: seriePrincipal[i] },
+      { label: 'Portfólio', cor: `var(${corPrincipal})`, valor: seriePrincipal[i] },
       ...seriesBenchmark.map((b) => ({ label: b.label, cor: `var(${b.cor})`, valor: b.valores[i] })),
     ].map((linha) => `
       <div class="rentab-tooltip-item">
@@ -976,6 +1044,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const campoFluxoPrincipal = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
   const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
+  const corPrincipal = COR_PRINCIPAL_POR_VISAO[visaoId] || COR_PRINCIPAL_POR_VISAO.total;
 
   const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal, campoFluxoPrincipal);
   const seriesBenchmark = benchmarks.map((b) => {
@@ -1017,9 +1086,9 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   }
 
   const benchmarkPathsSvg = seriesBenchmark
-    .map((b) => `<path d="${pathDRentabilidade_(b.valores, x, y)}" fill="none" stroke="var(${b.cor})" stroke-width="2" stroke-dasharray="${b.dash}"/>`)
+    .map((b) => `<path d="${pathDRentabilidade_(b.valores, x, y)}" fill="none" stroke="var(${b.cor})" stroke-width="2"${b.dash ? ` stroke-dasharray="${b.dash}"` : ''}/>`)
     .join('');
-  const principalPathSvg = `<path d="${pathDRentabilidade_(seriePrincipal, x, y)}" fill="none" stroke="var(--acoes)" stroke-width="2.6"/>`;
+  const principalPathSvg = `<path d="${pathDRentabilidade_(seriePrincipal, x, y)}" fill="none" stroke="var(${corPrincipal})" stroke-width="2.6"/>`;
 
   // Hover/touch (13/09/2026, 3ª rodada - Tiago reportou que passar o mouse ou
   // tocar no gráfico não mostrava nada): um <g> com a linha-guia vertical +
@@ -1030,7 +1099,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   // do ponteiro e monta a tooltip (HTML normal, fora do SVG, mesmo
   // cuidado com escala de fonte do gráfico em si).
   const pontosHoverSvg = [
-    '<circle class="rentab-hover-ponto" data-serie="principal" r="3.6" fill="var(--acoes)" hidden/>',
+    `<circle class="rentab-hover-ponto" data-serie="principal" r="3.6" fill="var(${corPrincipal})" hidden/>`,
     ...seriesBenchmark.map((b) => `<circle class="rentab-hover-ponto" data-serie="${b.campo}" r="3.2" fill="var(${b.cor})" hidden/>`),
   ].join('');
 
@@ -1046,7 +1115,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     <div class="rentab-tooltip" hidden></div>
   `;
 
-  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W });
+  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal });
 
   if (legendaContainer) {
     // 13/09/2026 (2ª rodada): a % ao lado do benchmark é RELATIVA ao
@@ -1058,7 +1127,13 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     // um ganho, quando na verdade o portfólio estava atrás dele).
     const deltaPrincipal = ultimoValidoDe_(seriePrincipal);
     const liBenchmarks = seriesBenchmark.map((b) => {
-      const cls = b.dash.startsWith('1.5') ? 'dot' : 'dash';
+      // 19/09/2026: b.dash agora pode vir vazio/null (linha sólida, sem
+      // stroke-dasharray - ver visões carteiraX abaixo, mockup de
+      // Carteiras usa linha cheia pro benchmark de "índice de mercado"
+      // tipo Ibovespa/IFIX) - sem esse guard, .startsWith quebraria.
+      // Classe vazia = .chart-legend2 .swline já é sólida por padrão
+      // (inicio.css), não precisa de classe nenhuma.
+      const cls = !b.dash ? '' : (b.dash.startsWith('1.5') ? 'dot' : 'dash');
       const relativo = (typeof deltaPrincipal === 'number' && typeof b.delta === 'number')
         ? deltaPrincipal - b.delta
         : null;
@@ -1068,7 +1143,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
       return `<span class="li"><span class="swline ${cls}" style="border-color:var(${b.cor})"></span>${b.label}${deltaHtml}</span>`;
     }).join('');
     legendaContainer.innerHTML = `
-      <span class="li"><span class="swline" style="border-color:var(--acoes)"></span>Portfólio</span>
+      <span class="li"><span class="swline" style="border-color:var(${corPrincipal})"></span>Portfólio</span>
       ${liBenchmarks}
     `;
   }
@@ -1079,6 +1154,12 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
   longoPrazo: 'Patrimônio de Longo Prazo',
   nacional: 'Patrimônio Nacional',
   rendaEmergencial: 'Renda Emergencial',
+  carteiraAcoes: 'Carteira de Ações',
+  carteiraFiis: 'Carteira de FIIs',
+  carteiraAcoesEua: 'Carteira de Ações EUA',
+  carteiraRendaFixaTotal: 'Carteira total',
+  carteiraRendaFixaLongoPrazo: 'Longo prazo',
+  carteiraRendaFixaEmergencial: 'Reserva de emergência',
 };
 
 /**

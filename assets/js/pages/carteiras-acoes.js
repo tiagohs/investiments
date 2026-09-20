@@ -3,7 +3,7 @@
  * ver apps-script/CarteirasClasses.gs!montarCarteirasAcoes_).
  */
 
-import { getCarteirasAcoes } from '../api-client.js';
+import { getCarteirasAcoes, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
@@ -15,6 +15,7 @@ import {
   renderFiltrosTabelaCarteiras,
   filtrarAtivosPorBusca,
   wirePointerTooltipCarteiras_,
+  wireGraficosClasseCarteiras,
   logoAtivoHtml,
   notaAtivoHtml,
   statusVies,
@@ -105,12 +106,49 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
   </tr>`;
 }
 
+/**
+ * Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução do
+ * patrimônio) - 19/09/2026 #7, pedido do Tiago: "lembre-se do mockup,
+ * lembre-se de ficar bom em mobile, lembre-se das labels, lembre-se que
+ * ao passar o mouse, quero ver o periodo, lembre-se do filtro de periodo
+ * encima do primeiro grafico, que afeta todos (igual a home)". Posição no
+ * HTML segue o mockup (Acoes.dc.html): Rentabilidade acumulada PRIMEIRO,
+ * Evolução do patrimônio depois, os 2 ANTES do donut "Por setor" - por
+ * isso o filtro de período (acima do 1º gráfico = Rentabilidade) fica
+ * entre os benchmarks e a Rentabilidade, não entre Rentabilidade e
+ * Evolução. wireGraficosClasseCarteiras (carteiras-classe-comum.js) liga
+ * os 2 blocos ao MESMO filtro de uma vez - ver o comentário grande lá.
+ */
+function montarBlocoGraficosHtml_() {
+  return `
+    <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
+    <div class="filter-tabs" id="acoesPeriodoTabs" style="margin-bottom:12px">
+      <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
+      <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
+      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
+      <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
+    </div>
+    <div class="cg-chart-card">
+      <div id="acoesRentabChart"></div>
+      <div class="chart-legend2" id="acoesRentabLegenda"></div>
+    </div>
+
+    <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
+    <div class="cg-chart-card">
+      <div id="acoesEvolucaoChart"></div>
+      <div class="chart-legend2" id="acoesEvolucaoLegenda"></div>
+    </div>
+  `;
+}
+
 function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('acoesConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>Ações</h2><span class="hint">renda variável nacional</span></div>
     <div id="acoesResumo"></div>
     <div id="acoesBenchmarks" class="cc-benchmarks"></div>
+    ${montarBlocoGraficosHtml_()}
     <div class="cc-layout-donut-tabela">
       <div class="cc-donut-card">
         <div class="area-header" style="margin-top:0"><h2>Por setor</h2></div>
@@ -123,6 +161,28 @@ function desenhar(doc, dados) {
       </div>
     </div>
   `;
+
+  if (dados.historico && dados.historico.length) {
+    wireGraficosClasseCarteiras(doc, {
+      historico: dados.historico,
+      periodoTabsContainer: doc.getElementById('acoesPeriodoTabs'),
+      paineis: [{
+        visaoId: 'carteiraAcoes',
+        rentabChartContainer: doc.getElementById('acoesRentabChart'),
+        rentabLegendaContainer: doc.getElementById('acoesRentabLegenda'),
+        evolucaoChartContainer: doc.getElementById('acoesEvolucaoChart'),
+        evolucaoLegendaContainer: doc.getElementById('acoesEvolucaoLegenda'),
+        corToken: '--acoes',
+      }],
+    });
+  } else {
+    // getHome falhou/sem dado ainda - mesmo aviso padrão que os próprios
+    // gráficos mostram quando não há pontos suficientes, sem quebrar o
+    // resto da página (resumo/donut/tabela não dependem de getHome).
+    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
+    doc.getElementById('acoesRentabChart').innerHTML = semHistoricoHtml;
+    doc.getElementById('acoesEvolucaoChart').innerHTML = semHistoricoHtml;
+  }
 
   // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
   // 1x no container estável (19/09/2026 #4, ver
@@ -175,7 +235,7 @@ function desenhar(doc, dados) {
   renderizarTabela();
 }
 
-export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes } = {}) {
+export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome } = {}) {
   const loadingEl = doc.getElementById('acoesLoading');
   const erroEl = doc.getElementById('acoesErro');
   const conteudoEl = doc.getElementById('acoesConteudo');
@@ -188,8 +248,15 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
     conteudoEl.hidden = false;
   }
 
+  // getHome() é buscado JUNTO (Promise.all) só pro histórico diário que
+  // alimenta os 2 gráficos novos (19/09/2026 #7) - getCarteirasAcoes()
+  // continua sendo a fonte de tudo o resto da página (resumo/ativos/
+  // donut), então uma falha em getHome() (respostaHome.ok:false) não
+  // derruba a página inteira - só os 2 cartões de gráfico mostram um
+  // aviso (ver desenhar() acima), mesmo padrão de degradação graciosa já
+  // usado em carteiras-visao-geral.js.
   async function carregarERedesenhar() {
-    const resposta = await getCarteirasAcoesImpl(token);
+    const [resposta, respostaHome] = await Promise.all([getCarteirasAcoesImpl(token), getHomeImpl(token)]);
     loadingEl.hidden = true;
 
     if (!resposta.ok) {
@@ -200,8 +267,9 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    desenhar(doc, resposta.carteira);
-    gravarCacheCarteiras(CHAVE_CACHE_ACOES, resposta.carteira);
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    desenhar(doc, dados);
+    gravarCacheCarteiras(CHAVE_CACHE_ACOES, dados);
   }
 
   await carregarERedesenhar();

@@ -57,12 +57,28 @@ const CARTEIRA_ACOES_EXEMPLO = {
   benchmarks: { ibovespa: -0.39, cdi: 0.134 }, // ibovespa em variação do dia (%), não pontos (19/09/2026 #2)
 };
 
+// 19/09/2026 #7: histórico diário (getHome()) que alimenta os 2 gráficos
+// novos (Rentabilidade acumulada/Evolução do patrimônio) - campos
+// "acoes"/"fluxoCaixaAcoes" são os que CAMPO_PRINCIPAL_POR_VISAO/
+// CAMPO_FLUXO_POR_VISAO (inicio.js) mapeiam pra visaoId:"carteiraAcoes".
+function historicoAcoesExemplo() {
+  const base = ['2026-06-19', '2026-07-19', '2026-08-19', '2026-09-19'];
+  return base.map((data, i) => ({
+    data,
+    acoes: 26000 + i * 1000,
+    fluxoCaixaAcoes: i === 0 ? 0 : 200,
+    ibovespa: 124000 + i * 900,
+    indiceCdi: 1 + i * 0.003,
+  }));
+}
+const GET_HOME_VAZIO = async () => ({ ok: true, historico: [] });
+
 test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e esconde o loading no sucesso', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
 
-    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl });
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('acoesLoading').hidden, true);
     assert.equal(doc.getElementById('acoesConteudo').hidden, false);
@@ -120,7 +136,7 @@ test('montarPaginaCarteirasAcoes(): tooltips "i" funcionam por Pointer Events (n
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
-    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl });
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl: GET_HOME_VAZIO });
 
     // 19/09/2026 #4: "as tooltips não estão funcionando" - os ícones "i"
     // (cabeçalho de coluna, legenda do donut) agora usam o marcador
@@ -161,7 +177,7 @@ test('montarPaginaCarteirasAcoes() mostra o estado de erro quando o back-end rej
     const doc = makeDom();
     const getCarteirasAcoesImpl = async () => ({ ok: false, etapa: 'carteirasAcoes', erro: 'aba não encontrada' });
 
-    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl });
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('acoesLoading').hidden, true);
     assert.equal(doc.getElementById('acoesConteudo').hidden, true);
@@ -178,7 +194,7 @@ test('montarPaginaCarteirasAcoes() grava no cache no sucesso e reaproveita numa 
       chamadas += 1;
       return { ok: true, carteira: CARTEIRA_ACOES_EXEMPLO };
     };
-    await montarPaginaCarteirasAcoes('token-fake', { doc: doc1, getCarteirasAcoesImpl });
+    await montarPaginaCarteirasAcoes('token-fake', { doc: doc1, getCarteirasAcoesImpl, getHomeImpl: GET_HOME_VAZIO });
     assert.equal(chamadas, 1);
 
     // "2ª visita" (documento novo, mesmo sessionStorage) - o cache da 1ª
@@ -187,7 +203,7 @@ test('montarPaginaCarteirasAcoes() grava no cache no sucesso e reaproveita numa 
     let resolverFetch;
     const getCarteirasAcoesImplLento = () => new Promise((resolve) => { resolverFetch = resolve; });
 
-    const montagem = montarPaginaCarteirasAcoes('token-fake', { doc: doc2, getCarteirasAcoesImpl: getCarteirasAcoesImplLento });
+    const montagem = montarPaginaCarteirasAcoes('token-fake', { doc: doc2, getCarteirasAcoesImpl: getCarteirasAcoesImplLento, getHomeImpl: GET_HOME_VAZIO });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -215,7 +231,7 @@ test('montarPaginaCarteirasAcoes(): clicar em "Atualizar dados" busca de novo e 
       };
     };
 
-    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl });
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl: GET_HOME_VAZIO });
     assert.equal(chamadas, 1);
 
     doc.getElementById('refreshControlAcoes').querySelector('.refresh-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
@@ -225,5 +241,60 @@ test('montarPaginaCarteirasAcoes(): clicar em "Atualizar dados" busca de novo e 
 
     assert.equal(chamadas, 2);
     assert.match(doc.getElementById('acoesConteudo').innerHTML, /3/);
+  });
+});
+
+// 19/09/2026 #7: os 2 gráficos novos (Rentabilidade acumulada/Evolução do
+// patrimônio) + o filtro de período compartilhado acima deles (mesmo
+// padrão "igual a home" das outras 3 subpáginas - ver
+// wireGraficosClasseCarteiras em carteiras-classe-comum.js).
+test('montarPaginaCarteirasAcoes(): desenha os gráficos de Rentabilidade/Evolução e o filtro de período troca os 2 juntos', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
+    const getHomeImpl = async () => ({ ok: true, historico: historicoAcoesExemplo() });
+
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl });
+
+    assert.ok(doc.getElementById('acoesRentabChart').querySelector('svg'), 'deveria desenhar o SVG de Rentabilidade acumulada');
+    assert.ok(doc.getElementById('acoesEvolucaoChart').querySelector('svg'), 'deveria desenhar o SVG de Evolução do patrimônio');
+    assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Portfólio/);
+    assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Ibovespa/);
+    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Portfólio/);
+    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Valor investido/);
+
+    // O filtro de período fica acima do 1º gráfico (Rentabilidade
+    // acumulada) e afeta os 2 - mesmo botão redesenha as 2 séries.
+    const periodoTabs = doc.getElementById('acoesPeriodoTabs');
+    assert.ok(periodoTabs, 'deveria ter #acoesPeriodoTabs acima do 1º gráfico');
+    const botao3a = periodoTabs.querySelector('.filter-tab[data-periodo="3a"]');
+    assert.doesNotThrow(() => botao3a.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
+    assert.equal(botao3a.classList.contains('active'), true);
+    assert.ok(doc.getElementById('acoesRentabChart').querySelector('svg'));
+    assert.ok(doc.getElementById('acoesEvolucaoChart').querySelector('svg'));
+
+    // Tooltip do gráfico de Evolução mostra o período (data) ao passar o
+    // mouse - pedido explícito do Tiago ("quero ver o periodo").
+    const hitarea = doc.getElementById('acoesEvolucaoChart').querySelector('.rentab-hitarea');
+    hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 10, clientY: 10 }));
+    const tooltip = doc.getElementById('acoesEvolucaoChart').querySelector('.rentab-tooltip');
+    assert.equal(tooltip.hidden, false);
+    assert.ok(tooltip.querySelector('.rentab-tooltip-data').textContent.length > 0);
+  });
+});
+
+test('montarPaginaCarteirasAcoes(): sem histórico (getHome falhou), mostra aviso nos 2 gráficos sem quebrar o resto da página', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
+    const getHomeImpl = async () => ({ ok: false, etapa: 'home', erro: 'timeout' });
+
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl });
+
+    assert.equal(doc.getElementById('acoesConteudo').hidden, false);
+    assert.equal(doc.getElementById('acoesRentabChart').querySelector('svg'), null);
+    assert.match(doc.getElementById('acoesRentabChart').textContent, /Não deu pra carregar/);
+    // resto da página (resumo/tabela) continua normal mesmo sem home.
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
 });

@@ -62,12 +62,26 @@ const CARTEIRA_FIIS_EXEMPLO = {
   benchmarks: { ifix: -0.39, ibovespa: 0.12, cdi: 0.1075 },
 };
 
+// 19/09/2026 #7: histórico diário (getHome()) pros 2 gráficos novos -
+// campos "fiis"/"fluxoCaixaFiis" mapeiam pra visaoId:"carteiraFiis".
+function historicoFiisExemplo() {
+  const base = ['2026-06-19', '2026-07-19', '2026-08-19', '2026-09-19'];
+  return base.map((data, i) => ({
+    data,
+    fiis: 44000 + i * 1000,
+    fluxoCaixaFiis: i === 0 ? 0 : 200,
+    ifix: 3000 + i * 20,
+    indiceCdi: 1 + i * 0.003,
+  }));
+}
+const GET_HOME_VAZIO = async () => ({ ok: true, historico: [] });
+
 test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com Status/DY/P-VP/Patrim.fundo e tooltips', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasFiisImpl = async () => ({ ok: true, carteira: CARTEIRA_FIIS_EXEMPLO });
 
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('fiisLoading').hidden, true);
     assert.equal(doc.getElementById('fiisConteudo').hidden, false);
@@ -130,7 +144,7 @@ test('montarPaginaCarteirasFiis(): clicar num chip de segmento filtra a tabela e
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasFiisImpl = async () => ({ ok: true, carteira: CARTEIRA_FIIS_EXEMPLO });
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
 
     const chipShopping = [...doc.querySelectorAll('.cc-filtro-chips .filter-tab')].find((b) => b.textContent === 'Shopping');
     chipShopping.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
@@ -149,7 +163,7 @@ test('montarPaginaCarteirasFiis(): digitar na busca filtra por ticker', async ()
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasFiisImpl = async () => ({ ok: true, carteira: CARTEIRA_FIIS_EXEMPLO });
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
 
     const input = doc.querySelector('.cc-busca-input');
     input.value = 'hglg';
@@ -165,7 +179,7 @@ test('montarPaginaCarteirasFiis(): clicar no cabeçalho de uma coluna ordena a t
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasFiisImpl = async () => ({ ok: true, carteira: CARTEIRA_FIIS_EXEMPLO });
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
 
     // Preço/dia: XPML11 (118) < HGLG11 (162,5) - clicar ordena asc por padrão
     const thPreco = doc.querySelector('.cc-tabela thead th[data-campo="precoAtual"]');
@@ -190,7 +204,7 @@ test('montarPaginaCarteirasFiis() mostra o estado de erro quando o back-end reje
     const doc = makeDom();
     const getCarteirasFiisImpl = async () => ({ ok: false, etapa: 'carteirasFiis', erro: 'falha ao ler Carteira FIIs' });
 
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('fiisConteudo').hidden, true);
     assert.equal(doc.getElementById('fiisErro').hidden, false);
@@ -204,10 +218,34 @@ test('montarPaginaCarteirasFiis(): clicar em "Atualizar dados" busca de novo', a
     let chamadas = 0;
     const getCarteirasFiisImpl = async () => { chamadas += 1; return { ok: true, carteira: CARTEIRA_FIIS_EXEMPLO }; };
 
-    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl });
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl: GET_HOME_VAZIO });
     doc.getElementById('refreshControlFiis').querySelector('.refresh-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
     assert.equal(chamadas, 2);
+  });
+});
+
+// 19/09/2026 #7: gráficos de Rentabilidade acumulada/Evolução do
+// patrimônio + filtro de período compartilhado (ver o teste equivalente
+// em carteiras-acoes.test.js, mesmo padrão).
+test('montarPaginaCarteirasFiis(): desenha os gráficos de Rentabilidade/Evolução e o filtro de período troca os 2 juntos', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasFiisImpl = async () => ({ ok: true, carteira: CARTEIRA_FIIS_EXEMPLO });
+    const getHomeImpl = async () => ({ ok: true, historico: historicoFiisExemplo() });
+
+    await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl });
+
+    assert.ok(doc.getElementById('fiisRentabChart').querySelector('svg'));
+    assert.ok(doc.getElementById('fiisEvolucaoChart').querySelector('svg'));
+    assert.match(doc.getElementById('fiisRentabLegenda').textContent, /IFIX/);
+
+    const periodoTabs = doc.getElementById('fiisPeriodoTabs');
+    assert.ok(periodoTabs);
+    const botao30d = periodoTabs.querySelector('.filter-tab[data-periodo="30d"]');
+    assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
+    assert.ok(doc.getElementById('fiisRentabChart').querySelector('svg'));
+    assert.ok(doc.getElementById('fiisEvolucaoChart').querySelector('svg'));
   });
 });

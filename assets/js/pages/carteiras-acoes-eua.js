@@ -10,7 +10,7 @@
  * do Tiago: "lembre-se dos valores em dólar e reais na tabela EUA").
  */
 
-import { getCarteirasAcoesEua } from '../api-client.js';
+import { getCarteirasAcoesEua, getHome } from '../api-client.js';
 import { formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
@@ -22,6 +22,7 @@ import {
   renderFiltrosTabelaCarteiras,
   filtrarAtivosPorBusca,
   wirePointerTooltipCarteiras_,
+  wireGraficosClasseCarteiras,
   logoAtivoHtml,
   notaAtivoHtml,
   equivalenteBrlHtml_,
@@ -118,12 +119,44 @@ function montarLinhaTotalAtivos_(ativosExibidos, colunas, cambio) {
   </tr>`;
 }
 
+/** Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução
+ * do patrimônio) - ver o comentário grande no equivalente de
+ * carteiras-acoes.js (mesmo motivo/posição no HTML, cópia deliberada).
+ * Os 2 gráficos ficam em R$ (o histórico diário de "acoesEua" já soma o
+ * valor da carteira convertido pra reais dia a dia, HistoricoInicio.gs -
+ * mesmo padrão do resumo em destaque, que mostra US$ como valor
+ * principal com o "i" de conversão do lado, não os 2 gráficos que
+ * comparam evolução no tempo). */
+function montarBlocoGraficosHtml_() {
+  return `
+    <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
+    <div class="filter-tabs" id="acoesEuaPeriodoTabs" style="margin-bottom:12px">
+      <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
+      <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
+      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
+      <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
+    </div>
+    <div class="cg-chart-card">
+      <div id="acoesEuaRentabChart"></div>
+      <div class="chart-legend2" id="acoesEuaRentabLegenda"></div>
+    </div>
+
+    <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
+    <div class="cg-chart-card">
+      <div id="acoesEuaEvolucaoChart"></div>
+      <div class="chart-legend2" id="acoesEuaEvolucaoLegenda"></div>
+    </div>
+  `;
+}
+
 function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('acoesEuaConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>Ações Internacionais</h2><span class="hint">renda variável nos EUA — valores em US$</span></div>
     <div id="acoesEuaResumo"></div>
     <div id="acoesEuaBenchmarks" class="cc-benchmarks"></div>
+    ${montarBlocoGraficosHtml_()}
     <div class="cc-layout-donut-tabela">
       <div class="cc-donut-card">
         <div class="area-header" style="margin-top:0"><h2>Por setor</h2></div>
@@ -205,9 +238,28 @@ function desenhar(doc, dados) {
     onBuscar: (valor) => { busca = valor; renderizarTabela(); },
   });
   renderizarTabela();
+
+  if (dados.historico && dados.historico.length) {
+    wireGraficosClasseCarteiras(doc, {
+      historico: dados.historico,
+      periodoTabsContainer: doc.getElementById('acoesEuaPeriodoTabs'),
+      paineis: [{
+        visaoId: 'carteiraAcoesEua',
+        rentabChartContainer: doc.getElementById('acoesEuaRentabChart'),
+        rentabLegendaContainer: doc.getElementById('acoesEuaRentabLegenda'),
+        evolucaoChartContainer: doc.getElementById('acoesEuaEvolucaoChart'),
+        evolucaoLegendaContainer: doc.getElementById('acoesEuaEvolucaoLegenda'),
+        corToken: '--usa',
+      }],
+    });
+  } else {
+    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
+    doc.getElementById('acoesEuaRentabChart').innerHTML = semHistoricoHtml;
+    doc.getElementById('acoesEuaEvolucaoChart').innerHTML = semHistoricoHtml;
+  }
 }
 
-export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua } = {}) {
+export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua, getHomeImpl = getHome } = {}) {
   const loadingEl = doc.getElementById('acoesEuaLoading');
   const erroEl = doc.getElementById('acoesEuaErro');
   const conteudoEl = doc.getElementById('acoesEuaConteudo');
@@ -221,7 +273,7 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
   }
 
   async function carregarERedesenhar() {
-    const resposta = await getCarteirasAcoesEuaImpl(token);
+    const [resposta, respostaHome] = await Promise.all([getCarteirasAcoesEuaImpl(token), getHomeImpl(token)]);
     loadingEl.hidden = true;
 
     if (!resposta.ok) {
@@ -232,8 +284,9 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    desenhar(doc, resposta.carteira);
-    gravarCacheCarteiras(CHAVE_CACHE_ACOES_EUA, resposta.carteira);
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    desenhar(doc, dados);
+    gravarCacheCarteiras(CHAVE_CACHE_ACOES_EUA, dados);
   }
 
   await carregarERedesenhar();

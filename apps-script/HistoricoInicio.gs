@@ -117,6 +117,56 @@
  * validado reprocessando o histórico real do Tiago: as quedas de -20% a
  * -78% sumiram todas, sem tocar em nenhum dia com aumento de patrimônio
  * de verdade.
+ *
+ * Extensão de 19/09/2026 (gráficos "Rentabilidade acumulada" +
+ * "Evolução do patrimônio" por classe, nas 4 subpáginas de Carteiras —
+ * pedido do Tiago, seguindo o mockup já decidido): cada item da série
+ * ganhou os campos por classe/benchmark abaixo, calculados na MESMA
+ * passada de leitura (nenhuma aba lida de novo, nenhum loop a mais) —
+ * decisão de reaproveitar esta MESMA série cacheada em vez de criar uma
+ * rota nova, mesmo padrão já usado por CarteirasHome.gs/
+ * carteiras-visao-geral.js ("confirmado com o Tiago que dá pra
+ * reaproveitar, sem precisar de rota nova"):
+ *  - `acoes`/`fiis`/`acoesEua`: mesmo forward-fill por ticker de sempre
+ *    (atualizacoesPorDiaTicker), só que a soma agora é separada por
+ *    classePorTicker (BR/FII/USA) em vez de só somar tudo junto em
+ *    `patrimonio`. `acoesEua` é o mesmo valor que já dava pra derivar de
+ *    patrimonio-nacional (ver comentário de `nacional` acima), só que
+ *    exposto direto - mais simples pro front-end de Carteiras não
+ *    precisar reimplementar essa subtração.
+ *  - `rendaFixaTotal`/`rendaFixaLongoPrazo`: mesma leitura de
+ *    aux_historico-renda-fixa de sempre - rendaFixaTotal é o total de RF
+ *    (== porDiaRendaFixaTotal do dia, já calculado, só nunca exposto
+ *    antes) e rendaFixaLongoPrazo = rendaFixaTotal − rendaEmergencial
+ *    (mesma subtração que `longoPrazo` já faz pro patrimônio inteiro,
+ *    aqui restrita só à Renda Fixa). `rendaEmergencial` (campo que já
+ *    existia) passa a servir de campo "RF-emergencial" direto também -
+ *    é exatamente o mesmo número, sem precisar de um campo novo.
+ *  - `ifix`/`sp500`: mesma leitura de aux_historico-indices de sempre
+ *    (mesma passada que já lê Ibovespa/CDI/SELIC), com forward-fill
+ *    (carrega o último valor conhecido) - IFIX/S&P 500 só fecham em dia
+ *    de pregão do seu mercado, igual Ibovespa. Ficam `null` até o
+ *    backfill de cada um rodar (rodarBackfillIfixDireto()/
+ *    rodarBackfillSp500Direto(), BackfillIndices.gs) - o front-end trata
+ *    `null` mostrando "sem histórico suficiente", nunca quebra.
+ *  - `indiceIpca`: mesma técnica de indiceCdi/indiceSelic (índice base
+ *    100, composto dia a dia) - só que IPCA (série 433 do BCB) é MENSAL,
+ *    não diária, então o fator só muda ~1x por mês (nos outros dias, sem
+ *    fatoresIpca[chaveBcb], o índice simplesmente não multiplica por
+ *    nada e fica igual ao dia anterior - o MESMO código de
+ *    indiceCdi/indiceSelic já funciona pra isso sem nenhuma mudança,
+ *    granularidade menor só significa "fator ausente com mais
+ *    frequência").
+ *  - `fluxoCaixaAcoes`/`fluxoCaixaFiis`/`fluxoCaixaAcoesEua`/
+ *    `fluxoCaixaRendaFixaTotal`/`fluxoCaixaRendaFixaLongoPrazo`: vêm de
+ *    calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs), agora chamado
+ *    passando `classePorTicker` (ver extensão de 19/09/2026 naquele
+ *    arquivo) - pro TWR de cada gráfico por classe neutralizar só o
+ *    aporte/retirada DAQUELA classe, nunca das outras.
+ * v6 (19/09/2026): bump de versão de cache por causa dos campos novos -
+ * mesmo motivo do v2/v3/v4/v5 acima (sem isso, uma chave já cacheada com
+ * as mesmas 4 contagens devolveria o formato ANTIGO, sem os campos
+ * novos, por até 6h depois de colar este arquivo).
  */
 
 var ABA_PATRIMONIO_INICIO = 'aux_historico-patrimonio';
@@ -177,6 +227,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var porDiaRendaFixaTotal = {};   // chave -> soma Valor BRL (todas as posições RF)
   var porDiaRendaEmergencial = {}; // chave -> soma Valor BRL (só Classificação = Renda Emergencial)
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
+  var porDiaIfix = {};             // chave -> valor do IFIX (19/09/2026, gráfico de FIIs em Carteiras)
+  var porDiaSp500 = {};            // chave -> valor do S&P 500 (19/09/2026, gráfico de Ações EUA em Carteiras)
   // Câmbio USD/BRL por dia (só existe pra classe USA) - montado na MESMA
   // passada que lê aux_historico-patrimonio logo abaixo, reaproveitado
   // por calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) pra converter as
@@ -303,6 +355,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // e linhasIndices já foram obtidas acima, pra montar a chave de cache.)
   var fatoresCdi = {};
   var fatoresSelic = {};
+  var fatoresIpca = {}; // 19/09/2026: série MENSAL (não diária) - ver comentário no cabeçalho do arquivo
   if (linhasIndices > 0) {
     abaIndices.getRange(2, 1, linhasIndices, 3).getValues().forEach(function (linha) {
       var data = linha[0];
@@ -312,10 +365,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       if (nomeIndice === 'Ibovespa') {
         var chave = chaveDiaISOInicio_(data);
         porDiaIbovespa[chave] = isNaN(valor) ? null : valor;
+      } else if (nomeIndice === 'IFIX') {
+        var chaveIfix = chaveDiaISOInicio_(data);
+        porDiaIfix[chaveIfix] = isNaN(valor) ? null : valor;
+      } else if (nomeIndice === 'S&P 500') {
+        var chaveSp500 = chaveDiaISOInicio_(data);
+        porDiaSp500[chaveSp500] = isNaN(valor) ? null : valor;
       } else if (nomeIndice === 'CDI' && !isNaN(valor)) {
         fatoresCdi[formatarDataBcbRF_(data)] = 1 + (valor / 100);
       } else if (nomeIndice === 'SELIC' && !isNaN(valor)) {
         fatoresSelic[formatarDataBcbRF_(data)] = 1 + (valor / 100);
+      } else if (nomeIndice === 'IPCA' && !isNaN(valor)) {
+        fatoresIpca[formatarDataBcbRF_(data)] = 1 + (valor / 100);
       }
     });
   }
@@ -324,7 +385,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // 13/09/2026 no cabeçalho do arquivo e em FluxoCaixaInicio.gs. Calculado
   // aqui (não dentro do loop de dias abaixo) porque é 1 leitura por aba
   // de origem, não 1 por dia.
-  var fluxoCaixa = calcularFluxoCaixaDiario_(mapaCambioUsd);
+  var fluxoCaixa = calcularFluxoCaixaDiario_(mapaCambioUsd, classePorTicker);
 
   var todasAsChaves = Object.keys(atualizacoesPorDiaTicker)
     .concat(Object.keys(porDiaRendaFixaTotal))
@@ -341,6 +402,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var serie = [];
   var indiceCdi = 100;
   var indiceSelic = 100;
+  var indiceIpca = 100; // 19/09/2026 (ver cabeçalho do arquivo) - mesma técnica de indiceCdi/indiceSelic, granularidade mensal
   // Último Valor BRL conhecido de CADA ticker (Ações/FIIs/USA) - forward-fill
   // por ticker (ver comentário em atualizacoesPorDiaTicker, acima) - e a soma
   // corrente deles, que é o que realmente vira "patrimônio de Renda Variável"
@@ -350,7 +412,16 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var valorAtualPorTicker = {};
   var somaVariavelAtual = 0;
   var somaVariavelNacionalAtual = 0; // igual somaVariavelAtual, mas ignora tickers de classe USA - base do "Patrimônio Nacional"
+  // 19/09/2026: mesmas somas, mas separadas por classe - base dos campos
+  // acoes/fiis/acoesEua (ver cabeçalho do arquivo). somaUsaAtual é
+  // exatamente o mesmo valor que já dava pra derivar de
+  // somaVariavelAtual - somaVariavelNacionalAtual, só exposto direto.
+  var somaAcoesAtual = 0;
+  var somaFiisAtual = 0;
+  var somaUsaAtual = 0;
   var ultimoIbovespa = null;
+  var ultimoIfix = null;
+  var ultimoSp500 = null;
 
   var dataAtual = new Date(primeiraData);
   while (dataAtual <= ultimaData) {
@@ -367,7 +438,15 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
         var valorAntigo = valorAtualPorTicker[tickerAtualizado] || 0;
         var deltaTicker = valorNovo - valorAntigo;
         somaVariavelAtual += deltaTicker;
-        if (classePorTicker[tickerAtualizado] !== 'USA') somaVariavelNacionalAtual += deltaTicker;
+        var classeDoTicker = classePorTicker[tickerAtualizado];
+        if (classeDoTicker !== 'USA') somaVariavelNacionalAtual += deltaTicker;
+        // 19/09/2026 (ver cabeçalho do arquivo): mesma soma, separada por
+        // classe - ticker sem classe conhecida ainda (nunca sincronizado)
+        // não entra em nenhum dos 3, mas continua contando em
+        // somaVariavelAtual acima normalmente.
+        if (classeDoTicker === 'BR') somaAcoesAtual += deltaTicker;
+        else if (classeDoTicker === 'FII') somaFiisAtual += deltaTicker;
+        else if (classeDoTicker === 'USA') somaUsaAtual += deltaTicker;
         valorAtualPorTicker[tickerAtualizado] = valorNovo;
       }
     }
@@ -379,9 +458,12 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var ultimoVariavel = somaVariavelAtual;
     var ultimoVariavelNacional = somaVariavelNacionalAtual;
 
-    // Ibovespa: fecha só em dia de pregão B3, então "carrega" o último valor
-    // conhecido nos fins de semana/feriados.
+    // Ibovespa/IFIX/S&P 500: fecham só em dia de pregão do seu mercado,
+    // então "carregam" o último valor conhecido nos fins de semana/feriados
+    // (IFIX/S&P 500, 19/09/2026, ver cabeçalho do arquivo - mesma técnica).
     if (chaveAtual in porDiaIbovespa) ultimoIbovespa = porDiaIbovespa[chaveAtual];
+    if (chaveAtual in porDiaIfix) ultimoIfix = porDiaIfix[chaveAtual];
+    if (chaveAtual in porDiaSp500) ultimoSp500 = porDiaSp500[chaveAtual];
 
     // Renda Fixa: já vem calculada dia a dia (todo santo dia, sem lacuna),
     // então usa o valor do próprio dia direto, sem forward-fill.
@@ -394,18 +476,30 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var fluxoTotalHoje = fluxoCaixa.total[chaveAtual] || 0;
     var fluxoRendaEmergencialHoje = fluxoCaixa.rendaEmergencial[chaveAtual] || 0;
     var fluxoUsaHoje = fluxoCaixa.usa[chaveAtual] || 0;
+    // 19/09/2026 (ver cabeçalho do arquivo): fluxo por classe, pro TWR dos
+    // gráficos de Rentabilidade acumulada das subpáginas de Carteiras.
+    var fluxoAcoesHoje = fluxoCaixa.acoes[chaveAtual] || 0;
+    var fluxoFiisHoje = fluxoCaixa.fiis[chaveAtual] || 0;
+    var fluxoRendaFixaTotalHoje = fluxoCaixa.rendaFixaTotal[chaveAtual] || 0;
 
     var chaveBcb = formatarDataBcbRF_(dataAtual);
     var fatorCdi = fatoresCdi[chaveBcb];
     var fatorSelic = fatoresSelic[chaveBcb];
+    var fatorIpca = fatoresIpca[chaveBcb];
     if (fatorCdi) indiceCdi *= fatorCdi;
     if (fatorSelic) indiceSelic *= fatorSelic;
+    if (fatorIpca) indiceIpca *= fatorIpca;
 
     var patrimonioTotal = ultimoVariavel + rendaFixaHoje;
     // Nacional = Longo Prazo menos tudo que é classe USA (ver
     // somaVariavelNacionalAtual acima) - mesma fórmula que Home.gs usa
     // pro valor atual (longoPrazo - porClasse.acoesEua), só que dia a dia.
     var patrimonioNacional = ultimoVariavelNacional + rendaFixaHoje - rendaEmergencialHoje;
+    // 19/09/2026: Renda Fixa "Longo Prazo" de VERDADE (só RF, sem o
+    // patrimônio variável junto) - não confundir com o `longoPrazo` do
+    // patrimônio inteiro logo abaixo (esse é "tudo menos a reserva de
+    // emergência", inclui Ações/FIIs/USA também).
+    var rendaFixaLongoPrazoHoje = rendaFixaHoje - rendaEmergencialHoje;
 
     serie.push({
       data: chaveAtual,
@@ -420,7 +514,21 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       fluxoCaixaPatrimonio: arredondar2Inicio_(fluxoTotalHoje),
       fluxoCaixaLongoPrazo: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje),
       fluxoCaixaNacional: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje - fluxoUsaHoje),
-      fluxoCaixaRendaEmergencial: arredondar2Inicio_(fluxoRendaEmergencialHoje)
+      fluxoCaixaRendaEmergencial: arredondar2Inicio_(fluxoRendaEmergencialHoje),
+      // --- 19/09/2026: campos por classe, ver cabeçalho do arquivo ---
+      acoes: arredondar2Inicio_(somaAcoesAtual),
+      fiis: arredondar2Inicio_(somaFiisAtual),
+      acoesEua: arredondar2Inicio_(somaUsaAtual),
+      rendaFixaTotal: arredondar2Inicio_(rendaFixaHoje),
+      rendaFixaLongoPrazo: arredondar2Inicio_(rendaFixaLongoPrazoHoje),
+      ifix: ultimoIfix,
+      sp500: ultimoSp500,
+      indiceIpca: arredondar2Inicio_(indiceIpca),
+      fluxoCaixaAcoes: arredondar2Inicio_(fluxoAcoesHoje),
+      fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
+      fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoUsaHoje),
+      fluxoCaixaRendaFixaTotal: arredondar2Inicio_(fluxoRendaFixaTotalHoje),
+      fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje)
     });
 
     dataAtual.setDate(dataAtual.getDate() + 1);
@@ -446,7 +554,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
  * lugar só.
  */
 function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIndices, contagemFluxoCaixa) {
-  return 'historico_serie_v5_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v6_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

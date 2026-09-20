@@ -61,12 +61,27 @@ const CARTEIRA_ACOES_EUA_EXEMPLO = {
   benchmarks: { dolar: 5.142, ibovespa: -0.39, spx: 0.54 },
 };
 
+// 19/09/2026 #7: histórico diário (getHome()) pros 2 gráficos novos -
+// campo "acoesEua" mapeia pra visaoId:"carteiraAcoesEua" (valor em BRL,
+// mesmo padrão do histórico geral - ver comentário em carteiras-acoes-eua.js).
+function historicoAcoesEuaExemplo() {
+  const base = ['2026-06-19', '2026-07-19', '2026-08-19', '2026-09-19'];
+  return base.map((data, i) => ({
+    data,
+    acoesEua: 15000 + i * 500,
+    fluxoCaixaAcoesEua: i === 0 ? 0 : 100,
+    ibovespa: 124000 + i * 900,
+    sp500: 5500 + i * 20,
+  }));
+}
+const GET_HOME_VAZIO = async () => ({ ok: true, historico: [] });
+
 test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalente em R$ do lado, e mostra dólar/Ibovespa/SPX', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
 
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('acoesEuaLoading').hidden, true);
     assert.equal(doc.getElementById('acoesEuaConteudo').hidden, false);
@@ -144,7 +159,7 @@ test('montarPaginaCarteirasAcoesEua() acrescenta o "i" com o equivalente em reai
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
     // Resumo: Total atualizado + Total investido (bloco .cc-resumo-principal)
     // e o stat de Lucro/Prejuízo ganham cada um o seu próprio "i".
@@ -179,7 +194,7 @@ test('montarPaginaCarteirasAcoesEua(): digitar na busca filtra por ticker e reca
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
     const input = doc.querySelector('.cc-busca-input');
     input.value = 'gprk';
@@ -198,7 +213,7 @@ test('montarPaginaCarteirasAcoesEua(): clicar no cabeçalho de uma coluna ordena
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
     // Qtd: AAPL (15) < GPRK (30) - clicar ordena asc por padrão
     const thQtd = doc.querySelector('.cc-tabela thead th[data-campo="quantidade"]');
@@ -216,7 +231,7 @@ test('montarPaginaCarteirasAcoesEua() mostra o estado de erro quando o back-end 
     const doc = makeDom();
     const getCarteirasAcoesEuaImpl = async () => ({ ok: false, etapa: 'carteirasAcoesEua', erro: 'câmbio indisponível' });
 
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
     assert.equal(doc.getElementById('acoesEuaConteudo').hidden, true);
     assert.equal(doc.getElementById('acoesEuaErro').hidden, false);
@@ -230,10 +245,34 @@ test('montarPaginaCarteirasAcoesEua(): clicar em "Atualizar dados" busca de novo
     let chamadas = 0;
     const getCarteirasAcoesEuaImpl = async () => { chamadas += 1; return { ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO }; };
 
-    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl });
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
     doc.getElementById('refreshControlAcoesEua').querySelector('.refresh-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
     assert.equal(chamadas, 2);
+  });
+});
+
+// 19/09/2026 #7: gráficos de Rentabilidade acumulada/Evolução do
+// patrimônio + filtro de período compartilhado (mesmo padrão de
+// carteiras-acoes.test.js).
+test('montarPaginaCarteirasAcoesEua(): desenha os gráficos de Rentabilidade/Evolução e o filtro de período troca os 2 juntos', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
+    const getHomeImpl = async () => ({ ok: true, historico: historicoAcoesEuaExemplo() });
+
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl });
+
+    assert.ok(doc.getElementById('acoesEuaRentabChart').querySelector('svg'));
+    assert.ok(doc.getElementById('acoesEuaEvolucaoChart').querySelector('svg'));
+    assert.match(doc.getElementById('acoesEuaRentabLegenda').textContent, /S&P 500/);
+
+    const periodoTabs = doc.getElementById('acoesEuaPeriodoTabs');
+    assert.ok(periodoTabs);
+    const botao30d = periodoTabs.querySelector('.filter-tab[data-periodo="30d"]');
+    assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
+    assert.ok(doc.getElementById('acoesEuaRentabChart').querySelector('svg'));
+    assert.ok(doc.getElementById('acoesEuaEvolucaoChart').querySelector('svg'));
   });
 });

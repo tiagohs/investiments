@@ -47,6 +47,37 @@
  *    já é neutralizada acima — então o provento nem soma nem subtrai do
  *    retorno final, só evita o "dente" de queda-depois-repique que
  *    aparecia antes na sequência recebe → reinveste).
+ *
+ * 19/09/2026 (gráficos de "Rentabilidade acumulada" por classe nas 4
+ * subpáginas de Carteiras — pedido do Tiago: "TUDO já foi decidido do
+ * mockup", incluindo comparar o Portfólio de CADA classe com seu(s)
+ * próprio(s) benchmark(s), não só o patrimônio total da Início): o
+ * retorno acima (`total`/`rendaEmergencial`/`usa`) já existia, mas era
+ * granularidade DEMAIS-GROSSA pra isso — `total` mistura Ações+FIIs+RF+USA
+ * numa soma só, sem dar pra neutralizar o fluxo de caixa de SÓ Ações (ou
+ * só FIIs) sem contar aporte/retirada das outras classes junto. Ganhou 3
+ * baldes novos, TODOS calculados na MESMA passada de leitura de cada aba
+ * (nenhuma leitura a mais):
+ *  - `acoes`/`fiis`: mesmo bloco de "Transações" (BR) e "Proventos" (BR)
+ *    de sempre, agora também separado por classe via
+ *    `mapaClassePorTicker` (parâmetro novo, opcional — o MESMO mapa
+ *    ticker->'BR'/'FII'/'USA' que montarSerieHistoricoInicio_
+ *    (HistoricoInicio.gs) já constrói lendo aux_historico-patrimonio pra
+ *    outra coisa, passado aqui pra nunca precisar de uma 2ª fonte de
+ *    classificação que pudesse divergir dela). Sem o parâmetro (chamador
+ *    antigo que não passa nada), os 2 baldes só ficam vazios — `total`
+ *    continua funcionando exatamente como antes.
+ *  - `rendaFixaTotal`: MESMO bloco de "Transações Renda Fixa" de sempre,
+ *    só que somando TODA posição de RF (não só a fatia Renda Emergencial,
+ *    que já tinha seu próprio balde) — a subpágina de Renda Fixa precisa
+ *    neutralizar o fluxo da carteira de RF inteira (e, por subtração,
+ *    "Longo Prazo" = rendaFixaTotal − rendaEmergencial, mesma conta que
+ *    o patrimônio em si já faz em montarSerieHistoricoInicio_).
+ * IMPORTANTE: a coluna de Ticker em "Proventos" é a C (linha[2]), NÃO a A
+ * como em "Transações" — conferido direto na planilha real do Tiago
+ * (Investimentos - Controle 29.xlsx) antes de escrever isso, pra não
+ * repetir o tipo de erro de "assumir sem checar" que já causou incidente
+ * grave nesta sessão.
  */
 
 var ABA_TRANSACOES_BR_FLUXO = 'Transações';
@@ -111,12 +142,22 @@ function cambioUsdParaData_(mapaCambio, chavesOrdenadas, chaveData) {
  *   dia, já montado por quem chama (montarSerieHistoricoInicio_) na MESMA
  *   passada que lê aux_historico-patrimonio pra outra coisa — evita reler
  *   essa aba aqui.
+ * @param {Object} [mapaClassePorTicker] ticker (maiúsculo) -> 'BR'/'FII'/
+ *   'USA' — MESMO mapa que montarSerieHistoricoInicio_ já constrói lendo
+ *   aux_historico-patrimonio (19/09/2026, ver cabeçalho do arquivo).
+ *   Opcional: sem ele, os baldes `acoes`/`fiis` do retorno ficam vazios,
+ *   mas `total`/`rendaEmergencial`/`usa` continuam funcionando igual.
+ * @return {Object} { total, rendaEmergencial, usa, acoes, fiis, rendaFixaTotal }
  */
-function calcularFluxoCaixaDiario_(mapaCambioUsd) {
+function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var porDia = {};
   var porDiaRendaEmergencial = {};
   var porDiaUsa = {};
+  var porDiaAcoes = {};
+  var porDiaFiis = {};
+  var porDiaRendaFixaTotal = {};
+  var classes = mapaClassePorTicker || {};
 
   function somar(mapa, chave, valor) {
     if (!valor) return;
@@ -135,6 +176,11 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
     if (qtd <= 0) return;
 
     aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, qtd, 8).getValues().forEach(function (linha) {
+      // "Transações": coluna A = Ticker (conferido na planilha real, ver
+      // cabeçalho do arquivo) — só usado pra separar Ações/FIIs abaixo,
+      // "Transações - USA" nem chega a olhar pra isso (tudo vai pro
+      // balde USA de qualquer jeito).
+      var ticker = String(linha[0] || '').trim().toUpperCase();
       var data = linha[1], tipo = linha[2], totalTaxa = Number(linha[7]);
       if (!(data instanceof Date) || isNaN(totalTaxa)) return;
       var sinal = tipo === 'Compra' ? 1 : (tipo === 'Venda' ? -1 : 0);
@@ -148,7 +194,17 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
         valorBrl = totalTaxa * cambio;
       }
       somar(porDia, chave, sinal * valorBrl);
-      if (info.cambio) somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
+      if (info.cambio) {
+        somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
+      } else {
+        // 19/09/2026: split Ações/FIIs BR (ver comentário no cabeçalho) -
+        // ticker sem classe conhecida (ainda não sincronizado nenhuma vez
+        // em aux_historico-patrimonio) fica de fora dos 2 baldes, mas
+        // continua contando em `total` normalmente acima.
+        var classeTicker = classes[ticker];
+        if (classeTicker === 'FII') somar(porDiaFiis, chave, sinal * valorBrl);
+        else if (classeTicker === 'BR') somar(porDiaAcoes, chave, sinal * valorBrl);
+      }
     });
   });
 
@@ -180,6 +236,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
 
         var chave = chaveDiaISOInicio_(data);
         somar(porDia, chave, sinal * valor);
+        somar(porDiaRendaFixaTotal, chave, sinal * valor); // 19/09/2026: RF inteira, ver cabeçalho
 
         var institCanonica = normalizarInstituicaoRF_(instituicao);
         var indexador = detectarIndexadorRF_(produto);
@@ -202,15 +259,34 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd) {
     var qtd = aba.getLastRow() - linhaInicio + 1;
     if (qtd <= 0) return;
     aba.getRange(linhaInicio, 1, qtd, 7).getValues().forEach(function (linha) {
+      // "Proventos" (BR): coluna C = Ticker (linha[2]) — DIFERENTE de
+      // "Transações", onde é a coluna A. Conferido direto na planilha
+      // real do Tiago antes de escrever isso (ver cabeçalho do arquivo).
+      // "Proventos - USA" nem chega a olhar pra isso (vai pro balde USA
+      // de qualquer jeito, igual "Transações - USA" acima).
+      var ticker = String(linha[2] || '').trim().toUpperCase();
       var data = linha[1], liquido = Number(linha[6]);
       if (!(data instanceof Date) || isNaN(liquido)) return;
       var chave = chaveDiaISOInicio_(data);
       somar(porDia, chave, -liquido);
-      if (nomeAba === ABA_PROVENTOS_USA_FLUXO) somar(porDiaUsa, chave, -liquido);
+      if (nomeAba === ABA_PROVENTOS_USA_FLUXO) {
+        somar(porDiaUsa, chave, -liquido);
+      } else {
+        var classeTicker = classes[ticker];
+        if (classeTicker === 'FII') somar(porDiaFiis, chave, -liquido);
+        else if (classeTicker === 'BR') somar(porDiaAcoes, chave, -liquido);
+      }
     });
   });
 
-  return { total: porDia, rendaEmergencial: porDiaRendaEmergencial, usa: porDiaUsa };
+  return {
+    total: porDia,
+    rendaEmergencial: porDiaRendaEmergencial,
+    usa: porDiaUsa,
+    acoes: porDiaAcoes,
+    fiis: porDiaFiis,
+    rendaFixaTotal: porDiaRendaFixaTotal
+  };
 }
 
 /** Contagem de linhas das 5 abas-fonte do fluxo de caixa, pra entrar na

@@ -81,6 +81,24 @@
 .cg-chart-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
       padding:16px 16px 6px; position:relative; }
 
+/* 19/09/2026 #7 (pedido do Tiago - "na tela de renda fixa sao tres
+   graficos por tipo... No desktop, primeira row com o grafico da
+   carteira atual renda fixa, e na seugnda row, grafico de longo
+   pazo/renda emergencial lado a lado"): row 2 de cada seção de gráfico
+   de Renda Fixa (Longo Prazo + Reserva de Emergência) - 2 `.cg-chart-card`
+   lado a lado no desktop, mesmo breakpoint de `.cg-hero-grid` (empilha
+   em 1 coluna no celular, cada card com a largura cheia). `margin-top`
+   compensa o `.cg-chart-card` de cima (row 1, Carteira total) não ter
+   margem própria (o `.area-header` de cada seção já cuida do espaço
+   ACIMA da row 1). */
+.cc-charts-par{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+@media (max-width:820px){ .cc-charts-par{ grid-template-columns:1fr; } }
+/* Título pequeno de cada sub-gráfico (Carteira total/Longo prazo/Reserva
+   de emergência) - só existe nas subpáginas de classe com mais de 1
+   gráfico por seção (hoje só Renda Fixa); as outras 3 subpáginas usam só
+   o `.area-header` da seção como título, sem precisar de um 2º nível. */
+.cc-chart-titulo{ font-family:var(--display); font-weight:600; font-size:15px; margin-bottom:8px; }
+
 /* ---- cards de classe ---- */
 /* 19/09/2026 (pedido do Tiago pós-teste): fixo em 2 colunas (2 cards por
    linha) em vez de auto-fit - da mais espaco pra cada card mostrar a

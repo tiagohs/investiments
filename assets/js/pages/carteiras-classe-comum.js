@@ -11,8 +11,16 @@
  * e formatadores.
  */
 
-import { formatBRL, formatUSD, formatPercentFromFraction } from '../format.js';
-import { renderDistribuicao } from './inicio.js';
+import { formatBRL, formatUSD, formatDateBR, formatPercentFromFraction } from '../format.js';
+import {
+  renderDistribuicao,
+  filtrarHistoricoPorPeriodo,
+  renderGraficoRentabilidade,
+  wireGraficoRentabilidade,
+  CAMPO_PRINCIPAL_POR_VISAO,
+  CAMPO_FLUXO_POR_VISAO,
+  COR_PRINCIPAL_POR_VISAO,
+} from './inicio.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
 
@@ -544,4 +552,387 @@ export function contarVies_(ativos) {
     else if (status.classe === 'warn') aguardar += 1;
   });
   return { comprar, aguardar };
+}
+
+// ============================================================================
+// Gráficos "Rentabilidade acumulada" + "Evolução do patrimônio" das 4
+// subpáginas de classe (Ações/FIIs/Ações EUA/Renda Fixa) - 19/09/2026 #7,
+// pedido do Tiago: "Pode prosseguir com o codigo... lembre-se do mockup,
+// lembre-se de ficar bom em mobile, lembre-se das labels, lembre-se que ao
+// passar o mouse, quero ver o periodo, lembre-se do filtro de periodo
+// encima do primeiro grafico, que afeta todos (igual a home)". O lado
+// Rentabilidade REAPROVEITA renderGraficoRentabilidade/
+// wireGraficoRentabilidade de inicio.js direto (mesmo "motor" que a Início
+// e carteiras-visao-geral.js já usam, com as visões "carteiraAcoes"/
+// "carteiraFiis"/"carteiraAcoesEua"/"carteiraRendaFixaTotal"/
+// "carteiraRendaFixaLongoPrazo"/"carteiraRendaFixaEmergencial" que essa
+// mesma rodada acrescentou em CAMPO_PRINCIPAL_POR_VISAO/
+// CAMPO_FLUXO_POR_VISAO/BENCHMARKS_POR_VISAO/COR_PRINCIPAL_POR_VISAO -
+// ver inicio.js). O lado Evolução NÃO tinha equivalente genérico (só
+// existia hardcoded pro total geral em carteiras-visao-geral.js) - as 3
+// funções abaixo generalizam esse pedaço (comHistoricoAcumuladoClasse_/
+// ligarInteracaoEvolucaoClasse_/renderEvolucaoClasseCarteiras), copiando
+// deliberadamente a lógica de lá em vez de importá-la (mesmo motivo de
+// sempre neste projeto pra funções de wiring/desenho - ver o comentário
+// de wirePointerTooltipCarteiras_ acima) - carteiras-visao-geral.js
+// continua intocada nesta rodada, pra não arriscar regredir o que já
+// está no ar e testado.
+//
+// A ORQUESTRAÇÃO (wireGraficosClasseCarteiras, no fim deste bloco) é o
+// que liga os dois lados a 1 ÚNICO filtro de período compartilhado, acima
+// do 1º gráfico da página - exatamente como a Início/Visão geral já fazem
+// (1 filtro no topo, N painéis redesenhados juntos) - reaproveita
+// wireGraficoRentabilidade pro lado Rentabilidade e religa um 2º conjunto
+// de listeners (idempotente, próprio) pro lado Evolução nos MESMOS
+// botões, mesmo padrão dos "2 conjuntos de listener independentes" já
+// comprovado em carteiras-visao-geral.js.
+// ============================================================================
+
+/** Compacto BRL pro eixo Y do gráfico de Evolução (R$ 12,3 mil, R$ 1,2 mi)
+ * - cópia de carteiras-visao-geral.js!COMPACTO_BRL, mesmo motivo de
+ * sempre pra duplicar em vez de importar (função "de desenho", não um
+ * helper puro de formatação como equivalenteBrlHtml_ acima). */
+const COMPACTO_BRL_CARTEIRAS = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+
+/**
+ * Acumula historico[i][campoFluxo] (fluxo de caixa líquido diário DA
+ * CLASSE - aporte/retirada/provento, já calculado por classe em
+ * FluxoCaixaInicio.gs/HistoricoInicio.gs nesta mesma rodada) num "quanto
+ * investi até aqui" por dia, pra plotar junto do "quanto tenho" na
+ * Evolução - generalização de
+ * carteiras-visao-geral.js!comHistoricoInvestidoAcumulado_ (que só sabia
+ * somar `fluxoCaixaPatrimonio`, o total geral) pra aceitar qualquer campo
+ * de fluxo por visão (fluxoCaixaAcoes/fluxoCaixaFiis/fluxoCaixaAcoesEua/
+ * fluxoCaixaRendaFixaTotal/fluxoCaixaRendaFixaLongoPrazo/
+ * fluxoCaixaRendaEmergencial - ver CAMPO_FLUXO_POR_VISAO em inicio.js, o
+ * caller de wireGraficosClasseCarteiras nunca precisa saber esse nome na
+ * mão). Roda sobre o histórico INTEIRO (nunca a janela já filtrada por
+ * período) - o acumulado tem que começar do dia 1 de verdade, senão um
+ * recorte de "30 dias" mostraria só o aporte DENTRO desses 30 dias, não o
+ * total investido até então - mesmo cuidado do original.
+ */
+export function comHistoricoAcumuladoClasse_(historico, campoFluxo) {
+  let acumulado = 0;
+  return (historico || []).map((item) => {
+    const fluxo = campoFluxo && typeof item[campoFluxo] === 'number' && Number.isFinite(item[campoFluxo]) ? item[campoFluxo] : 0;
+    acumulado += fluxo;
+    return { ...item, investidoAcumulado: acumulado };
+  });
+}
+
+/**
+ * Hover/touch do gráfico de Evolução por classe - adaptado de
+ * carteiras-visao-geral.js!ligarInteracaoEvolucao_ (mesma técnica de
+ * Pointer Events sobre um <rect> transparente), generalizado em 2 pontos:
+ * (1) `valoresInvestido` pode vir `null` (Longo Prazo/Reserva de
+ * Emergência de Renda Fixa mostram só 1 linha, sem comparação com valor
+ * investido - mockup RendaFixa.dc.html) - a tooltip e o ponto de hover da
+ * 2ª série somem sozinhos nesse caso; (2) `labelValor`/`labelInvestido`
+ * customizam os rótulos da tooltip por chamador ("Portfólio"/"Valor
+ * investido" nas 3 subpáginas de renda variável, conferido pixel a pixel
+ * no mockup - diferente de "Quanto tenho hoje"/"Quanto investi" que a
+ * Visão geral usa, então não dá pra simplesmente importar a função de lá
+ * sem mudar o texto). `corToken` pinta o ponto/linha principal com a cor
+ * da própria classe (--acoes/--fiis/--usa/--rf) em vez do --acoes fixo do
+ * original.
+ */
+function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor investido' }) {
+  const svgEl = container.querySelector('svg.rentab-chart');
+  const hitarea = container.querySelector('.rentab-hitarea');
+  const hoverGroup = container.querySelector('.rentab-hover');
+  const linhaHover = container.querySelector('.rentab-hover-linha');
+  const pontoPrincipal = container.querySelector('.rentab-hover-ponto[data-serie="principal"]');
+  const pontoInvestido = container.querySelector('.rentab-hover-ponto[data-serie="investido"]');
+  const tooltip = container.querySelector('.rentab-tooltip');
+  if (!svgEl || !hitarea || !hoverGroup || !linhaHover || !tooltip) return;
+
+  function indiceNoClientX_(clientX) {
+    const rect = svgEl.getBoundingClientRect();
+    const svgX = clientX - rect.left;
+    const fracao = plotW > 0 ? (svgX - padL) / plotW : 0;
+    return Math.min(janela.length - 1, Math.max(0, Math.round(fracao * (janela.length - 1))));
+  }
+
+  function posicionarPonto_(el, valor, i) {
+    if (!el) return;
+    if (typeof valor !== 'number') { el.setAttribute('hidden', ''); return; }
+    el.removeAttribute('hidden');
+    el.setAttribute('cx', x(i).toFixed(1));
+    el.setAttribute('cy', y(valor).toFixed(1));
+  }
+
+  function mostrar_(clientX) {
+    const i = indiceNoClientX_(clientX);
+    const xx = x(i);
+
+    linhaHover.setAttribute('x1', xx.toFixed(1));
+    linhaHover.setAttribute('x2', xx.toFixed(1));
+    posicionarPonto_(pontoPrincipal, valoresPrincipal[i], i);
+    if (pontoInvestido) posicionarPonto_(pontoInvestido, valoresInvestido ? valoresInvestido[i] : null, i);
+    hoverGroup.removeAttribute('hidden');
+
+    // Tooltip mostra o PERÍODO (data completa, "18 set 2026") + o valor de
+    // cada série visível - pedido explícito do Tiago ("lembre-se que ao
+    // passar o mouse, quero ver o periodo"), mesmo formato já usado na
+    // Início/Visão geral (formatDateBR).
+    const linhas = [{ label: labelValor, cor: `var(${corToken})`, valor: valoresPrincipal[i] }];
+    if (valoresInvestido) linhas.push({ label: labelInvestido, cor: 'var(--ink-muted)', valor: valoresInvestido[i] });
+    const linhasTooltip = linhas.map((linha) => `
+      <div class="rentab-tooltip-item">
+        <span class="dot" style="background:${linha.cor}"></span>${linha.label}
+        <b>${typeof linha.valor === 'number' ? formatBRL(linha.valor) : '—'}</b>
+      </div>
+    `).join('');
+    tooltip.innerHTML = `<div class="rentab-tooltip-data">${formatDateBR(janela[i].data)}</div>${linhasTooltip}`;
+    tooltip.hidden = false;
+
+    const larguraTooltip = tooltip.offsetWidth || 170;
+    const esquerda = Math.min(Math.max(xx - larguraTooltip / 2, 4), Math.max(W - larguraTooltip - 4, 4));
+    tooltip.style.left = `${esquerda}px`;
+  }
+
+  function esconder_() {
+    hoverGroup.setAttribute('hidden', '');
+    tooltip.hidden = true;
+  }
+
+  hitarea.addEventListener('pointermove', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerdown', (ev) => mostrar_(ev.clientX));
+  hitarea.addEventListener('pointerleave', esconder_);
+}
+
+/**
+ * Gráfico "Evolução do patrimônio" genérico por classe/sub-visão -
+ * generalização de carteiras-visao-geral.js!renderEvolucaoPatrimonio
+ * (hardcoded pro campo `patrimonio`, único gráfico que aquela página
+ * desenha) pras 6 novas visões de Carteiras (Ações/FIIs/Ações EUA + as 3
+ * de Renda Fixa). `campoValor` escolhe o campo bruto do histórico (ver
+ * CAMPO_PRINCIPAL_POR_VISAO em inicio.js); `campoInvestido` (default
+ * 'investidoAcumulado') o campo já acumulado por
+ * comHistoricoAcumuladoClasse_ acima - SEMPRE chamado pelo caller ANTES
+ * de passar o histórico pra esta função (mesmo padrão de pré-processar
+ * fora que a Visão geral já usa) - nunca calculado aqui dentro, pra não
+ * recalcular o acumulado do histórico INTEIRO a cada troca de período
+ * (só a JANELA filtrada muda a cada clique, o acumulado é fixo).
+ *
+ * `comInvestido:false` desliga a linha tracejada + a área de comparação
+ * com "quanto investi" (mockup RendaFixa.dc.html: Longo Prazo/Reserva de
+ * Emergência mostram só 1 linha sólida, sem preenchimento - o valor
+ * investido de cada SUB-conta de Renda Fixa não é algo que o Tiago
+ * acompanha separado hoje, só o total; "Carteira total" de Renda Fixa e
+ * as 3 subpáginas de renda variável usam `comInvestido:true`, igual ao
+ * gráfico da Visão geral). `corToken` (--acoes/--fiis/--usa/--rf) pinta a
+ * linha/área com a cor da própria classe - conferido pixel a pixel nos 4
+ * mockups (só a Visão geral usa --acoes fixo, por isso o default aqui é
+ * --acoes, preservando esse comportamento caso um chamador não passe
+ * nada).
+ */
+export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor investido' } = {}) {
+  if (!container || !campoValor) return;
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId);
+  const valoresPrincipal = janela.map((item) => (typeof item[campoValor] === 'number' && Number.isFinite(item[campoValor]) ? item[campoValor] : null));
+  const valoresInvestido = comInvestido
+    ? janela.map((item) => (typeof item[campoInvestido] === 'number' && Number.isFinite(item[campoInvestido]) ? item[campoInvestido] : null))
+    : null;
+  const validos = valoresPrincipal.filter((v) => v != null);
+  if (validos.length < 2) {
+    container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
+    if (legendaContainer) legendaContainer.innerHTML = '';
+    return;
+  }
+
+  const W = Math.max(container.clientWidth || 0, 280);
+  const H = 190;
+  const padL = 60, padR = 8, padT = 12, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const todosValores = [...valoresPrincipal, ...(valoresInvestido || [])].filter((v) => v != null);
+  let minV = Math.min(...todosValores), maxV = Math.max(...todosValores);
+  const folga = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.05 || 1;
+  minV -= folga; maxV += folga;
+
+  const n = valoresPrincipal.length;
+  const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
+  const x = (i) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
+
+  const ticks = 4;
+  let gridSvg = '';
+  for (let t = 0; t <= ticks; t += 1) {
+    const v = minV + (maxV - minV) * (t / ticks);
+    const yy = y(v);
+    gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
+    gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">R$ ${COMPACTO_BRL_CARTEIRAS.format(v)}</text>`;
+  }
+
+  // Cartão estreito (Longo Prazo/Emergência lado a lado no desktop) cabe
+  // menos rótulo de data sem amontoar - mesmo cuidado de
+  // renderGraficoRentabilidade (inicio.js).
+  const passos = W < 460 ? 3 : (W < 720 ? 4 : 5);
+  let xLabelsSvg = '';
+  for (let i = 0; i < passos; i += 1) {
+    const idx = Math.round((n - 1) * (i / (passos - 1)));
+    const xx = padL + plotW * (i / (passos - 1));
+    const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
+    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 7}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
+  }
+
+  function pathD_(valores) {
+    let d = '';
+    let comecou = false;
+    valores.forEach((v, i) => {
+      if (v == null) { comecou = false; return; }
+      const px = x(i), py = y(v);
+      d += comecou ? ` L${px.toFixed(1)},${py.toFixed(1)}` : `M${px.toFixed(1)},${py.toFixed(1)}`;
+      comecou = true;
+    });
+    return d;
+  }
+
+  let primeiroIdx = -1, ultimoIdx = -1;
+  valoresPrincipal.forEach((v, i) => { if (v != null) { if (primeiroIdx === -1) primeiroIdx = i; ultimoIdx = i; } });
+  const linhaPrincipalD = pathD_(valoresPrincipal);
+  const linhaInvestidoD = valoresInvestido ? pathD_(valoresInvestido) : '';
+  const areaD = comInvestido ? `${linhaPrincipalD} L${x(ultimoIdx).toFixed(1)},${(H - padB).toFixed(1)} L${x(primeiroIdx).toFixed(1)},${(H - padB).toFixed(1)} Z` : '';
+
+  container.innerHTML = `
+    <svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${H}px">
+      ${gridSvg}${xLabelsSvg}
+      ${comInvestido ? `<path d="${areaD}" fill="var(${corToken})" fill-opacity="0.1" stroke="none"/>` : ''}
+      ${comInvestido ? `<path d="${linhaInvestidoD}" fill="none" stroke="var(--ink-muted)" stroke-width="2" stroke-dasharray="6 4"/>` : ''}
+      <path d="${linhaPrincipalD}" fill="none" stroke="var(${corToken})" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <g class="rentab-hover" hidden>
+        <line class="rentab-hover-linha" x1="0" x2="0" y1="${padT}" y2="${H - padB}"/>
+        <circle class="rentab-hover-ponto" data-serie="principal" r="3.6" fill="var(${corToken})" hidden/>
+        ${comInvestido ? `<circle class="rentab-hover-ponto" data-serie="investido" r="3.2" fill="var(--ink-muted)" hidden/>` : ''}
+      </g>
+      <rect class="rentab-hitarea" x="${padL}" y="${padT}" width="${Math.max(plotW, 0)}" height="${Math.max(plotH, 0)}" fill="transparent" pointer-events="all"/>
+    </svg>
+    <div class="rentab-tooltip" hidden></div>
+  `;
+
+  ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken, labelValor, labelInvestido });
+
+  if (legendaContainer) {
+    legendaContainer.innerHTML = comInvestido ? `
+      <span class="li"><span class="swline" style="border-color:var(${corToken})"></span>${labelValor}</span>
+      <span class="li"><span class="swline dash" style="border-color:var(--ink-muted)"></span>${labelInvestido}</span>
+    ` : `
+      <span class="li"><span class="swline" style="border-color:var(${corToken})"></span>${labelValor}</span>
+    `;
+  }
+}
+
+/**
+ * Orquestrador: liga TODOS os gráficos de uma subpágina de classe (1
+ * painel de Rentabilidade+Evolução nas 3 de renda variável, 3 pares nas
+ * de Renda Fixa) a 1 ÚNICO filtro de período compartilhado
+ * (`periodoTabsContainer`, sempre posicionado ACIMA do 1º gráfico da
+ * página - "Rentabilidade acumulada" no mockup das 4 subpáginas, mesmo
+ * pedido do Tiago de deixar "igual a home": 1 filtro no topo que afeta
+ * TODOS os gráficos de uma vez, não 1 filtro por gráfico).
+ *
+ * O lado Rentabilidade é 100% delegado a wireGraficoRentabilidade
+ * (inicio.js, o mesmo "motor" que a Início e a Visão geral já usam) -
+ * `infoContainer` sempre null aqui (as 4 subpáginas de classe não têm o
+ * cartão "valor atual + variação" que a Início/Visão geral mostram ao
+ * lado do gráfico - o resumo em destaque no topo da página, ver
+ * renderResumoClasseCarteiras, já cobre isso; renderInfoRentabilidade
+ * ignora um container null de propósito, ver o guard `if (!container)
+ * return`). O lado Evolução NÃO existe em wireGraficoRentabilidade (só
+ * cuida de Rentabilidade) - por isso este orquestrador religa um 2º
+ * conjunto de listeners, PRÓPRIO, nos MESMOS botões de período, mesma
+ * técnica dos "2 conjuntos de listener independentes" já comprovada em
+ * carteiras-visao-geral.js!desenhar (wireGraficoRentabilidade + o
+ * listener manual de Evolução logo abaixo dele) - por isso NÃO chama
+ * `botao.classList.toggle('active', ...)` aqui: wireGraficoRentabilidade
+ * já faz isso no seu próprio listener (registrado primeiro, na chamada
+ * acima), duplicar a troca de classe aqui seria trabalho de DOM à toa.
+ *
+ * `paineis` é `[{ visaoId, rentabChartContainer, rentabLegendaContainer,
+ * evolucaoChartContainer, evolucaoLegendaContainer, corToken?,
+ * labelValor?, labelInvestido?, comInvestido? }]` - o `campoValor`
+ * (Rentabilidade E Evolução) e o `campoFluxo` de cada painel vêm de
+ * CAMPO_PRINCIPAL_POR_VISAO/CAMPO_FLUXO_POR_VISAO (inicio.js) só pelo
+ * `visaoId` - nenhum page module (carteiras-acoes.js etc.) precisa saber
+ * o nome do campo bruto no histórico, só o id da visão, mesmo
+ * desacoplamento que wireGraficoRentabilidade já garante pro lado
+ * Rentabilidade. Um painel sem `rentabChartContainer`/
+ * `evolucaoChartContainer` simplesmente não desenha aquele lado (nenhuma
+ * subpágina usa isso hoje, mas evita quebrar se um dia um painel só
+ * tiver 1 dos 2 gráficos).
+ *
+ * Idempotente (mesmo cuidado de sempre neste projeto - desenhar() roda 1x
+ * com cache e outra com dado fresco/stale-while-revalidate, então sem
+ * essa guarda os listeners do lado Evolução dobrariam a cada mount()) -
+ * guardado por `periodoTabsContainer._evolucaoClasseWired`; chamadas
+ * seguintes só atualizam o histórico mais recente (guardado fora do
+ * closure dos listeners, em `_evolucaoClasseHistorico`/
+ * `_evolucaoClasseDesenhar`) e redesenham no período atual, sem religar
+ * nada.
+ */
+export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContainer, paineis = [], periodoInicial = '12m' } = {}) {
+  wireGraficoRentabilidade(doc, {
+    historico,
+    periodoTabsContainer,
+    periodoInicial,
+    paineis: paineis
+      .filter((p) => p.rentabChartContainer)
+      .map((p) => ({
+        visaoId: p.visaoId,
+        chartContainer: p.rentabChartContainer,
+        legendaContainer: p.rentabLegendaContainer,
+        infoContainer: null,
+      })),
+  });
+
+  const paineisEvolucao = paineis.filter((p) => p.evolucaoChartContainer);
+  if (!paineisEvolucao.length || !periodoTabsContainer) return;
+
+  function desenharEvolucao_(periodoId) {
+    paineisEvolucao.forEach((p) => {
+      const historicoAcumulado = comHistoricoAcumuladoClasse_(historico, CAMPO_FLUXO_POR_VISAO[p.visaoId]);
+      renderEvolucaoClasseCarteiras(doc, p.evolucaoChartContainer, historicoAcumulado, {
+        campoValor: CAMPO_PRINCIPAL_POR_VISAO[p.visaoId],
+        periodoId,
+        legendaContainer: p.evolucaoLegendaContainer,
+        corToken: p.corToken || COR_PRINCIPAL_POR_VISAO[p.visaoId] || '--acoes',
+        labelValor: p.labelValor || 'Portfólio',
+        labelInvestido: p.labelInvestido || 'Valor investido',
+        comInvestido: p.comInvestido !== false,
+      });
+    });
+  }
+
+  // Guardados fora do closure dos listeners (registrados só na 1ª
+  // chamada, ver guarda `_evolucaoClasseWired` abaixo) - assim um
+  // refresh automático (dado novo) sempre redesenha com o histórico MAIS
+  // RECENTE, mesmo que o usuário troque de período bem depois da 1ª
+  // carga (mesma técnica de `periodoTabsContainer._evolucaoHistorico` em
+  // carteiras-visao-geral.js).
+  periodoTabsContainer._evolucaoClasseHistorico = historico;
+  periodoTabsContainer._evolucaoClasseDesenhar = desenharEvolucao_;
+
+  const periodoAtual = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || periodoInicial;
+  desenharEvolucao_(periodoAtual);
+
+  if (periodoTabsContainer._evolucaoClasseWired) return;
+  periodoTabsContainer._evolucaoClasseWired = true;
+
+  periodoTabsContainer.querySelectorAll('.filter-tab').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      periodoTabsContainer._evolucaoClasseDesenhar(botao.dataset.periodo);
+    });
+  });
+
+  const janela = doc.defaultView;
+  if (janela && typeof janela.addEventListener === 'function') {
+    let timerResize = null;
+    janela.addEventListener('resize', () => {
+      if (timerResize) janela.clearTimeout(timerResize);
+      timerResize = janela.setTimeout(() => {
+        const periodoAgora = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || periodoInicial;
+        periodoTabsContainer._evolucaoClasseDesenhar(periodoAgora);
+      }, 150);
+    });
+  }
 }

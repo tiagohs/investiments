@@ -8,7 +8,7 @@
  * filtros dos FIIS por tipo").
  */
 
-import { getCarteirasFiis } from '../api-client.js';
+import { getCarteirasFiis, getHome } from '../api-client.js';
 import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
@@ -20,6 +20,7 @@ import {
   renderFiltrosTabelaCarteiras,
   filtrarAtivosPorBusca,
   wirePointerTooltipCarteiras_,
+  wireGraficosClasseCarteiras,
   logoAtivoHtml,
   notaAtivoHtml,
   statusVies,
@@ -109,12 +110,39 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
   </tr>`;
 }
 
+/** Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução
+ * do patrimônio) - ver o comentário grande no equivalente de
+ * carteiras-acoes.js (mesmo motivo/posição no HTML, cópia deliberada). */
+function montarBlocoGraficosHtml_() {
+  return `
+    <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
+    <div class="filter-tabs" id="fiisPeriodoTabs" style="margin-bottom:12px">
+      <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
+      <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
+      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
+      <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
+    </div>
+    <div class="cg-chart-card">
+      <div id="fiisRentabChart"></div>
+      <div class="chart-legend2" id="fiisRentabLegenda"></div>
+    </div>
+
+    <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
+    <div class="cg-chart-card">
+      <div id="fiisEvolucaoChart"></div>
+      <div class="chart-legend2" id="fiisEvolucaoLegenda"></div>
+    </div>
+  `;
+}
+
 function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('fiisConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>FIIs</h2><span class="hint">fundos de investimento imobiliário</span></div>
     <div id="fiisResumo"></div>
     <div id="fiisBenchmarks" class="cc-benchmarks"></div>
+    ${montarBlocoGraficosHtml_()}
     <div class="cc-layout-donut-tabela">
       <div class="cc-donut-card">
         <div class="area-header" style="margin-top:0"><h2>Por tipo</h2></div>
@@ -189,9 +217,28 @@ function desenhar(doc, dados) {
     onFiltrarGrupo: (grupo) => { filtroGrupo = grupo; renderizarTabela(); },
   });
   renderizarTabela();
+
+  if (dados.historico && dados.historico.length) {
+    wireGraficosClasseCarteiras(doc, {
+      historico: dados.historico,
+      periodoTabsContainer: doc.getElementById('fiisPeriodoTabs'),
+      paineis: [{
+        visaoId: 'carteiraFiis',
+        rentabChartContainer: doc.getElementById('fiisRentabChart'),
+        rentabLegendaContainer: doc.getElementById('fiisRentabLegenda'),
+        evolucaoChartContainer: doc.getElementById('fiisEvolucaoChart'),
+        evolucaoLegendaContainer: doc.getElementById('fiisEvolucaoLegenda'),
+        corToken: '--fiis',
+      }],
+    });
+  } else {
+    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
+    doc.getElementById('fiisRentabChart').innerHTML = semHistoricoHtml;
+    doc.getElementById('fiisEvolucaoChart').innerHTML = semHistoricoHtml;
+  }
 }
 
-export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis } = {}) {
+export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome } = {}) {
   const loadingEl = doc.getElementById('fiisLoading');
   const erroEl = doc.getElementById('fiisErro');
   const conteudoEl = doc.getElementById('fiisConteudo');
@@ -205,7 +252,7 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
   }
 
   async function carregarERedesenhar() {
-    const resposta = await getCarteirasFiisImpl(token);
+    const [resposta, respostaHome] = await Promise.all([getCarteirasFiisImpl(token), getHomeImpl(token)]);
     loadingEl.hidden = true;
 
     if (!resposta.ok) {
@@ -216,8 +263,9 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    desenhar(doc, resposta.carteira);
-    gravarCacheCarteiras(CHAVE_CACHE_FIIS, resposta.carteira);
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    desenhar(doc, dados);
+    gravarCacheCarteiras(CHAVE_CACHE_FIIS, dados);
   }
 
   await carregarERedesenhar();
