@@ -19,6 +19,7 @@ import {
   wireGraficoRentabilidade,
   CAMPO_PRINCIPAL_POR_VISAO,
   CAMPO_FLUXO_POR_VISAO,
+  CAMPO_FLUXO_APLICADO_POR_VISAO,
   COR_PRINCIPAL_POR_VISAO,
 } from './inicio.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
@@ -636,7 +637,7 @@ export function comHistoricoAcumuladoClasse_(historico, campoFluxo) {
  * da própria classe (--acoes/--fiis/--usa/--rf) em vez do --acoes fixo do
  * original.
  */
-function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor investido' }) {
+function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado' }) {
   const svgEl = container.querySelector('svg.rentab-chart');
   const hitarea = container.querySelector('.rentab-hitarea');
   const hoverGroup = container.querySelector('.rentab-hover');
@@ -727,7 +728,7 @@ function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, va
  * --acoes, preservando esse comportamento caso um chamador não passe
  * nada).
  */
-export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor investido' } = {}) {
+export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado' } = {}) {
   if (!container || !campoValor) return;
   // 20/09/2026 (pedido do Tiago): "Desde o início" (periodoId:'tudo') corta
   // pro início desta visão/classe específica, não o início do patrimônio
@@ -893,14 +894,17 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
 
   function desenharEvolucao_(periodoId) {
     paineisEvolucao.forEach((p) => {
-      const historicoAcumulado = comHistoricoAcumuladoClasse_(historico, CAMPO_FLUXO_POR_VISAO[p.visaoId]);
+      // 21/09/2026 (pedido do Tiago): CAMPO_FLUXO_APLICADO_POR_VISAO, NAO
+      // CAMPO_FLUXO_POR_VISAO - "Valor aplicado" nunca cai so por causa de
+      // provento recebido (esse campo continua so pro TWR da Rentabilidade).
+      const historicoAcumulado = comHistoricoAcumuladoClasse_(historico, CAMPO_FLUXO_APLICADO_POR_VISAO[p.visaoId]);
       renderEvolucaoClasseCarteiras(doc, p.evolucaoChartContainer, historicoAcumulado, {
         campoValor: CAMPO_PRINCIPAL_POR_VISAO[p.visaoId],
         periodoId,
         legendaContainer: p.evolucaoLegendaContainer,
         corToken: p.corToken || COR_PRINCIPAL_POR_VISAO[p.visaoId] || '--acoes',
         labelValor: p.labelValor || 'Portfólio',
-        labelInvestido: p.labelInvestido || 'Valor investido',
+        labelInvestido: p.labelInvestido || 'Valor aplicado',
         comInvestido: p.comInvestido !== false,
       });
     });

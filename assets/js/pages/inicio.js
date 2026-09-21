@@ -776,6 +776,27 @@ export const CAMPO_FLUXO_POR_VISAO = {
   carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
 };
 
+/** 21/09/2026 (pedido do Tiago - "Valor aplicado" tem que ser só capital
+ * líquido de Compra/Venda + Renda Fixa, NUNCA reduzido por provento
+ * recebido): mesmas chaves de CAMPO_FLUXO_POR_VISAO acima, mas apontando
+ * pros campos fluxoAplicado* (HistoricoInicio.gs) - usado SÓ pra linha
+ * pontilhada "Valor aplicado" dos gráficos de Evolução (Início +
+ * subpáginas de Carteiras), nunca pro TWR da Rentabilidade (que continua
+ * usando CAMPO_FLUXO_POR_VISAO acima, deduzindo provento de propósito -
+ * ver FluxoCaixaInicio.gs). */
+export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
+  total: 'fluxoAplicadoPatrimonio',
+  longoPrazo: 'fluxoAplicadoLongoPrazo',
+  nacional: 'fluxoAplicadoNacional',
+  rendaEmergencial: 'fluxoAplicadoRendaEmergencial',
+  carteiraAcoes: 'fluxoAplicadoAcoes',
+  carteiraFiis: 'fluxoAplicadoFiis',
+  carteiraAcoesEua: 'fluxoAplicadoAcoesEua',
+  carteiraRendaFixaTotal: 'fluxoAplicadoRendaFixaTotal',
+  carteiraRendaFixaLongoPrazo: 'fluxoAplicadoRendaFixaLongoPrazo',
+  carteiraRendaFixaEmergencial: 'fluxoAplicadoRendaEmergencial',
+};
+
 /** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
  * Renda Emergencial contra CDI+Selic (decisão registrada em
  * docs/plano-implementacao.html - não compara reserva de emergência com bolsa). */

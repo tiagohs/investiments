@@ -261,7 +261,7 @@ test('montarPaginaCarteirasAcoes(): desenha os gráficos de Rentabilidade/Evolu�
     assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Portfólio/);
     assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Ibovespa/);
     assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Portfólio/);
-    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Valor investido/);
+    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Valor aplicado/);
 
     // O filtro de período fica acima do 1º gráfico (Rentabilidade
     // acumulada) e afeta os 2 - mesmo botão redesenha as 2 séries.

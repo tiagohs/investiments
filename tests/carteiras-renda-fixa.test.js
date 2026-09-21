@@ -270,13 +270,13 @@ test('montarPaginaCarteirasRendaFixa(): desenha os 6 gráficos (Carteira total/L
     assert.equal(doc.querySelectorAll('.cc-charts-par').length, 2);
 
     // Evolução de Longo prazo/Reserva de emergência mostra só 1 linha
-    // (comInvestido:false) - sem "Valor investido" na legenda, diferente
+    // (comInvestido:false) - sem "Valor aplicado" na legenda, diferente
     // da Carteira total (que compara com o investido, igual às outras
     // subpáginas).
-    assert.match(doc.getElementById('rfEvolucaoTotalLegenda').textContent, /Valor investido/);
-    assert.doesNotMatch(doc.getElementById('rfEvolucaoLongoLegenda').textContent, /Valor investido/);
+    assert.match(doc.getElementById('rfEvolucaoTotalLegenda').textContent, /Valor aplicado/);
+    assert.doesNotMatch(doc.getElementById('rfEvolucaoLongoLegenda').textContent, /Valor aplicado/);
     assert.match(doc.getElementById('rfEvolucaoLongoLegenda').textContent, /Longo prazo/);
-    assert.doesNotMatch(doc.getElementById('rfEvolucaoEmergLegenda').textContent, /Valor investido/);
+    assert.doesNotMatch(doc.getElementById('rfEvolucaoEmergLegenda').textContent, /Valor aplicado/);
     assert.match(doc.getElementById('rfEvolucaoEmergLegenda').textContent, /Reserva de emergência/);
 
     // filtro de período (acima da 1ª seção) redesenha os 6 gráficos juntos.

@@ -569,6 +569,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var fluxoAcoesEuaHoje = fluxoUsaHoje + flowExtraUsaHoje;
     var fluxoRendaFixaTotalHoje = fluxoCaixa.rendaFixaTotal[chaveAtual] || 0;
 
+    // 21/09/2026 (pedido do Tiago): mesma decomposição acima, mas pro
+    // "Valor aplicado" (capital líquido ainda aplicado - Compra/Venda +
+    // Renda Fixa - NUNCA reduzido por provento recebido) - ver
+    // FluxoCaixaInicio.gs!porDiaAplicado* pro motivo. Campo separado de
+    // fluxoCaixa*, que continua sendo só pro TWR da Rentabilidade (esse
+    // sim deduz provento, de propósito).
+    var fluxoAplicadoTotalHoje = fluxoCaixa.totalAplicado[chaveAtual] || 0;
+    var fluxoAplicadoRendaEmergencialHoje = fluxoCaixa.rendaEmergencialAplicado[chaveAtual] || 0;
+    var fluxoAplicadoUsaHoje = fluxoCaixa.usaAplicado[chaveAtual] || 0;
+    var fluxoAplicadoAcoesHoje = fluxoCaixa.acoesAplicado[chaveAtual] || 0;
+    var fluxoAplicadoFiisHoje = fluxoCaixa.fiisAplicado[chaveAtual] || 0;
+    var fluxoAplicadoRendaFixaTotalHoje = fluxoCaixa.rendaFixaTotalAplicado[chaveAtual] || 0;
+
     var chaveBcb = formatarDataBcbRF_(dataAtual);
     var fatorCdi = fatoresCdi[chaveBcb];
     var fatorSelic = fatoresSelic[chaveBcb];
@@ -615,7 +628,17 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
       fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoAcoesEuaHoje),
       fluxoCaixaRendaFixaTotal: arredondar2Inicio_(fluxoRendaFixaTotalHoje),
-      fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje)
+      fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje),
+      // --- 21/09/2026: "Valor aplicado", ver comentário acima ---
+      fluxoAplicadoPatrimonio: arredondar2Inicio_(fluxoAplicadoTotalHoje),
+      fluxoAplicadoLongoPrazo: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje),
+      fluxoAplicadoNacional: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje - fluxoAplicadoUsaHoje),
+      fluxoAplicadoRendaEmergencial: arredondar2Inicio_(fluxoAplicadoRendaEmergencialHoje),
+      fluxoAplicadoAcoes: arredondar2Inicio_(fluxoAplicadoAcoesHoje),
+      fluxoAplicadoFiis: arredondar2Inicio_(fluxoAplicadoFiisHoje),
+      fluxoAplicadoAcoesEua: arredondar2Inicio_(fluxoAplicadoUsaHoje),
+      fluxoAplicadoRendaFixaTotal: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje),
+      fluxoAplicadoRendaFixaLongoPrazo: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje - fluxoAplicadoRendaEmergencialHoje)
     });
 
     dataAtual.setDate(dataAtual.getDate() + 1);
@@ -650,7 +673,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
-  return 'historico_serie_v7_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v8_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

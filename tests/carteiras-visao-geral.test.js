@@ -207,7 +207,7 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     const legendaEvolucao = doc.querySelectorAll('#vgEvolucaoLegenda .li');
     assert.equal(legendaEvolucao.length, 2);
     assert.match(doc.getElementById('vgEvolucaoLegenda').textContent, /Quanto tenho hoje/);
-    assert.match(doc.getElementById('vgEvolucaoLegenda').textContent, /Quanto investi/);
+    assert.match(doc.getElementById('vgEvolucaoLegenda').textContent, /Valor aplicado/);
 
     // vgInfoRentabilidade agora mora junto do gráfico de Rentabilidade,
     // não duplicado no hero - e continua sendo preenchido de verdade.

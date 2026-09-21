@@ -179,8 +179,12 @@ function renderHeroStats_(doc, container, cards, home) {
  */
 function comHistoricoInvestidoAcumulado_(historico) {
   let acumulado = 0;
+  // 21/09/2026 (pedido do Tiago): fluxoAplicadoPatrimonio, NÃO
+  // fluxoCaixaPatrimonio - "Valor aplicado" é capital líquido de
+  // Compra/Venda + Renda Fixa, nunca reduzido por provento recebido (ver
+  // FluxoCaixaInicio.gs!porDiaAplicado* / inicio.js!CAMPO_FLUXO_APLICADO_POR_VISAO).
   return historico.map((item) => {
-    const fluxo = typeof item.fluxoCaixaPatrimonio === 'number' && Number.isFinite(item.fluxoCaixaPatrimonio) ? item.fluxoCaixaPatrimonio : 0;
+    const fluxo = typeof item.fluxoAplicadoPatrimonio === 'number' && Number.isFinite(item.fluxoAplicadoPatrimonio) ? item.fluxoAplicadoPatrimonio : 0;
     acumulado += fluxo;
     return { ...item, investidoAcumulado: acumulado };
   });
@@ -281,7 +285,7 @@ function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaC
   if (legendaContainer) {
     legendaContainer.innerHTML = `
       <span class="li"><span class="swline" style="border-color:var(--acoes)"></span>Quanto tenho hoje</span>
-      <span class="li"><span class="swline dash" style="border-color:var(--ink-muted)"></span>Quanto investi</span>
+      <span class="li"><span class="swline dash" style="border-color:var(--ink-muted)"></span>Valor aplicado</span>
     `;
   }
 }
@@ -327,7 +331,7 @@ function ligarInteracaoEvolucao_(container, { janela, valoresPatrimonio, valores
 
     const linhasTooltip = [
       { label: 'Quanto tenho hoje', cor: 'var(--acoes)', valor: valoresPatrimonio[i] },
-      { label: 'Quanto investi', cor: 'var(--ink-muted)', valor: valoresInvestido[i] },
+      { label: 'Valor aplicado', cor: 'var(--ink-muted)', valor: valoresInvestido[i] },
     ].map((linha) => `
       <div class="rentab-tooltip-item">
         <span class="dot" style="background:${linha.cor}"></span>${linha.label}

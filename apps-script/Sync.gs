@@ -1201,3 +1201,101 @@ function repararHistoricoDuplicatasECambio_() {
     lock.releaseLock();
   }
 }
+
+/**
+ * Reparo pontual (rodar 1x manualmente pelo editor do Apps Script) pra
+ * limpar o histórico de "STR" gravado DEPOIS da fusão com a Viper Energy
+ * (VNOM) — investigado a fundo em 21/09/2026, a pedido do Tiago (o
+ * mergulho estranho de sábado/domingo no gráfico de patrimônio).
+ *
+ * Sitio Royalties (STR) foi realmente incorporada pela Viper Energy
+ * (VNOM) num merge all-stock que fechou em 19/08/2025 e a STR delistou
+ * da NYSE nesse dia (confirmado por fora, não só pela investigação
+ * anterior — ver fontes: businesswire.com, investing.com). A conversão
+ * já está corretamente registrada em "Transações - USA" (linhas de VNOM
+ * na razão 0,4855 por STR).
+ *
+ * O problema: a sincronização diária continuou rodando
+ * GOOGLEFINANCE("STR") depois do delisting (TICKERS_USA só teve STR
+ * removida numa correção de código feita em 20/09/2026, ainda pendente
+ * de deploy nesse momento) — e o ticker "STR" claramente passou a
+ * cotar OUTRA empresa (prática comum: bolsa recicla código de ticker
+ * depois de um delisting). A prova: os preços que você realmente pagou
+ * em "Transações - USA" pra STR em 2025 (US$18-20/ação) não têm nenhuma
+ * relação com os preços que a sincronização vinha gravando desde então
+ * (US$147-165/ação, subindo/descendo dia a dia como uma ação de
+ * verdade) — são 2 papéis diferentes com o mesmo código.
+ *
+ * Resultado: aux_historico-patrimonio vinha somando esse valor
+ * fantasma (R$ 6.800-8.000, variando dia a dia) DENTRO de "Ações
+ * EUA"/patrimônio total todo santo dia desde 19/08/2025 — inflando o
+ * gráfico de Evolução por mais de 1 ano. No sábado 19/09/2026 o
+ * GOOGLEFINANCE simplesmente não devolveu nada (fim de semana, sem
+ * pregão) e a linha saiu zerada em vez de errada-mas-parecendo-normal —
+ * foi essa queda repentina de R$ 6.800+ num único dia que ficou visível
+ * no gráfico e motivou esta investigação.
+ *
+ * O que faz: remove TODAS as linhas de "STR" em aux_historico-patrimonio
+ * datadas de 19/08/2025 em diante (inclusive) — o VNOM real já está
+ * sendo contado à parte, então isso não tira nenhum valor de verdade do
+ * patrimônio, só o fantasma. Linhas de STR ANTERIORES a 19/08/2025 (a
+ * posição real, antes da fusão) são mantidas.
+ *
+ * Confirmado com o Tiago antes de escrever isso (21/09/2026): "Sim,
+ * remove o histórico de STR pós-fusão".
+ *
+ * Idempotente — rodar de novo depois que já não sobra nenhuma linha de
+ * STR pós-fusão simplesmente não muda nada (0 linhas removidas).
+ */
+function repararHistoricoStrFantasma_() {
+  var CUTOFF_FUSAO_STR = new Date(2025, 7, 19); // 19/08/2025 (mês 7 = agosto, índice 0)
+  var lock = LockService.getScriptLock();
+  var conseguiuLock = false;
+  try {
+    conseguiuLock = lock.tryLock(10000);
+  } catch (erroLock) {
+    conseguiuLock = false;
+  }
+  if (!conseguiuLock) {
+    throw new Error('Já existe uma sincronização rodando agora (mesma trava de atualizarHistorico) — espera terminar e roda de novo.');
+  }
+
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var aba = ss.getSheetByName(NOME_ABA_HISTORICO);
+    if (!aba) throw new Error('Aba "' + NOME_ABA_HISTORICO + '" não encontrada.');
+
+    var ultimaLinha = aba.getLastRow();
+    if (ultimaLinha < 2) {
+      return { linhasStrFantasmaRemovidas: 0, linhasStrMantidas: 0 };
+    }
+    var dados = aba.getRange(2, 1, ultimaLinha - 1, 8).getValues(); // A..H
+
+    var linhasParaRemover = [];
+    var mantidas = 0;
+    for (var i = 0; i < dados.length; i++) {
+      if (dados[i][1] !== 'STR') continue;
+      var data = dados[i][0];
+      if (!(data instanceof Date)) continue;
+      if (data >= CUTOFF_FUSAO_STR) {
+        linhasParaRemover.push(i);
+      } else {
+        mantidas++;
+      }
+    }
+
+    // remove de trás pra frente (linha da aba = índice em `dados` + 2)
+    linhasParaRemover.sort(function (a, b) { return b - a; });
+    linhasParaRemover.forEach(function (idx) {
+      aba.deleteRow(idx + 2);
+    });
+
+    var detalhe = 'Reparo STR fantasma (fusão c/ VNOM em 19/08/2025, ticker reciclado por outra empresa depois disso): ' +
+      linhasParaRemover.length + ' linha(s) de STR pós-fusão removida(s), ' + mantidas + ' linha(s) de STR pré-fusão mantida(s).';
+    gravarRegistroControle_('Sucesso', 'Manual', detalhe);
+
+    return { linhasStrFantasmaRemovidas: linhasParaRemover.length, linhasStrMantidas: mantidas };
+  } finally {
+    lock.releaseLock();
+  }
+}

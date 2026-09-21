@@ -161,6 +161,23 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var porDiaAcoes = {};
   var porDiaFiis = {};
   var porDiaRendaFixaTotal = {};
+  // 21/09/2026 (pedido do Tiago - print comparando com o Gorila,
+  // "quanto investi" saindo muito abaixo do "Valor investido" de lá):
+  // "Valor aplicado" tem que ser só capital líquido de Compra/Venda +
+  // Renda Fixa - NUNCA reduzido por provento recebido (provento não é
+  // "saiu do que eu apliquei", é rendimento à parte). Espelham
+  // porDia*/porDiaRendaEmergencial/porDiaUsa/porDiaAcoes/porDiaFiis/
+  // porDiaRendaFixaTotal acima, dia a dia, MAS sem passar pelo bloco de
+  // Proventos mais abaixo (só esses mapas ficam de fora dele) - usados
+  // só pro campo novo fluxoAplicado* (HistoricoInicio.gs), nunca pro TWR
+  // da Rentabilidade (que continua em fluxoCaixaPatrimonio, propositalmente
+  // deduzindo provento - ver comentário do bloco de Proventos abaixo).
+  var porDiaAplicado = {};
+  var porDiaAplicadoRendaEmergencial = {};
+  var porDiaAplicadoUsa = {};
+  var porDiaAplicadoAcoes = {};
+  var porDiaAplicadoFiis = {};
+  var porDiaAplicadoRendaFixaTotal = {};
   var classes = mapaClassePorTicker || {};
   // 20/09/2026 (bug real, achado com dados reais do Tiago - FIIs "Desde o
   // início" mostrando +229% muito acima do IFIX/CDI): primeira data de
@@ -218,16 +235,18 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         valorBrl = totalTaxa * cambio;
       }
       somar(porDia, chave, sinal * valorBrl);
+      somar(porDiaAplicado, chave, sinal * valorBrl);
       if (info.cambio) {
         somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
+        somar(porDiaAplicadoUsa, chave, sinal * valorBrl);
       } else {
         // 19/09/2026: split Ações/FIIs BR (ver comentário no cabeçalho) -
         // ticker sem classe conhecida (ainda não sincronizado nenhuma vez
         // em aux_historico-patrimonio) fica de fora dos 2 baldes, mas
         // continua contando em `total` normalmente acima.
         var classeTicker = classes[ticker];
-        if (classeTicker === 'FII') somar(porDiaFiis, chave, sinal * valorBrl);
-        else if (classeTicker === 'BR') somar(porDiaAcoes, chave, sinal * valorBrl);
+        if (classeTicker === 'FII') { somar(porDiaFiis, chave, sinal * valorBrl); somar(porDiaAplicadoFiis, chave, sinal * valorBrl); }
+        else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, sinal * valorBrl); somar(porDiaAplicadoAcoes, chave, sinal * valorBrl); }
       }
     });
   });
@@ -261,11 +280,16 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         var chave = chaveDiaISOInicio_(data);
         somar(porDia, chave, sinal * valor);
         somar(porDiaRendaFixaTotal, chave, sinal * valor); // 19/09/2026: RF inteira, ver cabeçalho
+        somar(porDiaAplicado, chave, sinal * valor);
+        somar(porDiaAplicadoRendaFixaTotal, chave, sinal * valor);
 
         var institCanonica = normalizarInstituicaoRF_(instituicao);
         var indexador = detectarIndexadorRF_(produto);
         var classificacao = classificarPosicaoRF_(produto, institCanonica, indexador, mapaClassificacaoRf);
-        if (classificacao === 'Renda Emergencial') somar(porDiaRendaEmergencial, chave, sinal * valor);
+        if (classificacao === 'Renda Emergencial') {
+          somar(porDiaRendaEmergencial, chave, sinal * valor);
+          somar(porDiaAplicadoRendaEmergencial, chave, sinal * valor);
+        }
       });
     }
   }
@@ -310,7 +334,15 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     acoes: porDiaAcoes,
     fiis: porDiaFiis,
     rendaFixaTotal: porDiaRendaFixaTotal,
-    primeiraCompraPorTicker: primeiraCompraPorTicker
+    primeiraCompraPorTicker: primeiraCompraPorTicker,
+    // 21/09/2026 (ver comentário de porDiaAplicado* acima) - mesma forma,
+    // sem provento subtraído.
+    totalAplicado: porDiaAplicado,
+    rendaEmergencialAplicado: porDiaAplicadoRendaEmergencial,
+    usaAplicado: porDiaAplicadoUsa,
+    acoesAplicado: porDiaAplicadoAcoes,
+    fiisAplicado: porDiaAplicadoFiis,
+    rendaFixaTotalAplicado: porDiaAplicadoRendaFixaTotal
   };
 }
 
