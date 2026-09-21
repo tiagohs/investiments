@@ -820,8 +820,10 @@ function gravarLinhasHistorico_(aba, ticker, classe, precos, cambioPorDia, histo
     var valorBrl = valor;
 
     if (classe === 'USA' && cambioPorDia) {
-      var doDia = cambioPorDia.filter(function (c) { return mesmoDia_(c.data, p.data); })[0];
-      cambio = doDia ? doDia.preco : '';
+      // cambioParaDia_ (não só match exato) — ver comentário lá: cobre o
+      // buraco sistemático de segunda-feira do GOOGLEFINANCE.
+      var cambioDoDia = cambioParaDia_(cambioPorDia, p.data);
+      cambio = (cambioDoDia !== null) ? cambioDoDia : '';
       valorBrl = cambio ? (valor * cambio) : '';
     }
 
@@ -835,6 +837,50 @@ function gravarLinhasHistorico_(aba, ticker, classe, precos, cambioPorDia, histo
 
 function mesmoDia_(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/**
+ * Câmbio USD/BRL pra um dia específico, com fallback de tolerância — bug
+ * real achado com dados reais do Tiago em 21/09/2026: o GOOGLEFINANCE
+ * (CURRENCY:USDBRL) tem um buraco sistemático nas SEGUNDAS-feiras (só
+ * nelas — confirmado nos dados reais: toda 2ª-feira sem câmbio tem sexta
+ * anterior E terça seguinte com valor normal, nunca 2 dias seguidos
+ * faltando) — provável artefato de como o feed de forex (mercado roda
+ * ~24h/5 dias, sem "fechamento" fixo como bolsa) marca a virada de
+ * semana. Sem fallback, mesmoDia_ nunca casa e a linha fica com
+ * Câmbio/Valor BRL em branco PRA SEMPRE (gravarLinhasHistorico_ é
+ * append-only, nunca reescreve um dia já salvo — só um reparo manual
+ * conserta depois, ver repararHistoricoDuplicatasECambio_).
+ *
+ * Tenta o dia exato primeiro; sem match, usa o dia disponível mais
+ * PRÓXIMO (primeiro olhando pra TRÁS, já que é o que um humano faria —
+ * "câmbio de hoje ainda não saiu, uso o de ontem" — só olha pra FRENTE
+ * se não achar nada antes), até TOLERANCIA_DIAS_CAMBIO de distância.
+ * Câmbio USD/BRL não varia o suficiente de um dia pro outro (~0,5-2% nos
+ * dados reais do Tiago) pra esse pequeno desvio importar.
+ */
+var TOLERANCIA_DIAS_CAMBIO = 5;
+function cambioParaDia_(cambioPorDia, data) {
+  if (!cambioPorDia || !cambioPorDia.length) return null;
+
+  var exato = cambioPorDia.filter(function (c) { return mesmoDia_(c.data, data); })[0];
+  if (exato) return exato.preco;
+
+  var melhorAntes = null, melhorAntesDelta = Infinity;
+  var melhorDepois = null, melhorDepoisDelta = Infinity;
+  cambioPorDia.forEach(function (c) {
+    var deltaDias = (data - c.data) / 86400000;
+    if (deltaDias > 0 && deltaDias <= TOLERANCIA_DIAS_CAMBIO && deltaDias < melhorAntesDelta) {
+      melhorAntesDelta = deltaDias;
+      melhorAntes = c;
+    } else if (deltaDias < 0 && -deltaDias <= TOLERANCIA_DIAS_CAMBIO && -deltaDias < melhorDepoisDelta) {
+      melhorDepoisDelta = -deltaDias;
+      melhorDepois = c;
+    }
+  });
+  if (melhorAntes) return melhorAntes.preco;
+  if (melhorDepois) return melhorDepois.preco;
+  return null;
 }
 
 /**
@@ -947,4 +993,211 @@ function lerRegistroControle_(limite) {
   return dados.map(function (linha) {
     return { timestamp: linha[0], origem: linha[1], status: linha[2], detalhe: linha[3] };
   });
+}
+
+/**
+ * Reparo pontual (rodar 1x manualmente pelo editor do Apps Script — NUNCA
+ * chamado pelo gatilho automático nem pelo Router/site) pra consertar
+ * dano JÁ GRAVADO em aux_historico-patrimonio por 2 causas raiz reais,
+ * achadas com dados reais do Tiago em 21/09/2026 e investigadas a pedido
+ * dele ("pode investigar o câmbio, vamos concertar isso e garantir que
+ * tudo esteja gravado"):
+ *
+ * 1) LINHAS DUPLICADAS (mesmo Ticker+Data) — sintoma da mesma corrida (2
+ *    sincronizações escrevendo na MESMA célula de rascunho ao mesmo
+ *    tempo) já corrigida de raiz em 19/09/2026 (ver o LockService em
+ *    atualizarHistorico, comentário lá tem o caso real do BBAS3). O lock
+ *    impede corrupção NOVA, mas gravarLinhasHistorico_ é append-only —
+ *    nunca reescreve nem apaga um dia já salvo — então as 31 duplicatas
+ *    gravadas em 16 e 17/09/2026 (antes do lock existir) continuam na
+ *    aba pra sempre até alguém limpar. Pelo menos 4 delas (BBAS3 17/09 =
+ *    R$5,1256 em vez de R$22,78 — literalmente um câmbio USD/BRL vazando
+ *    pro preço de uma ação BR por causa da colisão de célula; RBRY11
+ *    17/09, XPML11 16/09 e EWBC 17/09) não são cópias idênticas — são um
+ *    valor BOM e um valor LIXO, cada um com preço bem diferente. Decide
+ *    qual manter comparando com o preço do dia anterior E do dia
+ *    seguinte do MESMO ticker (fora do grupo de duplicatas): fica a
+ *    linha mais PRÓXIMA da média dos dois vizinhos — validado nos dados
+ *    reais do Tiago (tests/harness), acerta os 4 casos óbvios E não faz
+ *    diferença nenhuma nos outros 27 (cópias exatas, mesmo valor nos 2
+ *    lados).
+ *
+ * 2) CÂMBIO USD/BRL EM BRANCO em linhas de tickers USA — mesma corrida:
+ *    quando 2 execuções competiam pela mesma célula de rascunho, uma
+ *    delas podia gravar a linha do dia com Câmbio/Valor BRL vazios
+ *    (cambioCache incompleto ou lido errado naquele instante) — e como
+ *    gravarLinhasHistorico_ nunca reescreve um dia já salvo, esse branco
+ *    ficava pra sempre. Nos dados reais isso não é só 15-18/09/2026 (a
+ *    leva mais recente) — tem lacunas de ANTES desse bug de concorrência
+ *    também, espalhadas desde jun/2025 (todos os 7 tickers USA, dezenas
+ *    de dias cada). Essa função varre a aba INTEIRA (não só os dias
+ *    recentes) e busca o câmbio histórico real de cada dia em branco,
+ *    de uma vez só, via GOOGLEFINANCE — sem NUNCA tocar em Cotas/Preço/
+ *    Valor (USD), só preenche as 2 colunas que estavam vazias.
+ *
+ * Idempotente e seguro de rodar mais de uma vez — linhas sem duplicata e
+ * já com Câmbio preenchido são ignoradas nas próximas execuções. Se o
+ * orçamento de tempo acabar no meio da busca de câmbio (intervalo real
+ * passa de 1 ano, bem maior que 1 CHUNK_DIAS de 180), devolve o que já
+ * conseguiu e registra em "Registro de Controle" que ficou incompleta —
+ * só rodar de novo (retoma sozinha, GOOGLEFINANCE já calculado antes
+ * fica rápido na 2ª vez).
+ *
+ * @return {Object} resumo com contagens (linhasDuplicadasRemovidas,
+ *   linhasCambioCorrigido, linhasCambioAindaFaltando, buscaCompleta) —
+ *   visível no log de execução do Apps Script (Ver > Execuções).
+ */
+function repararHistoricoDuplicatasECambio_() {
+  var lock = LockService.getScriptLock();
+  var conseguiuLock = false;
+  try {
+    conseguiuLock = lock.tryLock(10000);
+  } catch (erroLock) {
+    conseguiuLock = false;
+  }
+  if (!conseguiuLock) {
+    throw new Error('Já existe uma sincronização rodando agora (mesma trava de atualizarHistorico) — espera terminar e roda de novo.');
+  }
+
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var aba = ss.getSheetByName(NOME_ABA_HISTORICO);
+    if (!aba) throw new Error('Aba "' + NOME_ABA_HISTORICO + '" não encontrada.');
+
+    // ---------- Passo 1: remove linhas duplicadas (mesmo Ticker+Data) ----------
+    var ultimaLinha = aba.getLastRow();
+    if (ultimaLinha < 2) {
+      return { linhasDuplicadasRemovidas: 0, linhasCambioCorrigido: 0, linhasCambioAindaFaltando: 0, buscaCompleta: true };
+    }
+    var dados = aba.getRange(2, 1, ultimaLinha - 1, 8).getValues(); // A..H
+
+    // agrupa por ticker — dentro de cada ticker as linhas já vêm em ordem
+    // cronológica (cada sincronização grava um ticker de cada vez, em
+    // ordem de data crescente, ver gravarLinhasHistorico_)
+    var porTicker = {};
+    for (var i = 0; i < dados.length; i++) {
+      var ticker = dados[i][1];
+      if (!ticker) continue;
+      if (!porTicker[ticker]) porTicker[ticker] = [];
+      porTicker[ticker].push(i); // índice em `dados`
+    }
+
+    var linhasParaRemover = [];
+    Object.keys(porTicker).forEach(function (ticker) {
+      var indices = porTicker[ticker];
+      var posMap = {};
+      indices.forEach(function (idx, pos) { posMap[idx] = pos; });
+
+      var porDia = {}; // 'ano-mes-dia' -> [índices em `dados`]
+      indices.forEach(function (idx) {
+        var data = dados[idx][0];
+        if (!(data instanceof Date)) return;
+        var chave = data.getFullYear() + '-' + data.getMonth() + '-' + data.getDate();
+        if (!porDia[chave]) porDia[chave] = [];
+        porDia[chave].push(idx);
+      });
+
+      Object.keys(porDia).forEach(function (chave) {
+        var grupo = porDia[chave];
+        if (grupo.length < 2) return;
+
+        var posMin = Infinity, posMax = -Infinity;
+        grupo.forEach(function (idx) {
+          var p = posMap[idx];
+          if (p < posMin) posMin = p;
+          if (p > posMax) posMax = p;
+        });
+        var precoAnterior = (posMin - 1 >= 0) ? dados[indices[posMin - 1]][4] : null;
+        var precoPosterior = (posMax + 1 < indices.length) ? dados[indices[posMax + 1]][4] : null;
+        var refs = [];
+        if (typeof precoAnterior === 'number') refs.push(precoAnterior);
+        if (typeof precoPosterior === 'number') refs.push(precoPosterior);
+
+        // decide qual manter: a mais próxima da média dos vizinhos (preço
+        // do dia anterior/seguinte do MESMO ticker) — sem vizinho nenhum
+        // (caso extremo, não acontece nos dados reais do Tiago), mantém a
+        // 1ª por padrão em vez de travar o reparo inteiro.
+        var melhor = grupo[0];
+        if (refs.length) {
+          var mediaRef = refs.reduce(function (a, b) { return a + b; }, 0) / refs.length;
+          var menorDelta = Infinity;
+          grupo.forEach(function (idx) {
+            var delta = Math.abs(dados[idx][4] - mediaRef);
+            if (delta < menorDelta) { menorDelta = delta; melhor = idx; }
+          });
+        }
+        grupo.forEach(function (idx) {
+          if (idx !== melhor) linhasParaRemover.push(idx);
+        });
+      });
+    });
+
+    // remove de trás pra frente (linha da aba = índice em `dados` + 2,
+    // já que a leitura começou na linha 2)
+    linhasParaRemover.sort(function (a, b) { return b - a; });
+    linhasParaRemover.forEach(function (idx) {
+      aba.deleteRow(idx + 2);
+    });
+
+    // ---------- Passo 2: preenche Câmbio/Valor BRL em branco (tickers USA) ----------
+    ultimaLinha = aba.getLastRow();
+    dados = (ultimaLinha >= 2) ? aba.getRange(2, 1, ultimaLinha - 1, 8).getValues() : [];
+
+    var faltantes = []; // {linhaAba, data, valorUsd}
+    var menorData = null;
+    var maiorData = null;
+    for (var j = 0; j < dados.length; j++) {
+      var l = dados[j];
+      if (l[2] !== 'USA' || !(l[0] instanceof Date) || TICKERS_USA.indexOf(l[1]) === -1) continue;
+      var cambioAtual = l[6];
+      if (cambioAtual === '' || cambioAtual === null || cambioAtual === undefined) {
+        faltantes.push({ linhaAba: j + 2, data: l[0], valorUsd: l[5] });
+        if (!menorData || l[0] < menorData) menorData = l[0];
+        if (!maiorData || l[0] > maiorData) maiorData = l[0];
+      }
+    }
+
+    if (!faltantes.length) {
+      var detalheSemFaltante = 'Reparo de histórico USA: ' + linhasParaRemover.length + ' linha(s) duplicada(s) removida(s) — nenhuma linha com câmbio em branco.';
+      gravarRegistroControle_('Sucesso', 'Manual', detalheSemFaltante);
+      return { linhasDuplicadasRemovidas: linhasParaRemover.length, linhasCambioCorrigido: 0, linhasCambioAindaFaltando: 0, buscaCompleta: true };
+    }
+
+    var inicioBusca = new Date(menorData);
+    inicioBusca.setHours(0, 0, 0, 0);
+    var fimBusca = new Date(maiorData);
+    fimBusca.setHours(0, 0, 0, 0);
+    // orçamento generoso — função roda manualmente pelo editor (não no
+    // gatilho), pode chegar perto do teto de 6min do Apps Script; o
+    // intervalo real (câmbio faltando desde jun/2025) passa de 1 ano,
+    // bem mais que 1 CHUNK_DIAS de 180, então precisa de vários chunks.
+    var orcamentoCambio = 4.5 * 60 * 1000;
+    var buscaCambio = buscarPrecoHistorico_('CURRENCY:USDBRL', 'USA', inicioBusca, fimBusca, orcamentoCambio);
+
+    var corrigidas = 0;
+    faltantes.forEach(function (f) {
+      // cambioParaDia_ (não só match exato) — cobre o buraco sistemático
+      // de segunda-feira do GOOGLEFINANCE (ver comentário na função).
+      var cambio = cambioParaDia_(buscaCambio.precos, f.data);
+      if (cambio === null) return; // nem o dia exato nem nada dentro da tolerância — deixa em branco, não inventa valor
+      var valorBrl = (typeof f.valorUsd === 'number') ? (f.valorUsd * cambio) : '';
+      aba.getRange(f.linhaAba, 7, 1, 2).setValues([[cambio, valorBrl]]); // G=Câmbio, H=Valor BRL
+      corrigidas++;
+    });
+
+    var aindaFaltando = faltantes.length - corrigidas;
+    var detalhe = 'Reparo de histórico USA: ' + linhasParaRemover.length + ' linha(s) duplicada(s) removida(s), ' +
+      corrigidas + ' de ' + faltantes.length + ' linha(s) com câmbio em branco corrigidas' +
+      (aindaFaltando ? ' (' + aindaFaltando + ' continuam faltando — ' + (buscaCambio.completo ? 'sem cotação real pro dia' : 'busca cortada por tempo, roda de novo') + ')' : '') + '.';
+    gravarRegistroControle_(aindaFaltando && !buscaCambio.completo ? 'Atenção' : 'Sucesso', 'Manual', detalhe);
+
+    return {
+      linhasDuplicadasRemovidas: linhasParaRemover.length,
+      linhasCambioCorrigido: corrigidas,
+      linhasCambioAindaFaltando: aindaFaltando,
+      buscaCompleta: buscaCambio.completo
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }

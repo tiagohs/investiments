@@ -128,5 +128,24 @@ test('fonte da verdade: a série cobre exatamente do 1º ao último dia real das
   const ultimaChaveEsperada = chaves[chaves.length - 1];
 
   assert.equal(serie[0].data, primeiraChaveEsperada, `1º dia da série (${serie[0].data}) deveria ser exatamente o 1º dia real das abas-fonte (${primeiraChaveEsperada}) - um dia "fantasma" antes disso é o bug de fuso horário (new Date("yyyy-MM-dd") = meia-noite UTC, não meia-noite SP)`);
-  assert.equal(serie[serie.length - 1].data, ultimaChaveEsperada, `último dia da série (${serie[serie.length - 1].data}) deveria ser exatamente o último dia real das abas-fonte (${ultimaChaveEsperada}) - se vier 1 dia antes, o bug de fuso horário voltou (o dia mais recente está sendo silenciosamente descartado)`);
+
+  // 21/09/2026 (a pedido do Tiago - "quero que os números do resumo de
+  // carteira sejam coerentes com o número da evolução do patrimônio"):
+  // HistoricoInicio.gs!montarSerieHistoricoInicio_ agora estende
+  // ultimaData até HOJE sempre (não só até o último dia sincronizado) -
+  // handleHome (Home.gs) sobrescreve esse último ponto com os valores AO
+  // VIVO de montarHome_(), pra bater com os cards. Isso é ADIÇÃO
+  // deliberada, nunca perda: o último dia da série agora é
+  // max(ultimaChaveEsperada, hoje) - nunca ANTES de ultimaChaveEsperada
+  // (a proteção original contra o bug de fuso horário continua de pé:
+  // se o último dia da série vier ANTES do último dia real das
+  // abas-fonte, é regressão) nem mais de 1 dia depois dela (se sync já
+  // rodou hoje, hoje === ultimaChaveEsperada e a extensão não faz
+  // diferença nenhuma).
+  const fmtHojeSp_ = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const chaveHojeEsperada = fmtHojeSp_.format(new Date());
+  const ultimaChavePermitida = chaveHojeEsperada > ultimaChaveEsperada ? chaveHojeEsperada : ultimaChaveEsperada;
+
+  assert.ok(serie[serie.length - 1].data >= ultimaChaveEsperada, `último dia da série (${serie[serie.length - 1].data}) não pode vir ANTES do último dia real das abas-fonte (${ultimaChaveEsperada}) - o bug de fuso horário (o dia mais recente sendo silenciosamente descartado) voltou`);
+  assert.equal(serie[serie.length - 1].data, ultimaChavePermitida, `último dia da série (${serie[serie.length - 1].data}) deveria ser exatamente hoje ou o último dia real das abas-fonte, o que for mais recente (esperado: ${ultimaChavePermitida}) - handleHome (Home.gs) depende da série sempre alcançar "hoje" pra poder sobrescrever com os valores ao vivo`);
 });

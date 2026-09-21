@@ -127,6 +127,33 @@ function handleHome(e, auth) {
   }
   console.log('handleHome: montarSerieHistoricoInicio_ levou ' + (Date.now() - marca) + 'ms');
 
+  // 21/09/2026 (a pedido do Tiago - "quero que os números que mostram no
+  // resumo de carteira seja coerente com o numero apresentado na
+  // evolucao do patrimonio. O correto deve aparecer em ambos"):
+  // resposta.historico (montarSerieHistoricoInicio_, acima) só enxerga
+  // até o último SYNC (aux_historico-*, gatilho diário ~10h - ver
+  // HistoricoInicio.gs!montarSerieHistoricoInicio_, comentário de
+  // ultimaData) - resposta.patrimonio/indices (montarHome_, alguns
+  // parágrafos acima) é uma leitura AO VIVO da planilha (GOOGLEFINANCE,
+  // atualiza a cada carregamento). As duas fontes sempre puderam
+  // divergir um pouco (preço muda entre o sync das 10h e o momento em
+  // que o Tiago abre o app) - com ultimaData agora sempre alcançando
+  // "hoje" (ver comentário lá), o ÚLTIMO PONTO de resposta.historico
+  // (o que os gráficos de Evolução/Rentabilidade tratam como "hoje") já
+  // existe sempre, e este bloco sobrescreve só os campos de VALOR desse
+  // último ponto com os mesmos números ao vivo do card - nunca os de
+  // fluxo de caixa (fluxoCaixa*, já ao vivo de verdade - ver comentário
+  // de ultimaData) nem CDI/Selic/IPCA (taxas oficiais sem "intraday",
+  // ver Ibovespa/IFIX/S&P 500 abaixo que SÃO sobrescritos por terem
+  // valor ao vivo disponível em montarHome_).
+  if (dadosHome && resposta.historico && resposta.historico.length) {
+    try {
+      sincronizarUltimoPontoHistoricoComAoVivo_(resposta.historico, dadosHome);
+    } catch (err) {
+      avisos.historicoAoVivo = String(err);
+    }
+  }
+
   marca = Date.now();
   try {
     resposta.ativos = montarMeusAtivos_(dadosRendaFixaCache);
@@ -231,4 +258,61 @@ function montarHome_() {
       eur: eur
     }
   };
+}
+
+/**
+ * Sobrescreve o ÚLTIMO PONTO de `serie` (montarSerieHistoricoInicio_) com
+ * os valores AO VIVO de `dadosHome` (montarHome_()) - ver comentário em
+ * handleHome, acima, pro motivo (pedido do Tiago, 21/09/2026: cards e
+ * gráfico de Evolução/Rentabilidade têm que mostrar o MESMO número).
+ *
+ * Só sobrescreve campos que TÊM uma versão ao vivo de verdade disponível
+ * em montarHome_() - patrimônio total/por visão/por classe e os 3
+ * índices de mercado (Ibovespa/IFIX/S&P 500). NUNCA mexe em:
+ *   - fluxoCaixa* - calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) já lê
+ *     as abas de Transações direto a cada chamada (independente do sync
+ *     diário rodar ou não), então já são "ao vivo" no sentido que
+ *     importa (refletem toda transação já registrada).
+ *   - indiceCdi/indiceSelic/indiceIpca - taxas oficiais (BCB) sem
+ *     "intraday" de verdade, não têm uma versão "ao vivo" mais nova que
+ *     o último fator já aplicado pra hoje.
+ *   - pregao - continua refletindo se HOUVE sincronização de verdade
+ *     hoje (não confundir com "os cards têm dado ao vivo", que é sempre
+ *     verdade independente de pregão).
+ *
+ * ultimaData (HistoricoInicio.gs) já garante que o último ponto de
+ * `serie` nunca fica ANTES de hoje - por isso este bloco só PRECISA
+ * sobrescrever (nunca criar/acrescentar linha), mas confere a data mesmo
+ * assim (defensivo - nunca mexe num ponto que não seja de hoje).
+ */
+function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
+  var chaveHoje = chaveDiaISOInicio_(new Date());
+  var ultimo = serie[serie.length - 1];
+  if (!ultimo || ultimo.data !== chaveHoje) return;
+
+  var patrimonio = dadosHome.patrimonio || {};
+  var porClasse = patrimonio.porClasse || {};
+  var indices = dadosHome.indices || {};
+
+  var camposAoVivo = {
+    patrimonio: patrimonio.total,
+    longoPrazo: patrimonio.longoPrazo,
+    nacional: patrimonio.nacional,
+    rendaEmergencial: patrimonio.rendaEmergencial,
+    acoes: porClasse.acoes,
+    fiis: porClasse.fiis,
+    acoesEua: porClasse.acoesEua,
+    rendaFixaTotal: porClasse.rendaFixa
+  };
+  if (typeof porClasse.rendaFixa === 'number' && typeof patrimonio.rendaEmergencial === 'number') {
+    camposAoVivo.rendaFixaLongoPrazo = porClasse.rendaFixa - patrimonio.rendaEmergencial;
+  }
+  if (indices.ibovespa && typeof indices.ibovespa.valor === 'number') camposAoVivo.ibovespa = indices.ibovespa.valor;
+  if (indices.ifix && typeof indices.ifix.valor === 'number') camposAoVivo.ifix = indices.ifix.valor;
+  if (indices.spx && typeof indices.spx.valor === 'number') camposAoVivo.sp500 = indices.spx.valor;
+
+  for (var campo in camposAoVivo) {
+    var v = camposAoVivo[campo];
+    if (typeof v === 'number' && Number.isFinite(v)) ultimo[campo] = arredondar2Inicio_(v);
+  }
 }

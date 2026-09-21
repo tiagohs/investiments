@@ -415,7 +415,29 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   todasAsChaves.sort();
 
   var primeiraData = dataLocalDeChaveInicio_(todasAsChaves[0]);
-  var ultimaData = dataLocalDeChaveInicio_(todasAsChaves[todasAsChaves.length - 1]);
+  // 21/09/2026 (a pedido do Tiago - "quero que os números do resumo de
+  // carteira sejam coerentes com o número da evolução do patrimônio, o
+  // correto deve aparecer nos dois"): ANTES, ultimaData era sempre o
+  // último dia com QUALQUER linha sincronizada (aux_historico-*) - se o
+  // gatilho diário (Sync.gs!gatilhoDiario, roda ~10h) ainda não tinha
+  // rodado hoje (ou é domingo, quando ele nem tenta), a série inteira
+  // "hoje" simplesmente não existia - o gráfico de Evolução parava
+  // ONTEM, e handleHome (Home.gs) sobrescreve exatamente o ÚLTIMO PONTO
+  // com os valores AO VIVO de montarHome_() (ver comentário lá) - sem um
+  // ponto "hoje" pra sobrescrever, os cards (ao vivo) e o gráfico
+  // (parado ontem) inevitavelmente mostravam números diferentes.
+  // Agora ultimaData NUNCA fica antes de hoje - se o sync de hoje ainda
+  // não rodou, o loop abaixo ainda roda 1 iteração extra pra "hoje"
+  // usando o forward-fill normal (mesmo mecanismo já usado pra
+  // fim de semana/feriado, ver comentário na função inteira) + o fluxo
+  // de caixa de hoje (calcularFluxoCaixaDiario_ já lê as abas de
+  // Transações direto, sem depender do sync) - essa linha extra fica com
+  // os valores de ONTEM até handleHome sobrescrever com o ao vivo.
+  var chaveHojeUltimaData_ = chaveDiaISOInicio_(new Date());
+  var chaveUltimaDataSincronizada_ = todasAsChaves[todasAsChaves.length - 1];
+  var ultimaData = dataLocalDeChaveInicio_(
+    chaveHojeUltimaData_ > chaveUltimaDataSincronizada_ ? chaveHojeUltimaData_ : chaveUltimaDataSincronizada_
+  );
 
   var serie = [];
   var indiceCdi = 100;
@@ -438,6 +460,15 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var somaFiisAtual = 0;
   var somaUsaAtual = 0;
   var ultimoIbovespa = null;
+  // 21/09/2026 (ver comentário de ultimaData, acima nesta mesma função):
+  // forward-fill de Renda Fixa igual ao que Ibovespa/IFIX/S&P 500 já
+  // fazem logo abaixo - só existe pra cobrir o dia "hoje" ARTIFICIAL que
+  // ultimaData agora sempre inclui (sync de hoje ainda não rodou). Nos
+  // dias normais (sync já rodou, linha existe) não muda nada - o valor
+  // do próprio dia sempre pisa em cima do forward-fill na mesma
+  // iteração, exatamente como já era antes desta rodada.
+  var ultimoRendaFixaTotalConhecido_ = 0;
+  var ultimoRendaEmergencialConhecido_ = 0;
   var ultimoIfix = null;
   var ultimoSp500 = null;
 
@@ -513,8 +544,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
 
     // Renda Fixa: já vem calculada dia a dia (todo santo dia, sem lacuna),
     // então usa o valor do próprio dia direto, sem forward-fill.
-    var rendaFixaHoje = porDiaRendaFixaTotal[chaveAtual] || 0;
-    var rendaEmergencialHoje = porDiaRendaEmergencial[chaveAtual] || 0;
+    if (chaveAtual in porDiaRendaFixaTotal) ultimoRendaFixaTotalConhecido_ = porDiaRendaFixaTotal[chaveAtual];
+    if (chaveAtual in porDiaRendaEmergencial) ultimoRendaEmergencialConhecido_ = porDiaRendaEmergencial[chaveAtual];
+    var rendaFixaHoje = ultimoRendaFixaTotalConhecido_;
+    var rendaEmergencialHoje = ultimoRendaEmergencialConhecido_;
 
     // Fluxo de caixa líquido do dia (positivo = aporte/entrada, negativo =
     // retirada/saída) - mesma decomposição Total/Longo Prazo/Renda

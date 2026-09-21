@@ -645,3 +645,99 @@ function mesmoDiaRF_(a, b) {
 function arredondar2RF_(n) {
   return Math.round(n * 100) / 100;
 }
+
+/**
+ * Reparo pontual (rodar 1x manualmente pelo editor do Apps Script) pra
+ * corrigir o "V" estranho na curva de Renda Fixa em 23-24/03/2026,
+ * reportado pelo Tiago. Investigado a fundo (21/09/2026): o resgate de
+ * Tesouro Selic 2027 (R$6.714,13 brutos, confirmado no extrato da XP —
+ * protocolo 97601334, R$6.693,51 líquidos, DATA REAL 24/03/2026) está
+ * gravado em aux_historico-renda-fixa com a queda acontecendo na linha
+ * rotulada 23/03, 1 dia ANTES do dia real da transação.
+ *
+ * A causa exata é um descasamento sutil de fuso horário dentro do cursor
+ * dia-a-dia de executarBackfillRendaFixa_/executarBackfillRendaFixaIncremental_
+ * (mesma família do bug já corrigido em 13/09/2026 pro RÓTULO gravado,
+ * ver cabeçalho do arquivo) — mas dessa vez no CASAMENTO do evento com o
+ * cursor, não no rótulo em si. Tentei consertar a comparação na raiz
+ * (mesmoDiaRF_ casando contra a data já corrigida em vez do cursor cru)
+ * e reproduzi em simulação que isso quebra a APLICAÇÃO do 1º evento de
+ * QUALQUER posição (o cursor nunca recua o suficiente pra casar com o
+ * evento inicial) — mexer na função de cálculo em si tem mais risco do
+ * que vale a pena pra um problema isolado de 1 dia, numa posição já
+ * encerrada, sem verificação possível fora do runtime real do Apps
+ * Script (BCB/SELIC não dá pra simular aqui). Por isso o reparo aqui é
+ * SÓ NOS DADOS (2 células), não na lógica — sem risco de destabilizar o
+ * resto dos 6 anos de histórico que já está funcionando.
+ *
+ * O que faz: acha as 2 linhas de "Tesouro Selic 2027|XP" datadas 23/03 e
+ * 24/03/2026 em aux_historico-renda-fixa e corrige os valores pra:
+ *  - 23/03 (antes do resgate): mantém o saldo estável dos 3 dias
+ *    anteriores (20-22/03, todos R$22.238,68 nos dados reais — sem
+ *    crescimento nesse intervalo) — não um valor inventado, é o mesmo
+ *    valor real que já está gravado em 22/03.
+ *  - 24/03 (depois do resgate, data real confirmada pelo Tiago): saldo
+ *    de 23/03 (corrigido) MENOS os R$6.714,13 do resgate.
+ * Dias 25/03 em diante NÃO são recalculados (o crescimento diário já
+ * registrado neles fica como está) — o resíduo disso é pequeno (a base
+ * fica ~R$20, <0,15% da posição, mais baixa do que deveria por 1 dia de
+ * rendimento SELIC não recomputado) e não vale o risco de mexer em mais
+ * linhas pra corrigir um valor tão pequeno. Se o Tiago preferir precisão
+ * total, a função executarBackfillRendaFixa_ já existente (chamada por
+ * rodarBackfillRendaFixaDireto()) regrava a aba inteira do zero — mas
+ * isso é uma operação bem maior (refaz os 6 anos), fora do escopo deste
+ * reparo pontual.
+ *
+ * Só roda se achar EXATAMENTE essas 2 linhas com os valores exatos
+ * documentados acima — se a planilha já foi mexida (valores diferentes
+ * do esperado), para e avisa em vez de arriscar sobrescrever algo errado.
+ */
+function repararDataResgateSelic2027Marco2026_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(ABA_HISTORICO_RF);
+  if (!aba) throw new Error('Aba "' + ABA_HISTORICO_RF + '" não encontrada.');
+
+  var ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) throw new Error('aux_historico-renda-fixa está vazia.');
+  var dados = aba.getRange(2, 1, ultimaLinha - 1, 6).getValues(); // A..F
+
+  var linha22 = null, linha23 = null, linha24 = null;
+  for (var i = 0; i < dados.length; i++) {
+    var d = dados[i][0];
+    if (!(d instanceof Date) || dados[i][1] !== 'Tesouro Selic 2027' || dados[i][2] !== 'XP') continue;
+    if (d.getFullYear() === 2026 && d.getMonth() === 2) { // março = índice 2
+      if (d.getDate() === 22) linha22 = i;
+      if (d.getDate() === 23) linha23 = i;
+      if (d.getDate() === 24) linha24 = i;
+    }
+  }
+
+  if (linha22 === null || linha23 === null || linha24 === null) {
+    throw new Error('Não achei as 3 linhas esperadas (22, 23 e 24/03/2026) de "Tesouro Selic 2027|XP" — reparo não aplicado, confere manualmente.');
+  }
+
+  var saldo22 = dados[linha22][5];
+  var saldo23Atual = dados[linha23][5];
+  var saldo24Atual = dados[linha24][5];
+
+  // confere que os dados batem exatamente com o que foi investigado antes
+  // de mexer em qualquer coisa (tolerância de 1 centavo por arredondamento)
+  var VALOR_RESGATE = 6714.13;
+  var esperado23 = 15536.62, esperado24 = 15545.05, esperado22 = 22238.68;
+  var tol = 0.02;
+  if (Math.abs(saldo22 - esperado22) > tol || Math.abs(saldo23Atual - esperado23) > tol || Math.abs(saldo24Atual - esperado24) > tol) {
+    throw new Error('Os valores atuais (22/03=' + saldo22 + ', 23/03=' + saldo23Atual + ', 24/03=' + saldo24Atual +
+      ') não batem com o esperado (22238.68 / 15536.62 / 15545.05) — a planilha já mudou desde a investigação, reparo não aplicado por segurança.');
+  }
+
+  var novo23 = saldo22; // mantém o platô de 20-22/03 por mais 1 dia (antes do resgate)
+  var novo24 = arredondar2RF_(novo23 - VALOR_RESGATE);
+
+  aba.getRange(linha23 + 2, 6).setValue(novo23); // F = Valor (BRL)
+  aba.getRange(linha24 + 2, 6).setValue(novo24);
+
+  var detalhe = 'Reparo pontual Renda Fixa (Tesouro Selic 2027|XP, resgate de 24/03/2026 confirmado no extrato XP): ' +
+    '23/03 ' + saldo23Atual + ' -> ' + novo23 + ', 24/03 ' + saldo24Atual + ' -> ' + novo24 + '.';
+  gravarRegistroControle_('Sucesso', 'Manual', detalhe);
+  return { linha23: linha23 + 2, linha24: linha24 + 2, saldo23Antes: saldo23Atual, saldo23Depois: novo23, saldo24Antes: saldo24Atual, saldo24Depois: novo24 };
+}
