@@ -46,6 +46,8 @@ const VISOES_INICIO = [
   { visaoId: 'longoPrazo', sufixo: 'LongoPrazo', campo: 'longoPrazo', fluxo: 'fluxoCaixaLongoPrazo' },
   { visaoId: 'nacional', sufixo: 'Nacional', campo: 'nacional', fluxo: 'fluxoCaixaNacional' },
   { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial', campo: 'rendaEmergencial', fluxo: 'fluxoCaixaRendaEmergencial' },
+  // 23/09/2026 #9: gráfico "Ações Internacionais" da Início (mesmos campos de Carteiras > Ações EUA)
+  { visaoId: 'internacional', sufixo: 'Internacional', campo: 'acoesEua', fluxo: 'fluxoCaixaAcoesEua', valor: (p) => p.porClasse.acoesEua, benchmarks: ['sp500', 'ibovespa'] },
 ];
 
 let _dados = null;
@@ -315,7 +317,7 @@ function clicarPeriodo(doc, periodoId) {
   botao.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 }
 
-test('Início: hero ("R$ … no período") e legenda dos 4 painéis de Rentabilidade, nos 6 períodos, batem com o cálculo independente', async (t) => {
+test('Início: hero ("R$ … no período") e legenda dos 5 painéis de Rentabilidade (inclusive Ações Internacionais), nos 6 períodos, batem com o cálculo independente', async (t) => {
   if (pular(t)) return;
   const { home } = await dados();
   const { dom, doc } = await montarInicioNaTela(home);
@@ -328,8 +330,11 @@ test('Início: hero ("R$ … no período") e legenda dos 4 painéis de Rentabili
       const info = doc.getElementById(`rentabInfo${v.sufixo}`);
       const valorTela = lerBRL(info.querySelector('.rentab-card-value').textContent);
       const deltaTela = lerDeltaPeriodo(info.querySelector('.rentab-card-delta').textContent);
-      const esperadoValor = v.visaoId === 'total' ? home.patrimonio.total : home.patrimonio[v.visaoId];
-      const jan = janelaOraculo(s, periodoId, v.campo);
+      const esperadoValor = v.valor ? v.valor(home.patrimonio) : (v.visaoId === 'total' ? home.patrimonio.total : home.patrimonio[v.visaoId]);
+      // se a visão nasce dentro da janela (Ações Internacionais em "3 anos"),
+      // portfólio e benchmark começam juntos no nascimento
+      const jan0 = janelaOraculo(s, periodoId, v.campo);
+      const jan = jan0.slice(Math.max(0, jan0.findIndex((x) => num(x[v.campo]) && x[v.campo] !== 0)));
       const o = twrOraculo(jan, v.campo, v.fluxo, s);
       tabela.push(`${v.visaoId}/${periodoId}: tela ${deltaTela && deltaTela.pct}% R$ ${deltaTela && deltaTela.ganho} | oráculo ${r2(o.pct)}% R$ ${r2(o.ganho)}`);
       if (Math.abs(valorTela - r2(esperadoValor)) > 0.011) erros.push(`${v.visaoId}/${periodoId}: valor na tela ${valorTela} != ao vivo ${r2(esperadoValor)}`);
@@ -338,7 +343,7 @@ test('Início: hero ("R$ … no período") e legenda dos 4 painéis de Rentabili
       if (Math.abs(deltaTela.ganho - r2(o.ganho)) > 0.011) erros.push(`${v.visaoId}/${periodoId}: R$ na tela ${deltaTela.ganho} != oráculo ${r2(o.ganho)}`);
 
       // legenda: "Benchmark ±x%" = Portfólio − benchmark no mesmo período
-      const benchmarks = v.visaoId === 'rendaEmergencial' ? ['indiceCdi', 'indiceSelic'] : ['ibovespa', 'indiceCdi'];
+      const benchmarks = v.benchmarks || (v.visaoId === 'rendaEmergencial' ? ['indiceCdi', 'indiceSelic'] : ['ibovespa', 'indiceCdi']);
       const deltasLegenda = [...doc.querySelectorAll(`#rentabLegenda${v.sufixo} .li-delta`)].map((el) => lerPct(el.textContent));
       benchmarks.forEach((campoB, i) => {
         const jb = jan.filter((x) => num(x[campoB]));
@@ -726,7 +731,7 @@ test('Carteiras > Ações, FIIs, Ações EUA e Renda Fixa (3 gráficos): legenda
     await mod[fn]('token-fake', { doc, [impl]: async () => ({ ok: true, carteira }), getHomeImpl: async () => r.home });
     for (const periodoId of PERIODOS) {
       const aba = doc.querySelector(`#${idTabs} .filter-tab[data-periodo="${periodoId}"]`);
-      if (!aba) continue; // as subpáginas não têm "Mês"
+      if (!aba) { erros.push(`${idTabs}: sem a aba de período "${periodoId}"`); continue; } // 23/09/2026 #8: todas as telas têm os 6 períodos, inclusive "Mês atual"
       aba.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       for (const [visaoId, idLegenda] of paineis) {
         const [campo, fluxo] = campoDe[visaoId];
@@ -747,5 +752,40 @@ test('Carteiras > Ações, FIIs, Ações EUA e Renda Fixa (3 gráficos): legenda
     dom.window.close();
   }
   t.diagnostic(tabela.join('\n'));
+  assert.deepEqual(erros, []);
+});
+
+// ---------------------------------------------------------------------------
+// 15) Início "Ações Internacionais" x Carteiras > Ações EUA
+// ---------------------------------------------------------------------------
+test('Início: gráfico "Ações Internacionais" bate com Carteiras > Ações EUA em todos os períodos (mesma % e mesma diferença pro S&P 500 e pro Ibovespa) e o valor do card é o mesmo do topo de Ações EUA em reais', async (t) => {
+  if (pular(t)) return;
+  const r = await dados();
+  const { dom, doc } = await montarInicioNaTela(r.home);
+  const mod = await imp('assets/js/pages/carteiras-acoes-eua.js');
+  const c = domCarteiras();
+  await mod.montarPaginaCarteirasAcoesEua('token-fake', { doc: c.doc, getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: r.carteirasAcoesEua }), getHomeImpl: async () => r.home });
+  const inicio = await imp('assets/js/pages/inicio.js');
+  const erros = [];
+  const legendaPorBenchmark = (d, id) => Object.fromEntries([...d.querySelectorAll(`#${id} .li`)]
+    .filter((li) => li.querySelector('.li-delta'))
+    .map((li) => [li.textContent.replace(li.querySelector('.li-delta').textContent, '').trim(), lerPct(li.querySelector('.li-delta').textContent)]));
+  for (const periodoId of PERIODOS) {
+    clicarPeriodo(doc, periodoId);
+    c.doc.querySelector(`#acoesEuaPeriodoTabs .filter-tab[data-periodo="${periodoId}"]`).dispatchEvent(new c.dom.window.Event('click', { bubbles: true }));
+    const home = legendaPorBenchmark(doc, 'rentabLegendaInternacional');
+    const cart = legendaPorBenchmark(c.doc, 'acoesEuaRentabLegenda');
+    for (const nome of ['S&P 500', 'Ibovespa']) {
+      if (home[nome] == null || cart[nome] == null || Math.abs(home[nome] - cart[nome]) > 0.001) erros.push(`${periodoId} ${nome}: Início ${home[nome]} x Carteiras ${cart[nome]}`);
+    }
+    const a = inicio.calcularResumoRentabilidade(r.home.patrimonio, r.home.historico, { visaoId: 'internacional', periodoId });
+    const b = inicio.calcularResumoRentabilidade(r.home.patrimonio, r.home.historico, { visaoId: 'carteiraAcoesEua', periodoId });
+    if (Math.abs(a.percentual - b.percentual) > 1e-9 || Math.abs(a.ganhoReais - b.ganhoReais) > 1e-9) erros.push(`${periodoId}: Início ${a.percentual}% / ${a.ganhoReais} x Carteiras ${b.percentual}% / ${b.ganhoReais}`);
+    t.diagnostic(`${periodoId}: ${r2(a.percentual)}% · R$ ${r2(a.ganhoReais)} · legenda ${JSON.stringify(home)}`);
+  }
+  const valorCard = lerBRL(doc.getElementById('rentabInfoInternacional').querySelector('.rentab-card-value').textContent);
+  const iEua = lerBRL(c.doc.querySelector('#acoesEuaConteudo .cc-resumo .info-alvo').dataset.tooltip);
+  if (Math.abs(valorCard - iEua) > 0.011) erros.push(`valor do card ${valorCard} x "i" do topo de Ações EUA ${iEua}`);
+  dom.window.close(); c.dom.window.close();
   assert.deepEqual(erros, []);
 });

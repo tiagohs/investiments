@@ -129,6 +129,7 @@
 
 import { getHome, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
+import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
@@ -306,12 +307,17 @@ const VISOES = {
   longoPrazo: { chave: 'longoPrazo', label: 'Longo Prazo' },
   nacional: { chave: 'nacional', label: 'Patrimônio Nacional' },
   rendaEmergencial: { chave: 'rendaEmergencial', label: 'Renda Emergencial' },
+  // 23/09/2026 #9 (pedido do Tiago: gráfico "Ações Internacionais" na
+  // Rentabilidade da Início) - o valor ao vivo mora em porClasse (Home.gs),
+  // o MESMO número do topo de Carteiras > Ações EUA em reais.
+  internacional: { valor: (p) => (p && p.porClasse ? p.porClasse.acoesEua : undefined), label: 'Ações Internacionais' },
 };
 
 /** {valor, label} pra visão pedida - cai em "total" se o id não for reconhecido. */
 export function resolverVisao(patrimonio, visaoId) {
   const visao = VISOES[visaoId] || VISOES.total;
-  return { valor: patrimonio ? patrimonio[visao.chave] : undefined, label: visao.label };
+  const valor = typeof visao.valor === 'function' ? visao.valor(patrimonio) : (patrimonio ? patrimonio[visao.chave] : undefined);
+  return { valor, label: visao.label };
 }
 
 const ORDEM_RESUMO = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'];
@@ -782,6 +788,7 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
 // motor inteiro numa cópia dentro de carteiras-classe-comum.js.
 export const CAMPO_PRINCIPAL_POR_VISAO = {
   total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial',
+  internacional: 'acoesEua', // 23/09/2026 #9: mesmo campo de carteiraAcoesEua (Carteiras) - os 2 gráficos batem por construção
   carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'acoesEua',
   carteiraRendaFixaTotal: 'rendaFixaTotal', carteiraRendaFixaLongoPrazo: 'rendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'rendaEmergencial', // mesmo campo da Início - RF-emergencial é o mesmo número
@@ -796,6 +803,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   longoPrazo: 'fluxoCaixaLongoPrazo',
   nacional: 'fluxoCaixaNacional',
   rendaEmergencial: 'fluxoCaixaRendaEmergencial',
+  internacional: 'fluxoCaixaAcoesEua',
   carteiraAcoes: 'fluxoCaixaAcoes',
   carteiraFiis: 'fluxoCaixaFiis',
   carteiraAcoesEua: 'fluxoCaixaAcoesEua',
@@ -817,6 +825,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   longoPrazo: 'fluxoAplicadoLongoPrazo',
   nacional: 'fluxoAplicadoNacional',
   rendaEmergencial: 'fluxoAplicadoRendaEmergencial',
+  internacional: 'fluxoAplicadoAcoesEua',
   carteiraAcoes: 'fluxoAplicadoAcoes',
   carteiraFiis: 'fluxoAplicadoFiis',
   carteiraAcoesEua: 'fluxoAplicadoAcoesEua',
@@ -844,6 +853,14 @@ const BENCHMARKS_POR_VISAO = {
   rendaEmergencial: [
     { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
     { campo: 'indiceSelic', label: 'Selic', cor: '--fiis', dash: '1.5 4.5' },
+  ],
+  // 23/09/2026 #9: Ações Internacionais da Início - S&P 500 (a bolsa dela)
+  // tracejado e Ibovespa pontilhado, mesmo estilo de traço dos outros 3
+  // painéis. Em reais, com o câmbio de cada dia (a carteira sente o dólar,
+  // o S&P 500 aqui não).
+  internacional: [
+    { campo: 'sp500', label: 'S&P 500', cor: '--usa', dash: '6 4' },
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
   ],
   // 19/09/2026 (ver comentário de CAMPO_PRINCIPAL_POR_VISAO acima) - cores
   // e estilo de traço conferidos pixel-a-pixel no mockup real
@@ -890,7 +907,7 @@ const BENCHMARKS_POR_VISAO = {
 // página) - conferido pixel-a-pixel no mockup real. default 'total'
 // preserva o valor hardcoded que já existia antes desta rodada.
 export const COR_PRINCIPAL_POR_VISAO = {
-  total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes',
+  total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes', internacional: '--acoes',
   carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa',
   carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
 };
@@ -1320,6 +1337,7 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
   longoPrazo: 'Patrimônio de Longo Prazo',
   nacional: 'Patrimônio Nacional',
   rendaEmergencial: 'Renda Emergencial',
+  internacional: 'Ações Internacionais',
   carteiraAcoes: 'Carteira de Ações',
   carteiraFiis: 'Carteira de FIIs',
   carteiraAcoesEua: 'Carteira de Ações EUA',
@@ -1616,7 +1634,7 @@ function refDoAtivo_(ativo) {
  * fixa) nem viés - mostra o saldo atualizado no lugar do preço, e o
  * indexador/vencimento no lugar do desconto sobre P/VP ou P/L.
  */
-export function criarAtivoCard(doc, ativo) {
+export function criarAtivoCard(doc, ativo, { favorito = false } = {}) {
   const card = doc.createElement('a');
   card.className = `ativo-card ${ativo.classe}`;
   card.href = `ativo.html?ref=${encodeURIComponent(refDoAtivo_(ativo))}&classe=${encodeURIComponent(ativo.classe)}`;
@@ -1660,6 +1678,7 @@ export function criarAtivoCard(doc, ativo) {
     ${deltaHtml}
     ${detalheHtml}
     <div class="ativo-card-acoes">
+      ${htmlBotaoFavorito(ativo, favorito)}
       <span class="ativo-grafico-icon" aria-label="Ver gráfico de preço">${ICONE_GRAFICO_ATIVO_SVG}</span>
       <span class="ativo-info-icon" aria-label="Informações rápidas">i</span>
     </div>
@@ -1698,7 +1717,11 @@ export function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos')
     return;
   }
 
-  lista.forEach((ativo) => container.appendChild(criarAtivoCard(doc, ativo)));
+  // 23/09/2026: estrela acesa pros favoritos (container._favoritosIds vem de
+  // montarFavoritos, inicio-favoritos.js - vale também quando a aba de
+  // classe troca e a grade é redesenhada)
+  const favs = container._favoritosIds;
+  lista.forEach((ativo) => container.appendChild(criarAtivoCard(doc, ativo, { favorito: !!(favs && favs.has(idFavoritoDoAtivo(ativo))) })));
 }
 
 /** Liga as abas de categoria (#filtroAtivosTabs) à re-renderização da grade - ativos já veio inteiro na primeira chamada, nunca busca de novo. */
@@ -1794,6 +1817,11 @@ export function wireTooltipAtivos(doc, container) {
    * quebrar.
    */
   function aoMoverOuTocar_(ev) {
+    // 23/09/2026: grade de favoritos em modo edição (arrastando) - sem tooltip
+    if (container.classList && container.classList.contains('editando')) {
+      esconder_();
+      return;
+    }
     if (ev.pointerType === 'touch' || ev.pointerType === 'pen') {
       if (ev.type !== 'pointerdown') return;
       const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-info-icon') : null;
@@ -2214,7 +2242,7 @@ export function renderAvisos(container, avisos) {
  * ver shell.js). getHomeImpl é injetável pra teste (sem precisar de
  * fetch/token reais).
  */
-export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome } = {}) {
+export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome, salvarFavoritosImpl = null, opcoesFavoritos = null } = {}) {
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
@@ -2249,6 +2277,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       { visaoId: 'total', sufixo: 'Total' },
       { visaoId: 'longoPrazo', sufixo: 'LongoPrazo' },
       { visaoId: 'nacional', sufixo: 'Nacional' },
+      { visaoId: 'internacional', sufixo: 'Internacional' },
       { visaoId: 'rendaEmergencial', sufixo: 'RendaEmergencial' },
     ];
     wireGraficoRentabilidade(doc, {
@@ -2268,6 +2297,26 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
     wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
     wireGraficoAtivo(doc, doc.getElementById('meusAtivosGrid'), { token });
+
+    // 23/09/2026: Favoritos (inicio-favoritos.js) - área logo abaixo de
+    // "Índices & câmbio"; a lista salva vem junto na resposta da Início.
+    const favoritosGrid = doc.getElementById('favoritosGrid');
+    montarFavoritos(doc, {
+      secao: doc.getElementById('favoritosSecao'),
+      grid: favoritosGrid,
+      botaoEditar: doc.getElementById('favoritosEditar'),
+      dica: doc.getElementById('favoritosDica'),
+      status: doc.getElementById('favoritosStatus'),
+      meusAtivosGrid: doc.getElementById('meusAtivosGrid'),
+      ativos: resposta.ativos || [],
+      favoritos: Array.isArray(resposta.favoritos) ? resposta.favoritos : [],
+      token,
+      criarCard: criarAtivoCard,
+      ...(salvarFavoritosImpl ? { salvarImpl: salvarFavoritosImpl } : {}),
+      ...(opcoesFavoritos || {}), // só teste (ex.: acharCardNoPonto - JSDOM não tem layout)
+    });
+    wireTooltipAtivos(doc, favoritosGrid);
+    wireGraficoAtivo(doc, favoritosGrid, { token });
   }
 
   await carregarERedesenhar();

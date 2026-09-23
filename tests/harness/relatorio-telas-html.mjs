@@ -11,6 +11,7 @@ const NOMES_PERIODO = Object.fromEntries(PER);
 const BN = { ibovespa: 'Ibovespa', indiceCdi: 'CDI', indiceSelic: 'Selic', ifix: 'IFIX', sp500: 'S&P 500', indiceIpca: 'IPCA' };
 const NOMES_VISAO = {
   total: 'Patrimônio total', longoPrazo: 'Longo Prazo', nacional: 'Patrimônio Nacional', rendaEmergencial: 'Renda Emergencial',
+  internacional: 'Ações Internacionais',
   carteiraAcoes: 'Ações', carteiraFiis: 'FIIs', carteiraAcoesEua: 'Ações EUA', carteiraRendaFixaTotal: 'Renda Fixa · total',
   carteiraRendaFixaLongoPrazo: 'Renda Fixa · longo prazo', carteiraRendaFixaEmergencial: 'Renda Fixa · reserva de emergência',
 };
@@ -132,6 +133,7 @@ sup{color:var(--muted)}
   // ---------- explicações automáticas ----------
   o.push('<h2>O que parece estranho, mas está explicado</h2><ul>');
   for (const [v, pers] of Object.entries(D.visoes)) {
+    if (v === 'internacional') continue; // mesmo número de Ações EUA - explicado lá
     for (const [per, x] of Object.entries(pers)) {
       if (!x.metades) continue;
       const [h1, h2] = x.metades;
@@ -192,7 +194,7 @@ sup{color:var(--muted)}
   o.push('</table></div>');
   o.push(`<p class="nota">"ontem era" = fechamento de ${dbr(D.ontemOraculo && D.ontemOraculo.data)} no gráfico + o ajuste de marcação da Renda Fixa de hoje (${brl(D.ajusteRf)}; reserva ${brl(D.ajusteRe)}), pra comparar na mesma régua. O ajuste é a diferença entre o valor manual da Renda Fixa e a projeção do histórico; entra como ajuste, não como rendimento.</p>`);
   o.push('<p class="nota"><sup>a</sup> A janela começa no dia em que a visão nasceu: a base é 0 na véspera e o aporte do dia é o custo (o 1º dia também rende).</p>');
-  for (const v of ['total', 'longoPrazo', 'nacional', 'rendaEmergencial']) {
+  for (const v of ['total', 'longoPrazo', 'nacional', 'internacional', 'rendaEmergencial']) {
     o.push(`<h3>Rentabilidade · ${NOMES_VISAO[v]}</h3><p class="nota">Hero = ${brl(D.vivo[v])} + "R$ … % no período", conferido na tela nos 6 períodos.</p>${tabelaVisao(v)}`);
   }
 
@@ -209,7 +211,7 @@ sup{color:var(--muted)}
     o.push(`<tr><td>${esc(c.nome)}</td><td class="num">${brl(c.valor)}</td><td class="num">${brl(c.aplicado)}${antes(`Card ${c.nome} · Valor aplicado`, c.aplicado, brl)}</td><td class="num ${cls(c.lucro)}">${brl(c.lucro, true)}${antes(`Card ${c.nome} · lucro`, c.lucro, (y) => brl(y, true))}</td><td class="num ${cls(c.pct)}">${pct(c.pct)}</td><td class="num">${brl(D.aplicado[CAMPO_CARD[c.nome]])}</td></tr>`);
   }
   o.push(`<tr><td><b>Soma</b></td><td class="num">${brl(somaV)}</td><td class="num"><b>${brl(somaA)}</b></td><td colspan="3" class="nota">= Valor aplicado do hero</td></tr></table></div>`);
-  o.push(`<h3>Rentabilidade e Evolução (Patrimônio total)</h3><p class="nota">Mesmos números do painel Patrimônio total da Início. Esta tela não tem a aba "Mês".</p>${tabelaVisao('total', PER.slice(1))}`);
+  o.push(`<h3>Rentabilidade e Evolução (Patrimônio total)</h3><p class="nota">Mesmos números do painel Patrimônio total da Início.</p>${tabelaVisao('total')}`);
 
   // ---------- subpáginas ----------
   o.push('<h2>Carteiras · subpáginas</h2><h3>Topo de cada página</h3><div class="tw"><table><tr><th>Página</th><th>O que a tela mostra</th><th>Desde o início (gráfico)</th><th>Decomposição</th></tr>');
@@ -230,9 +232,9 @@ sup{color:var(--muted)}
   }
   o.push('</table></div>');
   for (const v of ['carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua', 'carteiraRendaFixaTotal', 'carteiraRendaFixaLongoPrazo', 'carteiraRendaFixaEmergencial']) {
-    o.push(`<h3>${NOMES_VISAO[v]}${v === 'carteiraAcoesEua' ? ' (em reais)' : ''}</h3>${tabelaVisao(v, PER.slice(1))}`);
+    o.push(`<h3>${NOMES_VISAO[v]}${v === 'carteiraAcoesEua' ? ' (em reais)' : ''}</h3>${tabelaVisao(v)}`);
   }
-  o.push('<p class="nota">As subpáginas não têm a aba "Mês" e não mostram o ganho em R$ por período, só a curva e a legenda; o R$ está aqui pra conferir as somas logo abaixo.</p>');
+  o.push('<p class="nota">As subpáginas não mostram o ganho em R$ por período, só a curva e a legenda; o R$ está aqui pra conferir as somas logo abaixo.</p>');
 
   // ---------- coerência ----------
   o.push('<h2>Coerência entre telas</h2><p>Ganho em R$ de cada período, na mesma janela do Total.</p><div class="tw"><table><tr><th>Período</th><th>Total</th><th>= Longo Prazo + Reserva</th><th>Longo Prazo = Nacional + EUA</th><th>Nacional = Ações + FIIs + RF LP</th></tr>');

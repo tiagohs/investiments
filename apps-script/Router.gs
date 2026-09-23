@@ -108,6 +108,9 @@ function doPost(e) {
   if (action === 'salvarSplitInterno') {
     return handleSalvarSplitInterno(e);
   }
+  if (action === 'salvarFavoritos') {
+    return handleSalvarFavoritos(e); // Favoritos.gs (23/09/2026)
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

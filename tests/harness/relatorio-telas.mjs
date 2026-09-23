@@ -34,10 +34,13 @@ const REF_PATH = path.join(__dirname, 'referencias-externas.local.json');
 const imp = (rel) => import(pathToFileURL(path.join(ROOT, rel)).href);
 
 export const PERIODOS = ['mes', '30d', '6m', '12m', '3a', 'tudo'];
-export const VISOES_INICIO = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'];
+export const VISOES_INICIO = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial']; // cards do resumo
+// painéis de Rentabilidade da Início, na ordem da tela (23/09/2026 #9: + Ações Internacionais)
+export const VISOES_RENTAB_INICIO = ['total', 'longoPrazo', 'nacional', 'internacional', 'rendaEmergencial'];
 export const VISOES_CLASSE = ['carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua', 'carteiraRendaFixaTotal', 'carteiraRendaFixaLongoPrazo', 'carteiraRendaFixaEmergencial'];
 export const NOMES_VISAO = {
   total: 'Patrimônio total', longoPrazo: 'Longo Prazo', nacional: 'Patrimônio Nacional', rendaEmergencial: 'Renda Emergencial',
+  internacional: 'Ações Internacionais (Início)',
   carteiraAcoes: 'Ações', carteiraFiis: 'FIIs', carteiraAcoesEua: 'Ações EUA', carteiraRendaFixaTotal: 'Renda Fixa · total',
   carteiraRendaFixaLongoPrazo: 'Renda Fixa · longo prazo', carteiraRendaFixaEmergencial: 'Renda Fixa · reserva de emergência',
 };
@@ -47,6 +50,7 @@ export const NOMES_PERIODO = { mes: 'Mês', '30d': '30 dias', '6m': '6 meses', '
 // checagem da legenda acusa.
 export const BENCHMARKS = {
   total: ['ibovespa', 'indiceCdi'], longoPrazo: ['ibovespa', 'indiceCdi'], nacional: ['ibovespa', 'indiceCdi'], rendaEmergencial: ['indiceCdi', 'indiceSelic'],
+  internacional: ['sp500', 'ibovespa'],
   carteiraAcoes: ['ibovespa', 'indiceCdi'], carteiraFiis: ['ifix', 'indiceCdi'], carteiraAcoesEua: ['ibovespa', 'sp500'],
   carteiraRendaFixaTotal: ['indiceCdi', 'indiceIpca'], carteiraRendaFixaLongoPrazo: ['indiceCdi', 'indiceIpca'], carteiraRendaFixaEmergencial: ['indiceCdi', 'indiceIpca'],
 };
@@ -55,6 +59,7 @@ const CAMPOS = {
   longoPrazo: ['longoPrazo', 'fluxoCaixaLongoPrazo', 'fluxoAplicadoLongoPrazo'],
   nacional: ['nacional', 'fluxoCaixaNacional', 'fluxoAplicadoNacional'],
   rendaEmergencial: ['rendaEmergencial', 'fluxoCaixaRendaEmergencial', 'fluxoAplicadoRendaEmergencial'],
+  internacional: ['acoesEua', 'fluxoCaixaAcoesEua', 'fluxoAplicadoAcoesEua'],
   carteiraAcoes: ['acoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes'],
   carteiraFiis: ['fiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis'],
   carteiraAcoesEua: ['acoesEua', 'fluxoCaixaAcoesEua', 'fluxoAplicadoAcoesEua'],
@@ -62,7 +67,7 @@ const CAMPOS = {
   carteiraRendaFixaLongoPrazo: ['rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo', 'fluxoAplicadoRendaFixaLongoPrazo'],
   carteiraRendaFixaEmergencial: ['rendaEmergencial', 'fluxoCaixaRendaEmergencial', 'fluxoAplicadoRendaEmergencial'],
 };
-const TODAS = [...VISOES_INICIO, ...VISOES_CLASSE];
+const TODAS = [...VISOES_RENTAB_INICIO, ...VISOES_CLASSE];
 
 // ---------------------------------------------------------------------------
 // utilidades
@@ -151,6 +156,7 @@ export async function coletarDadosTelas({ fixturesPath = FIXTURES_PATH } = {}) {
   const home = r.home, s = home.historico, p = home.patrimonio, u = s[s.length - 1];
   const vivo = {
     total: p.total, longoPrazo: p.longoPrazo, nacional: p.nacional, rendaEmergencial: p.rendaEmergencial,
+    internacional: p.porClasse.acoesEua,
     carteiraAcoes: p.porClasse.acoes, carteiraFiis: p.porClasse.fiis, carteiraAcoesEua: p.porClasse.acoesEua,
     carteiraRendaFixaTotal: p.porClasse.rendaFixa, carteiraRendaFixaLongoPrazo: p.porClasse.rendaFixa - p.rendaEmergencial,
     carteiraRendaFixaEmergencial: p.rendaEmergencial,
@@ -379,7 +385,7 @@ async function lerTelas(r, I) {
     for (const per of PERIODOS) {
       clicar(dom, doc, `#periodoTabs .filter-tab[data-periodo="${per}"]`);
       telas.inicio.rentab[per] = {};
-      for (const [v, suf] of [['total', 'Total'], ['longoPrazo', 'LongoPrazo'], ['nacional', 'Nacional'], ['rendaEmergencial', 'RendaEmergencial']]) {
+      for (const [v, suf] of [['total', 'Total'], ['longoPrazo', 'LongoPrazo'], ['nacional', 'Nacional'], ['internacional', 'Internacional'], ['rendaEmergencial', 'RendaEmergencial']]) {
         const info = doc.getElementById('rentabInfo' + suf);
         const d = lerDelta(info.querySelector('.rentab-card-delta').textContent);
         telas.inicio.rentab[per][v] = { valor: lerBRL(info.querySelector('.rentab-card-value').textContent), ganho: d ? d.ganho : null, pct: d ? d.pct : null, legenda: legenda(doc, 'rentabLegenda' + suf) };
@@ -528,15 +534,28 @@ function checar(D, s, p, u) {
     add('Início', 'fatias por classe dentro de cada card somam o valor do card', e3);
     const e4 = [], e5 = [];
     for (const per of PERIODOS) {
-      for (const v of VISOES_INICIO) {
+      for (const v of VISOES_RENTAB_INICIO) {
         const tela = t.rentab[per][v], o = D.visoes[v][per];
         if (!perto(tela.valor, r2(D.vivo[v]))) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: valor ${tela.valor}`);
         if (!perto(tela.pct, o.pct) || !perto(tela.ganho, o.ganho)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: tela ${tela.ganho} / ${tela.pct}% x oráculo ${o.ganho} / ${o.pct}%`);
         o.bench.forEach((b, i) => { if (b.diff != null && !perto(tela.legenda[i] && tela.legenda[i].delta, b.diff, 0.02)) e5.push(`${N[v]}/${NOMES_PERIODO[per]} ${b.campo}: legenda ${tela.legenda[i] && tela.legenda[i].delta} x ${b.diff}`); });
       }
     }
-    add('Início', 'hero de Rentabilidade ("R$ … % no período") dos 4 painéis × 6 períodos = cálculo independente', e4);
-    add('Início', 'legenda "Benchmark ±x%" = Portfólio − benchmark no mesmo intervalo (4 painéis × 6 períodos)', e5);
+    add('Início', 'hero de Rentabilidade ("R$ … % no período") dos 5 painéis × 6 períodos = cálculo independente', e4);
+    add('Início', 'legenda "Benchmark ±x%" = Portfólio − benchmark no mesmo intervalo (5 painéis × 6 períodos)', e5);
+    // 23/09/2026 #9: o painel "Ações Internacionais" da Início é o MESMO
+    // número de Carteiras > Ações EUA (em reais), período a período
+    const e6 = [];
+    for (const per of PERIODOS) {
+      const a = D.visoes.internacional[per], b = D.visoes.carteiraAcoesEua[per];
+      if (!a || !b || a.pct !== b.pct || a.ganho !== b.ganho) e6.push(`${NOMES_PERIODO[per]}: Início ${a && a.pct}% / ${a && a.ganho} x Carteiras ${b && b.pct}% / ${b && b.ganho}`);
+      const legIni = Object.fromEntries(BENCHMARKS.internacional.map((c, i) => [c, t.rentab[per].internacional.legenda[i] && t.rentab[per].internacional.legenda[i].delta]));
+      const legCart = D.telas.sub.acoesEua.legendas[per] && D.telas.sub.acoesEua.legendas[per].carteiraAcoesEua;
+      const legC = legCart ? Object.fromEntries(BENCHMARKS.carteiraAcoesEua.map((c, i) => [c, legCart[i] && legCart[i].delta])) : {};
+      for (const c of ['sp500', 'ibovespa']) if (legIni[c] == null || legIni[c] !== legC[c]) e6.push(`${NOMES_PERIODO[per]} ${c}: legenda Início ${legIni[c]} x Carteiras ${legC[c]}`);
+    }
+    if (!perto(t.rentab.tudo.internacional.valor, r2(D.vivo.carteiraAcoesEua))) e6.push(`valor do card ${t.rentab.tudo.internacional.valor} x ao vivo ${r2(D.vivo.carteiraAcoesEua)}`);
+    add('Início', '"Ações Internacionais" = Carteiras > Ações EUA em todos os períodos (mesma %, mesmo R$, mesma diferença pro S&P 500 e pro Ibovespa)', e6);
   }
 
   // --- Coerência ---
@@ -591,7 +610,8 @@ function checar(D, s, p, u) {
       if (!perto(tela.pct, x.pct) || !perto(tela.ganho, x.ganho)) e2.push(`${NOMES_PERIODO[per]}: tela ${tela.ganho} / ${tela.pct}%`);
       x.bench.forEach((b, i) => { if (b.diff != null && !perto(tela.legenda[i] && tela.legenda[i].delta, b.diff, 0.02)) e2.push(`${NOMES_PERIODO[per]}: legenda ${b.campo}`); });
     }
-    add('Carteiras · Visão geral', 'Rentabilidade de cada período e legenda = cálculo independente', e2);
+    for (const per of PERIODOS) if (!t.porPeriodo[per]) e2.push(`sem a aba de período ${NOMES_PERIODO[per]}`);
+    add('Carteiras · Visão geral', 'as 6 abas de período (Mês atual a Desde o início), com Rentabilidade e legenda = cálculo independente', e2);
     const MAP = { 'Ações': 'carteiraAcoes', 'FIIs': 'carteiraFiis', 'Ações Internacionais': 'carteiraAcoesEua', 'Renda Fixa': 'carteiraRendaFixaTotal' };
     const e3 = [];
     let soma = 0;
@@ -639,7 +659,8 @@ function checar(D, s, p, u) {
         }
       }
     }
-    add('Carteiras · subpáginas', 'legenda de todos os gráficos de Rentabilidade = Portfólio − benchmark no mesmo intervalo (começando no nascimento da carteira)', e2);
+    for (const k of Object.keys(PAINEIS)) for (const per of PERIODOS) if (!sub[k].legendas[per]) e2.push(`${k}: sem a aba de período ${NOMES_PERIODO[per]}`);
+    add('Carteiras · subpáginas', 'as 6 abas de período (Mês atual a Desde o início) e a legenda de todos os gráficos de Rentabilidade = Portfólio − benchmark no mesmo intervalo (começando no nascimento da carteira)', e2);
     const e3 = [];
     for (const [k, v, campoAba] of [['acoes', 'carteiraAcoes', 'acoes'], ['fiis', 'carteiraFiis', 'fiis']]) {
       if (!perto(sub[k].proventos, r2(D.proventosAba[campoAba]))) e3.push(`${k}: "Proventos recebidos" ${sub[k].proventos} x aba Proventos ${r2(D.proventosAba[campoAba])}`);

@@ -357,6 +357,11 @@ export async function salvarObjetivosCarteira(token, bloco, percentuais) {
  * @param {'acoes'|'fiis'} bloco
  * @param {number[]} percentuais - frações 0-1, uma por tipo do bloco, devem somar ~1.
  */
+/** 23/09/2026: lista INTEIRA de favoritos da Início, na ordem (Favoritos.gs). */
+export async function salvarFavoritos(token, ids) {
+  return request('POST', 'salvarFavoritos', token, { ids: JSON.stringify(ids) });
+}
+
 export async function salvarSplitInterno(token, bloco, percentuais) {
   return request('POST', 'salvarSplitInterno', token, { bloco, percentuais: percentuais.join(',') });
 }

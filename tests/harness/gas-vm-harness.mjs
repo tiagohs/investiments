@@ -173,7 +173,24 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
 
   function makeSheet(nome) {
     const dados = fixtures[nome];
-    if (!dados) return { getLastRow: () => 0, getRange: () => { throw new Error('fixture ausente pra aba: ' + nome); } };
+    if (!dados) {
+      // aba que não existe nas fixtures: ler continua dando erro (pra não
+      // mascarar fixture faltando), mas ESCREVER cria a aba em memória -
+      // igual ss.insertSheet + setValues no Apps Script (23/09/2026:
+      // Favoritos.gs cria "Auxiliar_favoritos" no 1º salvamento).
+      return {
+        getLastRow: () => (fixtures[nome] ? fixtures[nome].lastRow : 0),
+        getRange(...args) {
+          if (fixtures[nome]) return makeSheet(nome).getRange(...args);
+          return {
+            getValues() { throw new Error('fixture ausente pra aba: ' + nome); },
+            getValue() { throw new Error('fixture ausente pra aba: ' + nome); },
+            clearContent() {},
+            setValues(valores) { fixtures[nome] = { lastRow: 0, linhas: [] }; makeSheet(nome).getRange(...args).setValues(valores); },
+          };
+        },
+      };
+    }
     return {
       getLastRow: () => dados.lastRow,
       getRange(a, b, c, d) {
@@ -217,7 +234,10 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       },
     };
   }
-  const ss = { getSheetByName: (nome) => makeSheet(nome) };
+  const ss = {
+    getSheetByName: (nome) => makeSheet(nome),
+    insertSheet: (nome) => { if (!fixtures[nome]) fixtures[nome] = { lastRow: 0, linhas: [] }; return makeSheet(nome); },
+  };
 
   Object.assign(sandbox, {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, getActive: () => ss },

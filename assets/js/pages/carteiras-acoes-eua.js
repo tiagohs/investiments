@@ -132,6 +132,7 @@ function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
     <div class="filter-tabs" id="acoesEuaPeriodoTabs" style="margin-bottom:12px">
+      <button class="filter-tab" type="button" data-periodo="mes">Mês atual</button>
       <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
       <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
       <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>

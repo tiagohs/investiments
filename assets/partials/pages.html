@@ -54,6 +54,20 @@
       </div>
       <div class="widget-grid" id="indicesCambioGrid"></div>
 
+      <!-- 23/09/2026: Favoritos (assets/js/pages/inicio-favoritos.js) - cópia
+           dos cards de "Meus ativos" marcados com a estrela, na ordem salva
+           (aba Auxiliar_favoritos da planilha). Reordenar: lápis -> arrastar
+           -> Concluir. -->
+      <section class="favoritos-secao" id="favoritosSecao" hidden>
+        <div class="area-header">
+          <h2>Favoritos</h2>
+          <button type="button" class="favoritos-editar" id="favoritosEditar" aria-pressed="false" hidden></button>
+        </div>
+        <p class="hint favoritos-dica" id="favoritosDica" hidden>Arraste os cards pra mudar a ordem (no teclado: setas). Toque em Concluir pra salvar, ou Esc pra desfazer.</p>
+        <div class="ativos-grid favoritos-grid" id="favoritosGrid"></div>
+        <div class="favoritos-status" id="favoritosStatus" role="status" aria-live="polite"></div>
+      </section>
+
       <div class="area-header">
         <h2>Minha carteira — situação atual</h2>
         <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
@@ -81,7 +95,9 @@
           <div class="rentab-card-chart" id="rentabChartTotal"></div>
           <div class="chart-legend2" id="rentabLegendaTotal"></div>
         </div>
-        <div class="rentab-card rentab-card-full">
+        <!-- 23/09/2026 #9 (pedido do Tiago): Longo Prazo ao lado do Nacional,
+             e Ações Internacionais ao lado da Renda Emergencial (nessa ordem). -->
+        <div class="rentab-card">
           <div class="rentab-card-info" id="rentabInfoLongoPrazo"></div>
           <div class="rentab-card-chart" id="rentabChartLongoPrazo"></div>
           <div class="chart-legend2" id="rentabLegendaLongoPrazo"></div>
@@ -90,6 +106,11 @@
           <div class="rentab-card-info" id="rentabInfoNacional"></div>
           <div class="rentab-card-chart" id="rentabChartNacional"></div>
           <div class="chart-legend2" id="rentabLegendaNacional"></div>
+        </div>
+        <div class="rentab-card">
+          <div class="rentab-card-info" id="rentabInfoInternacional"></div>
+          <div class="rentab-card-chart" id="rentabChartInternacional"></div>
+          <div class="chart-legend2" id="rentabLegendaInternacional"></div>
         </div>
         <div class="rentab-card">
           <div class="rentab-card-info" id="rentabInfoRendaEmergencial"></div>

@@ -187,6 +187,14 @@ function handleHome(e, auth) {
   }
   console.log('handleHome: obterUltimoSnapshotPregao_ levou ' + (Date.now() - marca) + 'ms');
 
+  // 23/09/2026: favoritos da Início (Favoritos.gs) - lista de ids na ordem
+  // salva; o front cruza com `ativos` acima.
+  try {
+    resposta.favoritos = lerFavoritos_();
+  } catch (err) {
+    avisos.favoritos = String(err);
+  }
+
   console.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;
