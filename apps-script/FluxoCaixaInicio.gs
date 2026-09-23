@@ -439,10 +439,21 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       var data = linha[1], liquido = Number(linha[6]);
       if (!(data instanceof Date) || isNaN(liquido)) return;
       var chave = chaveDiaISOInicio_(data);
-      somar(porDia, chave, -liquido);
       if (nomeAba === ABA_PROVENTOS_USA_FLUXO) {
-        somar(porDiaUsa, chave, -liquido);
-      } else {
+        // 23/09/2026 #6 (Tiago vai colar os dividendos da IBKR, em US$): a
+        // aba "Proventos - USA" está em DÓLAR, igual "Transações - USA" -
+        // converte pelo câmbio do dia do pagamento, mesma regra da compra
+        // (cambioUsdParaData_). Antes somava o US$ como se fosse R$ (nunca
+        // apareceu porque a aba estava vazia).
+        var cambioProvento = cambioUsdParaData_(mapaCambioUsd || {}, chavesCambio, chave);
+        if (!cambioProvento) return;
+        var liquidoBrl = liquido * cambioProvento;
+        somar(porDia, chave, -liquidoBrl);
+        somar(porDiaUsa, chave, -liquidoBrl);
+        return;
+      }
+      somar(porDia, chave, -liquido);
+      {
         // 23/09/2026 (achado pelo teste de coerência "Nacional = Ações +
         // FIIs + RF Longo Prazo"): provento com ticker que não existe no
         // histórico entrava no Total/Nacional mas em NENHUMA classe - o

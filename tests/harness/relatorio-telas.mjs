@@ -668,8 +668,8 @@ function checar(D, s, p, u) {
     add('Plausibilidade', 'nenhuma rentabilidade absurda (entre −60% e +300% em qualquer visão e período)', e3);
     if (D.gorila) {
       const dif = D.visoes.total.tudo.pct - D.gorila.rentabilidadeDesdeInicioPct;
-      add('Plausibilidade', `"desde o início" perto do Gorila (${String(D.gorila.rentabilidadeDesdeInicioPct).replace('.', ',')}% em ${dbr(D.gorila.data)}): diferença de até 1,5 p.p.`,
-        Math.abs(dif) <= 1.5 ? [] : [`app ${D.visoes.total.tudo.pct}% x Gorila ${D.gorila.rentabilidadeDesdeInicioPct}%`],
+      add('Plausibilidade', `"desde o início" perto do Gorila (${String(D.gorila.rentabilidadeDesdeInicioPct).replace('.', ',')}% em ${dbr(D.gorila.data)}): diferença de até 3 p.p. (metodologias diferentes: é ordem de grandeza)`,
+        Math.abs(dif) <= 3 ? [] : [`app ${D.visoes.total.tudo.pct}% x Gorila ${D.gorila.rentabilidadeDesdeInicioPct}%`],
         `diferença: ${dif.toFixed(2).replace('.', ',')} p.p.`);
     }
   }

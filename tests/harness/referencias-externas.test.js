@@ -64,7 +64,7 @@ test('B3 e Interactive Brokers: quantidade de cada ativo (pelas Transações) = 
   assert.deepEqual(erros, []);
 });
 
-test('Gorila (ordem de grandeza): rentabilidade desde o início (±2 p.p.) e do mês (±1 p.p.), e Valor aplicado x "Valor investido" (±5%)', async (t) => {
+test('Gorila (ordem de grandeza): rentabilidade desde o início (±3 p.p.) e do mês (±1 p.p.), e Valor aplicado x "Valor investido" (±5%)', async (t) => {
   if (pular(t)) return;
   const { home } = await dados();
   if (home.historico[home.historico.length - 1].data !== REF.gorila.data || fmtSp.format(new Date()) !== REF.gorila.data) {
@@ -76,7 +76,11 @@ test('Gorila (ordem de grandeza): rentabilidade desde o início (±2 p.p.) e do 
   const mes = calcularResumoRentabilidade(home.patrimonio, home.historico, { visaoId: 'total', periodoId: 'mes' });
   const aplicado = home.historico.reduce((s, x) => s + (x.fluxoAplicadoPatrimonio || 0), 0);
   t.diagnostic(`desde o início: app ${tudo.percentual.toFixed(2)}% x Gorila ${REF.gorila.rentabilidadeDesdeInicioPct}% | mês: app ${mes.percentual.toFixed(2)}% x Gorila ${REF.gorila.rentabilidadeMesPct}% | Valor aplicado: app ${aplicado.toFixed(2)} x Gorila ${REF.gorila.valorInvestido} | Resultado: app ${tudo.ganhoReais.toFixed(2)} x Gorila ${REF.gorila.resultadoDesdeInicio}`);
-  assert.ok(Math.abs(tudo.percentual - REF.gorila.rentabilidadeDesdeInicioPct) <= 2);
+  // ±3 p.p. (era ±2 até 23/09/2026 #6): com os proventos de set/2026 e os
+  // dividendos da IBKR lançados, o app sobe ~1 p.p. - o Gorila tem
+  // metodologia própria (não sabemos se conta dividendo dos EUA), então isto
+  // só pega erro grosseiro, nunca diferença de método.
+  assert.ok(Math.abs(tudo.percentual - REF.gorila.rentabilidadeDesdeInicioPct) <= 3);
   assert.ok(Math.abs(mes.percentual - REF.gorila.rentabilidadeMesPct) <= 1);
   assert.ok(Math.abs(aplicado / REF.gorila.valorInvestido - 1) <= 0.05);
 });
