@@ -749,15 +749,20 @@ export function somaCampoHistorico_(historico, campo) {
   return historico.reduce((soma, item) => soma + (Number.isFinite(item[campo]) ? item[campo] : 0), 0);
 }
 
-/** 23/09/2026 #3 (Controle 8 - "Proventos recebidos" de Ações dizia
- * menos do que a rentabilidade conta, nas duas classes): o card lia a coluna "Proventos Totais" de
- * Auxiliar_ativos, que só soma os tickers da carteira de HOJE - some tudo
- * que foi lançado com código antigo (MALL11 -> PMLL11, ELET6/AXIA6 ->
- * AXIA3). O histórico já separa: fluxoCaixa<Classe> = fluxoAplicado<Classe>
- * − proventos do dia (FluxoCaixaInicio.gs), então Σ(aplicado − caixa) é
- * exatamente o provento que a rentabilidade usa. Resultado "desde o
- * início" = Lucro/Prejuízo da posição + este valor. */
-export function proventosDoHistorico_(historico, campoCaixa, campoAplicado) {
+/** "Proventos recebidos" de Ações/FIIs a partir do histórico.
+ * 23/09/2026 #3: o card lia a coluna "Proventos Totais" de Auxiliar_ativos,
+ * que só soma os tickers da carteira de HOJE - some tudo o que foi lançado
+ * com código antigo (ex.: nome antigo de um FII). O histórico soma a aba
+ * Proventos inteira.
+ * 23/09/2026 #7 (Controle 10): usa o campo diário proventos<Classe>
+ * (HistoricoInicio.gs) - a conta antiga, Σ(fluxoAplicado − fluxoCaixa),
+ * também pegava LUCRO DE VENDA (a venda da AXIA15G, custo 0, virava
+ * "provento"). Sem o campo (back-end antigo), cai na conta antiga.
+ * Resultado "desde o início" = Lucro/Prejuízo da posição + proventos +
+ * lucro realizado nas vendas. */
+export function proventosDoHistorico_(historico, campoProventos, campoCaixa, campoAplicado) {
+  const proventos = somaCampoHistorico_(historico, campoProventos);
+  if (proventos != null) return proventos;
   const aplicado = somaCampoHistorico_(historico, campoAplicado);
   const caixa = somaCampoHistorico_(historico, campoCaixa);
   if (aplicado == null || caixa == null) return null;

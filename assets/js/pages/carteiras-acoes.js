@@ -194,7 +194,7 @@ function desenhar(doc, dados) {
     corToken: '--acoes',
     // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
     // proventosDoHistorico_ em carteiras-classe-comum.js.
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
+    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosAcoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   const ibovespaVar = dados.benchmarks?.ibovespa;

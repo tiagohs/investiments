@@ -658,7 +658,7 @@ test('Carteiras > Visão geral: "Valor aplicado" de cada card = topo da subpági
 // ---------------------------------------------------------------------------
 // 13) Ações e FIIs: proventos e decomposição do "desde o início"
 // ---------------------------------------------------------------------------
-test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos da classe (inclusive códigos antigos) e Resultado desde o início = Lucro/Prejuízo da posição + Proventos, centavo por centavo', async (t) => {
+test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos da classe (inclusive códigos antigos) e Resultado desde o início = Lucro/Prejuízo da posição + Proventos + lucro realizado nas vendas, centavo por centavo', async (t) => {
   if (pular(t)) return;
   const r = await dados();
   const inicio = await imp('assets/js/pages/inicio.js');
@@ -672,6 +672,15 @@ test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos 
     if (chaveSpDeCelula(l[1]) > hoje || tk === 'ERRO') continue;
     prov[/11$/.test(tk) ? 'fiis' : 'acoes'] += l[6];
   }
+  // lucro realizado nas vendas (coluna L de "Transações", calculada pela
+  // própria planilha) - 23/09/2026 #7: a venda da AXIA15G (Controle 10)
+  const fora = new Set(r.sandbox.TICKERS_FORA_DO_HISTORICO || []);
+  const realizado = { acoes: 0, fiis: 0 };
+  for (const l of (r.fixtures['Transações']?.linhas || []).slice(6)) {
+    const tk = String(l[0] || '').trim().toUpperCase();
+    if (!tk || l[2] !== 'Venda' || fora.has(tk) || typeof l[11] !== 'number') continue;
+    realizado[/11$/.test(tk) ? 'fiis' : 'acoes'] += l[11];
+  }
   const casos = [
     ['acoes', 'carteiraAcoes', 'assets/js/pages/carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesConteudo'],
     ['fiis', 'carteiraFiis', 'assets/js/pages/carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisConteudo'],
@@ -683,9 +692,9 @@ test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos 
     const valor = lerBRL(topo.texto);
     const aplicado = lerBRL(topo.investido);
     const tudo = inicio.calcularResumoRentabilidade(r.home.patrimonio, r.home.historico, { visaoId, periodoId: 'tudo' });
-    t.diagnostic(`${classe}: valor ${valor} − aplicado ${aplicado} = lucro ${r2(valor - aplicado)}; + proventos ${provTela} = ${r2(valor - aplicado + provTela)} | resultado desde o início (gráfico) ${r2(tudo.ganhoReais)} (${r2(tudo.percentual)}%)`);
+    t.diagnostic(`${classe}: valor ${valor} − aplicado ${aplicado} = lucro ${r2(valor - aplicado)}; + proventos ${provTela} + realizado ${r2(realizado[classe])} = ${r2(valor - aplicado + provTela + realizado[classe])} | resultado desde o início (gráfico) ${r2(tudo.ganhoReais)} (${r2(tudo.percentual)}%)`);
     if (Math.abs(provTela - r2(prov[classe])) > 0.011) erros.push(`${classe}: "Proventos recebidos" na tela ${provTela} != aba Proventos ${r2(prov[classe])}`);
-    if (Math.abs((valor - aplicado + provTela) - tudo.ganhoReais) > 0.03) erros.push(`${classe}: lucro ${r2(valor - aplicado)} + proventos ${provTela} != resultado desde o início ${r2(tudo.ganhoReais)}`);
+    if (Math.abs((valor - aplicado + provTela + realizado[classe]) - tudo.ganhoReais) > 0.03) erros.push(`${classe}: lucro ${r2(valor - aplicado)} + proventos ${provTela} + realizado ${r2(realizado[classe])} != resultado desde o início ${r2(tudo.ganhoReais)}`);
   }
   assert.deepEqual(erros, []);
 });

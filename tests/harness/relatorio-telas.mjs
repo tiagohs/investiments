@@ -259,6 +259,14 @@ export async function coletarDadosTelas({ fixturesPath = FIXTURES_PATH } = {}) {
     proventosAba[/11$/.test(tk) ? 'fiis' : 'acoes'] += l[6];
     proventosAba.porTicker[tk] = (proventosAba.porTicker[tk] || 0) + l[6];
   }
+  // lucro realizado nas vendas (coluna L de "Transações", calculada pela planilha)
+  const foraHist = new Set(r.sandbox.TICKERS_FORA_DO_HISTORICO || []);
+  const realizadoAba = { acoes: 0, fiis: 0 };
+  for (const l of (r.fixtures['Transações']?.linhas || []).slice(6)) {
+    const tk = String(l[0] || '').trim().toUpperCase();
+    if (!tk || l[2] !== 'Venda' || foraHist.has(tk) || typeof l[11] !== 'number') continue;
+    realizadoAba[/11$/.test(tk) ? 'fiis' : 'acoes'] += l[11];
+  }
   const tickersCarteira = new Set([...r.carteirasAcoes.ativos, ...r.carteirasFiis.ativos].map((a) => a.ticker));
   const proventosForaDaCarteira = Object.entries(proventosAba.porTicker).filter(([tk]) => !tickersCarteira.has(tk)).map(([tk, v]) => ({ ticker: tk, valor: r2(v) }));
 
@@ -313,7 +321,7 @@ export async function coletarDadosTelas({ fixturesPath = FIXTURES_PATH } = {}) {
   const ref = fs.existsSync(REF_PATH) ? JSON.parse(fs.readFileSync(REF_PATH, 'utf8')) : null;
 
   const dados = {
-    meta, vivo, visoes, somas, maioresDias, aplicado, entrou, proventosAba, proventosForaDaCarteira, moversMes, cambioMes, baseMes, telas, ontemOraculo,
+    meta, vivo, visoes, somas, maioresDias, aplicado, entrou, proventosAba, realizadoAba, proventosForaDaCarteira, moversMes, cambioMes, baseMes, telas, ontemOraculo,
     ajusteRf: u.ajusteMarcacaoRendaFixa || 0, ajusteRe: u.ajusteMarcacaoRendaEmergencial || 0,
     patrimonio: p, cambio: home.cambio,
     diag: { correcoesPreco: r.diagnosticoRv.correcoesPreco || [] },
@@ -636,9 +644,10 @@ function checar(D, s, p, u) {
     for (const [k, v, campoAba] of [['acoes', 'carteiraAcoes', 'acoes'], ['fiis', 'carteiraFiis', 'fiis']]) {
       if (!perto(sub[k].proventos, r2(D.proventosAba[campoAba]))) e3.push(`${k}: "Proventos recebidos" ${sub[k].proventos} x aba Proventos ${r2(D.proventosAba[campoAba])}`);
       const lucro = sub[k].valor - sub[k].aplicado;
-      if (!perto(lucro + sub[k].proventos, D.visoes[v].tudo.ganho, 0.03)) e3.push(`${k}: lucro ${r2(lucro)} + proventos ${sub[k].proventos} x desde o início ${D.visoes[v].tudo.ganho}`);
+      const real = D.realizadoAba[campoAba];
+      if (!perto(lucro + sub[k].proventos + real, D.visoes[v].tudo.ganho, 0.03)) e3.push(`${k}: lucro ${r2(lucro)} + proventos ${sub[k].proventos} + realizado ${r2(real)} x desde o início ${D.visoes[v].tudo.ganho}`);
     }
-    add('Carteiras · subpáginas', 'Ações e FIIs: "Proventos recebidos" = aba Proventos (inclusive códigos antigos) e Lucro + Proventos = Resultado desde o início', e3);
+    add('Carteiras · subpáginas', 'Ações e FIIs: "Proventos recebidos" = aba Proventos (inclusive códigos antigos) e Lucro + Proventos + lucro realizado nas vendas = Resultado desde o início', e3);
   }
 
   // --- Plausibilidade ("de acordo") ---

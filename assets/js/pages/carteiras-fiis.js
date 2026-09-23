@@ -166,7 +166,7 @@ function desenhar(doc, dados) {
     corToken: '--fiis',
     // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
     // proventosDoHistorico_ em carteiras-classe-comum.js.
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
+    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosFiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do

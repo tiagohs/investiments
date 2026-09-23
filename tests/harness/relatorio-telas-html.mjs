@@ -143,7 +143,8 @@ sup{color:var(--muted)}
     const lucro = t.valor - t.aplicado;
     const tudo = D.visoes[v].tudo;
     if (Math.sign(lucro) !== Math.sign(tudo.ganho) || Math.abs(t.pctLucro - tudo.pct) > 10) {
-      o.push(`<li><b>${nome}: ${pct(t.pctLucro)} de lucro na posição, mas ${pct(tudo.pct)} desde o início.</b> O lucro do topo é valor de hoje − Valor aplicado. A rentabilidade conta também os proventos: ${brl(lucro, true)} + ${brl(t.proventos)} = ${brl(lucro + t.proventos, true)}, exatamente o ganho do gráfico.</li>`);
+      const real = D.realizadoAba[k];
+      o.push(`<li><b>${nome}: ${pct(t.pctLucro)} de lucro na posição, mas ${pct(tudo.pct)} desde o início.</b> O lucro do topo é valor de hoje − Valor aplicado. A rentabilidade conta também os proventos${real ? ' e o lucro já realizado nas vendas' : ''}: ${brl(lucro, true)} + ${brl(t.proventos)}${real ? ` + ${brl(real, true)}` : ''} = ${brl(lucro + t.proventos + real, true)}, exatamente o ganho do gráfico.</li>`);
     }
   }
   const cE = D.telas.vg.cards.find((c) => c.nome === 'Ações Internacionais');
@@ -218,7 +219,8 @@ sup{color:var(--muted)}
     let dec;
     if (k === 'acoes' || k === 'fiis') {
       const lucro = t.valor - t.aplicado;
-      dec = `lucro ${brl(lucro, true)} + proventos ${brl(t.proventos)} = ${brl(lucro + t.proventos, true)}`;
+      const real = D.realizadoAba[k];
+      dec = `lucro ${brl(lucro, true)} + proventos ${brl(t.proventos)}${real ? ` + lucro realizado nas vendas ${brl(real, true)}` : ''} = ${brl(lucro + t.proventos + real, true)}`;
     } else if (k === 'acoesEua') {
       dec = `em reais: valor ${brl(D.vivo.carteiraAcoesEua)} − aplicado ${brl(D.aplicado.carteiraAcoesEua)} = ${brl(D.vivo.carteiraAcoesEua - D.aplicado.carteiraAcoesEua, true)}; "i" do topo: ${esc((t.tooltips || []).join(' | '))}`;
     } else {

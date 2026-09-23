@@ -781,6 +781,16 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       fluxoAplicadoRendaFixaTotal: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje),
       fluxoAplicadoRendaFixaLongoPrazo: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje - fluxoAplicadoRendaEmergencialHoje)
     });
+    // 23/09/2026 #7: provento recebido no dia, por classe (só quando houve -
+    // a maioria dos dias não tem, e a série vai inteira pro front). Usado no
+    // "Proventos recebidos" de Ações/FIIs (carteiras-classe-comum.js).
+    var pontoHoje = serie[serie.length - 1];
+    var provAcoesHoje = (fluxoCaixa.proventosAcoes || {})[chaveAtual];
+    var provFiisHoje = (fluxoCaixa.proventosFiis || {})[chaveAtual];
+    var provUsaHoje = (fluxoCaixa.proventosUsa || {})[chaveAtual];
+    if (provAcoesHoje) pontoHoje.proventosAcoes = arredondar2Inicio_(provAcoesHoje);
+    if (provFiisHoje) pontoHoje.proventosFiis = arredondar2Inicio_(provFiisHoje);
+    if (provUsaHoje) pontoHoje.proventosAcoesEua = arredondar2Inicio_(provUsaHoje);
 
     dataAtual.setDate(dataAtual.getDate() + 1);
   }
@@ -820,7 +830,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
   // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
   // seria "hoje" pra receber os valores ao vivo (Home.gs).
-  return 'historico_serie_v9_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v10_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

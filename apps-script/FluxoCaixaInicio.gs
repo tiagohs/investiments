@@ -160,6 +160,13 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var porDiaUsa = {};
   var porDiaAcoes = {};
   var porDiaFiis = {};
+  // 23/09/2026 #7: provento recebido por dia e classe (valor positivo, em R$)
+  // - separado do fluxo, pro "Proventos recebidos" das telas não confundir
+  // provento com lucro de venda (Controle 10: a venda da AXIA15G, custo 0,
+  // aparecia como R$ 111,12 de "provento").
+  var porDiaProventosAcoes = {};
+  var porDiaProventosFiis = {};
+  var porDiaProventosUsa = {};
   var porDiaRendaFixaTotal = {};
   // 21/09/2026 (pedido do Tiago - print comparando com o Gorila,
   // "quanto investi" saindo muito abaixo do "Valor investido" de lá):
@@ -276,6 +283,13 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       }
       somar(porDia, chave, sinal * valorBrl);
       var classeTicker = info.cambio ? 'USA' : classes[ticker];
+      // 23/09/2026 #7 (Controle 10): ticker que nunca teve preço em
+      // aux_historico-patrimonio (caso real: AXIA15G, bonificação de 13/09
+      // resgatada em 22/09 por R$ 111,12) ficava sem classe - a venda entrava
+      // no Total/Nacional mas em nenhuma classe, e "Nacional = Ações + FIIs +
+      // RF longo prazo" quebrava. Mesma regra dos proventos sem classe:
+      // código terminado em 11 -> FIIs; senão -> Ações.
+      if (!info.cambio && !classeTicker && ticker) classeTicker = /11$/.test(ticker) ? 'FII' : 'BR';
       if (info.cambio) {
         somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
       } else {
@@ -450,6 +464,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         var liquidoBrl = liquido * cambioProvento;
         somar(porDia, chave, -liquidoBrl);
         somar(porDiaUsa, chave, -liquidoBrl);
+        somar(porDiaProventosUsa, chave, liquidoBrl);
         return;
       }
       somar(porDia, chave, -liquido);
@@ -472,8 +487,8 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
           else if (/11$/.test(ticker)) classeTicker = 'FII';
           else classeTicker = 'BR';
         }
-        if (classeTicker === 'FII') somar(porDiaFiis, chave, -liquido);
-        else if (classeTicker === 'BR') somar(porDiaAcoes, chave, -liquido);
+        if (classeTicker === 'FII') { somar(porDiaFiis, chave, -liquido); somar(porDiaProventosFiis, chave, liquido); }
+        else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, -liquido); somar(porDiaProventosAcoes, chave, liquido); }
         else if (classeTicker === 'RF' || classeTicker === 'RF_EMERGENCIAL') {
           somar(porDiaRendaFixaTotal, chave, -liquido);
           if (classeTicker === 'RF_EMERGENCIAL') somar(porDiaRendaEmergencial, chave, -liquido);
@@ -488,6 +503,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     usa: porDiaUsa,
     acoes: porDiaAcoes,
     fiis: porDiaFiis,
+    proventosAcoes: porDiaProventosAcoes,
+    proventosFiis: porDiaProventosFiis,
+    proventosUsa: porDiaProventosUsa,
     rendaFixaTotal: porDiaRendaFixaTotal,
     primeiraCompraPorTicker: primeiraCompraPorTicker,
     movimentosPorTicker: movimentosPorTicker,
