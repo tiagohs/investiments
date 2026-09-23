@@ -96,6 +96,32 @@ var TICKERS_BR = TICKERS_ACOES_BR.concat(TICKERS_FIIS_BR);
 // posicao fantasma no historico (ver README/relatorio pra como).
 var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 
+// 23/09/2026 (investigação a fundo com o "Controle 7" - Tiago: "os
+// cálculos dos gráficos continuam incorretos... eu não consigo confiar na
+// minha própria carteira"): tickers que NUNCA entram no histórico de
+// patrimônio (HistoricoInicio.gs) nem no fluxo de caixa (FluxoCaixaInicio.gs),
+// mesmo tendo linhas em aux_historico-patrimonio / "Transações - USA".
+// Caso único hoje, STR (Sitio Royalties, incorporada pela VNOM):
+//  1) TODA linha de STR em aux_historico-patrimonio tem preço de OUTRO
+//     papel - US$ 156-165 já em junho-agosto/2025, enquanto o Tiago pagou
+//     US$ 18-20 em cada compra real (mesmos dias). Não é só "depois da
+//     fusão": o GOOGLEFINANCE("STR") nunca devolveu a Sitio. Resultado:
+//     ~R$ 7.700 fantasmas dentro de "Ações EUA" desde 11/06/2025 - e,
+//     como o histórico carrega o ÚLTIMO valor de cada ticker pra frente
+//     (forward-fill), esses R$ 7.700 continuavam lá até HOJE depois que
+//     repararHistoricoStrFantasma_ apagou só as linhas pós-fusão.
+//  2) Em "Transações - USA", cada Compra de STR tem uma Compra ESPELHO de
+//     VNOM na MESMA data e no MESMO valor (0,4855 VNOM por STR) - ou
+//     seja, VNOM sozinha já representa a posição E o dinheiro que saiu
+//     do bolso desde 11/06/2025. Contar STR junto dobrava os aportes
+//     dessas datas e, pior, a "Venda" de 9 STR a US$ 147,20 em 19/09/2026
+//     (preço do papel errado, só pra zerar a posição na planilha) virava
+//     uma RETIRADA de R$ 6.788 que nunca existiu - era exatamente o
+//     "+R$ 6.814,08 / +4,54% no mês" do print, e o "salto" do gráfico.
+// Ignorar STR nos dois lugares deixa só a VNOM - preço real, quantidade
+// real (bate com a Interactive Brokers: 14,5499) e aportes reais.
+var TICKERS_FORA_DO_HISTORICO = ['STR'];
+
 /**
  * Instala o gatilho diário — rodar UMA VEZ, manualmente, no editor.
  * Time-driven trigger não tem opção nativa "seg-sáb" na API, por isso
@@ -1295,6 +1321,97 @@ function repararHistoricoStrFantasma_() {
     gravarRegistroControle_('Sucesso', 'Manual', detalhe);
 
     return { linhasStrFantasmaRemovidas: linhasParaRemover.length, linhasStrMantidas: mantidas };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 23/09/2026 - reparo (rodar 1x manualmente pelo editor do Apps Script,
+ * depois de colar/implantar este arquivo) pras linhas de
+ * aux_historico-patrimonio com PREÇO ISOLADO ABSURDO. Caso real (Controle
+ * 7): BBAS3 com Preço = 5,1256 (o câmbio do dólar, não os ~R$ 22,70 da
+ * ação) gravada às 00:58 de 18/09/2026 (horário de SP) - uma
+ * sincronização concorrente leu a célula de rascunho do GOOGLEFINANCE
+ * (Auxiliar_app!AZ1) enquanto ela tinha o câmbio de outra busca. Como a
+ * linha "ocupou" o dia 18/09, o sync nunca mais buscou o preço de
+ * verdade desse dia.
+ *
+ * O app (HistoricoInicio.gs!processarHistoricoRvDoTicker_) já ignora esse
+ * tipo de linha na hora de montar os gráficos - este reparo conserta a
+ * PLANILHA: busca o fechamento real daquele dia no GOOGLEFINANCE e
+ * reescreve Preço/Valor/Valor BRL da linha; se o GOOGLEFINANCE não tiver
+ * pregão naquele dia, apaga a linha. Mesma regra de detecção do app: preço
+ * mais de 40% longe do ANTERIOR do mesmo ticker e o SEGUINTE voltando pra
+ * perto do anterior (+-15%) - desdobramento/grupamento de verdade nunca
+ * "volta", então nunca é pego por isso.
+ *
+ * Idempotente: rodar de novo sem nada suspeito não muda nada.
+ */
+function repararPrecosIsoladosAbsurdos_() {
+  var lock = LockService.getScriptLock();
+  var conseguiuLock = false;
+  try { conseguiuLock = lock.tryLock(10000); } catch (erroLock) { conseguiuLock = false; }
+  if (!conseguiuLock) {
+    throw new Error('Já existe uma sincronização rodando agora (mesma trava de atualizarHistorico) — espera terminar e roda de novo.');
+  }
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var aba = ss.getSheetByName(NOME_ABA_HISTORICO);
+    if (!aba) throw new Error('Aba "' + NOME_ABA_HISTORICO + '" não encontrada.');
+    var ultimaLinha = aba.getLastRow();
+    if (ultimaLinha < 2) return { corrigidas: [], apagadas: [] };
+    var dados = aba.getRange(2, 1, ultimaLinha - 1, 8).getValues(); // A..H
+
+    var porTicker = {};
+    dados.forEach(function (linha, idx) {
+      if (!(linha[0] instanceof Date) || !linha[1]) return;
+      if (typeof TICKERS_FORA_DO_HISTORICO !== 'undefined' && TICKERS_FORA_DO_HISTORICO.indexOf(linha[1]) !== -1) return;
+      if (!porTicker[linha[1]]) porTicker[linha[1]] = [];
+      porTicker[linha[1]].push({ idx: idx, chave: chaveDiaISOInicio_(linha[0]), preco: Number(linha[4]) });
+    });
+
+    var suspeitas = [];
+    Object.keys(porTicker).forEach(function (ticker) {
+      var linhas = porTicker[ticker];
+      linhas.sort(function (a, b) { return a.chave < b.chave ? -1 : (a.chave > b.chave ? 1 : a.idx - b.idx); });
+      var anterior = null;
+      for (var i = 0; i < linhas.length; i++) {
+        var l = linhas[i], proxima = linhas[i + 1];
+        if (anterior > 0 && l.preco > 0 && proxima && proxima.preco > 0) {
+          var r = l.preco / anterior, rp = proxima.preco / anterior;
+          if ((r < 0.6 || r > 1 / 0.6) && rp > 0.85 && rp < 1 / 0.85) { suspeitas.push({ ticker: ticker, idx: l.idx, chave: l.chave }); continue; }
+        }
+        if (l.preco > 0) anterior = l.preco;
+      }
+    });
+
+    var corrigidas = [], apagar = [];
+    suspeitas.forEach(function (s) {
+      var linha = dados[s.idx];
+      var classe = linha[2] === 'USA' ? 'USA' : 'BR';
+      var partes = s.chave.split('-');
+      var dia = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+      var busca = buscarPrecoHistorico_(s.ticker, classe, dia, dia, 60000);
+      var achado = (busca.precos || []).filter(function (p) { return p.data instanceof Date && chaveDiaISOInicio_(p.data) === s.chave; })[0];
+      if (achado && Number(achado.preco) > 0) {
+        var cotas = Number(linha[3]) || 0;
+        var valor = cotas * Number(achado.preco);
+        var valorBrl = classe === 'USA' ? (Number(linha[6]) ? valor * Number(linha[6]) : '') : valor;
+        aba.getRange(s.idx + 2, 5, 1, 2).setValues([[Number(achado.preco), valor]]);
+        aba.getRange(s.idx + 2, 8).setValue(valorBrl);
+        corrigidas.push(s.ticker + ' ' + s.chave + ': ' + linha[4] + ' -> ' + achado.preco);
+      } else {
+        apagar.push(s);
+      }
+    });
+    apagar.sort(function (a, b) { return b.idx - a.idx; }).forEach(function (s) { aba.deleteRow(s.idx + 2); });
+
+    var detalhe = 'Reparo preço isolado absurdo: ' + corrigidas.length + ' linha(s) corrigida(s)' +
+      (corrigidas.length ? ' (' + corrigidas.join('; ') + ')' : '') + ', ' + apagar.length + ' apagada(s) sem pregão' +
+      (apagar.length ? ' (' + apagar.map(function (s) { return s.ticker + ' ' + s.chave; }).join('; ') + ')' : '') + '.';
+    gravarRegistroControle_('Sucesso', 'Manual', detalhe);
+    return { corrigidas: corrigidas, apagadas: apagar.map(function (s) { return s.ticker + ' ' + s.chave; }) };
   } finally {
     lock.releaseLock();
   }

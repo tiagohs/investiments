@@ -197,7 +197,12 @@ test('fonte da verdade: todo ticker comprado e nunca vendido aparece na Carteira
     return;
   }
   const fixturesRaw = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf8'));
-  const { carteirasAcoes, carteirasFiis, carteirasAcoesEua } = await carregarCarteirasComDadosReais({ fixturesPath: FIXTURES_PATH });
+  const { carteirasAcoes, carteirasFiis, carteirasAcoesEua, sandbox } = await carregarCarteirasComDadosReais({ fixturesPath: FIXTURES_PATH });
+  // 23/09/2026: tickers que o próprio app ignora de propósito no histórico
+  // (Sync.gs!TICKERS_FORA_DO_HISTORICO - hoje só STR, ver o motivo lá) não
+  // são "fantasma": montarSerieHistoricoInicio_ nunca soma as linhas
+  // deles. Lido do .gs de verdade (nunca uma cópia aqui).
+  const foraDoHistorico = new Set(sandbox.TICKERS_FORA_DO_HISTORICO || []);
 
   // Ticker -> classe (BR/FII/USA), reclassificando BR contra
   // TICKERS_FIIS_BR (mesma regra de HistoricoInicio.gs, ver comentário de
@@ -251,6 +256,7 @@ test('fonte da verdade: todo ticker comprado e nunca vendido aparece na Carteira
     const classe = classePorTicker[ticker];
     const valor = ultimoValorPorTicker[ticker];
     if (!classe || !TICKERS_LIVE_POR_CLASSE[classe] || valor <= 1) continue;
+    if (foraDoHistorico.has(ticker)) continue;
     if (!TICKERS_LIVE_POR_CLASSE[classe].has(ticker)) {
       fantasmas.push(`${ticker} (${LABEL_POR_CLASSE[classe]}): último valor no backfill = R$ ${valor.toFixed(2)}, ausente da tabela live`);
     }

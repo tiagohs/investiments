@@ -306,65 +306,70 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   }
   console.log('montarSerieHistoricoInicio_: cache MISS (chave=' + chaveCacheSerie + ', checagem levou ' + msLeituraCache + 'ms) — recalculando do zero');
 
+  // 23/09/2026: "hoje" no fuso do projeto - nenhuma linha datada DEPOIS
+  // de hoje entra na série (ver comentário de chaveHojeLeitura_ no
+  // bloco de Renda Fixa, logo abaixo, pro caso real que motivou isso).
+  var chaveHojeLeitura_ = chaveDiaISOInicio_(new Date());
+  var linhasRvPorTicker_ = {}; // ticker -> [{ chave, preco, valorBrl, classeBruta }] (só linhas com Valor BRL preenchido)
+
   if (linhasPatrimonio > 0) {
     abaPatrimonio.getRange(2, 1, linhasPatrimonio, 8).getValues().forEach(function (linha) {
       var data = linha[0];
       if (!(data instanceof Date)) return;
       var chave = chaveDiaISOInicio_(data);
+      if (chave > chaveHojeLeitura_) return;
       var ticker = linha[1];
+      // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.
+      // Lido ANTES do filtro de ticker abaixo: o câmbio do dia é o mesmo
+      // pra qualquer linha USA, venha ela de que ticker vier.
+      if (linha[2] === 'USA' && typeof linha[6] === 'number' && linha[6]) {
+        mapaCambioUsd[chave] = linha[6];
+      }
+      // 23/09/2026: ver TICKERS_FORA_DO_HISTORICO (Sync.gs) - STR.
+      if (tickerForaDoHistoricoInicio_(ticker)) return;
       // Valor BRL (coluna H) vem em branco ('') quando o câmbio do dia
       // faltou no backfill pra essa linha (só acontece pra classe USA) -
       // tratar como "sem dado hoje" (fica de fora, ver comentário acima),
       // nunca como 0 - Number('') seria 0 e zeraria o ticker inteiro
       // naquele dia por engano.
-      if (linha[7] !== '' && linha[7] != null) {
-        var valorBrl = Number(linha[7]);
-        if (!isNaN(valorBrl)) {
-          if (!atualizacoesPorDiaTicker[chave]) atualizacoesPorDiaTicker[chave] = {};
-          atualizacoesPorDiaTicker[chave][ticker] = valorBrl;
-          // 20/09/2026 (bug real, achado com dados reais do Tiago —
-          // "gráfico de Ações considerando o patrimônio de Renda Variável
-          // todo, não só Ações"): linha[2] (coluna "Classe" de
-          // aux_historico-patrimonio) SÓ existe como 'BR' ou 'USA' — quem
-          // escreve essa coluna (Sync.gs!gravarLinhasHistorico_) nunca
-          // grava 'FII', só distingue USA de "o resto". Usar linha[2]
-          // direto aqui fazia TODO ticker BR (Ações E FIIs juntos) cair
-          // em classeDoTicker === 'BR' mais abaixo — somaFiisAtual ficava
-          // sempre 0 e somaAcoesAtual = Ações+FIIs somados (e o mesmo bug
-          // se repetia em fluxoCaixaAcoes/fluxoCaixaFiis, ver
-          // FluxoCaixaInicio.gs, que consome este mesmo mapa). Corrigido
-          // reclassificando aqui, na leitura, contra TICKERS_FIIS_BR
-          // (Sync.gs, mesmo projeto Apps Script/namespace global) — sem
-          // precisar mudar o que já está gravado na planilha nem
-          // reescrever histórico nenhum.
-          var classeBruta = linha[2]; // 'BR' ou 'USA', nunca 'FII' (ver acima)
-          classePorTicker[ticker] = (classeBruta === 'BR' && typeof TICKERS_FIIS_BR !== 'undefined' && TICKERS_FIIS_BR.indexOf(ticker) !== -1)
-            ? 'FII'
-            : classeBruta; // 'BR' (Ações) / 'FII' / 'USA' - só atualiza quando o ticker teve uma linha de verdade
-        }
-      }
-      // Câmbio (coluna G, só preenchida pra classe USA) - ver mapaCambioUsd acima.
-      if (linha[2] === 'USA' && typeof linha[6] === 'number' && linha[6]) {
-        mapaCambioUsd[chave] = linha[6];
-      }
+      if (linha[7] === '' || linha[7] == null) return;
+      var valorBrl = Number(linha[7]);
+      if (isNaN(valorBrl)) return;
+      if (!linhasRvPorTicker_[ticker]) linhasRvPorTicker_[ticker] = [];
+      linhasRvPorTicker_[ticker].push({
+        chave: chave, preco: Number(linha[4]), cotasAux: Number(linha[3]), cambio: Number(linha[6]) || null,
+        valorBrl: valorBrl, classeBruta: linha[2]
+      });
+      // 20/09/2026 (bug real, achado com dados reais do Tiago —
+      // "gráfico de Ações considerando o patrimônio de Renda Variável
+      // todo, não só Ações"): a coluna "Classe" de aux_historico-
+      // patrimonio SÓ existe como 'BR' ou 'USA' — quem escreve essa
+      // coluna (Sync.gs!gravarLinhasHistorico_) nunca grava 'FII'.
+      // Reclassificado aqui, na leitura, contra TICKERS_FIIS_BR (Sync.gs,
+      // mesmo projeto Apps Script/namespace global).
+      classePorTicker[ticker] = (linha[2] === 'BR' && typeof TICKERS_FIIS_BR !== 'undefined' && TICKERS_FIIS_BR.indexOf(ticker) !== -1)
+        ? 'FII'
+        : linha[2];
     });
   }
+
 
   // 2) aux_historico-renda-fixa (calculado dia a dia, sem lacunas — não
   // precisa de forward-fill, ao contrário da Renda Variável e do Ibovespa).
   // Reaproveita a leitura de quem chamou, se veio pronta (ver comentário
   // do parâmetro acima) — senão lê aqui mesmo, igual antes.
   var linhasRendaFixa = dadosRendaFixaCache || lerLinhasHistoricoRendaFixa_();
+  var linhasRfLidas_ = [];
   linhasRendaFixa.forEach(function (linha) {
     var data = linha[0];
     if (!(data instanceof Date)) return;
     var chave = chaveDiaISOInicio_(data);
-    var classificacao = linha[4];
-    var valorBrl = Number(linha[5]) || 0;
-    porDiaRendaFixaTotal[chave] = (porDiaRendaFixaTotal[chave] || 0) + valorBrl;
-    if (classificacao === 'Renda Emergencial') {
-      porDiaRendaEmergencial[chave] = (porDiaRendaEmergencial[chave] || 0) + valorBrl;
-    }
+    // 23/09/2026: soma só DEPOIS do fluxo de caixa - precisa da 1ª compra
+    // de cada posição (alinhamento de data, ver abaixo) e de
+    // posicoesRfZeradas (restos de posições já zeradas), as duas vindas de
+    // FluxoCaixaInicio.gs. O corte de "nada no futuro" também é feito lá,
+    // DEPOIS do alinhamento.
+    linhasRfLidas_.push({ chave: chave, posicao: linha[1] + '|' + linha[2], classificacao: linha[4], valorBrl: Number(linha[5]) || 0 });
   });
 
   // 3) aux_historico-indices — Ibovespa (Valor = pontos) e, na MESMA
@@ -374,12 +379,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var fatoresCdi = {};
   var fatoresSelic = {};
   var fatoresIpca = {}; // 19/09/2026: série MENSAL (não diária) - ver comentário no cabeçalho do arquivo
+  var taxasLidas_ = []; // 23/09/2026 #2: CDI/SELIC/IPCA crus - ver alinhamento depois do laço
   if (linhasIndices > 0) {
     abaIndices.getRange(2, 1, linhasIndices, 3).getValues().forEach(function (linha) {
       var data = linha[0];
       if (!(data instanceof Date)) return;
       var nomeIndice = linha[1];
       var valor = Number(linha[2]);
+      if ((nomeIndice === 'CDI' || nomeIndice === 'SELIC' || nomeIndice === 'IPCA') && !isNaN(valor)) {
+        taxasLidas_.push({ data: data, nome: nomeIndice, valor: valor });
+        return; // ver alinhamento logo depois deste laço
+      }
+      if (chaveDiaISOInicio_(data) > chaveHojeLeitura_) return; // 23/09/2026: nada do futuro (ver bloco de Renda Fixa acima)
       if (nomeIndice === 'Ibovespa') {
         var chave = chaveDiaISOInicio_(data);
         porDiaIbovespa[chave] = isNaN(valor) ? null : valor;
@@ -389,21 +400,143 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       } else if (nomeIndice === 'S&P 500') {
         var chaveSp500 = chaveDiaISOInicio_(data);
         porDiaSp500[chaveSp500] = isNaN(valor) ? null : valor;
-      } else if (nomeIndice === 'CDI' && !isNaN(valor)) {
-        fatoresCdi[formatarDataBcbRF_(data)] = 1 + (valor / 100);
-      } else if (nomeIndice === 'SELIC' && !isNaN(valor)) {
-        fatoresSelic[formatarDataBcbRF_(data)] = 1 + (valor / 100);
-      } else if (nomeIndice === 'IPCA' && !isNaN(valor)) {
-        fatoresIpca[formatarDataBcbRF_(data)] = 1 + (valor / 100);
       }
     });
   }
+  // 23/09/2026 #2 (Controle 8): CDI/SELIC/IPCA eram gravados com +1 dia
+  // (BackfillIndices.gs!buscarTaxasBcbComoLinhas_, "ajuste de fuso" de
+  // 13/09/2026 que partia da mesma leitura errada do .xlsx que o da Renda
+  // Fixa - já corrigido lá). Prova no dado real: no fuso de SP, as linhas
+  // de CDI/SELIC caem de terça a SÁBADO (nenhuma segunda) e as de IPCA no
+  // dia 2 de cada mês. Taxa do BCB só existe em dia útil - se a maioria das
+  // linhas cai em sábado/domingo e nenhuma (ou quase) em segunda, a aba
+  // inteira está 1 dia adiantada e é realinhada aqui (depois de regravar
+  // com rodarBackfillTaxasBcbDireto() o desvio some e nada é deslocado).
+  var diaSemanaTaxa_ = function (d) { return dataLocalDeChaveInicio_(chaveDiaISOInicio_(d)).getUTCDay(); };
+  var taxasDiarias_ = taxasLidas_.filter(function (x) { return x.nome !== 'IPCA'; });
+  var fimDeSemana_ = taxasDiarias_.filter(function (x) { var w = diaSemanaTaxa_(x.data); return w === 0 || w === 6; }).length;
+  var segundas_ = taxasDiarias_.filter(function (x) { return diaSemanaTaxa_(x.data) === 1; }).length;
+  var deslocarTaxas_ = taxasDiarias_.length > 20 && fimDeSemana_ > 0.1 * taxasDiarias_.length && segundas_ < 0.02 * taxasDiarias_.length;
+  ULTIMO_DIAGNOSTICO_TAXAS_INICIO_ = { deslocadasUmDia: deslocarTaxas_, linhasFimDeSemana: fimDeSemana_, linhasSegunda: segundas_ };
+  taxasLidas_.forEach(function (x) {
+    var d = deslocarTaxas_ ? new Date(x.data.getTime() - 86400000) : x.data;
+    if (chaveDiaISOInicio_(d) > chaveHojeLeitura_) return;
+    var chaveBcbTaxa = formatarDataBcbRF_(d);
+    if (x.nome === 'CDI') fatoresCdi[chaveBcbTaxa] = 1 + (x.valor / 100);
+    else if (x.nome === 'SELIC') fatoresSelic[chaveBcbTaxa] = 1 + (x.valor / 100);
+    else fatoresIpca[chaveBcbTaxa] = 1 + (x.valor / 100);
+  });
 
   // Fluxo de caixa líquido diário (aporte/retirada) - ver correção de
   // 13/09/2026 no cabeçalho do arquivo e em FluxoCaixaInicio.gs. Calculado
   // aqui (não dentro do loop de dias abaixo) porque é 1 leitura por aba
   // de origem, não 1 por dia.
   var fluxoCaixa = calcularFluxoCaixaDiario_(mapaCambioUsd, classePorTicker);
+
+  // 23/09/2026 (investigação do Controle 7 - Tiago: "resolva de uma vez
+  // por todas"): cada ticker de Renda Variável passa por
+  // processarHistoricoRvDoTicker_ (ver lá, no fim deste arquivo, o
+  // porquê de cada passo, com os casos reais):
+  //  1) descarta preço isolado absurdo (BBAS3 com o câmbio no lugar do
+  //     preço em 18/09/2026);
+  //  2) corrige preço histórico do GOOGLEFINANCE que não bate com o preço
+  //     que o Tiago REALMENTE pagou (EGIE3/AXIA3/RECR11 com o histórico
+  //     "ajustado" ~40% pra baixo);
+  //  3) valor do dia = quantidade que as Transações dizem pra aquele dia ×
+  //     preço (× câmbio, pra EUA) - não mais a "Cotas" congelada na hora
+  //     do sync;
+  //  4) a posição nasce no dia da 1ª compra, mesmo se o 1º preço só
+  //     apareceu dias depois (BTLG11: comprado 16/05/2022, 1º preço
+  //     17/05/2022 - antes, o dia da compra virava um "prejuízo" do
+  //     tamanho da compra em todas as visões agregadas).
+  // 23/09/2026 #2 (Controle 8 - depois que o Tiago rodou
+  // rodarBackfillRendaFixaDireto(), "desde o início" foi pra -48%): o
+  // backfill de Renda Fixa gravava cada linha com +1 dia (um "ajuste de
+  // fuso" de 13/09/2026 que partia de uma leitura errada do .xlsx - ver
+  // BackfillRendaFixa.gs, já corrigido). O histórico antigo (backfill
+  // completo de ANTES desse ajuste) estava certo e só as linhas diárias
+  // novas vinham com +1 (por isso a última linha era sempre "amanhã");
+  // rodar o backfill completo com o ajuste deslocou o histórico INTEIRO um
+  // dia pra frente - todo aporte de Renda Fixa virava "prejuízo" num dia e
+  // "lucro" no seguinte. Proteção aqui na leitura, que vale pra qualquer
+  // desvio desse tipo no futuro: a 1ª linha de cada posição TEM que cair
+  // no dia da 1ª compra (Transações Renda Fixa); se cair N dias depois (ou
+  // antes, até 3), a posição inteira é deslocada de volta N dias. O desvio
+  // encontrado fica em ULTIMO_DIAGNOSTICO_RF_INICIO_ (os testes do harness
+  // acusam, pra lembrar de regravar o histórico com o backfill corrigido).
+  var primeiraCompraRf_ = fluxoCaixa.primeiraCompraRfPorPosicao || {};
+  var primeiraLinhaRf_ = {};
+  linhasRfLidas_.forEach(function (l) {
+    if (!primeiraLinhaRf_[l.posicao] || l.chave < primeiraLinhaRf_[l.posicao]) primeiraLinhaRf_[l.posicao] = l.chave;
+  });
+  function diasEntreChaves_(a, b) {
+    return Math.round((dataLocalDeChaveInicio_(b).getTime() - dataLocalDeChaveInicio_(a).getTime()) / 86400000);
+  }
+  function somarDiasChave_(chave, dias) {
+    return chaveDeDataUtcInicio_(new Date(dataLocalDeChaveInicio_(chave).getTime() + dias * 86400000));
+  }
+  var deslocamentoRf_ = {};
+  var diagnosticoRf_ = { deslocamentos: [] };
+  Object.keys(primeiraLinhaRf_).forEach(function (posicao) {
+    var compra = primeiraCompraRf_[posicao];
+    if (!compra) return;
+    var d = diasEntreChaves_(compra, primeiraLinhaRf_[posicao]);
+    if (d !== 0 && Math.abs(d) <= 3) {
+      deslocamentoRf_[posicao] = d;
+      diagnosticoRf_.deslocamentos.push({ posicao: posicao, dias: d, primeiraCompra: compra, primeiraLinha: primeiraLinhaRf_[posicao] });
+    }
+  });
+  if (diagnosticoRf_.deslocamentos.length) console.log('montarSerieHistoricoInicio_: Renda Fixa com data deslocada, realinhada: ' + JSON.stringify(diagnosticoRf_.deslocamentos));
+  ULTIMO_DIAGNOSTICO_RF_INICIO_ = diagnosticoRf_;
+
+  var zeradasRf_ = fluxoCaixa.posicoesRfZeradas || {};
+  var restosRfIgnorados_ = 0;
+  linhasRfLidas_.forEach(function (l) {
+    if (deslocamentoRf_[l.posicao]) l.chave = somarDiasChave_(l.chave, -deslocamentoRf_[l.posicao]);
+    // 23/09/2026: nada datado depois de hoje (o backfill antigo gravava a
+    // última linha com a data de amanhã - com ela, o último ponto da
+    // série não era "hoje" e os valores ao vivo não entravam, ver Home.gs).
+    if (l.chave > chaveHojeLeitura_) return;
+    var intervalos = zeradasRf_[l.posicao] || [];
+    for (var z = 0; z < intervalos.length; z++) {
+      if (l.chave >= intervalos[z].desde && (intervalos[z].ate == null || l.chave < intervalos[z].ate)) { restosRfIgnorados_++; return; }
+    }
+    porDiaRendaFixaTotal[l.chave] = (porDiaRendaFixaTotal[l.chave] || 0) + l.valorBrl;
+    if (l.classificacao === 'Renda Emergencial') {
+      porDiaRendaEmergencial[l.chave] = (porDiaRendaEmergencial[l.chave] || 0) + l.valorBrl;
+    }
+  });
+  if (restosRfIgnorados_) console.log('montarSerieHistoricoInicio_: ' + restosRfIgnorados_ + ' linha(s) de Renda Fixa de posição já zerada ignorada(s)');
+
+  var bonificacoesPorEmissor_ = montarBonificacoesPorEmissor_(fluxoCaixa.movimentosPorTicker || {});
+  var diagnosticoRv_ = { descartesPrecoIsolado: [], correcoesPreco: [], fronteirasIncertas: [], ancoras: [] };
+  Object.keys(linhasRvPorTicker_).forEach(function (ticker) {
+    var tickerMaiusculo = String(ticker).toUpperCase();
+    var resultado = processarHistoricoRvDoTicker_(
+      tickerMaiusculo,
+      linhasRvPorTicker_[ticker],
+      (fluxoCaixa.movimentosPorTicker || {})[tickerMaiusculo] || [],
+      bonificacoesPorEmissor_[tickerMaiusculo.slice(0, 4)] || [],
+      fluxoCaixa.primeiraCompraPorTicker && fluxoCaixa.primeiraCompraPorTicker[tickerMaiusculo]
+        ? chaveDiaISOInicio_(fluxoCaixa.primeiraCompraPorTicker[tickerMaiusculo])
+        : null
+    );
+    resultado.atualizacoes.forEach(function (u) {
+      if (!atualizacoesPorDiaTicker[u.chave]) atualizacoesPorDiaTicker[u.chave] = {};
+      atualizacoesPorDiaTicker[u.chave][ticker] = u.valorBrl;
+    });
+    ['descartesPrecoIsolado', 'correcoesPreco', 'fronteirasIncertas', 'ancoras'].forEach(function (k) {
+      diagnosticoRv_[k] = diagnosticoRv_[k].concat(resultado[k]);
+    });
+  });
+  if (diagnosticoRv_.descartesPrecoIsolado.length || diagnosticoRv_.correcoesPreco.length || diagnosticoRv_.fronteirasIncertas.length) {
+    console.log('montarSerieHistoricoInicio_: diagnóstico RV ' + JSON.stringify({
+      descartesPrecoIsolado: diagnosticoRv_.descartesPrecoIsolado,
+      correcoesPreco: diagnosticoRv_.correcoesPreco,
+      fronteirasIncertas: diagnosticoRv_.fronteirasIncertas
+    }));
+  }
+  ULTIMO_DIAGNOSTICO_RV_INICIO_ = diagnosticoRv_;
 
   var todasAsChaves = Object.keys(atualizacoesPorDiaTicker)
     .concat(Object.keys(porDiaRendaFixaTotal))
@@ -518,7 +651,15 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
         // mesma coisa 2x.
         if (!jaTinhaValor) {
           var primeiraCompra = fluxoCaixa.primeiraCompraPorTicker && fluxoCaixa.primeiraCompraPorTicker[tickerAtualizado];
-          if (primeiraCompra && dataAtual > primeiraCompra) {
+          // 23/09/2026: compara por DIA (chave yyyy-MM-dd no fuso do
+          // projeto), nunca Date contra Date - dataAtual é meia-noite
+          // "local" do runtime e primeiraCompra é o instante gravado na
+          // planilha (meia-noite de OUTRO fuso, o da planilha); comparar
+          // os dois instantes dava "depois" no próprio dia da 1ª compra,
+          // e o valor inteiro do ticker entrava 2x como aporte naquele dia
+          // (ex. real: BBSE3+VALE3 em 19/01/2023 -> Carteira de Ações com
+          // -101% num dia só, escondido pela trava de plausibilidade).
+          if (primeiraCompra && chaveAtual > chaveDiaISOInicio_(primeiraCompra)) {
             if (classeDoTicker === 'BR') flowExtraAcoesHoje += deltaTicker;
             else if (classeDoTicker === 'FII') flowExtraFiisHoje += deltaTicker;
             else if (classeDoTicker === 'USA') flowExtraUsaHoje += deltaTicker;
@@ -673,7 +814,13 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
-  return 'historico_serie_v8_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  // v9 (23/09/2026): (1) a conta mudou (STR fora, preço isolado absurdo
+  // ignorado, nada datado depois de hoje - ver montarSerieHistoricoInicio_);
+  // (2) a chave passou a incluir o DIA DE HOJE: a série agora nunca passa
+  // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
+  // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
+  // seria "hoje" pra receber os valores ao vivo (Home.gs).
+  return 'historico_serie_v9_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**
@@ -825,3 +972,315 @@ function dataLocalDeChaveInicio_(chaveIso) {
 function arredondar2Inicio_(n) {
   return Math.round(n * 100) / 100;
 }
+
+/** 23/09/2026: ver TICKERS_FORA_DO_HISTORICO (Sync.gs). */
+function tickerForaDoHistoricoInicio_(ticker) {
+  return typeof TICKERS_FORA_DO_HISTORICO !== 'undefined' && TICKERS_FORA_DO_HISTORICO.indexOf(String(ticker || '').trim().toUpperCase()) !== -1;
+}
+
+/** 23/09/2026: diagnóstico da ÚLTIMA montagem da série (cache MISS) - o
+ * que processarHistoricoRvDoTicker_ descartou/corrigiu e as âncoras
+ * (preço pago x preço do histórico) de cada negociação. Só leitura, pros
+ * testes do harness (tests/harness/) vigiarem. */
+var ULTIMO_DIAGNOSTICO_RV_INICIO_ = { descartesPrecoIsolado: [], correcoesPreco: [], fronteirasIncertas: [], ancoras: [] };
+
+/** 23/09/2026: bonificações (Compra com preço 0 e quantidade > 0) por
+ * EMISSOR (4 primeiras letras do ticker: EGIE3 -> "EGIE", AXIA3/AXIA7 ->
+ * "AXIA") -> [chave do dia] - uma bonificação paga em OUTRA classe da
+ * mesma empresa (ex. real: AXIA7 recebida por quem tinha AXIA3, em
+ * 22/12/2025) também marca o dia em que o preço da classe original muda
+ * de patamar. */
+function montarBonificacoesPorEmissor_(movimentosPorTicker) {
+  var porEmissor = {};
+  Object.keys(movimentosPorTicker).forEach(function (ticker) {
+    movimentosPorTicker[ticker].forEach(function (m) {
+      if (m.preco === 0 && m.delta > 0) {
+        var emissor = ticker.slice(0, 4);
+        if (!porEmissor[emissor]) porEmissor[emissor] = [];
+        porEmissor[emissor].push(m.chave);
+      }
+    });
+  });
+  Object.keys(porEmissor).forEach(function (e) { porEmissor[e].sort(); });
+  return porEmissor;
+}
+
+function medianaInicio_(valores) {
+  var v = valores.slice().sort(function (a, b) { return a - b; });
+  var meio = Math.floor(v.length / 2);
+  return v.length % 2 ? v[meio] : (v[meio - 1] + v[meio]) / 2;
+}
+
+// Corrige o preço histórico só quando o desvio é GRANDE e CONSISTENTE
+// (>= 12% em pelo menos 2 negociações seguidas, ou >= 25% numa só) -
+// diferença normal entre o preço de execução (intradiário) e o fechamento
+// do dia fica em +-4% nos dados reais do Tiago; nada abaixo de 12% é
+// mexido. Negociações a menos de 8% da mediana do grupo atual são "o mesmo
+// patamar".
+var LIMIAR_CORRECAO_PRECO_ANCORAGEM_ = 0.12;
+var LIMIAR_CORRECAO_PRECO_ANCORAGEM_UNICA_ = 0.25;
+var TOLERANCIA_PATAMAR_ANCORAGEM_ = 0.08;
+
+/**
+ * 23/09/2026 (investigação do Controle 7). Recebe as linhas de UM ticker
+ * de aux_historico-patrimonio e devolve o valor em R$ de cada dia, já
+ * limpo - ver montarSerieHistoricoInicio_. Passos, cada um com o caso
+ * real que o motivou:
+ *
+ * 1) Preço isolado absurdo: linha cujo preço se afasta mais de 40% do
+ *    ANTERIOR e cujo SEGUINTE volta pra perto do anterior (+-15%) é
+ *    descartada. Caso real: BBAS3 com Preço 5,1256 (o câmbio do dólar) em
+ *    18/09/2026, gravada por uma sincronização concorrente - 261 × 5,1256 =
+ *    R$ 1.337 no lugar de ~R$ 5.940, e o Patrimônio Nacional "caía" 5,5%
+ *    de 18 a 20/09. Desdobramento/grupamento de verdade nunca "volta" no
+ *    dia seguinte, então nunca é descartado por isso.
+ *
+ * 2) Âncora nos preços pagos: pra cada Compra/Venda com preço > 0, compara
+ *    o preço que o Tiago pagou com o fechamento do histórico naquele dia.
+ *    Casos reais (Controle 7): EGIE3 pago ~R$ 38-45 de 2023 a set/2025 com
+ *    o histórico dizendo ~R$ 27-31 (razão 1,41 em TODAS as 13 compras -
+ *    o GOOGLEFINANCE "ajustou" o passado pela bonificação de 40% de
+ *    nov/2025); AXIA3 razão ~1,38 em 2025 (bonificação/reorganização de
+ *    dez/2025); RECR11 razão ~1,39 até 05/11/2025 e o histórico dando um
+ *    SALTO de +40% em 07/11/2025 sem nenhum evento real (o Tiago pagou
+ *    ~R$ 80-86 antes e depois). Sem corrigir, cada compra antiga dessas
+ *    virava um "prejuízo" de ~29% no dia (aporte de verdade, valor
+ *    ajustado) e o salto virava um "lucro" falso. Negociações seguidas no
+ *    mesmo patamar formam um grupo; grupo com mediana >= 12% longe de 1
+ *    (ver limiares acima) tem os preços multiplicados pela mediana. A
+ *    troca de patamar entre dois grupos cai (i) numa bonificação do mesmo
+ *    emissor nesse intervalo, senão (ii) no dia em que o histórico dá um
+ *    salto do tamanho da diferença, senão (iii) no meio do intervalo -
+ *    marcada como INCERTA em fronteirasIncertas (os testes do harness
+ *    acusam, porque aí falta um dado na planilha: a data certa do evento).
+ *    O último patamar é sempre 1: o histórico recente (sincronizado dia a
+ *    dia, sem ajuste retroativo) bate com a B3 em todos os tickers.
+ *
+ * 3) Quantidade: vem das Transações (movimentos, com a data de cada um),
+ *    não da coluna "Cotas" congelada no dia do sync - uma correção feita
+ *    DEPOIS nas Transações (ex.: lançar a bonificação da EGIE3 na data
+ *    certa) passa a valer no histórico inteiro sem regravar nada. Ticker
+ *    sem nenhum movimento nas Transações cai no Valor BRL da linha, como
+ *    antes.
+ *
+ * 4) Preço atrasado: se a 1ª compra é anterior ao 1º preço conhecido, a
+ *    posição nasce no dia da compra com esse 1º preço (caso real: BTLG11,
+ *    compra 16/05/2022, 1º preço 17/05/2022 - antes, o aporte entrava sem
+ *    o valor e todas as visões agregadas mostravam -4,5% num dia e +4% no
+ *    outro).
+ */
+function processarHistoricoRvDoTicker_(ticker, linhasBrutas, movimentos, bonificacoesDoEmissor, chavePrimeiraCompra) {
+  var saida = { atualizacoes: [], descartesPrecoIsolado: [], correcoesPreco: [], fronteirasIncertas: [], ancoras: [] };
+
+  var linhas = linhasBrutas.map(function (l, idx) { return { l: l, ordem: idx }; });
+  linhas.sort(function (a, b) { return a.l.chave < b.l.chave ? -1 : (a.l.chave > b.l.chave ? 1 : a.ordem - b.ordem); });
+  linhas = linhas.map(function (x) { return x.l; });
+
+  // 1) preço isolado absurdo
+  var aceitas = [];
+  var precoAceitoAnterior = null;
+  for (var i = 0; i < linhas.length; i++) {
+    var l = linhas[i];
+    var proxima = linhas[i + 1];
+    if (precoAceitoAnterior > 0 && l.preco > 0 && proxima && proxima.preco > 0) {
+      var razao = l.preco / precoAceitoAnterior;
+      var razaoProxima = proxima.preco / precoAceitoAnterior;
+      if ((razao < 0.6 || razao > 1 / 0.6) && razaoProxima > 0.85 && razaoProxima < 1 / 0.85) {
+        saida.descartesPrecoIsolado.push({ ticker: ticker, dia: l.chave, preco: l.preco, precoAnterior: precoAceitoAnterior, precoSeguinte: proxima.preco });
+        continue;
+      }
+    }
+    if (l.preco > 0) precoAceitoAnterior = l.preco;
+    aceitas.push(l);
+  }
+  if (!aceitas.length) return saida;
+
+  // último preço aceito com chave <= dia (busca binária)
+  function precoHistoricoNoDia(chave) {
+    var lo = 0, hi = aceitas.length - 1, achado = -1;
+    while (lo <= hi) {
+      var meio = (lo + hi) >> 1;
+      if (aceitas[meio].chave <= chave) { achado = meio; lo = meio + 1; } else { hi = meio - 1; }
+    }
+    return achado === -1 ? null : aceitas[achado].preco;
+  }
+
+  // 2) âncoras e patamares
+  var movs = movimentos.slice().sort(function (a, b) { return a.chave < b.chave ? -1 : (a.chave > b.chave ? 1 : 0); });
+  var ancoras = [];
+  movs.forEach(function (m) {
+    if (!(m.preco > 0)) return;
+    var p = precoHistoricoNoDia(m.chave);
+    if (!(p > 0)) return;
+    ancoras.push({ chave: m.chave, precoPago: m.preco, precoHistorico: p, razao: m.preco / p });
+  });
+  var grupos = [];
+  ancoras.forEach(function (a) {
+    var g = grupos[grupos.length - 1];
+    if (g && Math.abs(a.razao / medianaInicio_(g.razoes) - 1) <= TOLERANCIA_PATAMAR_ANCORAGEM_) {
+      g.ancoras.push(a); g.razoes.push(a.razao);
+    } else {
+      grupos.push({ ancoras: [a], razoes: [a.razao] });
+    }
+  });
+  // 23/09/2026 #2 (Controle 8): bonificação do PRÓPRIO ticker dá o fator
+  // EXATO do ajuste, sem depender do limiar de 12% - caso real: AXIA3
+  // recebeu 3 ações em 08/06/2026 (35 -> 38, fator 1,0857) e os preços de
+  // jan-jun/2026 do histórico estão ~8% abaixo do que o Tiago pagou (1,047
+  // e 1,116); abaixo dos 12%, esses meses ficavam sem correção e a
+  // bonificação virava um "ganho" de ~8% da posição no dia 08/06. Da
+  // última faixa pra primeira: se entre esta faixa e a seguinte houver
+  // bonificação(ões) do próprio ticker e o fator dela(s) × o fator da
+  // faixa seguinte bater (+-4%) com a mediana desta faixa, usa esse valor
+  // exato.
+  function qtdAntesDe(chave) {
+    var q = 0;
+    for (var i2 = 0; i2 < movs.length && movs[i2].chave < chave; i2++) q += movs[i2].delta;
+    return q;
+  }
+  function fatorBonificacoesProprias(depoisDe, ate) {
+    var f = 1;
+    movs.forEach(function (m) {
+      if (m.preco === 0 && m.delta > 0 && m.chave > depoisDe && (ate == null || m.chave <= ate)) {
+        var q = qtdAntesDe(m.chave);
+        if (q > 0) f *= (q + m.delta) / q;
+      }
+    });
+    return f;
+  }
+  var fatorSeguinte = 1;
+  for (var gi = grupos.length - 1; gi >= 0; gi--) {
+    var g = grupos[gi];
+    var m = medianaInicio_(g.razoes);
+    var ultimaAncora = g.ancoras[g.ancoras.length - 1].chave;
+    var primeiraAncoraSeguinte = gi + 1 < grupos.length ? grupos[gi + 1].ancoras[0].chave : null;
+    var fb = fatorBonificacoesProprias(ultimaAncora, primeiraAncoraSeguinte);
+    var candidato = fatorSeguinte * fb;
+    if (Math.abs(fb - 1) >= 0.03 && Math.abs(m / candidato - 1) < 0.04) {
+      g.fator = Math.round(candidato * 1e6) / 1e6;
+    } else {
+      var forte = Math.abs(m - 1) >= LIMIAR_CORRECAO_PRECO_ANCORAGEM_ &&
+        (g.razoes.length >= 2 || Math.abs(m - 1) >= LIMIAR_CORRECAO_PRECO_ANCORAGEM_UNICA_);
+      g.fator = forte ? m : 1;
+    }
+    fatorSeguinte = g.fator;
+  }
+  // junta grupos vizinhos com o mesmo fator (1 com 1, principalmente)
+  var patamares = [];
+  grupos.forEach(function (g) {
+    var ult = patamares[patamares.length - 1];
+    if (ult && ult.fator === g.fator) { ult.ancoras = ult.ancoras.concat(g.ancoras); }
+    else patamares.push({ fator: g.fator, ancoras: g.ancoras.slice() });
+  });
+  if (patamares.length && patamares[patamares.length - 1].fator !== 1) {
+    // último patamar é sempre 1 (ver passo 2 no comentário da função)
+    patamares.push({ fator: 1, ancoras: [{ chave: aceitas[aceitas.length - 1].chave, virtual: true }] });
+  }
+
+  var fronteiras = []; // [{ desde: chave, fator }] - fator vale de `desde` (inclusive) até a próxima fronteira
+  if (patamares.length) fronteiras.push({ desde: '0000-00-00', fator: patamares[0].fator });
+  for (var k = 1; k < patamares.length; k++) {
+    var anterior = patamares[k - 1], atual = patamares[k];
+    var fimAnterior = anterior.ancoras[anterior.ancoras.length - 1].chave;
+    var inicioAtual = atual.ancoras[0].chave;
+    var dia = null, criterio = null;
+    // (i) bonificação do mesmo emissor no intervalo
+    for (var b = 0; b < bonificacoesDoEmissor.length; b++) {
+      if (bonificacoesDoEmissor[b] > fimAnterior && bonificacoesDoEmissor[b] <= inicioAtual) { dia = bonificacoesDoEmissor[b]; criterio = 'bonificacao'; break; }
+    }
+    // (ii) salto do histórico do tamanho da diferença de patamar
+    if (!dia) {
+      var alvo = Math.log(anterior.fator / atual.fator);
+      var melhor = null;
+      for (var j = 1; j < aceitas.length; j++) {
+        if (aceitas[j].chave <= fimAnterior || aceitas[j].chave > inicioAtual) continue;
+        if (!(aceitas[j].preco > 0 && aceitas[j - 1].preco > 0)) continue;
+        var dif = Math.abs(Math.log(aceitas[j].preco / aceitas[j - 1].preco) - alvo);
+        if (dif < 0.1 && (!melhor || dif < melhor.dif)) melhor = { dia: aceitas[j].chave, dif: dif };
+      }
+      if (melhor) { dia = melhor.dia; criterio = 'salto'; }
+    }
+    // (iii) meio do intervalo - INCERTO
+    if (!dia) {
+      var t0 = dataLocalDeChaveInicio_(fimAnterior).getTime();
+      var t1 = dataLocalDeChaveInicio_(inicioAtual).getTime();
+      dia = chaveDeDataUtcInicio_(new Date((t0 + t1) / 2));
+      criterio = 'incerto';
+      saida.fronteirasIncertas.push({ ticker: ticker, entre: fimAnterior, e: inicioAtual, fatorAntes: anterior.fator, fatorDepois: atual.fator, diaUsado: dia });
+    }
+    fronteiras.push({ desde: dia, fator: atual.fator });
+    if (anterior.fator !== 1) {
+      saida.correcoesPreco.push({ ticker: ticker, ate: dia, fator: Math.round(anterior.fator * 10000) / 10000, criterio: criterio });
+    }
+  }
+  function fatorNoDia(chave) {
+    var f = 1;
+    for (var x = 0; x < fronteiras.length; x++) { if (fronteiras[x].desde <= chave) f = fronteiras[x].fator; else break; }
+    return f;
+  }
+  ancoras.forEach(function (a) {
+    saida.ancoras.push({ ticker: ticker, dia: a.chave, precoPago: a.precoPago, precoHistorico: a.precoHistorico, precoHistoricoCorrigido: a.precoHistorico * fatorNoDia(a.chave) });
+  });
+
+  // 3) quantidade das Transações x preço (corrigido) x câmbio
+  var temMovimentos = movs.length > 0;
+  var idxMov = 0, qtd = 0;
+  function qtdAte(chave) {
+    while (idxMov < movs.length && movs[idxMov].chave <= chave) { qtd += movs[idxMov].delta; idxMov++; }
+    return qtd;
+  }
+  function valorDaLinha(l, chave) {
+    if (!temMovimentos) return l.valorBrl;
+    var q = qtdAte(chave);
+    var preco = l.preco * fatorNoDia(l.chave);
+    var v = q * preco;
+    if (l.classeBruta === 'USA') {
+      if (!(l.cambio > 0)) return null;
+      v = v * l.cambio;
+    }
+    return Math.abs(v) < 1e-9 ? 0 : v;
+  }
+
+  // 4) preço atrasado: posição nasce no dia da 1ª compra
+  if (chavePrimeiraCompra && chavePrimeiraCompra < aceitas[0].chave) {
+    var v0 = valorDaLinha(aceitas[0], chavePrimeiraCompra);
+    if (v0 != null) saida.atualizacoes.push({ chave: chavePrimeiraCompra, valorBrl: v0 });
+  }
+  // 23/09/2026: dia com mudança de QUANTIDADE sem linha de preço (ex.
+  // real: bonificação da EGIE3 lançada num domingo, 13/09/2026; ou uma
+  // compra lançada num feriado da B3) - a posição muda NESSE dia, com o
+  // último preço conhecido; antes só mudava no próximo pregão, e o aporte
+  // (se houver) ficava 1+ dia descasado do valor.
+  var chavesComLinha = {};
+  aceitas.forEach(function (l) { chavesComLinha[l.chave] = true; });
+  var diasSoMovimento = [];
+  movs.forEach(function (m) {
+    if (m.chave > aceitas[0].chave && !chavesComLinha[m.chave] && diasSoMovimento.indexOf(m.chave) === -1) diasSoMovimento.push(m.chave);
+  });
+  var linhasOrdenadas = aceitas.map(function (l) { return { chave: l.chave, linha: l }; });
+  diasSoMovimento.forEach(function (dia) {
+    var anterior = null;
+    for (var a = 0; a < aceitas.length && aceitas[a].chave < dia; a++) anterior = aceitas[a];
+    if (anterior) linhasOrdenadas.push({ chave: dia, linha: anterior });
+  });
+  linhasOrdenadas.sort(function (a, b) { return a.chave < b.chave ? -1 : (a.chave > b.chave ? 1 : 0); });
+  linhasOrdenadas.forEach(function (x) {
+    var v = valorDaLinha(x.linha, x.chave);
+    if (v != null) saida.atualizacoes.push({ chave: x.chave, valorBrl: v });
+  });
+  return saida;
+}
+
+/** 'yyyy-MM-dd' de um Date em UTC - só pra aritmética de chaves (o meio de
+ * dois dias criados por dataLocalDeChaveInicio_, que usa meio-dia UTC). */
+function chaveDeDataUtcInicio_(d) {
+  return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+}
+
+/** 23/09/2026: posições de Renda Fixa cuja data foi realinhada na ÚLTIMA
+ * montagem da série (ver montarSerieHistoricoInicio_). Só diagnóstico. */
+var ULTIMO_DIAGNOSTICO_RF_INICIO_ = { deslocamentos: [] };
+
+/** 23/09/2026 #2: se as taxas do BCB (CDI/SELIC/IPCA) da ÚLTIMA montagem
+ * da série precisaram ser realinhadas 1 dia (ver montarSerieHistoricoInicio_). */
+var ULTIMO_DIAGNOSTICO_TAXAS_INICIO_ = { deslocadasUmDia: false };

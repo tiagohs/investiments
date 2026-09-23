@@ -198,7 +198,7 @@ function montarCarteiraClasse_(classe) {
       totalInvestido: arredondarCarteirasClasses_(somaComprado),
       totalAtualizado: arredondarCarteirasClasses_(somaAtualizado),
       lucroPrejuizo: arredondarCarteirasClasses_(lucroPrejuizoTotal),
-      percentualLucroPrejuizo: somaComprado !== 0 ? arredondarCarteirasClasses_(lucroPrejuizoTotal / somaComprado) : 0,
+      percentualLucroPrejuizo: somaComprado !== 0 ? Math.round((lucroPrejuizoTotal / somaComprado) * 10000) / 10000 : 0, // 4 casas (23/09/2026 #3)
       proventosTotais: arredondarCarteirasClasses_(somaProventos),
       quantidadeAtivos: ativos.length
     },

@@ -11,10 +11,11 @@
  */
 
 import { getCarteirasAcoesEua, getHome } from '../api-client.js';
-import { formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
+import { formatBRL, formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
+  somaCampoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
@@ -185,11 +186,24 @@ function desenhar(doc, dados) {
   // formatUSD), sem "Proventos recebidos" (Ações EUA não traz esse dado
   // separado do back-end, 19/09/2026 #4). `cambio` acrescenta o "i" com
   // o equivalente em reais nos 3 valores em dólar (19/09/2026 #6).
+  // 23/09/2026 #3: o "i" do Valor aplicado e do Lucro/Prejuízo mostra o
+  // valor em reais com o câmbio de CADA compra (mesma conta do gráfico
+  // "Valor aplicado" logo abaixo e do card da Visão geral) - ver
+  // renderResumoClasseCarteiras. Sem histórico, cai no câmbio de hoje.
+  const custoBrl = somaCampoHistorico_(dados.historico, 'fluxoAplicadoAcoesEua');
+  const ultimoPonto = dados.historico && dados.historico.length ? dados.historico[dados.historico.length - 1] : null;
+  const valorBrl = ultimoPonto && typeof ultimoPonto.acoesEua === 'number' ? ultimoPonto.acoesEua : null;
+  const equivalentesBrl = custoBrl != null && valorBrl != null ? {
+    totalAtualizado: `Equivalente em reais: ${formatBRL(valorBrl)} (câmbio de hoje).`,
+    totalInvestido: `Em reais: ${formatBRL(custoBrl)} - cada compra no câmbio do dia dela (o mesmo número do fim da linha "Valor aplicado" do gráfico).`,
+    lucroPrejuizo: `Em reais: ${valorBrl - custoBrl >= 0 ? '+' : '-'}${formatBRL(Math.abs(valorBrl - custoBrl))} (${formatPercentFromFraction(custoBrl ? (valorBrl - custoBrl) / custoBrl : 0)}) - já com a variação do dólar desde cada compra.`,
+  } : null;
   renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), dados.resumo, {
     corToken: '--usa',
     formatarValor: formatUSD,
     vies: contarVies_(dados.ativos),
     cambio,
+    equivalentesBrl,
   });
 
   // 19/09/2026 #2 (correção do Tiago, fiel ao mockup): Ibovespa/S&P 500

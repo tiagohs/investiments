@@ -84,6 +84,16 @@ def main():
         out[nome] = {'linhas': linhas[:last_row_idx], 'lastRow': last_row_idx}
         print(nome, '-> lastRow', last_row_idx, 'cols', len(linhas[0]) if linhas else 0)
 
+    # 23/09/2026 #4: de onde as fixtures vieram - o relatório de conferência
+    # das telas (relatorio-telas.mjs) mostra isso no topo. A "data dos
+    # dados" de verdade (último sync de preços) é lida das próprias linhas.
+    # Chaves com "_" na frente não são abas (o harness pula).
+    out['_meta'] = {
+        'arquivo': os.path.basename(xlsx_path),
+        'arquivoModificadoEm': datetime.datetime.fromtimestamp(os.path.getmtime(xlsx_path), datetime.timezone.utc).isoformat(),
+        'extraidoEm': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False)
 

@@ -148,8 +148,20 @@ function renderHeroStats_(doc, container, cards, home) {
     const resumo = calcularResumoRentabilidade(home.patrimonio, home.historico, { visaoId: 'total', periodoId: 'tudo' });
     if (typeof resumo.valorAtual === 'number' && typeof resumo.ganhoReais === 'number') {
       resultado = resumo.ganhoReais;
-      investido = resumo.valorAtual - resumo.ganhoReais;
       rentabilidade = typeof resumo.percentual === 'number' ? resumo.percentual / 100 : null;
+      // 23/09/2026 (Tiago: "Valor aplicado" em todo o site, sem subtrair
+      // provento): o MESMO número do fim da linha tracejada "Valor
+      // aplicado" do gráfico de Evolução logo abaixo (soma de
+      // fluxoAplicadoPatrimonio - custo de tudo que está investido, ver
+      // FluxoCaixaInicio.gs). Antes era "patrimônio − resultado", que é
+      // outra coisa (desconta provento recebido) e não batia com o gráfico
+      // da mesma tela. Assim como no Gorila, Valor aplicado + Resultado
+      // não precisa dar o Patrimônio: o Resultado inclui provento já
+      // recebido e lucro já realizado, que não estão mais "aplicados".
+      const temAplicado = home.historico.some((item) => typeof item.fluxoAplicadoPatrimonio === 'number');
+      investido = temAplicado
+        ? home.historico.reduce((soma, item) => soma + (Number.isFinite(item.fluxoAplicadoPatrimonio) ? item.fluxoAplicadoPatrimonio : 0), 0)
+        : resumo.valorAtual - resumo.ganhoReais;
     }
   }
 
@@ -162,7 +174,7 @@ function renderHeroStats_(doc, container, cards, home) {
 
   const bom = resultado >= 0;
   container.innerHTML = `
-    <span>Investido: <b>${formatBRL(investido)}</b></span>
+    <span>Valor aplicado: <b>${formatBRL(investido)}</b></span>
     <span>Resultado (desde o início): <b class="${bom ? 'good' : 'bad'}">${bom ? '+' : ''}${formatBRL(resultado)}</b></span>
     <span>Rentabilidade: <b class="${bom ? 'good' : 'bad'}">${typeof rentabilidade === 'number' ? formatPercentFromFraction(rentabilidade) : '—'}</b></span>
   `;
@@ -410,7 +422,7 @@ function renderCardsClasse(doc, container, cards) {
         </div>
         <div class="cg-card-valor">${formatBRL(card.totalAtualizado)}${subvalorUsd}</div>
         <div class="cg-card-linha">
-          <span>Investido: <b>${formatBRL(card.totalInvestido)}</b></span>
+          <span>Valor aplicado: <b>${formatBRL(card.totalInvestido)}</b></span>
           <span class="${lucroBom ? 'good' : 'bad'}">${lucroBom ? '+' : ''}${formatBRL(card.lucroPrejuizo)}</span>
         </div>
         ${viesHtml}
@@ -430,12 +442,50 @@ function renderCardsClasse(doc, container, cards) {
   });
 }
 
+/** 23/09/2026 #3 (Controle 8 - o card de Renda Fixa mostrava a coluna
+ * manual "Valor Investido" enquanto a subpágina já mostrava o custo PEPS,
+ * e o de Ações Internacionais usava o custo em US$ × câmbio de HOJE, não o
+ * fim da linha "Valor aplicado" do gráfico): quando o histórico está
+ * disponível, o Valor aplicado de cada card sai da MESMA fonte do hero e
+ * das subpáginas - soma de fluxoAplicado<Classe> (custo médio de Ações/
+ * FIIs, câmbio de cada compra em Ações EUA, PEPS em Renda Fixa - ver
+ * FluxoCaixaInicio.gs). Lucro = valor de hoje − valor aplicado; % =
+ * lucro / valor aplicado, sem arredondar pra 2 casas antes (a API
+ * arredondava a fração e o % perdia as decimais). Assim os 4 cards somam
+ * exatamente o "Valor aplicado" do hero. Sem histórico, o card fica como
+ * a API mandou. */
+const CAMPO_APLICADO_POR_CARD = {
+  'Ações': 'fluxoAplicadoAcoes',
+  'FIIs': 'fluxoAplicadoFiis',
+  'Ações Internacionais': 'fluxoAplicadoAcoesEua',
+  'Renda Fixa': 'fluxoAplicadoRendaFixaTotal',
+};
+export function alinharCardsComHistorico_(cards, historico) {
+  if (!Array.isArray(cards)) return cards;
+  const temHistorico = Array.isArray(historico) && historico.length > 0;
+  return cards.map((card) => {
+    const campo = CAMPO_APLICADO_POR_CARD[card.nome];
+    let totalInvestido = card.totalInvestido;
+    if (temHistorico && campo && historico.some((item) => typeof item[campo] === 'number')) {
+      totalInvestido = historico.reduce((soma, item) => soma + (Number.isFinite(item[campo]) ? item[campo] : 0), 0);
+    }
+    const lucroPrejuizo = card.totalAtualizado - totalInvestido;
+    return {
+      ...card,
+      totalInvestido,
+      lucroPrejuizo,
+      rentabilidade: totalInvestido ? lucroPrejuizo / totalInvestido : 0,
+    };
+  });
+}
+
 function chaveDaPagina_(nomeCard) {
   const mapa = { 'Ações': 'acoes', 'FIIs': 'fiis', 'Ações Internacionais': 'acoes-eua', 'Renda Fixa': 'renda-fixa' };
   return mapa[nomeCard] || 'visao-geral';
 }
 
-function desenhar(doc, { carteiras, home }) {
+function desenhar(doc, { carteiras: carteirasApi, home }) {
+  const carteiras = { ...carteirasApi, cards: alinharCardsComHistorico_(carteirasApi.cards, home?.historico) };
   doc.getElementById('vgPatrimonioTotal').textContent = formatBRL(carteiras.patrimonioTotal);
   renderHeroStats_(doc, doc.getElementById('vgResumo'), carteiras.cards, home);
 

@@ -350,7 +350,7 @@ function valorPosicaoAtivo_(ativo, cambioUsd) {
  * `ativos` (não de patrimonio.porClasse, que só existe pro total
  * combinado - ver Home.gs) - classes com valor zero/ausente não entram.
  */
-export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false, excluirInternacional = false } = {}) {
+export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmergencial = false, excluirInternacional = false, totaisPorClasse = null } = {}) {
   const somas = { acoes: 0, fiis: 0, rf: 0, usa: 0 };
   // Soma à parte, só pra 'usa', o valor de posição em DÓLAR (preço
   // unitário em USD × quantidade - nunca convertido de volta a partir
@@ -368,6 +368,18 @@ export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmerge
       if (typeof ativo.precoAtual === 'number') somaUsaUsd += ativo.precoAtual * qtd;
     }
   });
+  // 23/09/2026 #3: quando o chamador tem o total EXATO de cada classe
+  // (patrimonio.porClasse, o mesmo número do card/topo de cada carteira),
+  // usa ele em vez da soma ativo a ativo - a soma de preço-em-R$-
+  // arredondado × quantidade dava a fatia "Ações EUA" alguns centavos
+  // diferente do resto do app.
+  if (totaisPorClasse) {
+    ORDEM_CLASSE_DISTRIB.forEach((classe) => {
+      if (excluirInternacional && classe === 'usa') return;
+      const v = totaisPorClasse[classe];
+      if (typeof v === 'number' && Number.isFinite(v) && somas[classe] > 0) somas[classe] = v;
+    });
+  }
   return ORDEM_CLASSE_DISTRIB
     .filter((classe) => somas[classe] > 0)
     .map((classe) => ({
@@ -669,8 +681,14 @@ export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cam
     if (visaoId === 'rendaEmergencial') {
       renderDistribuicao(doc, distribContainer, calcularDistribuicaoRendaEmergencial(ativos));
     } else {
+      const pc = patrimonio.porClasse;
+      const totaisPorClasse = pc ? {
+        acoes: pc.acoes, fiis: pc.fiis, usa: pc.acoesEua,
+        rf: (visaoId === 'longoPrazo' || visaoId === 'nacional') ? pc.rendaFixa - (patrimonio.rendaEmergencial || 0) : pc.rendaFixa,
+      } : null;
       renderDistribuicao(doc, distribContainer, calcularDistribuicaoPorClasse(ativos, {
         cambioUsd,
+        totaisPorClasse,
         excluirEmergencial: visaoId === 'longoPrazo' || visaoId === 'nacional',
         excluirInternacional: visaoId === 'nacional',
       }));
@@ -711,7 +729,15 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
     const ultimaData = historico[historico.length - 1].data;
     if (typeof ultimaData !== 'string' || ultimaData.length < 7) return historico;
     const anoMes = ultimaData.slice(0, 7); // 'yyyy-MM'
-    return historico.filter((item) => typeof item.data === 'string' && item.data.startsWith(anoMes));
+    // 23/09/2026 (comparando com o Gorila - o "Mês atual" de lá começa em
+    // "31 ago" com 0%): a BASE do mês é o fechamento do ÚLTIMO dia do mês
+    // anterior, não o 1º dia do mês - senão o que aconteceu no dia 1 (de
+    // 31/08 pra 01/09) simplesmente não entra na rentabilidade do mês. O
+    // ponto-base entra na janela (é o 0% do gráfico); o resto continua
+    // sendo só o mês corrente.
+    const idxPrimeiroDoMes = historico.findIndex((item) => typeof item.data === 'string' && item.data.startsWith(anoMes));
+    if (idxPrimeiroDoMes === -1) return [];
+    return historico.slice(Math.max(0, idxPrimeiroDoMes - 1));
   }
   const dias = DIAS_POR_PERIODO[periodoId];
   if (!dias) {
@@ -740,7 +766,9 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
     }
     return historico;
   }
-  return historico.slice(-dias);
+  // 23/09/2026: N dias de variação precisam de N+1 pontos (o 1º é a base
+  // - mesmo motivo do 'mes', acima).
+  return historico.slice(-(dias + 1));
 }
 
 // 19/09/2026: "carteiraX" abaixo são as visões por classe das 4
@@ -879,6 +907,22 @@ function primeiroIndiceValidoInicio_(historico, campo) {
   return -1;
 }
 
+/** 23/09/2026 #3: a janela começa no dia em que a visão NASCEU? (o
+ * ponto anterior a ela, no histórico completo, vale 0/não existe, e o dia
+ * tem aporte) - aí a rentabilidade mede a partir do custo desse aporte,
+ * não do fechamento do dia (ver normalizarSerieRentabilidade). */
+function inicioEhAbertura_(historicoCompleto, janela, campo, campoFluxo) {
+  const idx = primeiroIndiceValidoInicio_(janela, campo);
+  if (idx === -1) return false;
+  const pos = historicoCompleto.indexOf(janela[idx]);
+  if (pos === -1) return false;
+  const anterior = pos > 0 ? historicoCompleto[pos - 1][campo] : 0;
+  if (typeof anterior === 'number' && Number.isFinite(anterior) && anterior !== 0) return false;
+  const fluxo = janela[idx][campoFluxo];
+  const valor = janela[idx][campo];
+  return typeof fluxo === 'number' && fluxo > 0 && valor / fluxo >= 0.5 && valor / fluxo <= 2;
+}
+
 /** Primeiro valor numérico válido de `campo` em `historico` (ver
  * primeiroIndiceValidoInicio_). */
 function primeiroValorValidoInicio_(historico, campo) {
@@ -910,7 +954,7 @@ function primeiroValorValidoInicio_(historico, campo) {
  * Tiago: "incluir proventos também"). Sem campoFluxo, mantém o cálculo antigo
  * (usado pelos benchmarks, que não têm fluxo de caixa).
  */
-export function normalizarSerieRentabilidade(historico, campo, campoFluxo) {
+export function normalizarSerieRentabilidade(historico, campo, campoFluxo, { abertura = false } = {}) {
   if (!campoFluxo) {
     const base = primeiroValorValidoInicio_(historico, campo);
     if (base == null) return historico.map(() => null);
@@ -928,6 +972,24 @@ export function normalizarSerieRentabilidade(historico, campo, campoFluxo) {
   resultado[idxBase] = 0;
   let cumulativo = 0;
   let anterior = historico[idxBase][campo];
+  // 23/09/2026 #3 (Controle 8 - "Desde o início" de Ações EUA dava
+  // um ganho em R$ menor que o lucro da posição em reais - o que
+  // aconteceu no 1º dia sumia): quando a janela começa no DIA DA
+  // ABERTURA da visão (antes disso ela valia 0 - ver inicioEhAbertura_),
+  // o ponto de partida não é o fechamento desse dia e sim o CUSTO
+  // aplicado nele (o fluxo do dia) - o que aconteceu entre a compra e o
+  // fechamento do 1º dia também é rendimento (mesma convenção do Gorila:
+  // base 0 na véspera da 1ª compra). Sem a flag (default), igual antes.
+  if (abertura) {
+    const fluxoAbertura = historico[idxBase][campoFluxo];
+    if (typeof fluxoAbertura === 'number' && fluxoAbertura > 0) {
+      const fatorAbertura = anterior / fluxoAbertura;
+      if (fatorAbertura >= 0.5 && fatorAbertura <= 2) {
+        cumulativo = fatorAbertura - 1;
+        resultado[idxBase] = cumulativo * 100;
+      }
+    }
+  }
 
   for (let i = idxBase + 1; i < historico.length; i += 1) {
     const v = historico[i][campo];
@@ -1134,14 +1196,23 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
   const corPrincipal = COR_PRINCIPAL_POR_VISAO[visaoId] || COR_PRINCIPAL_POR_VISAO.total;
 
-  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoPrincipal);
+  let janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoPrincipal);
+  // 23/09/2026 #3 (Controle 8 - Ações EUA em "3 anos": a carteira só existe
+  // desde 11/06/2025, mas o S&P 500 era medido desde 24/09/2023 e a legenda
+  // comparava o portfólio com ~2 anos a mais de S&P 500): quando a visão nasce DENTRO da janela, o
+  // gráfico (portfólio e benchmarks) começa no 1º dia dela - comparar
+  // sempre o mesmo intervalo.
+  const idxNascimento = primeiroIndiceValidoInicio_(janela, campoPrincipal);
+  if (idxNascimento > 0) janela = janela.slice(idxNascimento);
   if (janela.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
     if (legendaContainer) legendaContainer.innerHTML = '';
     return;
   }
 
-  const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal, campoFluxoPrincipal);
+  const seriePrincipal = normalizarSerieRentabilidade(janela, campoPrincipal, campoFluxoPrincipal, {
+    abertura: inicioEhAbertura_(historico, janela, campoPrincipal, campoFluxoPrincipal),
+  });
   const seriesBenchmark = benchmarks.map((b) => {
     const valores = normalizarSerieRentabilidade(janela, b.campo);
     return { ...b, valores, delta: ultimoValidoDe_(valores) };
@@ -1298,7 +1369,8 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   // 20/09/2026: mesmo corte de "Desde o início" por visão - ver comentário
   // de filtrarHistoricoPorPeriodo/renderGraficoRentabilidade.
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campo);
-  const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo) : [];
+  const abertura = janela.length >= 2 && inicioEhAbertura_(historico, janela, campo, campoFluxo);
+  const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo, { abertura }) : [];
   const percentual = ultimoValidoDe_(serieNormalizada);
 
   // 13/09/2026 (correção Gorilla): o ganho em R$ também precisa descontar o
@@ -1322,7 +1394,12 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
         for (let i = idxBase + 1; i < janela.length; i += 1) {
           somaFluxo += janela[i][campoFluxo] || 0;
         }
-        ganhoReais = (ultimoBruto - base) - somaFluxo;
+        // abertura (ver normalizarSerieRentabilidade): a base é 0 na
+        // véspera e o aporte do 1º dia entra como fluxo - o ganho vira
+        // exatamente "valor de hoje − tudo o que entrou".
+        ganhoReais = abertura
+          ? ultimoBruto - (janela[idxBase][campoFluxo] || 0) - somaFluxo
+          : (ultimoBruto - base) - somaFluxo;
       }
     }
   }

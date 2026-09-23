@@ -91,7 +91,7 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 3);
     const textoResumo = doc.getElementById('acoesResumo').textContent;
     assert.match(textoResumo, /29\.968,40/);
-    assert.match(textoResumo, /Investido:\sR\$\s25\.657,39/);
+    assert.match(textoResumo, /Valor aplicado:\sR\$\s25\.657,39/);
     assert.match(textoResumo, /Proventos recebidos/);
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 2);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);

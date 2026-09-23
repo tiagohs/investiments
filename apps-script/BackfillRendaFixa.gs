@@ -62,6 +62,23 @@
  * seguro rodar de novo) - o gatilho diário (versão incremental) já sai
  * corrigido a partir da próxima vez que rodar.
  *
+ * Correção de 23/09/2026 (desfaz a de 13/09/2026, logo acima - achada
+ * com o Controle 7 e confirmada com o Controle 8): o "desvio de 1 dia" de
+ * 13/09/2026 NÃO existia - foi uma leitura errada do .xlsx exportado. A
+ * planilha do Tiago está no fuso America/New_York e o projeto em
+ * America/Sao_Paulo: uma linha gravada à meia-noite de SP aparece no
+ * .xlsx como 22h/23h do dia ANTERIOR (a troca 22h<->23h cai exatamente nas
+ * datas de horário de verão dos EUA). O cursor sempre esteve no dia certo.
+ * Prova com dado real: o histórico gravado ANTES do "+1" (Controle 7)
+ * tinha TODA compra/venda/resgate de Renda Fixa aparecendo no saldo no
+ * próprio dia da transação (40+ eventos de 2020 a 2026, conferidos um a
+ * um); as linhas diárias gravadas DEPOIS do "+1" saíam sempre com a data
+ * de AMANHÃ; e o backfill completo rodado com o "+1" (Controle 8)
+ * deslocou o histórico inteiro 1 dia pra frente (cada aporte virava
+ * "prejuízo" num dia e "lucro" no outro - "desde o início" foi pra -48%).
+ * A data gravada volta a ser o próprio cursor. DEPOIS de colar este
+ * arquivo, rode rodarBackfillRendaFixaDireto() uma vez pra regravar a aba.
+ *
  * v4: normaliza o nome da instituição por palavra-chave (XP/RICO -> "XP",
  * NU -> "NU", INTER -> "INTER") antes de agrupar e de cruzar com a
  * Carteira — corrige fragmentação causada por "Rico" ter virado "XP" e a
@@ -133,6 +150,7 @@ function executarBackfillRendaFixa_() {
   if (!abaCarteira) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF);
 
   var mapaClassificacao = montarMapaClassificacaoRF_(abaCarteira);
+  var spreadPorPosicao = lerSpreadsContratadosRF_(); // 23/09/2026 #2 - ver função
 
   var ultimaLinha = abaTransacoes.getLastRow();
   var qtdLinhas = ultimaLinha - LINHA_CABECALHO_TRANSACOES_RF;
@@ -214,6 +232,12 @@ function executarBackfillRendaFixa_() {
         if (tipoMov.indexOf('VENDA') >= 0 || tipoMov.indexOf('RESGATE') >= 0 || tipoMov.indexOf('TAXA') >= 0) {
           // Venda, Resgate, Cobrança de Taxa Semestral (custódia B3): saem do saldo.
           saldo -= ev.valor;
+        } else if (tipoMov.indexOf('JUROS') >= 0 && spreadPorPosicao[chave]) {
+          // 23/09/2026 #2: com o spread contratado na projeção (ver
+          // lerSpreadsContratadosRF_), o cupom semestral JÁ está dentro do
+          // saldo - quando é pago, sai do título (igual ao preço do título
+          // na B3, que cai no pagamento do cupom).
+          saldo -= ev.valor;
         } else if (tipoMov.indexOf('JUROS') >= 0 || tipoMov.indexOf('TRANSFER') >= 0) {
           // Juros: sai pra conta, não afeta o principal.
           // Transferência: par Débito+Crédito sem valor monetário, não afeta o saldo.
@@ -225,17 +249,16 @@ function executarBackfillRendaFixa_() {
       }
 
       if (saldo > 0.01) {
-        // +1 dia: a Data GRAVADA corrige o desvio de fuso do cursor (ver
-        // correção de 13/09/2026 no cabeçalho do arquivo) - o cursor em si
-        // (usado pra achar eventos/fator do dia, logo abaixo) continua
-        // intocado.
-        var dataGravada = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+        // 23/09/2026: SEM o "+1 dia" de 13/09/2026 - ver correção de
+        // 23/09/2026 no cabeçalho do arquivo.
+        var dataGravada = new Date(cursor.getTime());
         linhasSaida.push([dataGravada, posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
       var chaveDia = formatarDataBcbRF_(cursor);
       var fatorDoDia = fatores[chaveDia];
       if (fatorDoDia) saldo = saldo * fatorDoDia;
+      saldo = saldo * fatorSpreadRF_(spreadPorPosicao[chave], cursor);
 
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -282,6 +305,7 @@ function executarBackfillRendaFixaIncremental_() {
   if (!abaCarteira) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF);
 
   var mapaClassificacao = montarMapaClassificacaoRF_(abaCarteira);
+  var spreadPorPosicao = lerSpreadsContratadosRF_(); // 23/09/2026 #2 - ver função
 
   // 1) agrupa as transações por posição — mesma lógica do backfill completo
   var ultimaLinhaTransacoes = abaTransacoes.getLastRow();
@@ -398,6 +422,7 @@ function executarBackfillRendaFixaIncremental_() {
       var chaveDiaRef = formatarDataBcbRF_(referencia);
       var fatorRef = fatores[chaveDiaRef];
       if (fatorRef) saldo = saldo * fatorRef;
+      saldo = saldo * fatorSpreadRF_(spreadPorPosicao[chave], referencia);
 
       cursor = new Date(referencia);
       cursor.setDate(cursor.getDate() + 1);
@@ -414,6 +439,8 @@ function executarBackfillRendaFixaIncremental_() {
         var tipoMov = ev.movimentacao.toUpperCase();
         if (tipoMov.indexOf('VENDA') >= 0 || tipoMov.indexOf('RESGATE') >= 0 || tipoMov.indexOf('TAXA') >= 0) {
           saldo -= ev.valor;
+        } else if (tipoMov.indexOf('JUROS') >= 0 && spreadPorPosicao[chave]) {
+          saldo -= ev.valor; // 23/09/2026 #2: ver backfill completo
         } else if (tipoMov.indexOf('JUROS') >= 0 || tipoMov.indexOf('TRANSFER') >= 0) {
           // não afeta o principal
         } else {
@@ -423,14 +450,15 @@ function executarBackfillRendaFixaIncremental_() {
       }
 
       if (saldo > 0.01) {
-        // +1 dia: mesma correção do backfill completo, ver cabeçalho do arquivo.
-        var dataGravada = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+        // 23/09/2026: SEM o "+1 dia" - ver cabeçalho do arquivo.
+        var dataGravada = new Date(cursor.getTime());
         linhasNovas.push([dataGravada, posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);
       }
 
       var chaveDia = formatarDataBcbRF_(cursor);
       var fatorDoDia = fatores[chaveDia];
       if (fatorDoDia) saldo = saldo * fatorDoDia;
+      saldo = saldo * fatorSpreadRF_(spreadPorPosicao[chave], cursor);
 
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -740,4 +768,39 @@ function repararDataResgateSelic2027Marco2026_() {
     '23/03 ' + saldo23Atual + ' -> ' + novo23 + ', 24/03 ' + saldo24Atual + ' -> ' + novo24 + '.';
   gravarRegistroControle_('Sucesso', 'Manual', detalhe);
   return { linha23: linha23 + 2, linha24: linha24 + 2, saldo23Antes: saldo23Atual, saldo23Depois: novo23, saldo24Antes: saldo24Atual, saldo24Depois: novo24 };
+}
+
+/**
+ * 23/09/2026 #2 (Controle 8): taxa CONTRATADA acima do índice (o "+6,04%"
+ * do IPCA+ 2029, o "+0,054%" do Tesouro Selic 2028...), por posição
+ * ('Produto|Instituição' canônica, mesma chave do backfill), lida de "RF
+ * Contratada - Resumo" (coluna F, spread médio ponderado dos lotes). Antes
+ * a projeção usava só o índice puro ("aproximação aceita" de 12/09/2026,
+ * quando o spread ainda não estava na planilha) - o IPCA+ 2029 saía R$ 316
+ * abaixo da B3, e a Renda Fixa de Longo Prazo parecia render bem menos do
+ * que rende. Título sem linha no Resumo fica com spread 0 (índice puro,
+ * como antes).
+ */
+function lerSpreadsContratadosRF_() {
+  var mapa = {};
+  var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RF Contratada - Resumo');
+  if (!aba) return mapa;
+  var ultima = aba.getLastRow();
+  if (ultima < 2) return mapa;
+  aba.getRange(2, 1, ultima - 1, 6).getValues().forEach(function (linha) {
+    var titulo = String(linha[0] || '').trim();
+    var spread = Number(linha[5]);
+    if (!titulo || !isFinite(spread) || spread === 0) return;
+    mapa[titulo + '|' + normalizarInstituicaoRF_(linha[1])] = spread;
+  });
+  return mapa;
+}
+
+/** Fator de 1 dia do spread contratado (ano de 252 dias úteis, só em dia de
+ * semana - feriado não é descontado, erro de ~3% do spread no ano). */
+function fatorSpreadRF_(spreadAnual, dia) {
+  if (!spreadAnual) return 1;
+  var diaSemana = dia.getDay();
+  if (diaSemana === 0 || diaSemana === 6) return 1;
+  return Math.pow(1 + spreadAnual, 1 / 252);
 }

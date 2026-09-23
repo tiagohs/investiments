@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { carregarSerieComDadosReais } from './gas-vm-harness.mjs';
+import { carregarSerieComDadosReais, relogioNoFusoParaUtcMs_, FUSO_PLANILHA_XLSX } from './gas-vm-harness.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_PATH = path.join(__dirname, 'fixtures.json');
@@ -101,7 +101,15 @@ test('fonte da verdade: a série cobre exatamente do 1º ao último dia real das
   // "yyyy-MM-dd" em America/Sao_Paulo que o app usa.
   const fixturesRaw = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf8'));
   const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
-  function chaveDe(iso) { return fmt.format(new Date(iso)); }
+  // 23/09/2026: o relógio do .xlsx está no fuso da PLANILHA (America/
+  // New_York), não no fuso do projeto - ver reviveDate em
+  // gas-vm-harness.mjs pra prova. Antes, `new Date(iso)` lia no fuso da
+  // máquina que roda o teste, e a conta "batia" por acaso com o erro
+  // igual do próprio harness.
+  function chaveDe(iso) {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    return fmt.format(new Date(relogioNoFusoParaUtcMs_(FUSO_PLANILHA_XLSX, +m[1], +m[2], +m[3], +m[4], +m[5], +m[6])));
+  }
 
   const chaves = [];
   for (const linha of (fixturesRaw['aux_historico-patrimonio']?.linhas || []).slice(1)) {
@@ -125,7 +133,13 @@ test('fonte da verdade: a série cobre exatamente do 1º ao último dia real das
   assert.ok(chaves.length > 0, 'nenhuma data crua encontrada nas 3 abas-fonte do fixture - algo mudou no formato do fixture?');
   chaves.sort();
   const primeiraChaveEsperada = chaves[0];
-  const ultimaChaveEsperada = chaves[chaves.length - 1];
+  // 23/09/2026: linha datada DEPOIS de hoje nunca entra na série (o
+  // backfill de Renda Fixa grava a última linha com a data de amanhã -
+  // ver HistoricoInicio.gs, bloco de Renda Fixa). O "último dia real" é o
+  // último que não está no futuro.
+  const hojeSp_ = fmt.format(new Date());
+  const chavesAteHoje = chaves.filter((c) => c <= hojeSp_);
+  const ultimaChaveEsperada = chavesAteHoje[chavesAteHoje.length - 1];
 
   assert.equal(serie[0].data, primeiraChaveEsperada, `1º dia da série (${serie[0].data}) deveria ser exatamente o 1º dia real das abas-fonte (${primeiraChaveEsperada}) - um dia "fantasma" antes disso é o bug de fuso horário (new Date("yyyy-MM-dd") = meia-noite UTC, não meia-noite SP)`);
 

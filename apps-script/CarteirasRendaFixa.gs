@@ -73,6 +73,14 @@ function montarCarteirasRendaFixa_() {
     irPorChave[normalizarChaveRfSubpagina_(posicaoIr.titulo, posicaoIr.instituicao)] = posicaoIr;
   });
 
+  // ---- 23/09/2026 #2: "Valor aplicado" = custo PEPS das Transações ----
+  // (ver custoRendaFixaPepsHoje_, FluxoCaixaInicio.gs) - a coluna manual
+  // "Valor Investido" da Carteira Renda Fixa só é usada quando o título não
+  // é encontrado nas Transações.
+  var custoPeps = {};
+  try { custoPeps = custoRendaFixaPepsHoje_(); } catch (errPeps) { custoPeps = {}; }
+  function custoPepsDoTitulo(nome, instituicao) { return custoPepsDoTituloRf_(custoPeps, nome, instituicao); }
+
   // ---- percorre as posições de Carteira Renda Fixa ----
   var abaCarteira = ss.getSheetByName(ABA_CARTEIRA_RF_SUBPAGINA);
   if (!abaCarteira) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_SUBPAGINA);
@@ -94,6 +102,10 @@ function montarCarteirasRendaFixa_() {
       if (!codigo && !tipo) return;
 
       var nomeLimpo = String(nome || tipo || '').trim();
+      var custo = custoPepsDoTitulo(nomeLimpo, instituicao);
+      // sem arredondar aqui (só na saída) - arredondar título a título fazia o
+      // total sair 1 centavo diferente do card/gráfico (23/09/2026 #3)
+      if (custo != null) valorInvestido = custo;
       var chave = normalizarChaveRfSubpagina_(nomeLimpo, instituicao);
       var rentabilidadeContratada = resumoPorChave[chave] || null;
       var ir = irPorChave[chave] || null;
@@ -113,7 +125,7 @@ function montarCarteirasRendaFixa_() {
         quantidade: quantidade,
         vencimento: vencimento instanceof Date ?
           Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'MM/yyyy') : (vencimento || null),
-        totalInvestido: valorInvestido,
+        totalInvestido: typeof valorInvestido === 'number' ? arredondarCarteirasRf_(valorInvestido) : valorInvestido,
         totalAtualizado: valorAtualizado,
         rentabilidadeContratada: rentabilidadeContratada ? {
           indice: rentabilidadeContratada.indice,
@@ -144,7 +156,7 @@ function montarCarteirasRendaFixa_() {
       totalInvestido: arredondarCarteirasRf_(somaComprado),
       totalAtualizado: arredondarCarteirasRf_(somaAtualizado),
       lucroPrejuizo: arredondarCarteirasRf_(lucroPrejuizoTotal),
-      percentualLucroPrejuizo: somaComprado !== 0 ? arredondarCarteirasRf_(lucroPrejuizoTotal / somaComprado) : 0,
+      percentualLucroPrejuizo: somaComprado !== 0 ? arredondarFracaoCarteirasRf_(lucroPrejuizoTotal / somaComprado) : 0,
       quantidadeAtivos: ativos.length
     },
     benchmarks: (function () {
@@ -158,6 +170,32 @@ function montarCarteirasRendaFixa_() {
 
 function normalizarChaveRfSubpagina_(titulo, instituicao) {
   return String(titulo || '').trim().toUpperCase() + '|' + String(instituicao || '').trim().toUpperCase();
+}
+
+/** 23/09/2026 #3: custo PEPS de um título da "Carteira Renda Fixa" dentro
+ * de custoRendaFixaPepsHoje_() (FluxoCaixaInicio.gs) - compartilhado com
+ * CarteirasHome.gs (card de Renda Fixa da Visão geral), pra os dois nunca
+ * mostrarem "Valor aplicado" diferente. null = não achou nas Transações. */
+function custoPepsDoTituloRf_(custoPeps, nome, instituicao) {
+  var inst = normalizarInstituicaoRF_(instituicao);
+  var exato = custoPeps[nome + '|' + inst];
+  if (exato && exato.qtd > 0) return exato.custo;
+  // LCI/LCA/CDB: na Carteira o nome é livre ("LCI - BANCO INTER S/A"), nas
+  // Transações é o código ("LCI - 26I02621944") - casa pelo tipo + instituição.
+  var tipo = String(nome).split(/[\s-]/)[0].toUpperCase();
+  if (['LCI', 'LCA', 'CDB'].indexOf(tipo) === -1) return null;
+  var soma = 0, achou = false;
+  Object.keys(custoPeps).forEach(function (k) {
+    var partes = k.split('|');
+    if (partes[1] === inst && partes[0].toUpperCase().indexOf(tipo) === 0 && custoPeps[k].qtd > 0) { soma += custoPeps[k].custo; achou = true; }
+  });
+  return achou ? soma : null;
+}
+
+/** % com 4 casas (0,1657 = 16,57%) - arredondarCarteirasRf_ (2 casas)
+ * arredondava o % pro inteiro mais próximo (23/09/2026 #3). */
+function arredondarFracaoCarteirasRf_(valor) {
+  return Math.round((valor + Number.EPSILON) * 10000) / 10000;
 }
 
 function arredondarCarteirasRf_(valor) {

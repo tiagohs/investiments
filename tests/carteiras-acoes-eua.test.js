@@ -98,7 +98,7 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
     const textoResumo = doc.getElementById('acoesEuaResumo').textContent;
     assert.match(textoResumo, /\$4,103\.79/);
-    assert.match(textoResumo, /Investido: \$3,701\.85/);
+    assert.match(textoResumo, /Valor aplicado: \$3,701\.85/);
     assert.ok(!textoResumo.includes('Proventos recebidos'));
     assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 2); // só Lucro/Prejuízo + Ativos na carteira
 

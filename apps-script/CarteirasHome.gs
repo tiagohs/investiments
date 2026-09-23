@@ -96,6 +96,13 @@ function montarCarteirasHome_() {
   }
 
   var somaRF = { comprado: 0, atualizado: 0, qtd: 0 };
+  // 23/09/2026 #3 (Controle 8): "Valor aplicado" de Renda Fixa = custo PEPS
+  // das Transações Renda Fixa - a MESMA conta da subpágina de Renda Fixa
+  // (CarteirasRendaFixa.gs!custoPepsDoTituloRf_). O card lia a coluna manual
+  // "Valor Investido" enquanto a subpágina já mostrava o PEPS - os dois
+  // números não batiam. Coluna manual só quando o título não é achado.
+  var custoPepsRf = {};
+  try { custoPepsRf = custoRendaFixaPepsHoje_(); } catch (errPepsRf) { custoPepsRf = {}; }
   var abaRF = ss.getSheetByName(ABA_CARTEIRA_RF_CARTEIRAS_HOME);
   if (!abaRF) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_CARTEIRAS_HOME);
   var ultimaRF = abaRF.getLastRow();
@@ -107,6 +114,8 @@ function montarCarteirasHome_() {
     dadosRF.forEach(function (linha) {
       var codigo = linha[0], tipo = linha[3], valorInvestido = linha[8], valorAtualizado = linha[11];
       if (!codigo && !tipo) return;
+      var custoPeps = custoPepsDoTituloRf_(custoPepsRf, String(linha[2] || tipo || '').trim(), linha[5]);
+      if (custoPeps != null) valorInvestido = custoPeps; // arredonda só no card (montarCard_)
       somaRF.comprado += (valorInvestido || 0);
       somaRF.atualizado += (valorAtualizado || 0);
       somaRF.qtd += 1;
@@ -123,7 +132,7 @@ function montarCarteirasHome_() {
         arredondarCarteirasHome_(totalAtualizado / home.patrimonio.total) : 0,
       totalInvestido: arredondarCarteirasHome_(agSoma.comprado),
       lucroPrejuizo: arredondarCarteirasHome_(lucroPrejuizo),
-      rentabilidade: arredondarCarteirasHome_(percLucroPrejuizo),
+      rentabilidade: Math.round(percLucroPrejuizo * 10000) / 10000, // 4 casas (23/09/2026 #3 - com 2 casas o % perdia as decimais)
       quantidadeAtivos: agSoma.qtd
     };
     // só RV tem Vies (agSomaRV acima) - Renda Fixa (somaRF) não passa

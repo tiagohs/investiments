@@ -54,9 +54,14 @@ import { resolveSiteRootUrl } from '../shell.js';
  * porcentagem pode ir pra baixo" - nenhum CSS novo precisou pra isso, o
  * <span> da % já é inline e quebra sozinho quando falta espaço).
  */
-export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL, vies = null, cambio = null } = {}) {
+export function renderResumoClasseCarteiras(doc, container, resumo, { corToken = '--acoes', extras = [], formatarValor = formatBRL, vies = null, cambio = null, equivalentesBrl = null } = {}) {
   if (!container || !resumo) return;
   const lucroBom = resumo.lucroPrejuizo >= 0;
+  // 23/09/2026 #3: % calculado aqui, com todas as casas - a API manda a
+  // fração já arredondada pra 2 casas, e um lucro de 12,4% aparecia "12,00%".
+  const percentualLucro = typeof resumo.totalInvestido === 'number' && resumo.totalInvestido !== 0 && typeof resumo.lucroPrejuizo === 'number'
+    ? resumo.lucroPrejuizo / resumo.totalInvestido
+    : resumo.percentualLucroPrejuizo;
 
   let ativosValorHtml = String(resumo.quantidadeAtivos);
   if (vies && typeof vies.comprar === 'number' && typeof vies.aguardar === 'number' && (vies.comprar + vies.aguardar) > 0) {
@@ -69,14 +74,22 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
     `;
   }
 
-  const equivTotal = equivalenteBrlHtml_(resumo.totalAtualizado, cambio);
-  const equivInvestido = equivalenteBrlHtml_(resumo.totalInvestido, cambio);
-  const equivLucro = equivalenteBrlHtml_(resumo.lucroPrejuizo, cambio);
+  // 23/09/2026 #3 (Ações EUA): `equivalentesBrl` troca o "i" genérico
+  // (valor em US$ × câmbio de HOJE) por textos prontos - o Valor aplicado
+  // em reais é o custo de cada compra no câmbio do dia dela (o mesmo
+  // número do fim da linha "Valor aplicado" do gráfico logo abaixo); US$
+  // × câmbio de hoje dava um número diferente do fim da linha do gráfico.
+  const equivDe_ = (chave, valorUsd) => (equivalentesBrl && equivalentesBrl[chave]
+    ? botaoInfoHtml(equivalentesBrl[chave], { pequeno: true })
+    : equivalenteBrlHtml_(valorUsd, cambio));
+  const equivTotal = equivDe_('totalAtualizado', resumo.totalAtualizado);
+  const equivInvestido = equivDe_('totalInvestido', resumo.totalInvestido);
+  const equivLucro = equivDe_('lucroPrejuizo', resumo.lucroPrejuizo);
 
   const stats = [
     {
       label: 'Lucro / Prejuízo',
-      valor: `${formatarValor(resumo.lucroPrejuizo)}${equivLucro}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(resumo.percentualLucroPrejuizo)}</span>`,
+      valor: `${formatarValor(resumo.lucroPrejuizo)}${equivLucro}<span class="cc-resumo-stat-pct ${lucroBom ? 'good' : 'bad'}">${formatPercentFromFraction(percentualLucro)}</span>`,
       classe: lucroBom ? 'good' : 'bad',
     },
     { label: 'Ativos na carteira', valor: ativosValorHtml },
@@ -87,7 +100,7 @@ export function renderResumoClasseCarteiras(doc, container, resumo, { corToken =
     <div class="cc-resumo" style="--tile-accent:var(${corToken})">
       <div class="cc-resumo-principal">
         <span class="cc-resumo-valor">${formatarValor(resumo.totalAtualizado)}${equivTotal}</span>
-        <span class="cc-resumo-investido">Investido: ${formatarValor(resumo.totalInvestido)}${equivInvestido}</span>
+        <span class="cc-resumo-investido">Valor aplicado: ${formatarValor(resumo.totalInvestido)}${equivInvestido}</span>
       </div>
       <div class="cc-resumo-sep" aria-hidden="true"></div>
       <div class="cc-resumo-stats">
@@ -728,6 +741,29 @@ function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, va
  * --acoes, preservando esse comportamento caso um chamador não passe
  * nada).
  */
+/** 23/09/2026 #3: soma de um campo diário do histórico (ex.:
+ * fluxoAplicadoAcoesEua -> custo em reais de tudo que está aplicado). null
+ * quando o histórico não tem o campo. */
+export function somaCampoHistorico_(historico, campo) {
+  if (!Array.isArray(historico) || !historico.some((item) => typeof item[campo] === 'number')) return null;
+  return historico.reduce((soma, item) => soma + (Number.isFinite(item[campo]) ? item[campo] : 0), 0);
+}
+
+/** 23/09/2026 #3 (Controle 8 - "Proventos recebidos" de Ações dizia
+ * menos do que a rentabilidade conta, nas duas classes): o card lia a coluna "Proventos Totais" de
+ * Auxiliar_ativos, que só soma os tickers da carteira de HOJE - some tudo
+ * que foi lançado com código antigo (MALL11 -> PMLL11, ELET6/AXIA6 ->
+ * AXIA3). O histórico já separa: fluxoCaixa<Classe> = fluxoAplicado<Classe>
+ * − proventos do dia (FluxoCaixaInicio.gs), então Σ(aplicado − caixa) é
+ * exatamente o provento que a rentabilidade usa. Resultado "desde o
+ * início" = Lucro/Prejuízo da posição + este valor. */
+export function proventosDoHistorico_(historico, campoCaixa, campoAplicado) {
+  const aplicado = somaCampoHistorico_(historico, campoAplicado);
+  const caixa = somaCampoHistorico_(historico, campoCaixa);
+  if (aplicado == null || caixa == null) return null;
+  return aplicado - caixa;
+}
+
 export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado' } = {}) {
   if (!container || !campoValor) return;
   // 20/09/2026 (pedido do Tiago): "Desde o início" (periodoId:'tudo') corta

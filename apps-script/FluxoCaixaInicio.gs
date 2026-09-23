@@ -193,6 +193,22 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   // posição inteira como "retorno de mercado" daquele dia só, distorcendo
   // pra sempre a rentabilidade acumulada (TWR composto) da classe.
   var primeiraCompraPorTicker = {};
+  var movimentosPorTicker = {}; // 23/09/2026: ticker (maiúsculo) -> [{ chave, delta, preco }] - ver bloco de Transações abaixo
+  // 23/09/2026 (achado com o Controle 7): 'Produto|Instituição' -> [{ desde,
+  // ate }] - intervalos em que a QUANTIDADE de títulos da posição (coluna
+  // F de Transações Renda Fixa) estava zerada. O backfill de Renda Fixa
+  // desconta Venda/Resgate pelo VALOR, e quando o valor de venda/resgate é
+  // menor que o valor projetado sobra um "resto" eterno - casos reais:
+  // Tesouro Prefixado 2023 (resgatado em 02/01/2023, mas com R$ 64,70
+  // ainda "rendendo" no histórico em 2026) e Tesouro IPCA+ 2035 (vendido
+  // em 15/03/2022, R$ 2,38 fantasmas). HistoricoInicio.gs ignora as linhas
+  // do histórico dentro desses intervalos.
+  var posicoesRfZeradas = {};
+  var qtdPorPosicaoRf = {};
+  var primeiraCompraRfPorPosicao = {}; // 23/09/2026: 'Produto|Instituição' -> chave da 1ª Compra/Aplicação (ver HistoricoInicio.gs, alinhamento da Renda Fixa)
+  var jurosRfPorDiaValor = {}; // 23/09/2026: 'yyyy-MM-dd|valor' -> é Renda Emergencial? (ver bloco de Proventos)
+  var eventosAplicadoRv = []; // 23/09/2026: ver bloco "Valor aplicado" mais abaixo
+  var eventosAplicadoRf = [];
 
   function somar(mapa, chave, valor) {
     if (!valor) return;
@@ -210,7 +226,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     var qtd = aba.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1;
     if (qtd <= 0) return;
 
-    aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, qtd, 8).getValues().forEach(function (linha) {
+    aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, qtd, 11).getValues().forEach(function (linha) {
       // "Transações": coluna A = Ticker (conferido na planilha real, ver
       // cabeçalho do arquivo) — só usado pra separar Ações/FIIs abaixo,
       // "Transações - USA" nem chega a olhar pra isso (tudo vai pro
@@ -218,6 +234,30 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       var ticker = String(linha[0] || '').trim().toUpperCase();
       var data = linha[1], tipo = linha[2], totalTaxa = Number(linha[7]);
       if (!(data instanceof Date) || isNaN(totalTaxa)) return;
+      // 23/09/2026: STR fica de fora - cada Compra dela já tem a Compra
+      // espelho de VNOM na mesma data e valor, e a "Venda" de 19/09/2026
+      // não movimentou dinheiro de verdade. Ver TICKERS_FORA_DO_HISTORICO
+      // (Sync.gs) pro caso completo.
+      if (tickerForaDoHistoricoInicio_(ticker)) return;
+      // 23/09/2026: movimento de QUANTIDADE (coluna K "Transação de
+      // ações/FIIs (qtd)", já com sinal - mesma coluna que o Sync.gs usa
+      // pra gravar "Cotas" em aux_historico-patrimonio) + preço (coluna
+      // D) de cada linha - HistoricoInicio.gs passa a calcular a
+      // quantidade de cada dia direto daqui (correções feitas depois em
+      // Transações, tipo uma bonificação lançada com a data certa, entram
+      // no histórico sem precisar regravar aux_historico-patrimonio) e usa
+      // os preços que o Tiago REALMENTE pagou pra conferir/corrigir os
+      // preços históricos do GOOGLEFINANCE (ver
+      // calcularCorrecoesPrecoPorAncoragem_, HistoricoInicio.gs).
+      if (ticker && data instanceof Date) {
+        var deltaQtd = typeof linha[10] === 'number'
+          ? linha[10]
+          : (tipo === 'Compra' ? Number(linha[4]) || 0 : (tipo === 'Venda' ? -(Number(linha[4]) || 0) : 0));
+        if (deltaQtd) {
+          if (!movimentosPorTicker[ticker]) movimentosPorTicker[ticker] = [];
+          movimentosPorTicker[ticker].push({ chave: chaveDiaISOInicio_(data), delta: deltaQtd, preco: Number(linha[3]) || 0 });
+        }
+      }
       // 20/09/2026 (ver comentário de primeiraCompraPorTicker acima) -
       // registra ANTES do "if (!sinal) return" de baixo, mas só importa
       // pra tipo === 'Compra' mesmo (Venda não é "1ª aparição" de nada).
@@ -235,19 +275,23 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         valorBrl = totalTaxa * cambio;
       }
       somar(porDia, chave, sinal * valorBrl);
-      somar(porDiaAplicado, chave, sinal * valorBrl);
+      var classeTicker = info.cambio ? 'USA' : classes[ticker];
       if (info.cambio) {
         somar(porDiaUsa, chave, sinal * valorBrl); // só "Transações - USA"
-        somar(porDiaAplicadoUsa, chave, sinal * valorBrl);
       } else {
         // 19/09/2026: split Ações/FIIs BR (ver comentário no cabeçalho) -
         // ticker sem classe conhecida (ainda não sincronizado nenhuma vez
         // em aux_historico-patrimonio) fica de fora dos 2 baldes, mas
         // continua contando em `total` normalmente acima.
-        var classeTicker = classes[ticker];
-        if (classeTicker === 'FII') { somar(porDiaFiis, chave, sinal * valorBrl); somar(porDiaAplicadoFiis, chave, sinal * valorBrl); }
-        else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, sinal * valorBrl); somar(porDiaAplicadoAcoes, chave, sinal * valorBrl); }
+        if (classeTicker === 'FII') somar(porDiaFiis, chave, sinal * valorBrl);
+        else if (classeTicker === 'BR') somar(porDiaAcoes, chave, sinal * valorBrl);
       }
+      // 23/09/2026: "Valor aplicado" é calculado depois, em ordem
+      // cronológica e por CUSTO (ver bloco "Valor aplicado" mais abaixo).
+      eventosAplicadoRv.push({
+        data: data, chave: chave, ticker: ticker, classe: classeTicker, sinal: sinal, valorBrl: valorBrl,
+        qtd: Math.abs(typeof linha[10] === 'number' ? linha[10] : (Number(linha[4]) || 0))
+      });
     });
   });
 
@@ -274,25 +318,104 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
           // valor fixo.
           sinal = entradaSaida.indexOf('Credit') === 0 ? 1 : -1;
         } else {
+          // 23/09/2026: guarda os "Juros" (cupom) pra reconhecer o MESMO
+          // cupom quando ele também foi lançado em "Proventos" - ver bloco
+          // de Proventos abaixo.
+          if (movimentacao === 'Juros') {
+            var instJ = normalizarInstituicaoRF_(instituicao);
+            jurosRfPorDiaValor[chaveDiaISOInicio_(data) + '|' + valor.toFixed(2)] =
+              classificarPosicaoRF_(produto, instJ, detectarIndexadorRF_(produto), mapaClassificacaoRf) === 'Renda Emergencial';
+          }
           return; // Cobrança de Taxa Semestral, Juros - de propósito fora (ver cabeçalho do arquivo)
         }
 
         var chave = chaveDiaISOInicio_(data);
+        // 23/09/2026: quantidade de títulos por posição (Produto|Instituição
+        // canônica, a MESMA chave do backfill de Renda Fixa) - ver
+        // posicoesRfZeradas no retorno.
+        var chavePosicaoRf = produto + '|' + normalizarInstituicaoRF_(instituicao);
+        var qtdAntes = qtdPorPosicaoRf[chavePosicaoRf] || 0;
+        var qtdDepois = qtdAntes + sinal * (Number(linha[5]) || 0);
+        qtdPorPosicaoRf[chavePosicaoRf] = qtdDepois;
+        if (!posicoesRfZeradas[chavePosicaoRf]) posicoesRfZeradas[chavePosicaoRf] = [];
+        var intervalos = posicoesRfZeradas[chavePosicaoRf];
+        var aberto = intervalos.length && intervalos[intervalos.length - 1].ate == null;
+        if (qtdDepois <= 0.005 && !aberto) intervalos.push({ desde: chave, ate: null });
+        else if (qtdDepois > 0.005 && aberto) intervalos[intervalos.length - 1].ate = chave;
         somar(porDia, chave, sinal * valor);
         somar(porDiaRendaFixaTotal, chave, sinal * valor); // 19/09/2026: RF inteira, ver cabeçalho
-        somar(porDiaAplicado, chave, sinal * valor);
-        somar(porDiaAplicadoRendaFixaTotal, chave, sinal * valor);
 
         var institCanonica = normalizarInstituicaoRF_(instituicao);
         var indexador = detectarIndexadorRF_(produto);
         var classificacao = classificarPosicaoRF_(produto, institCanonica, indexador, mapaClassificacaoRf);
         if (classificacao === 'Renda Emergencial') {
           somar(porDiaRendaEmergencial, chave, sinal * valor);
-          somar(porDiaAplicadoRendaEmergencial, chave, sinal * valor);
         }
+        if (sinal > 0 && movimentacao.indexOf('Transfer') !== 0 && (!primeiraCompraRfPorPosicao[chavePosicaoRf] || chave < primeiraCompraRfPorPosicao[chavePosicaoRf])) {
+          primeiraCompraRfPorPosicao[chavePosicaoRf] = chave;
+        }
+        eventosAplicadoRf.push({
+          data: data, chave: chave, posicao: chavePosicaoRf, produto: produto,
+          tipo: movimentacao.indexOf('Transfer') === 0 ? (sinal > 0 ? 'transfEntrada' : 'transfSaida') : (sinal > 0 ? 'compra' : 'venda'),
+          valor: valor, qtd: Math.abs(Number(linha[5]) || 0), emergencial: classificacao === 'Renda Emergencial'
+        });
       });
     }
   }
+
+  // --- "Valor aplicado" (23/09/2026, pedido do Tiago comparando com o
+  // "Valor investido" do Gorila: "quantos eu apliquei e está investido
+  // atualmente, sem subtração de proventos") - é o CUSTO de tudo que está
+  // investido em cada dia: Compra soma o que foi pago; Venda/Resgate tira
+  // o CUSTO MÉDIO da parte vendida (não o valor recebido - o lucro
+  // realizado não é "dinheiro aplicado" que saiu). Provento nunca entra.
+  // A versão de 21/09/2026 tirava o valor RECEBIDO nas vendas: na Renda
+  // Fixa, onde o Tiago resgata e reaplica títulos há anos, isso deixava o
+  // "Valor aplicado" da Renda Fixa em ~R$ 41 mil (Longo Prazo NEGATIVO),
+  // contra ~R$ 55 mil de custo dos títulos que ele tem hoje - e o total
+  // ~R$ 13 mil abaixo do "Valor investido" do Gorila, que é custo. Por
+  // custo, Ações/FIIs batem centavo por centavo com o "Investido" das
+  // telas de Carteiras (que vem da própria planilha). Processado em ordem
+  // de DATA (a ordem física das linhas nas abas nem sempre é
+  // cronológica). Uma venda que deixa menos de 2% da quantidade anterior
+  // fecha a posição inteira (resíduo de arredondamento de quantidade de
+  // título do Tesouro, ex. real: Tesouro Selic 2026, 1,09 comprado e 1,08
+  // vendido - sobrava 0,01 "aplicado" pra sempre).
+  function porData(a, b) { return a.data - b.data; }
+  function fracaoVendida(qtdAntes, qtdVendida) {
+    if (!(qtdAntes > 0)) return 1;
+    var resto = qtdAntes - qtdVendida;
+    return resto / qtdAntes < 0.02 ? 1 : Math.min(1, qtdVendida / qtdAntes);
+  }
+  var custoRv = {}; // ticker -> { qtd, custo }
+  eventosAplicadoRv.sort(porData).forEach(function (e) {
+    var pos = custoRv[e.ticker] || (custoRv[e.ticker] = { qtd: 0, custo: 0 });
+    var fluxoAplicado;
+    if (e.sinal > 0) {
+      pos.qtd += e.qtd; pos.custo += e.valorBrl; fluxoAplicado = e.valorBrl;
+    } else {
+      var saida = pos.custo * fracaoVendida(pos.qtd, e.qtd);
+      pos.custo -= saida; pos.qtd = Math.max(0, pos.qtd - e.qtd); fluxoAplicado = -saida;
+    }
+    somar(porDiaAplicado, e.chave, fluxoAplicado);
+    if (e.classe === 'USA') somar(porDiaAplicadoUsa, e.chave, fluxoAplicado);
+    else if (e.classe === 'FII') somar(porDiaAplicadoFiis, e.chave, fluxoAplicado);
+    else if (e.classe === 'BR') somar(porDiaAplicadoAcoes, e.chave, fluxoAplicado);
+  });
+  // Renda Fixa por PEPS (o lote mais antigo sai primeiro) - 23/09/2026 #2,
+  // conferido com o Controle 8: é a regra do Tesouro/IR e é o que a B3
+  // mostra por lote. Com custo médio (a 1ª versão desta mesma data), o
+  // Tesouro Selic 2027 dava R$ 11.851,62 aplicados; por PEPS dá
+  // R$ 12.932,28 - os mesmos R$ 12.932,24 dos lotes da B3 em "RF
+  // Contratada - Lotes" (idem Selic 2029: R$ 15.391,92 x R$ 15.391,90).
+  // Renda Variável continua por custo médio (é o "Investido" da própria
+  // planilha, que bate centavo por centavo).
+  var custoRfPeps = calcularCustoRendaFixaPeps_(eventosAplicadoRf.sort(porData));
+  custoRfPeps.fluxos.forEach(function (f) {
+    somar(porDiaAplicado, f.chave, f.valor);
+    somar(porDiaAplicadoRendaFixaTotal, f.chave, f.valor);
+    if (f.emergencial) somar(porDiaAplicadoRendaEmergencial, f.chave, f.valor);
+  });
 
   // --- Proventos / Proventos - USA - some do rastreado quando é PAGO,
   // até virar uma Compra nova (que já é neutralizada acima). Sem
@@ -320,9 +443,30 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       if (nomeAba === ABA_PROVENTOS_USA_FLUXO) {
         somar(porDiaUsa, chave, -liquido);
       } else {
+        // 23/09/2026 (achado pelo teste de coerência "Nacional = Ações +
+        // FIIs + RF Longo Prazo"): provento com ticker que não existe no
+        // histórico entrava no Total/Nacional mas em NENHUMA classe - o
+        // gráfico de FIIs/Ações perdia esse rendimento e a soma das
+        // classes não fechava com o Nacional. Casos reais: MALL11 (nome
+        // antigo do PMLL11, 38 proventos), ELET6/AXIA6 (dividendos da
+        // posição de AXIA3 lançados com outro código) e "Erro" (os cupons
+        // do Tesouro IPCA+ 2045, que também estão como "Juros" em
+        // Transações Renda Fixa). Regra: cupom que bate (dia + valor) com
+        // um "Juros" de Transações Renda Fixa -> Renda Fixa; senão, código
+        // terminado em 11 -> FIIs; senão -> Ações.
         var classeTicker = classes[ticker];
+        var chaveJuros = chave + '|' + liquido.toFixed(2);
+        if (!classeTicker) {
+          if (Object.prototype.hasOwnProperty.call(jurosRfPorDiaValor, chaveJuros)) classeTicker = jurosRfPorDiaValor[chaveJuros] ? 'RF_EMERGENCIAL' : 'RF';
+          else if (/11$/.test(ticker)) classeTicker = 'FII';
+          else classeTicker = 'BR';
+        }
         if (classeTicker === 'FII') somar(porDiaFiis, chave, -liquido);
         else if (classeTicker === 'BR') somar(porDiaAcoes, chave, -liquido);
+        else if (classeTicker === 'RF' || classeTicker === 'RF_EMERGENCIAL') {
+          somar(porDiaRendaFixaTotal, chave, -liquido);
+          if (classeTicker === 'RF_EMERGENCIAL') somar(porDiaRendaEmergencial, chave, -liquido);
+        }
       }
     });
   });
@@ -335,6 +479,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     fiis: porDiaFiis,
     rendaFixaTotal: porDiaRendaFixaTotal,
     primeiraCompraPorTicker: primeiraCompraPorTicker,
+    movimentosPorTicker: movimentosPorTicker,
+    posicoesRfZeradas: posicoesRfZeradas,
+    primeiraCompraRfPorPosicao: primeiraCompraRfPorPosicao,
     // 21/09/2026 (ver comentário de porDiaAplicado* acima) - mesma forma,
     // sem provento subtraído.
     totalAplicado: porDiaAplicado,
@@ -362,4 +509,94 @@ function contarLinhasFluxoCaixa_(ss) {
     linhas(ABA_PROVENTOS_BR_FLUXO),
     linhas(ABA_PROVENTOS_USA_FLUXO)
   ].join('_');
+}
+
+/**
+ * 23/09/2026 #2: custo de Renda Fixa por PEPS (primeiro que entra,
+ * primeiro que sai) - ver bloco "Valor aplicado" de
+ * calcularFluxoCaixaDiario_. `eventos` já em ordem de data: [{ chave,
+ * posicao ('Produto|Instituição'), produto, tipo ('compra'|'venda'|
+ * 'transfSaida'|'transfEntrada'), valor, qtd, emergencial }]. Devolve
+ * { fluxos: [{ chave, valor, emergencial }] (+ custo na compra, − custo
+ * PEPS dos títulos que saíram na venda), porPosicao: { posicao: { qtd,
+ * custo } } (o que sobrou) }. Venda que deixa menos de 2% da quantidade
+ * fecha a posição inteira (resíduo de arredondamento de título do Tesouro,
+ * ex. real: Selic 2026, 1,09 comprado e 1,08 vendido).
+ */
+function calcularCustoRendaFixaPeps_(eventos) {
+  var lotes = {}; // posicao -> [{ qtd, custo }]
+  var emTransferencia = {}; // produto -> lotes que saíram numa Transferência (Débito)
+  var fluxos = [];
+  function retirar(posicao, qtd) {
+    var fila = lotes[posicao] || [];
+    var total = fila.reduce(function (s, l) { return s + l.qtd; }, 0);
+    if (!(total > 0)) return [];
+    if ((total - qtd) / total < 0.02) qtd = total;
+    var saiu = [];
+    while (qtd > 1e-9 && fila.length) {
+      var l = fila[0];
+      if (l.qtd <= qtd + 1e-9) { saiu.push(l); qtd -= l.qtd; fila.shift(); }
+      else { var c = l.custo * qtd / l.qtd; saiu.push({ qtd: qtd, custo: c }); l.custo -= c; l.qtd -= qtd; qtd = 0; }
+    }
+    return saiu;
+  }
+  eventos.forEach(function (e) {
+    var fila = lotes[e.posicao] || (lotes[e.posicao] = []);
+    if (e.tipo === 'compra') {
+      fila.push({ qtd: e.qtd, custo: e.valor });
+      fluxos.push({ chave: e.chave, valor: e.valor, emergencial: e.emergencial });
+    } else if (e.tipo === 'venda') {
+      var custoSaida = retirar(e.posicao, e.qtd).reduce(function (s, l) { return s + l.custo; }, 0);
+      if (custoSaida) fluxos.push({ chave: e.chave, valor: -custoSaida, emergencial: e.emergencial });
+    } else if (e.tipo === 'transfSaida') {
+      emTransferencia[e.produto] = (emTransferencia[e.produto] || []).concat(retirar(e.posicao, e.qtd));
+    } else if (e.tipo === 'transfEntrada') {
+      Array.prototype.push.apply(fila, emTransferencia[e.produto] || []);
+      emTransferencia[e.produto] = [];
+    }
+  });
+  var porPosicao = {};
+  Object.keys(lotes).forEach(function (p) {
+    porPosicao[p] = {
+      qtd: lotes[p].reduce(function (s, l) { return s + l.qtd; }, 0),
+      custo: lotes[p].reduce(function (s, l) { return s + l.custo; }, 0)
+    };
+  });
+  return { fluxos: fluxos, porPosicao: porPosicao };
+}
+
+/**
+ * 23/09/2026 #2: custo PEPS de cada posição de Renda Fixa HOJE, lido direto
+ * de "Transações Renda Fixa" - usado pela tela Carteiras > Renda Fixa
+ * (CarteirasRendaFixa.gs) pro "Valor aplicado", que antes vinha da coluna
+ * manual "Valor Investido" da Carteira Renda Fixa (com erros de digitação
+ * reais no Controle 8: IPCA+ 2032 com R$ 3.131,36 - que é o custo do
+ * Selic 2031 -, Selic 2031 com R$ 708,52, Selic 2027 com R$ 16.930,85
+ * contra R$ 12.932,24 dos lotes da B3). Mesma conta do "Valor aplicado"
+ * da Início/Visão geral - o número da tela de Renda Fixa e o da Visão
+ * geral saem da MESMA função.
+ */
+function custoRendaFixaPepsHoje_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var abaRf = ss.getSheetByName(ABA_TRANSACOES_RF);
+  if (!abaRf) return {};
+  var qtdRf = abaRf.getLastRow() - LINHA_CABECALHO_TRANSACOES_RF;
+  if (qtdRf <= 0) return {};
+  var eventos = [];
+  abaRf.getRange(LINHA_CABECALHO_TRANSACOES_RF + 1, 1, qtdRf, 8).getValues().forEach(function (linha) {
+    var produto = linha[0], data = linha[1], movimentacao = String(linha[2] || ''),
+        entradaSaida = String(linha[3] || ''), valor = Number(linha[7]);
+    if (!produto || !(data instanceof Date) || isNaN(valor)) return;
+    var tipo;
+    if (movimentacao === 'Compra' || movimentacao === 'APLICAÇÃO') tipo = 'compra';
+    else if (movimentacao === 'Venda' || movimentacao === 'Resgate') tipo = 'venda';
+    else if (movimentacao.indexOf('Transfer') === 0) tipo = entradaSaida.indexOf('Credit') === 0 ? 'transfEntrada' : 'transfSaida';
+    else return;
+    eventos.push({
+      data: data, chave: chaveDiaISOInicio_(data), posicao: produto + '|' + normalizarInstituicaoRF_(linha[4]),
+      produto: produto, tipo: tipo, valor: valor, qtd: Math.abs(Number(linha[5]) || 0), emergencial: false
+    });
+  });
+  eventos.sort(function (a, b) { return a.data - b.data; });
+  return calcularCustoRendaFixaPeps_(eventos).porPosicao;
 }

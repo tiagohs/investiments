@@ -142,7 +142,10 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     // simples) - conferido calculando a série à mão em Python.
     assert.match(doc.getElementById('vgPatrimonioTotal').textContent, /148\.234,71/);
     const resumoTexto = doc.getElementById('vgResumo').textContent;
-    assert.match(resumoTexto, /Investido/);
+    // 23/09/2026: rótulo virou "Valor aplicado"; sem fluxoAplicado* no
+    // historico de exemplo, o valor cai no cálculo antigo (patrimônio −
+    // resultado) - ver renderHeroStats_.
+    assert.match(resumoTexto, /Valor aplicado/);
     assert.match(resumoTexto, /136\.534,71/);
     assert.match(resumoTexto, /Resultado \(desde o início\)/);
     assert.match(resumoTexto, /\+R\$\s*11\.700,00/);

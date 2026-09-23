@@ -13,6 +13,7 @@ import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentF
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
+  proventosDoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
@@ -163,7 +164,9 @@ function desenhar(doc, dados) {
 
   renderResumoClasseCarteiras(doc, doc.getElementById('fiisResumo'), dados.resumo, {
     corToken: '--fiis',
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
+    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
+    // proventosDoHistorico_ em carteiras-classe-comum.js.
+    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do

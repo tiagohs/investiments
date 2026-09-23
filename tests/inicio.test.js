@@ -583,10 +583,10 @@ function gerarHistoricoExemplo(dias = 40) {
   return historico;
 }
 
-test('filtrarHistoricoPorPeriodo() corta os últimos N dias corridos do preset pedido', () => {
+test('filtrarHistoricoPorPeriodo() corta os últimos N dias corridos do preset pedido - N variações = N+1 pontos (o 1º é a base)', () => {
   const historico = gerarHistoricoExemplo(40);
-  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d').length, 30);
-  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d')[0], historico[10]);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d').length, 31);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d')[0], historico[9]);
 });
 
 test('filtrarHistoricoPorPeriodo() com "tudo" (ou preset desconhecido) devolve o array inteiro', () => {
@@ -621,8 +621,8 @@ test('filtrarHistoricoPorPeriodo("tudo") sem campoDesdeInicio continua devolvend
 
 test('filtrarHistoricoPorPeriodo() com preset de dias fixos (ex.: "30d") ignora campoDesdeInicio - só "tudo" usa esse corte', () => {
   const historico = gerarHistoricoExemplo(40);
-  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa').length, 30);
-  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa')[0], historico[10]);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa').length, 31);
+  assert.equal(filtrarHistoricoPorPeriodo(historico, '30d', 'ibovespa')[0], historico[9]);
 });
 
 test('filtrarHistoricoPorPeriodo() sem histórico (ou vazio) devolve array vazio, nunca lança', () => {
@@ -633,8 +633,12 @@ test('filtrarHistoricoPorPeriodo() sem histórico (ou vazio) devolve array vazio
 test('filtrarHistoricoPorPeriodo("mes") recorta o MÊS-CALENDÁRIO do último dia de historico, não "os últimos 30 dias corridos"', () => {
   const historico = gerarHistoricoExemplo(40); // 01/01/2026 .. 09/02/2026 (o último dia é 09/02)
   const janela = filtrarHistoricoPorPeriodo(historico, 'mes');
-  assert.equal(janela.length, 9, 'só os dias de fevereiro (01 a 09) - fevereiro só tem 9 dias corridos até aqui');
-  assert.equal(janela[0].data, '2026-02-01');
+  // 23/09/2026: + o último dia de janeiro como BASE (0% do gráfico), igual
+  // o Gorila ("31 ago" no começo do Mês atual) - senão a variação do dia 1
+  // ficava de fora da rentabilidade do mês.
+  assert.equal(janela.length, 10, 'base (31/01) + os dias de fevereiro (01 a 09)');
+  assert.equal(janela[0].data, '2026-01-31');
+  assert.equal(janela[1].data, '2026-02-01');
   assert.equal(janela[janela.length - 1].data, historico[historico.length - 1].data);
 });
 

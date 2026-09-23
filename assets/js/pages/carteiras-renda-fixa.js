@@ -14,6 +14,7 @@ import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
+  somaCampoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
@@ -215,7 +216,15 @@ function desenhar(doc, dados) {
   // aqui (a tela de Renda Fixa nunca tinha ligado isso).
   wirePointerTooltipCarteiras_(doc, conteudoEl);
 
-  renderResumoClasseCarteiras(doc, doc.getElementById('rendaFixaResumo'), dados.resumo, { corToken: '--rf' });
+  // 23/09/2026 #3: Valor aplicado do topo = a MESMA soma do fim da linha
+  // "Valor aplicado" do gráfico e do card da Visão geral (fluxos diários do
+  // histórico, já em centavos). O back-end soma o PEPS sem arredondar e
+  // saía 1 centavo diferente do gráfico e do card.
+  const aplicadoHistorico = somaCampoHistorico_(dados.historico, 'fluxoAplicadoRendaFixaTotal');
+  const resumoTopo = aplicadoHistorico != null
+    ? { ...dados.resumo, totalInvestido: aplicadoHistorico, lucroPrejuizo: dados.resumo.totalAtualizado - aplicadoHistorico }
+    : dados.resumo;
+  renderResumoClasseCarteiras(doc, doc.getElementById('rendaFixaResumo'), resumoTopo, { corToken: '--rf' });
   renderBenchmarksClasseCarteiras(doc, doc.getElementById('rendaFixaBenchmarks'), [
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
     { label: 'Selic (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.selic) },

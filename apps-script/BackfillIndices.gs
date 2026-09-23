@@ -323,8 +323,13 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   }
   return dados.map(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa
-    var dataBruta = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
-    var data = new Date(dataBruta.getTime() + 24 * 60 * 60 * 1000);
+    // 23/09/2026: SEM o "+1 dia" de 13/09/2026 - ver comentário acima da
+    // função (a "prova" de 13/09 lia o .xlsx no fuso da planilha,
+    // America/New_York: meia-noite de SP aparece como 22h/23h do dia
+    // ANTERIOR, e a segunda-feira parecia domingo). Com o +1, as linhas
+    // saíam de terça a SÁBADO no fuso do projeto (conferido no Controle 8).
+    // Depois de colar este arquivo, rode rodarBackfillTaxasBcbDireto().
+    var data = new Date(Number(partes[2]), Number(partes[1]) - 1, Number(partes[0]));
     return [data, nomeIndice, parseFloat(item.valor)];
   });
 }

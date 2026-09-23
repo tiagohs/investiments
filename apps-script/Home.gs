@@ -171,8 +171,17 @@ function handleHome(e, auth) {
   // front-end já trata "sem ontem" mostrando o card em branco, mesmo
   // comportamento de antes.
   marca = Date.now();
+  // 23/09/2026 #2 (Controle 8): "ontem era" passa a vir da MESMA série do
+  // gráfico (fechamento do último pregão antes de hoje), não mais do
+  // snapshot das 10h (SnapshotResumoDiario.gs). O snapshot existia porque a
+  // série não era confiável (18/09/2026) - hoje ela é conferida dia a dia
+  // pelos testes do harness (tests/harness/telas-heroes-graficos.test.js).
+  // Caso real que motivou a troca: em 23/09 o "ontem era" mostrava o
+  // snapshot de 21/09 (o de 22/09 não foi gravado), enquanto o gráfico
+  // mostrava 22/09 - o card dizia "caiu" e o gráfico "subiu" no mesmo dia.
+  // O snapshot continua como plano B (série indisponível).
   try {
-    resposta.ontem = obterUltimoSnapshotPregao_();
+    resposta.ontem = montarOntemDaSerie_(resposta.historico) || obterUltimoSnapshotPregao_();
   } catch (err) {
     avisos.ontem = String(err);
   }
@@ -269,7 +278,8 @@ function montarHome_() {
  * Só sobrescreve campos que TÊM uma versão ao vivo de verdade disponível
  * em montarHome_() - patrimônio total/por visão/por classe e os 3
  * índices de mercado (Ibovespa/IFIX/S&P 500). NUNCA mexe em:
- *   - fluxoCaixa* - calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) já lê
+ *   - fluxoCaixa* (exceto o ajuste de marcação da Renda Fixa, 23/09/2026 -
+ *     ver comentário no corpo) - calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) já lê
  *     as abas de Transações direto a cada chamada (independente do sync
  *     diário rodar ou não), então já são "ao vivo" no sentido que
  *     importa (refletem toda transação já registrada).
@@ -307,6 +317,43 @@ function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
   if (typeof porClasse.rendaFixa === 'number' && typeof patrimonio.rendaEmergencial === 'number') {
     camposAoVivo.rendaFixaLongoPrazo = porClasse.rendaFixa - patrimonio.rendaEmergencial;
   }
+  // 23/09/2026 (bug real, achado com o Controle 7): Renda Fixa tem DUAS
+  // fontes que nunca batem exatamente - o histórico (aux_historico-renda-
+  // fixa, projeção pelo índice puro: sem o spread do IPCA+, sem ágio do
+  // Tesouro Selic, e sem as compras que ainda faltam em "Transações Renda
+  // Fixa") e o valor ao vivo ("Valor Atualizado (manual)" da Carteira
+  // Renda Fixa, que o Tiago copia da B3/corretora). Trocar só o último
+  // ponto pelo valor ao vivo fazia a diferença ACUMULADA entre as duas
+  // (R$ 800 no Controle 7) aparecer como "ganho de hoje" no TWR - todo
+  // dia, em todo gráfico que contém Renda Fixa (+0,5% no Patrimônio total
+  // e +0,8% na Renda Emergencial, só no último dia). Essa diferença é
+  // AJUSTE DE MARCAÇÃO (a mesma posição medida por outra régua), não
+  // rendimento de hoje - entra como fluxo do último ponto (neutraliza o
+  // TWR e o "ganho em R$" do período) e fica exposta em
+  // ajusteMarcacaoRendaFixa/ajusteMarcacaoRendaEmergencial pra
+  // transparência (e pros testes vigiarem o tamanho dela). Nunca entra em
+  // fluxoAplicado* ("Valor aplicado" é dinheiro que saiu do bolso - isso
+  // não é).
+  var ajusteRf = 0;
+  var ajusteRe = 0;
+  if (typeof porClasse.rendaFixa === 'number' && Number.isFinite(porClasse.rendaFixa) && typeof ultimo.rendaFixaTotal === 'number') {
+    ajusteRf = porClasse.rendaFixa - ultimo.rendaFixaTotal;
+  }
+  if (typeof patrimonio.rendaEmergencial === 'number' && Number.isFinite(patrimonio.rendaEmergencial) && typeof ultimo.rendaEmergencial === 'number') {
+    ajusteRe = patrimonio.rendaEmergencial - ultimo.rendaEmergencial;
+  }
+  function somarAoFluxo(campo, valor) {
+    ultimo[campo] = arredondar2Inicio_((Number(ultimo[campo]) || 0) + valor);
+  }
+  somarAoFluxo('fluxoCaixaPatrimonio', ajusteRf);
+  somarAoFluxo('fluxoCaixaLongoPrazo', ajusteRf - ajusteRe);
+  somarAoFluxo('fluxoCaixaNacional', ajusteRf - ajusteRe);
+  somarAoFluxo('fluxoCaixaRendaEmergencial', ajusteRe);
+  somarAoFluxo('fluxoCaixaRendaFixaTotal', ajusteRf);
+  somarAoFluxo('fluxoCaixaRendaFixaLongoPrazo', ajusteRf - ajusteRe);
+  ultimo.ajusteMarcacaoRendaFixa = arredondar2Inicio_(ajusteRf);
+  ultimo.ajusteMarcacaoRendaEmergencial = arredondar2Inicio_(ajusteRe);
+
   if (indices.ibovespa && typeof indices.ibovespa.valor === 'number') camposAoVivo.ibovespa = indices.ibovespa.valor;
   if (indices.ifix && typeof indices.ifix.valor === 'number') camposAoVivo.ifix = indices.ifix.valor;
   if (indices.spx && typeof indices.spx.valor === 'number') camposAoVivo.sp500 = indices.spx.valor;
@@ -315,4 +362,37 @@ function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
     var v = camposAoVivo[campo];
     if (typeof v === 'number' && Number.isFinite(v)) ultimo[campo] = arredondar2Inicio_(v);
   }
+}
+
+/**
+ * 23/09/2026 #2: "ontem era" (cards do resumo da Início) a partir da série
+ * do gráfico - o último ponto ANTES de hoje com pregão (fim de semana e
+ * feriado voltam pro último dia útil). Soma o ajuste de marcação da Renda
+ * Fixa do dia (ver sincronizarUltimoPontoHistoricoComAoVivo_): a série
+ * mede a Renda Fixa pela projeção e o valor de hoje pela planilha manual;
+ * sem somar o ajuste, a diferença entre as duas réguas aparecia como
+ * "quanto a carteira mudou desde ontem". Assim, "ontem era" e o
+ * "no período" do gráfico medem a mesma coisa. Devolve null se a série
+ * não tiver o ponto de hoje (aí handleHome cai no snapshot).
+ */
+function montarOntemDaSerie_(serie) {
+  if (!serie || serie.length < 2) return null;
+  var chaveHoje = chaveDiaISOInicio_(new Date());
+  var hoje = serie[serie.length - 1];
+  if (hoje.data !== chaveHoje) return null;
+  var ontem = null;
+  for (var i = serie.length - 2; i >= 0; i--) {
+    if (serie[i].pregao) { ontem = serie[i]; break; }
+  }
+  if (!ontem) return null;
+  var ajRf = Number(hoje.ajusteMarcacaoRendaFixa) || 0;
+  var ajRe = Number(hoje.ajusteMarcacaoRendaEmergencial) || 0;
+  return {
+    data: ontem.data,
+    fonte: 'serie',
+    total: arredondar2Inicio_(ontem.patrimonio + ajRf),
+    longoPrazo: arredondar2Inicio_(ontem.longoPrazo + ajRf - ajRe),
+    nacional: arredondar2Inicio_(ontem.nacional + ajRf - ajRe),
+    rendaEmergencial: arredondar2Inicio_(ontem.rendaEmergencial + ajRe)
+  };
 }

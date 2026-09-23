@@ -8,6 +8,7 @@ import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNu
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
 import {
+  proventosDoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
   renderDistribuicaoGrupoCarteiras,
@@ -191,7 +192,9 @@ function desenhar(doc, dados) {
 
   renderResumoClasseCarteiras(doc, doc.getElementById('acoesResumo'), dados.resumo, {
     corToken: '--acoes',
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(dados.resumo.proventosTotais) }],
+    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
+    // proventosDoHistorico_ em carteiras-classe-comum.js.
+    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   const ibovespaVar = dados.benchmarks?.ibovespa;

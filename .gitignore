@@ -8,3 +8,11 @@ tests/harness/fixtures.json
 # ex.: cópias de fixtures.json) que não pude apagar do device (sem permissão de
 # delete) - movidos aqui em vez de apagados, nunca commitar
 tests/harness/_to_delete/
+
+# 23/09/2026: números de referência externos (B3, Interactive Brokers, Gorila)
+# copiados dos prints do Tiago - dado financeiro real, nunca commitar
+tests/harness/*.local.json
+
+# 23/09/2026 #4: relatório de conferência das telas (gerado a cada npm test /
+# npm run verificar / commit) - dado financeiro real, nunca commitar
+tests/harness/relatorio/

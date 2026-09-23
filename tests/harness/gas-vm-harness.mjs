@@ -93,7 +93,37 @@ function criarUrlFetchAppFake_() {
   };
 }
 
-function montarSandboxComFixtures_(fixturesRaw, sandbox) {
+// Fuso do PROJETO Apps Script (Session.getScriptTimeZone()) e fuso da
+// PLANILHA (em que o .xlsx exportado grava o relógio das datas) - ver
+// comentário em reviveDate, logo abaixo, pra prova de cada um.
+export const FUSO_PROJETO_APPS_SCRIPT = 'America/Sao_Paulo';
+export const FUSO_PLANILHA_XLSX = 'America/New_York';
+
+const _formatadoresFuso_ = new Map();
+function partesNoFuso_(tz, ms) {
+  if (!_formatadoresFuso_.has(tz)) {
+    _formatadoresFuso_.set(tz, new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }));
+  }
+  const o = {};
+  for (const { type, value } of _formatadoresFuso_.get(tz).formatToParts(new Date(ms))) o[type] = value;
+  return { y: +o.year, mo: +o.month, d: +o.day, h: +o.hour, mi: +o.minute, s: +o.second };
+}
+/** Instante (ms UTC) cujo relógio em `tz` é y-mo-d h:mi:s. */
+export function relogioNoFusoParaUtcMs_(tz, y, mo, d, h, mi, s) {
+  const alvo = Date.UTC(y, mo - 1, d, h, mi, s);
+  let palpite = alvo;
+  for (let i = 0; i < 3; i += 1) {
+    const p = partesNoFuso_(tz, palpite);
+    const visto = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s);
+    if (visto === alvo) break;
+    palpite += alvo - visto;
+  }
+  return palpite;
+}
+
+export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   const scriptCacheStore = new Map();
   const scriptCache = {
     get: (k) => (scriptCacheStore.has(k) ? scriptCacheStore.get(k) : null),
@@ -110,22 +140,34 @@ function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   new vm.Script('this.Date = Date; this.Object = Object; this.Array = Array;').runInContext(sandbox);
 
   function reviveDate(iso) {
-    // Trata timestamps naive (sem tz) como meia-noite America/Sao_Paulo
-    // (UTC-3, sem horário de verão no Brasil desde 2019) - mesma
-    // timezone que Session.getScriptTimeZone() finge devolver abaixo,
-    // pra ida-e-volta (construir -> formatar) ficar consistente com o
-    // que Apps Script faria de verdade com o fuso do projeto.
-    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    // 23/09/2026 (bug do PRÓPRIO harness, achado investigando os gráficos
+    // com o Controle 7): o .xlsx exportado grava cada data/hora no RELÓGIO
+    // DO FUSO DA PLANILHA (sem tz), não no fuso do projeto Apps Script. Os
+    // dois são diferentes no caso do Tiago - a planilha está em
+    // America/New_York (prova: as linhas de aux_historico-renda-fixa, que
+    // o Apps Script grava sempre à meia-noite de São Paulo, aparecem no
+    // .xlsx como 22:00 ou 23:00 do dia ANTERIOR, e a troca 22h<->23h cai
+    // EXATAMENTE nas datas de horário de verão dos EUA - 2º domingo de
+    // março / 1º domingo de novembro, todo ano de 2021 a 2026), enquanto
+    // o projeto roda em America/Sao_Paulo (prova: o gráfico real do app
+    // termina em 24/09 no dia 23/09 - só bate lendo essas linhas no fuso
+    // de SP). Antes, o harness tratava o relógio do .xlsx como se fosse
+    // SP - toda linha de Renda Fixa caía 1 dia ANTES do que cai no app de
+    // verdade, e o harness enxergava desalinhamentos aporte x saldo que
+    // NÃO existem em produção. Agora converte do relógio de
+    // FUSO_PLANILHA_XLSX pro instante real (UTC), e o resto (chaves de
+    // dia etc.) segue no fuso do projeto, igual o Apps Script faz.
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
     if (!m) return new sandbox.Date(iso);
-    const [, y, mo, d, h, mi, s] = m.map(Number);
-    return new sandbox.Date(sandbox.Date.UTC(y, mo - 1, d, h + 3, mi, s));
+    const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
+    return new sandbox.Date(relogioNoFusoParaUtcMs_(FUSO_PLANILHA_XLSX, y, mo, d, h, mi, s));
   }
   function revive(v) {
     if (v && typeof v === 'object' && typeof v.__date__ === 'string') return reviveDate(v.__date__);
     return v;
   }
   const fixtures = {};
-  for (const [nome, { linhas, lastRow }] of Object.entries(fixturesRaw)) {
+  for (const [nome, { linhas, lastRow }] of Object.entries(fixturesRaw).filter(([k]) => !k.startsWith('_'))) { // "_meta" etc. não são abas
     fixtures[nome] = { lastRow, linhas: linhas.map((linha) => linha.map(revive)) };
   }
 
@@ -152,6 +194,25 @@ function montarSandboxComFixtures_(fixturesRaw, sandbox) {
             return out;
           },
           getValue() { const linhaReal = dados.linhas[row - 1] || []; return linhaReal[col - 1] ?? ''; },
+          // 23/09/2026 #2: escrita em memória (só pra rodar backfills no
+          // harness - nada é gravado em arquivo).
+          setValues(valores) {
+            valores.forEach((linhaNova, r) => {
+              const idx = row - 1 + r;
+              while (dados.linhas.length <= idx) dados.linhas.push([]);
+              linhaNova.forEach((v, c2) => { dados.linhas[idx][col - 1 + c2] = v; });
+            });
+            dados.lastRow = Math.max(dados.lastRow, row + valores.length - 1);
+          },
+          clearContent() {
+            for (let r = 0; r < numRows; r += 1) {
+              const linhaReal = dados.linhas[row - 1 + r];
+              if (linhaReal) for (let c2 = 0; c2 < numCols; c2 += 1) linhaReal[col - 1 + c2] = '';
+            }
+            let ultima = dados.linhas.length;
+            while (ultima > 1 && (dados.linhas[ultima - 1] || []).every((v) => v === '' || v == null)) ultima -= 1;
+            dados.lastRow = ultima;
+          },
         };
       },
     };
@@ -160,16 +221,20 @@ function montarSandboxComFixtures_(fixturesRaw, sandbox) {
 
   Object.assign(sandbox, {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, getActive: () => ss },
-    Session: { getScriptTimeZone: () => 'America/Sao_Paulo' },
+    Session: { getScriptTimeZone: () => FUSO_PROJETO_APPS_SCRIPT },
     CacheService: { getScriptCache: () => scriptCache },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log: (...args) => console.log('[Logger]', ...args) },
     Utilities: {
       formatDate: (data, tz, fmt) => {
         if (!(data instanceof sandbox.Date)) return String(data);
-        const dd = String(data.getUTCDate()).padStart(2, '0');
-        const mm = String(data.getUTCMonth() + 1).padStart(2, '0');
-        const yyyy = data.getUTCFullYear();
+        // 23/09/2026: formata no fuso pedido (igual o Utilities real) -
+        // antes usava getUTC*, que erra o dia pra qualquer instante entre
+        // 21h e 23h59 de SP.
+        const p = partesNoFuso_(tz || FUSO_PROJETO_APPS_SCRIPT, data.getTime());
+        const dd = String(p.d).padStart(2, '0');
+        const mm = String(p.mo).padStart(2, '0');
+        const yyyy = p.y;
         if (fmt === 'MM/yyyy') return mm + '/' + yyyy;
         if (fmt === 'dd/MM/yyyy') return dd + '/' + mm + '/' + yyyy;
         return data.toISOString();
@@ -177,6 +242,14 @@ function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {} }) },
     UrlFetchApp: criarUrlFetchAppFake_(),
+    // 23/09/2026: só pra handleHome (Home.gs) poder rodar INTEIRO no
+    // harness - jsonOut (Auth.gs) embrulha a resposta num TextOutput; aqui
+    // o "TextOutput" só guarda o texto pra carregarRespostaHomeComDadosReais
+    // devolver o mesmo JSON que o app recebe.
+    ContentService: {
+      MimeType: { JSON: 'application/json' },
+      createTextOutput: (texto) => ({ texto, setMimeType() { return this; }, getContent() { return this.texto; } }),
+    },
   });
 
   return sandbox;
@@ -227,6 +300,41 @@ export async function carregarCarteirasComDadosReais({ gasDir = GAS_DIR, fixture
   const carteirasRendaFixa = sandbox.montarCarteirasRendaFixa_();
 
   return { serie, home, carteirasHome, carteirasAcoes, carteirasFiis, carteirasAcoesEua, carteirasRendaFixa, sandbox, arquivosCarregados: arquivos };
+}
+
+/**
+ * 23/09/2026 (pedido do Tiago: "inclua nesses testes o resultado que
+ * apresenta esses gráficos e heroes de todas as telas"): roda handleHome
+ * (Home.gs) INTEIRO, tal qual a rota real `action=home` - a MESMA resposta
+ * que TODAS as telas (Início + as 5 de Carteiras) recebem via getHome():
+ * série histórica + último ponto trocado pelos valores ao vivo
+ * (sincronizarUltimoPontoHistoricoComAoVivo_) + patrimônio ao vivo. Junto,
+ * as respostas das rotas próprias de cada tela de Carteiras. Nada é
+ * remontado "à mão" aqui - se handleHome mudar, isso muda junto.
+ */
+export async function carregarTodasAsTelasComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH } = {}) {
+  const fixturesRaw = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
+  const sandbox = { console: { ...console, log() {} } };
+  vm.createContext(sandbox);
+  montarSandboxComFixtures_(fixturesRaw, sandbox);
+  const arquivos = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
+  for (const f of arquivos) {
+    new vm.Script(fs.readFileSync(path.join(gasDir, f), 'utf8'), { filename: f }).runInContext(sandbox);
+  }
+  const home = JSON.parse(sandbox.handleHome({ parameter: {} }, { ok: true }).getContent());
+  return {
+    home,
+    diagnosticoRv: JSON.parse(JSON.stringify(sandbox.ULTIMO_DIAGNOSTICO_RV_INICIO_ || {})),
+    diagnosticoRf: JSON.parse(JSON.stringify(sandbox.ULTIMO_DIAGNOSTICO_RF_INICIO_ || {})),
+    diagnosticoTaxas: JSON.parse(JSON.stringify(sandbox.ULTIMO_DIAGNOSTICO_TAXAS_INICIO_ || {})),
+    carteirasHome: sandbox.montarCarteirasHome_(),
+    carteirasAcoes: sandbox.montarCarteirasAcoes_(),
+    carteirasFiis: sandbox.montarCarteirasFiis_(),
+    carteirasAcoesEua: sandbox.montarCarteirasAcoesEua_(),
+    carteirasRendaFixa: sandbox.montarCarteirasRendaFixa_(),
+    fixtures: fixturesRaw,
+    sandbox,
+  };
 }
 
 // --- CLI: roda um diagnóstico completo quando chamado direto (não quando importado por um teste) ---

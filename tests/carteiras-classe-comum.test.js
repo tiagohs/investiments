@@ -38,7 +38,7 @@ test('renderResumoClasseCarteiras() desenha o cartão com Total atualizado em de
 
   assert.equal(container.querySelectorAll('.cc-resumo').length, 1);
   assert.match(container.querySelector('.cc-resumo-valor').textContent, /29\.968,40/);
-  assert.match(container.querySelector('.cc-resumo-investido').textContent, /Investido/);
+  assert.match(container.querySelector('.cc-resumo-investido').textContent, /Valor aplicado/);
   assert.match(container.querySelector('.cc-resumo-investido').textContent, /25\.657,39/);
 
   const stats = container.querySelectorAll('.cc-resumo-stat');

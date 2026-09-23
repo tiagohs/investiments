@@ -4,7 +4,11 @@
   "type": "module",
   "description": "Front-end do app pessoal de controle de investimentos (ver docs/plano-implementacao.html). package.json existe so como ferramenta de dev (testes) - nunca e servido pelo GitHub Pages.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "verificar": "node tests/harness/verificar.mjs",
+    "vigiar": "node tests/harness/verificar.mjs --vigiar",
+    "relatorio": "node tests/harness/relatorio-telas.mjs",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "engines": {
     "node": ">=20"
