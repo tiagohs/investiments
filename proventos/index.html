@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proventos</title>
+
+<!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
+<link rel="manifest" href="../manifest.json">
+<meta name="theme-color" content="#2A78D6">
+<link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Patrimônio">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/css/shell.css">
+<!-- 24/09/2026: inicio.css (area-header, skeleton, .ativo-tooltip) e
+     carteiras.css (.cc-logo) entram pelas classes que a tela Proventos
+     reaproveita; proventos.css tem só o que é desta tela. -->
+<link rel="stylesheet" href="../assets/css/inicio.css">
+<link rel="stylesheet" href="../assets/css/carteiras.css">
+<link rel="stylesheet" href="../assets/css/proventos.css">
+</head>
+<body data-section="proventos">
+
+<div class="wrap">
+  <div id="shell-header"></div>
+
+  <main class="pv-pagina">
+    <div class="pv-titulo">
+      <h1>Proventos</h1>
+      <div id="refreshControlProventos" class="refresh-control"></div>
+    </div>
+    <div class="carteiras-loading" id="proventosLoading" aria-hidden="true">
+      <span class="skel skel-header"></span>
+      <div class="cc-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+      <span class="skel" style="height:240px;border-radius:14px;margin-top:8px"></span>
+    </div>
+    <div class="carteiras-erro" id="proventosErro" hidden></div>
+    <div id="proventosConteudo" hidden></div>
+  </main>
+
+  <div id="shell-footer"></div>
+</div>
+<script type="module">
+  import { mountShell } from '../assets/js/shell.js';
+  import { montarPaginaProventos } from '../assets/js/pages/proventos.js';
+  mountShell({
+    onAuthenticated(token) {
+      montarPaginaProventos(token, { doc: document });
+    },
+  });
+</script>
+</body>
+</html>

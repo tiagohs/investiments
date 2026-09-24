@@ -1,0 +1,207 @@
+/**
+ * proventos.css — tela Proventos (24/09/2026). Reaproveita de shell.css
+ * (.filter-tabs, .btn, .refresh-control), inicio.css (.skel, .ativo-tooltip)
+ * e carteiras.css (.cc-logo, .carteiras-loading/.carteiras-erro). Aqui só o
+ * que é desta tela.
+ *
+ * Paleta categórica dos gráficos (--cat-1..7, "Outros" neutro): a paleta de
+ * referência da skill de dataviz, na ordem fixa, validada com
+ * validate_palette.js nos 2 temas (claro contra #FFFFFF, escuro contra
+ * #151F2C) - passa em tudo; no claro, 3 cores ficam abaixo de 3:1 de
+ * contraste, então o gráfico sempre tem legenda com valores e a visão
+ * "Tabela". Tipos usam --cat-1..5 (Dividendo, JCP, Rendimento, Amortização,
+ * Reembolso); ativos usam --cat-1..7 pelo ranking desde o início.
+ */
+:root{
+  --cat-1:#2A78D6; --cat-2:#EB6834; --cat-3:#1BAF7A; --cat-4:#EDA100;
+  --cat-5:#E87BA4; --cat-6:#008300; --cat-7:#4A3AA7; --cat-outros:#A3A9B2;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --cat-1:#3987E5; --cat-2:#D95926; --cat-3:#199E70; --cat-4:#C98500;
+    --cat-5:#D55181; --cat-6:#008300; --cat-7:#9085E9; --cat-outros:#5D6878;
+  }
+}
+:root[data-theme="dark"]{
+  --cat-1:#3987E5; --cat-2:#D95926; --cat-3:#199E70; --cat-4:#C98500;
+  --cat-5:#D55181; --cat-6:#008300; --cat-7:#9085E9; --cat-outros:#5D6878;
+}
+
+.pv-pagina{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+.pv-titulo{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.pv-titulo h1{ font-size:24px; }
+.pv-titulo .refresh-control{ margin-bottom:0; }
+#proventosConteudo{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+#proventosConteudo[hidden]{ display:none; }
+.pv-painel{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+
+.pv-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; flex:none; }
+
+/* ---- topo: abas + importar ---- */
+.pv-topo{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px 16px; flex-wrap:wrap;
+  border-bottom:1px solid var(--border); }
+.pv-abas{ display:flex; gap:4px; }
+.pv-aba{ font:inherit; font-size:14px; font-weight:700; color:var(--ink-muted); background:none; border:none;
+  padding:9px 14px 11px; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; }
+.pv-aba:hover{ color:var(--ink); }
+.pv-aba.active{ color:var(--ink); border-bottom-color:var(--acoes); }
+.pv-importar{ display:flex; align-items:center; gap:10px; padding-bottom:8px; flex-wrap:wrap; }
+.pv-importar-info{ font-size:11.5px; color:var(--ink-faint); }
+.pv-importar-btn{ font-size:11.5px; padding:6px 12px; }
+.pv-importar-status{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  font-size:12.5px; padding:10px 12px; border-radius:12px; background:var(--surface-2); color:var(--ink); }
+.pv-importar-status[hidden]{ display:none; }
+.pv-importar-status.ok{ background:var(--good-soft); color:var(--good-ink); }
+.pv-importar-status.erro{ background:var(--bad-soft); color:var(--bad-ink); }
+.pv-importar-acoes{ display:flex; gap:8px; }
+.pv-importar-acoes .btn{ font-size:11.5px; padding:6px 12px; }
+
+.pv-classes .filter-tab{ display:inline-flex; align-items:center; gap:6px; }
+.pv-classes .filter-tab.active .pv-dot{ box-shadow:0 0 0 2px #fff; }
+
+/* ---- cards ---- */
+.pv-cards{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
+.pv-card{ display:flex; flex-direction:column; gap:4px; background:var(--surface); border:1px solid var(--border);
+  border-radius:14px; padding:12px 14px; min-width:0; }
+.pv-card-destaque{ background:var(--surface-2); border-color:transparent; }
+.pv-card-rotulo{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; }
+.pv-card-valor{ font-family:var(--mono); font-size:19px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pv-card-sub{ font-size:11.5px; color:var(--ink-muted); }
+.pv-card-sub b{ font-family:var(--mono); font-weight:600; color:var(--ink); }
+@media (max-width:1100px){ .pv-cards{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+@media (max-width:640px){ .pv-cards{ grid-template-columns:repeat(2, minmax(0,1fr)); } .pv-card:last-child{ grid-column:1 / -1; } }
+
+/* ---- blocos ---- */
+.pv-bloco{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px 16px; min-width:0; position:relative; }
+.pv-bloco-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px 14px; flex-wrap:wrap; margin-bottom:10px; }
+.pv-bloco-cab h3{ font-size:16px; }
+.pv-bloco-ctrl{ display:flex; gap:10px; flex-wrap:wrap; }
+.pv-dica{ font-size:11px; color:var(--ink-faint); }
+.pv-seg{ display:inline-flex; align-items:center; gap:2px; background:var(--surface-3); border-radius:100px; padding:3px; }
+.pv-seg-rotulo{ font-size:10.5px; color:var(--ink-faint); padding:0 6px 0 8px; }
+.pv-seg-btn{ font:inherit; font-size:11.5px; font-weight:700; color:var(--ink-muted); background:none; border:none;
+  padding:5px 11px; border-radius:100px; cursor:pointer; }
+.pv-seg-btn.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+.pv-duas{ display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:14px; }
+@media (max-width:900px){ .pv-duas{ grid-template-columns:minmax(0,1fr); } }
+
+/* ---- gráfico ---- */
+.pv-grafico{ position:relative; }
+.pv-svg{ display:block; width:100%; height:auto; touch-action:pan-y; }
+.pv-svg .gridline{ stroke:var(--border); stroke-width:1; }
+.pv-svg .gridline.base{ stroke:var(--ink-faint); }
+.pv-svg .axislabel{ font-family:var(--mono); font-size:10px; fill:var(--ink-faint); }
+.pv-svg .pv-rotulo-max{ font-family:var(--mono); font-size:10px; font-weight:600; fill:var(--ink-muted); }
+.pv-svg .pv-barra{ transition:opacity .12s; }
+.pv-svg .pv-barra.apagada{ opacity:.35; }
+.pv-svg .pv-hit{ cursor:pointer; }
+@media (prefers-reduced-motion: reduce){ .pv-svg .pv-barra{ transition:none; } }
+.pv-tooltip{ position:absolute; top:0; z-index:3; min-width:170px; background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:8px 10px; box-shadow:var(--shadow-lg); pointer-events:none; }
+.pv-tooltip[hidden]{ display:none; }
+.pv-tooltip-titulo{ font-size:11px; color:var(--ink-faint); margin-bottom:4px; }
+.pv-tooltip-item{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted); padding:1.5px 0; }
+.pv-tooltip-item b{ margin-left:auto; padding-left:12px; font-family:var(--mono); font-weight:600; color:var(--ink); }
+.pv-tooltip-total{ border-top:1px dashed var(--border); margin-top:3px; padding-top:4px; color:var(--ink); font-weight:600; }
+.pv-legenda{ display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:10px; font-size:11.5px; color:var(--ink-muted); }
+.pv-legenda-item{ display:inline-flex; align-items:center; gap:6px; }
+.pv-legenda-item b{ font-family:var(--mono); font-weight:600; color:var(--ink); }
+
+/* ---- tabelas ---- */
+.pv-tabela-wrap{ overflow-x:auto; }
+.pv-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; font-variant-numeric:tabular-nums; }
+.pv-tabela th{ font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:600;
+  text-align:right; padding:6px 8px; white-space:nowrap; }
+.pv-tabela th .pv-dot{ margin-right:5px; }
+.pv-tabela td{ padding:8px; border-top:1px solid var(--border); text-align:right; white-space:nowrap; font-family:var(--mono); }
+.pv-tabela .esq{ text-align:left; }
+.pv-tabela td.esq{ font-family:var(--body-f); }
+.pv-tabela tbody tr:hover{ background:var(--surface-3); }
+.pv-zero{ color:var(--ink-faint); }
+
+/* ---- ranking por ativo ---- */
+.pv-ranking{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.pv-rank-item{ display:flex; align-items:center; gap:10px; padding:6px 6px; border-radius:10px; cursor:pointer; }
+.pv-rank-item:hover, .pv-rank-item:focus-visible{ background:var(--surface-3); outline:none; }
+.pv-rank-item:focus-visible{ box-shadow:0 0 0 2px var(--acoes); }
+.pv-rank-meio{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+.pv-rank-linha{ display:flex; justify-content:space-between; gap:8px; font-size:12.5px; }
+.pv-rank-valor{ font-family:var(--mono); font-weight:600; font-variant-numeric:tabular-nums; }
+.pv-rank-trilho{ height:6px; border-radius:100px; background:var(--surface-3); overflow:hidden; }
+.pv-rank-trilho span{ display:block; height:100%; border-radius:0 4px 4px 0; }
+.pv-rank-pct{ display:inline-block; min-width:48px; text-align:right; margin-left:8px; font-size:11px; font-weight:400; color:var(--ink-faint); }
+.pv-rank-tooltip{ pointer-events:none; }
+.pv-rank-tooltip[hidden]{ display:none; }
+.pv-tt-nome{ font-size:11px; color:var(--ink-faint); margin:-4px 0 6px; }
+.pv-rank-tooltip .tt-head .cc-logo{ width:20px; height:20px; font-size:8px; }
+.pv-mais{ font:inherit; font-size:11.5px; font-weight:700; color:var(--acoes); background:none; border:none; padding:8px 6px 2px; cursor:pointer; }
+
+/* ---- receita futura ---- */
+.pv-futuro-tiles{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; }
+.pv-futuro-tile{ display:flex; flex-direction:column; gap:3px; background:var(--surface-3); border-radius:10px; padding:9px 10px; min-width:0; }
+.pv-futuro-tile span{ font-size:10.5px; color:var(--ink-faint); }
+.pv-futuro-tile b{ font-family:var(--mono); font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pv-nota{ font-size:11.5px; color:var(--ink-muted); margin:8px 2px 0; }
+.pv-subtitulo{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:600; margin:14px 2px 4px; }
+.pv-lista-simples{ list-style:none; margin:0; padding:0; }
+.pv-lista-simples li{ display:flex; align-items:center; gap:8px; padding:7px 2px; font-size:12.5px; border-top:1px solid var(--border); }
+.pv-lista-simples li:first-child{ border-top:none; }
+.pv-lista-meta{ color:var(--ink-muted); font-size:11.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pv-lista-valor{ font-family:var(--mono); font-weight:600; white-space:nowrap; }
+.pv-vazio{ font-size:12px; color:var(--ink-faint); margin:4px 2px; }
+
+/* ---- agenda ---- */
+.pv-ag-ctrl{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.pv-ano{ display:inline-flex; align-items:center; gap:4px; background:var(--surface); border:1px solid var(--border); border-radius:100px; padding:3px; }
+.pv-ano b{ font-family:var(--mono); font-size:14px; padding:0 8px; }
+.pv-ano-btn{ font:inherit; font-size:16px; line-height:1; width:28px; height:28px; border-radius:50%; border:none; background:none;
+  color:var(--ink-muted); cursor:pointer; }
+.pv-ano-btn:hover:not(:disabled){ background:var(--surface-3); color:var(--ink); }
+.pv-ano-btn:disabled{ opacity:.35; cursor:default; }
+.pv-meses{ display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; scrollbar-width:thin; }
+.pv-mes{ font:inherit; flex:none; display:flex; flex-direction:column; align-items:center; gap:1px; min-width:52px;
+  font-size:12px; font-weight:700; color:var(--ink); background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:6px 8px; cursor:pointer; }
+.pv-mes small{ font-family:var(--mono); font-size:10.5px; font-weight:500; color:var(--ink-faint); }
+.pv-mes.vazio{ color:var(--ink-faint); }
+.pv-mes:hover{ border-color:var(--acoes); }
+.pv-mes.active{ background:var(--acoes); border-color:var(--acoes); color:#fff; }
+.pv-mes.active small{ color:#fff; opacity:.85; }
+.pv-ag-resumo{ display:flex; align-items:baseline; justify-content:space-between; gap:6px 14px; flex-wrap:wrap; margin-bottom:8px; }
+.pv-ag-resumo h3{ font-size:16px; }
+.pv-ag-resumo span{ font-size:12.5px; color:var(--ink-muted); }
+.pv-ag-resumo b{ font-family:var(--mono); color:var(--ink); }
+.pv-ag-resumo small{ font-size:11.5px; }
+.pv-agenda td{ vertical-align:middle; }
+.pv-agenda .pv-ag-texto{ font-family:var(--body-f); }
+.pv-agenda .pv-ag-sit, .pv-agenda .pv-th-centro{ text-align:center; }
+.pv-agenda .pv-ag-meta{ display:none; }
+.pv-ag-ativo-in{ display:flex; align-items:center; gap:9px; }
+.pv-ag-ativo-in > span{ display:flex; flex-direction:column; gap:2px; }
+.pv-ag-ativo small{ display:inline-flex; align-items:center; gap:5px; font-size:10.5px; color:var(--ink-faint); }
+.pv-ag-total small{ display:block; font-size:10.5px; color:var(--ink-faint); font-weight:400; }
+.pv-pill{ display:inline-block; font-family:var(--body-f); font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+.pv-pill.pago{ background:var(--good-soft); color:var(--good-ink); }
+.pv-pill.areceber{ background:var(--surface-2); color:var(--ink); }
+.pv-pill.semdata{ background:var(--na-soft); color:var(--ink-muted); }
+.pv-pill.naolancado{ background:var(--warn-soft); color:var(--warn-ink); }
+
+/* agenda no celular: cada provento vira um cartão de 3 linhas -
+   ativo | total / tipo · qtd × valor · data com / pagamento | situação */
+@media (max-width:640px){
+  .pv-agenda thead{ display:none; }
+  .pv-agenda, .pv-agenda tbody{ display:block; }
+  .pv-agenda tr{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:5px 12px; padding:10px 2px; border-top:1px solid var(--border); }
+  .pv-agenda tr:first-child{ border-top:none; }
+  .pv-agenda td{ border:none; padding:0; text-align:left; white-space:normal; font-size:12px; }
+  .pv-agenda td.pv-ag-det{ display:none; }
+  .pv-agenda td.pv-ag-ativo{ grid-column:1; grid-row:1; }
+  .pv-agenda td.pv-ag-total{ grid-column:2; grid-row:1; text-align:right; font-size:13px; }
+  .pv-agenda td.pv-ag-meta{ display:block; grid-column:1 / -1; grid-row:2; font-family:var(--body-f); font-size:11.5px; color:var(--ink-muted); }
+  .pv-agenda td.pv-ag-pag{ grid-column:1; grid-row:3; font-size:11.5px; color:var(--ink-muted); align-self:center; }
+  .pv-agenda td.pv-ag-pag::before{ content:'Pagamento '; font-family:var(--body-f); }
+  .pv-agenda td.pv-ag-sit{ grid-column:2; grid-row:3; text-align:right; }
+  .pv-futuro-tiles{ grid-template-columns:repeat(3, minmax(0,1fr)); }
+  .pv-titulo h1{ font-size:20px; }
+}

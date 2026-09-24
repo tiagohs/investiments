@@ -853,6 +853,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
   // v12 (24/09/2026): campo novo cambioUsd (Ações EUA em dólar).
+  // v13 (24/09/2026): provento arredondado em centavos (tela Proventos = Carteiras).
   // v11 (23/09/2026 #8): IPCA pro rata no mês e índices com 4 casas.
   // v9 (23/09/2026): (1) a conta mudou (STR fora, preço isolado absurdo
   // ignorado, nada datado depois de hoje - ver montarSerieHistoricoInicio_);
@@ -860,7 +861,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
   // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
   // seria "hoje" pra receber os valores ao vivo (Home.gs).
-  return 'historico_serie_v12_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v13_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

@@ -525,6 +525,7 @@ function desenhar(doc, { carteiras: carteirasApi, home }) {
       paineis: [{
         visaoId: 'total',
         infoContainer: doc.getElementById('vgInfoRentabilidade'),
+        camposProventos: ['proventosAcoes', 'proventosFiis', 'proventosAcoesEua'], // 24/09/2026: todas as carteiras
         chartContainer: doc.getElementById('vgRentabChart'),
         legendaContainer: doc.getElementById('vgRentabLegenda'),
       }],

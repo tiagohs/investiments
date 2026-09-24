@@ -801,9 +801,9 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
 export function comCamposUsdAcoesEua(historico) {
   return (historico || []).map((p) => {
     const c = p.cambioUsd;
-    if (!(typeof c === 'number' && Number.isFinite(c) && c > 0)) return { ...p, acoesEuaUsd: null, fluxoCaixaAcoesEuaUsd: null, fluxoAplicadoAcoesEuaUsd: null };
+    if (!(typeof c === 'number' && Number.isFinite(c) && c > 0)) return { ...p, acoesEuaUsd: null, fluxoCaixaAcoesEuaUsd: null, fluxoAplicadoAcoesEuaUsd: null, proventosAcoesEuaUsd: null };
     const div = (v) => (typeof v === 'number' && Number.isFinite(v) ? v / c : null);
-    return { ...p, acoesEuaUsd: div(p.acoesEua), fluxoCaixaAcoesEuaUsd: div(p.fluxoCaixaAcoesEua), fluxoAplicadoAcoesEuaUsd: div(p.fluxoAplicadoAcoesEua) };
+    return { ...p, acoesEuaUsd: div(p.acoesEua), fluxoCaixaAcoesEuaUsd: div(p.fluxoCaixaAcoesEua), fluxoAplicadoAcoesEuaUsd: div(p.fluxoAplicadoAcoesEua), proventosAcoesEuaUsd: div(p.proventosAcoesEua) };
   });
 }
 
@@ -1464,7 +1464,23 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   return { valorAtual, ganhoReais, percentual };
 }
 
-export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL } = {}) {
+/**
+ * 24/09/2026 (Tiago: "na home de carteiras, mostre a soma de todos os
+ * proventos ... leve em consideração o filtro de gráficos"): soma dos campos
+ * diários de provento (proventosAcoes/Fiis/AcoesEua - em R$, no dia do
+ * pagamento) na MESMA janela do gráfico - os dias depois da base (igual ao
+ * fluxo no ganho em R$: "Mês atual" = os dias deste mês).
+ */
+export function somarProventosNoPeriodo(historico, periodoId, campoCorte, campos) {
+  if (!Array.isArray(historico) || !campos || !campos.length) return null;
+  if (!historico.some((p) => campos.some((c) => typeof p[c] === 'number'))) return null;
+  const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoCorte);
+  let soma = 0;
+  janela.slice(1).forEach((p) => { campos.forEach((c) => { if (typeof p[c] === 'number' && Number.isFinite(p[c])) soma += p[c]; }); });
+  return Math.round(soma * 100) / 100;
+}
+
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL, camposProventos = null } = {}) {
   if (!container) return;
   const { valorAtual, ganhoReais, percentual: ultimoValido } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
@@ -1497,6 +1513,14 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
     pctEl.className = `delta-pct ${good ? 'good' : 'bad'}`;
     pctEl.textContent = formatPercentFromPoints(ultimoValido);
     deltaEl.append(pctEl, ' no período');
+    // 24/09/2026: proventos recebidos na mesma janela (Carteiras)
+    const proventos = camposProventos ? somarProventosNoPeriodo(historico, periodoId, CAMPO_PRINCIPAL_POR_VISAO[visaoId] || 'patrimonio', camposProventos) : null;
+    if (proventos != null) {
+      const sub = doc.createElement('div');
+      sub.className = 'rentab-card-sub rentab-card-proventos';
+      sub.textContent = `Proventos recebidos no período: ${formatarMoeda(proventos)}`;
+      container.append(sub);
+    }
   } else {
     deltaEl.className = 'rentab-card-delta na';
     deltaEl.textContent = 'sem histórico suficiente no período';
@@ -1623,8 +1647,8 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
   const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
 
   estado.atualizar = function atualizar() {
-    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda }) => {
-      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: formatarMoeda || formatBRL });
+    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda, camposProventos }) => {
+      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: formatarMoeda || formatBRL, camposProventos: camposProventos || null });
       if (chartContainer) {
         renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer });
       }

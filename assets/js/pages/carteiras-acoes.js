@@ -172,6 +172,7 @@ function desenhar(doc, dados) {
       periodoTabsContainer: doc.getElementById('acoesPeriodoTabs'),
       paineis: [{
         visaoId: 'carteiraAcoes',
+        camposProventos: ['proventosAcoes'], // 24/09/2026: proventos recebidos no período
         rentabInfoContainer: doc.getElementById('acoesRentabInfo'),
         evolucaoInfoContainer: doc.getElementById('acoesEvolucaoInfo'),
         labelInfoEvolucao: 'Patrimônio em Ações',

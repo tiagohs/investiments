@@ -167,6 +167,10 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var porDiaProventosAcoes = {};
   var porDiaProventosFiis = {};
   var porDiaProventosUsa = {};
+  // 24/09/2026 (tela Proventos): cada provento de renda variável, já com a
+  // MESMA classe e o MESMO valor em R$ que entram nos campos proventos*
+  // acima - uma fonte só pra tela Proventos, a Home e as Carteiras.
+  var listaProventos = [];
   var porDiaRendaFixaTotal = {};
   // 21/09/2026 (pedido do Tiago - print comparando com o Gorila,
   // "quanto investi" saindo muito abaixo do "Valor investido" de lá):
@@ -450,7 +454,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
       // "Proventos - USA" nem chega a olhar pra isso (vai pro balde USA
       // de qualquer jeito, igual "Transações - USA" acima).
       var ticker = String(linha[2] || '').trim().toUpperCase();
-      var data = linha[1], liquido = Number(linha[6]);
+      // 24/09/2026: dinheiro recebido é em centavos - arredonda aqui pra tela Proventos (soma dos itens),
+      // Carteiras (soma dos dias) e o fluxo de caixa usarem exatamente o mesmo número
+      var data = linha[1], liquido = Math.round(Number(linha[6]) * 100) / 100;
       if (!(data instanceof Date) || isNaN(liquido)) return;
       var chave = chaveDiaISOInicio_(data);
       if (nomeAba === ABA_PROVENTOS_USA_FLUXO) {
@@ -461,7 +467,8 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         // apareceu porque a aba estava vazia).
         var cambioProvento = cambioUsdParaData_(mapaCambioUsd || {}, chavesCambio, chave);
         if (!cambioProvento) return;
-        var liquidoBrl = liquido * cambioProvento;
+        var liquidoBrl = Math.round(liquido * cambioProvento * 100) / 100; // em reais, centavos (24/09/2026)
+        listaProventos.push(itemListaProventos_(linha, chave, ticker, 'acoesEua', liquidoBrl, 'USD', cambioProvento));
         somar(porDia, chave, -liquidoBrl);
         somar(porDiaUsa, chave, -liquidoBrl);
         somar(porDiaProventosUsa, chave, liquidoBrl);
@@ -487,8 +494,8 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
           else if (/11$/.test(ticker)) classeTicker = 'FII';
           else classeTicker = 'BR';
         }
-        if (classeTicker === 'FII') { somar(porDiaFiis, chave, -liquido); somar(porDiaProventosFiis, chave, liquido); }
-        else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, -liquido); somar(porDiaProventosAcoes, chave, liquido); }
+        if (classeTicker === 'FII') { somar(porDiaFiis, chave, -liquido); somar(porDiaProventosFiis, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'fiis', liquido, 'BRL', 1)); }
+        else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, -liquido); somar(porDiaProventosAcoes, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'acoes', liquido, 'BRL', 1)); }
         else if (classeTicker === 'RF' || classeTicker === 'RF_EMERGENCIAL') {
           somar(porDiaRendaFixaTotal, chave, -liquido);
           if (classeTicker === 'RF_EMERGENCIAL') somar(porDiaRendaEmergencial, chave, -liquido);
@@ -506,6 +513,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     proventosAcoes: porDiaProventosAcoes,
     proventosFiis: porDiaProventosFiis,
     proventosUsa: porDiaProventosUsa,
+    listaProventos: listaProventos,
     rendaFixaTotal: porDiaRendaFixaTotal,
     primeiraCompraPorTicker: primeiraCompraPorTicker,
     movimentosPorTicker: movimentosPorTicker,
@@ -628,4 +636,32 @@ function custoRendaFixaPepsHoje_() {
   });
   eventos.sort(function (a, b) { return a.data - b.data; });
   return calcularCustoRendaFixaPeps_(eventos).porPosicao;
+}
+
+/**
+ * 24/09/2026 (tela Proventos): 1 provento da aba Proventos / Proventos - USA
+ * (colunas A..G: Data com, Pagamento, Ticker, Tipo, Nº de ativos, Provento
+ * por ativo, Provento líquido) no formato da tela. `valor` é o líquido em R$
+ * (USA: x câmbio do dia do pagamento), o mesmo número dos campos proventos*.
+ */
+function itemListaProventos_(linha, chave, ticker, classe, valorBrl, moeda, cambio) {
+  var tipoBruto = String(linha[3] || '').trim();
+  var t = tipoBruto.toUpperCase();
+  var tipo = /JCP|JUROS SOBRE/.test(t) ? 'JCP'
+    : (/DIVID/.test(t) ? 'Dividendo'
+      : (/RENDIMENTO/.test(t) ? 'Rendimento'
+        : (/AMORTIZ/.test(t) ? 'Amortização' : (tipoBruto || 'Outros'))));
+  return {
+    data: chave,
+    dataCom: linha[0] instanceof Date ? chaveDiaISOInicio_(linha[0]) : '',
+    ticker: ticker,
+    classe: classe,
+    tipo: tipo,
+    quantidade: Number(linha[4]) || 0,
+    valorPorCota: Number(linha[5]) || 0,
+    liquido: Math.round(Number(linha[6]) * 100) / 100,
+    moeda: moeda,
+    cambio: cambio,
+    valor: valorBrl
+  };
 }

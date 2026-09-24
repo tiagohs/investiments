@@ -849,6 +849,7 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
   ];
   const erros = [];
   const tabela = [];
+  const provPorVisao = {};
   for (const [arquivo, fn, impls, idTabs, paineis, moeda] of paginas) {
     const mod = await imp(arquivo);
     const { dom, doc } = domCarteiras();
@@ -898,6 +899,21 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
           if ((m[5] === 'acima') !== (hoje >= aplicadoTotal)) erros.push(`${visaoId}/${periodoId}: Evolução - "${m[5]}" trocado`);
         } else if (/Valor aplicado/.test(sub)) erros.push(`${visaoId}/${periodoId}: Evolução sem linha de Valor aplicado não devia mostrar "Valor aplicado"`);
         tabela.push(`${visaoId}/${periodoId}: rentab ${dR && dR.ganho} (${dR && dR.pct}%) | evolução ${ganhoE} | ${sub}`);
+        // 24/09/2026 (Tiago: "mostre a soma de todos os proventos... já leve em consideração o filtro"):
+        // "Proventos recebidos no período" = Σ proventos da série nos dias da janela (a base não conta)
+        const CAMPOS_PROV = { total: ['proventosAcoes', 'proventosFiis', 'proventosAcoesEua'], carteiraAcoes: ['proventosAcoes'], carteiraFiis: ['proventosFiis'], carteiraAcoesEua: ['proventosAcoesEua'], carteiraAcoesEuaUsd: ['proventosAcoesEuaUsd'] }[visaoId];
+        const provEl = infoR.querySelector('.rentab-card-proventos');
+        if (!CAMPOS_PROV) {
+          if (provEl) erros.push(`${visaoId}/${periodoId}: Renda Fixa não tem proventos, mas mostra "${provEl.textContent}"`);
+        } else {
+          const valorProv = (x, c) => (c === 'proventosAcoesEuaUsd' ? (num(x.cambioUsd) ? (num(x.proventosAcoesEua) || 0) / x.cambioUsd : 0) : (num(x[c]) || 0));
+          const oProv = janelaOraculo(s, periodoId, campo).slice(1).reduce((a, x) => a + CAMPOS_PROV.reduce((b, c) => b + valorProv(x, c), 0), 0);
+          const provTela = provEl ? lerBRL(provEl.textContent) : null;
+          if (!provEl || !/Proventos recebidos no período/.test(provEl.textContent)) erros.push(`${visaoId}/${periodoId}: sem a linha "Proventos recebidos no período"`);
+          else if (Math.abs(provTela - r2(oProv)) > 0.011) erros.push(`${visaoId}/${periodoId}: Proventos no período ${provTela} != Σ ${CAMPOS_PROV.join('+')} ${r2(oProv)}`);
+          if (moeda === 'USD' && provEl && /R\$/.test(provEl.textContent)) erros.push(`${periodoId}: proventos de Ações EUA em US$ mostrando R$`);
+          provPorVisao[`${visaoId}/${periodoId}`] = provTela;
+        }
         if (moeda === 'USD') {
           // em dólar, as pontas das linhas = o topo da página, que vem da planilha (outra fonte)
           const res = r.carteirasAcoesEua.resumo;
@@ -910,6 +926,17 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
     }
     dom.window.close();
   }
+  // Visão geral = Ações + FIIs + Ações EUA (em reais), em cada período
+  for (const periodoId of PERIODOS) {
+    const soma = ['carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua'].reduce((a, v) => a + (provPorVisao[`${v}/${periodoId}`] || 0), 0);
+    const vg = provPorVisao[`total/${periodoId}`];
+    // "desde o início" de cada classe começa no nascimento dela; antes disso não há provento, então a soma fecha igual
+    if (vg == null || Math.abs(vg - r2(soma)) > 0.03) erros.push(`${periodoId}: proventos da Visão geral ${vg} != Ações + FIIs + Ações EUA ${r2(soma)}`);
+  }
+  // Início "Recebido em <mês>" = Visão geral no filtro "Mês atual"
+  const recebidoHome = ((r.home.proventosAnunciados && r.home.proventosAnunciados.recebidosNoMes) || []).reduce((a, p) => a + (num(p.valor) || 0), 0);
+  if (r.home.proventosAnunciados && Math.abs(r2(recebidoHome) - (provPorVisao['total/mes'] || 0)) > 0.011) erros.push(`Início "Recebido no mês" ${r2(recebidoHome)} != Carteiras "Mês atual" ${provPorVisao['total/mes']}`);
+  tabela.push(`proventos no período: ${JSON.stringify(provPorVisao)}`);
   t.diagnostic(tabela.join('\n'));
   assert.deepEqual(erros, []);
 });

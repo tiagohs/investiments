@@ -313,6 +313,7 @@ function desenhar(doc, dados) {
       paineis: [{
         visaoId: emDolar ? 'carteiraAcoesEuaUsd' : 'carteiraAcoesEua',
         moeda: emDolar ? 'USD' : 'BRL',
+        camposProventos: [emDolar ? 'proventosAcoesEuaUsd' : 'proventosAcoesEua'], // 24/09/2026
         rentabInfoContainer: doc.getElementById('acoesEuaRentabInfo'),
         evolucaoInfoContainer: doc.getElementById('acoesEuaEvolucaoInfo'),
         labelInfo: `Carteira de Ações EUA ${sufixo}`,

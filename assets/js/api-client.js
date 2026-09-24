@@ -406,3 +406,20 @@ export async function importB3Transactions(token, transactions, testOptions = nu
   }
   return { ok: true, written: data.resultado.gravadas, rejected: data.resultado.rejeitadas };
 }
+
+/**
+ * 24/09/2026: importa a exportação "Proventos a receber" da B3 - a matriz
+ * da planilha lida no navegador (SheetJS), como veio. Substitui a aba
+ * "B3 - proventos a receber" (Proventos.gs!handleImportarProventosB3).
+ */
+export async function importarProventosB3(token, linhas) {
+  return request('POST', 'importarProventosB3', token, { linhas: JSON.stringify(linhas) });
+}
+
+/**
+ * 24/09/2026: tela Proventos (action=proventos) - ver
+ * apps-script/Proventos.gs!montarTelaProventos_.
+ */
+export async function getProventos(token) {
+  return request('GET', 'proventos', token);
+}

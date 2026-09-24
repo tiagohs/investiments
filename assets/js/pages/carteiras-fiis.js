@@ -230,6 +230,7 @@ function desenhar(doc, dados) {
       periodoTabsContainer: doc.getElementById('fiisPeriodoTabs'),
       paineis: [{
         visaoId: 'carteiraFiis',
+        camposProventos: ['proventosFiis'], // 24/09/2026: proventos recebidos no período
         rentabInfoContainer: doc.getElementById('fiisRentabInfo'),
         evolucaoInfoContainer: doc.getElementById('fiisEvolucaoInfo'),
         labelInfoEvolucao: 'Patrimônio em FIIs',

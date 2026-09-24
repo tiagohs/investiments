@@ -437,3 +437,8 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .prov-selo{ display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600;
       background:var(--good-soft); color:var(--good-ink); vertical-align:middle; }
 .prov-aviso{ margin:12px 0 2px; font-size:12px; font-weight:600; color:var(--ink-muted); }
+.prov-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align:middle; }
+.prov-subtitulo{ margin:12px 0 0; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-faint); }
+.prov-mais{ margin-top:6px; padding:5px 12px; border-radius:999px; border:1px solid var(--border); background:var(--surface); color:var(--ink-muted);
+      font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.prov-mais:hover{ color:var(--ink); }

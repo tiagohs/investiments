@@ -51,6 +51,9 @@ function doGet(e) {
   if (action === 'irRendaFixa') {
     return handleIRRendaFixa(e, auth);
   }
+  if (action === 'proventos') { // 24/09/2026: tela Proventos (Proventos.gs)
+    return handleProventos(e, auth);
+  }
   if (action === 'carteirasHome') {
     return handleCarteirasHome(e, auth);
   }
@@ -80,6 +83,9 @@ function doPost(e) {
 
   if (action === 'importarTransacoesB3') {
     return handleImportarTransacoesB3(e);
+  }
+  if (action === 'importarProventosB3') { // 24/09/2026: tela Proventos (Proventos.gs)
+    return handleImportarProventosB3(e);
   }
   if (action === 'sincronizarAgora') {
     return handleSincronizarAgora(e);

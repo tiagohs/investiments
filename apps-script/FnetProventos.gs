@@ -20,7 +20,7 @@
  *  4) grava/atualiza aux_proventos-anunciados (1 linha por provento; um
  *     documento mais novo - retificação - substitui o valor).
  *
- * O site lê só a planilha (montarProventosAnunciados_, chamado pela Home):
+ * O site lê só a planilha (Proventos.gs!montarProventosAnunciados_):
  * quantidade na data com (pelas Transações) x valor por cota = quanto você
  * recebe, e marca o que já está lançado na aba Proventos.
  *
@@ -392,69 +392,5 @@ function gravarDocsFnetProcessados_(mapa) {
   try { PropertiesService.getScriptProperties().setProperty(PROP_FNET_DOCS_PROCESSADOS_, JSON.stringify(ids)); } catch (e) { Logger.log('Propriedades: ' + e); }
 }
 
-// ---------------------------------------------------------------------------
-// Leitura pro site (Home)
-// ---------------------------------------------------------------------------
-
-/**
- * Proventos anunciados cruzados com a SUA carteira:
- *  - aReceber: pagamento de hoje em diante, com quantidade > 0 na data com;
- *  - pagosNaoLancados: pagos nos últimos 60 dias, com quantidade > 0 na data
- *    com, que ainda não estão na aba Proventos (mesmo ticker e dia de
- *    pagamento) - pra lembrar de lançar.
- * Quantidade na data com = soma da coluna K ("Transação de ações/FIIs
- * (qtd)") da aba Transações até a data com, inclusive.
- * Cada item: { ticker, tipo, dataCom, dataPagamento, valorPorCota,
- *   quantidade, valor, isento, jaLancado }.
- */
-function montarProventosAnunciados_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var anunciados = lerProventosAnunciados_(ss);
-  if (!anunciados.length) return { aReceber: [], pagosNaoLancados: [], fonte: 'FNet (B3)' };
-  var hoje = chaveDiaISOInicio_(new Date());
-  var limitePassado = chaveDiaISOInicio_(new Date(Date.now() - 60 * 86400000));
-
-  var tickers = {};
-  anunciados.forEach(function (p) { tickers[p.ticker] = 1; });
-
-  // movimentos de quantidade por ticker (Transações)
-  var movimentos = {};
-  var abaT = ss.getSheetByName('Transações');
-  if (abaT && abaT.getLastRow() >= LINHA_DADOS_TRANSACOES_FLUXO) {
-    abaT.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, abaT.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1, 11).getValues().forEach(function (l) {
-      var t = String(l[0] || '').trim().toUpperCase();
-      if (!tickers[t] || !(l[1] instanceof Date)) return;
-      var q = Number(l[10]);
-      if (!isFinite(q) || !q) return;
-      (movimentos[t] = movimentos[t] || []).push({ dia: chaveDiaISOInicio_(l[1]), q: q });
-    });
-  }
-  var quantidadeNaData = function (t, dia) {
-    return (movimentos[t] || []).reduce(function (s, m) { return m.dia <= dia ? s + m.q : s; }, 0);
-  };
-
-  // já lançados na aba Proventos (B = pagamento, C = ticker)
-  var lancados = {};
-  var abaP = ss.getSheetByName('Proventos');
-  if (abaP && abaP.getLastRow() >= 1) {
-    abaP.getRange(1, 1, abaP.getLastRow(), 3).getValues().forEach(function (l) {
-      var t = String(l[2] || '').trim().toUpperCase();
-      if (tickers[t] && l[1] instanceof Date) lancados[t + '|' + chaveDiaISOInicio_(l[1])] = 1;
-    });
-  }
-
-  var aReceber = [], pagosNaoLancados = [];
-  anunciados.forEach(function (p) {
-    var quantidade = quantidadeNaData(p.ticker, p.dataCom);
-    if (!(quantidade > 0) || !(p.valor > 0)) return;
-    var item = {
-      ticker: p.ticker, tipo: p.tipo, dataCom: p.dataCom, dataPagamento: p.dataPagamento,
-      valorPorCota: p.valor, quantidade: quantidade, valor: Math.round(quantidade * p.valor * 100) / 100,
-      isento: p.isento, jaLancado: !!lancados[p.ticker + '|' + p.dataPagamento]
-    };
-    if (p.dataPagamento >= hoje) aReceber.push(item);
-    else if (p.dataPagamento >= limitePassado && !item.jaLancado) pagosNaoLancados.push(item);
-  });
-  var porPagamento = function (a, b) { return a.dataPagamento < b.dataPagamento ? -1 : (a.dataPagamento > b.dataPagamento ? 1 : (a.ticker < b.ticker ? -1 : 1)); };
-  return { aReceber: aReceber.sort(porPagamento), pagosNaoLancados: pagosNaoLancados.sort(porPagamento), fonte: 'FNet (B3)' };
-}
+// A leitura pro site (a receber, pagos não lançados, recebidos no mês) mora em
+// Proventos.gs!montarProventosAnunciados_ - junta FNet, a exportação da B3 e a aba Proventos.

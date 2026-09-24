@@ -939,6 +939,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         infoContainer: p.rentabInfoContainer || null,
         labelInfo: p.labelInfo || null,
         formatarMoeda: p.moeda === 'USD' ? formatUSD : formatBRL,
+        camposProventos: p.camposProventos || null, // 24/09/2026
       })),
   });
 
