@@ -176,6 +176,8 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .rentab-card-delta.good{ color:var(--good-ink); }
 .rentab-card-delta.bad{ color:var(--bad-ink); }
 .rentab-card-delta.na{ color:var(--ink-faint); font-weight:500; }
+/* 23/09/2026 #8: linha de apoio do bloco de Evolução (Carteiras) */
+.rentab-card-sub{ flex-basis:100%; color:var(--ink-muted); font-size:11.5px; line-height:1.4; }
 
 /* SVG desenhado a mao em pages/inicio.js!renderGraficoRentabilidade.
    13/09/2026: altura FIXA em px (em vez de height:auto seguindo o

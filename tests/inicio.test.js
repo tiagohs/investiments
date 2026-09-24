@@ -20,6 +20,9 @@ import {
   normalizarSerieRentabilidade,
   renderGraficoRentabilidade,
   renderInfoRentabilidade,
+  calcularResumoRentabilidade,
+  calcularResumoEvolucao,
+  renderInfoEvolucao,
   wireGraficoRentabilidade,
   criarAtivoCard,
   renderMeusAtivos,
@@ -1925,4 +1928,39 @@ test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenh
   assert.equal(doc.getElementById('inicioLoading').hidden, true, 'skeleton nunca reaparece num refresh');
   assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3, 'widgets não duplicam');
   assert.match(doc.getElementById('resumoPatrimonio').textContent, /250\.000/, 'redesenha com o patrimônio novo');
+});
+
+// --- 23/09/2026 #8: valores em cima dos gráficos das Carteiras ---------------
+
+test('calcularResumoEvolucao(): pontas das 2 linhas (fim, fim − começo, aplicado e distância pro aplicado), ignorando buracos', () => {
+  const r = calcularResumoEvolucao([null, 100, 120, null, 150], [0, 90, 100, 100, 130]);
+  assert.deepEqual(r, { inicial: 100, final: 150, variacao: 50, percentual: 50, aplicado: 130, diferencaAplicado: 20 });
+  assert.equal(calcularResumoEvolucao([null, 5], [1, 2]), null);
+  assert.equal(calcularResumoEvolucao([0, 10]).percentual, null); // linha nasce do zero: sem %
+  assert.equal(calcularResumoEvolucao([10, 8], null).aplicado, null);
+});
+
+test('renderInfoEvolucao(): R$ de hoje, ±R$ no período (sem %) e "Valor aplicado · ±R$ ±x% acima/abaixo do aplicado"', () => {
+  const doc = makeDom('<div id="a"></div><div id="b"></div><div id="c"></div>');
+  renderInfoEvolucao(doc, doc.getElementById('a'), { label: 'Patrimônio em Ações', valores: [1000, 900], investidos: [950, 1000] });
+  const a = doc.getElementById('a');
+  assert.equal(a.querySelector('.rentab-card-label').textContent, 'Patrimônio em Ações');
+  assert.match(a.querySelector('.rentab-card-value').textContent.replace(/\s+/g, ' '), /900,00/);
+  assert.equal(a.querySelector('.rentab-card-delta').className, 'rentab-card-delta bad');
+  assert.match(a.querySelector('.rentab-card-delta').textContent, /^-R\$\s*100,00 no período$/);
+  assert.match(a.querySelector('.rentab-card-sub').textContent, /Valor aplicado: R\$\s*1\.000,00 · -R\$\s*100,00 -10,00% abaixo do aplicado/);
+  renderInfoEvolucao(doc, doc.getElementById('b'), { valores: [10, 20] });
+  assert.equal(doc.getElementById('b').querySelector('.rentab-card-delta').className, 'rentab-card-delta good');
+  assert.equal(doc.getElementById('b').querySelector('.rentab-card-sub').textContent, 'com aportes e retiradas');
+  renderInfoEvolucao(doc, doc.getElementById('c'), { valores: [10] });
+  assert.match(doc.getElementById('c').textContent, /sem histórico suficiente/);
+});
+
+test('calcularResumoRentabilidade() sem `patrimonio` (subpáginas de Carteiras): valor atual = último ponto da série da visão', () => {
+  const historico = [
+    { data: '2026-01-01', acoes: 100, fluxoCaixaAcoes: 0 },
+    { data: '2026-01-02', acoes: 110, fluxoCaixaAcoes: 0 },
+  ];
+  const r = calcularResumoRentabilidade(undefined, historico, { visaoId: 'carteiraAcoes', periodoId: 'tudo' });
+  assert.equal(r.valorAtual, 110);
 });

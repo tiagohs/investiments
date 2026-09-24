@@ -105,7 +105,7 @@ test('criarCardMeta() monta título, badge, stats e o botão Editar', () => {
     badge: { tipo: 'good', texto: 'atingida' },
     percentual: 0.93,
     cor: 'var(--fiis)',
-    stats: [{ k: 'Carteira atual', v: 'R$ 60.945,47' }, { k: 'Meta', v: 'R$ 65.285,91' }],
+    stats: [{ k: 'Carteira atual', v: 'R$ 12.345,67' }, { k: 'Meta', v: 'R$ 13.274,91' }],
     campos: [{ nome: 'meses', rotulo: 'Meses', valor: 6, tipo: 'numero' }],
     onSalvar: async () => {},
   });

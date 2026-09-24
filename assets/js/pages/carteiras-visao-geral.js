@@ -51,6 +51,7 @@ import {
   wireGraficoRentabilidade,
   filtrarHistoricoPorPeriodo,
   calcularResumoRentabilidade,
+  renderInfoEvolucao,
 } from './inicio.js';
 import { renderBenchmarksClasseCarteiras } from './carteiras-classe-comum.js';
 
@@ -117,10 +118,10 @@ function formatarBenchmarksCard_(benchmarks) {
  * histórico do commit) - mas isso é só a posição ATUAL (custo de
  * aquisição do que está em carteira hoje), sem nenhum ganho/perda
  * REALIZADO (venda) nem provento recebido ao longo do tempo. Por isso
- * saía R$13.169,88/+9,75% mesmo o "desde o início" de verdade (Gorila:
- * ~+R$37.504,84/+75,23%; e o próprio gráfico de "Rentabilidade
- * acumulada" desta mesma tela, quando o período "Desde o início" está
- * selecionado: ~+R$32.940,04/+70,52% - a pequena diferença pro Gorila é
+ * saía uma fração (em R$ e em %) do "desde o início" de verdade (o do
+ * Gorila e o do próprio gráfico de "Rentabilidade acumulada" desta mesma
+ * tela, com o período "Desde o início" selecionado - a pequena diferença
+ * entre esses dois é
  * só a defasagem normal de 1 dia do histórico, ver comentário em
  * comHistoricoInvestidoAcumulado_ mais abaixo) ficava MUITO menor.
  *
@@ -219,6 +220,8 @@ function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaC
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId, 'patrimonio');
   const valoresPatrimonio = janela.map((item) => (typeof item.patrimonio === 'number' && Number.isFinite(item.patrimonio) ? item.patrimonio : null));
   const valoresInvestido = janela.map((item) => (typeof item.investidoAcumulado === 'number' && Number.isFinite(item.investidoAcumulado) ? item.investidoAcumulado : null));
+  // 23/09/2026 #8: valor + variação no período em cima do gráfico (mesmas 2 linhas)
+  renderInfoEvolucao(doc, doc.getElementById('vgInfoEvolucao'), { label: 'Patrimônio total', valores: valoresPatrimonio, investidos: valoresInvestido });
   const validos = valoresPatrimonio.filter((v) => v != null);
   if (validos.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';

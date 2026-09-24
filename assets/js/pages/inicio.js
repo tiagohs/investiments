@@ -1376,14 +1376,18 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
  * foi exatamente reimplementar essa soma "por fora" (somando
  * card.totalInvestido/lucroPrejuizo dos cards de classe, que só olham
  * pra posição ATUAL, sem realizado nem proventos) que fez o hero de
- * Carteiras sair batendo muito menor do que o Gorilla (R$13.169,88/+9,75%
- * contra os ~R$37.504,84/+75,23% reais) - bug relatado pelo Tiago em
+ * Carteiras sair batendo muito menor do que o Gorilla (uma fração do
+ * resultado e da % reais) - bug relatado pelo Tiago em
  * 19/09/2026, ver comentário em renderHeroStats_.
  */
 export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = 'total', periodoId = '12m' } = {}) {
   const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const campoFluxo = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
-  const valorAtual = resolverVisao(patrimonio, visaoId).valor;
+  // 23/09/2026 #8: as subpáginas de Carteiras não têm o `patrimonio` da
+  // Início (nem uma entrada em VISOES pras visões carteira*) - o valor
+  // atual é o último ponto da própria série (que já é o valor ao vivo de
+  // hoje, ver HistoricoInicio.gs/Home.gs).
+  const valorAtual = patrimonio && VISOES[visaoId] ? resolverVisao(patrimonio, visaoId).valor : ultimoValorDoCampo_(historico, campo);
   // 20/09/2026: mesmo corte de "Desde o início" por visão - ver comentário
   // de filtrarHistoricoPorPeriodo/renderGraficoRentabilidade.
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campo);
@@ -1425,12 +1429,12 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   return { valorAtual, ganhoReais, percentual };
 }
 
-export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m' } = {}) {
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null } = {}) {
   if (!container) return;
   const { valorAtual, ganhoReais, percentual: ultimoValido } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
   container.innerHTML = `
-    <div class="rentab-card-label">${LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
+    <div class="rentab-card-label">${label || LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
     <div class="rentab-card-value"></div>
     <div class="rentab-card-delta"></div>
   `;
@@ -1447,6 +1451,82 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
   } else {
     deltaEl.className = 'rentab-card-delta na';
     deltaEl.textContent = 'sem histórico suficiente no período';
+  }
+}
+
+/** 23/09/2026 #8: último valor numérico de `campo` na série (o de hoje). */
+function ultimoValorDoCampo_(historico, campo) {
+  for (let i = (historico || []).length - 1; i >= 0; i -= 1) {
+    const v = historico[i][campo];
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
+/**
+ * 23/09/2026 #8 (pedido do Tiago: "nos gráficos da carteira, coloque os
+ * valores em cima dos gráficos, com os ganhos ou perdas (igual a home) de
+ * acordo com o tipo de gráfico"). Resumo do gráfico de EVOLUÇÃO a partir
+ * das MESMAS duas linhas que ele desenha (`valores` = Portfólio,
+ * `investidos` = Valor aplicado, já recortadas na janela) - nunca uma
+ * conta à parte:
+ *  - final: último ponto da linha (= valor de hoje);
+ *  - variacao / percentual: fim − começo da linha no período (inclui
+ *    aporte e retirada - é o quanto a linha subiu/desceu; o ganho SEM
+ *    aporte é o do gráfico de Rentabilidade). A tela mostra só o R$;
+ *    `percentual` fica pra quem precisar;
+ *  - aplicado / diferencaAplicado: fim da linha tracejada e a distância
+ *    entre as duas linhas no último dia.
+ * null quando a janela tem menos de 2 pontos.
+ */
+export function calcularResumoEvolucao(valores, investidos = null) {
+  const idx = [];
+  (valores || []).forEach((v, i) => { if (typeof v === 'number' && Number.isFinite(v)) idx.push(i); });
+  if (idx.length < 2) return null;
+  const inicial = valores[idx[0]];
+  const final = valores[idx[idx.length - 1]];
+  const variacao = final - inicial;
+  const percentual = inicial ? (variacao / Math.abs(inicial)) * 100 : null;
+  const ultInv = investidos ? investidos[idx[idx.length - 1]] : null;
+  const aplicado = typeof ultInv === 'number' && Number.isFinite(ultInv) ? ultInv : null;
+  return { inicial, final, variacao, percentual, aplicado, diferencaAplicado: aplicado != null ? final - aplicado : null };
+}
+
+/** 23/09/2026 #8: bloco "rótulo / R$ valor / ±R$ variação no período /
+ * Valor aplicado e ±R$ (±x%) acima/abaixo dele" em cima do gráfico de Evolução - mesmo visual do bloco da
+ * Rentabilidade (renderInfoRentabilidade). */
+export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valores, investidos = null } = {}) {
+  if (!container) return;
+  const r = calcularResumoEvolucao(valores, investidos);
+  container.innerHTML = `
+    <div class="rentab-card-label"></div>
+    <div class="rentab-card-value"></div>
+    <div class="rentab-card-delta"></div>
+    <div class="rentab-card-sub"></div>
+  `;
+  container.querySelector('.rentab-card-label').textContent = label;
+  const deltaEl = container.querySelector('.rentab-card-delta');
+  const subEl = container.querySelector('.rentab-card-sub');
+  if (!r) {
+    container.querySelector('.rentab-card-value').textContent = '—';
+    deltaEl.className = 'rentab-card-delta na';
+    deltaEl.textContent = 'sem histórico suficiente no período';
+    subEl.remove();
+    return;
+  }
+  setValorComDec(container.querySelector('.rentab-card-value'), formatBRL(r.final));
+  const sinal = (v) => (v >= 0 ? '+' : '-');
+  deltaEl.className = `rentab-card-delta ${r.variacao >= 0 ? 'good' : 'bad'}`;
+  // Sem % na variação da linha: com aporte no meio, "subiu 5.000%" (desde
+  // o início) não diz nada - o % que importa aqui é a distância pro Valor
+  // aplicado; o rendimento do período (sem aporte) é o do gráfico de
+  // Rentabilidade.
+  deltaEl.textContent = `${sinal(r.variacao)}${formatBRL(Math.abs(r.variacao))} no período`;
+  if (r.aplicado != null) {
+    const pctAplicado = r.aplicado ? ` ${formatPercentFromPoints((r.diferencaAplicado / Math.abs(r.aplicado)) * 100)}` : '';
+    subEl.textContent = `com aportes e retiradas · Valor aplicado: ${formatBRL(r.aplicado)} · ${sinal(r.diferencaAplicado)}${formatBRL(Math.abs(r.diferencaAplicado))}${pctAplicado} ${r.diferencaAplicado >= 0 ? 'acima' : 'abaixo'} do aplicado`;
+  } else {
+    subEl.textContent = 'com aportes e retiradas';
   }
 }
 
@@ -1494,8 +1574,8 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
   const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
 
   estado.atualizar = function atualizar() {
-    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer }) => {
-      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual });
+    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo }) => {
+      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo });
       if (chartContainer) {
         renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer });
       }

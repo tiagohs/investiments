@@ -419,9 +419,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   // Renda Fixa por PEPS (o lote mais antigo sai primeiro) - 23/09/2026 #2,
   // conferido com o Controle 8: é a regra do Tesouro/IR e é o que a B3
   // mostra por lote. Com custo médio (a 1ª versão desta mesma data), o
-  // Tesouro Selic 2027 dava R$ 11.851,62 aplicados; por PEPS dá
-  // R$ 12.932,28 - os mesmos R$ 12.932,24 dos lotes da B3 em "RF
-  // Contratada - Lotes" (idem Selic 2029: R$ 15.391,92 x R$ 15.391,90).
+  // Tesouro Selic 2027 dava ~R$ 1 mil a menos aplicado; por PEPS dá o
+  // mesmo custo dos lotes da B3 em "RF Contratada - Lotes", a centavos
+  // (idem Selic 2029).
   // Renda Variável continua por custo médio (é o "Investido" da própria
   // planilha, que bate centavo por centavo).
   var custoRfPeps = calcularCustoRendaFixaPeps_(eventosAplicadoRf.sort(porData));
@@ -599,9 +599,9 @@ function calcularCustoRendaFixaPeps_(eventos) {
  * de "Transações Renda Fixa" - usado pela tela Carteiras > Renda Fixa
  * (CarteirasRendaFixa.gs) pro "Valor aplicado", que antes vinha da coluna
  * manual "Valor Investido" da Carteira Renda Fixa (com erros de digitação
- * reais no Controle 8: IPCA+ 2032 com R$ 3.131,36 - que é o custo do
- * Selic 2031 -, Selic 2031 com R$ 708,52, Selic 2027 com R$ 16.930,85
- * contra R$ 12.932,24 dos lotes da B3). Mesma conta do "Valor aplicado"
+ * reais no Controle 8: o IPCA+ 2032 com o custo do Selic 2031, o Selic
+ * 2031 com um valor bem menor e o Selic 2027 bem acima do custo dos lotes
+ * da B3). Mesma conta do "Valor aplicado"
  * da Início/Visão geral - o número da tela de Renda Fixa e o da Visão
  * geral saem da MESMA função.
  */

@@ -140,12 +140,14 @@ function montarBlocoGraficosHtml_() {
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="acoesEuaRentabInfo"></div>
       <div id="acoesEuaRentabChart"></div>
       <div class="chart-legend2" id="acoesEuaRentabLegenda"></div>
     </div>
 
     <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="acoesEuaEvolucaoInfo"></div>
       <div id="acoesEuaEvolucaoChart"></div>
       <div class="chart-legend2" id="acoesEuaEvolucaoLegenda"></div>
     </div>
@@ -260,6 +262,10 @@ function desenhar(doc, dados) {
       periodoTabsContainer: doc.getElementById('acoesEuaPeriodoTabs'),
       paineis: [{
         visaoId: 'carteiraAcoesEua',
+        rentabInfoContainer: doc.getElementById('acoesEuaRentabInfo'),
+        evolucaoInfoContainer: doc.getElementById('acoesEuaEvolucaoInfo'),
+        labelInfo: 'Carteira de Ações EUA (em reais)',
+        labelInfoEvolucao: 'Patrimônio em Ações EUA (em reais)',
         rentabChartContainer: doc.getElementById('acoesEuaRentabChart'),
         rentabLegendaContainer: doc.getElementById('acoesEuaRentabLegenda'),
         evolucaoChartContainer: doc.getElementById('acoesEuaEvolucaoChart'),

@@ -114,12 +114,12 @@ var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 //     VNOM na MESMA data e no MESMO valor (0,4855 VNOM por STR) - ou
 //     seja, VNOM sozinha já representa a posição E o dinheiro que saiu
 //     do bolso desde 11/06/2025. Contar STR junto dobrava os aportes
-//     dessas datas e, pior, a "Venda" de 9 STR a US$ 147,20 em 19/09/2026
-//     (preço do papel errado, só pra zerar a posição na planilha) virava
-//     uma RETIRADA de R$ 6.788 que nunca existiu - era exatamente o
-//     "+R$ 6.814,08 / +4,54% no mês" do print, e o "salto" do gráfico.
+//     dessas datas e, pior, a "Venda" das STR em 19/09/2026 (com o preço
+//     de outro papel, só pra zerar a posição na planilha) virava uma
+//     RETIRADA de alguns milhares de reais que nunca existiu - era
+//     exatamente o ganho "do mês" do print, e o "salto" do gráfico.
 // Ignorar STR nos dois lugares deixa só a VNOM - preço real, quantidade
-// real (bate com a Interactive Brokers: 14,5499) e aportes reais.
+// real (bate com a Interactive Brokers) e aportes reais.
 var TICKERS_FORA_DO_HISTORICO = ['STR'];
 
 /**

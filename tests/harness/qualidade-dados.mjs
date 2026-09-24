@@ -184,6 +184,31 @@ export const CHECAGENS_QUALIDADE = [
       return msgs;
     },
   },
+  {
+    id: 'vendaPrecoAbsurdo',
+    titulo: 'Transações e Transações - USA: nenhuma Venda com preço mais de 4x acima (ou abaixo de 1/4) do preço médio de compra',
+    // 23/09/2026 #8: venda lançada com o preço de OUTRO ativo (ex.: um
+    // ticker incorporado, "zerado" com a cotação do ticker novo) cria um
+    // lucro realizado que nunca existiu - na própria planilha (cabeçalho
+    // "Lucro/Prejuízo de todas suas operações") e no Imposto de Renda.
+    // Venda de direito/bonificação (preço médio 0) fica de fora.
+    rodar: ({ fixtures }) => {
+      const msgs = [];
+      for (const aba of ['Transações', 'Transações - USA']) {
+        for (const l of (fixtures[aba]?.linhas || []).slice(6)) {
+          const tk = String(l[0] || '').trim();
+          if (!tk || !l[1] || !l[1].__date__ || l[2] !== 'Venda') continue;
+          const preco = Number(l[3]), medio = Number(l[9]);
+          if (!(preco > 0) || !(medio > 0)) continue;
+          const razao = preco / medio;
+          if (razao > 4 || razao < 0.25) {
+            msgs.push(`"${aba}": ${tk} Venda de ${fmtBr(l[1].__date__.slice(0, 10))} a ${preco} com preço médio ${medio} (${razao.toFixed(1)}x) - lucro/prejuízo da operação ${l[11] ?? '?'}. Confira o preço da venda`);
+          }
+        }
+      }
+      return msgs;
+    },
+  },
 ];
 
 /** Roda todas as checagens: [{ id, titulo, msgs }]. */

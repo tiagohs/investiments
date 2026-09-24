@@ -157,6 +157,9 @@
  *    indiceCdi/indiceSelic já funciona pra isso sem nenhuma mudança,
  *    granularidade menor só significa "fator ausente com mais
  *    frequência").
+ *    23/09/2026 #8: agora pro rata - o IPCA do mês é espalhado pelos dias
+ *    corridos do próprio mês (ver leitura de fatoresIpca), em vez de
+ *    entrar inteiro no dia 1º.
  *  - `fluxoCaixaAcoes`/`fluxoCaixaFiis`/`fluxoCaixaAcoesEua`/
  *    `fluxoCaixaRendaFixaTotal`/`fluxoCaixaRendaFixaLongoPrazo`: vêm de
  *    calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs), agora chamado
@@ -424,7 +427,20 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var chaveBcbTaxa = formatarDataBcbRF_(d);
     if (x.nome === 'CDI') fatoresCdi[chaveBcbTaxa] = 1 + (x.valor / 100);
     else if (x.nome === 'SELIC') fatoresSelic[chaveBcbTaxa] = 1 + (x.valor / 100);
-    else fatoresIpca[chaveBcbTaxa] = 1 + (x.valor / 100);
+    else {
+      // 23/09/2026 #8 (Tiago: "veja o ipca"): IPCA é MENSAL (série 433 do
+      // BCB, datada no dia 1º do mês de referência). Antes o mês inteiro
+      // entrava de uma vez no dia 1º - uma janela de "12 meses" que começa
+      // no dia 22 pegava só 11 IPCAs, e "30 dias"/"Mês atual" quase nunca
+      // pegavam nenhum. Agora a taxa do mês é espalhada pro rata pelos
+      // dias corridos DO PRÓPRIO mês (fator^(1/dias)) - no fim do mês o
+      // índice acumulado é exatamente o mesmo de antes. Chave = "MM/AAAA";
+      // se a linha cair nos últimos dias do mês (desvio de fuso), é do mês
+      // seguinte.
+      var dIpca_ = dataLocalDeChaveInicio_(chaveDiaISOInicio_(d));
+      if (dIpca_.getUTCDate() >= 20) dIpca_ = new Date(Date.UTC(dIpca_.getUTCFullYear(), dIpca_.getUTCMonth() + 1, 1));
+      fatoresIpca[chaveMesIpcaInicio_(dIpca_.getUTCFullYear(), dIpca_.getUTCMonth() + 1)] = 1 + (x.valor / 100);
+    }
   });
 
   // Fluxo de caixa líquido diário (aporte/retirada) - ver correção de
@@ -726,7 +742,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     var chaveBcb = formatarDataBcbRF_(dataAtual);
     var fatorCdi = fatoresCdi[chaveBcb];
     var fatorSelic = fatoresSelic[chaveBcb];
-    var fatorIpca = fatoresIpca[chaveBcb];
+    // 23/09/2026 #8: IPCA pro rata pelos dias corridos do mês (ver leitura acima)
+    var anoAtualIpca_ = Number(chaveAtual.slice(0, 4)), mesAtualIpca_ = Number(chaveAtual.slice(5, 7));
+    var fatorMesIpca = fatoresIpca[chaveMesIpcaInicio_(anoAtualIpca_, mesAtualIpca_)];
+    var fatorIpca = fatorMesIpca ? Math.pow(fatorMesIpca, 1 / new Date(Date.UTC(anoAtualIpca_, mesAtualIpca_, 0)).getUTCDate()) : null;
     if (fatorCdi) indiceCdi *= fatorCdi;
     if (fatorSelic) indiceSelic *= fatorSelic;
     if (fatorIpca) indiceIpca *= fatorIpca;
@@ -748,8 +767,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       longoPrazo: arredondar2Inicio_(patrimonioTotal - rendaEmergencialHoje),
       nacional: arredondar2Inicio_(patrimonioNacional),
       rendaEmergencial: arredondar2Inicio_(rendaEmergencialHoje),
-      indiceCdi: arredondar2Inicio_(indiceCdi),
-      indiceSelic: arredondar2Inicio_(indiceSelic),
+      indiceCdi: arredondarIndiceInicio_(indiceCdi), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
+      indiceSelic: arredondarIndiceInicio_(indiceSelic), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
       ibovespa: ultimoIbovespa,
       pregao: pregaoHoje,
       fluxoCaixaPatrimonio: arredondar2Inicio_(fluxoTotalHoje),
@@ -764,7 +783,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       rendaFixaLongoPrazo: arredondar2Inicio_(rendaFixaLongoPrazoHoje),
       ifix: ultimoIfix,
       sp500: ultimoSp500,
-      indiceIpca: arredondar2Inicio_(indiceIpca),
+      indiceIpca: arredondarIndiceInicio_(indiceIpca), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
       fluxoCaixaAcoes: arredondar2Inicio_(fluxoAcoesHoje),
       fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
       fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoAcoesEuaHoje),
@@ -824,13 +843,14 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
+  // v11 (23/09/2026 #8): IPCA pro rata no mês e índices com 4 casas.
   // v9 (23/09/2026): (1) a conta mudou (STR fora, preço isolado absurdo
   // ignorado, nada datado depois de hoje - ver montarSerieHistoricoInicio_);
   // (2) a chave passou a incluir o DIA DE HOJE: a série agora nunca passa
   // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
   // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
   // seria "hoje" pra receber os valores ao vivo (Home.gs).
-  return 'historico_serie_v10_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v11_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**
@@ -981,6 +1001,18 @@ function dataLocalDeChaveInicio_(chaveIso) {
 
 function arredondar2Inicio_(n) {
   return Math.round(n * 100) / 100;
+}
+
+/** 23/09/2026 #8: índices base 100 (CDI/Selic/IPCA) com 4 casas - com 2,
+ * o arredondamento chegava a ~10% do passo diário do CDI e mostrava o IPCA
+ * do mês com 0,01 p.p. de diferença (0,27 no lugar de 0,26). */
+function arredondarIndiceInicio_(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+/** 23/09/2026 #8: chave "MM/AAAA" do IPCA mensal (mes = 1..12). */
+function chaveMesIpcaInicio_(ano, mes) {
+  return (mes < 10 ? '0' : '') + mes + '/' + ano;
 }
 
 /** 23/09/2026: ver TICKERS_FORA_DO_HISTORICO (Sync.gs). */

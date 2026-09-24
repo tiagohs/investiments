@@ -100,6 +100,26 @@ function lerDelta(t) {
   return { ganho: Number(m[2].replace(/\./g, '').replace(',', '.')) * (m[1] === '+' ? 1 : -1), pct: lerPct(m[3] + '%') };
 }
 const texto = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
+/** 23/09/2026 #8: blocos de valor em cima dos gráficos das Carteiras. */
+function lerTopoRentab(el) {
+  if (!el || !el.querySelector('.rentab-card-value')) return null;
+  const d = lerDelta(el.querySelector('.rentab-card-delta').textContent);
+  return { valor: lerBRL(el.querySelector('.rentab-card-value').textContent), ganho: d ? d.ganho : null, pct: d ? d.pct : null };
+}
+function lerTopoEvolucao(el) {
+  if (!el || !el.querySelector('.rentab-card-value')) return null;
+  const dt = texto(el.querySelector('.rentab-card-delta'));
+  const md = dt.match(/^([+\-])(R\$\s*[\d.]+,\d{2}) no período$/);
+  const sub = texto(el.querySelector('.rentab-card-sub'));
+  const ma = sub.match(/Valor aplicado:\s*(R\$\s*[\d.]+,\d{2})\s*·\s*([+\-])(R\$\s*[\d.]+,\d{2})/);
+  return {
+    valor: lerBRL(el.querySelector('.rentab-card-value').textContent),
+    variacao: md ? (md[1] === '-' ? -1 : 1) * lerBRL(md[2]) : null,
+    aplicado: ma ? lerBRL(ma[1]) : null,
+    difAplicado: ma ? (ma[2] === '-' ? -1 : 1) * lerBRL(ma[3]) : null,
+    texto: `${dt}${sub ? ` · ${sub}` : ''}`,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // oráculo independente (não importa nada do app)
@@ -420,18 +440,18 @@ async function lerTelas(r, I) {
     for (const per of PERIODOS) {
       if (!clicar(dom, doc, `#vgPeriodoTabs .filter-tab[data-periodo="${per}"]`)) continue;
       const d = lerDelta(doc.getElementById('vgInfoRentabilidade').textContent);
-      telas.vg.porPeriodo[per] = { ganho: d ? d.ganho : null, pct: d ? d.pct : null, legenda: legenda(doc, 'vgRentabLegenda') };
+      telas.vg.porPeriodo[per] = { ganho: d ? d.ganho : null, pct: d ? d.pct : null, legenda: legenda(doc, 'vgRentabLegenda'), topoEvolucao: lerTopoEvolucao(doc.getElementById('vgInfoEvolucao')) };
     }
     dom.window.close();
   }
 
   // subpáginas
   const PAGS = [
-    ['acoes', 'carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesConteudo', 'acoesPeriodoTabs', [['carteiraAcoes', 'acoesRentabLegenda']]],
-    ['fiis', 'carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisConteudo', 'fiisPeriodoTabs', [['carteiraFiis', 'fiisRentabLegenda']]],
-    ['acoesEua', 'carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaConteudo', 'acoesEuaPeriodoTabs', [['carteiraAcoesEua', 'acoesEuaRentabLegenda']]],
+    ['acoes', 'carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesConteudo', 'acoesPeriodoTabs', [['carteiraAcoes', 'acoesRentabLegenda', 'acoesRentabInfo', 'acoesEvolucaoInfo']]],
+    ['fiis', 'carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisConteudo', 'fiisPeriodoTabs', [['carteiraFiis', 'fiisRentabLegenda', 'fiisRentabInfo', 'fiisEvolucaoInfo']]],
+    ['acoesEua', 'carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaConteudo', 'acoesEuaPeriodoTabs', [['carteiraAcoesEua', 'acoesEuaRentabLegenda', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo']]],
     ['rendaFixa', 'carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', 'getCarteirasRendaFixaImpl', r.carteirasRendaFixa, 'rendaFixaConteudo', 'rendaFixaPeriodoTabs',
-      [['carteiraRendaFixaTotal', 'rfRentabTotalLegenda'], ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoLegenda'], ['carteiraRendaFixaEmergencial', 'rfRentabEmergLegenda']]],
+      [['carteiraRendaFixaTotal', 'rfRentabTotalLegenda', 'rfRentabTotalInfo', 'rfEvolucaoTotalInfo'], ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoLegenda', 'rfRentabLongoInfo', 'rfEvolucaoLongoInfo'], ['carteiraRendaFixaEmergencial', 'rfRentabEmergLegenda', 'rfRentabEmergInfo', 'rfEvolucaoEmergInfo']]],
   ];
   for (const [nome, arq, fn, impl, cart, idC, idTabs, paineis] of PAGS) {
     const mod = await imp('assets/js/pages/' + arq);
@@ -449,10 +469,12 @@ async function lerTelas(r, I) {
       proventos: prov ? lerBRL(prov) : null,
       tooltips: [...el.querySelectorAll('.cc-resumo .info-alvo')].map((x) => x.dataset.tooltip),
       legendas: {},
+      topos: {},
     };
     for (const per of PERIODOS) {
       if (!clicar(dom, doc, `#${idTabs} .filter-tab[data-periodo="${per}"]`)) continue;
       telas.sub[nome].legendas[per] = Object.fromEntries(paineis.map(([v, id]) => [v, legenda(doc, id)]));
+      telas.sub[nome].topos[per] = Object.fromEntries(paineis.map(([v, , idR, idE]) => [v, { rentab: lerTopoRentab(doc.getElementById(idR)), evolucao: lerTopoEvolucao(doc.getElementById(idE)) }]));
     }
     dom.window.close();
   }
@@ -669,6 +691,36 @@ function checar(D, s, p, u) {
       if (!perto(lucro + sub[k].proventos + real, D.visoes[v].tudo.ganho, 0.03)) e3.push(`${k}: lucro ${r2(lucro)} + proventos ${sub[k].proventos} + realizado ${r2(real)} x desde o início ${D.visoes[v].tudo.ganho}`);
     }
     add('Carteiras · subpáginas', 'Ações e FIIs: "Proventos recebidos" = aba Proventos (inclusive códigos antigos) e Lucro + Proventos + lucro realizado nas vendas = Resultado desde o início', e3);
+    // 23/09/2026 #8: valores em cima dos gráficos
+    const e4 = [];
+    const COM_APLICADO = new Set(['total', 'carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua', 'carteiraRendaFixaTotal']);
+    const conferirTopo = (v, per, rentab, evol) => {
+      const o = D.visoes[v][per];
+      const ev = o && o.evolucao;
+      if (rentab !== undefined) {
+        if (!rentab) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: sem o valor em cima da Rentabilidade`);
+        else {
+          if (!perto(rentab.valor, r2(D.vivo[v]))) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Rentabilidade - valor ${rentab.valor} x ao vivo ${r2(D.vivo[v])}`);
+          if (!perto(rentab.ganho, o.ganho) || !perto(rentab.pct, o.pct)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Rentabilidade - ${rentab.ganho} (${rentab.pct}%) x oráculo ${o.ganho} (${o.pct}%)`);
+        }
+      }
+      if (!evol) { e4.push(`${N[v]}/${NOMES_PERIODO[per]}: sem o valor em cima da Evolução`); return; }
+      if (!perto(evol.valor, r2(D.vivo[v]))) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - valor ${evol.valor} x ao vivo ${r2(D.vivo[v])}`);
+      if (ev && !perto(evol.variacao, r2(ev.valorFim - ev.valorIni), 0.02)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - variação ${evol.variacao} x fim − começo da linha ${r2(ev.valorFim - ev.valorIni)}`);
+      if (COM_APLICADO.has(v)) {
+        if (!perto(evol.aplicado, r2(D.aplicado[v]), 0.005)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - Valor aplicado ${evol.aplicado} x fim da linha ${r2(D.aplicado[v])}`);
+        if (!perto(evol.difAplicado, r2(D.vivo[v] - D.aplicado[v]), 0.02)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - distância pro aplicado ${evol.difAplicado} x ${r2(D.vivo[v] - D.aplicado[v])}`);
+      } else if (evol.aplicado != null) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução sem linha de Valor aplicado mostrando "Valor aplicado"`);
+    };
+    for (const [k, paineis] of Object.entries(PAINEIS)) {
+      for (const per of PERIODOS) {
+        const topos = sub[k].topos[per];
+        if (!topos) continue;
+        for (const v of paineis) conferirTopo(v, per, topos[v].rentab, topos[v].evolucao);
+      }
+    }
+    for (const per of PERIODOS) if (D.telas.vg.porPeriodo[per]) conferirTopo('total', per, undefined, D.telas.vg.porPeriodo[per].topoEvolucao);
+    add('Carteiras · subpáginas', 'valores em cima dos gráficos (Visão geral e as 4 subpáginas, 6 períodos): Rentabilidade = valor de hoje e ganho/% do oráculo; Evolução = valor de hoje, fim − começo da linha e distância pro "Valor aplicado"', e4);
   }
 
   // --- Plausibilidade ("de acordo") ---

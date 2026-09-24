@@ -789,3 +789,80 @@ test('Início: gráfico "Ações Internacionais" bate com Carteiras > Ações EU
   dom.window.close(); c.dom.window.close();
   assert.deepEqual(erros, []);
 });
+
+// ---------------------------------------------------------------------------
+// 19) Carteiras: valores em cima dos gráficos (23/09/2026 #8)
+// ---------------------------------------------------------------------------
+test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima de cada gráfico, nos 6 períodos - Rentabilidade "R$ hoje / ±R$ ganho ±x% no período" = oráculo; Evolução "R$ hoje / ±R$ variação da linha" e "Valor aplicado ±R$ (±x%)" = pontas das 2 linhas', async (t) => {
+  if (pular(t)) return;
+  const r = await dados();
+  const s = r.home.historico;
+  const DEF = Object.fromEntries(VISOES_CLASSE.map(([v, c, f, a]) => [v, { campo: c, fluxo: f, aplicado: a }]));
+  DEF.total = { campo: 'patrimonio', fluxo: 'fluxoCaixaPatrimonio', aplicado: 'fluxoAplicadoPatrimonio' };
+  const paginas = [
+    ['assets/js/pages/carteiras-visao-geral.js', 'montarPaginaCarteirasVisaoGeral', { getCarteirasHomeImpl: async () => ({ ok: true, carteiras: r.carteirasHome }) }, 'vgPeriodoTabs',
+      [['total', 'vgInfoRentabilidade', 'vgInfoEvolucao', true]]],
+    ['assets/js/pages/carteiras-acoes.js', 'montarPaginaCarteirasAcoes', { getCarteirasAcoesImpl: async () => ({ ok: true, carteira: r.carteirasAcoes }) }, 'acoesPeriodoTabs',
+      [['carteiraAcoes', 'acoesRentabInfo', 'acoesEvolucaoInfo', true]]],
+    ['assets/js/pages/carteiras-fiis.js', 'montarPaginaCarteirasFiis', { getCarteirasFiisImpl: async () => ({ ok: true, carteira: r.carteirasFiis }) }, 'fiisPeriodoTabs',
+      [['carteiraFiis', 'fiisRentabInfo', 'fiisEvolucaoInfo', true]]],
+    ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', { getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: r.carteirasAcoesEua }) }, 'acoesEuaPeriodoTabs',
+      [['carteiraAcoesEua', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo', true]]],
+    ['assets/js/pages/carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', { getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: r.carteirasRendaFixa }) }, 'rendaFixaPeriodoTabs',
+      [['carteiraRendaFixaTotal', 'rfRentabTotalInfo', 'rfEvolucaoTotalInfo', true],
+        ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoInfo', 'rfEvolucaoLongoInfo', false],
+        ['carteiraRendaFixaEmergencial', 'rfRentabEmergInfo', 'rfEvolucaoEmergInfo', false]]],
+  ];
+  const erros = [];
+  const tabela = [];
+  for (const [arquivo, fn, impls, idTabs, paineis] of paginas) {
+    const mod = await imp(arquivo);
+    const { dom, doc } = domCarteiras();
+    await mod[fn]('token-fake', { doc, ...impls, getHomeImpl: async () => r.home });
+    for (const periodoId of PERIODOS) {
+      doc.querySelector(`#${idTabs} .filter-tab[data-periodo="${periodoId}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+      for (const [visaoId, idRentab, idEvol, comAplicado] of paineis) {
+        const { campo, fluxo, aplicado } = DEF[visaoId];
+        const hoje = s[s.length - 1][campo];
+        // Rentabilidade (mesmo oráculo da Início)
+        const infoR = doc.getElementById(idRentab);
+        if (!infoR || !infoR.querySelector('.rentab-card-value')) { erros.push(`${visaoId}/${periodoId}: sem o bloco de valor em cima da Rentabilidade (#${idRentab})`); continue; }
+        const jan0 = janelaOraculo(s, periodoId, campo);
+        const jan = jan0.slice(Math.max(0, jan0.findIndex((x) => num(x[campo]) && x[campo] !== 0)));
+        const o = twrOraculo(jan, campo, fluxo, s);
+        const vR = lerBRL(infoR.querySelector('.rentab-card-value').textContent);
+        const dR = lerDeltaPeriodo(infoR.querySelector('.rentab-card-delta').textContent);
+        if (Math.abs(vR - r2(hoje)) > 0.011) erros.push(`${visaoId}/${periodoId}: Rentabilidade - valor ${vR} != hoje ${r2(hoje)}`);
+        if (!dR || Math.abs(dR.pct - r2(o.pct)) > 0.011 || Math.abs(dR.ganho - r2(o.ganho)) > 0.011) erros.push(`${visaoId}/${periodoId}: Rentabilidade - tela ${JSON.stringify(dR)} != oráculo ${r2(o.pct)}% R$ ${r2(o.ganho)}`);
+        // Evolução: pontas das 2 linhas desenhadas
+        const infoE = doc.getElementById(idEvol);
+        if (!infoE || !infoE.querySelector('.rentab-card-value')) { erros.push(`${visaoId}/${periodoId}: sem o bloco de valor em cima da Evolução (#${idEvol})`); continue; }
+        const janE = janelaOraculo(s, periodoId, campo).filter((x) => num(x[campo]) != null);
+        const ini = janE[0][campo];
+        const variacao = hoje - ini;
+        const vE = lerBRL(infoE.querySelector('.rentab-card-value').textContent);
+        const deltaTxt = infoE.querySelector('.rentab-card-delta').textContent.trim();
+        const mD = deltaTxt.match(/^([+-])(R\$\s*[\d.]+,\d{2}) no período$/);
+        const ganhoE = mD ? (mD[1] === '-' ? -1 : 1) * lerBRL(mD[2]) : null;
+        if (Math.abs(vE - r2(hoje)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - valor ${vE} != hoje ${r2(hoje)}`);
+        if (ganhoE == null || Math.abs(ganhoE - r2(variacao)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - "${deltaTxt}" != fim − começo da linha ${r2(variacao)}`);
+        if (infoE.querySelector('.rentab-card-delta').classList.contains(variacao >= 0 ? 'bad' : 'good')) erros.push(`${visaoId}/${periodoId}: Evolução - cor trocada`);
+        const sub = infoE.querySelector('.rentab-card-sub')?.textContent || '';
+        if (comAplicado) {
+          const aplicadoTotal = s.reduce((a, x) => a + (num(x[aplicado]) || 0), 0);
+          const m = sub.match(/Valor aplicado:\s*(R\$\s*[\d.]+,\d{2})\s*·\s*([+-])(R\$\s*[\d.]+,\d{2})\s+([+-]?[\d.]+,\d+%)\s+(acima|abaixo) do aplicado/);
+          if (!m) { erros.push(`${visaoId}/${periodoId}: Evolução - sem "Valor aplicado" (${sub})`); continue; }
+          if (Math.abs(lerBRL(m[1]) - r2(aplicadoTotal)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - Valor aplicado ${lerBRL(m[1])} != Σ ${aplicado} ${r2(aplicadoTotal)}`);
+          const dif = (m[2] === '-' ? -1 : 1) * lerBRL(m[3]);
+          if (Math.abs(dif - r2(hoje - aplicadoTotal)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - diferença pro aplicado ${dif} != ${r2(hoje - aplicadoTotal)}`);
+          if (Math.abs(lerPct(m[4]) - r2(((hoje - aplicadoTotal) / aplicadoTotal) * 100)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - % pro aplicado ${m[4]} != ${r2(((hoje - aplicadoTotal) / aplicadoTotal) * 100)}`);
+          if ((m[5] === 'acima') !== (hoje >= aplicadoTotal)) erros.push(`${visaoId}/${periodoId}: Evolução - "${m[5]}" trocado`);
+        } else if (/Valor aplicado/.test(sub)) erros.push(`${visaoId}/${periodoId}: Evolução sem linha de Valor aplicado não devia mostrar "Valor aplicado"`);
+        tabela.push(`${visaoId}/${periodoId}: rentab ${dR && dR.ganho} (${dR && dR.pct}%) | evolução ${ganhoE} | ${sub}`);
+      }
+    }
+    dom.window.close();
+  }
+  t.diagnostic(tabela.join('\n'));
+  assert.deepEqual(erros, []);
+});

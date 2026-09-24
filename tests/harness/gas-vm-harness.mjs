@@ -80,12 +80,31 @@ function parseA1_(a1) {
 // não é comparado em teste nenhum de patrimônio/consistência - só evita
 // que montarCarteirasHome_/montarCarteirasRendaFixa_ (que chamam essa
 // função sem try/catch) quebrem inteiras por falta de rede no sandbox. */
-function criarUrlFetchAppFake_() {
+// 23/09/2026 #8: devolve os últimos 13 IPCAs mensais da própria aba
+// aux_historico-indices (o mesmo formato da API do BCB: 01/MM/AAAA), pra o
+// "IPCA (12m)" da Renda Fixa no harness ser o de verdade e poder ser
+// conferido. Sem a aba, cai na série fixa de antes.
+function criarUrlFetchAppFake_(fixturesRaw = null) {
+  const ipcaDaAba = () => {
+    const out = [];
+    for (const l of (fixturesRaw && fixturesRaw['aux_historico-indices'] ? fixturesRaw['aux_historico-indices'].linhas : [])) {
+      if (l[1] !== 'IPCA' || !l[0] || !l[0].__date__ || typeof l[2] !== 'number') continue;
+      const [y, mo, d, h, mi, se] = l[0].__date__.match(/^(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)/).slice(1).map(Number);
+      const p = partesNoFuso_(FUSO_PROJETO_APPS_SCRIPT, relogioNoFusoParaUtcMs_(FUSO_PLANILHA_XLSX, y, mo, d, h, mi, se));
+      const m = p.d >= 20 ? (p.mo % 12) + 1 : p.mo;
+      const a = p.d >= 20 && p.mo === 12 ? p.y + 1 : p.y;
+      out.push({ data: `01/${String(m).padStart(2, '0')}/${a}`, valor: String(l[2]), chave: a * 100 + m });
+    }
+    return out.sort((x, z) => x.chave - z.chave).slice(-13).map(({ data, valor }) => ({ data, valor }));
+  };
   return {
     fetch(url) {
       if (String(url).indexOf('bcdata.sgs.433') !== -1) {
-        const serie = [];
-        for (let i = 0; i < 13; i++) serie.push({ data: '01/01/2026', valor: '0.30' });
+        let serie = ipcaDaAba();
+        if (serie.length < 13) {
+          serie = [];
+          for (let i = 0; i < 13; i++) serie.push({ data: '01/01/2026', valor: '0.30' });
+        }
         return { getContentText: () => JSON.stringify(serie) };
       }
       return { getContentText: () => '[]' };
@@ -261,7 +280,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       },
     },
     PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {} }) },
-    UrlFetchApp: criarUrlFetchAppFake_(),
+    UrlFetchApp: criarUrlFetchAppFake_(fixturesRaw),
     // 23/09/2026: só pra handleHome (Home.gs) poder rodar INTEIRO no
     // harness - jsonOut (Auth.gs) embrulha a resposta num TextOutput; aqui
     // o "TextOutput" só guarda o texto pra carregarRespostaHomeComDadosReais

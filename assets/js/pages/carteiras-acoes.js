@@ -132,12 +132,14 @@ function montarBlocoGraficosHtml_() {
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="acoesRentabInfo"></div>
       <div id="acoesRentabChart"></div>
       <div class="chart-legend2" id="acoesRentabLegenda"></div>
     </div>
 
     <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="acoesEvolucaoInfo"></div>
       <div id="acoesEvolucaoChart"></div>
       <div class="chart-legend2" id="acoesEvolucaoLegenda"></div>
     </div>
@@ -170,6 +172,9 @@ function desenhar(doc, dados) {
       periodoTabsContainer: doc.getElementById('acoesPeriodoTabs'),
       paineis: [{
         visaoId: 'carteiraAcoes',
+        rentabInfoContainer: doc.getElementById('acoesRentabInfo'),
+        evolucaoInfoContainer: doc.getElementById('acoesEvolucaoInfo'),
+        labelInfoEvolucao: 'Patrimônio em Ações',
         rentabChartContainer: doc.getElementById('acoesRentabChart'),
         rentabLegendaContainer: doc.getElementById('acoesRentabLegenda'),
         evolucaoChartContainer: doc.getElementById('acoesEvolucaoChart'),

@@ -162,7 +162,7 @@ sup{color:var(--muted)}
   }
   for (const v of Object.keys(D.visoes)) {
     const ipca = D.visoes[v].mes && D.visoes[v].mes.bench.find((b) => b.campo === 'indiceIpca');
-    if (ipca && ipca.ret === 0) { o.push('<li><b>IPCA 0% no mês.</b> O índice só muda no dia 1º de cada mês, e o IPCA do mês corrente ainda não saiu.</li>'); break; }
+    if (ipca && ipca.ret === 0) { o.push('<li><b>IPCA 0% no mês.</b> O IPCA do mês corrente ainda não saiu (o IBGE divulga por volta do dia 10 do mês seguinte). Nos meses já divulgados, o índice anda pro rata, dia a dia, dentro do próprio mês.</li>'); break; }
   }
   if (D.proventosForaDaCarteira.length) {
     o.push(`<li><b>Proventos de códigos que não estão mais na carteira</b> entram na rentabilidade e no "Proventos recebidos": ${D.proventosForaDaCarteira.map((x) => `${esc(x.ticker)} ${brl(x.valor)}`).join(' · ')}.</li>`);
@@ -234,7 +234,23 @@ sup{color:var(--muted)}
   for (const v of ['carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua', 'carteiraRendaFixaTotal', 'carteiraRendaFixaLongoPrazo', 'carteiraRendaFixaEmergencial']) {
     o.push(`<h3>${NOMES_VISAO[v]}${v === 'carteiraAcoesEua' ? ' (em reais)' : ''}</h3>${tabelaVisao(v)}`);
   }
-  o.push('<p class="nota">As subpáginas não mostram o ganho em R$ por período, só a curva e a legenda; o R$ está aqui pra conferir as somas logo abaixo.</p>');
+  // 23/09/2026 #8: valores em cima dos gráficos (o que a tela mostra, por período)
+  {
+    const PERS = ['mes', '30d', '6m', '12m', '3a', 'tudo'];
+    const linhas = [['vg', 'total', null]];
+    for (const [k, vs] of [['acoes', ['carteiraAcoes']], ['fiis', ['carteiraFiis']], ['acoesEua', ['carteiraAcoesEua']], ['rendaFixa', ['carteiraRendaFixaTotal', 'carteiraRendaFixaLongoPrazo', 'carteiraRendaFixaEmergencial']]]) for (const v of vs) linhas.push([k, v, k]);
+    o.push(`<h3>Valores em cima dos gráficos</h3><p class="nota">O que cada tela mostra acima do gráfico. Rentabilidade: ganho sem aportes e % no período (igual à Início). Evolução: quanto a linha subiu/desceu no período, com aportes e retiradas.</p><div class="tw"><table><tr><th>Gráfico</th>${PERS.map((p) => `<th>${NOMES_PERIODO[p]}</th>`).join('')}</tr>`);
+    for (const [k, v, subK] of linhas) {
+      const cel = PERS.map((per) => {
+        const topo = subK ? D.telas.sub[subK].topos && D.telas.sub[subK].topos[per] && D.telas.sub[subK].topos[per][v] : { rentab: D.telas.vg.porPeriodo[per] && { ganho: D.telas.vg.porPeriodo[per].ganho, pct: D.telas.vg.porPeriodo[per].pct }, evolucao: D.telas.vg.porPeriodo[per] && D.telas.vg.porPeriodo[per].topoEvolucao };
+        if (!topo) return '<td>—</td>';
+        const r = topo.rentab, e = topo.evolucao;
+        return `<td class="num"><span class="${cls(r && r.pct)}">${r ? `${brl(r.ganho, true)} · ${pct(r.pct)}` : '—'}</span><br><span class="nota">linha ${e ? brl(e.variacao, true) : '—'}</span></td>`;
+      }).join('');
+      o.push(`<tr><td>${NOMES_VISAO[v]}${v === 'carteiraAcoesEua' ? ' (em reais)' : ''}</td>${cel}</tr>`);
+    }
+    o.push('</table></div>');
+  }
 
   // ---------- coerência ----------
   o.push('<h2>Coerência entre telas</h2><p>Ganho em R$ de cada período, na mesma janela do Total.</p><div class="tw"><table><tr><th>Período</th><th>Total</th><th>= Longo Prazo + Reserva</th><th>Longo Prazo = Nacional + EUA</th><th>Nacional = Ações + FIIs + RF LP</th></tr>');

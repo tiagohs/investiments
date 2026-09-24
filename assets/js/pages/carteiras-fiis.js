@@ -126,12 +126,14 @@ function montarBlocoGraficosHtml_() {
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="fiisRentabInfo"></div>
       <div id="fiisRentabChart"></div>
       <div class="chart-legend2" id="fiisRentabLegenda"></div>
     </div>
 
     <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
     <div class="cg-chart-card">
+      <div class="rentab-card-info" id="fiisEvolucaoInfo"></div>
       <div id="fiisEvolucaoChart"></div>
       <div class="chart-legend2" id="fiisEvolucaoLegenda"></div>
     </div>
@@ -228,6 +230,9 @@ function desenhar(doc, dados) {
       periodoTabsContainer: doc.getElementById('fiisPeriodoTabs'),
       paineis: [{
         visaoId: 'carteiraFiis',
+        rentabInfoContainer: doc.getElementById('fiisRentabInfo'),
+        evolucaoInfoContainer: doc.getElementById('fiisEvolucaoInfo'),
+        labelInfoEvolucao: 'Patrimônio em FIIs',
         rentabChartContainer: doc.getElementById('fiisRentabChart'),
         rentabLegendaContainer: doc.getElementById('fiisRentabLegenda'),
         evolucaoChartContainer: doc.getElementById('fiisEvolucaoChart'),

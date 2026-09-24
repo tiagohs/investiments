@@ -21,6 +21,7 @@ import {
   CAMPO_FLUXO_POR_VISAO,
   CAMPO_FLUXO_APLICADO_POR_VISAO,
   COR_PRINCIPAL_POR_VISAO,
+  renderInfoEvolucao,
 } from './inicio.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
@@ -769,7 +770,7 @@ export function proventosDoHistorico_(historico, campoProventos, campoCaixa, cam
   return aplicado - caixa;
 }
 
-export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado' } = {}) {
+export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', infoContainer = null, labelInfo = 'Patrimônio' } = {}) {
   if (!container || !campoValor) return;
   // 20/09/2026 (pedido do Tiago): "Desde o início" (periodoId:'tudo') corta
   // pro início desta visão/classe específica, não o início do patrimônio
@@ -779,6 +780,9 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
   const valoresInvestido = comInvestido
     ? janela.map((item) => (typeof item[campoInvestido] === 'number' && Number.isFinite(item[campoInvestido]) ? item[campoInvestido] : null))
     : null;
+  // 23/09/2026 #8: valor + variação no período em cima do gráfico, das
+  // MESMAS duas linhas desenhadas abaixo (ver inicio.js!renderInfoEvolucao).
+  renderInfoEvolucao(doc, infoContainer, { label: labelInfo, valores: valoresPrincipal, investidos: valoresInvestido });
   const validos = valoresPrincipal.filter((v) => v != null);
   if (validos.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
@@ -926,7 +930,9 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         visaoId: p.visaoId,
         chartContainer: p.rentabChartContainer,
         legendaContainer: p.rentabLegendaContainer,
-        infoContainer: null,
+        // 23/09/2026 #8: "R$ valor / +R$ ganho +x% no período" igual à Início
+        infoContainer: p.rentabInfoContainer || null,
+        labelInfo: p.labelInfo || null,
       })),
   });
 
@@ -947,6 +953,8 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         labelValor: p.labelValor || 'Portfólio',
         labelInvestido: p.labelInvestido || 'Valor aplicado',
         comInvestido: p.comInvestido !== false,
+        infoContainer: p.evolucaoInfoContainer || null,
+        labelInfo: p.labelInfoEvolucao || 'Patrimônio',
       });
     });
   }

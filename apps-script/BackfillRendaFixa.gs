@@ -678,8 +678,8 @@ function arredondar2RF_(n) {
  * Reparo pontual (rodar 1x manualmente pelo editor do Apps Script) pra
  * corrigir o "V" estranho na curva de Renda Fixa em 23-24/03/2026,
  * reportado pelo Tiago. Investigado a fundo (21/09/2026): o resgate de
- * Tesouro Selic 2027 (R$6.714,13 brutos, confirmado no extrato da XP —
- * protocolo 97601334, R$6.693,51 líquidos, DATA REAL 24/03/2026) está
+ * Tesouro Selic 2027 (confirmado no extrato da corretora, DATA REAL
+ * 24/03/2026) está
  * gravado em aux_historico-renda-fixa com a queda acontecendo na linha
  * rotulada 23/03, 1 dia ANTES do dia real da transação.
  *
@@ -701,11 +701,11 @@ function arredondar2RF_(n) {
  * O que faz: acha as 2 linhas de "Tesouro Selic 2027|XP" datadas 23/03 e
  * 24/03/2026 em aux_historico-renda-fixa e corrige os valores pra:
  *  - 23/03 (antes do resgate): mantém o saldo estável dos 3 dias
- *    anteriores (20-22/03, todos R$22.238,68 nos dados reais — sem
+ *    anteriores (20-22/03, todos com o mesmo saldo nos dados reais — sem
  *    crescimento nesse intervalo) — não um valor inventado, é o mesmo
  *    valor real que já está gravado em 22/03.
  *  - 24/03 (depois do resgate, data real confirmada pelo Tiago): saldo
- *    de 23/03 (corrigido) MENOS os R$6.714,13 do resgate.
+ *    de 23/03 (corrigido) MENOS o valor bruto do resgate.
  * Dias 25/03 em diante NÃO são recalculados (o crescimento diário já
  * registrado neles fica como está) — o resíduo disso é pequeno (a base
  * fica ~R$20, <0,15% da posição, mais baixa do que deveria por 1 dia de

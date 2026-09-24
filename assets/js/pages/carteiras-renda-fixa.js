@@ -154,18 +154,21 @@ function montarBlocoGraficosHtml_() {
     </div>
     <div class="cg-chart-card">
       <div class="cc-chart-titulo">Carteira total</div>
+      <div class="rentab-card-info" id="rfRentabTotalInfo"></div>
       <div id="rfRentabTotalChart"></div>
       <div class="chart-legend2" id="rfRentabTotalLegenda"></div>
     </div>
     <div class="cc-charts-par">
       <div class="cg-chart-card">
         <div class="cc-chart-titulo">Longo prazo</div>
-        <div id="rfRentabLongoChart"></div>
+        <div class="rentab-card-info" id="rfRentabLongoInfo"></div>
+      <div id="rfRentabLongoChart"></div>
         <div class="chart-legend2" id="rfRentabLongoLegenda"></div>
       </div>
       <div class="cg-chart-card">
         <div class="cc-chart-titulo">Reserva de emergência</div>
-        <div id="rfRentabEmergChart"></div>
+        <div class="rentab-card-info" id="rfRentabEmergInfo"></div>
+      <div id="rfRentabEmergChart"></div>
         <div class="chart-legend2" id="rfRentabEmergLegenda"></div>
       </div>
     </div>
@@ -173,18 +176,21 @@ function montarBlocoGraficosHtml_() {
     <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
     <div class="cg-chart-card">
       <div class="cc-chart-titulo">Carteira total</div>
+      <div class="rentab-card-info" id="rfEvolucaoTotalInfo"></div>
       <div id="rfEvolucaoTotalChart"></div>
       <div class="chart-legend2" id="rfEvolucaoTotalLegenda"></div>
     </div>
     <div class="cc-charts-par">
       <div class="cg-chart-card">
         <div class="cc-chart-titulo">Longo prazo</div>
-        <div id="rfEvolucaoLongoChart"></div>
+        <div class="rentab-card-info" id="rfEvolucaoLongoInfo"></div>
+      <div id="rfEvolucaoLongoChart"></div>
         <div class="chart-legend2" id="rfEvolucaoLongoLegenda"></div>
       </div>
       <div class="cg-chart-card">
         <div class="cc-chart-titulo">Reserva de emergência</div>
-        <div id="rfEvolucaoEmergChart"></div>
+        <div class="rentab-card-info" id="rfEvolucaoEmergInfo"></div>
+      <div id="rfEvolucaoEmergChart"></div>
         <div class="chart-legend2" id="rfEvolucaoEmergLegenda"></div>
       </div>
     </div>
@@ -240,6 +246,10 @@ function desenhar(doc, dados) {
       paineis: [
         {
           visaoId: 'carteiraRendaFixaTotal',
+          rentabInfoContainer: doc.getElementById('rfRentabTotalInfo'),
+          evolucaoInfoContainer: doc.getElementById('rfEvolucaoTotalInfo'),
+          labelInfo: 'Valor atual',
+          labelInfoEvolucao: 'Valor atual',
           rentabChartContainer: doc.getElementById('rfRentabTotalChart'),
           rentabLegendaContainer: doc.getElementById('rfRentabTotalLegenda'),
           evolucaoChartContainer: doc.getElementById('rfEvolucaoTotalChart'),
@@ -248,6 +258,10 @@ function desenhar(doc, dados) {
         },
         {
           visaoId: 'carteiraRendaFixaLongoPrazo',
+          rentabInfoContainer: doc.getElementById('rfRentabLongoInfo'),
+          evolucaoInfoContainer: doc.getElementById('rfEvolucaoLongoInfo'),
+          labelInfo: 'Valor atual',
+          labelInfoEvolucao: 'Valor atual',
           rentabChartContainer: doc.getElementById('rfRentabLongoChart'),
           rentabLegendaContainer: doc.getElementById('rfRentabLongoLegenda'),
           evolucaoChartContainer: doc.getElementById('rfEvolucaoLongoChart'),
@@ -258,6 +272,10 @@ function desenhar(doc, dados) {
         },
         {
           visaoId: 'carteiraRendaFixaEmergencial',
+          rentabInfoContainer: doc.getElementById('rfRentabEmergInfo'),
+          evolucaoInfoContainer: doc.getElementById('rfEvolucaoEmergInfo'),
+          labelInfo: 'Valor atual',
+          labelInfoEvolucao: 'Valor atual',
           rentabChartContainer: doc.getElementById('rfRentabEmergChart'),
           rentabLegendaContainer: doc.getElementById('rfRentabEmergLegenda'),
           evolucaoChartContainer: doc.getElementById('rfEvolucaoEmergChart'),
