@@ -30,6 +30,30 @@ import {
   statusVies,
   contarVies_,
 } from './carteiras-classe-comum.js';
+import { comCamposUsdAcoesEua, historicoTemCambioUsd } from './inicio.js';
+
+// 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em
+// dólar"): botão R$ | US$ no topo da página - troca o resumo em destaque e
+// os 2 gráficos (valor em cima, eixo, tooltip e a própria curva, que em
+// dólar não sente o câmbio). A tabela e o "Por setor" já mostram as 2
+// moedas (US$ com o equivalente em R$). Padrão US$ (a moeda do papel,
+// como o resto da página); a escolha fica guardada neste navegador.
+const CHAVE_MOEDA_ACOES_EUA = 'carteiras.acoesEua.moeda';
+let moedaAcoesEua_ = null;
+function lerMoedaGuardada_() {
+  try {
+    const v = globalThis.localStorage && globalThis.localStorage.getItem(CHAVE_MOEDA_ACOES_EUA);
+    return v === 'BRL' || v === 'USD' ? v : null;
+  } catch (_) { return null; }
+}
+function guardarMoeda_(moeda) {
+  try { if (globalThis.localStorage) globalThis.localStorage.setItem(CHAVE_MOEDA_ACOES_EUA, moeda); } catch (_) { /* navegador sem storage: só não lembra */ }
+}
+/** Moeda em uso na página ('USD' padrão). Exportada pros testes. */
+export function moedaAtualAcoesEua() {
+  if (!moedaAcoesEua_) moedaAcoesEua_ = lerMoedaGuardada_() || 'USD';
+  return moedaAcoesEua_;
+}
 
 const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v1';
 
@@ -123,11 +147,8 @@ function montarLinhaTotalAtivos_(ativosExibidos, colunas, cambio) {
 /** Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução
  * do patrimônio) - ver o comentário grande no equivalente de
  * carteiras-acoes.js (mesmo motivo/posição no HTML, cópia deliberada).
- * Os 2 gráficos ficam em R$ (o histórico diário de "acoesEua" já soma o
- * valor da carteira convertido pra reais dia a dia, HistoricoInicio.gs -
- * mesmo padrão do resumo em destaque, que mostra US$ como valor
- * principal com o "i" de conversão do lado, não os 2 gráficos que
- * comparam evolução no tempo). */
+ * 24/09/2026: os 2 gráficos seguem o botão R$ | US$ do topo (ver
+ * aplicarMoeda_ em desenhar). */
 function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
@@ -157,7 +178,12 @@ function montarBlocoGraficosHtml_() {
 function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('acoesEuaConteudo');
   conteudoEl.innerHTML = `
-    <div class="area-header"><h2>Ações Internacionais</h2><span class="hint">renda variável nos EUA — valores em US$</span></div>
+    <div class="area-header"><h2>Ações Internacionais</h2>
+      <div class="filter-tabs cc-moeda-toggle" id="acoesEuaMoeda" role="group" aria-label="Ver valores em">
+        <button class="filter-tab" type="button" data-moeda="BRL" aria-pressed="false">R$</button>
+        <button class="filter-tab" type="button" data-moeda="USD" aria-pressed="false">US$</button>
+      </div>
+    </div>
     <div id="acoesEuaResumo"></div>
     <div id="acoesEuaBenchmarks" class="cc-benchmarks"></div>
     ${montarBlocoGraficosHtml_()}
@@ -201,13 +227,33 @@ function desenhar(doc, dados) {
     totalInvestido: `Em reais: ${formatBRL(custoBrl)} - cada compra no câmbio do dia dela (o mesmo número do fim da linha "Valor aplicado" do gráfico).`,
     lucroPrejuizo: `Em reais: ${valorBrl - custoBrl >= 0 ? '+' : '-'}${formatBRL(Math.abs(valorBrl - custoBrl))} (${formatPercentFromFraction(custoBrl ? (valorBrl - custoBrl) / custoBrl : 0)}) - já com a variação do dólar desde cada compra.`,
   } : null;
-  renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), dados.resumo, {
-    corToken: '--usa',
-    formatarValor: formatUSD,
-    vies: contarVies_(dados.ativos),
-    cambio,
-    equivalentesBrl,
-  });
+  // 24/09/2026: resumo na moeda escolhida - ver aplicarMoeda_ no fim desta função.
+  const renderResumo_ = (moeda) => {
+    if (moeda === 'BRL' && equivalentesBrl) {
+      const r = dados.resumo;
+      const lucroUsd = r.lucroPrejuizo;
+      renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), {
+        ...r, totalAtualizado: valorBrl, totalInvestido: custoBrl, lucroPrejuizo: valorBrl - custoBrl,
+      }, {
+        corToken: '--usa',
+        formatarValor: formatBRL,
+        vies: contarVies_(dados.ativos),
+        equivalentesBrl: {
+          totalAtualizado: `Em dólar: ${formatUSD(r.totalAtualizado)}.`,
+          totalInvestido: `Em dólar: ${formatUSD(r.totalInvestido)} (preço médio de compra). Em reais, cada compra no câmbio do dia dela - o mesmo número do fim da linha "Valor aplicado" do gráfico.`,
+          lucroPrejuizo: `Em dólar: ${lucroUsd >= 0 ? '+' : '-'}${formatUSD(Math.abs(lucroUsd))} (${formatPercentFromFraction(r.totalInvestido ? lucroUsd / r.totalInvestido : 0)}) - sem a variação do dólar.`,
+        },
+      });
+      return;
+    }
+    renderResumoClasseCarteiras(doc, doc.getElementById('acoesEuaResumo'), dados.resumo, {
+      corToken: '--usa',
+      formatarValor: formatUSD,
+      vies: contarVies_(dados.ativos),
+      cambio,
+      equivalentesBrl,
+    });
+  };
 
   // 19/09/2026 #2 (correção do Tiago, fiel ao mockup): Ibovespa/S&P 500
   // em variação do dia (coloridos) - Dólar continua cotação (R$), sem
@@ -256,16 +302,21 @@ function desenhar(doc, dados) {
   });
   renderizarTabela();
 
-  if (dados.historico && dados.historico.length) {
+  const temCambio = historicoTemCambioUsd(dados.historico);
+  const historicoComUsd = temCambio ? comCamposUsdAcoesEua(dados.historico) : dados.historico;
+  const desenharGraficos_ = (moeda) => {
+    const emDolar = moeda === 'USD' && temCambio;
+    const sufixo = emDolar ? '(em dólar)' : '(em reais)';
     wireGraficosClasseCarteiras(doc, {
-      historico: dados.historico,
+      historico: historicoComUsd,
       periodoTabsContainer: doc.getElementById('acoesEuaPeriodoTabs'),
       paineis: [{
-        visaoId: 'carteiraAcoesEua',
+        visaoId: emDolar ? 'carteiraAcoesEuaUsd' : 'carteiraAcoesEua',
+        moeda: emDolar ? 'USD' : 'BRL',
         rentabInfoContainer: doc.getElementById('acoesEuaRentabInfo'),
         evolucaoInfoContainer: doc.getElementById('acoesEuaEvolucaoInfo'),
-        labelInfo: 'Carteira de Ações EUA (em reais)',
-        labelInfoEvolucao: 'Patrimônio em Ações EUA (em reais)',
+        labelInfo: `Carteira de Ações EUA ${sufixo}`,
+        labelInfoEvolucao: `Patrimônio em Ações EUA ${sufixo}`,
         rentabChartContainer: doc.getElementById('acoesEuaRentabChart'),
         rentabLegendaContainer: doc.getElementById('acoesEuaRentabLegenda'),
         evolucaoChartContainer: doc.getElementById('acoesEuaEvolucaoChart'),
@@ -273,7 +324,39 @@ function desenhar(doc, dados) {
         corToken: '--usa',
       }],
     });
+  };
+
+  // 24/09/2026: botão R$ | US$. Sem câmbio por dia no histórico (back-end
+  // ainda sem o campo cambioUsd) não dá pra desenhar a curva em dólar:
+  // o botão some e a página fica como era (resumo em US$, gráficos em R$).
+  const toggleEl = doc.getElementById('acoesEuaMoeda');
+  const temHistorico = !!(dados.historico && dados.historico.length);
+  function aplicarMoeda_(moeda) {
+    moedaAcoesEua_ = moeda;
+    toggleEl.querySelectorAll('.filter-tab').forEach((b) => {
+      const ativo = b.dataset.moeda === moeda;
+      b.classList.toggle('active', ativo);
+      b.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+    });
+    renderResumo_(moeda);
+    if (temHistorico) desenharGraficos_(moeda);
+  }
+  if (!temCambio || !equivalentesBrl) {
+    toggleEl.hidden = true;
+    renderResumo_('USD');
+    if (temHistorico) desenharGraficos_('BRL');
   } else {
+    toggleEl.querySelectorAll('.filter-tab').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (b.dataset.moeda === moedaAtualAcoesEua()) return;
+        guardarMoeda_(b.dataset.moeda);
+        aplicarMoeda_(b.dataset.moeda);
+      });
+    });
+    aplicarMoeda_(moedaAtualAcoesEua());
+  }
+
+  if (!temHistorico) {
     const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
     doc.getElementById('acoesEuaRentabChart').innerHTML = semHistoricoHtml;
     doc.getElementById('acoesEuaEvolucaoChart').innerHTML = semHistoricoHtml;

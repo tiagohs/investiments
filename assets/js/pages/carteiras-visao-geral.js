@@ -231,7 +231,7 @@ function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaC
 
   const W = Math.max(container.clientWidth || 0, 280);
   const H = 190;
-  const padL = 60, padR = 8, padT = 12, padB = 22;
+  const padL = 76, padR = 8, padT = 12, padB = 22; // 24/09/2026: 60 cortava "R$ 999,9 mil"
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const todosValores = [...valoresPatrimonio, ...valoresInvestido].filter((v) => v != null);

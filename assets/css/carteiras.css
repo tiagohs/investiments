@@ -362,7 +362,13 @@
   .cc-tabela tfoot tr{ display:flex; flex-wrap:wrap; border-top:none; border-radius:14px; background:var(--surface-2);
         padding:0; margin-top:2px; }
   .cc-tabela tfoot td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
-        padding:9px 14px; border-bottom:1px solid var(--border); text-align:right; }
+        padding:9px 14px; border-bottom:1px solid var(--border); text-align:right;
+        white-space:normal; }
+  /* 24/09/2026: o total de Ações EUA ("$ … (R$ …)" + "de $ … (R$ …)")
+     não cabia numa linha e alargava a página inteira no celular - a
+     célula agora quebra linha e o "de …" (custo) vai pra linha de baixo. */
+  .cc-tabela td{ flex-wrap:wrap; }
+  .cc-tabela td .cc-sub{ flex-basis:100%; text-align:right; }
   .cc-tabela tfoot td:last-child{ border-bottom:none; }
   .cc-tabela tfoot td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
         letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
@@ -395,3 +401,8 @@
 .cc-busca-icone{ font-size:12px; color:var(--ink-faint); }
 .cc-busca-input{ border:none; outline:none; font-size:12px; font-family:var(--body-f); background:transparent; width:100%; color:var(--ink); }
 .cc-filtros-dica{ margin-bottom:10px; }
+
+/* 24/09/2026: botão R$ | US$ de Ações EUA (reaproveita .filter-tab) -
+   compacto, no lado direito do título da página */
+.cc-moeda-toggle{ flex-wrap:nowrap; gap:4px; margin:0; align-self:center; }
+.cc-moeda-toggle .filter-tab{ min-width:44px; padding-inline:10px; }

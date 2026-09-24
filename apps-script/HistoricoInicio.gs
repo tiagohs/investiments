@@ -621,6 +621,14 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var ultimoIfix = null;
   var ultimoSp500 = null;
 
+  // 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em
+  // dólar"): câmbio USD->BRL de cada dia na série (`cambioUsd`) - o MESMO
+  // câmbio (forward-fill de mapaCambioUsd, cambioUsdParaData_) que já
+  // converte o valor das posições USA e as Transações/Proventos - USA
+  // (FluxoCaixaInicio.gs). Assim o front divide acoesEua/fluxo*AcoesEua
+  // por ele e obtém exatamente os valores em dólar. null antes do 1º
+  // câmbio conhecido (não existia posição USA ainda).
+  var chavesCambioSerie_ = Object.keys(mapaCambioUsd).sort();
   var dataAtual = new Date(primeiraData);
   while (dataAtual <= ultimaData) {
     var chaveAtual = chaveDiaISOInicio_(dataAtual);
@@ -784,6 +792,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       ifix: ultimoIfix,
       sp500: ultimoSp500,
       indiceIpca: arredondarIndiceInicio_(indiceIpca), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
+      cambioUsd: chavesCambioSerie_.length && chaveAtual >= chavesCambioSerie_[0] ? arredondarIndiceInicio_(cambioUsdParaData_(mapaCambioUsd, chavesCambioSerie_, chaveAtual)) : null, // 24/09/2026, ver acima
       fluxoCaixaAcoes: arredondar2Inicio_(fluxoAcoesHoje),
       fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
       fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoAcoesEuaHoje),
@@ -843,6 +852,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
+  // v12 (24/09/2026): campo novo cambioUsd (Ações EUA em dólar).
   // v11 (23/09/2026 #8): IPCA pro rata no mês e índices com 4 casas.
   // v9 (23/09/2026): (1) a conta mudou (STR fora, preço isolado absurdo
   // ignorado, nada datado depois de hoje - ver montarSerieHistoricoInicio_);
@@ -850,7 +860,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
   // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
   // seria "hoje" pra receber os valores ao vivo (Home.gs).
-  return 'historico_serie_v11_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v12_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**

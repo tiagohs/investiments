@@ -651,7 +651,7 @@ export function comHistoricoAcumuladoClasse_(historico, campoFluxo) {
  * da própria classe (--acoes/--fiis/--usa/--rf) em vez do --acoes fixo do
  * original.
  */
-function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado' }) {
+function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', formatarValor = formatBRL }) {
   const svgEl = container.querySelector('svg.rentab-chart');
   const hitarea = container.querySelector('.rentab-hitarea');
   const hoverGroup = container.querySelector('.rentab-hover');
@@ -695,7 +695,7 @@ function ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, va
     const linhasTooltip = linhas.map((linha) => `
       <div class="rentab-tooltip-item">
         <span class="dot" style="background:${linha.cor}"></span>${linha.label}
-        <b>${typeof linha.valor === 'number' ? formatBRL(linha.valor) : '—'}</b>
+        <b>${typeof linha.valor === 'number' ? formatarValor(linha.valor) : '—'}</b>
       </div>
     `).join('');
     tooltip.innerHTML = `<div class="rentab-tooltip-data">${formatDateBR(janela[i].data)}</div>${linhasTooltip}`;
@@ -770,7 +770,11 @@ export function proventosDoHistorico_(historico, campoProventos, campoCaixa, cam
   return aplicado - caixa;
 }
 
-export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', infoContainer = null, labelInfo = 'Patrimônio' } = {}) {
+export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', infoContainer = null, labelInfo = 'Patrimônio', moeda = 'BRL' } = {}) {
+  // 24/09/2026: Ações EUA pode ser vista em dólar (moeda:'USD') - eixo,
+  // tooltip e o bloco de valor em cima mudam de moeda juntos.
+  const formatarMoeda = moeda === 'USD' ? formatUSD : formatBRL;
+  const prefixoEixo = moeda === 'USD' ? 'US$' : 'R$';
   if (!container || !campoValor) return;
   // 20/09/2026 (pedido do Tiago): "Desde o início" (periodoId:'tudo') corta
   // pro início desta visão/classe específica, não o início do patrimônio
@@ -782,7 +786,7 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
     : null;
   // 23/09/2026 #8: valor + variação no período em cima do gráfico, das
   // MESMAS duas linhas desenhadas abaixo (ver inicio.js!renderInfoEvolucao).
-  renderInfoEvolucao(doc, infoContainer, { label: labelInfo, valores: valoresPrincipal, investidos: valoresInvestido });
+  renderInfoEvolucao(doc, infoContainer, { label: labelInfo, valores: valoresPrincipal, investidos: valoresInvestido, formatarMoeda });
   const validos = valoresPrincipal.filter((v) => v != null);
   if (validos.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
@@ -792,7 +796,8 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
 
   const W = Math.max(container.clientWidth || 0, 280);
   const H = 190;
-  const padL = 60, padR = 8, padT = 12, padB = 22;
+  const padL = 76, // 24/09/2026: 60 cortava "R$ 11,7 mil"/"US$ 3,9 mil" (fonte mono 9,5px)
+    padR = 8, padT = 12, padB = 22;
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const todosValores = [...valoresPrincipal, ...(valoresInvestido || [])].filter((v) => v != null);
@@ -810,7 +815,7 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
     const v = minV + (maxV - minV) * (t / ticks);
     const yy = y(v);
     gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
-    gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">R$ ${COMPACTO_BRL_CARTEIRAS.format(v)}</text>`;
+    gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${prefixoEixo} ${COMPACTO_BRL_CARTEIRAS.format(v)}</text>`;
   }
 
   // Cartão estreito (Longo Prazo/Emergência lado a lado no desktop) cabe
@@ -859,7 +864,7 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
     <div class="rentab-tooltip" hidden></div>
   `;
 
-  ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken, labelValor, labelInvestido });
+  ligarInteracaoEvolucaoClasse_(container, { janela, valoresPrincipal, valoresInvestido, x, y, padL, plotW, W, corToken, labelValor, labelInvestido, formatarValor: formatarMoeda });
 
   if (legendaContainer) {
     legendaContainer.innerHTML = comInvestido ? `
@@ -933,6 +938,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         // 23/09/2026 #8: "R$ valor / +R$ ganho +x% no período" igual à Início
         infoContainer: p.rentabInfoContainer || null,
         labelInfo: p.labelInfo || null,
+        formatarMoeda: p.moeda === 'USD' ? formatUSD : formatBRL,
       })),
   });
 
@@ -955,6 +961,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         comInvestido: p.comInvestido !== false,
         infoContainer: p.evolucaoInfoContainer || null,
         labelInfo: p.labelInfoEvolucao || 'Patrimônio',
+        moeda: p.moeda || 'BRL',
       });
     });
   }

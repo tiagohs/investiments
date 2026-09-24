@@ -176,6 +176,11 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
 .rentab-card-delta.good{ color:var(--good-ink); }
 .rentab-card-delta.bad{ color:var(--bad-ink); }
 .rentab-card-delta.na{ color:var(--ink-faint); font-weight:500; }
+/* 24/09/2026: R$ e % com cor própria cada um (podem ter sinais diferentes);
+   com sinais diferentes, o "no período" fica neutro */
+.rentab-card-delta.misto{ color:var(--ink-muted); }
+.rentab-card-delta .good{ color:var(--good-ink); }
+.rentab-card-delta .bad{ color:var(--bad-ink); }
 /* 23/09/2026 #8: linha de apoio do bloco de Evolução (Carteiras) */
 .rentab-card-sub{ flex-basis:100%; color:var(--ink-muted); font-size:11.5px; line-height:1.4; }
 

@@ -786,10 +786,36 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
 // carteiras-visao-geral.js, visaoId:'total') - mesmo precedente já
 // confirmado com o Tiago, estender essas 3 tabelas em vez de duplicar o
 // motor inteiro numa cópia dentro de carteiras-classe-comum.js.
+/**
+ * 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em
+ * dólar"): acrescenta a cada ponto os campos da visão carteiraAcoesEuaUsd
+ * - valor, fluxo da rentabilidade e Valor aplicado de Ações EUA em DÓLAR,
+ * dividindo os campos em reais pelo câmbio do próprio dia (`cambioUsd`,
+ * HistoricoInicio.gs). É o mesmo câmbio que o back-end usou pra passar
+ * cada posição/compra/provento pra reais, então a volta é exata: o último
+ * ponto dá o "Total atualizado" em US$ e a soma do aplicado dá o "Valor
+ * aplicado" em US$ do topo da página. Ponto sem câmbio (back-end antigo
+ * ou antes da 1ª posição) fica sem os campos (null).
+ */
+export function comCamposUsdAcoesEua(historico) {
+  return (historico || []).map((p) => {
+    const c = p.cambioUsd;
+    if (!(typeof c === 'number' && Number.isFinite(c) && c > 0)) return { ...p, acoesEuaUsd: null, fluxoCaixaAcoesEuaUsd: null, fluxoAplicadoAcoesEuaUsd: null };
+    const div = (v) => (typeof v === 'number' && Number.isFinite(v) ? v / c : null);
+    return { ...p, acoesEuaUsd: div(p.acoesEua), fluxoCaixaAcoesEuaUsd: div(p.fluxoCaixaAcoesEua), fluxoAplicadoAcoesEuaUsd: div(p.fluxoAplicadoAcoesEua) };
+  });
+}
+
+/** 24/09/2026: o histórico tem câmbio por dia (dá pra mostrar Ações EUA em dólar)? */
+export function historicoTemCambioUsd(historico) {
+  return Array.isArray(historico) && historico.some((p) => typeof p.cambioUsd === 'number' && p.cambioUsd > 0);
+}
+
 export const CAMPO_PRINCIPAL_POR_VISAO = {
   total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial',
   internacional: 'acoesEua', // 23/09/2026 #9: mesmo campo de carteiraAcoesEua (Carteiras) - os 2 gráficos batem por construção
   carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'acoesEua',
+  carteiraAcoesEuaUsd: 'acoesEuaUsd', // 24/09/2026: Ações EUA em dólar - ver comCamposUsdAcoesEua
   carteiraRendaFixaTotal: 'rendaFixaTotal', carteiraRendaFixaLongoPrazo: 'rendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'rendaEmergencial', // mesmo campo da Início - RF-emergencial é o mesmo número
 };
@@ -807,6 +833,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   carteiraAcoes: 'fluxoCaixaAcoes',
   carteiraFiis: 'fluxoCaixaFiis',
   carteiraAcoesEua: 'fluxoCaixaAcoesEua',
+  carteiraAcoesEuaUsd: 'fluxoCaixaAcoesEuaUsd',
   carteiraRendaFixaTotal: 'fluxoCaixaRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoCaixaRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
@@ -829,6 +856,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   carteiraAcoes: 'fluxoAplicadoAcoes',
   carteiraFiis: 'fluxoAplicadoFiis',
   carteiraAcoesEua: 'fluxoAplicadoAcoesEua',
+  carteiraAcoesEuaUsd: 'fluxoAplicadoAcoesEuaUsd',
   carteiraRendaFixaTotal: 'fluxoAplicadoRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoAplicadoRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoAplicadoRendaEmergencial',
@@ -883,6 +911,11 @@ const BENCHMARKS_POR_VISAO = {
     { campo: 'ibovespa', label: 'Ibovespa', cor: '--ink-faint', dash: null },
     { campo: 'sp500', label: 'S&P 500', cor: '--acoes', dash: '6 4' },
   ],
+  // 24/09/2026: mesma comparação, com a carteira em dólar
+  carteiraAcoesEuaUsd: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--ink-faint', dash: null },
+    { campo: 'sp500', label: 'S&P 500', cor: '--acoes', dash: '6 4' },
+  ],
   // Renda Fixa não tem "índice de mercado" (não tem preço de bolsa) -
   // CDI e IPCA vêm os 2 tracejados, igual o mockup de RendaFixa.dc.html.
   // As 3 sub-visões (total/longoPrazo/emergencial) comparam com os MESMOS
@@ -908,7 +941,7 @@ const BENCHMARKS_POR_VISAO = {
 // preserva o valor hardcoded que já existia antes desta rodada.
 export const COR_PRINCIPAL_POR_VISAO = {
   total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes', internacional: '--acoes',
-  carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa',
+  carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa', carteiraAcoesEuaUsd: '--usa',
   carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
 };
 
@@ -1341,6 +1374,7 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
   carteiraAcoes: 'Carteira de Ações',
   carteiraFiis: 'Carteira de FIIs',
   carteiraAcoesEua: 'Carteira de Ações EUA',
+  carteiraAcoesEuaUsd: 'Carteira de Ações EUA (em dólar)',
   carteiraRendaFixaTotal: 'Carteira total',
   carteiraRendaFixaLongoPrazo: 'Longo prazo',
   carteiraRendaFixaEmergencial: 'Reserva de emergência',
@@ -1429,7 +1463,7 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   return { valorAtual, ganhoReais, percentual };
 }
 
-export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null } = {}) {
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL } = {}) {
   if (!container) return;
   const { valorAtual, ganhoReais, percentual: ultimoValido } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
@@ -1438,16 +1472,30 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
     <div class="rentab-card-value"></div>
     <div class="rentab-card-delta"></div>
   `;
-  setValorComDec(container.querySelector('.rentab-card-value'), formatBRL(valorAtual));
+  setValorComDec(container.querySelector('.rentab-card-value'), formatarMoeda(valorAtual));
 
   const deltaEl = container.querySelector('.rentab-card-delta');
   if (typeof ultimoValido === 'number') {
+    // 24/09/2026 (Tiago: "lembrando que valor negativo é vermelho"): o R$ e
+    // a % têm cor PRÓPRIA cada um. Os dois podem ter sinais diferentes no
+    // mesmo período (a % não depende de quanto dinheiro havia em cada
+    // momento, o R$ sim - ex.: rendeu bem com pouco dinheiro e perdeu um
+    // pouco depois de um aporte grande); antes o bloco inteiro seguia a %,
+    // e um "-R$ 107,39" aparecia verde.
     const good = ultimoValido >= 0;
-    deltaEl.className = `rentab-card-delta ${good ? 'good' : 'bad'}`;
-    const prefixoReais = typeof ganhoReais === 'number'
-      ? `${ganhoReais >= 0 ? '+' : '-'}${formatBRL(Math.abs(ganhoReais))} `
-      : '';
-    deltaEl.textContent = `${prefixoReais}${formatPercentFromPoints(ultimoValido)} no período`;
+    const misto = typeof ganhoReais === 'number' && Math.abs(ganhoReais) >= 0.005 && (ganhoReais >= 0) !== good;
+    deltaEl.className = `rentab-card-delta ${misto ? 'misto' : (good ? 'good' : 'bad')}`;
+    deltaEl.textContent = '';
+    if (typeof ganhoReais === 'number') {
+      const reaisEl = doc.createElement('span');
+      reaisEl.className = `delta-reais ${ganhoReais >= 0 ? 'good' : 'bad'}`;
+      reaisEl.textContent = `${ganhoReais >= 0 ? '+' : '-'}${formatarMoeda(Math.abs(ganhoReais))}`;
+      deltaEl.append(reaisEl, ' ');
+    }
+    const pctEl = doc.createElement('span');
+    pctEl.className = `delta-pct ${good ? 'good' : 'bad'}`;
+    pctEl.textContent = formatPercentFromPoints(ultimoValido);
+    deltaEl.append(pctEl, ' no período');
   } else {
     deltaEl.className = 'rentab-card-delta na';
     deltaEl.textContent = 'sem histórico suficiente no período';
@@ -1495,7 +1543,7 @@ export function calcularResumoEvolucao(valores, investidos = null) {
 /** 23/09/2026 #8: bloco "rótulo / R$ valor / ±R$ variação no período /
  * Valor aplicado e ±R$ (±x%) acima/abaixo dele" em cima do gráfico de Evolução - mesmo visual do bloco da
  * Rentabilidade (renderInfoRentabilidade). */
-export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valores, investidos = null } = {}) {
+export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valores, investidos = null, formatarMoeda = formatBRL } = {}) {
   if (!container) return;
   const r = calcularResumoEvolucao(valores, investidos);
   container.innerHTML = `
@@ -1514,17 +1562,17 @@ export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valo
     subEl.remove();
     return;
   }
-  setValorComDec(container.querySelector('.rentab-card-value'), formatBRL(r.final));
+  setValorComDec(container.querySelector('.rentab-card-value'), formatarMoeda(r.final));
   const sinal = (v) => (v >= 0 ? '+' : '-');
   deltaEl.className = `rentab-card-delta ${r.variacao >= 0 ? 'good' : 'bad'}`;
   // Sem % na variação da linha: com aporte no meio, "subiu 5.000%" (desde
   // o início) não diz nada - o % que importa aqui é a distância pro Valor
   // aplicado; o rendimento do período (sem aporte) é o do gráfico de
   // Rentabilidade.
-  deltaEl.textContent = `${sinal(r.variacao)}${formatBRL(Math.abs(r.variacao))} no período`;
+  deltaEl.textContent = `${sinal(r.variacao)}${formatarMoeda(Math.abs(r.variacao))} no período`;
   if (r.aplicado != null) {
     const pctAplicado = r.aplicado ? ` ${formatPercentFromPoints((r.diferencaAplicado / Math.abs(r.aplicado)) * 100)}` : '';
-    subEl.textContent = `com aportes e retiradas · Valor aplicado: ${formatBRL(r.aplicado)} · ${sinal(r.diferencaAplicado)}${formatBRL(Math.abs(r.diferencaAplicado))}${pctAplicado} ${r.diferencaAplicado >= 0 ? 'acima' : 'abaixo'} do aplicado`;
+    subEl.textContent = `com aportes e retiradas · Valor aplicado: ${formatarMoeda(r.aplicado)} · ${sinal(r.diferencaAplicado)}${formatarMoeda(Math.abs(r.diferencaAplicado))}${pctAplicado} ${r.diferencaAplicado >= 0 ? 'acima' : 'abaixo'} do aplicado`;
   } else {
     subEl.textContent = 'com aportes e retiradas';
   }
@@ -1574,8 +1622,8 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
   const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
 
   estado.atualizar = function atualizar() {
-    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo }) => {
-      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo });
+    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda }) => {
+      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: formatarMoeda || formatBRL });
       if (chartContainer) {
         renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer });
       }

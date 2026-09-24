@@ -84,9 +84,15 @@ function utcMsDeCelula(cel) {
 const chaveSp = (cel) => fmtSp.format(new Date(utcMsDeCelula(cel)));
 function lerBRL(t) {
   const m = String(t).match(/([-−])?\s*R\$\s*([-−])?([\d.]+,\d{2})/);
-  if (!m) return null;
-  const v = Number(m[3].replace(/\./g, '').replace(',', '.'));
-  return (m[1] || m[2]) ? -v : v;
+  if (m) {
+    const v = Number(m[3].replace(/\./g, '').replace(',', '.'));
+    return (m[1] || m[2]) ? -v : v;
+  }
+  // 24/09/2026: Ações EUA em dólar ("$3,225.62")
+  const u = String(t).match(/([-−])?\s*(?:US)?\$\s*([-−])?([\d,]+\.\d{2})/);
+  if (!u) return null;
+  const vu = Number(u[3].replace(/,/g, ''));
+  return (u[1] || u[2]) ? -vu : vu;
 }
 function lerPct(t) {
   const m = String(t).match(/([+\-−]?)(\d{1,3}(?:\.\d{3})*,\d+)%/);
@@ -95,9 +101,9 @@ function lerPct(t) {
   return (m[1] === '-' || m[1] === '−') ? -v : v;
 }
 function lerDelta(t) {
-  const m = String(t).match(/([+\-−])R\$\s*([\d.]+,\d{2})\s+([+\-−]?[\d.]+,\d+)%/);
+  const m = String(t).match(/([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))\s+([+\-−]?[\d.]+,\d+)%/);
   if (!m) return null;
-  return { ganho: Number(m[2].replace(/\./g, '').replace(',', '.')) * (m[1] === '+' ? 1 : -1), pct: lerPct(m[3] + '%') };
+  return { ganho: lerBRL(m[2]) * (m[1] === '+' ? 1 : -1), pct: lerPct(m[3] + '%') };
 }
 const texto = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
 /** 23/09/2026 #8: blocos de valor em cima dos gráficos das Carteiras. */
@@ -109,9 +115,9 @@ function lerTopoRentab(el) {
 function lerTopoEvolucao(el) {
   if (!el || !el.querySelector('.rentab-card-value')) return null;
   const dt = texto(el.querySelector('.rentab-card-delta'));
-  const md = dt.match(/^([+\-])(R\$\s*[\d.]+,\d{2}) no período$/);
+  const md = dt.match(/^([+\-])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2})) no período$/);
   const sub = texto(el.querySelector('.rentab-card-sub'));
-  const ma = sub.match(/Valor aplicado:\s*(R\$\s*[\d.]+,\d{2})\s*·\s*([+\-])(R\$\s*[\d.]+,\d{2})/);
+  const ma = sub.match(/Valor aplicado:\s*((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))\s*·\s*([+\-])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))/);
   return {
     valor: lerBRL(el.querySelector('.rentab-card-value').textContent),
     variacao: md ? (md[1] === '-' ? -1 : 1) * lerBRL(md[2]) : null,
@@ -343,11 +349,29 @@ export async function coletarDadosTelas({ fixturesPath = FIXTURES_PATH } = {}) {
     nacional: ontem.nacional + ajRf - ajRe, rendaEmergencial: ontem.rendaEmergencial + ajRe,
   } : null;
 
+  // --- 24/09/2026: Ações EUA em dólar (oráculo: valor/fluxo/aplicado ÷ câmbio do dia) ---
+  const sUsd = s.map((x) => {
+    const c = num(x.cambioUsd);
+    return { ...x, acoesEuaUsd: c ? x.acoesEua / c : null, fluxoCaixaAcoesEuaUsd: c ? (x.fluxoCaixaAcoesEua || 0) / c : null, fluxoAplicadoAcoesEuaUsd: c ? (x.fluxoAplicadoAcoesEua || 0) / c : null };
+  });
+  const euaUsd = { resumo: r.carteirasAcoesEua.resumo, cambioHoje: u.cambioUsd, aplicado: sUsd.reduce((a, x) => a + (x.fluxoAplicadoAcoesEuaUsd || 0), 0), valor: sUsd[sUsd.length - 1].acoesEuaUsd, porPeriodo: {} };
+  for (const per of PERIODOS) {
+    const j = janela(sUsd, per, 'acoesEuaUsd');
+    const o = twr(sUsd, j, 'acoesEuaUsd', 'fluxoCaixaAcoesEuaUsd');
+    if (!o) continue;
+    const jNasc = j.slice(o.i0);
+    euaUsd.porPeriodo[per] = {
+      pct: r2(o.pct), ganho: r2(o.ganho),
+      bench: BENCHMARKS.carteiraAcoesEua.map((c) => { const ret = retBench(jNasc, c); return { campo: c, ret: r2(ret), diff: ret == null ? null : r2(r2(o.pct) - ret) }; }),
+      variacao: (() => { const jv = j.filter((x) => num(x.acoesEuaUsd) != null); return jv.length ? r2(jv[jv.length - 1].acoesEuaUsd - jv[0].acoesEuaUsd) : null; })(),
+    };
+  }
+
   // --- referência externa (Gorila), se existir ---
   const ref = fs.existsSync(REF_PATH) ? JSON.parse(fs.readFileSync(REF_PATH, 'utf8')) : null;
 
   const dados = {
-    meta, vivo, visoes, somas, maioresDias, aplicado, entrou, proventosAba, realizadoAba, proventosForaDaCarteira, moversMes, cambioMes, baseMes, telas, ontemOraculo,
+    meta, vivo, visoes, somas, maioresDias, aplicado, entrou, proventosAba, realizadoAba, proventosForaDaCarteira, moversMes, cambioMes, baseMes, telas, ontemOraculo, euaUsd,
     ajusteRf: u.ajusteMarcacaoRendaFixa || 0, ajusteRe: u.ajusteMarcacaoRendaEmergencial || 0,
     patrimonio: p, cambio: home.cambio,
     diag: { correcoesPreco: r.diagnosticoRv.correcoesPreco || [] },
@@ -471,10 +495,23 @@ async function lerTelas(r, I) {
       legendas: {},
       topos: {},
     };
+    // 24/09/2026: Ações EUA tem R$ | US$ (padrão US$, o resumo acima foi lido
+    // assim, com o "i" em reais) - os gráficos são conferidos em reais aqui e
+    // em dólar logo abaixo.
+    clicar(dom, doc, '#acoesEuaMoeda .filter-tab[data-moeda="BRL"]');
     for (const per of PERIODOS) {
       if (!clicar(dom, doc, `#${idTabs} .filter-tab[data-periodo="${per}"]`)) continue;
       telas.sub[nome].legendas[per] = Object.fromEntries(paineis.map(([v, id]) => [v, legenda(doc, id)]));
       telas.sub[nome].topos[per] = Object.fromEntries(paineis.map(([v, , idR, idE]) => [v, { rentab: lerTopoRentab(doc.getElementById(idR)), evolucao: lerTopoEvolucao(doc.getElementById(idE)) }]));
+    }
+    // 24/09/2026: Ações EUA em dólar (botão US$)
+    if (nome === 'acoesEua' && clicar(dom, doc, '#acoesEuaMoeda .filter-tab[data-moeda="USD"]')) {
+      telas.sub[nome].emDolar = { resumoTexto: texto(el.querySelector('.cc-resumo')).replace(/ i( |$)/g, ' ').trim(), topos: {}, legendas: {} };
+      for (const per of PERIODOS) {
+        if (!clicar(dom, doc, `#${idTabs} .filter-tab[data-periodo="${per}"]`)) continue;
+        telas.sub[nome].emDolar.topos[per] = { rentab: lerTopoRentab(doc.getElementById('acoesEuaRentabInfo')), evolucao: lerTopoEvolucao(doc.getElementById('acoesEuaEvolucaoInfo')) };
+        telas.sub[nome].emDolar.legendas[per] = legenda(doc, 'acoesEuaRentabLegenda');
+      }
     }
     dom.window.close();
   }
@@ -721,6 +758,27 @@ function checar(D, s, p, u) {
     }
     for (const per of PERIODOS) if (D.telas.vg.porPeriodo[per]) conferirTopo('total', per, undefined, D.telas.vg.porPeriodo[per].topoEvolucao);
     add('Carteiras · subpáginas', 'valores em cima dos gráficos (Visão geral e as 4 subpáginas, 6 períodos): Rentabilidade = valor de hoje e ganho/% do oráculo; Evolução = valor de hoje, fim − começo da linha e distância pro "Valor aplicado"', e4);
+    // 24/09/2026: Ações EUA em dólar
+    const e5 = [];
+    const ed = sub.acoesEua.emDolar;
+    const U = D.euaUsd;
+    if (!ed) e5.push('Ações EUA: sem o botão US$');
+    else {
+      if (!perto(U.valor, U.resumo.totalAtualizado)) e5.push(`valor em US$ pela série ${r2(U.valor)} x Total atualizado da planilha ${U.resumo.totalAtualizado}`);
+      if (!perto(U.aplicado, U.resumo.totalInvestido)) e5.push(`Valor aplicado em US$ pela série ${r2(U.aplicado)} x planilha ${U.resumo.totalInvestido}`);
+      for (const per of PERIODOS) {
+        const t = ed.topos[per], o = U.porPeriodo[per];
+        if (!t || !o) { e5.push(`${NOMES_PERIODO[per]}: sem dado em US$`); continue; }
+        if (!t.rentab || !perto(t.rentab.valor, U.resumo.totalAtualizado) || !perto(t.rentab.ganho, o.ganho) || !perto(t.rentab.pct, o.pct)) e5.push(`${NOMES_PERIODO[per]}: Rentabilidade em US$ ${JSON.stringify(t.rentab)} x oráculo ${o.ganho} (${o.pct}%)`);
+        if (!t.evolucao || !perto(t.evolucao.valor, U.resumo.totalAtualizado) || !perto(t.evolucao.variacao, o.variacao, 0.02) || !perto(t.evolucao.aplicado, U.resumo.totalInvestido)) e5.push(`${NOMES_PERIODO[per]}: Evolução em US$ ${JSON.stringify(t.evolucao)} x valor ${U.resumo.totalAtualizado}, variação ${o.variacao}, aplicado ${U.resumo.totalInvestido}`);
+        o.bench.forEach((b, i) => {
+          const d = ed.legendas[per] && ed.legendas[per][i] ? ed.legendas[per][i].delta : null;
+          if (b.diff != null && !perto(d, b.diff, 0.02)) e5.push(`${NOMES_PERIODO[per]} ${b.campo}: legenda em US$ ${d} x ${b.diff}`);
+        });
+      }
+      if (/R\$/.test(JSON.stringify(ed.topos))) e5.push('valores em R$ com o botão US$ ligado');
+    }
+    add('Carteiras · subpáginas', 'Ações EUA com o botão US$: valor e Valor aplicado = os da planilha (US$), ganho/% e legenda = oráculo em dólar (valor ÷ câmbio do dia)', e5);
   }
 
   // --- Plausibilidade ("de acordo") ---

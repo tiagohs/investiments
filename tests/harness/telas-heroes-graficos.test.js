@@ -113,10 +113,17 @@ function twrOraculo(janela, campo, campoFluxo, serieCompleta = null) {
 
 function lerBRL(texto) {
   const m = String(texto).match(/(-?)\s*R\$\s*(-?)([\d.]+,\d{2})/);
-  if (!m) return null;
-  const v = Number(m[3].replace(/\./g, '').replace(',', '.'));
-  return (m[1] || m[2]) ? -v : v;
+  if (m) {
+    const v = Number(m[3].replace(/\./g, '').replace(',', '.'));
+    return (m[1] || m[2]) ? -v : v;
+  }
+  // 24/09/2026: Ações EUA em dólar ("$3,225.62", formato en-US do formatUSD)
+  const u = String(texto).match(/(-?)\s*(?:US)?\$\s*(-?)([\d,]+\.\d{2})/);
+  if (!u) return null;
+  const vu = Number(u[3].replace(/,/g, ''));
+  return (u[1] || u[2]) ? -vu : vu;
 }
+const MOEDA_RE = '(?:R\\$\\s*[\\d.]+,\\d{2}|(?:US)?\\$\\s*[\\d,]+\\.\\d{2})';
 function lerPct(texto) {
   const m = String(texto).match(/([+-]?)(\d{1,3}(?:\.\d{3})*,\d+)%/);
   if (!m) return null;
@@ -125,10 +132,24 @@ function lerPct(texto) {
 }
 /** "+R$ 1.234,56 +0,16% no período" -> { ganho, pct } */
 function lerDeltaPeriodo(texto) {
-  const m = String(texto).match(/([+-])R\$\s*([\d.]+,\d{2})\s+([+-]?[\d.]+,\d+)%/);
+  const m = String(texto).match(new RegExp(`([+-])(${MOEDA_RE})\\s+([+-]?[\\d.]+,\\d+)%`));
   if (!m) return null;
-  const ganho = Number(m[2].replace(/\./g, '').replace(',', '.')) * (m[1] === '-' ? -1 : 1);
+  const ganho = lerBRL(m[2]) * (m[1] === '-' ? -1 : 1);
   return { ganho, pct: lerPct(m[3] + '%') };
+}
+/** 24/09/2026: Ações EUA tem botão R$ | US$ - os testes escolhem a moeda. */
+function escolherMoedaEua(dom, doc, moeda) {
+  const b = doc.querySelector(`#acoesEuaMoeda .filter-tab[data-moeda="${moeda}"]`);
+  if (b) b.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  return b;
+}
+/** 24/09/2026: série com Ações EUA em dólar - conta do oráculo (valor, fluxo
+ * e aplicado de cada dia ÷ câmbio do dia). */
+function serieComUsd(s) {
+  return s.map((x) => {
+    const c = num(x.cambioUsd);
+    return { ...x, acoesEuaUsd: c ? x.acoesEua / c : null, fluxoCaixaAcoesEuaUsd: c ? (x.fluxoCaixaAcoesEua || 0) / c : null, fluxoAplicadoAcoesEuaUsd: c ? (x.fluxoAplicadoAcoesEua || 0) / c : null };
+  });
 }
 const r2 = (v) => Math.round(v * 100) / 100;
 
@@ -341,6 +362,9 @@ test('Início: hero ("R$ … no período") e legenda dos 5 painéis de Rentabili
       if (!deltaTela) { erros.push(`${v.visaoId}/${periodoId}: sem "no período" na tela`); continue; }
       if (Math.abs(deltaTela.pct - r2(o.pct)) > 0.011) erros.push(`${v.visaoId}/${periodoId}: % na tela ${deltaTela.pct} != oráculo ${r2(o.pct)}`);
       if (Math.abs(deltaTela.ganho - r2(o.ganho)) > 0.011) erros.push(`${v.visaoId}/${periodoId}: R$ na tela ${deltaTela.ganho} != oráculo ${r2(o.ganho)}`);
+      // 24/09/2026: cada parte com a cor do próprio sinal (R$ negativo = vermelho, mesmo com % positiva)
+      const reaisEl = info.querySelector('.delta-reais'), pctEl = info.querySelector('.delta-pct');
+      if (!reaisEl || !reaisEl.classList.contains(o.ganho >= 0 ? 'good' : 'bad') || !pctEl || !pctEl.classList.contains(o.pct >= 0 ? 'good' : 'bad')) erros.push(`${v.visaoId}/${periodoId}: cor do R$/% não segue o sinal de cada um`);
 
       // legenda: "Benchmark ±x%" = Portfólio − benchmark no mesmo período
       const benchmarks = v.benchmarks || (v.visaoId === 'rendaEmergencial' ? ['indiceCdi', 'indiceSelic'] : ['ibovespa', 'indiceCdi']);
@@ -712,23 +736,28 @@ test('Carteiras > Ações, FIIs, Ações EUA e Renda Fixa (3 gráficos): legenda
   const r = await dados();
   const s = r.home.historico;
   const BENCH = {
-    carteiraAcoes: ['ibovespa', 'indiceCdi'], carteiraFiis: ['ifix', 'indiceCdi'], carteiraAcoesEua: ['ibovespa', 'sp500'],
+    carteiraAcoes: ['ibovespa', 'indiceCdi'], carteiraFiis: ['ifix', 'indiceCdi'], carteiraAcoesEua: ['ibovespa', 'sp500'], carteiraAcoesEuaUsd: ['ibovespa', 'sp500'],
     carteiraRendaFixaTotal: ['indiceCdi', 'indiceIpca'], carteiraRendaFixaLongoPrazo: ['indiceCdi', 'indiceIpca'], carteiraRendaFixaEmergencial: ['indiceCdi', 'indiceIpca'],
   };
+  const sUsd = serieComUsd(s);
   const paginas = [
     ['assets/js/pages/carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesPeriodoTabs', [['carteiraAcoes', 'acoesRentabLegenda']]],
     ['assets/js/pages/carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisPeriodoTabs', [['carteiraFiis', 'fiisRentabLegenda']]],
-    ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaPeriodoTabs', [['carteiraAcoesEua', 'acoesEuaRentabLegenda']]],
+    ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaPeriodoTabs', [['carteiraAcoesEua', 'acoesEuaRentabLegenda']], 'BRL'],
+    ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaPeriodoTabs', [['carteiraAcoesEuaUsd', 'acoesEuaRentabLegenda']], 'USD'],
     ['assets/js/pages/carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', 'getCarteirasRendaFixaImpl', r.carteirasRendaFixa, 'rendaFixaPeriodoTabs',
       [['carteiraRendaFixaTotal', 'rfRentabTotalLegenda'], ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoLegenda'], ['carteiraRendaFixaEmergencial', 'rfRentabEmergLegenda']]],
   ];
   const campoDe = Object.fromEntries(VISOES_CLASSE.map(([v, c, f]) => [v, [c, f]]));
+  campoDe.carteiraAcoesEuaUsd = ['acoesEuaUsd', 'fluxoCaixaAcoesEuaUsd'];
   const erros = [];
   const tabela = [];
-  for (const [arquivo, fn, impl, carteira, idTabs, paineis] of paginas) {
+  for (const [arquivo, fn, impl, carteira, idTabs, paineis, moeda] of paginas) {
     const mod = await imp(arquivo);
     const { dom, doc } = domCarteiras();
     await mod[fn]('token-fake', { doc, [impl]: async () => ({ ok: true, carteira }), getHomeImpl: async () => r.home });
+    if (moeda && !escolherMoedaEua(dom, doc, moeda)) erros.push(`Ações EUA: sem o botão ${moeda}`);
+    const s = moeda === 'USD' ? sUsd : r.home.historico;
     for (const periodoId of PERIODOS) {
       const aba = doc.querySelector(`#${idTabs} .filter-tab[data-periodo="${periodoId}"]`);
       if (!aba) { erros.push(`${idTabs}: sem a aba de período "${periodoId}"`); continue; } // 23/09/2026 #8: todas as telas têm os 6 períodos, inclusive "Mês atual"
@@ -765,6 +794,7 @@ test('Início: gráfico "Ações Internacionais" bate com Carteiras > Ações EU
   const mod = await imp('assets/js/pages/carteiras-acoes-eua.js');
   const c = domCarteiras();
   await mod.montarPaginaCarteirasAcoesEua('token-fake', { doc: c.doc, getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: r.carteirasAcoesEua }), getHomeImpl: async () => r.home });
+  escolherMoedaEua(c.dom, c.doc, 'BRL'); // a Início é em reais
   const inicio = await imp('assets/js/pages/inicio.js');
   const erros = [];
   const legendaPorBenchmark = (d, id) => Object.fromEntries([...d.querySelectorAll(`#${id} .li`)]
@@ -784,7 +814,7 @@ test('Início: gráfico "Ações Internacionais" bate com Carteiras > Ações EU
     t.diagnostic(`${periodoId}: ${r2(a.percentual)}% · R$ ${r2(a.ganhoReais)} · legenda ${JSON.stringify(home)}`);
   }
   const valorCard = lerBRL(doc.getElementById('rentabInfoInternacional').querySelector('.rentab-card-value').textContent);
-  const iEua = lerBRL(c.doc.querySelector('#acoesEuaConteudo .cc-resumo .info-alvo').dataset.tooltip);
+  const iEua = lerBRL(c.doc.querySelector('#acoesEuaConteudo .cc-resumo-valor').textContent); // em R$ (botão R$ escolhido acima)
   if (Math.abs(valorCard - iEua) > 0.011) erros.push(`valor do card ${valorCard} x "i" do topo de Ações EUA ${iEua}`);
   dom.window.close(); c.dom.window.close();
   assert.deepEqual(erros, []);
@@ -799,6 +829,8 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
   const s = r.home.historico;
   const DEF = Object.fromEntries(VISOES_CLASSE.map(([v, c, f, a]) => [v, { campo: c, fluxo: f, aplicado: a }]));
   DEF.total = { campo: 'patrimonio', fluxo: 'fluxoCaixaPatrimonio', aplicado: 'fluxoAplicadoPatrimonio' };
+  DEF.carteiraAcoesEuaUsd = { campo: 'acoesEuaUsd', fluxo: 'fluxoCaixaAcoesEuaUsd', aplicado: 'fluxoAplicadoAcoesEuaUsd' };
+  const sUsd = serieComUsd(s);
   const paginas = [
     ['assets/js/pages/carteiras-visao-geral.js', 'montarPaginaCarteirasVisaoGeral', { getCarteirasHomeImpl: async () => ({ ok: true, carteiras: r.carteirasHome }) }, 'vgPeriodoTabs',
       [['total', 'vgInfoRentabilidade', 'vgInfoEvolucao', true]]],
@@ -807,7 +839,9 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
     ['assets/js/pages/carteiras-fiis.js', 'montarPaginaCarteirasFiis', { getCarteirasFiisImpl: async () => ({ ok: true, carteira: r.carteirasFiis }) }, 'fiisPeriodoTabs',
       [['carteiraFiis', 'fiisRentabInfo', 'fiisEvolucaoInfo', true]]],
     ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', { getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: r.carteirasAcoesEua }) }, 'acoesEuaPeriodoTabs',
-      [['carteiraAcoesEua', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo', true]]],
+      [['carteiraAcoesEua', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo', true]], 'BRL'],
+    ['assets/js/pages/carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', { getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: r.carteirasAcoesEua }) }, 'acoesEuaPeriodoTabs',
+      [['carteiraAcoesEuaUsd', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo', true]], 'USD'],
     ['assets/js/pages/carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', { getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: r.carteirasRendaFixa }) }, 'rendaFixaPeriodoTabs',
       [['carteiraRendaFixaTotal', 'rfRentabTotalInfo', 'rfEvolucaoTotalInfo', true],
         ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoInfo', 'rfEvolucaoLongoInfo', false],
@@ -815,10 +849,12 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
   ];
   const erros = [];
   const tabela = [];
-  for (const [arquivo, fn, impls, idTabs, paineis] of paginas) {
+  for (const [arquivo, fn, impls, idTabs, paineis, moeda] of paginas) {
     const mod = await imp(arquivo);
     const { dom, doc } = domCarteiras();
     await mod[fn]('token-fake', { doc, ...impls, getHomeImpl: async () => r.home });
+    if (moeda) escolherMoedaEua(dom, doc, moeda);
+    const s = moeda === 'USD' ? sUsd : r.home.historico;
     for (const periodoId of PERIODOS) {
       doc.querySelector(`#${idTabs} .filter-tab[data-periodo="${periodoId}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
       for (const [visaoId, idRentab, idEvol, comAplicado] of paineis) {
@@ -834,6 +870,9 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
         const dR = lerDeltaPeriodo(infoR.querySelector('.rentab-card-delta').textContent);
         if (Math.abs(vR - r2(hoje)) > 0.011) erros.push(`${visaoId}/${periodoId}: Rentabilidade - valor ${vR} != hoje ${r2(hoje)}`);
         if (!dR || Math.abs(dR.pct - r2(o.pct)) > 0.011 || Math.abs(dR.ganho - r2(o.ganho)) > 0.011) erros.push(`${visaoId}/${periodoId}: Rentabilidade - tela ${JSON.stringify(dR)} != oráculo ${r2(o.pct)}% R$ ${r2(o.ganho)}`);
+        // 24/09/2026 (Tiago: "valor negativo é vermelho"): R$ e % com a cor do PRÓPRIO sinal
+        const corDe = (el) => (el ? (el.classList.contains('good') ? 'good' : (el.classList.contains('bad') ? 'bad' : '?')) : 'sem');
+        if (corDe(infoR.querySelector('.delta-reais')) !== (o.ganho >= 0 ? 'good' : 'bad') || corDe(infoR.querySelector('.delta-pct')) !== (o.pct >= 0 ? 'good' : 'bad')) erros.push(`${visaoId}/${periodoId}: Rentabilidade - cor errada (R$ ${r2(o.ganho)} ${corDe(infoR.querySelector('.delta-reais'))}, % ${r2(o.pct)} ${corDe(infoR.querySelector('.delta-pct'))})`);
         // Evolução: pontas das 2 linhas desenhadas
         const infoE = doc.getElementById(idEvol);
         if (!infoE || !infoE.querySelector('.rentab-card-value')) { erros.push(`${visaoId}/${periodoId}: sem o bloco de valor em cima da Evolução (#${idEvol})`); continue; }
@@ -842,7 +881,7 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
         const variacao = hoje - ini;
         const vE = lerBRL(infoE.querySelector('.rentab-card-value').textContent);
         const deltaTxt = infoE.querySelector('.rentab-card-delta').textContent.trim();
-        const mD = deltaTxt.match(/^([+-])(R\$\s*[\d.]+,\d{2}) no período$/);
+        const mD = deltaTxt.match(new RegExp(`^([+-])(${MOEDA_RE}) no período$`));
         const ganhoE = mD ? (mD[1] === '-' ? -1 : 1) * lerBRL(mD[2]) : null;
         if (Math.abs(vE - r2(hoje)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - valor ${vE} != hoje ${r2(hoje)}`);
         if (ganhoE == null || Math.abs(ganhoE - r2(variacao)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - "${deltaTxt}" != fim − começo da linha ${r2(variacao)}`);
@@ -850,7 +889,7 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
         const sub = infoE.querySelector('.rentab-card-sub')?.textContent || '';
         if (comAplicado) {
           const aplicadoTotal = s.reduce((a, x) => a + (num(x[aplicado]) || 0), 0);
-          const m = sub.match(/Valor aplicado:\s*(R\$\s*[\d.]+,\d{2})\s*·\s*([+-])(R\$\s*[\d.]+,\d{2})\s+([+-]?[\d.]+,\d+%)\s+(acima|abaixo) do aplicado/);
+          const m = sub.match(new RegExp(`Valor aplicado:\\s*(${MOEDA_RE})\\s*·\\s*([+-])(${MOEDA_RE})\\s+([+-]?[\\d.]+,\\d+%)\\s+(acima|abaixo) do aplicado`));
           if (!m) { erros.push(`${visaoId}/${periodoId}: Evolução - sem "Valor aplicado" (${sub})`); continue; }
           if (Math.abs(lerBRL(m[1]) - r2(aplicadoTotal)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - Valor aplicado ${lerBRL(m[1])} != Σ ${aplicado} ${r2(aplicadoTotal)}`);
           const dif = (m[2] === '-' ? -1 : 1) * lerBRL(m[3]);
@@ -859,6 +898,14 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
           if ((m[5] === 'acima') !== (hoje >= aplicadoTotal)) erros.push(`${visaoId}/${periodoId}: Evolução - "${m[5]}" trocado`);
         } else if (/Valor aplicado/.test(sub)) erros.push(`${visaoId}/${periodoId}: Evolução sem linha de Valor aplicado não devia mostrar "Valor aplicado"`);
         tabela.push(`${visaoId}/${periodoId}: rentab ${dR && dR.ganho} (${dR && dR.pct}%) | evolução ${ganhoE} | ${sub}`);
+        if (moeda === 'USD') {
+          // em dólar, as pontas das linhas = o topo da página, que vem da planilha (outra fonte)
+          const res = r.carteirasAcoesEua.resumo;
+          if (Math.abs(vE - res.totalAtualizado) > 0.011) erros.push(`${periodoId}: Ações EUA em US$ - valor ${vE} x Total atualizado da planilha ${res.totalAtualizado}`);
+          const ap = sub.match(new RegExp(`Valor aplicado:\\s*(${MOEDA_RE})`));
+          if (!ap || Math.abs(lerBRL(ap[1]) - res.totalInvestido) > 0.011) erros.push(`${periodoId}: Ações EUA em US$ - Valor aplicado ${ap && lerBRL(ap[1])} x planilha ${res.totalInvestido}`);
+          if (!/\$/.test(infoR.querySelector('.rentab-card-value').textContent) || /R\$/.test(infoR.textContent + infoE.textContent)) erros.push(`${periodoId}: Ações EUA em US$ mostrando R$`);
+        }
       }
     }
     dom.window.close();

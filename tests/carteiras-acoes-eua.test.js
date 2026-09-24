@@ -276,3 +276,53 @@ test('montarPaginaCarteirasAcoesEua(): desenha os gráficos de Rentabilidade/Evo
     assert.ok(doc.getElementById('acoesEuaEvolucaoChart').querySelector('svg'));
   });
 });
+
+// 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em dólar")
+test('Ações EUA: botão R$ | US$ troca o resumo e os valores em cima dos gráficos; some quando o histórico não tem câmbio por dia', async () => {
+  await withFakeSessionStorage(async () => {
+    const historico = historicoAcoesEuaExemplo().map((p, i) => ({
+      ...p,
+      cambioUsd: 5,
+      fluxoCaixaAcoesEua: i === 0 ? 15000 : 100,
+      fluxoAplicadoAcoesEua: i === 0 ? 15000 : 100,
+      acoesEua: 16000 + i * 500, // US$ 3.200 no 1º dia ... US$ 3.500 no último
+    }));
+    const doc = makeDom();
+    await montarPaginaCarteirasAcoesEua('token-fake', {
+      doc,
+      getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO }),
+      getHomeImpl: async () => ({ ok: true, historico }),
+    });
+    const toggle = doc.getElementById('acoesEuaMoeda');
+    assert.equal(toggle.hidden, false);
+    const clicar = (moeda) => toggle.querySelector(`[data-moeda="${moeda}"]`).dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+    clicar('USD');
+    assert.equal(toggle.querySelector('[data-moeda="USD"]').getAttribute('aria-pressed'), 'true');
+    assert.match(doc.getElementById('acoesEuaResumo').textContent, /\$4,103\.79/); // resumo da planilha, em US$
+    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /\$3,500\.00/); // 17.500 / 5
+    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /Valor aplicado: \$3,060\.00/); // 15.300 / 5
+    assert.ok(!/R\$/.test(doc.getElementById('acoesEuaRentabInfo').textContent));
+    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em dólar/);
+
+    clicar('BRL');
+    assert.equal(toggle.querySelector('[data-moeda="BRL"]').getAttribute('aria-pressed'), 'true');
+    const resumo = doc.getElementById('acoesEuaResumo').textContent;
+    assert.match(resumo, /R\$\s*17\.500,00/); // último ponto do histórico
+    assert.match(resumo, /Valor aplicado: R\$\s*15\.300,00/); // soma do aplicado
+    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /R\$\s*17\.500,00/);
+    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em reais/);
+  });
+
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    await montarPaginaCarteirasAcoesEua('token-fake', {
+      doc,
+      getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO }),
+      getHomeImpl: async () => ({ ok: true, historico: historicoAcoesEuaExemplo() }), // sem cambioUsd
+    });
+    assert.equal(doc.getElementById('acoesEuaMoeda').hidden, true);
+    assert.match(doc.getElementById('acoesEuaResumo').textContent, /\$4,103\.79/);
+    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em reais/);
+  });
+});

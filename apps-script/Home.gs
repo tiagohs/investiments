@@ -370,6 +370,11 @@ function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
     var v = camposAoVivo[campo];
     if (typeof v === 'number' && Number.isFinite(v)) ultimo[campo] = arredondar2Inicio_(v);
   }
+  // 24/09/2026: câmbio de hoje = o mesmo que converte o acoesEua ao vivo
+  // acima (📊Dash Geral) - 4 casas, igual ao resto da série (cambioUsd,
+  // HistoricoInicio.gs). Ações EUA em dólar = acoesEua / cambioUsd.
+  var cambioAoVivo = dadosHome.cambio && dadosHome.cambio.usd;
+  if (typeof cambioAoVivo === 'number' && Number.isFinite(cambioAoVivo) && cambioAoVivo > 0) ultimo.cambioUsd = arredondarIndiceInicio_(cambioAoVivo);
 }
 
 /**

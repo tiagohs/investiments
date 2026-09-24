@@ -23,6 +23,8 @@ import {
   calcularResumoRentabilidade,
   calcularResumoEvolucao,
   renderInfoEvolucao,
+  comCamposUsdAcoesEua,
+  historicoTemCambioUsd,
   wireGraficoRentabilidade,
   criarAtivoCard,
   renderMeusAtivos,
@@ -1963,4 +1965,36 @@ test('calcularResumoRentabilidade() sem `patrimonio` (subpáginas de Carteiras):
   ];
   const r = calcularResumoRentabilidade(undefined, historico, { visaoId: 'carteiraAcoes', periodoId: 'tudo' });
   assert.equal(r.valorAtual, 110);
+});
+
+// --- 24/09/2026: cor própria do R$ e da % / Ações EUA em dólar ---------------
+
+test('renderInfoRentabilidade(): R$ negativo fica vermelho mesmo com % positiva (cada parte com a cor do próprio sinal)', () => {
+  const doc = makeDom('<div id="i"></div>');
+  // aporte grande no fim: % positiva (rendeu bem com pouco dinheiro), R$ negativo (perdeu depois do aporte)
+  const historico = [
+    { data: '2026-01-01', acoes: 100, fluxoCaixaAcoes: 0 },
+    { data: '2026-01-02', acoes: 200, fluxoCaixaAcoes: 0 },
+    { data: '2026-01-03', acoes: 1200, fluxoCaixaAcoes: 1000 },
+    { data: '2026-01-04', acoes: 1050, fluxoCaixaAcoes: 0 },
+  ];
+  renderInfoRentabilidade(doc, doc.getElementById('i'), { historico, visaoId: 'carteiraAcoes', periodoId: 'tudo' });
+  const delta = doc.querySelector('#i .rentab-card-delta');
+  assert.match(delta.textContent, /^-R\$\s*50,00 \+75,00% no período$/);
+  assert.ok(delta.querySelector('.delta-reais').classList.contains('bad'));
+  assert.ok(delta.querySelector('.delta-pct').classList.contains('good'));
+  assert.ok(delta.classList.contains('misto'));
+});
+
+test('comCamposUsdAcoesEua(): valor, fluxo e aplicado em dólar = campo em reais ÷ câmbio do dia; sem câmbio fica null', () => {
+  const h = comCamposUsdAcoesEua([
+    { data: 'a', acoesEua: 0 },
+    { data: 'b', acoesEua: 550, fluxoCaixaAcoesEua: 550, fluxoAplicadoAcoesEua: 550, cambioUsd: 5.5 },
+    { data: 'c', acoesEua: 520, fluxoCaixaAcoesEua: 0, fluxoAplicadoAcoesEua: 0, cambioUsd: 5.2 },
+  ]);
+  assert.equal(h[0].acoesEuaUsd, null);
+  assert.deepEqual([h[1].acoesEuaUsd, h[1].fluxoCaixaAcoesEuaUsd, h[1].fluxoAplicadoAcoesEuaUsd], [100, 100, 100]);
+  assert.equal(h[2].acoesEuaUsd, 100); // o dólar caiu, a carteira em US$ ficou igual
+  assert.equal(historicoTemCambioUsd(h), true);
+  assert.equal(historicoTemCambioUsd([{ acoesEua: 1 }]), false);
 });
