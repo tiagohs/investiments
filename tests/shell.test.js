@@ -95,8 +95,24 @@ test('setMainVisible() is a no-op (never throws) when the page has no <main>', (
 test('redirectParaLogin() sends the browser to login.html, remembering the current path+query in ?redirect=', () => {
   let assignedHref = null;
   const fakeWin = { location: { pathname: '/carteiras/acoes.html', search: '?periodo=12m', set href(v) { assignedHref = v; }, get href() { return assignedHref; } } };
-  redirectParaLogin(fakeWin);
-  assert.equal(assignedHref, 'login.html?redirect=%2Fcarteiras%2Facoes.html%3Fperiodo%3D12m');
+  redirectParaLogin(fakeWin, { raizSite: 'https://tiago.github.io/investiments/' });
+  assert.equal(assignedHref, 'https://tiago.github.io/investiments/login.html?redirect=%2Fcarteiras%2Facoes.html%3Fperiodo%3D12m');
+});
+
+test('redirectParaLogin() de uma página em subpasta (carteiras/, proventos/) vai pra login.html da RAIZ, nunca carteiras/login.html (404)', () => {
+  for (const pathname of ['/investiments/carteiras/index.html', '/investiments/proventos/index.html', '/investiments/index.html']) {
+    let assignedHref = null;
+    const fakeWin = { location: { pathname, search: '', set href(v) { assignedHref = v; }, get href() { return assignedHref; } } };
+    redirectParaLogin(fakeWin, { raizSite: 'https://tiago.github.io/investiments/' });
+    const url = new URL(assignedHref);
+    assert.equal(url.pathname, '/investiments/login.html', pathname);
+    assert.equal(url.searchParams.get('redirect'), pathname);
+  }
+  // sem raizSite: usa a raiz real do site (onde shell.js mora, ../../)
+  let href = null;
+  redirectParaLogin({ location: { pathname: '/carteiras/index.html', search: '', set href(v) { href = v; } } });
+  assert.match(href, /\/login\.html\?redirect=/);
+  assert.doesNotMatch(href, /carteiras\/login\.html/);
 });
 
 test('setupAuthGate() shows <main> right away and calls onAuthenticated when a token already exists - never redirects', () => {

@@ -347,9 +347,13 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
  * you right back once you're signed in. win is injectable for tests -
  * real code never touches window directly outside this one function.
  */
-export function redirectParaLogin(win = window) {
+export function redirectParaLogin(win = window, { raizSite = resolveSiteRootUrl() } = {}) {
   const destino = win.location.pathname + win.location.search;
-  win.location.href = `login.html?redirect=${encodeURIComponent(destino)}`;
+  // 25/09/2026 (bug do Tiago: token expirou dentro de Carteiras -> 404):
+  // "login.html" relativo virava carteiras/login.html (e proventos/login.html)
+  // nas páginas de subpasta - mesmo problema que resolveSiteRootUrl já
+  // resolve pros links do menu. Agora sempre a login.html da raiz do site.
+  win.location.href = new URL(`login.html?redirect=${encodeURIComponent(destino)}`, raizSite).href;
 }
 
 /**
