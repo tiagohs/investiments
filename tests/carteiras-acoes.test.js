@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { montarPaginaCarteirasAcoes } from '../assets/js/pages/carteiras-acoes.js';
+import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 
 function withFakeSessionStorage(run) {
   const store = new Map();
@@ -187,6 +188,7 @@ test('montarPaginaCarteirasAcoes() mostra o estado de erro quando o back-end rej
 });
 
 test('montarPaginaCarteirasAcoes() grava no cache no sucesso e reaproveita numa 2ª montagem (stale-while-revalidate)', async () => {
+  usarMemoriaNoCacheDados(new Map()); // 25/09/2026: cache em IndexedDB no navegador; aqui, um Map
   await withFakeSessionStorage(async () => {
     const doc1 = makeDom();
     let chamadas = 0;
@@ -204,8 +206,8 @@ test('montarPaginaCarteirasAcoes() grava no cache no sucesso e reaproveita numa 
     const getCarteirasAcoesImplLento = () => new Promise((resolve) => { resolverFetch = resolve; });
 
     const montagem = montarPaginaCarteirasAcoes('token-fake', { doc: doc2, getCarteirasAcoesImpl: getCarteirasAcoesImplLento, getHomeImpl: GET_HOME_VAZIO });
-    await Promise.resolve();
-    await Promise.resolve();
+    // 25/09/2026: a leitura do cache é assíncrona (IndexedDB; aqui, o sessionStorage falso)
+    await new Promise((r) => setTimeout(r, 0));
 
     // Cache já desenhado, mesmo com o fetch novo ainda pendente.
     assert.equal(doc2.getElementById('acoesConteudo').hidden, false);
@@ -214,6 +216,7 @@ test('montarPaginaCarteirasAcoes() grava no cache no sucesso e reaproveita numa 
     resolverFetch({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO });
     await montagem;
   });
+  usarMemoriaNoCacheDados(null);
 });
 
 test('montarPaginaCarteirasAcoes(): clicar em "Atualizar dados" busca de novo e redesenha', async () => {

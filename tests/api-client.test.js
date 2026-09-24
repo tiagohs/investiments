@@ -255,7 +255,7 @@ test('getDistribuicoesMetas() calls action=distribuicoesMetas as GET', async (t)
   t.mock.method(globalThis, 'fetch', async (url, opts) => {
     capturedUrl = url;
     assert.equal(opts.method, 'GET');
-    return jsonResponse({ ok: true, metas: { rendaPassiva: { meta: 500, mediaUlt12Meses: 368.86, percentualAtingido: 0.7377 } } });
+    return jsonResponse({ ok: true, metas: { rendaPassiva: { meta: 500, mediaUlt12Meses: 300, percentualAtingido: 0.6 } } });
   });
 
   const result = await getDistribuicoesMetas('tok');

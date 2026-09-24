@@ -406,3 +406,13 @@
    compacto, no lado direito do título da página */
 .cc-moeda-toggle{ flex-wrap:nowrap; gap:4px; margin:0; align-self:center; }
 .cc-moeda-toggle .filter-tab{ min-width:44px; padding-inline:10px; }
+
+/* 25/09/2026: proventos nas Carteiras (carteiras-proventos.js) - 2ª linha do
+   stat do hero ("R$ ... em 12 meses") e o link da área abaixo da tabela. */
+.cc-resumo-stat-sub{ display:block; font-family:var(--body-f); font-size:11px; font-weight:500; color:var(--ink-muted); margin-top:3px; }
+.cc-proventos-link{ color:var(--acoes); text-decoration:none; font-weight:600; }
+.cc-proventos-link:hover{ text-decoration:underline; }
+/* 25/09/2026 (Tiago: tabela de Renda Fixa rolava no desktop): menos respiro
+   lateral nas células e o título quebra em 2 linhas em vez de esticar. */
+#rendaFixaTabela .cc-tabela th, #rendaFixaTabela .cc-tabela td{ padding-left:6px; padding-right:6px; }
+#rendaFixaTabela .cc-tabela td.cc-td-esquerda{ white-space:normal; min-width:150px; }

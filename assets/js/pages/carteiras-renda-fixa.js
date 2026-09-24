@@ -12,7 +12,7 @@
 import { getCarteirasRendaFixa, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import {
   somaCampoHistorico_,
   renderResumoClasseCarteiras,
@@ -25,7 +25,7 @@ import {
   wireGraficosClasseCarteiras,
 } from './carteiras-classe-comum.js';
 
-const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v1';
+const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v2';
 
 // 19/09/2026 #7 (catchup pedido pelo Tiago, junto com os gráficos: "e
 // apos os graficos, lembre-se de atualizar o que falta na tela de renda
@@ -66,26 +66,27 @@ const COLUNAS_ATIVOS_RENDA_FIXA = [
       return `<div><b>${nome}</b>${a.instituicao ? `<span class="cc-ativo-nome">${a.instituicao}</span>` : ''}</div>`;
     },
   },
-  {
-    label: 'Indexador', campo: 'indexador', ordenarPor: (a) => a.indexador || '',
-    formatar: (a) => (a.indexador ? `<span class="status-pill" style="background:var(--rf-soft);color:var(--rf)">${a.indexador}</span>` : '—'),
-  },
   { label: 'Vencimento', campo: 'vencimento', ordenarPor: (a) => a.vencimento || '', formatar: (a) => a.vencimento || '—' },
   {
-    label: 'Rentab. contratada', campo: 'rentabilidadeContratada', ordenarPor: (a) => a.rentabilidadeContratada?.texto || '',
-    ajuda: 'Taxa combinada no momento da compra do título — o indexador (Selic/IPCA) mais o percentual/juro adicional contratado.',
-    formatar: (a) => (a.rentabilidadeContratada?.texto ? `<span class="status-pill good">${a.rentabilidadeContratada.texto}</span>` : '—'),
+    // 25/09/2026 (Tiago: tabela com rolagem no desktop): sem as colunas Indexador
+    // e Instituição - o indexador aparece aqui ("SELIC + 0,05%", "IPCA + 6%"; os
+    // de CDI, sem taxa na planilha, só "CDI") e a instituição embaixo do título.
+    label: 'Contratada', campo: 'rentabilidadeContratada', ordenarPor: (a) => a.rentabilidadeContratada?.texto || a.indexador || '',
+    ajuda: 'Rentabilidade contratada: taxa combinada no momento da compra do título — o indexador (Selic/IPCA/CDI) mais o percentual/juro adicional contratado.',
+    formatar: (a) => {
+      const texto = a.rentabilidadeContratada?.texto || a.indexador;
+      return texto ? `<span class="status-pill good">${texto}</span>` : '—';
+    },
   },
   {
-    label: 'Rentabilidade', campo: 'percentualLucroPrejuizo', ordenarPor: (a) => a.percentualLucroPrejuizo,
-    ajuda: 'Retorno já realizado no título: quanto o valor atual cresceu em relação ao valor aplicado, desde a compra.',
+    label: 'Rentab.', campo: 'percentualLucroPrejuizo', ordenarPor: (a) => a.percentualLucroPrejuizo,
+    ajuda: 'Rentabilidade: retorno já realizado no título: quanto o valor atual cresceu em relação ao valor aplicado, desde a compra.',
     formatar: (a) => (typeof a.percentualLucroPrejuizo === 'number' ? `<span class="status-pill good">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>` : '—'),
   },
-  { label: 'Instituição', campo: 'instituicao', ordenarPor: (a) => a.instituicao || '', formatar: (a) => a.instituicao || '—' },
   {
     label: 'Carteira', campo: 'tipoCarteira', ordenarPor: (a) => a.tipoCarteira || '',
     formatar: (a) => (a.tipoCarteira === 'emergencial'
-      ? `<span class="status-pill good">${LABEL_TIPO_CARTEIRA.emergencial}</span>`
+      ? `<span class="status-pill good" title="${LABEL_TIPO_CARTEIRA.emergencial}">Emergência</span>`
       : `<span class="status-pill" style="background:var(--acoes-soft);color:var(--acoes)">${LABEL_TIPO_CARTEIRA['longo-prazo']}</span>`),
   },
   { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
@@ -145,10 +146,10 @@ function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
     <div class="filter-tabs" id="rendaFixaPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab" type="button" data-periodo="mes">Mês atual</button>
+      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
       <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
       <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
       <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
@@ -375,9 +376,12 @@ export async function montarPaginaCarteirasRendaFixa(token, { doc = document, ge
   const conteudoEl = doc.getElementById('rendaFixaConteudo');
   const refreshControlEl = doc.getElementById('refreshControlRendaFixa');
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE_RENDA_FIXA);
-  if (cache) {
-    desenhar(doc, cache);
+  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
+  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
+  // compartilhado de carteiras-router.js, uma vez só)
+  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_RENDA_FIXA), lerCacheDados('home')]);
+  if (cacheCarteira) {
+    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null });
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -396,7 +400,7 @@ export async function montarPaginaCarteirasRendaFixa(token, { doc = document, ge
     conteudoEl.hidden = false;
     const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
     desenhar(doc, dados);
-    gravarCacheCarteiras(CHAVE_CACHE_RENDA_FIXA, dados);
+    gravarCacheDados(CHAVE_CACHE_RENDA_FIXA, resposta.carteira);
   }
 
   await carregarERedesenhar();

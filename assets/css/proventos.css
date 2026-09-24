@@ -15,16 +15,19 @@
 :root{
   --cat-1:#2A78D6; --cat-2:#EB6834; --cat-3:#1BAF7A; --cat-4:#EDA100;
   --cat-5:#E87BA4; --cat-6:#008300; --cat-7:#4A3AA7; --cat-outros:#A3A9B2;
+  --pv-seg-ativo:#FFFFFF; /* botão escolhido nos controles segmentados */
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --cat-1:#3987E5; --cat-2:#D95926; --cat-3:#199E70; --cat-4:#C98500;
     --cat-5:#D55181; --cat-6:#008300; --cat-7:#9085E9; --cat-outros:#5D6878;
+    --pv-seg-ativo:#2B3E5C;
   }
 }
 :root[data-theme="dark"]{
   --cat-1:#3987E5; --cat-2:#D95926; --cat-3:#199E70; --cat-4:#C98500;
   --cat-5:#D55181; --cat-6:#008300; --cat-7:#9085E9; --cat-outros:#5D6878;
+  --pv-seg-ativo:#2B3E5C;
 }
 
 .pv-pagina{ display:flex; flex-direction:column; gap:14px; min-width:0; }
@@ -37,17 +40,20 @@
 
 .pv-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; flex:none; }
 
-/* ---- topo: abas + importar ---- */
-.pv-topo{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px 16px; flex-wrap:wrap;
+/* ---- topo: abas + importar (linha 1), carteira | filtros da aba (linha 2) ---- */
+.pv-topo{ display:flex; align-items:flex-end; justify-content:space-between; gap:10px 16px;
   border-bottom:1px solid var(--border); }
 .pv-abas{ display:flex; gap:4px; }
 .pv-aba{ font:inherit; font-size:14px; font-weight:700; color:var(--ink-muted); background:none; border:none;
   padding:9px 14px 11px; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; }
 .pv-aba:hover{ color:var(--ink); }
 .pv-aba.active{ color:var(--ink); border-bottom-color:var(--acoes); }
-.pv-importar{ display:flex; align-items:center; gap:10px; padding-bottom:8px; flex-wrap:wrap; }
-.pv-importar-info{ font-size:11.5px; color:var(--ink-faint); }
-.pv-importar-btn{ font-size:11.5px; padding:6px 12px; }
+.pv-importar{ display:flex; align-items:center; gap:10px; padding-bottom:7px; min-width:0; }
+.pv-importar-info{ font-size:11px; color:var(--ink-faint); white-space:nowrap; }
+.pv-importar-btn{ display:inline-flex; align-items:center; gap:6px; font:inherit; font-size:11.5px; font-weight:700;
+  color:var(--ink-muted); background:none; border:1px solid var(--border); border-radius:100px; padding:6px 12px; cursor:pointer; white-space:nowrap; }
+.pv-importar-btn svg{ width:14px; height:14px; flex:none; }
+.pv-importar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
 .pv-importar-status{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
   font-size:12.5px; padding:10px 12px; border-radius:12px; background:var(--surface-2); color:var(--ink); }
 .pv-importar-status[hidden]{ display:none; }
@@ -56,8 +62,10 @@
 .pv-importar-acoes{ display:flex; gap:8px; }
 .pv-importar-acoes .btn{ font-size:11.5px; padding:6px 12px; }
 
-.pv-classes .filter-tab{ display:inline-flex; align-items:center; gap:6px; }
-.pv-classes .filter-tab.active .pv-dot{ box-shadow:0 0 0 2px #fff; }
+.pv-filtros{ display:flex; align-items:center; justify-content:space-between; gap:10px 16px; flex-wrap:wrap; }
+.pv-filtros-dir{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.pv-longo{ display:inline; }
+.pv-curto{ display:none; }
 
 /* ---- cards ---- */
 .pv-cards{ display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:10px; }
@@ -79,10 +87,11 @@
 .pv-bloco-ctrl{ display:flex; gap:10px; flex-wrap:wrap; }
 .pv-dica{ font-size:11px; color:var(--ink-faint); }
 .pv-seg{ display:inline-flex; align-items:center; gap:2px; background:var(--surface-3); border-radius:100px; padding:3px; }
+.pv-seg-classes .pv-seg-btn, .pv-seg-periodos .pv-seg-btn, .pv-seg-status .pv-seg-btn{ display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 13px; }
 .pv-seg-rotulo{ font-size:10.5px; color:var(--ink-faint); padding:0 6px 0 8px; }
 .pv-seg-btn{ font:inherit; font-size:11.5px; font-weight:700; color:var(--ink-muted); background:none; border:none;
   padding:5px 11px; border-radius:100px; cursor:pointer; }
-.pv-seg-btn.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
+.pv-seg-btn.active{ background:var(--pv-seg-ativo); color:var(--ink); box-shadow:var(--shadow); }
 .pv-duas{ display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:14px; }
 @media (max-width:900px){ .pv-duas{ grid-template-columns:minmax(0,1fr); } }
 
@@ -152,15 +161,15 @@
 .pv-vazio{ font-size:12px; color:var(--ink-faint); margin:4px 2px; }
 
 /* ---- agenda ---- */
-.pv-ag-ctrl{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-.pv-ano{ display:inline-flex; align-items:center; gap:4px; background:var(--surface); border:1px solid var(--border); border-radius:100px; padding:3px; }
+.pv-ano{ display:inline-flex; align-items:center; gap:2px; background:var(--surface-3); border-radius:100px; padding:3px; flex:none; }
 .pv-ano b{ font-family:var(--mono); font-size:14px; padding:0 8px; }
-.pv-ano-btn{ font:inherit; font-size:16px; line-height:1; width:28px; height:28px; border-radius:50%; border:none; background:none;
+.pv-ano-btn{ font:inherit; font-size:16px; line-height:1; width:26px; height:26px; border-radius:50%; border:none; background:none;
   color:var(--ink-muted); cursor:pointer; }
-.pv-ano-btn:hover:not(:disabled){ background:var(--surface-3); color:var(--ink); }
+.pv-ano-btn:hover:not(:disabled){ background:var(--surface); color:var(--ink); }
 .pv-ano-btn:disabled{ opacity:.35; cursor:default; }
-.pv-meses{ display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; scrollbar-width:thin; }
-.pv-mes{ font:inherit; flex:none; display:flex; flex-direction:column; align-items:center; gap:1px; min-width:52px;
+.pv-meses{ display:grid; grid-template-columns:repeat(13, minmax(0,1fr)); gap:6px; }
+.pv-meses.com-sem-data{ grid-template-columns:repeat(14, minmax(0,1fr)); }
+.pv-mes{ font:inherit; min-width:0; display:flex; flex-direction:column; align-items:center; gap:1px; white-space:nowrap;
   font-size:12px; font-weight:700; color:var(--ink); background:var(--surface); border:1px solid var(--border);
   border-radius:10px; padding:6px 8px; cursor:pointer; }
 .pv-mes small{ font-family:var(--mono); font-size:10.5px; font-weight:500; color:var(--ink-faint); }
@@ -204,4 +213,16 @@
   .pv-agenda td.pv-ag-sit{ grid-column:2; grid-row:3; text-align:right; }
   .pv-futuro-tiles{ grid-template-columns:repeat(3, minmax(0,1fr)); }
   .pv-titulo h1{ font-size:20px; }
+  .pv-longo{ display:none; }
+  .pv-curto{ display:inline; }
+  .pv-aba{ padding:8px 10px 10px; }
+  .pv-importar-info{ display:none; }
+  .pv-filtros{ flex-direction:column; align-items:stretch; gap:8px; }
+  .pv-filtros .pv-seg{ display:flex; }
+  .pv-filtros .pv-seg-btn{ flex:1 1 0; min-width:0; padding:7px 4px; }
+  .pv-filtros-dir{ justify-content:space-between; flex-wrap:nowrap; gap:8px; }
+  .pv-filtros-dir .pv-seg{ flex:1; }
+  /* meses: 7 por linha, 2 linhas - nunca rola pro lado */
+  .pv-meses, .pv-meses.com-sem-data{ grid-template-columns:repeat(7, minmax(0,1fr)); gap:5px; }
+  .pv-mes{ padding:5px 2px; font-size:11.5px; }
 }

@@ -106,10 +106,12 @@ test('montarPaginaCarteirasRendaFixa() renderiza resumo/benchmarks/donut/tabela 
     // cabeçalhos novos (Indexador/Rentab. contratada/Rentabilidade/
     // Instituição/Carteira/% cart. entraram) - 19/09/2026 #7.
     const cabecalhos = [...doc.querySelectorAll('.cc-tabela thead th')].map((th) => th.textContent);
-    assert.ok(cabecalhos.some((t) => t.includes('Indexador')));
-    assert.ok(cabecalhos.some((t) => t.includes('Rentab. contratada')));
-    assert.ok(cabecalhos.some((t) => t.includes('Rentabilidade')));
-    assert.ok(cabecalhos.some((t) => t.includes('Instituição')));
+    // 25/09/2026: Indexador e Instituição saíram (tabela rolava no desktop) -
+    // o indexador fica na Rentab. contratada e a instituição embaixo do título
+    assert.ok(!cabecalhos.some((t) => t.includes('Indexador')));
+    assert.ok(!cabecalhos.some((t) => t.includes('Instituição')));
+    assert.ok(cabecalhos.some((t) => t.includes('Contratada')));
+    assert.ok(cabecalhos.some((t) => t.includes('Rentab.')));
     assert.ok(cabecalhos.some((t) => t.includes('Carteira')));
     assert.ok(cabecalhos.some((t) => t.includes('cart.')));
 
@@ -125,7 +127,7 @@ test('montarPaginaCarteirasRendaFixa() renderiza resumo/benchmarks/donut/tabela 
   });
 });
 
-test('montarPaginaCarteirasRendaFixa(): tags verdes em Rentabilidade e Rentab. contratada, tag âmbar no Indexador', async () => {
+test('montarPaginaCarteirasRendaFixa(): tags verdes em Rentabilidade e Rentab. contratada; título de CDI sem taxa mostra só "CDI"', async () => {
   await withFakeSessionStorage(async () => {
     const doc = makeDom();
     const getCarteirasRendaFixaImpl = async () => ({ ok: true, carteira: CARTEIRA_RF_EXEMPLO });
@@ -139,10 +141,14 @@ test('montarPaginaCarteirasRendaFixa(): tags verdes em Rentabilidade e Rentab. c
     const pills = [...linhaCdb.querySelectorAll('.status-pill.good')];
     assert.ok(pills.some((p) => p.textContent === '112% do CDI'));
     assert.ok(pills.some((p) => /33,3\d%/.test(p.textContent)));
-    // Indexador continua com tag própria (âmbar/--rf), não verde.
-    const indexadorTag = linhaCdb.querySelector('td:nth-child(2) .status-pill');
-    assert.equal(indexadorTag.textContent, 'CDI');
-    assert.ok(!indexadorTag.classList.contains('good'));
+  });
+  // sem a taxa na planilha (caso real dos títulos de CDI): só o indexador
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const semTaxa = { ...CARTEIRA_RF_EXEMPLO, ativos: CARTEIRA_RF_EXEMPLO.ativos.map((a) => (a.indexador === 'CDI' ? { ...a, rentabilidadeContratada: null } : a)) };
+    await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: semTaxa }), getHomeImpl: GET_HOME_VAZIO });
+    const linhaCdb = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('CDB Banco X'));
+    assert.ok([...linhaCdb.querySelectorAll('.status-pill.good')].some((p) => p.textContent === 'CDI'));
   });
 });
 

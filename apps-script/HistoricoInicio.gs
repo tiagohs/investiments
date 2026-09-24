@@ -882,6 +882,8 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
  */
 function limparCacheHistoricoInicio_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  // 25/09/2026: o botão "Limpar cache" também refaz a tela Proventos / meta de Renda Passiva
+  if (typeof invalidarCacheProventos_ === 'function') invalidarCacheProventos_();
 
   var abaPatrimonio = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
   if (!abaPatrimonio) throw new Error('aba não encontrada: ' + ABA_PATRIMONIO_INICIO);

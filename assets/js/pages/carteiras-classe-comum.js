@@ -924,7 +924,7 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
  * `_evolucaoClasseDesenhar`) e redesenham no período atual, sem religar
  * nada.
  */
-export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContainer, paineis = [], periodoInicial = '12m' } = {}) {
+export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes' } = {}) { // 25/09/2026: padrão Mês atual em todas as telas
   wireGraficoRentabilidade(doc, {
     historico,
     periodoTabsContainer,

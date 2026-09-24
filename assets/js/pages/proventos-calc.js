@@ -96,14 +96,54 @@ function somaPorClasse(obj, classe) {
  * - yoc / yoc12m: renda ÷ Valor aplicado (em %);
  * - aReceber: tudo o que está anunciado; aReceberEsteMes: com pagamento neste mês.
  */
+/**
+ * Meses FECHADOS pra média mensal (o mês de hoje ainda não acabou - contar
+ * ele puxaria a média pra baixo no começo do mês e pra cima no fim):
+ * 12/24/36 meses = os N meses que terminam no mês passado; "No ano" =
+ * janeiro até o mês passado; "Desde o início" = do 1º provento até o mês
+ * passado. É a MESMA régua da meta de Renda Passiva (Distribuições e Metas,
+ * apps-script/DistribuicoesMetas.gs!mediaRendaPassiva12Meses_).
+ */
+export function mesesFechadosDoPeriodo(periodoId, hoje, primeiraData = null) {
+  const mesHoje = hoje.slice(0, 7);
+  const fim = somarMeses(mesHoje, -1);
+  let inicio;
+  if (periodoId === 'ano') inicio = `${hoje.slice(0, 4)}-01`;
+  else if (periodoId === 'inicio') inicio = primeiraData ? primeiraData.slice(0, 7) : fim;
+  else inicio = somarMeses(fim, -(({ '12m': 12, '24m': 24, '36m': 36 }[periodoId] || 12) - 1));
+  if (inicio > fim) return [mesHoje]; // janeiro no "No ano" / carteira que começou este mês
+  const meses = [];
+  for (let m = inicio; m <= fim; m = somarMeses(m, 1)) meses.push(m);
+  return meses;
+}
+
+/** Média mensal dos proventos em `meses` (lista 'yyyy-MM'). */
+export function mediaMensal(recebidos, meses) {
+  const set = new Set(meses);
+  const total = soma((recebidos || []).filter((p) => set.has(p.data.slice(0, 7))));
+  return { media: r2(total / meses.length), total, inicio: meses[0], fim: meses[meses.length - 1], meses: meses.length };
+}
+
+/**
+ * Os 5 números do topo do Consolidado.
+ * - aplicado: Valor aplicado hoje (mesma régua de Carteiras); aportes12m: aportes líquidos em 365 dias;
+ * - renda / renda12m: recebidos no período / nos últimos 12 meses (mesma janela das barras);
+ * - media: média dos meses FECHADOS do período (ver mesesFechadosDoPeriodo); media12m: dos 12 últimos fechados
+ *   (= média da meta de Renda Passiva);
+ * - yoc / yoc12m: renda ÷ Valor aplicado (em %);
+ * - aReceber: tudo o que está anunciado; aReceberEsteMes: com pagamento neste mês.
+ */
 export function resumoConsolidado(dados, { classe = 'todas', periodoId = '12m' } = {}) {
   const hoje = dados.hoje;
   const rec = filtrarClasse(dados.recebidos, classe);
-  const meses = mesesDoPeriodo(periodoId, hoje, primeiraDataRecebida(rec));
+  const primeira = primeiraDataRecebida(rec);
+  const meses = mesesDoPeriodo(periodoId, hoje, primeira);
   const meses12 = mesesDoPeriodo('12m', hoje);
   const naJanela = (lista) => rec.filter((p) => p.data.slice(0, 7) >= lista[0] && p.data <= hoje);
   const renda = soma(naJanela(meses));
   const renda12m = soma(naJanela(meses12));
+  const m = mediaMensal(rec, mesesFechadosDoPeriodo(periodoId, hoje, primeira));
+  const m12 = mediaMensal(rec, mesesFechadosDoPeriodo('12m', hoje));
   const aplicado = r2(somaPorClasse(dados.aplicado, classe));
   const aReceber = filtrarClasse(dados.aReceber, classe);
   const mesHoje = hoje.slice(0, 7);
@@ -115,8 +155,11 @@ export function resumoConsolidado(dados, { classe = 'todas', periodoId = '12m' }
     aportes12m: r2(somaPorClasse(dados.aportes12m, classe)),
     renda,
     renda12m,
-    media: r2(renda / meses.length),
-    media12m: r2(renda12m / 12),
+    media: m.media,
+    mediaInicio: m.inicio,
+    mediaFim: m.fim,
+    mediaMeses: m.meses,
+    media12m: m12.media,
     yoc: aplicado > 0 ? (renda / aplicado) * 100 : null,
     yoc12m: aplicado > 0 ? (renda12m / aplicado) * 100 : null,
     rendaMes: soma(rec.filter((p) => p.data.slice(0, 7) === mesHoje && p.data <= hoje)),

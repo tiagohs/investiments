@@ -6,8 +6,9 @@
 import { getCarteirasAcoes, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
-import {
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { botaoInfoHtml,
   proventosDoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
@@ -23,7 +24,7 @@ import {
   contarVies_,
 } from './carteiras-classe-comum.js';
 
-const CHAVE_CACHE_ACOES = 'carteiras_acoes_v1';
+const CHAVE_CACHE_ACOES = 'carteiras_acoes_v2';
 
 const COLUNAS_ATIVOS_ACOES = [
   {
@@ -124,10 +125,10 @@ function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
     <div class="filter-tabs" id="acoesPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab" type="button" data-periodo="mes">Mês atual</button>
+      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
       <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
       <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
       <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
@@ -164,6 +165,7 @@ function desenhar(doc, dados) {
         <div id="acoesTabela"></div>
       </div>
     </div>
+    ${secaoProventosCarteiraHtml('acoesProventos')}
   `;
 
   if (dados.historico && dados.historico.length) {
@@ -201,7 +203,9 @@ function desenhar(doc, dados) {
     corToken: '--acoes',
     // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
     // proventosDoHistorico_ em carteiras-classe-comum.js.
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosAcoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
+    // 25/09/2026 (Tiago): proventos do mês e dos últimos 12 meses (o total desde o início fica no "i")
+    extras: [statProventosHero(dados.historico, ['proventosAcoes'], { formatar: formatBRL, botaoInfoHtml })
+      || { label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosAcoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   const ibovespaVar = dados.benchmarks?.ibovespa;
@@ -210,6 +214,7 @@ function desenhar(doc, dados) {
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesDistribuicao'), dados.distribuicaoPorGrupo);
+  renderProventosCarteira(doc, doc.getElementById('acoesProventos'), dados.proventosAnunciados, { classes: ['acoes'] });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
   const ativosBase = (dados.ativos || []).map((a) => ({
@@ -251,9 +256,12 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
   const conteudoEl = doc.getElementById('acoesConteudo');
   const refreshControlEl = doc.getElementById('refreshControlAcoes');
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE_ACOES);
-  if (cache) {
-    desenhar(doc, cache);
+  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
+  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
+  // compartilhado de carteiras-router.js, uma vez só)
+  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_ACOES), lerCacheDados('home')]);
+  if (cacheCarteira) {
+    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -277,9 +285,9 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
-    gravarCacheCarteiras(CHAVE_CACHE_ACOES, dados);
+    gravarCacheDados(CHAVE_CACHE_ACOES, resposta.carteira);
   }
 
   await carregarERedesenhar();

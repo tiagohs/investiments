@@ -44,7 +44,8 @@
 import { getCarteirasHome, getHome } from '../api-client.js';
 import { formatBRL, formatDateBR, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { proventosMesE12Meses, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
 import {
   renderDistribuicao,
   renderInfoRentabilidade,
@@ -55,7 +56,7 @@ import {
 } from './inicio.js';
 import { renderBenchmarksClasseCarteiras } from './carteiras-classe-comum.js';
 
-const CHAVE_CACHE_VISAO_GERAL = 'carteiras_visao_geral_v1';
+const CHAVE_CACHE_VISAO_GERAL = 'carteiras_visao_geral_v2';
 
 const CORES_CARD = {
   'Ações': '--acoes',
@@ -174,10 +175,13 @@ function renderHeroStats_(doc, container, cards, home) {
   }
 
   const bom = resultado >= 0;
+  // 25/09/2026 (Tiago): proventos de todas as carteiras - no mês e nos últimos 12 meses
+  const prov = home && home.historico ? proventosMesE12Meses(home.historico, ['proventosAcoes', 'proventosFiis', 'proventosAcoesEua']) : null;
   container.innerHTML = `
     <span>Valor aplicado: <b>${formatBRL(investido)}</b></span>
     <span>Resultado (desde o início): <b class="${bom ? 'good' : 'bad'}">${bom ? '+' : ''}${formatBRL(resultado)}</b></span>
     <span>Rentabilidade: <b class="${bom ? 'good' : 'bad'}">${typeof rentabilidade === 'number' ? formatPercentFromFraction(rentabilidade) : '—'}</b></span>
+    ${prov ? `<span class="cg-hero-proventos">Proventos no mês: <b>${formatBRL(prov.mes)}</b> · 12 meses: <b>${formatBRL(prov.doze)}</b></span>` : ''}
   `;
 }
 
@@ -512,10 +516,15 @@ function desenhar(doc, { carteiras: carteirasApi, home }) {
   renderDistribuicao(doc, doc.getElementById('vgDonut'), fatias);
 
   renderCardsClasse(doc, doc.getElementById('vgCardsGrid'), carteiras.cards);
+  const provWrap = doc.getElementById('vgProventosWrap');
+  if (provWrap) {
+    provWrap.innerHTML = secaoProventosCarteiraHtml('vgProventos');
+    renderProventosCarteira(doc, doc.getElementById('vgProventos'), home ? home.proventosAnunciados : null);
+  }
 
   if (home?.patrimonio && home?.historico) {
     const periodoTabsContainer = doc.getElementById('vgPeriodoTabs');
-    const periodoAtivo = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || '12m';
+    const periodoAtivo = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || 'mes';
 
     wireGraficoRentabilidade(doc, {
       patrimonio: home.patrimonio,
@@ -551,7 +560,7 @@ function desenhar(doc, { carteiras: carteirasApi, home }) {
         janela.addEventListener('resize', () => {
           if (timer) janela.clearTimeout(timer);
           timer = janela.setTimeout(() => {
-            const periodoAgora = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || '12m';
+            const periodoAgora = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || 'mes';
             renderEvolucaoPatrimonio(doc, evolucaoContainer, periodoTabsContainer._evolucaoHistorico, periodoAgora, evolucaoLegendaContainer);
           }, 150);
         });
@@ -571,9 +580,12 @@ export async function montarPaginaCarteirasVisaoGeral(token, { doc = document, g
   const conteudoEl = doc.getElementById('vgConteudo');
   const refreshControlEl = doc.getElementById('refreshControlVisaoGeral');
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE_VISAO_GERAL);
-  if (cache) {
-    desenhar(doc, cache);
+  // 25/09/2026: cache em IndexedDB (cache-dados.js) - os cards desta página
+  // e a resposta da Início (chave "home" - gravada pela Início e pelo getHome
+  // compartilhado de carteiras-router.js, uma vez só)
+  const [cacheCarteiras, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_VISAO_GERAL), lerCacheDados('home')]);
+  if (cacheCarteiras) {
+    desenhar(doc, { carteiras: cacheCarteiras.dados, home: cacheHome ? cacheHome.dados : null });
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -594,7 +606,7 @@ export async function montarPaginaCarteirasVisaoGeral(token, { doc = document, g
 
     const dados = { carteiras: respCarteiras.carteiras, home: respHome.ok ? respHome : null };
     desenhar(doc, dados);
-    gravarCacheCarteiras(CHAVE_CACHE_VISAO_GERAL, dados);
+    gravarCacheDados(CHAVE_CACHE_VISAO_GERAL, respCarteiras.carteiras);
 
     if (!respHome.ok) {
       doc.getElementById('vgAvisos').hidden = false;

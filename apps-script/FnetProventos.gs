@@ -370,6 +370,7 @@ function gravarProventosAnunciados_(ss, lista) {
   });
   aba.clearContents();
   aba.getRange(1, 1, 1, CABECALHO_PROVENTOS_ANUNCIADOS.length).setValues([CABECALHO_PROVENTOS_ANUNCIADOS]);
+  if (typeof invalidarCacheProventos_ === 'function') invalidarCacheProventos_(); // Proventos.gs
   if (!ordenada.length) return;
   aba.getRange(2, 1, ordenada.length, CABECALHO_PROVENTOS_ANUNCIADOS.length).setValues(ordenada.map(function (p) {
     return [p.ticker, p.tipo, dataDeChaveProvento_(p.dataCom), dataDeChaveProvento_(p.dataPagamento), p.valor, p.isento, p.documento, p.atualizadoEm || new Date()];

@@ -185,6 +185,22 @@ function montarMetasCarteira_() {
     mediaUlt12Meses: blocoRendaPassiva[1],
     percentualAtingido: blocoRendaPassiva[2]
   };
+  // 25/09/2026 (Tiago viu a média daqui diferente da tela Proventos): a
+  // fórmula da planilha (V12, Aux_dash_Proventos) só enxerga a aba
+  // Proventos - sem os dividendos em dólar. Agora a média sai da MESMA lista
+  // da tela Proventos (todas as carteiras, 12 últimos meses fechados - ver
+  // Proventos.gs!mediaRendaPassiva12Meses_); só a meta (U12) continua vindo
+  // da planilha. Se a conta falhar, fica o valor da planilha.
+  try {
+    var telaProventos = montarTelaProventosComCache_();
+    var media = mediaRendaPassiva12Meses_(telaProventos.recebidos, telaProventos.hoje);
+    rendaPassiva.mediaUlt12Meses = media.media;
+    rendaPassiva.mesesMedia = { inicio: media.inicio, fim: media.fim };
+    var meta = Number(rendaPassiva.meta);
+    rendaPassiva.percentualAtingido = meta > 0 ? media.media / meta : '';
+  } catch (erroMedia) {
+    console.log('montarMetasCarteira_: média de Renda Passiva pela planilha (' + erroMedia + ')');
+  }
 
   // Patrimônio — K18:N18 (Extra / % Reinvestimento / Rendimento Médio /
   // Patrimônio Desejado) + Q18 (carteira atual, mesma célula da Início).

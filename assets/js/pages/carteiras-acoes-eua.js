@@ -13,8 +13,9 @@
 import { getCarteirasAcoesEua, getHome } from '../api-client.js';
 import { formatBRL, formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
-import {
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { botaoInfoHtml,
   somaCampoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
@@ -55,7 +56,7 @@ export function moedaAtualAcoesEua() {
   return moedaAcoesEua_;
 }
 
-const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v1';
+const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v2';
 
 function montarColunas_(cambio) {
   return [
@@ -153,10 +154,10 @@ function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
     <div class="filter-tabs" id="acoesEuaPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab" type="button" data-periodo="mes">Mês atual</button>
+      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
       <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
       <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
       <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
@@ -198,6 +199,7 @@ function desenhar(doc, dados) {
         <div id="acoesEuaTabela"></div>
       </div>
     </div>
+    ${secaoProventosCarteiraHtml('acoesEuaProventos')}
   `;
 
   // Tooltips "i" (cabeçalho, nota de ativo, equivalente em R$, legenda do
@@ -227,6 +229,13 @@ function desenhar(doc, dados) {
     totalInvestido: `Em reais: ${formatBRL(custoBrl)} - cada compra no câmbio do dia dela (o mesmo número do fim da linha "Valor aplicado" do gráfico).`,
     lucroPrejuizo: `Em reais: ${valorBrl - custoBrl >= 0 ? '+' : '-'}${formatBRL(Math.abs(valorBrl - custoBrl))} (${formatPercentFromFraction(custoBrl ? (valorBrl - custoBrl) / custoBrl : 0)}) - já com a variação do dólar desde cada compra.`,
   } : null;
+  // 25/09/2026 (Tiago): proventos do mês e dos últimos 12 meses no hero, na moeda escolhida
+  const extrasProventos_ = (moeda) => {
+    const stat = moeda === 'USD'
+      ? statProventosHero(dados.historico, ['proventosAcoesEuaUsd'], { formatar: formatUSD, botaoInfoHtml })
+      : statProventosHero(dados.historico, ['proventosAcoesEua'], { formatar: formatBRL, botaoInfoHtml });
+    return stat ? [stat] : [];
+  };
   // 24/09/2026: resumo na moeda escolhida - ver aplicarMoeda_ no fim desta função.
   const renderResumo_ = (moeda) => {
     if (moeda === 'BRL' && equivalentesBrl) {
@@ -238,6 +247,7 @@ function desenhar(doc, dados) {
         corToken: '--usa',
         formatarValor: formatBRL,
         vies: contarVies_(dados.ativos),
+        extras: extrasProventos_('BRL'),
         equivalentesBrl: {
           totalAtualizado: `Em dólar: ${formatUSD(r.totalAtualizado)}.`,
           totalInvestido: `Em dólar: ${formatUSD(r.totalInvestido)} (preço médio de compra). Em reais, cada compra no câmbio do dia dela - o mesmo número do fim da linha "Valor aplicado" do gráfico.`,
@@ -252,6 +262,7 @@ function desenhar(doc, dados) {
       vies: contarVies_(dados.ativos),
       cambio,
       equivalentesBrl,
+      extras: extrasProventos_('USD'),
     });
   };
 
@@ -271,6 +282,8 @@ function desenhar(doc, dados) {
   // a versao em reais") - `cambio` faz a legenda mostrar US$ (o valor
   // como ele já É) com o "i" trazendo o equivalente em reais.
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesEuaDistribuicao'), dados.distribuicaoPorGrupo, { cambio });
+  // a lista de proventos é sempre em reais (valor recebido na conta, pelo câmbio do dia)
+  renderProventosCarteira(doc, doc.getElementById('acoesEuaProventos'), dados.proventosAnunciados, { classes: ['acoesEua'] });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
   const ativosBase = (dados.ativos || []).map((a) => ({
@@ -370,9 +383,12 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
   const conteudoEl = doc.getElementById('acoesEuaConteudo');
   const refreshControlEl = doc.getElementById('refreshControlAcoesEua');
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE_ACOES_EUA);
-  if (cache) {
-    desenhar(doc, cache);
+  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
+  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
+  // compartilhado de carteiras-router.js, uma vez só)
+  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_ACOES_EUA), lerCacheDados('home')]);
+  if (cacheCarteira) {
+    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -389,9 +405,9 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
-    gravarCacheCarteiras(CHAVE_CACHE_ACOES_EUA, dados);
+    gravarCacheDados(CHAVE_CACHE_ACOES_EUA, resposta.carteira);
   }
 
   await carregarERedesenhar();

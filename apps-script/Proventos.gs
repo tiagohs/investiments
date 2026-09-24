@@ -26,7 +26,7 @@ var ABA_B3_PROVENTOS_A_RECEBER = 'B3 - proventos a receber';
 function handleProventos(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
   try {
-    return jsonOut(montarTelaProventos_());
+    return jsonOut(montarTelaProventosComCache_());
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'proventos', erro: String(erro) });
   }
@@ -68,6 +68,71 @@ function montarTelaProventos_() {
     aplicado: { acoes: r2(somaMapa(fluxo.acoesAplicado)), fiis: r2(somaMapa(fluxo.fiisAplicado)), acoesEua: r2(somaMapa(fluxo.usaAplicado)) },
     aportes12m: { acoes: r2(somaMapa(fluxo.acoesAplicado, limite12m)), fiis: r2(somaMapa(fluxo.fiisAplicado, limite12m)), acoesEua: r2(somaMapa(fluxo.usaAplicado, limite12m)) }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cache da tela (25/09/2026, Tiago: "sinto que está demorando muito pra
+// carregar"): montarTelaProventos_ relê Transações, Proventos e o histórico
+// de patrimônio inteiros a cada chamada. A resposta fica no CacheService
+// (em pedaços - passa de 100KB - mesmos helpers da série da Início) até
+// alguma dessas abas mudar de tamanho, virar o dia, ou alguém importar a B3 /
+// o FNet gravar anúncio novo / clicar "Limpar cache" (invalidarCacheProventos_).
+// ---------------------------------------------------------------------------
+
+var PROP_VERSAO_CACHE_PROVENTOS = 'PROVENTOS_CACHE_VERSAO';
+
+function chaveCacheTelaProventos_(ss) {
+  var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
+  var versao = '0';
+  try { versao = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_PROVENTOS) || '0'; } catch (e) { /* sem versão: só as contagens */ }
+  return 'proventos_tela_v1_' + chaveDiaISOInicio_(new Date()) + '_' + contarLinhasFluxoCaixa_(ss) + '_' +
+    [ABA_B3_PROVENTOS_A_RECEBER, 'aux_proventos-anunciados', 'aux_historico-patrimonio', 'Auxiliar_ativos'].map(linhas).join('_') + '_' + versao;
+}
+
+/** Faz a próxima leitura da tela Proventos (e da meta de Renda Passiva) recalcular. */
+function invalidarCacheProventos_() {
+  try { PropertiesService.getScriptProperties().setProperty(PROP_VERSAO_CACHE_PROVENTOS, String(Date.now())); } catch (e) { /* cache é só otimização */ }
+}
+
+function montarTelaProventosComCache_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var chave = chaveCacheTelaProventos_(ss);
+  var emCache = lerSerieHistoricoCache_(chave);
+  if (emCache) {
+    console.log('montarTelaProventosComCache_: cache HIT (' + chave + ')');
+    return emCache;
+  }
+  var marca = Date.now();
+  var tela = montarTelaProventos_();
+  console.log('montarTelaProventosComCache_: cache MISS (' + chave + ') - montou em ' + (Date.now() - marca) + 'ms');
+  gravarSerieHistoricoCache_(chave, tela);
+  return tela;
+}
+
+/**
+ * Meta de Renda Passiva (Distribuições e Metas): média dos proventos dos 12
+ * últimos meses FECHADOS (o mês de hoje fica fora), de TODAS as carteiras
+ * (Ações, FIIs e Ações EUA em reais, pelo câmbio do dia do pagamento) - a
+ * mesma lista e a mesma régua da tela Proventos
+ * (assets/js/pages/proventos-calc.js!mesesFechadosDoPeriodo). Antes vinha da
+ * fórmula da planilha (Aux_dash_Proventos), que só via a aba Proventos
+ * (sem os dividendos em dólar).
+ * Devolve { media, total, inicio: 'yyyy-MM', fim: 'yyyy-MM' }.
+ */
+function mediaRendaPassiva12Meses_(recebidos, hoje) {
+  var mais = function (anoMes, n) {
+    var a = Number(anoMes.slice(0, 4)), m = Number(anoMes.slice(5, 7));
+    var t = a * 12 + (m - 1) + n;
+    return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
+  };
+  var fim = mais(hoje.slice(0, 7), -1);
+  var inicio = mais(fim, -11);
+  var total = (recebidos || []).reduce(function (s, p) {
+    var m = String(p.data || '').slice(0, 7);
+    return (m >= inicio && m <= fim && typeof p.valor === 'number') ? s + p.valor : s;
+  }, 0);
+  total = Math.round(total * 100) / 100;
+  return { media: Math.round((total / 12) * 100) / 100, total: total, inicio: inicio, fim: fim };
 }
 
 /**
@@ -422,6 +487,7 @@ function importarProventosB3_(linhasJson) {
   var aba = ss.getSheetByName(ABA_B3_PROVENTOS_A_RECEBER) || ss.insertSheet(ABA_B3_PROVENTOS_A_RECEBER);
   aba.clearContents();
   aba.getRange(1, 1, matriz.length, total).setValues(matriz);
+  invalidarCacheProventos_();
   var soma = lido.itens.reduce(function (s, p) { return s + p.valor; }, 0);
   return { ok: true, importados: lido.itens.length, total: Math.round(soma * 100) / 100 };
 }

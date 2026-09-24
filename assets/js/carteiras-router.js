@@ -19,6 +19,8 @@ import { montarPaginaCarteirasAcoes } from './pages/carteiras-acoes.js';
 import { montarPaginaCarteirasFiis } from './pages/carteiras-fiis.js';
 import { montarPaginaCarteirasAcoesEua } from './pages/carteiras-acoes-eua.js';
 import { montarPaginaCarteirasRendaFixa } from './pages/carteiras-renda-fixa.js';
+import { getHome } from './api-client.js';
+import { criarGetHomeCompartilhado } from './cache-dados.js';
 
 export const CARTEIRAS_PAGINAS = [
   { key: 'visao-geral', titulo: 'Visão geral', mount: montarPaginaCarteirasVisaoGeral },
@@ -28,7 +30,10 @@ export const CARTEIRAS_PAGINAS = [
   { key: 'renda-fixa', titulo: 'Renda Fixa', mount: montarPaginaCarteirasRendaFixa },
 ];
 
-export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAGINAS } = {}) {
+export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAGINAS, getHomeImpl = getHome } = {}) {
+  // 25/09/2026: as 5 subpáginas usam o histórico da Início - uma chamada só
+  // pra todas (antes cada subpágina pedia a Início inteira de novo)
+  const getHomeCompartilhado = criarGetHomeCompartilhado(getHomeImpl);
   const sideItems = Array.from(doc.querySelectorAll('.side-item[data-page]'));
   const tituloMobile = doc.getElementById('carteirasMobileTitle');
   const montado = new Set();
@@ -49,7 +54,7 @@ export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAG
     if (!montado.has(key)) {
       montado.add(key);
       try {
-        await pagina.mount(token, { doc });
+        await pagina.mount(token, { doc, getHomeImpl: getHomeCompartilhado });
       } catch (error) {
         console.error(`carteiras-router.js: falha ao montar a página "${key}"`, error);
       }

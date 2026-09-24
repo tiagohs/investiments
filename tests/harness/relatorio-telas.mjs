@@ -483,7 +483,10 @@ async function lerTelas(r, I) {
     await mod[fn]('t', { doc, [impl]: async () => ({ ok: true, carteira: cart }), getHomeImpl: async () => home });
     const el = doc.getElementById(idC);
     const stats = [...el.querySelectorAll('.cc-resumo-stat')].map((x) => texto(x));
-    const prov = stats.find((x) => /Proventos/.test(x));
+    // 25/09/2026: o hero mostra "Proventos no mês" / "em 12 meses"; o total desde o início fica no "i"
+    const tipsProv = [...el.querySelectorAll('.cc-resumo .info-alvo')].map((x) => x.dataset.tooltip || '');
+    const totProv = (tipsProv.find((x) => /Desde o início/.test(x)) || '').match(/Desde o início: (R\$\s*[\d.]+,\d{2})/);
+    const prov = totProv ? totProv[1] : stats.find((x) => /Proventos/.test(x));
     telas.sub[nome] = {
       resumoTexto: texto(el.querySelector('.cc-resumo')).replace(/ i( |$)/g, ' ').trim(),
       valor: lerBRL(texto(el.querySelector('.cc-resumo-valor'))),
@@ -727,7 +730,7 @@ function checar(D, s, p, u) {
       const real = D.realizadoAba[campoAba];
       if (!perto(lucro + sub[k].proventos + real, D.visoes[v].tudo.ganho, 0.03)) e3.push(`${k}: lucro ${r2(lucro)} + proventos ${sub[k].proventos} + realizado ${r2(real)} x desde o início ${D.visoes[v].tudo.ganho}`);
     }
-    add('Carteiras · subpáginas', 'Ações e FIIs: "Proventos recebidos" = aba Proventos (inclusive códigos antigos) e Lucro + Proventos + lucro realizado nas vendas = Resultado desde o início', e3);
+    add('Carteiras · subpáginas', 'Ações e FIIs: proventos desde o início (no "i" do hero) = aba Proventos (inclusive códigos antigos) e Lucro + Proventos + lucro realizado nas vendas = Resultado desde o início', e3);
     // 23/09/2026 #8: valores em cima dos gráficos
     const e4 = [];
     const COM_APLICADO = new Set(['total', 'carteiraAcoes', 'carteiraFiis', 'carteiraAcoesEua', 'carteiraRendaFixaTotal']);

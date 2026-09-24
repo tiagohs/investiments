@@ -129,6 +129,7 @@
 
 import { getHome, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import { renderProventosAnunciados } from './inicio-proventos.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
@@ -2401,9 +2402,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   const conteudoEl = doc.getElementById('inicioConteudo');
   const refreshControlEl = doc.getElementById('refreshControlInicio');
 
-  async function carregarERedesenhar() {
-    const resposta = await getHomeImpl(token);
-
+  function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
     if (!resposta.ok) {
@@ -2473,6 +2472,20 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
 
     // 24/09/2026: proventos a receber (FIIs, FNet/B3) - ver inicio-proventos.js
     renderProventosAnunciados(doc, doc.getElementById('proventosSecao'), resposta.proventosAnunciados);
+  }
+
+  // 25/09/2026 (Tiago: "demorando muito pra carregar"): desenha na hora com
+  // a última resposta guardada (cache-dados.js, IndexedDB) e busca a nova por
+  // trás; se a nova falhar, o que já está na tela fica (com o aviso de erro).
+  async function carregarERedesenhar() {
+    const resposta = await getHomeImpl(token);
+    if (resposta && resposta.ok) gravarCacheDados('home', resposta);
+    desenharResposta(resposta);
+  }
+
+  const emCache = await lerCacheDados('home');
+  if (emCache) {
+    try { desenharResposta(emCache.dados); } catch (erro) { console.error('cache da página não desenhou', erro); }
   }
 
   await carregarERedesenhar();

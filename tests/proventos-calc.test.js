@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  somarMeses, somarDias, rotuloMes, mesesDoPeriodo, resumoConsolidado, historicoMensal, rankingPorAtivo,
+  somarMeses, somarDias, mesesFechadosDoPeriodo, rotuloMes, mesesDoPeriodo, resumoConsolidado, historicoMensal, rankingPorAtivo,
   receitaFutura, itensAgenda, anosDaAgenda, contagemPorMes, filtrarAgenda, previaExportacaoB3,
 } from '../assets/js/pages/proventos-calc.js';
 
@@ -28,13 +28,24 @@ test('mesesDoPeriodo(): sempre termina no mês de hoje; 12 meses = 12 barras; no
   assert.deepEqual(mesesDoPeriodo('inicio', '2026-09-24', null), ['2026-09']);
 });
 
+test('mesesFechadosDoPeriodo(): o mês corrente nunca entra na média; em janeiro, "no ano" usa o próprio mês', () => {
+  assert.deepEqual(mesesFechadosDoPeriodo('12m', '2026-09-24').slice(0, 1), ['2025-09']);
+  assert.equal(mesesFechadosDoPeriodo('12m', '2026-09-24').at(-1), '2026-08');
+  assert.equal(mesesFechadosDoPeriodo('ano', '2026-09-24').length, 8);
+  assert.deepEqual(mesesFechadosDoPeriodo('ano', '2026-01-10'), ['2026-01']);
+  assert.equal(mesesFechadosDoPeriodo('inicio', '2026-09-24', '2024-03-10')[0], '2024-03');
+});
+
 test('resumoConsolidado(): aplicado e aportes por classe, renda do período e de 12 meses, média, YoC e a receber', () => {
   const t = resumoConsolidado(DADOS, { classe: 'todas', periodoId: '12m' });
   assert.equal(t.aplicado, 1200);
   assert.equal(t.aportes12m, 300);
   assert.equal(t.renda, 57); // 10+4+10+5+20+8 (o de 30/09/2025 fica fora)
   assert.equal(t.renda12m, 57);
-  assert.equal(t.media, 4.75);
+  // média = 12 meses FECHADOS (set/25 a ago/26): 7 + 8 + 20 + 10 + 5 = 50 -> 50/12; o de setembro/26 (mês corrente) fica fora
+  assert.equal(t.media, 4.17);
+  assert.equal(t.media12m, 4.17);
+  assert.deepEqual([t.mediaInicio, t.mediaFim, t.mediaMeses], ['2025-09', '2026-08', 12]);
   assert.equal(t.yoc.toFixed(4), (57 / 1200 * 100).toFixed(4));
   assert.equal(t.aReceber, 20);
   assert.equal(t.aReceberEsteMes, 3);
@@ -42,7 +53,7 @@ test('resumoConsolidado(): aplicado e aportes por classe, renda do período e de
   assert.equal(f.aplicado, 900);
   assert.equal(f.renda, 20);
   assert.equal(f.meses, 9);
-  assert.equal(f.media, 2.22);
+  assert.equal(f.media, 1.25, 'no ano: jan a ago fechados (8 meses), FIIs = 10 em agosto');
   assert.equal(f.renda12m, 28);
   assert.equal(f.aReceber, 10);
   const i = resumoConsolidado(DADOS, { classe: 'todas', periodoId: 'inicio' });

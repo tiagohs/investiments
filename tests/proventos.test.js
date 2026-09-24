@@ -44,7 +44,8 @@ test('Consolidado: 5 cartões batem com as contas; período e classe mudam os n�
   assert.equal(doc.querySelectorAll('.pv-card').length, 5);
   assert.equal(brl(card(0).querySelector('.pv-card-valor').textContent), 1200);
   assert.equal(brl(card(1).querySelector('.pv-card-valor').textContent), 57);
-  assert.equal(brl(card(2).querySelector('.pv-card-valor').textContent), 4.75);
+  assert.equal(brl(card(2).querySelector('.pv-card-valor').textContent), 4.17);
+  assert.match(txt(card(2)), /set\/25 a ago\/26 · meses fechados/);
   assert.match(txt(card(3)), /4,75%/);
   assert.equal(brl(card(4).querySelector('.pv-card-valor').textContent), 20);
   assert.match(txt(card(4)), /Neste mês: R\$\s*3,00/);

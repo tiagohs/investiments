@@ -47,7 +47,8 @@ export function resumirProventosAReceber(itens, { hoje = new Date() } = {}) {
 function linhaHtml_(p, { modo = 'receber' } = {}) {
   const q = typeof p.quantidade === 'number' && p.quantidade > 0 ? p.quantidade : null;
   const cotas = q != null && p.valorPorCota
-    ? `${formatNumeroBR(q, q % 1 ? 2 : 0)} × ${p.moeda === 'USD' ? 'US$ ' + formatNumeroBR(p.valorPorCota, 4) : formatBRL(p.valorPorCota)}`
+    // 25/09/2026: até 4 casas no valor por cota (R$ 0,0022 aparecia "R$ 0,00")
+    ? `${formatNumeroBR(q, q % 1 ? 2 : 0)} × ${p.moeda === 'USD' ? 'US$' : 'R$'} ${p.valorPorCota.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
     : '';
   let quando;
   if (modo === 'recebido') quando = `pago ${diaMesDeChave(p.dataPagamento)}`;

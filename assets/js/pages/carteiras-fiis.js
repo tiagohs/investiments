@@ -11,8 +11,9 @@
 import { getCarteirasFiis, getHome } from '../api-client.js';
 import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
-import {
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { botaoInfoHtml,
   proventosDoHistorico_,
   renderResumoClasseCarteiras,
   renderBenchmarksClasseCarteiras,
@@ -28,7 +29,7 @@ import {
   contarVies_,
 } from './carteiras-classe-comum.js';
 
-const CHAVE_CACHE_FIIS = 'carteiras_fiis_v1';
+const CHAVE_CACHE_FIIS = 'carteiras_fiis_v2';
 
 const COLUNAS_ATIVOS_FIIS = [
   {
@@ -118,10 +119,10 @@ function montarBlocoGraficosHtml_() {
   return `
     <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
     <div class="filter-tabs" id="fiisPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab" type="button" data-periodo="mes">Mês atual</button>
+      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
       <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
       <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
+      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
       <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
       <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
     </div>
@@ -158,6 +159,7 @@ function desenhar(doc, dados) {
         <div id="fiisTabela"></div>
       </div>
     </div>
+    ${secaoProventosCarteiraHtml('fiisProventos')}
   `;
 
   // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
@@ -169,7 +171,9 @@ function desenhar(doc, dados) {
     corToken: '--fiis',
     // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
     // proventosDoHistorico_ em carteiras-classe-comum.js.
-    extras: [{ label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosFiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
+    // 25/09/2026 (Tiago): proventos do mês e dos últimos 12 meses (o total desde o início fica no "i")
+    extras: [statProventosHero(dados.historico, ['proventosFiis'], { formatar: formatBRL, botaoInfoHtml })
+      || { label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosFiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
     vies: contarVies_(dados.ativos),
   });
   // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do
@@ -184,6 +188,7 @@ function desenhar(doc, dados) {
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
   renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('fiisDistribuicao'), dados.distribuicaoPorGrupo);
+  renderProventosCarteira(doc, doc.getElementById('fiisProventos'), dados.proventosAnunciados, { classes: ['fiis'] });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
   const ativosBase = (dados.ativos || []).map((a) => ({
@@ -254,9 +259,12 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
   const conteudoEl = doc.getElementById('fiisConteudo');
   const refreshControlEl = doc.getElementById('refreshControlFiis');
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE_FIIS);
-  if (cache) {
-    desenhar(doc, cache);
+  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
+  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
+  // compartilhado de carteiras-router.js, uma vez só)
+  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_FIIS), lerCacheDados('home')]);
+  if (cacheCarteira) {
+    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -273,9 +281,9 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
+    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
-    gravarCacheCarteiras(CHAVE_CACHE_FIIS, dados);
+    gravarCacheDados(CHAVE_CACHE_FIIS, resposta.carteira);
   }
 
   await carregarERedesenhar();

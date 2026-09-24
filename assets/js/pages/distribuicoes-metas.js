@@ -137,6 +137,7 @@ import {
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1555,6 +1556,15 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
 }
 
 /** Constrói e injeta os 3 cards de Metas da Carteira no container. */
+
+/** 25/09/2026: texto do "i" da média de Renda Passiva - com os meses exatos (mesma conta da tela Proventos). */
+function textoMediaRendaPassiva_(meses) {
+  const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const rot = (am) => `${nomes[Number(am.slice(5, 7)) - 1]}/${am.slice(2, 4)}`;
+  const periodo = meses && meses.inicio && meses.fim ? ` (${rot(meses.inicio)} a ${rot(meses.fim)})` : '';
+  return `Soma dos proventos de todas as carteiras (Ações, FIIs e Ações EUA em reais) nos últimos 12 meses fechados${periodo}, dividida por 12 - o mês atual ainda não entra. É a mesma "Média mensal" da tela Proventos em 12 meses.`;
+}
+
 export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiva, onSalvarPatrimonio, onSalvarRendaEmergencial } = {}) {
   if (!container) return;
   container.innerHTML = '';
@@ -1570,7 +1580,7 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       percentual: rendaPassiva.percentualAtingido,
       cor: 'var(--usa)',
       stats: [
-        { k: 'Média últ. 12 meses', v: formatBRL(rendaPassiva.mediaUlt12Meses), title: 'Soma dos proventos recebidos nos últimos 12 meses fechados, dividida por 12.' },
+        { k: 'Média últ. 12 meses', v: formatBRL(rendaPassiva.mediaUlt12Meses), title: textoMediaRendaPassiva_(rendaPassiva.mesesMedia) },
         { k: 'Meta mensal', v: formatBRL(rendaPassiva.meta), title: 'Editável — quanto você quer receber de proventos por mês.' },
       ],
       campos: [{ nome: 'valor', rotulo: 'Meta mensal (R$)', valor: rendaPassiva.meta, tipo: 'reais' }],
@@ -1658,9 +1668,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const container = doc.getElementById('metasCarteiraGrid');
   const refreshControlEl = doc.getElementById('refreshControlDistribuicoes');
 
-  async function carregarERedesenhar() {
-    const resposta = await getDistribuicoesMetasImpl(token);
-
+  function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
     if (!resposta.ok) {
@@ -1720,6 +1728,20 @@ export async function montarPaginaDistribuicoesMetas(token, {
         await carregarERedesenhar();
       },
     });
+  }
+
+  // 25/09/2026 (Tiago: "demorando muito pra carregar"): desenha na hora com
+  // a última resposta guardada (cache-dados.js, IndexedDB) e busca a nova por
+  // trás; se a nova falhar, o que já está na tela fica (com o aviso de erro).
+  async function carregarERedesenhar() {
+    const resposta = await getDistribuicoesMetasImpl(token);
+    if (resposta && resposta.ok) gravarCacheDados('distribuicoesMetas', resposta);
+    desenharResposta(resposta);
+  }
+
+  const emCache = await lerCacheDados('distribuicoesMetas');
+  if (emCache) {
+    try { desenharResposta(emCache.dados); } catch (erro) { console.error('cache da página não desenhou', erro); }
   }
 
   await carregarERedesenhar();

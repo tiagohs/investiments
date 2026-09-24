@@ -15,7 +15,7 @@
 import { getProventos, importarProventosB3 } from '../api-client.js';
 import { formatBRL, formatBRLCompacto, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
-import { lerCacheCarteiras, gravarCacheCarteiras } from '../carteiras-cache.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { logoAtivoHtml } from './carteiras-classe-comum.js';
 import {
   CLASSES, NOME_CLASSE, COR_CLASSE, PERIODOS, MESES_CURTOS, MESES_LONGOS,
@@ -23,7 +23,7 @@ import {
   itensAgenda, anosDaAgenda, contagemPorMes, filtrarAgenda, previaExportacaoB3,
 } from './proventos-calc.js';
 
-const CHAVE_CACHE = 'proventos.tela.v1';
+const CHAVE_CACHE = 'proventos';
 const CHAVE_PREFS = 'proventos.prefs.v1';
 const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const LIMITE_RANKING = 10;
@@ -57,24 +57,45 @@ function valorPorCotaTxt(p) {
 // Topo: abas + filtro de classe + importar B3
 // ---------------------------------------------------------------------------
 
+/** Botões de um controle segmentado (um grupo só, em vez de várias pílulas soltas). */
+function segHtml(itens, ativo, attr, rotulo, extra = '') {
+  return `<div class="pv-seg${extra}" role="group" aria-label="${rotulo}">${itens.map((it) => `<button type="button" class="pv-seg-btn${it.id === ativo ? ' active' : ''}" data-${attr}="${it.id}" aria-pressed="${it.id === ativo}">${it.html}</button>`).join('')}</div>`;
+}
+const rotuloDuplo = (longo, curto) => `<span class="pv-longo">${longo}</span><span class="pv-curto">${curto}</span>`;
+
+/**
+ * 25/09/2026 (Tiago: "organize melhor esses filtros, está muito embolado"):
+ * linha 1 = abas + importar B3 (ação da página, à direita);
+ * linha 2 = carteira à ESQUERDA e os filtros da aba à DIREITA (período no
+ * Consolidado; ano e situação na Agenda), cada um num controle segmentado.
+ * No celular as 2 partes da linha 2 viram 2 linhas cheias, sem quebrar
+ * botão pra linha de baixo (rótulos curtos: "12m", "EUA"...).
+ */
 function topoHtml(estado, dados) {
   const abas = [['consolidado', 'Consolidado'], ['agenda', 'Agenda']];
-  const classes = [{ id: 'todas', nome: 'Todas' }, ...CLASSES];
-  const b3 = dados && dados.atualizadoB3 ? `B3 importada em ${dma(dados.atualizadoB3)}` : 'Proventos a receber da B3';
+  const classes = [
+    { id: 'todas', html: 'Todas' },
+    ...CLASSES.map((c) => ({ id: c.id, html: `<span class="pv-dot" style="background:var(${c.cor})"></span>${c.id === 'acoesEua' ? rotuloDuplo('Ações EUA', 'EUA') : c.nome}` })),
+  ];
+  const b3 = dados && dados.atualizadoB3 ? `B3 importada em ${dm(dados.atualizadoB3)}` : '';
   return `
     <div class="pv-topo">
       <div class="pv-abas" role="tablist" aria-label="Proventos">
         ${abas.map(([id, nome]) => `<button type="button" role="tab" class="pv-aba${estado.aba === id ? ' active' : ''}" data-aba="${id}" aria-selected="${estado.aba === id}">${nome}</button>`).join('')}
       </div>
       <div class="pv-importar">
-        <span class="pv-importar-info">${esc(b3)}</span>
-        <button type="button" class="btn btn-ghost pv-importar-btn" id="pvImportarBtn">Importar planilha da B3</button>
+        ${b3 ? `<span class="pv-importar-info">${esc(b3)}</span>` : ''}
+        <button type="button" class="pv-importar-btn" id="pvImportarBtn" title="Planilha &quot;Proventos a receber&quot; baixada da Área do Investidor da B3">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+          ${rotuloDuplo('Importar planilha da B3', 'Importar B3')}
+        </button>
         <input type="file" id="pvImportarArquivo" accept=".xlsx,.xls" hidden>
       </div>
     </div>
     <div class="pv-importar-status" id="pvImportarStatus" hidden></div>
-    <div class="filter-tabs pv-classes" role="group" aria-label="Tipo de ativo">
-      ${classes.map((c) => `<button type="button" class="filter-tab${estado.classe === c.id ? ' active' : ''}" data-classe="${c.id}">${c.cor ? `<span class="pv-dot" style="background:var(${c.cor})"></span>` : ''}${c.nome}</button>`).join('')}
+    <div class="pv-filtros">
+      ${segHtml(classes, estado.classe, 'classe', 'Carteira', ' pv-seg-classes')}
+      <div class="pv-filtros-dir" id="pvFiltrosDir"></div>
     </div>`;
 }
 
@@ -94,7 +115,7 @@ function cardsHtml(r, periodoNome, periodoId, mesNome) {
     <div class="pv-cards">
       ${card('Valor aplicado', formatBRL(r.aplicado), `Aportes em 12 meses: <b>${formatBRL(r.aportes12m)}</b>`)}
       ${card(`Renda · ${r.primeiroMes === r.ultimoMes ? rotuloMes(r.ultimoMes) : `${rotuloMes(r.primeiroMes)} a ${rotuloMes(r.ultimoMes)}`}`, formatBRL(r.renda), e12 ? `Em ${mesNome}: <b>${formatBRL(r.rendaMes)}</b>` : `12 meses: <b>${formatBRL(r.renda12m)}</b>`, ' pv-card-destaque')}
-      ${card('Média mensal', formatBRL(r.media), e12 ? 'nos últimos 12 meses' : `${r.meses} ${r.meses === 1 ? 'mês' : 'meses'} · 12 meses: <b>${formatBRL(r.media12m)}</b>`)}
+      ${card('Média mensal', formatBRL(r.media), `${r.mediaInicio === r.mediaFim ? rotuloMes(r.mediaFim) : `${rotuloMes(r.mediaInicio)} a ${rotuloMes(r.mediaFim)}`} · meses fechados${e12 ? '' : ` · 12 meses: <b>${formatBRL(r.media12m)}</b>`}`)}
       ${card('Yield on cost', pct(r.yoc), e12 ? 'renda de 12 meses ÷ valor aplicado' : `12 meses: <b>${pct(r.yoc12m)}</b>`)}
       ${card('A receber', formatBRL(r.aReceber), `Neste mês: <b>${formatBRL(r.aReceberEsteMes)}</b>`)}
     </div>`;
@@ -283,16 +304,13 @@ function futuroHtml(f) {
     : '<p class="pv-vazio">Nenhuma data com anunciada à frente.</p>'}`;
 }
 
-function renderConsolidado(doc, el, dados, estado, redesenhar) {
+function renderConsolidado(doc, el, dados, estado, redesenhar, filtrosEl) {
   const periodo = PERIODOS.find((p) => p.id === estado.periodo) || PERIODOS[1];
   const r = resumoConsolidado(dados, { classe: estado.classe, periodoId: periodo.id });
   const hist = historicoMensal(dados, { classe: estado.classe, periodoId: periodo.id, agrupar: estado.agrupar });
   const ranking = rankingPorAtivo(dados, { classe: estado.classe, periodoId: periodo.id });
   const futuro = receitaFutura(dados, { classe: estado.classe });
   el.innerHTML = `
-    <div class="filter-tabs pv-periodos" role="group" aria-label="Período">
-      ${PERIODOS.map((p) => `<button type="button" class="filter-tab${p.id === periodo.id ? ' active' : ''}" data-periodo="${p.id}">${p.nome}</button>`).join('')}
-    </div>
     ${cardsHtml(r, periodo.nome, periodo.id, MESES_LONGOS[Number(dados.hoje.slice(5, 7)) - 1])}
     ${historicoCardHtml(estado)}
     <div class="pv-duas">
@@ -311,7 +329,9 @@ function renderConsolidado(doc, el, dados, estado, redesenhar) {
   else renderHistoricoGrafico(doc, corpo, hist);
   renderLegendaHistorico(el.querySelector('#pvHistLegenda'), hist);
 
-  el.querySelectorAll('[data-periodo]').forEach((b) => b.addEventListener('click', () => { estado.periodo = b.getAttribute('data-periodo'); redesenhar(); }));
+  const CURTO = { ano: 'Ano', '12m': '12m', '24m': '24m', '36m': '36m', inicio: 'Início' };
+  filtrosEl.innerHTML = segHtml(PERIODOS.map((p) => ({ id: p.id, html: rotuloDuplo(p.nome, CURTO[p.id]) })), periodo.id, 'periodo', 'Período', ' pv-seg-periodos');
+  filtrosEl.querySelectorAll('[data-periodo]').forEach((b) => b.addEventListener('click', () => { estado.periodo = b.getAttribute('data-periodo'); redesenhar(); }));
   el.querySelectorAll('[data-agrupar]').forEach((b) => b.addEventListener('click', () => { estado.agrupar = b.getAttribute('data-agrupar'); redesenhar(); }));
   el.querySelectorAll('[data-visao]').forEach((b) => b.addEventListener('click', () => { estado.visao = b.getAttribute('data-visao'); redesenhar(); }));
   const mais = el.querySelector('[data-acao="ranking"]');
@@ -397,7 +417,7 @@ function linhaAgendaHtml(p) {
     </tr>`;
 }
 
-function renderAgenda(doc, el, dados, estado, redesenhar) {
+function renderAgenda(doc, el, dados, estado, redesenhar, filtrosEl) {
   const itens = itensAgenda(dados, { classe: estado.classe });
   const anos = anosDaAgenda(itens, dados.hoje);
   if (!anos.includes(estado.ano)) estado.ano = anos[0];
@@ -409,20 +429,10 @@ function renderAgenda(doc, el, dados, estado, redesenhar) {
   const iAno = anos.indexOf(estado.ano);
   const titulo = estado.mes === 'semData' ? 'Sem data de pagamento' : (estado.mes ? `${MESES_LONGOS[estado.mes - 1]} de ${estado.ano}` : `Ano de ${estado.ano}`);
   el.innerHTML = `
-    <div class="pv-ag-ctrl">
-      <div class="pv-ano" role="group" aria-label="Ano">
-        <button type="button" class="pv-ano-btn" data-ano="${anos[iAno + 1] || ''}" ${anos[iAno + 1] ? '' : 'disabled'} aria-label="Ano anterior">‹</button>
-        <b>${estado.ano}</b>
-        <button type="button" class="pv-ano-btn" data-ano="${anos[iAno - 1] || ''}" ${anos[iAno - 1] ? '' : 'disabled'} aria-label="Próximo ano">›</button>
-      </div>
-      <div class="filter-tabs" role="group" aria-label="Situação">
-        ${[['todos', 'Todos'], ['realizado', 'Realizado'], ['aRealizar', 'A realizar']].map(([id, n]) => `<button type="button" class="filter-tab${estado.status === id ? ' active' : ''}" data-status="${id}">${n}</button>`).join('')}
-      </div>
-    </div>
-    <div class="pv-meses" role="group" aria-label="Mês">
-      <button type="button" class="pv-mes${estado.mes == null ? ' active' : ''}" data-mes="">Ano todo<small>${cont.meses.reduce((s, v) => s + v, 0)}</small></button>
+    <div class="pv-meses${cont.semData ? ' com-sem-data' : ''}" role="group" aria-label="Mês">
+      <button type="button" class="pv-mes${estado.mes == null ? ' active' : ''}" data-mes="">${rotuloDuplo('Ano todo', 'Ano')}<small>${cont.meses.reduce((s, v) => s + v, 0)}</small></button>
       ${MESES_CURTOS.map((m, i) => `<button type="button" class="pv-mes${estado.mes === i + 1 ? ' active' : ''}${cont.meses[i] ? '' : ' vazio'}" data-mes="${i + 1}">${m.charAt(0).toUpperCase() + m.slice(1)}<small>${cont.meses[i]}</small></button>`).join('')}
-      ${cont.semData ? `<button type="button" class="pv-mes${estado.mes === 'semData' ? ' active' : ''}" data-mes="semData">A definir<small>${cont.semData}</small></button>` : ''}
+      ${cont.semData ? `<button type="button" class="pv-mes${estado.mes === 'semData' ? ' active' : ''}" data-mes="semData">${rotuloDuplo('A definir', 'S/ data')}<small>${cont.semData}</small></button>` : ''}
     </div>
     <div class="pv-bloco pv-ag-bloco">
       <div class="pv-ag-resumo">
@@ -437,8 +447,15 @@ function renderAgenda(doc, el, dados, estado, redesenhar) {
         </table>
       </div>` : '<p class="pv-vazio">Nenhum provento aqui com esses filtros.</p>'}
     </div>`;
-  el.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => { const a = Number(b.getAttribute('data-ano')); if (a) { estado.ano = a; estado.mes = null; redesenhar(); } }));
-  el.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => { estado.status = b.getAttribute('data-status'); redesenhar(); }));
+  filtrosEl.innerHTML = `
+    <div class="pv-ano" role="group" aria-label="Ano">
+      <button type="button" class="pv-ano-btn" data-ano="${anos[iAno + 1] || ''}" ${anos[iAno + 1] ? '' : 'disabled'} aria-label="Ano anterior">‹</button>
+      <b>${estado.ano}</b>
+      <button type="button" class="pv-ano-btn" data-ano="${anos[iAno - 1] || ''}" ${anos[iAno - 1] ? '' : 'disabled'} aria-label="Próximo ano">›</button>
+    </div>
+    ${segHtml([{ id: 'todos', html: 'Todos' }, { id: 'realizado', html: 'Realizado' }, { id: 'aRealizar', html: 'A realizar' }], estado.status, 'status', 'Situação', ' pv-seg-status')}`;
+  filtrosEl.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => { const a = Number(b.getAttribute('data-ano')); if (a) { estado.ano = a; estado.mes = null; redesenhar(); } }));
+  filtrosEl.querySelectorAll('[data-status]').forEach((b) => b.addEventListener('click', () => { estado.status = b.getAttribute('data-status'); redesenhar(); }));
   el.querySelectorAll('[data-mes]').forEach((b) => b.addEventListener('click', () => {
     const v = b.getAttribute('data-mes');
     estado.mes = v === '' ? null : (v === 'semData' ? 'semData' : Number(v));
@@ -539,8 +556,9 @@ export function desenharProventos(doc, conteudo, dados, estado, { token = null, 
   conteudo.querySelectorAll('[data-aba]').forEach((b) => b.addEventListener('click', () => { estado.aba = b.getAttribute('data-aba'); redesenhar(); }));
   conteudo.querySelectorAll('[data-classe]').forEach((b) => b.addEventListener('click', () => { estado.classe = b.getAttribute('data-classe'); estado.rankingTodos = false; redesenhar(); }));
   const painel = conteudo.querySelector('#pvPainel');
-  if (estado.aba === 'agenda') renderAgenda(doc, painel, dados, estado, redesenhar);
-  else renderConsolidado(doc, painel, dados, estado, redesenhar);
+  const filtrosEl = conteudo.querySelector('#pvFiltrosDir');
+  if (estado.aba === 'agenda') renderAgenda(doc, painel, dados, estado, redesenhar, filtrosEl);
+  else renderConsolidado(doc, painel, dados, estado, redesenhar, filtrosEl);
   ligarImportacao(doc, token, { importarImpl, carregarXlsx, aoImportar });
 }
 
@@ -571,12 +589,12 @@ export async function montarPaginaProventos(token, { doc = document, getProvento
       return;
     }
     erroEl.hidden = true;
-    gravarCacheCarteiras(CHAVE_CACHE, r);
+    gravarCacheDados(CHAVE_CACHE, r);
     desenhar(r);
   }
 
-  const cache = lerCacheCarteiras(CHAVE_CACHE);
-  if (cache) desenhar(cache);
+  const cache = await lerCacheDados(CHAVE_CACHE);
+  if (cache) desenhar(cache.dados);
   await carregar();
   mountRefreshControl(doc, refreshEl, carregar).marcarAtualizado();
 

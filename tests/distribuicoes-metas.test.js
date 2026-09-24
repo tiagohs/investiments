@@ -26,7 +26,7 @@ function makeDom(bodyHtml) {
 }
 
 const METAS_EXEMPLO = {
-  rendaPassiva: { meta: 500, mediaUlt12Meses: 368.8625, percentualAtingido: 0.737725 },
+  rendaPassiva: { meta: 500, mediaUlt12Meses: 300, percentualAtingido: 0.6 },
   patrimonio: {
     extra: 4000,
     percentualReinvestimento: 0.25,

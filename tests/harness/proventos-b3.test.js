@@ -228,3 +228,32 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
   w.close();
   assert.deepEqual(erros, []);
 });
+
+test('Meta de Renda Passiva (Distribuições e Metas) = "Média mensal" de 12 meses da tela Proventos = média dos 12 últimos meses FECHADOS do histórico (todas as carteiras); e o cache da tela devolve a mesma resposta', async (t) => {
+  if (!TEM_FIXTURES) { t.skip('tests/harness/fixtures.json ausente - ver tests/harness/README.md'); return; }
+  const r = await carregarTodasAsTelasComDadosReais();
+  const sb = r.sandbox;
+  const s = r.home.historico;
+  const tela = plain(sb.montarTelaProventos_());
+  // cache: 1ª chamada monta e grava, 2ª lê - as duas iguais à tela sem cache
+  assert.deepEqual(plain(sb.montarTelaProventosComCache_()), tela);
+  assert.deepEqual(plain(sb.montarTelaProventosComCache_()), tela);
+  const metas = plain(sb.montarMetasCarteira_());
+  const { resumoConsolidado } = await import('../../assets/js/pages/proventos-calc.js');
+  const tela12 = resumoConsolidado(tela, { classe: 'todas', periodoId: '12m' });
+  // conta independente: meses fechados pelo calendário, somando os 3 campos de proventos da série
+  const [a, m] = tela.hoje.slice(0, 7).split('-').map(Number);
+  const mes = (n) => { const x = a * 12 + m - 1 + n; return `${Math.floor(x / 12)}-${String((x % 12) + 1).padStart(2, '0')}`; };
+  const ini = mes(-12);
+  const fim = mes(-1);
+  const total = s.filter((x) => x.data.slice(0, 7) >= ini && x.data.slice(0, 7) <= fim)
+    .reduce((acc, x) => acc + (x.proventosAcoes || 0) + (x.proventosFiis || 0) + (x.proventosAcoesEua || 0), 0);
+  const oraculo = Math.round((total / 12) * 100) / 100;
+  t.diagnostic(`meses ${ini} a ${fim}`);
+  assert.equal(metas.rendaPassiva.mediaUlt12Meses, oraculo, 'Distribuições x histórico');
+  assert.equal(tela12.media12m, oraculo, 'tela Proventos x histórico');
+  assert.equal(tela12.media, oraculo, 'no período "12 meses" o cartão mostra a mesma média');
+  assert.deepEqual(metas.rendaPassiva.mesesMedia, { inicio: ini, fim });
+  const meta = Number(metas.rendaPassiva.meta);
+  if (meta > 0) assert.ok(Math.abs(metas.rendaPassiva.percentualAtingido - oraculo / meta) < 1e-9);
+});

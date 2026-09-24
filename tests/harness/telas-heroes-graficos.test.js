@@ -687,7 +687,7 @@ test('Carteiras > Visão geral: "Valor aplicado" de cada card = topo da subpági
 // ---------------------------------------------------------------------------
 // 13) Ações e FIIs: proventos e decomposição do "desde o início"
 // ---------------------------------------------------------------------------
-test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos da classe (inclusive códigos antigos) e Resultado desde o início = Lucro/Prejuízo da posição + Proventos + lucro realizado nas vendas, centavo por centavo', async (t) => {
+test('Carteiras > Ações e FIIs: hero "Proventos no mês" / "em 12 meses" / desde o início (no "i") = soma da aba Proventos da classe (inclusive códigos antigos) e Resultado desde o início = Lucro/Prejuízo da posição + Proventos + lucro realizado nas vendas, centavo por centavo', async (t) => {
   if (pular(t)) return;
   const r = await dados();
   const inicio = await imp('assets/js/pages/inicio.js');
@@ -695,11 +695,21 @@ test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos 
   // oráculo direto da aba: FII = código terminado em 11; "ERRO" = cupom de
   // Tesouro (Renda Fixa); o resto é Ações
   const prov = { acoes: 0, fiis: 0 };
+  const provMes = { acoes: 0, fiis: 0 };
+  const prov12 = { acoes: 0, fiis: 0 };
+  // 25/09/2026: janela de 12 meses = mês de hoje + os 11 anteriores (a da tela Proventos)
+  const [anoH, mesH] = hoje.slice(0, 7).split('-').map(Number);
+  const t12 = anoH * 12 + mesH - 1 - 11;
+  const inicio12 = `${Math.floor(t12 / 12)}-${String((t12 % 12) + 1).padStart(2, '0')}`;
   for (const l of (r.fixtures['Proventos']?.linhas || []).slice(7)) {
     const tk = String(l[2] || '').trim().toUpperCase();
     if (!tk || !l[1] || !l[1].__date__ || typeof l[6] !== 'number') continue;
-    if (chaveSpDeCelula(l[1]) > hoje || tk === 'ERRO') continue;
-    prov[/11$/.test(tk) ? 'fiis' : 'acoes'] += l[6];
+    const dia = chaveSpDeCelula(l[1]);
+    if (dia > hoje || tk === 'ERRO') continue;
+    const c = /11$/.test(tk) ? 'fiis' : 'acoes';
+    prov[c] += l[6];
+    if (dia.slice(0, 7) === hoje.slice(0, 7)) provMes[c] += l[6];
+    if (dia.slice(0, 7) >= inicio12) prov12[c] += l[6];
   }
   // lucro realizado nas vendas (coluna L de "Transações", calculada pela
   // própria planilha) - 23/09/2026 #7: a venda da AXIA15G (Controle 10)
@@ -717,12 +727,17 @@ test('Carteiras > Ações e FIIs: "Proventos recebidos" = soma da aba Proventos 
   const erros = [];
   for (const [classe, visaoId, arquivo, fn, impl, carteira, idConteudo] of casos) {
     const topo = await montarTopoSubpagina(r, arquivo, fn, impl, carteira, idConteudo);
-    const provTela = lerBRL(topo.stats.find((x) => /Proventos/.test(x)) || '');
+    const statProv = topo.stats.find((x) => /Proventos no mês/.test(x)) || '';
+    const mesTela = lerBRL(statProv);
+    const dozeTela = lerBRL((statProv.match(/(R\$\s*[\d.]+,\d{2}) em 12 meses/) || [])[1] || '');
+    const provTela = lerBRL(((topo.tooltips.find((x) => /Desde o início/.test(x)) || '').match(/Desde o início: (R\$\s*[\d.]+,\d{2})/) || [])[1] || '');
+    if (mesTela == null || Math.abs(mesTela - r2(provMes[classe])) > 0.011) erros.push(`${classe}: "Proventos no mês" ${mesTela} != aba Proventos ${r2(provMes[classe])}`);
+    if (dozeTela == null || Math.abs(dozeTela - r2(prov12[classe])) > 0.011) erros.push(`${classe}: "em 12 meses" ${dozeTela} != aba Proventos ${r2(prov12[classe])}`);
     const valor = lerBRL(topo.texto);
     const aplicado = lerBRL(topo.investido);
     const tudo = inicio.calcularResumoRentabilidade(r.home.patrimonio, r.home.historico, { visaoId, periodoId: 'tudo' });
     t.diagnostic(`${classe}: valor ${valor} − aplicado ${aplicado} = lucro ${r2(valor - aplicado)}; + proventos ${provTela} + realizado ${r2(realizado[classe])} = ${r2(valor - aplicado + provTela + realizado[classe])} | resultado desde o início (gráfico) ${r2(tudo.ganhoReais)} (${r2(tudo.percentual)}%)`);
-    if (Math.abs(provTela - r2(prov[classe])) > 0.011) erros.push(`${classe}: "Proventos recebidos" na tela ${provTela} != aba Proventos ${r2(prov[classe])}`);
+    if (provTela == null || Math.abs(provTela - r2(prov[classe])) > 0.011) erros.push(`${classe}: "Desde o início" (no "i") ${provTela} != aba Proventos ${r2(prov[classe])}`);
     if (Math.abs((valor - aplicado + provTela + realizado[classe]) - tudo.ganhoReais) > 0.03) erros.push(`${classe}: lucro ${r2(valor - aplicado)} + proventos ${provTela} + realizado ${r2(realizado[classe])} != resultado desde o início ${r2(tudo.ganhoReais)}`);
   }
   assert.deepEqual(erros, []);
