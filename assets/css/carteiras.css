@@ -260,6 +260,12 @@
   .cc-donut-card .distrib-donut{ width:90px; height:90px; }
   .cc-donut-card .distrib-legenda{ gap:12px; }
 }
+/* 25/09/2026: celular estreito (~370px) - as 2 colunas da legenda não cabem
+   (valor + % + "i" passavam da tela e davam scroll lateral em Ações/FIIs):
+   uma coluna só, com a largura inteira. */
+@media (max-width:480px){
+  .cc-donut-card .distrib-legenda{ flex-direction:column; gap:8px; flex-basis:100%; }
+}
 
 /* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
    scroll"): FIIs ganhou 4 colunas nessa rodada (Status/DY/P-VP/

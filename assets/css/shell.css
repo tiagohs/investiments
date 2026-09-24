@@ -375,11 +375,20 @@ svg{ display:block; }
    aqui - já fica redundante com a aba "Carteiras" ativa no menu
    principal, logo acima. */
 @media (max-width:640px){
-  .section-layout{ flex-direction:column; gap:12px; }
-  .side-nav{ flex:0 0 auto; flex-direction:row; width:100%; gap:8px; overflow-x:auto; -ms-overflow-style:none; scrollbar-width:none; }
+  /* 25/09/2026 (Tiago: "layout todo quebrado no mobile"): em coluna, o
+     flex:1 1 0 do .section-content virava ALTURA base 0 - o cartão ficava
+     com os 220px do min-height e o conteúdo vazava por baixo dele (o botão
+     de tema, que vem depois do cartão, caía no meio do conteúdo, e o
+     esqueleto de carregamento também). E cada .side-item herdava o
+     width:100% do desktop - cada ícone ocupava a tela inteira, gerando o
+     scroll lateral. Agora: cartão com a altura do conteúdo e os ícones
+     dividindo a largura. */
+  .section-layout{ flex-direction:column; align-items:stretch; gap:12px; }
+  .side-nav{ flex:0 0 auto; flex-direction:row; width:100%; gap:6px; overflow-x:auto; -ms-overflow-style:none; scrollbar-width:none; }
   .side-nav::-webkit-scrollbar{ display:none; }
   .side-nav .eyebrow{ display:none; }
-  .side-item{ flex:0 0 auto; justify-content:center; padding:9px 4px; border-radius:14px; }
+  .side-item{ flex:1 1 0; width:auto; min-width:44px; justify-content:center; padding:9px 4px; border-radius:14px; }
+  .section-content{ flex:0 0 auto; }
   .side-chev{ display:none; }
   .side-item .side-label{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .section-content{ padding:16px; }
