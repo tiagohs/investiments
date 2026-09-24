@@ -16,3 +16,7 @@ tests/harness/*.local.json
 # 23/09/2026 #4: relatório de conferência das telas (gerado a cada npm test /
 # npm run verificar / commit) - dado financeiro real, nunca commitar
 tests/harness/relatorio/
+
+# 25/09/2026: teses da Suno (conteúdo de assinante, com marca d'água do CPF do
+# Tiago) - o repositório é PÚBLICO, nunca commitar
+documents/

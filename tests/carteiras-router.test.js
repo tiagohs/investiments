@@ -129,3 +129,26 @@ test('mountCarteirasRouter(): erro no mount() de uma página não impede trocar 
   assert.deepEqual(chamadas, ['b']);
   assert.equal(doc.getElementById('page-b').hidden, false);
 });
+
+// 25/09/2026: a subpágina vai pro endereço (#b) - a tela do ativo volta
+// direto pra ela ("Carteiras › Ações") e recarregar a página não perde.
+test('mountCarteirasRouter(): abre a subpágina do endereço (#c) e troca o # ao clicar', async () => {
+  const dom = new JSDOM(`<!doctype html><html><body>
+    <h2 id="carteirasMobileTitle"></h2>
+    <button class="side-item active" type="button" data-page="a">A</button>
+    <button class="side-item" type="button" data-page="b">B</button>
+    <button class="side-item" type="button" data-page="c">C</button>
+    <section id="page-a"></section><section id="page-b" hidden></section><section id="page-c" hidden></section>
+  </body></html>`, { url: 'https://exemplo.test/carteiras/index.html#c' });
+  const doc = dom.window.document;
+  const chamadas = [];
+  await mountCarteirasRouter(doc, { token: 't', paginas: fakePaginas({ mountA: async () => chamadas.push('a'), mountC: async () => chamadas.push('c') }) });
+  assert.deepEqual(chamadas, ['c'], 'não monta a 1ª à toa');
+  assert.equal(doc.getElementById('page-c').hidden, false);
+  doc.querySelector('.side-item[data-page="b"]').click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(dom.window.location.hash, '#b');
+  doc.querySelector('.side-item[data-page="a"]').click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(dom.window.location.hash, '', 'a 1ª (Visão geral) fica sem #');
+});

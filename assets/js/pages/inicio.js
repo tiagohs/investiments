@@ -4,8 +4,8 @@
  * Renda Emergencial, os 3 sempre visíveis, sem precisar clicar em nada -
  * ver renderResumoPatrimonio), gráfico de Rentabilidade (com filtro de
  * período contextual, próprio desta página) e a grade "Meus Ativos"
- * (cartão inteiro clicável pro Detalhe do Ativo, ainda não construído -
- * ver "ativo.html" em docs/plano-implementacao.html, ativo.html?ref=&classe=).
+ * (cartão inteiro clicável pro Detalhe do Ativo - ativo/index.html?ref=,
+ * ver link-ativo.js).
  *
  * Mesmo padrão de shell.js/auth-ui.js: funções puras de renderização
  * (recebem doc + elemento + dado já pronto, nunca buscam nada sozinhas)
@@ -128,6 +128,7 @@
  */
 
 import { getHome, getHistoricoAtivo } from '../api-client.js';
+import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
@@ -820,6 +821,9 @@ export const CAMPO_PRINCIPAL_POR_VISAO = {
   carteiraAcoesEuaUsd: 'acoesEuaUsd', // 24/09/2026: Ações EUA em dólar - ver comCamposUsdAcoesEua
   carteiraRendaFixaTotal: 'rendaFixaTotal', carteiraRendaFixaLongoPrazo: 'rendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'rendaEmergencial', // mesmo campo da Início - RF-emergencial é o mesmo número
+  // 25/09/2026: tela Detalhe do ativo - histórico de UM ativo montado no
+  // front (ativo-calc.js!montarHistoricoAtivo), com os mesmos nomes de campo
+  ativoAcoes: 'ativo', ativoFiis: 'ativo', ativoAcoesEua: 'ativo', ativoRendaFixa: 'ativo',
 };
 
 /** Campo de fluxo de caixa liquido diario (aporte/retirada/provento, ver
@@ -839,6 +843,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   carteiraRendaFixaTotal: 'fluxoCaixaRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoCaixaRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
+  ativoAcoes: 'fluxoCaixaAtivo', ativoFiis: 'fluxoCaixaAtivo', ativoAcoesEua: 'fluxoCaixaAtivo', ativoRendaFixa: 'fluxoCaixaAtivo',
 };
 
 /** 21/09/2026 (pedido do Tiago - "Valor aplicado" tem que ser só capital
@@ -862,6 +867,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   carteiraRendaFixaTotal: 'fluxoAplicadoRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoAplicadoRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoAplicadoRendaEmergencial',
+  ativoAcoes: 'fluxoAplicadoAtivo', ativoFiis: 'fluxoAplicadoAtivo', ativoAcoesEua: 'fluxoAplicadoAtivo', ativoRendaFixa: 'fluxoAplicadoAtivo',
 };
 
 /** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
@@ -934,6 +940,24 @@ const BENCHMARKS_POR_VISAO = {
     { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
     { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
   ],
+  // 25/09/2026: tela Detalhe do ativo - o índice da bolsa do ativo (linha
+  // cheia) e o CDI (tracejado), como nas Carteiras; renda fixa: CDI e IPCA.
+  ativoAcoes: [
+    { campo: 'ibovespa', label: 'Ibovespa', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
+  ativoFiis: [
+    { campo: 'ifix', label: 'IFIX', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
+  ativoAcoesEua: [
+    { campo: 'sp500', label: 'S&P 500', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
+  ativoRendaFixa: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
+    { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
+  ],
 };
 
 // 19/09/2026: cor da linha do Portfólio (a série principal) por visão -
@@ -945,6 +969,7 @@ export const COR_PRINCIPAL_POR_VISAO = {
   total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes', internacional: '--acoes',
   carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa', carteiraAcoesEuaUsd: '--usa',
   carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
+  ativoAcoes: '--acoes', ativoFiis: '--fiis', ativoAcoesEua: '--usa', ativoRendaFixa: '--rf',
 };
 
 /** Índice do primeiro valor numérico válido (não-nulo, finito) e diferente de
@@ -1152,7 +1177,7 @@ function larguraReal_(container) {
  * gráfico sem nenhuma conta de escala - só subtrair a borda esquerda do
  * próprio <svg> (svgEl.getBoundingClientRect().left).
  */
-function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal = '--acoes' }) {
+function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal = '--acoes', labelPrincipal = 'Portfólio' }) {
   const svgEl = container.querySelector('svg.rentab-chart');
   const hitarea = container.querySelector('.rentab-hitarea');
   const hoverGroup = container.querySelector('.rentab-hover');
@@ -1192,7 +1217,7 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
     hoverGroup.removeAttribute('hidden');
 
     const linhasTooltip = [
-      { label: 'Portfólio', cor: `var(${corPrincipal})`, valor: seriePrincipal[i] },
+      { label: labelPrincipal, cor: `var(${corPrincipal})`, valor: seriePrincipal[i] },
       ...seriesBenchmark.map((b) => ({ label: b.label, cor: `var(${b.cor})`, valor: b.valores[i] })),
     ].map((linha) => `
       <div class="rentab-tooltip-item">
@@ -1237,7 +1262,7 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
  * também o hover/touch (ver ligarInteracaoGrafico_, logo acima) depois de
  * montar o SVG.
  */
-export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer } = {}) {
+export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio' } = {}) {
   // 20/09/2026: campoPrincipal precisa existir ANTES de filtrar - "Desde o
   // início" (periodoId:'tudo') corta pro início desta visão específica
   // (ver comentário de filtrarHistoricoPorPeriodo) - sem isso, o gráfico
@@ -1333,7 +1358,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     <div class="rentab-tooltip" hidden></div>
   `;
 
-  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal });
+  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal, labelPrincipal });
 
   if (legendaContainer) {
     // 13/09/2026 (2ª rodada): a % ao lado do benchmark é RELATIVA ao
@@ -1361,7 +1386,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
       return `<span class="li"><span class="swline ${cls}" style="border-color:var(${b.cor})"></span>${b.label}${deltaHtml}</span>`;
     }).join('');
     legendaContainer.innerHTML = `
-      <span class="li"><span class="swline" style="border-color:var(${corPrincipal})"></span>Portfólio</span>
+      <span class="li"><span class="swline" style="border-color:var(${corPrincipal})"></span>${labelPrincipal}</span>
       ${liBenchmarks}
     `;
   }
@@ -1380,6 +1405,7 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
   carteiraRendaFixaTotal: 'Carteira total',
   carteiraRendaFixaLongoPrazo: 'Longo prazo',
   carteiraRendaFixaEmergencial: 'Reserva de emergência',
+  ativoAcoes: 'Saldo do ativo', ativoFiis: 'Saldo do ativo', ativoAcoesEua: 'Saldo do ativo (em reais)', ativoRendaFixa: 'Saldo do título',
 };
 
 /**
@@ -1648,10 +1674,10 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
   const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
 
   estado.atualizar = function atualizar() {
-    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda, camposProventos }) => {
+    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda, camposProventos, labelPrincipal }) => {
       renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: formatarMoeda || formatBRL, camposProventos: camposProventos || null });
       if (chartContainer) {
-        renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer });
+        renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer, labelPrincipal: labelPrincipal || undefined });
       }
     });
   };
@@ -1773,16 +1799,10 @@ function tooltipInnerHtmlAtivo_(ativo) {
 }
 
 
-/** ref pra ativo.html?ref=&classe= (docs/plano-implementacao.html) - Renda
- * Fixa é identificada por Código, não por ticker de bolsa (o "ticker" de RF
- * aqui já é um rótulo composto - tipo + vencimento - não um identificador). */
-function refDoAtivo_(ativo) {
-  return ativo.classe === 'rf' ? (ativo.codigo || ativo.ticker) : ativo.ticker;
-}
 
 /**
  * Cria um .ativo-card - cartão inteiro é o link pro Detalhe do Ativo
- * (ativo.html, ainda não construído - próxima parte), sem link externo
+ * (ativo/index.html?ref=..., ver link-ativo.js - 25/09/2026), sem link externo
  * separado, mesmo padrão já aplicado aos widget-tiles de índices/câmbio.
  * Renda Fixa não tem preço-teto (não existe preço-teto pra título de renda
  * fixa) nem viés - mostra o saldo atualizado no lugar do preço, e o
@@ -1791,7 +1811,7 @@ function refDoAtivo_(ativo) {
 export function criarAtivoCard(doc, ativo, { favorito = false } = {}) {
   const card = doc.createElement('a');
   card.className = `ativo-card ${ativo.classe}`;
-  card.href = `ativo.html?ref=${encodeURIComponent(refDoAtivo_(ativo))}&classe=${encodeURIComponent(ativo.classe)}`;
+  card.href = urlAtivo(refAtivo(ativo)); // 25/09/2026: tela Detalhe do ativo (ativo/index.html)
 
   const viesHtml = ativo.vies
     ? `<span class="vies-badge ${ativo.vies}">${ativo.vies === 'comprar' ? 'Comprar' : 'Aguardar'}</span>`

@@ -69,6 +69,15 @@ function doGet(e) {
   if (action === 'carteirasRendaFixa') {
     return handleCarteirasRendaFixa(e, auth);
   }
+  if (action === 'ativo') { // 25/09/2026: tela Detalhe do ativo (Ativo.gs)
+    return handleAtivo(e, auth);
+  }
+  if (action === 'noticiasAtivo') { // 25/09/2026: notícias do ativo (Ativo.gs)
+    return handleNoticiasAtivo(e, auth);
+  }
+  if (action === 'tesesAtivo') { // 25/09/2026: teses no Google Drive (Ativo.gs)
+    return handleTesesAtivo(e, auth);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

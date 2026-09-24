@@ -412,3 +412,10 @@ svg{ display:block; }
   :root:not([data-theme="light"]) .theme-fab .sun{ display:block; }
   :root:not([data-theme="light"]) .theme-fab .moon{ display:none; }
 }
+
+/* 25/09/2026: ticker/título que leva pra tela Detalhe do ativo
+   (ativo/index.html) - em todas as telas; a cor só muda no hover/foco pra
+   não pintar as tabelas inteiras de azul. */
+a.link-ativo{ color:inherit; text-decoration:none; }
+a.link-ativo:hover{ color:var(--acoes); text-decoration:underline; text-underline-offset:2px; }
+a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; border-radius:4px; }

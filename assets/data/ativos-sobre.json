@@ -1,0 +1,594 @@
+{
+ "atualizadoEm": "2026-09",
+ "observacao": "Dados cadastrais estáticos (descrição com palavras próprias, CNPJ, site/RI). Números de mercado (cotação, DY, P/L) vêm da planilha, não daqui.",
+ "ativos": {
+  "WIZC3": {
+   "classe": "acoes",
+   "nome": "Wiz Co Participações e Corretagem de Seguros S.A.",
+   "descricao": "A Wiz Co é uma corretora e distribuidora de seguros e de outros produtos financeiros, com foco no modelo de bancassurance: ela monta e opera a venda de seguros, consórcios e crédito pelos canais de bancos e varejistas parceiros. A receita vem principalmente de comissões e de taxas de corretagem sobre o que é vendido nesses canais, em atendimento presencial, remoto e digital. A empresa nasceu em 1973 como Fenae Corretora, ligada ao pessoal da Caixa. Depois se chamou Par Corretora e Wiz Soluções, até adotar o nome Wiz Co.",
+   "setor": "Financeiro e Outros",
+   "subsetor": "Previdência e Seguros",
+   "cnpj": "42.278.473/0001-03",
+   "fundacao": "1973",
+   "sede": "Brasília/DF",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://wiz.co",
+   "ri": "https://ri.wiz.co",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/wizc3",
+    "https://ri.wiz.co/en/sobre-nos/"
+   ]
+  },
+  "VAMO3": {
+   "classe": "acoes",
+   "nome": "Vamos Locação de Caminhões, Máquinas e Equipamentos S.A.",
+   "descricao": "A Vamos aluga caminhões, máquinas e equipamentos pesados para empresas, geralmente em contratos longos com o bem já definido para o cliente. Também vende os ativos usados quando eles saem da frota. A receita vem sobretudo das mensalidades de locação e, em segundo plano, da venda dos seminovos. A empresa foi criada em 2015 a partir do grupo JSL (hoje Simpar). Em 2024 separou o negócio de concessionárias para se concentrar em locação.",
+   "setor": "Bens Industriais",
+   "subsetor": "Máquinas e Equipamentos",
+   "cnpj": "23.373.000/0001-32",
+   "fundacao": "2015",
+   "sede": "São Paulo/SP",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://vamos.com.br",
+   "ri": "https://ri.grupovamos.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/vamo3",
+    "https://ri.grupovamos.com.br/a-vamos/historico/"
+   ]
+  },
+  "SEER3": {
+   "classe": "acoes",
+   "nome": "Ser Educacional S.A.",
+   "descricao": "A Ser Educacional é um grupo privado de ensino superior que mantém faculdades, centros universitários e universidades em todas as regiões do país, a mais conhecida delas a UNINASSAU. Oferece graduação, pós-graduação e cursos técnicos, tanto presenciais quanto a distância, por meio de uma rede de polos digitais. A receita vem principalmente das mensalidades pagas pelos alunos. O grupo foi fundado em Recife.",
+   "setor": "Consumo Cíclico",
+   "subsetor": "Diversos",
+   "cnpj": "04.986.320/0001-13",
+   "fundacao": "2003",
+   "sede": "Recife/PE",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.sereducacional.com",
+   "ri": "https://ri.sereducacional.com",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/seer3",
+    "https://ri.sereducacional.com/"
+   ]
+  },
+  "TUPY3": {
+   "classe": "acoes",
+   "nome": "Tupy S.A.",
+   "descricao": "A Tupy é uma metalúrgica especializada em fundição e usinagem de componentes estruturais de ferro, principalmente blocos e cabeçotes de motores, para fabricantes de veículos comerciais, máquinas agrícolas e de construção e outros equipamentos. A empresa ganha dinheiro vendendo essas peças sob encomenda a montadoras no Brasil e no exterior, com fábricas no Brasil, no México e em Portugal. Pela subsidiária MWM, também atua em motores, geração de energia e soluções de descarbonização.",
+   "setor": "Bens Industriais",
+   "subsetor": "Material de Transporte",
+   "cnpj": "84.683.374/0003-00",
+   "fundacao": "1938",
+   "sede": "Joinville/SC",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.tupy.com.br",
+   "ri": "https://ri.tupy.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/tupy3",
+    "https://ri.tupy.com.br/en/company/history/"
+   ]
+  },
+  "AXIA3": {
+   "classe": "acoes",
+   "nome": "Axia Energia S.A. (antiga Eletrobras)",
+   "descricao": "A Axia Energia é a antiga Eletrobras, privatizada em 2022. É uma das maiores empresas de geração e transmissão de energia elétrica do Brasil, com usinas quase todas hidrelétricas e também eólicas e solares, além de uma extensa rede de linhas de transmissão. A receita vem da venda de energia em contratos regulados e no mercado livre e das receitas fixas pela disponibilidade das linhas de transmissão. A marca Axia e os novos códigos na B3 passaram a valer em 10/11/2025, e a razão social mudou para Axia Energia S.A. na assembleia de 15/04/2026.",
+   "setor": "Utilidade Pública",
+   "subsetor": "Energia Elétrica",
+   "cnpj": "00.001.180/0001-26",
+   "fundacao": "1962",
+   "sede": "Rio de Janeiro/RJ",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://axia.com.br",
+   "ri": "https://ri.axia.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/axia3",
+    "https://borainvestir.b3.com.br/noticias/empresas/eletrobras-muda-nome-para-axia-energia-3-anos-apos-privatizacao-confira-novo-ticker/",
+    "https://www.infomoney.com.br/mercados/b3-aprova-migracao-da-axia-energia-axia3-para-novo-mercado/"
+   ]
+  },
+  "AXIA7": {
+   "classe": "acoes",
+   "nome": "Axia Energia S.A. - preferenciais classe C (PNC)",
+   "descricao": "O AXIA7 é o código das ações preferenciais classe C (PNC) da Axia Energia, a mesma empresa de geração e transmissão de energia que negocia como AXIA3. Essa classe foi criada em dezembro de 2025 e entregue de graça aos acionistas, dentro de uma reorganização que capitalizou cerca de R$ 30 bilhões de reservas de lucro. É uma classe temporária: pelo estatuto, dá um voto por ação e se converte aos poucos em ações ordinárias, na proporção de 1 para 1, até 2031, e a empresa pode resgatá-la antes. Com a migração ao Novo Mercado em junho de 2026, as antigas preferenciais AXIA5 e AXIA6 viraram ordinárias, e só AXIA3 e AXIA7 seguiram listadas.",
+   "setor": "Utilidade Pública",
+   "subsetor": "Energia Elétrica",
+   "cnpj": "00.001.180/0001-26",
+   "fundacao": "1962",
+   "sede": "Rio de Janeiro/RJ",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "PN",
+   "site": "https://axia.com.br",
+   "ri": "https://ri.axia.com.br",
+   "fontes": [
+    "https://br.advfn.com/jornal/2026/04/axia-energia-aprova-migracao-para-o-novo-mercado-e-conversao-de-acoes-na-b3",
+    "https://br.advfn.com/jornal/2026/09/axia-energia-aprova-resgate-de-r-3-9-bilhoes-em-acoes-pnc-veja-datas-e-conversao",
+    "https://statusinvest.com.br/acoes/axia7"
+   ]
+  },
+  "AGRO3": {
+   "classe": "acoes",
+   "nome": "BrasilAgro - Companhia Brasileira de Propriedades Agrícolas",
+   "descricao": "A BrasilAgro compra terras agrícolas pouco aproveitadas ou ainda não abertas, as transforma em fazendas produtivas e as vende quando valorizam. Enquanto isso, cultiva nelas soja, milho, cana-de-açúcar e algodão e cria gado. Assim a empresa ganha dinheiro de duas formas: com a venda da produção agropecuária e com o ganho na venda das fazendas. Ela tem terras no Brasil, no Paraguai e na Bolívia.",
+   "setor": "Consumo não Cíclico",
+   "subsetor": "Agropecuária",
+   "cnpj": "07.628.528/0001-59",
+   "fundacao": "2005",
+   "sede": "São Paulo/SP",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": null,
+   "ri": "https://ri.brasil-agro.com",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/agro3",
+    "https://ri.brasil-agro.com/en/brasilagro/history-and-profile/"
+   ]
+  },
+  "B3SA3": {
+   "classe": "acoes",
+   "nome": "B3 S.A. - Brasil, Bolsa, Balcão",
+   "descricao": "A B3 é a bolsa de valores do Brasil. Ela opera a negociação de ações, derivativos, títulos de renda fixa e outros ativos, e cuida também da compensação, liquidação, custódia e registro dessas operações. A receita vem principalmente de tarifas cobradas sobre o volume negociado e o valor sob custódia. Também vende dados de mercado, tecnologia e serviços de registro, por exemplo de financiamentos de veículos e imóveis. O formato atual surgiu em 2017, com a união da BM&FBOVESPA e da Cetip.",
+   "setor": "Financeiro e Outros",
+   "subsetor": "Serviços Financeiros Diversos",
+   "cnpj": "09.346.601/0001-25",
+   "fundacao": "2017 (união da BM&FBOVESPA com a Cetip)",
+   "sede": "São Paulo/SP",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.b3.com.br",
+   "ri": "https://ri.b3.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/b3sa3",
+    "https://ri.b3.com.br/pt-br/"
+   ]
+  },
+  "BBAS3": {
+   "classe": "acoes",
+   "nome": "Banco do Brasil S.A.",
+   "descricao": "O Banco do Brasil é um banco comercial de economia mista, controlado pela União, e tem uma das maiores redes de agências do país. A maior parte do resultado vem da diferença entre os juros cobrados nos empréstimos e o custo de captação, com peso grande do crédito ao agronegócio, a empresas e a pessoas físicas, incluindo o consignado. Além disso, o banco ganha com tarifas e serviços, gestão de recursos, cartões e com sua participação em empresas de seguros e previdência.",
+   "setor": "Financeiro e Outros",
+   "subsetor": "Intermediários Financeiros",
+   "cnpj": "00.000.000/0001-91",
+   "fundacao": "1808",
+   "sede": "Brasília/DF",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.bb.com.br",
+   "ri": "https://ri.bb.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/bbas3",
+    "https://ri.bb.com.br/"
+   ]
+  },
+  "BBSE3": {
+   "classe": "acoes",
+   "nome": "BB Seguridade Participações S.A.",
+   "descricao": "A BB Seguridade é a holding de seguros do Banco do Brasil. Ela tem participação em empresas de seguros (BB Seguros e Brasilseg), previdência (Brasilprev), capitalização (Brasilcap) e planos odontológicos (Brasildental), e controla a BB Corretora. A receita vem principalmente da parte que lhe cabe no lucro dessas coligadas e das comissões de corretagem sobre os produtos vendidos, em grande parte pela rede de agências e pelos canais digitais do Banco do Brasil.",
+   "setor": "Financeiro e Outros",
+   "subsetor": "Previdência e Seguros",
+   "cnpj": "17.344.597/0001-94",
+   "fundacao": "2012",
+   "sede": "Brasília/DF",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.bbseguridaderi.com.br",
+   "ri": "https://www.bbseguridaderi.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/bbse3",
+    "https://www.bbseguridaderi.com.br/"
+   ]
+  },
+  "EGIE3": {
+   "classe": "acoes",
+   "nome": "Engie Brasil Energia S.A.",
+   "descricao": "A Engie Brasil Energia é uma das maiores geradoras privadas de energia elétrica do país. Tem usinas hidrelétricas, eólicas, solares e de biomassa e também atua em linhas de transmissão. A receita vem principalmente da venda de energia em contratos de longo prazo, tanto no mercado regulado quanto no mercado livre, e das receitas fixas pela transmissão. A empresa também participa do transporte de gás natural pela TAG. Ela surgiu em 1998, quando parte da Eletrosul foi privatizada (Gerasul), e faz parte do grupo francês Engie.",
+   "setor": "Utilidade Pública",
+   "subsetor": "Energia Elétrica",
+   "cnpj": "02.474.103/0001-19",
+   "fundacao": "1998",
+   "sede": "Florianópolis/SC",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://www.engie.com.br",
+   "ri": "https://www.engie.com.br/investidores/",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/egie3",
+    "https://www.engie.com.br/en/investors/engie-brasil-energia-corporation/"
+   ]
+  },
+  "PETR4": {
+   "classe": "acoes",
+   "nome": "Petróleo Brasileiro S.A. - Petrobras",
+   "descricao": "A Petrobras é a estatal de economia mista, controlada pela União, que explora e produz petróleo e gás natural, sobretudo em águas profundas do pré-sal. A empresa também refina esse petróleo e vende derivados como diesel, gasolina, querosene de aviação e GLP. A receita vem principalmente da venda de petróleo cru, de derivados e de gás natural no Brasil e no exterior. O PETR4 é a ação preferencial, sem direito a voto e com prioridade no recebimento de dividendos.",
+   "setor": "Petróleo, Gás e Biocombustíveis",
+   "subsetor": "Petróleo, Gás e Biocombustíveis",
+   "cnpj": "33.000.167/0001-01",
+   "fundacao": "1953",
+   "sede": "Rio de Janeiro/RJ",
+   "listagem": "Nível 2",
+   "tipoAcao": "PN",
+   "site": "https://petrobras.com.br",
+   "ri": "https://www.investidorpetrobras.com.br",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/petr4",
+    "https://www.investidorpetrobras.com.br/"
+   ]
+  },
+  "VALE3": {
+   "classe": "acoes",
+   "nome": "Vale S.A.",
+   "descricao": "A Vale é uma mineradora global, entre as maiores produtoras de minério de ferro e pelotas do mundo, e também produz níquel e cobre. A receita vem sobretudo da exportação de minério de ferro para siderúrgicas, com a China como principal destino. Os metais básicos completam a receita. Para escoar a produção, a empresa opera um sistema próprio de ferrovias, portos e navios. Foi criada em 1942 como Companhia Vale do Rio Doce e privatizada em 1997.",
+   "setor": "Materiais Básicos",
+   "subsetor": "Mineração",
+   "cnpj": "33.592.510/0001-54",
+   "fundacao": "1942",
+   "sede": "Rio de Janeiro/RJ",
+   "listagem": "Novo Mercado",
+   "tipoAcao": "ON",
+   "site": "https://vale.com",
+   "ri": "https://vale.com/pt/investidores",
+   "fontes": [
+    "https://statusinvest.com.br/acoes/vale3",
+    "https://vale.com/pt/investidores"
+   ]
+  },
+  "BTLG11": {
+   "classe": "fiis",
+   "nome": "BTG Pactual Logística FII",
+   "descricao": "Fundo de tijolo dedicado a galpões logísticos e industriais de alto padrão, alugados a empresas de diversos setores com foco em contratos de longo prazo. A gestão é ativa: compra, vende e recicla imóveis para gerar renda de aluguel e ganho de capital. Entre os ativos de destaque está o complexo da antiga fábrica da Ford em São Bernardo do Campo (SP), convertido em parque logístico.",
+   "tipo": "Tijolo",
+   "segmento": "Logística",
+   "cnpj": "11.839.593/0001-09",
+   "gestor": "BTG Pactual Gestora de Recursos Ltda.",
+   "administrador": "BTG Pactual Serviços Financeiros S.A. DTVM",
+   "inicio": "2010",
+   "mandato": "Renda",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,90% a.a. sobre o valor de mercado das cotas (mínimo de R$ 80 mil/mês); sem taxa de performance",
+   "site": "https://btlg.btgpactual.com/",
+   "ri": "https://btlg.btgpactual.com/resultados-e-documentos/informes-mensais/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/btlg11",
+    "https://btlg.btgpactual.com/en/about-the-fund/profile/"
+   ]
+  },
+  "GARE11": {
+   "classe": "fiis",
+   "nome": "Guardian Real Estate FII (antigo GALG11)",
+   "descricao": "Fundo de tijolo que combina galpões logísticos e imóveis de varejo urbano (como lojas de atacarejo e supermercados), locados a inquilinos de crédito forte como Carrefour/Atacadão, GPA e Grupo Mateus. Quase toda a receita vem de contratos atípicos de longo prazo, com multas pelo prazo restante e reajuste pelo IPCA. Em 2026 o fundo vendeu um bloco de lojas e galpões para reduzir a concentração em varejo e a alavancagem, sinalizando prioridade para novos investimentos em logística.",
+   "tipo": "Tijolo",
+   "segmento": "Híbrido (Logística e Varejo/Renda Urbana)",
+   "cnpj": "37.295.919/0001-60",
+   "gestor": "Guardian Gestora",
+   "administrador": "Banco Daycoval S.A.",
+   "inicio": "2020",
+   "mandato": "Renda",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,94% a 1,00% a.a. (escalonada)",
+   "site": "https://www.guardian-asset.com/ListGroup/FII-Guardian-Real-Estate---GARE11",
+   "ri": "https://www.guardian-asset.com/ListGroup/FII-Guardian-Real-Estate---GARE11",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/gare11",
+    "https://statusinvest.com.br/fundos-imobiliarios/gare11"
+   ]
+  },
+  "PMLL11": {
+   "classe": "fiis",
+   "nome": "Patria Malls FII (antigo MALL11)",
+   "descricao": "Fundo de tijolo que detém participações em shopping centers espalhados por vários estados do Brasil. O resultado vem principalmente dos aluguéis pagos pelos lojistas e das receitas operacionais dos empreendimentos, com a possibilidade de ganho de capital na compra e venda de participações. Passou a ser gerido pelo Pátria, que trocou o nome e o ticker de MALL11 para PMLL11.",
+   "tipo": "Tijolo",
+   "segmento": "Shopping",
+   "cnpj": "26.499.833/0001-32",
+   "gestor": "Pátria - VBI Asset Management Ltda.",
+   "administrador": "Banco Genial S.A.",
+   "inicio": "2017",
+   "mandato": "Híbrido",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,50% a.a. sobre o valor de mercado do fundo",
+   "site": "https://realestate.patria.com/tijolo/pmll11-2/",
+   "ri": "https://realestate.patria.com/tijolo/pmll11-2/documentos/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/pmll11",
+    "https://www.infomoney.com.br/onde-investir/mudancas-no-fii-mall11-patria-assume-gestao-e-fundo-adotara-novo-nome/"
+   ]
+  },
+  "VGIP11": {
+   "classe": "fiis",
+   "nome": "Valora CRI Índice de Preço FII",
+   "descricao": "Fundo de papel que aplica a maior parte do patrimônio em Certificados de Recebíveis Imobiliários (CRIs) corrigidos por índices de inflação e mantém o restante em ativos de liquidez. A proposta é entregar renda mensal atrelada à inflação mais um spread, escolhendo as operações pelos critérios de elegibilidade da política de investimento. A gestão é ativa e pode girar a carteira para capturar ganho de capital.",
+   "tipo": "Papel",
+   "segmento": "Recebíveis (CRI) - Inflação",
+   "cnpj": "34.197.811/0001-46",
+   "gestor": "Valora Gestão de Investimentos",
+   "administrador": "BTG Pactual Serviços Financeiros S.A. DTVM",
+   "inicio": "2020",
+   "mandato": null,
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "1,00% a.a. sobre o patrimônio líquido",
+   "site": "https://valorainvest.com.br/fundo/vgip11/",
+   "ri": "https://valorainvest.com.br/fundo/vgip11/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/vgip11",
+    "https://valorainvest.com.br/en/fund/vgip11/"
+   ]
+  },
+  "TRXF11": {
+   "classe": "fiis",
+   "nome": "TRX Real Estate FII",
+   "descricao": "Fundo de tijolo multissetorial que compra imóveis para alugá-los a grandes empresas, muitas vezes via sale-and-leaseback ou built-to-suit, de preferência com contratos longos. A carteira é concentrada em varejo (sobretudo lojas de atacarejo e supermercados de redes como Assaí, Grupo Mateus e Carrefour), mas o regulamento também permite galpões logísticos, indústrias, escolas, escritórios e hospitais. A gestão busca renda recorrente e ganhos com a venda de ativos maduros.",
+   "tipo": "Tijolo",
+   "segmento": "Híbrido (predominância de Varejo/Renda Urbana)",
+   "cnpj": "28.548.288/0001-52",
+   "gestor": "TRX Gestora de Recursos Ltda.",
+   "administrador": "Apex Group DTVM S.A. (antiga BRL Trust)",
+   "inicio": "2019",
+   "mandato": "Renda",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores profissionais (conforme cadastro CVM/B3)",
+   "taxaAdministracao": "1,00% a.a. (mínimo mensal de R$ 80 mil corrigido pelo IGP-M) + performance de 20% sobre o que exceder IPCA + 6% a.a.",
+   "site": "https://www.trxf11.com.br/",
+   "ri": "https://www.trxf11.com.br/relatorios-gerenciais-2/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/trxf11",
+    "https://www.trxf11.com.br/"
+   ]
+  },
+  "RECR11": {
+   "classe": "fiis",
+   "nome": "FII REC Recebíveis Imobiliários",
+   "descricao": "Fundo de papel focado em CRIs, com a maior parte da carteira indexada ao IPCA e uma parcela menor ao CDI e ao IGP-M. Predomina o risco corporativo (empresas devedoras), complementado por CRIs com lastro em carteiras pulverizadas, e os devedores estão ligados a incorporação, loteamentos, hotelaria, varejo e logística. Também mantém posições pequenas em cotas de outros FIIs e em alguns imóveis.",
+   "tipo": "Papel",
+   "segmento": "Recebíveis (CRI)",
+   "cnpj": "28.152.272/0001-26",
+   "gestor": "REC Gestão de Recursos S.A.",
+   "administrador": "Apex Group DTVM S.A. (antiga BRL Trust)",
+   "inicio": "2017",
+   "mandato": null,
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,20% a.a. (administração) + 1,00% a.a. sobre o PL (consultoria/gestão)",
+   "site": "https://rec-gestao.com/fundos/recr11/",
+   "ri": "https://rec-gestao.com/documentos/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/recr11",
+    "https://rec-gestao.com/fundos/recr11/"
+   ]
+  },
+  "RBRY11": {
+   "classe": "fiis",
+   "nome": "RBR Crédito Imobiliário Estruturado FII",
+   "descricao": "Fundo de papel que investe principalmente em CRIs originados e estruturados pela própria gestora fora do mercado secundário, com garantias reais robustas. A carteira financia sobretudo incorporação residencial e imóveis corporativos, com garantias muito concentradas na cidade de São Paulo, e boa parte das operações é indexada ao CDI. Uma parcela tática pode ir para CRIs com potencial de valorização e para cotas de outros FIIs.",
+   "tipo": "Papel",
+   "segmento": "Recebíveis (CRI)",
+   "cnpj": "30.166.700/0001-11",
+   "gestor": "RBR Gestão de Recursos Ltda.",
+   "administrador": "BTG Pactual Serviços Financeiros S.A. DTVM",
+   "inicio": "2018",
+   "mandato": null,
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,20% a.a. (administração) + 1,10% a.a. (gestão) + taxa de performance",
+   "site": "https://www.rbrasset.com.br/",
+   "ri": "https://fnet.bmfbovespa.com.br/fnet/publico/abrirGerenciadorDocumentosCVM?cnpjFundo=30166700000111",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/rbry11",
+    "https://fiis.com.br/rbry11/"
+   ]
+  },
+  "KNUQ11": {
+   "classe": "fiis",
+   "nome": "Kinea Unique HY CDI FII",
+   "descricao": "Fundo de papel da Kinea voltado a CRIs pós-fixados atrelados ao CDI, em operações de retorno mais alto (high yield) que a gestora classifica como de risco moderado. Completa a carteira com LCIs e instrumentos de caixa. O objetivo é distribuir renda mensal que acompanhe os juros de curto prazo mais um prêmio de crédito.",
+   "tipo": "Papel",
+   "segmento": "Recebíveis (CRI) - CDI High Yield",
+   "cnpj": "42.754.362/0001-18",
+   "gestor": "Kinea Investimentos Ltda.",
+   "administrador": "Intrag DTVM Ltda.",
+   "inicio": "2022",
+   "mandato": null,
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "1,40% a.a.; sem taxa de performance",
+   "site": "https://www.kinea.com.br/fundos/fundo-imobiliario-kinea-unique/",
+   "ri": "https://www.kinea.com.br/fundos/fundo-imobiliario-kinea-unique/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/knuq11",
+    "https://www.kinea.com.br/fundos/fundo-imobiliario-kinea-unique/"
+   ]
+  },
+  "HGRU11": {
+   "classe": "fiis",
+   "nome": "Pátria Renda Urbana FII (antigo CSHG Renda Urbana)",
+   "descricao": "Fundo de tijolo que compra imóveis urbanos de uso comercial e institucional que não sejam lajes corporativas, shoppings ou galpões logísticos. Na prática, a carteira reúne lojas de atacarejo e supermercados, varejo de rua e unidades de ensino, alugadas a empresas como Carrefour, Assaí, Pernambucanas e YDUQS. A maior parte da receita vem de contratos atípicos de longo prazo corrigidos pelo IPCA. A gestão passou do Credit Suisse Hedging-Griffo para o Pátria.",
+   "tipo": "Tijolo",
+   "segmento": "Renda Urbana",
+   "cnpj": "29.641.226/0001-53",
+   "gestor": "Pátria Investimentos Ltda.",
+   "administrador": "Banco Genial S.A.",
+   "inicio": "2018",
+   "mandato": "Renda",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,70% a.a. sobre o valor de mercado do fundo",
+   "site": "https://realestate.patria.com/tijolo/hgru11/",
+   "ri": "https://realestate.patria.com/tijolo/hgru11/documentos/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/hgru11",
+    "https://realestate.patria.com/en/property-reits/hgru11/"
+   ]
+  },
+  "XPML11": {
+   "classe": "fiis",
+   "nome": "XP Malls FII",
+   "descricao": "Fundo de tijolo que investe em participações em shopping centers de várias regiões do Brasil. A renda vem dos aluguéis e das demais receitas dos shoppings, e a gestão ativa busca ganho de capital comprando e vendendo participações, podendo também investir em projetos novos. O regulamento não impõe diversificação rígida e deixa a composição da carteira a critério do gestor.",
+   "tipo": "Tijolo",
+   "segmento": "Shopping",
+   "cnpj": "28.757.546/0001-00",
+   "gestor": "XP Vista Asset Management Ltda.",
+   "administrador": "XP Investimentos CCTVM S.A.",
+   "inicio": "2017",
+   "mandato": "Renda",
+   "gestao": "Ativa",
+   "publicoAlvo": "Investidores em geral",
+   "taxaAdministracao": "0,95% a 0,75% a.a. (escalonada) + performance de 20% sobre o que exceder IPCA + 6% a.a.",
+   "site": "https://www.xpasset.com.br/en/fundos/xp-malls/",
+   "ri": "https://xpmalls.com.br/",
+   "fontes": [
+    "https://www.fundsexplorer.com.br/funds/xpml11",
+    "https://www.xpasset.com.br/en/fundos/xp-malls/"
+   ]
+  },
+  "GPRK": {
+   "classe": "acoesEua",
+   "nome": "GeoPark Limited",
+   "descricao": "A GeoPark é uma petroleira independente que explora e produz petróleo e gás natural na América Latina. Seus principais ativos ficam na Colômbia, e a empresa está acelerando o desenvolvimento de ativos em Vaca Muerta, na Argentina. Também atua no Equador e historicamente atuou no Brasil e no Chile. A receita vem principalmente da venda do petróleo e do gás que produz, então o resultado acompanha de perto os preços internacionais do petróleo e os volumes extraídos.",
+   "setor": "Energia",
+   "industria": "Exploração e Produção de Petróleo e Gás",
+   "pais": "Colômbia (empresa constituída nas Bermudas)",
+   "sede": "Bogotá",
+   "fundacao": "2002",
+   "bolsa": "NYSE",
+   "tipo": "Ação ordinária (emissora estrangeira das Bermudas; não é ADR)",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "0% na fonte: as Bermudas não retêm imposto sobre dividendos",
+   "site": "https://www.geo-park.com",
+   "ri": "https://ir.geo-park.com",
+   "fontes": [
+    "https://stockanalysis.com/stocks/gprk/company/",
+    "https://taxsummaries.pwc.com/bermuda/corporate/withholding-taxes",
+    "https://ir.geo-park.com/overview/default.aspx"
+   ]
+  },
+  "CHTR": {
+   "classe": "acoesEua",
+   "nome": "Charter Communications, Inc.",
+   "descricao": "A Charter é uma das maiores operadoras de cabo e banda larga dos EUA e vende seus serviços com a marca Spectrum. Ganha dinheiro com assinaturas mensais de internet, telefonia móvel, TV paga e telefone fixo para residências e empresas, e também com venda de publicidade. Em agosto de 2026 concluiu a fusão com a Cox Communications e anunciou que, em até um ano, a controladora passará a se chamar Cox Communications.",
+   "setor": "Serviços de Comunicação",
+   "industria": "Telecomunicações (cabo e banda larga)",
+   "pais": "Estados Unidos",
+   "sede": "Stamford, Connecticut",
+   "fundacao": "1993",
+   "bolsa": "NASDAQ",
+   "tipo": "Ação ordinária (Classe A)",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "30% (EUA); a empresa hoje não paga dividendos regulares",
+   "site": "https://corporate.charter.com",
+   "ri": "https://ir.charter.com",
+   "fontes": [
+    "https://www.prnewswire.com/news-releases/charter-and-cox-communications-complete-transaction-benefiting-customers-local-communities-employees-and-shareholders-302855936.html",
+    "https://stockanalysis.com/stocks/chtr/company/"
+   ]
+  },
+  "SIRI": {
+   "classe": "acoesEua",
+   "nome": "Sirius XM Holdings Inc.",
+   "descricao": "A SiriusXM é a maior empresa de entretenimento em áudio da América do Norte. Oferece rádio por satélite e streaming por assinatura, com música, esportes, notícias, humor e podcasts, e também é dona do Pandora. A maior parte da receita vem das assinaturas mensais, muitas delas ativadas em carros novos. Outra parte vem da publicidade no Pandora, nos podcasts e nas plataformas gratuitas.",
+   "setor": "Serviços de Comunicação",
+   "industria": "Entretenimento / Mídia (rádio e áudio)",
+   "pais": "Estados Unidos",
+   "sede": "Nova York",
+   "fundacao": "1990 (Sirius Satellite Radio; fusão com a XM em 2008)",
+   "bolsa": "NASDAQ",
+   "tipo": "Ação ordinária",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "30% (EUA)",
+   "site": "https://www.siriusxm.com",
+   "ri": "https://investor.siriusxm.com",
+   "fontes": [
+    "https://investor.siriusxm.com/company-information",
+    "https://stockanalysis.com/stocks/siri/company/"
+   ]
+  },
+  "EWBC": {
+   "classe": "acoesEua",
+   "nome": "East West Bancorp, Inc.",
+   "descricao": "A East West Bancorp é a holding do East West Bank, um banco comercial com sede na Califórnia. Atende sobretudo a comunidade asiático-americana e empresas que fazem negócios entre os EUA e a Ásia, e tem licença bancária completa na China. Ganha dinheiro principalmente com a diferença entre os juros que cobra nos empréstimos (comerciais, imobiliários e hipotecas) e o que paga aos depositantes, além de tarifas por serviços bancários e de câmbio.",
+   "setor": "Financeiro",
+   "industria": "Bancos regionais",
+   "pais": "Estados Unidos",
+   "sede": "Pasadena, Califórnia",
+   "fundacao": "1973 (banco); holding criada em 1998",
+   "bolsa": "NASDAQ",
+   "tipo": "Ação ordinária",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "30% (EUA)",
+   "site": "https://www.eastwestbank.com",
+   "ri": "https://investor.eastwestbank.com",
+   "fontes": [
+    "https://investor.eastwestbank.com/corporate-profile/default.aspx",
+    "https://stockanalysis.com/stocks/ewbc/company/"
+   ]
+  },
+  "PAM": {
+   "classe": "acoesEua",
+   "nome": "Pampa Energía S.A.",
+   "descricao": "A Pampa Energía é uma das maiores empresas integradas de energia da Argentina. Gera eletricidade em usinas térmicas, hidrelétricas e eólicas e produz petróleo e principalmente gás, inclusive em Vaca Muerta. Também tem negócio de petroquímicos e participações na transmissão de energia (Transener) e no transporte de gás (TGS). A receita vem da venda de energia elétrica, gás, petróleo e petroquímicos, e da participação nos resultados dessas empresas de infraestrutura.",
+   "setor": "Utilidade Pública / Energia",
+   "industria": "Energia integrada (geração elétrica, petróleo e gás)",
+   "pais": "Argentina",
+   "sede": "Buenos Aires",
+   "fundacao": "1945 (Frigorífico La Pampa); Pampa Energía desde 2005",
+   "bolsa": "NYSE",
+   "tipo": "ADR nível II (1 ADR = 25 ações ordinárias)",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "7% (Argentina) sobre lucros de exercícios a partir de 2018; a empresa não declara dividendos desde 2011",
+   "site": "https://www.pampa.com",
+   "ri": "https://ri.pampa.com",
+   "fontes": [
+    "https://ri.pampa.com/en/investor-services/faq/",
+    "https://stockanalysis.com/stocks/pam/company/",
+    "https://taxsummaries.pwc.com/argentina/corporate/withholding-taxes"
+   ]
+  },
+  "PROSY": {
+   "classe": "acoesEua",
+   "nome": "Prosus N.V.",
+   "descricao": "A Prosus é uma holding global de tecnologia e internet, controlada pela sul-africana Naspers. Tem uma grande participação na chinesa Tencent e controla ou investe em plataformas de delivery de comida (como iFood e Just Eat Takeaway), classificados (OLX), pagamentos e fintech, e educação. Ganha dinheiro com as receitas dessas empresas, com os dividendos e a valorização das participações e com a venda de ativos, parte dela usada em recompras de ações.",
+   "setor": "Consumo Discricionário / Tecnologia",
+   "industria": "Internet e comércio eletrônico (holding de investimentos)",
+   "pais": "Holanda",
+   "sede": "Amsterdã",
+   "fundacao": "2019",
+   "bolsa": "OTC",
+   "tipo": "ADR nível I patrocinado (5 ADRs = 1 ação ordinária)",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "Holanda: 15% se for dividendo de lucros retidos; 0% se pago como devolução de capital, opção padrão da Prosus",
+   "site": "https://www.prosus.com",
+   "ri": "https://www.prosus.com/investors",
+   "fontes": [
+    "https://www.prosus.com/investors/resources/american-depository-receipt-program",
+    "https://taxsummaries.pwc.com/netherlands/corporate/withholding-taxes"
+   ]
+  },
+  "VNOM": {
+   "classe": "acoesEua",
+   "nome": "Viper Energy, Inc.",
+   "descricao": "A Viper Energy compra e mantém direitos minerais e de royalties sobre áreas de petróleo e gás, principalmente na Bacia do Permiano, no Texas. Ela não perfura nem opera poços: recebe uma fatia da produção extraída pelas operadoras, e a principal delas é a Diamondback Energy, sua controladora. Como não precisa investir para perfurar, grande parte do caixa gerado é distribuída aos acionistas, e o resultado depende dos preços e dos volumes de petróleo e gás.",
+   "setor": "Energia",
+   "industria": "Petróleo e Gás – royalties e direitos minerais",
+   "pais": "Estados Unidos",
+   "sede": "Midland, Texas",
+   "fundacao": "2013",
+   "bolsa": "NASDAQ",
+   "tipo": "Ação ordinária (Classe A)",
+   "moedaDividendos": "USD",
+   "retencaoDividendosBrasileiro": "30% (EUA)",
+   "site": "https://www.viperenergy.com",
+   "ri": "https://www.viperenergy.com/investors/overview",
+   "fontes": [
+    "https://www.viperenergy.com/",
+    "https://stockanalysis.com/stocks/vnom/company/"
+   ]
+  }
+ }
+}

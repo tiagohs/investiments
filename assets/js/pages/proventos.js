@@ -17,6 +17,7 @@ import { formatBRL, formatBRLCompacto, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { logoAtivoHtml } from './carteiras-classe-comum.js';
+import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026
 import {
   CLASSES, NOME_CLASSE, COR_CLASSE, PERIODOS, MESES_CURTOS, MESES_LONGOS,
   resumoConsolidado, historicoMensal, rankingPorAtivo, receitaFutura, rotuloMes,
@@ -261,7 +262,7 @@ function rankingHtml(lista, mostrarTodos) {
         <li class="pv-rank-item" tabindex="0" data-ticker="${esc(a.ticker)}" aria-label="${esc(a.ticker)}: ${formatBRL(a.total)}, ${pct(a.pct, 1)} do total">
           ${logoAtivoHtml(a.ticker)}
           <div class="pv-rank-meio">
-            <div class="pv-rank-linha"><b>${esc(a.ticker)}</b><span class="pv-rank-valor">${formatBRL(a.total)}<span class="pv-rank-pct">${pct(a.pct, 1)}</span></span></div>
+            <div class="pv-rank-linha"><b><a class="link-ativo" href="${urlAtivoTicker(a.ticker)}">${esc(a.ticker)}</a></b><span class="pv-rank-valor">${formatBRL(a.total)}<span class="pv-rank-pct">${pct(a.pct, 1)}</span></span></div>
             <div class="pv-rank-trilho"><span style="width:${Math.max(1.5, (a.total / max) * 100).toFixed(1)}%;background:var(${COR_CLASSE[a.classe] || '--ink-faint'})"></span></div>
           </div>
         </li>`).join('')}
@@ -405,7 +406,7 @@ function linhaAgendaHtml(p) {
   const meta = [p.tipo, cotas, p.dataCom ? `data com ${dm(p.dataCom)}` : ''].filter(Boolean).map(esc).join(' · ');
   return `
     <tr class="pv-ag-linha">
-      <td class="esq pv-ag-ativo"><div class="pv-ag-ativo-in">${logoAtivoHtml(p.ticker)}<span><b>${esc(p.ticker)}</b><small><span class="pv-dot" style="background:var(${COR_CLASSE[p.classe] || '--ink-faint'})"></span>${esc(NOME_CLASSE[p.classe] || '')}</small></span></div></td>
+      <td class="esq pv-ag-ativo"><div class="pv-ag-ativo-in">${logoAtivoHtml(p.ticker)}<span><b><a class="link-ativo" href="${urlAtivoTicker(p.ticker)}">${esc(p.ticker)}</a></b><small><span class="pv-dot" style="background:var(${COR_CLASSE[p.classe] || '--ink-faint'})"></span>${esc(NOME_CLASSE[p.classe] || '')}</small></span></div></td>
       <td class="esq pv-ag-texto pv-ag-det">${esc(p.tipo || '—')}</td>
       <td class="pv-ag-det">${valorPorCotaTxt(p)}</td>
       <td class="pv-ag-det">${qtdTxt(p.quantidade)}</td>

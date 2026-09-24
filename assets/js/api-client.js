@@ -423,3 +423,22 @@ export async function importarProventosB3(token, linhas) {
 export async function getProventos(token) {
   return request('GET', 'proventos', token);
 }
+
+/**
+ * 25/09/2026: tela Detalhe do ativo (action=ativo) - ver
+ * apps-script/Ativo.gs!montarTelaAtivo_. `ref` é o ticker (ações, FIIs,
+ * ações EUA) ou `rf:<nome>|<instituição>` (um título de renda fixa).
+ */
+export async function getAtivo(token, ref) {
+  return request('GET', 'ativo', token, { ref });
+}
+
+/** 25/09/2026: notícias recentes do ativo (Google Notícias, cache de 2h no Apps Script). */
+export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' } = {}) {
+  return request('GET', 'noticiasAtivo', token, { ticker, nome, classe });
+}
+
+/** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
+export async function getTesesAtivo(token, ticker) {
+  return request('GET', 'tesesAtivo', token, { ticker });
+}

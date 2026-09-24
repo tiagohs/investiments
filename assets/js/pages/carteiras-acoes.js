@@ -7,6 +7,7 @@ import { getCarteirasAcoes, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
 import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
 import { botaoInfoHtml,
   proventosDoHistorico_,
@@ -30,7 +31,7 @@ const COLUNAS_ATIVOS_ACOES = [
   {
     label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
       const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
-      return `<div class="cc-ativo-cel">${logoAtivoHtml(a.ticker)}<div><b>${notaAtivoHtml(a.ticker)}${a.ticker}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
+      return `<div class="cc-ativo-cel"><a class="link-ativo" href="${urlAtivoTicker(a.ticker)}" tabindex="-1" aria-hidden="true">${logoAtivoHtml(a.ticker)}</a><div><b>${notaAtivoHtml(a.ticker)}<a class="link-ativo" href="${urlAtivoTicker(a.ticker)}">${a.ticker}</a></b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
     },
   },
   {

@@ -50,6 +50,15 @@ export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAG
     sideItems.forEach((item) => item.classList.toggle('active', item.dataset.page === key));
     if (tituloMobile) tituloMobile.textContent = pagina.titulo;
     chaveAtual = key;
+    // 25/09/2026: a subpágina fica no endereço (#acoes) - a tela do ativo
+    // volta direto pra ela ("Carteiras › Ações"), e recarregar não perde.
+    const win = doc.defaultView;
+    if (win && win.history && typeof win.history.replaceState === 'function') {
+      const hash = key === paginas[0].key ? '' : `#${key}`;
+      try {
+        if ((win.location.hash || '') !== hash) win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}${hash}`);
+      } catch (e) { /* about:blank (testes) etc. - o endereço é só conveniência */ }
+    }
 
     if (!montado.has(key)) {
       montado.add(key);
@@ -65,7 +74,8 @@ export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAG
     item.addEventListener('click', () => ativar(item.dataset.page));
   });
 
-  await ativar(paginas[0].key);
+  const hashInicial = ((doc.defaultView && doc.defaultView.location && doc.defaultView.location.hash) || '').replace(/^#/, '');
+  await ativar(paginas.some((p) => p.key === hashInicial) ? hashInicial : paginas[0].key);
 
   return { ativar };
 }

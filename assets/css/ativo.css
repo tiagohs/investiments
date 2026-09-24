@@ -1,0 +1,219 @@
+/**
+ * ativo.css - 25/09/2026: tela "Detalhe do ativo" (ativo/index.html).
+ * Só o que é desta tela - tokens, .filter-tabs, .eyebrow e .hint vêm de
+ * shell.css; gráficos (.cg-chart-card, .rentab-*, .chart-legend2) de
+ * inicio.css/carteiras.css; resumo (.cc-resumo*), tabela (.cc-tabela, que já
+ * vira cartão no celular), logo (.cc-logo) e .status-pill de carteiras.css.
+ * --accent/--accent-soft = cor da classe do ativo (inline em .at-pagina).
+ */
+
+.at-titulo-linha{ display:flex; justify-content:flex-end; }
+.at-pagina{ display:flex; flex-direction:column; gap:18px; min-width:0; }
+
+/* ---- trilha + cabeçalho ---- */
+.at-trilha{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:12px; color:var(--ink-faint); }
+.at-trilha a{ color:var(--ink-muted); text-decoration:none; font-weight:600; }
+.at-trilha a:hover{ color:var(--accent); text-decoration:underline; }
+.at-trilha [aria-current]{ color:var(--ink); font-weight:600; }
+
+.at-cabecalho{ display:flex; align-items:flex-end; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+.at-id{ display:flex; align-items:center; gap:16px; min-width:0; }
+.at-logo .cc-logo{ width:60px; height:60px; font-size:18px; box-shadow:0 0 0 3px var(--accent-soft); }
+.at-id-texto{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+.at-ticker{ font-family:var(--display); font-weight:600; font-size:clamp(28px,4.2vw,38px); line-height:1; letter-spacing:-.01em; margin:0; }
+.at-ticker-rf{ font-size:clamp(22px,3.2vw,30px); text-wrap:balance; }
+.at-nome{ margin:0; color:var(--ink-muted); font-size:13.5px; }
+.at-chips{ display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:4px; }
+.at-chip{ display:inline-flex; align-items:center; font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px;
+  background:var(--surface-3); color:var(--ink-muted); letter-spacing:.02em; }
+.at-chip-classe{ background:var(--accent-soft); color:var(--accent); }
+.at-chips .status-pill{ margin-top:0; }
+
+.at-cotacao{ display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.at-cotacao-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); font-weight:600; }
+.at-cotacao-valor{ font-family:var(--mono); font-size:clamp(22px,3.2vw,30px); font-weight:600; font-variant-numeric:tabular-nums; }
+.at-cotacao-var{ font-size:12.5px; font-weight:700; font-family:var(--mono); }
+.at-pagina .good{ color:var(--good-ink); }
+.at-pagina .bad{ color:var(--bad-ink); }
+
+/* ---- seções (atalhos) ---- */
+.at-secoes{ display:flex; flex-wrap:wrap; gap:6px; }
+.at-secoes a{ font-size:11.5px; font-weight:600; color:var(--ink-muted); text-decoration:none; padding:5px 11px;
+  border-radius:100px; border:1px solid var(--border); background:var(--surface); }
+.at-secoes a:hover, .at-secoes a:focus-visible{ color:var(--accent); border-color:var(--accent); }
+
+/* ---- resumo ---- */
+.at-resumo .eyebrow{ display:block; margin-bottom:4px; }
+.at-resumo{ border-left:4px solid var(--accent); }
+.at-aviso{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px; padding:12px 16px; font-size:13px; }
+
+/* ---- grade 2 colunas (desktop) ---- */
+.at-grade{ display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:22px; align-items:start; }
+.at-col{ display:flex; flex-direction:column; gap:18px; min-width:0; }
+.at-bloco{ min-width:0; scroll-margin-top:16px; }
+.at-bloco > .area-header:first-child{ margin-top:0; }
+.at-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px; min-width:0; scroll-margin-top:16px; }
+.at-card-titulo{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+.at-card-titulo h2{ font-size:16px; margin:0; }
+.at-card-titulo .status-pill{ margin-top:0; }
+.at-sub-titulo{ font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:700; color:var(--ink-faint); margin:14px 0 8px; }
+.at-sub-titulo.good{ color:var(--good-ink); }
+.at-sub-titulo.bad{ color:var(--bad-ink); }
+.at-fonte{ padding:0; margin:12px 0 0; }
+.at-mais{ all:unset; cursor:pointer; display:block; margin:10px auto 2px; font-size:12px; font-weight:700; color:var(--accent);
+  padding:6px 12px; border-radius:100px; }
+.at-mais:hover{ background:var(--accent-soft); }
+.at-mais:focus-visible, .at-link:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.at-link{ all:unset; cursor:pointer; font-size:12px; font-weight:700; color:var(--accent); text-decoration:none; }
+.at-link:hover{ text-decoration:underline; }
+
+/* ---- cotação x preço-teto ---- */
+.at-faixa{ padding:30px 4px 0; }
+.at-faixa-trilho{ position:relative; height:8px; border-radius:100px; background:var(--surface-3); }
+.at-faixa-cheia{ position:absolute; top:0; bottom:0; border-radius:100px;
+  background:linear-gradient(90deg, var(--good-soft), var(--good)); }
+.at-faixa-cheia.acima{ background:linear-gradient(90deg, var(--warn-soft), var(--warn)); }
+.at-faixa-atual{ position:absolute; top:50%; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%;
+  background:var(--ink); border:3px solid var(--surface); box-shadow:0 0 0 1px var(--ink); z-index:2; }
+.at-faixa-atual-rotulo{ position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%); white-space:nowrap;
+  font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--ink); background:var(--surface); padding:1px 5px; border-radius:6px; }
+.at-faixa-marca{ position:absolute; top:-5px; bottom:-5px; width:2px; margin-left:-1px; background:var(--ink-muted); border-radius:2px; }
+.at-faixa-marca-rotulo{ position:absolute; top:calc(100% + 3px); left:50%; transform:translateX(-50%); font-size:9.5px; font-weight:700;
+  color:var(--ink-muted); text-transform:uppercase; letter-spacing:.03em; }
+.at-faixa-max{ background:var(--ink-faint); }
+.at-faixa-max .at-faixa-marca-rotulo{ color:var(--ink-faint); text-transform:none; }
+.at-faixa-escala{ display:flex; justify-content:space-between; gap:12px; margin-top:24px; }
+.at-faixa-escala span{ display:flex; flex-direction:column; gap:1px; white-space:nowrap; }
+.at-faixa-escala-dir{ align-items:flex-end; text-align:right; }
+.at-faixa-teto{ background:var(--good-ink); }
+.at-faixa-teto .at-faixa-marca-rotulo{ color:var(--good-ink); }
+.at-faixa-escala small{ font-size:10px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
+.at-faixa-escala b{ font-family:var(--mono); font-size:12.5px; }
+.at-faixa-texto{ font-size:13px; margin:12px 0 0; color:var(--ink-muted); }
+.at-faixa-texto b{ font-weight:700; }
+.at-mini{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0 0; }
+.at-mini div{ background:var(--surface-3); border-radius:10px; padding:7px 9px; min-width:0; }
+.at-mini dt{ font-size:9.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:600; }
+.at-mini dd{ margin:2px 0 0; font-family:var(--mono); font-size:12.5px; font-weight:600; }
+
+/* ---- indicadores ---- */
+.at-ind-grade{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 14px; }
+.at-ind{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:8px 0; border-top:1px solid var(--border); }
+.at-ind-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:600; }
+.at-ind-valor{ font-family:var(--mono); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.at-ind-valor.texto{ font-family:var(--body-f); font-size:13.5px; line-height:1.35; }
+.at-ind-sub{ font-size:11px; color:var(--ink-muted); overflow-wrap:anywhere; }
+.at-prov-stats{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px 16px; }
+.at-prov-stats .at-ind{ border-top:none; padding:0; }
+
+/* ---- proventos ---- */
+.at-barras-wrap{ min-height:150px; }
+.at-barras{ display:block; overflow:visible; }
+.at-barras .gridline{ stroke:var(--border); stroke-width:1; }
+.at-barras .axislabel{ font-family:var(--mono); font-size:9.5px; fill:var(--ink-faint); }
+.at-barra{ cursor:pointer; }
+.at-barra:hover path{ opacity:.8; }
+.at-barras .at-barra-max{ fill:var(--ink-muted); font-weight:600; }
+.at-anos{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.at-anos span{ display:flex; flex-direction:column; background:var(--surface-3); border-radius:10px; padding:6px 10px; }
+.at-anos small{ font-size:10px; color:var(--ink-faint); font-weight:700; }
+.at-anos b{ font-family:var(--mono); font-size:12.5px; }
+.at-lista-receber{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; }
+.at-lista-receber li{ display:flex; align-items:center; gap:12px; padding:8px 0; border-top:1px solid var(--border); font-size:13px; }
+.at-receber-data{ font-family:var(--mono); font-size:12px; color:var(--ink-muted); min-width:84px; }
+.at-receber-tipo{ flex:1; }
+.at-receber-tipo small{ color:var(--ink-faint); font-size:10.5px; }
+.at-lista-receber b{ font-family:var(--mono); color:var(--good-ink); }
+
+/* ---- tabelas (mês a mês, extrato) ---- */
+.at-tabela td b{ font-weight:600; }
+.at-extrato-filtros{ margin-bottom:10px; }
+.at-pill{ display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:100px; background:var(--surface-3); color:var(--ink-muted); }
+.at-pill.entrada{ background:var(--acoes-soft); color:var(--acoes); }
+.at-pill.saida{ background:var(--warn-soft); color:var(--warn-ink); }
+.at-pill.prov{ background:var(--good-soft); color:var(--good-ink); }
+
+/* ---- tese ---- */
+.at-tese-topo{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+.at-tese-topo .status-pill{ margin-top:0; }
+.at-tese-teto{ font-size:12.5px; color:var(--ink-muted); }
+.at-tese-teto b{ font-family:var(--mono); color:var(--ink); }
+.at-tese-topo .hint{ padding:0; }
+.at-tese-resumo{ font-size:13.5px; line-height:1.55; margin:10px 0 0; max-width:68ch; }
+.at-tese-colunas{ display:grid; grid-template-columns:1fr; gap:4px; }
+.at-tese-colunas ul{ margin:0; padding-left:18px; font-size:13px; line-height:1.5; display:flex; flex-direction:column; gap:4px; }
+.at-teses{ list-style:none; padding:0; margin:0; }
+.at-teses li{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 12px; padding:9px 0; border-top:1px solid var(--border); font-size:13px; }
+.at-teses-acoes{ display:flex; gap:14px; }
+.at-tese-pdf{ flex:0 0 100%; }
+.at-tese-pdf iframe{ width:100%; height:min(70vh,640px); border:1px solid var(--border); border-radius:10px; background:var(--surface-3); }
+
+/* ---- notícias ---- */
+.at-noticias{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; }
+.at-noticias li{ display:flex; flex-direction:column; gap:3px; padding:10px 0; border-top:1px solid var(--border); }
+.at-noticias li:first-child{ border-top:none; padding-top:0; }
+.at-noticias a{ color:var(--ink); text-decoration:none; font-weight:600; font-size:13.5px; line-height:1.4; text-wrap:pretty; }
+.at-noticias a:hover{ color:var(--accent); text-decoration:underline; }
+.at-noticia-meta{ font-size:11px; color:var(--ink-faint); }
+.at-carregando{ display:flex; flex-direction:column; gap:8px; }
+
+/* ---- sobre ---- */
+.at-sobre-nome{ font-weight:700; margin:0 0 6px; font-size:13.5px; }
+.at-sobre-desc{ font-size:13.5px; line-height:1.55; margin:0; color:var(--ink); }
+.at-dl{ display:grid; grid-template-columns:minmax(0,1fr); gap:0; margin:12px 0 0; }
+.at-dl div{ display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid var(--border); }
+.at-dl dt{ font-size:11.5px; color:var(--ink-faint); flex:none; }
+.at-dl dd{ margin:0; font-size:12.5px; text-align:right; overflow-wrap:anywhere; }
+.at-links{ display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; }
+
+/* ---- imposto de renda ---- */
+.at-ir-bloco{ border-top:1px solid var(--border); }
+.at-ir-bloco:first-child{ border-top:none; }
+.at-ir-bloco summary{ cursor:pointer; padding:11px 0; font-weight:700; font-size:14px; list-style:none; display:flex; align-items:center; gap:8px; }
+.at-ir-bloco summary::-webkit-details-marker{ display:none; }
+.at-ir-bloco summary::before{ content:'›'; display:inline-block; width:12px; color:var(--accent); font-size:18px; line-height:1; transition:transform .15s; }
+.at-ir-bloco[open] summary::before{ transform:rotate(90deg); }
+.at-ir-bloco summary:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
+.at-regras, .at-onde{ list-style:none; padding:0 0 10px 20px; margin:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px 22px; }
+.at-regras li, .at-onde li{ font-size:13px; line-height:1.5; }
+.at-regras p, .at-onde p{ margin:3px 0 0; color:var(--ink-muted); max-width:68ch; }
+.at-onde a{ font-weight:700; color:var(--accent); text-decoration:none; }
+.at-onde a:hover{ text-decoration:underline; }
+.at-fonte-link{ font-size:11px; color:var(--ink-faint); }
+.at-ir-avisos{ background:var(--surface-3); border-radius:10px; padding:10px 14px; margin-top:6px; font-size:12.5px; color:var(--ink-muted); }
+.at-ir-avisos p{ margin:4px 0; }
+
+@media (prefers-reduced-motion: reduce){ .at-ir-bloco summary::before{ transition:none; } }
+
+/* ---- telas médias: 1 coluna, cartões laterais em 2 colunas ---- */
+@media (max-width:1100px){
+  .at-grade{ grid-template-columns:minmax(0,1fr); }
+  .at-col-lateral{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
+  #at-sobre, #at-tese{ grid-column:1 / -1; }
+  .at-prov-stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+/* ---- celular: uma coluna só, na ordem de importância ---- */
+@media (max-width:640px){
+  /* tabelas desta tela viram cartões compactos: 2 (extrato) ou 3 (mês a mês)
+     valores por linha, rótulo em cima - metade da altura do cartão padrão */
+  .at-tabela tbody tr{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }
+  .at-tabela-mensal tbody tr{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .at-tabela td{ display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:2px;
+    padding:7px 12px; text-align:left; border-bottom:1px solid var(--border); min-width:0; }
+  .at-tabela td::before{ font-size:9px; }
+  .at-tabela td .cc-sub{ text-align:left; flex-basis:auto; }
+  .at-tabela td.cc-td-topo{ grid-column:1 / -1; flex-direction:row; align-items:baseline; gap:8px; padding:9px 12px 7px; }
+  .at-tabela tbody tr td:last-child{ border-bottom:1px solid var(--border); }
+  .at-cotacao{ align-items:flex-start; }
+  .at-id{ gap:12px; }
+  .at-logo .cc-logo{ width:48px; height:48px; font-size:15px; }
+  .at-grade{ display:flex; flex-direction:column; align-items:stretch; gap:18px; }
+  .at-col, .at-col-lateral{ display:contents; }
+  #at-faixa{ order:1; } #at-graficos{ order:2; } #at-indicadores{ order:3; } #at-proventos{ order:4; }
+  #at-tese{ order:5; } #at-mensal{ order:6; } #at-extrato{ order:7; } #at-noticias{ order:8; } #at-sobre{ order:9; }
+  .at-card{ padding:14px; }
+  .at-mini{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+  .at-regras, .at-onde{ grid-template-columns:minmax(0,1fr); padding-left:4px; }
+  .at-teses li{ align-items:flex-start; }
+}

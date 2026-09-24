@@ -175,6 +175,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         ticker: (tipoInvestimento || codigo) + (vencimentoTexto ? ' · ' + vencimentoTexto : ''),
         codigo: codigo || null,
         nome: nome,
+        instituicao: instituicao || null, // 25/09/2026: ref da tela do ativo (rf:<nome>|<instituição>)
         marca: marca === 'Renda Emergencial' ? 'emergencial' : 'longo-prazo',
         tipoInvestimento: tipoInvestimento || null,
         indexador: indexador || null,

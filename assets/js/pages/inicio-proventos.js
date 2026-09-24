@@ -6,6 +6,7 @@
 // Home (apps-script/Proventos.gs!montarProventosAnunciados_): sua aba
 // Proventos, a exportação da B3 e o FNet, já sem repetição. Aqui só desenha.
 import { formatBRL, formatNumeroBR } from '../format.js';
+import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const COR_CLASSE = { acoes: '--acoes', fiis: '--fiis', acoesEua: '--usa' };
@@ -60,7 +61,7 @@ function linhaHtml_(p, { modo = 'receber' } = {}) {
   return `
     <li class="prov-item">
       <div class="prov-principal">
-        <span class="prov-ticker"><span class="prov-dot" style="background:var(${cor})" title="${NOME_CLASSE[p.classe] || ''}"></span>${p.ticker}${selo}</span>
+        <span class="prov-ticker"><span class="prov-dot" style="background:var(${cor})" title="${NOME_CLASSE[p.classe] || ''}"></span><a class="link-ativo" href="${urlAtivoTicker(p.ticker)}">${p.ticker}</a>${selo}</span>
         <span class="prov-quando">${detalhes}</span>
       </div>
       <div class="prov-valor">

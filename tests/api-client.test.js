@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -323,4 +323,19 @@ test('salvarMesesRendaEmergencial() POSTs action + meses', async (t) => {
 
   assert.equal(capturedBody.get('action'), 'salvarMesesRendaEmergencial');
   assert.equal(capturedBody.get('meses'), '8');
+});
+
+// 25/09/2026: tela Detalhe do ativo (apps-script/Ativo.gs)
+test('getAtivo()/getNoticiasAtivo()/getTesesAtivo() fazem GET com a action e os parâmetros certos', async (t) => {
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => { urls.push(new URL(url)); return jsonResponse({ ok: true }); });
+  await getAtivo('tok', 'rf:Tesouro IPCA+ 2029|XP');
+  await getNoticiasAtivo('tok', { ticker: 'TEST3', nome: 'Teste S.A.', classe: 'acoes' });
+  await getTesesAtivo('tok', 'TEST3');
+  assert.deepEqual(urls.map((u) => u.searchParams.get('action')), ['ativo', 'noticiasAtivo', 'tesesAtivo']);
+  assert.equal(urls[0].searchParams.get('ref'), 'rf:Tesouro IPCA+ 2029|XP');
+  assert.equal(urls[1].searchParams.get('nome'), 'Teste S.A.');
+  assert.equal(urls[1].searchParams.get('classe'), 'acoes');
+  assert.equal(urls[2].searchParams.get('ticker'), 'TEST3');
+  assert.ok(urls.every((u) => u.searchParams.get('token') === 'tok'));
 });

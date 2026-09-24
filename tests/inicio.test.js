@@ -1147,6 +1147,7 @@ const ATIVO_USA_EXEMPLO = {
 
 const ATIVO_RF_EXEMPLO = {
   classe: 'rf', ticker: 'Tesouro Selic · 03/2029', codigo: 'TS-2029', marca: 'longo-prazo',
+  nome: 'Tesouro Selic 2029', instituicao: 'CORRETORA EXEMPLO',
   tipoInvestimento: 'Tesouro Selic', indexador: 'Selic', vencimento: '03/2029',
   valorAtualizado: 12480.55, variacaoDia: 0.0004,
 };
@@ -1160,7 +1161,8 @@ test('criarAtivoCard() de Ações vira o cartão inteiro clicável, com viés e 
   const doc = makeDom('');
   const card = criarAtivoCard(doc, ATIVO_ACAO_EXEMPLO);
   assert.equal(card.tagName, 'A');
-  assert.equal(card.getAttribute('href'), 'ativo.html?ref=BBAS3&classe=acoes');
+  // 25/09/2026: tela Detalhe do ativo (link-ativo.js) - endereço absoluto a partir da raiz do site
+  assert.match(card.getAttribute('href'), /\/ativo\/index\.html\?ref=BBAS3$/);
   assert.match(card.querySelector('.ativo-ticker').textContent, /BBAS3/);
   assert.ok(card.querySelector('.vies-badge.comprar'));
   assert.equal(card.querySelector('.ativo-delta').classList.contains('bad'), true); // variação negativa
@@ -1174,10 +1176,10 @@ test('criarAtivoCard() de Ações EUA mostra o preço convertido pra BRL ao lado
   assert.match(card.querySelector('.ativo-price-conv').textContent, /1\.732/);
 });
 
-test('criarAtivoCard() de Renda Fixa usa "codigo" (não o rótulo composto) como ref, e mostra indexador+vencimento no lugar do desconto', () => {
+test('criarAtivoCard() de Renda Fixa usa nome + instituição (não o rótulo composto) como ref, e mostra indexador+vencimento no lugar do desconto', () => {
   const doc = makeDom('');
   const card = criarAtivoCard(doc, ATIVO_RF_EXEMPLO);
-  assert.equal(card.getAttribute('href'), 'ativo.html?ref=TS-2029&classe=rf');
+  assert.equal(new URL(card.getAttribute('href')).searchParams.get('ref'), 'rf:Tesouro Selic 2029|CORRETORA EXEMPLO');
   assert.equal(card.querySelector('.vies-badge'), null, 'Renda Fixa não tem preço-teto, então não tem viés');
   assert.match(card.querySelector('.ativo-detalhe').textContent, /Selic/);
   assert.match(card.querySelector('.ativo-detalhe').textContent, /03\/2029/);
@@ -1226,7 +1228,7 @@ test('wireFiltroAtivos() chamada de novo no mesmo tabsContainer (refresh) redese
   `);
   const tabs = doc.getElementById('tabs');
   const grid = doc.getElementById('grid');
-  const ativoRfNovo = { ...ATIVO_RF_EXEMPLO, codigo: 'TS-2031' };
+  const ativoRfNovo = { ...ATIVO_RF_EXEMPLO, codigo: 'TS-2031', nome: 'Tesouro Selic 2031' };
 
   // Mesmo padrão de uso real (montarPaginaInicio): renderMeusAtivos desenha
   // a grade 1ª vez, wireFiltroAtivos só liga o clique - não redesenha nada
@@ -1239,13 +1241,13 @@ test('wireFiltroAtivos() chamada de novo no mesmo tabsContainer (refresh) redese
   // aba ativa (Renda Fixa) e mostra o RF novo, não o antigo.
   wireFiltroAtivos(doc, tabs, grid, [ATIVO_ACAO_EXEMPLO, ativoRfNovo]);
   assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
-  assert.equal(grid.querySelector('.ativo-card').getAttribute('href'), 'ativo.html?ref=TS-2031&classe=rf');
+  assert.equal(new URL(grid.querySelector('.ativo-card').getAttribute('href')).searchParams.get('ref'), 'rf:Tesouro Selic 2031|CORRETORA EXEMPLO');
 
   // Clicar numa aba DEPOIS do refresh também usa os ativos novos (prova
   // que o clique não ficou preso na 1ª chamada).
   tabs.querySelector('[data-classe="todos"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(grid.querySelectorAll('.ativo-card').length, 2);
-  assert.ok(Array.from(grid.querySelectorAll('.ativo-card')).some((c) => c.getAttribute('href').includes('TS-2031')));
+  assert.ok(Array.from(grid.querySelectorAll('.ativo-card')).some((c) => new URL(c.getAttribute('href')).searchParams.get('ref').includes('Selic 2031')));
 });
 
 // --- wireTooltipAtivos -------------------------------------------------------

@@ -13,6 +13,7 @@ import { getCarteirasRendaFixa, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { urlAtivo, refAtivo } from '../link-ativo.js'; // 25/09/2026: título -> tela do ativo
 import {
   somaCampoHistorico_,
   renderResumoClasseCarteiras,
@@ -63,7 +64,7 @@ const COLUNAS_ATIVOS_RENDA_FIXA = [
     ordenarPor: (a) => a.nomePersonalizado || a.tipoInvestimento || a.codigo || '',
     formatar: (a) => {
       const nome = a.nomePersonalizado || a.tipoInvestimento || a.codigo || '—';
-      return `<div><b>${nome}</b>${a.instituicao ? `<span class="cc-ativo-nome">${a.instituicao}</span>` : ''}</div>`;
+      return `<div><b><a class="link-ativo" href="${urlAtivo(refAtivo({ ...a, classe: 'rf' }))}">${nome}</a></b>${a.instituicao ? `<span class="cc-ativo-nome">${a.instituicao}</span>` : ''}</div>`;
     },
   },
   { label: 'Vencimento', campo: 'vencimento', ordenarPor: (a) => a.vencimento || '', formatar: (a) => a.vencimento || '—' },

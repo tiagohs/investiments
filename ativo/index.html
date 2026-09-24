@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ativo · Patrimônio</title>
+
+<!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
+<link rel="manifest" href="../manifest.json">
+<meta name="theme-color" content="#2A78D6">
+<link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Patrimônio">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/css/shell.css">
+<!-- 25/09/2026: tela Detalhe do ativo. inicio.css (gráficos .rentab-*,
+     .area-header, .skel, tooltips .info-*) e carteiras.css (.cc-resumo,
+     .cc-tabela, .cc-logo, .status-pill) entram pelas classes reaproveitadas;
+     ativo.css tem só o que é desta tela. -->
+<link rel="stylesheet" href="../assets/css/inicio.css">
+<link rel="stylesheet" href="../assets/css/carteiras.css">
+<link rel="stylesheet" href="../assets/css/ativo.css">
+</head>
+<body data-section="carteiras">
+
+<div class="wrap">
+  <div id="shell-header"></div>
+
+  <main class="at-main">
+    <div class="at-titulo-linha"><div id="refreshControlAtivo" class="refresh-control"></div></div>
+    <div class="carteiras-loading" id="ativoLoading" aria-hidden="true">
+      <span class="skel skel-header"></span>
+      <span class="skel" style="height:110px;border-radius:14px"></span>
+      <span class="skel" style="height:260px;border-radius:14px;margin-top:8px"></span>
+    </div>
+    <div class="carteiras-erro" id="ativoErro" hidden></div>
+    <div id="ativoConteudo" hidden></div>
+  </main>
+
+  <div id="shell-footer"></div>
+</div>
+<script type="module">
+  import { mountShell } from '../assets/js/shell.js';
+  import { montarPaginaAtivo } from '../assets/js/pages/ativo.js';
+  mountShell({
+    onAuthenticated(token) {
+      montarPaginaAtivo(token, { doc: document });
+    },
+  });
+</script>
+</body>
+</html>

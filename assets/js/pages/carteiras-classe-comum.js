@@ -940,6 +940,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         labelInfo: p.labelInfo || null,
         formatarMoeda: p.moeda === 'USD' ? formatUSD : formatBRL,
         camposProventos: p.camposProventos || null, // 24/09/2026
+        labelPrincipal: p.labelRentabilidade || undefined, // 25/09/2026: tela do ativo ("BBAS3" no lugar de "Portfólio")
       })),
   });
 
