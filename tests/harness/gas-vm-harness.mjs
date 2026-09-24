@@ -199,6 +199,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       // Favoritos.gs cria "Auxiliar_favoritos" no 1º salvamento).
       return {
         getLastRow: () => (fixtures[nome] ? fixtures[nome].lastRow : 0),
+        clearContents() { if (fixtures[nome]) { fixtures[nome].linhas = []; fixtures[nome].lastRow = 0; } }, // 24/09/2026 (FnetProventos.gs)
         getRange(...args) {
           if (fixtures[nome]) return makeSheet(nome).getRange(...args);
           return {
@@ -212,6 +213,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     }
     return {
       getLastRow: () => dados.lastRow,
+      clearContents() { dados.linhas = []; dados.lastRow = 0; }, // 24/09/2026 (FnetProventos.gs)
       getRange(a, b, c, d) {
         let row, col, numRows, numCols;
         if (typeof a === 'string') {

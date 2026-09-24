@@ -195,6 +195,14 @@ function handleHome(e, auth) {
     avisos.favoritos = String(err);
   }
 
+  // 24/09/2026: proventos de FIIs anunciados no FNet (B3) - a receber e
+  // pagos ainda não lançados (FnetProventos.gs). Só lê a planilha.
+  try {
+    resposta.proventosAnunciados = montarProventosAnunciados_();
+  } catch (err) {
+    avisos.proventosAnunciados = String(err);
+  }
+
   console.log('handleHome: TOTAL ' + (Date.now() - inicioTudo) + 'ms');
 
   if (Object.keys(avisos).length > 0) resposta.avisos = avisos;

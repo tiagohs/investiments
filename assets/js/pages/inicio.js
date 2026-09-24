@@ -130,6 +130,7 @@
 import { getHome, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
+import { renderProventosAnunciados } from './inicio-proventos.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
@@ -2445,6 +2446,9 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     });
     wireTooltipAtivos(doc, favoritosGrid);
     wireGraficoAtivo(doc, favoritosGrid, { token });
+
+    // 24/09/2026: proventos a receber (FIIs, FNet/B3) - ver inicio-proventos.js
+    renderProventosAnunciados(doc, doc.getElementById('proventosSecao'), resposta.proventosAnunciados);
   }
 
   await carregarERedesenhar();
