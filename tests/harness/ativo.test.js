@@ -58,6 +58,26 @@ test('Notícias: lê o RSS do Google Notícias (CDATA, entidades, " - Fonte" sai
   assert.deepEqual(plain(sb.extrairItensRss_('')), []);
 });
 
+test('Notícias: imagem quando o RSS traz (media:content, enclosure ou <img> na descrição, só https) e o site da fonte pro placeholder', () => {
+  const sb = sandboxVazio();
+  const xml = `<rss><channel>
+    <item><title>Com media</title><link>https://news.google.com/a</link><pubDate>Mon, 21 Sep 2026 10:00:00 GMT</pubDate>
+      <media:content url="https://img.exemplo/a.jpg?x=1&amp;y=2" medium="image"/><source url="https://jornal-a.com.br">Jornal A</source></item>
+    <item><title>Com img na descrição</title><link>https://news.google.com/b</link><pubDate>Tue, 22 Sep 2026 10:00:00 GMT</pubDate>
+      <description>&lt;img src="https://img.exemplo/b.png" /&gt; texto</description></item>
+    <item><title>Imagem http</title><link>https://news.google.com/c</link><pubDate>Wed, 23 Sep 2026 10:00:00 GMT</pubDate>
+      <enclosure url="http://inseguro/c.jpg" type="image/jpeg"/></item>
+    <item><title>Sem nada</title><link>https://news.google.com/d</link><pubDate>Thu, 24 Sep 2026 10:00:00 GMT</pubDate></item>
+  </channel></rss>`;
+  const porTitulo = Object.fromEntries(plain(sb.extrairItensRss_(xml)).map((i) => [i.titulo, i]));
+  assert.equal(porTitulo['Com media'].imagem, 'https://img.exemplo/a.jpg?x=1&y=2');
+  assert.equal(porTitulo['Com media'].fonteUrl, 'https://jornal-a.com.br');
+  assert.equal(porTitulo['Com img na descrição'].imagem, 'https://img.exemplo/b.png');
+  assert.equal(porTitulo['Imagem http'].imagem, null, 'só https');
+  assert.equal(porTitulo['Sem nada'].imagem, null);
+  assert.equal(porTitulo['Sem nada'].fonteUrl, null);
+});
+
 test('Teses: data pelo nome do PDF (dd:mm:aaaa e variações) e, sem a pasta configurada, avisa em vez de quebrar', () => {
   const sb = sandboxVazio();
   assert.equal(sb.dataDoNomeTese_('21:08:2026.pdf'), '2026-08-21');

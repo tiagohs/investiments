@@ -24,7 +24,7 @@ import {
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { refDaUrl } from '../link-ativo.js';
-import { logoAtivoHtml, logoRendaFixaHtml, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
+import { logoAtivoHtml, logoRendaFixaHtml, renderTabelaAtivosCarteiras, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
   resumoPosicao, percentualNaCarteira, informesIrDoAtivo, declaracaoIrDoAtivo, ordenarTeses, cambioMaisRecente,
@@ -283,22 +283,36 @@ function cabecalhoHtml(ctx) {
     </header>`;
 }
 
-function navSecoesHtml(ctx) {
-  const ehFii = ctx.classe === 'fiis';
-  const itens = [
-    ['at-graficos', 'Rentabilidade'],
-    ['at-mensal', 'Mês a mês'],
-    ...(ctx.ehRf ? [] : [['at-proventos', 'Proventos']]),
-    ['at-extrato', 'Extrato'],
-    ...(ctx.ehRf ? [] : [['at-noticias', 'Notícias']]),
-    ...(ctx.sobre ? [['at-sobre', 'Sobre']] : []),
-    // 25/09/2026 (Tiago, ponto 2): FIIs não têm tese da Suno - em vez
-    // disso, os informes/atualizações do fundo (FNet).
-    ...(ctx.ehRf || ehFii ? [] : [['at-tese', 'Tese']]),
-    ...(ehFii ? [['at-informes', 'Informes do fundo']] : []),
-    ['at-ir', 'Imposto de renda'],
+// 25/09/2026 (Tiago: "quero reorganizar essa tela do ativo, tem muita coisa
+// em um lugar só. Vamos criar um sistema de abas parecido com a de
+// carteiras"): 3 abas - Visão geral (quase tudo), Extrato (mês a mês +
+// extrato) e Sobre (Sobre + imposto de renda). Mesmo visual dos .side-item
+// de Carteiras, em linha; a aba aberta fica no endereço (#extrato, #sobre)
+// pra sobreviver ao F5 e ao redesenho do cache.
+const ICONES_ABA = {
+  visao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+  extrato: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>',
+  sobre: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
+};
+
+/** Aba a partir do endereço ("#extrato", "#sobre"; qualquer outra coisa = visão geral). */
+export function abaDoHash(hash) {
+  const h = String(hash || '').replace(/^#/, '');
+  return h === 'extrato' || h === 'sobre' ? h : 'visao';
+}
+
+function abasHtml(ctx, ativa) {
+  const abas = [
+    ['visao', 'Visão geral'],
+    ['extrato', 'Extrato'],
+    ['sobre', ctx.ehRf ? 'Imposto de renda' : 'Sobre e IR'],
   ];
-  return `<nav class="at-secoes" aria-label="Seções da página">${itens.map(([id, t]) => `<a href="#${id}">${t}</a>`).join('')}</nav>`;
+  return `<nav class="at-abas" role="tablist" aria-label="Seções do ativo">${abas.map(([id, rotulo]) => `
+    <button type="button" role="tab" class="side-item${id === ativa ? ' active' : ''}" id="at-tab-${id}" data-aba="${id}"
+            aria-controls="at-aba-${id}" aria-selected="${id === ativa}">
+      <span class="side-ico">${ICONES_ABA[id]}</span><span class="side-label">${rotulo}</span>
+    </button>`).join('')}
+  </nav>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -599,31 +613,156 @@ function ligarGraficos(doc, ctx) {
 
 const MENSAL_INICIAL = 12;
 
-export function mensalHtml(ctx, { todos = false } = {}) {
-  const linhas = todos ? ctx.mensal : ctx.mensal.slice(0, MENSAL_INICIAL);
+// 25/09/2026 (Tiago: "essas tabelas em extrato, deixe mais legal. Use as
+// formatações das tabelas em carteira e distribuições e metas... Lembre-se de
+// filtro e ordenação por coluna"): mês a mês e extrato usam a MESMA tabela
+// das Carteiras (renderTabelaAtivosCarteiras: título da coluna ordena, vira
+// cartão no celular, rodapé de totais), com filtro por ano (e por tipo, no
+// extrato). O estado (filtro/ordem/aba do gráfico) fica por ativo, pra não
+// se perder quando a página redesenha com o dado novo.
+const estadoTabelasAtivo = new Map();
+function estadoTabelas(ctx) {
+  if (!estadoTabelasAtivo.has(ctx.ticker)) {
+    estadoTabelasAtivo.set(ctx.ticker, {
+      mensal: { ano: null, ordenacao: { campo: 'mes', direcao: 'desc' }, todos: false, vista: 'tabela' },
+      extrato: { filtro: 'todos', ano: null, ordenacao: { campo: 'data', direcao: 'desc' }, todos: false },
+    });
+  }
+  return estadoTabelasAtivo.get(ctx.ticker);
+}
+
+const anosDe = (lista, campo) => [...new Set(lista.map((x) => String(x[campo] || '').slice(0, 4)).filter(Boolean))].sort().reverse();
+
+function chipsAnoHtml(anos, ativo, attr) {
+  if (anos.length < 2) return '';
+  return `<div class="filter-tabs at-chips-ano">
+    <button type="button" class="filter-tab${ativo ? '' : ' active'}" ${attr}="">Todos os anos</button>
+    ${anos.map((a) => `<button type="button" class="filter-tab${ativo === a ? ' active' : ''}" ${attr}="${a}">${a}</button>`).join('')}
+  </div>`;
+}
+
+/** Ordena como renderTabelaAtivosCarteiras (pra poder cortar em N linhas ANTES de mandar pra ela). */
+function ordenarLista(lista, colunas, ordenacao) {
+  const col = colunas.find((c) => c.campo === ordenacao.campo && typeof c.ordenarPor === 'function');
+  if (!col) return [...lista];
+  return [...lista].sort((a, b) => {
+    const va = col.ordenarPor(a), vb = col.ordenarPor(b);
+    const cmp = (typeof va === 'string' || typeof vb === 'string') ? String(va ?? '').localeCompare(String(vb ?? ''), 'pt-BR') : (va ?? -Infinity) - (vb ?? -Infinity);
+    return ordenacao.direcao === 'asc' ? cmp : -cmp;
+  });
+}
+
+const pctPill = (v) => (typeof v === 'number' ? `<span class="status-pill ${v >= 0 ? 'good' : 'bad'}">${formatPercentFromPoints(v)}</span>` : '—');
+const pctTexto = (v) => (typeof v === 'number' ? `<span class="${cor(v)}">${formatPercentFromPoints(v)}</span>` : '—');
+
+export function colunasMensal(ctx) {
   const idx = ctx.cfg.indice;
-  const comQtd = !ctx.ehRf;
-  const comProventos = !ctx.ehRf;
-  const pct = (v) => (typeof v === 'number' ? `<span class="${cor(v)}">${formatPercentFromPoints(v)}</span>` : '—');
-  const corpo = linhas.map((m) => `
-    <tr>
-      <td class="cc-td-esquerda cc-td-topo" data-label="Mês"><b>${rotuloMes(m.mes)}</b></td>
-      <td data-label="Saldo">${formatBRL(m.saldo)}</td>
-      ${comQtd ? `<td data-label="Qtd">${m.cotas != null ? formatNumeroBR(m.cotas, Number.isInteger(m.cotas) ? 0 : 3) : '—'}</td>` : ''}
-      <td data-label="Rentab. no mês">${pct(m.rentabilidade)}</td>
-      <td data-label="${idx.label}">${pct(m.indice)}</td>
-      <td data-label="CDI">${pct(m.cdi)}</td>
-      <td data-label="% patrimônio">${m.percentualCarteira != null ? formatPercentFromFraction(m.percentualCarteira, 1).replace('+', '') : '—'}</td>
-      ${comProventos ? `<td data-label="Proventos">${m.proventos ? formatBRL(m.proventos) : '—'}</td>` : ''}
-      <td data-label="Aplicado">${formatBRL(m.aplicado)}</td>
-    </tr>`).join('');
-  const mais = ctx.mensal.length > MENSAL_INICIAL
-    ? `<button class="at-mais" type="button" data-acao="mensal-todos">${todos ? 'Mostrar só os últimos 12 meses' : `Ver os ${ctx.mensal.length} meses`}</button>` : '';
+  return [
+    { label: 'Mês', campo: 'mes', alinharEsquerda: true, ordenarPor: (m) => m.mes, formatar: (m) => `<b>${rotuloMes(m.mes)}</b>` },
+    { label: 'Saldo', campo: 'saldo', ordenarPor: (m) => m.saldo, formatar: (m) => formatBRL(m.saldo) },
+    ...(ctx.ehRf ? [] : [{ label: 'Qtd', campo: 'cotas', ordenarPor: (m) => m.cotas, formatar: (m) => (m.cotas != null ? formatNumeroBR(m.cotas, Number.isInteger(m.cotas) ? 0 : 3) : '—') }]),
+    {
+      label: 'Rentab.', campo: 'rentabilidade', ordenarPor: (m) => m.rentabilidade,
+      ajuda: `Rentabilidade do ativo no mês (já descontando compras e vendas) e a diferença pro ${idx.label}.`,
+      formatar: (m) => {
+        const dif = typeof m.rentabilidade === 'number' && typeof m.indice === 'number' ? m.rentabilidade - m.indice : null;
+        return `${pctPill(m.rentabilidade)}${dif != null ? `<span class="cc-sub ${cor(dif)}">${dif >= 0 ? '+' : ''}${formatNumeroBR(dif, 2)} p.p. vs ${esc(idx.label)}</span>` : ''}`;
+      },
+    },
+    { label: idx.label, campo: 'indice', ordenarPor: (m) => m.indice, formatar: (m) => pctTexto(m.indice) },
+    { label: 'CDI', campo: 'cdi', ordenarPor: (m) => m.cdi, formatar: (m) => pctTexto(m.cdi) },
+    { label: '% patrim.', campo: 'percentualCarteira', ordenarPor: (m) => m.percentualCarteira, formatar: (m) => (m.percentualCarteira != null ? formatPercentFromFraction(m.percentualCarteira, 1).replace('+', '') : '—') },
+    ...(ctx.ehRf ? [] : [{ label: 'Proventos', campo: 'proventos', ordenarPor: (m) => m.proventos, formatar: (m) => (m.proventos ? formatBRL(m.proventos) : '—') }]),
+    { label: 'Aplicado', campo: 'aplicado', ordenarPor: (m) => m.aplicado, formatar: (m) => formatBRL(m.aplicado) },
+  ];
+}
+
+/** Rentabilidade composta de uma lista de meses (em pontos %). */
+function compor(lista, campo) {
+  const vals = lista.map((m) => m[campo]).filter((v) => typeof v === 'number');
+  if (!vals.length) return null;
+  return (vals.reduce((acc, v) => acc * (1 + v / 100), 1) - 1) * 100;
+}
+
+function rodapeMensalHtml(ctx, lista, ano) {
+  if (!lista.length) return '';
+  const partes = [
+    `rentab. ${formatPercentFromPoints(compor(lista, 'rentabilidade'))}`,
+    `${esc(ctx.cfg.indice.label)} ${formatPercentFromPoints(compor(lista, 'indice'))}`,
+    `CDI ${formatPercentFromPoints(compor(lista, 'cdi'))}`,
+    ...(ctx.ehRf ? [] : [`proventos ${formatBRL(lista.reduce((s, m) => s + (m.proventos || 0), 0))}`]),
+  ];
+  return `<tr><td class="cc-td-esquerda" colspan="${colunasMensal(ctx).length}"><b>${ano ? `Em ${ano}` : `Desde o início (${lista.length} meses)`}</b> · ${partes.join(' · ')}</td></tr>`;
+}
+
+/** Casca do Mês a mês: cabeçalho, alternador Tabela/Gráfico e filtro por ano (a tabela/gráfico entram em ligarExtratoEMensal). */
+export function mensalHtml(ctx) {
+  const st = estadoTabelas(ctx).mensal;
+  if (!ctx.mensal.length) return '<div class="area-header"><h2>Mês a mês</h2></div><p class="hint">Sem histórico ainda.</p>';
   return `
-    <div class="area-header"><h2>Mês a mês</h2><span class="hint">saldo no fim do mês, em reais</span></div>
-    ${ctx.mensal.length ? `<div class="cc-tabela-card"><div class="cc-tabela-wrap"><table class="cc-tabela at-tabela at-tabela-mensal">
-      <thead><tr><th>Mês</th><th>Saldo</th>${comQtd ? '<th>Qtd</th>' : ''}<th>Rentab.</th><th>${idx.label}</th><th>CDI</th><th>% patrim.</th>${comProventos ? '<th>Proventos</th>' : ''}<th>Aplicado</th></tr></thead>
-      <tbody>${corpo}</tbody></table></div>${mais}</div>` : '<p class="hint">Sem histórico ainda.</p>'}`;
+    <div class="area-header at-mensal-topo"><h2>Mês a mês</h2><span class="hint">saldo no fim do mês, em reais</span>
+      <div class="filter-tabs at-vista" id="atMensalVista" role="group" aria-label="Ver como">
+        <button type="button" class="filter-tab${st.vista === 'tabela' ? ' active' : ''}" data-vista="tabela">Tabela</button>
+        <button type="button" class="filter-tab${st.vista === 'grafico' ? ' active' : ''}" data-vista="grafico">Gráfico</button>
+      </div>
+    </div>
+    <div class="cc-tabela-card">
+      <div id="atMensalFiltros">${chipsAnoHtml(anosDe(ctx.mensal, 'mes'), st.ano, 'data-ano')}</div>
+      <div id="atMensalTabela"${st.vista === 'tabela' ? '' : ' hidden'}></div>
+      <div id="atMensalGrafico" class="at-mensal-grafico"${st.vista === 'grafico' ? '' : ' hidden'}></div>
+    </div>`;
+}
+
+/**
+ * Gráfico do mês a mês: barra = rentabilidade do ativo no mês (cor da
+ * classe; abaixo da linha do zero quando negativa), ponto = o índice de
+ * referência no mesmo mês. Dica por mês ao passar o mouse/dedo.
+ */
+export function mensalGraficoSvg(ctx, meses, largura = 640) {
+  const lista = [...meses].sort((a, b) => (a.mes < b.mes ? -1 : 1)).filter((m) => typeof m.rentabilidade === 'number' || typeof m.indice === 'number');
+  if (!lista.length) return '<p class="hint">Sem meses com rentabilidade calculada.</p>';
+  const idx = ctx.cfg.indice;
+  const valores = lista.flatMap((m) => [m.rentabilidade, m.indice]).filter((v) => typeof v === 'number');
+  const max = Math.max(...valores, 0.5), min = Math.min(...valores, -0.5);
+  const W = Math.max(largura, 280), H = 210, padL = 44, padR = 10, padT = 14, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const y = (v) => padT + ((max - v) / (max - min)) * plotH;
+  const passo = plotW / lista.length;
+  const larg = Math.min(Math.max(passo * 0.6, 2), 22);
+  const zero = y(0);
+  const barras = lista.map((m, i) => {
+    const x = padL + i * passo + (passo - larg) / 2;
+    const cx = padL + i * passo + passo / 2;
+    const r = m.rentabilidade;
+    let barra = '';
+    if (typeof r === 'number' && r !== 0) {
+      const topo = Math.min(y(r), zero), altura = Math.max(Math.abs(y(r) - zero), 1.5);
+      const raio = Math.min(4, larg / 2, altura);
+      // ponta arredondada do lado do valor, base reta na linha do zero
+      barra = r > 0
+        ? `<path d="M${x.toFixed(1)},${zero.toFixed(1)} V${(topo + raio).toFixed(1)} Q${x.toFixed(1)},${topo.toFixed(1)} ${(x + raio).toFixed(1)},${topo.toFixed(1)} H${(x + larg - raio).toFixed(1)} Q${(x + larg).toFixed(1)},${topo.toFixed(1)} ${(x + larg).toFixed(1)},${(topo + raio).toFixed(1)} V${zero.toFixed(1)} Z" fill="var(${ctx.cfg.token})"/>`
+        : `<path d="M${x.toFixed(1)},${zero.toFixed(1)} V${(zero + altura - raio).toFixed(1)} Q${x.toFixed(1)},${(zero + altura).toFixed(1)} ${(x + raio).toFixed(1)},${(zero + altura).toFixed(1)} H${(x + larg - raio).toFixed(1)} Q${(x + larg).toFixed(1)},${(zero + altura).toFixed(1)} ${(x + larg).toFixed(1)},${(zero + altura - raio).toFixed(1)} V${zero.toFixed(1)} Z" fill="var(${ctx.cfg.token})" fill-opacity="0.55"/>`;
+    }
+    const ponto = typeof m.indice === 'number' ? `<circle cx="${cx.toFixed(1)}" cy="${y(m.indice).toFixed(1)}" r="4" class="at-mensal-indice"/>` : '';
+    const dica = `${rotuloMes(m.mes)} · ${ctx.ticker}: ${typeof r === 'number' ? formatPercentFromPoints(r) : '—'} · ${idx.label}: ${typeof m.indice === 'number' ? formatPercentFromPoints(m.indice) : '—'}`;
+    return `<g class="info-alvo" data-tooltip="${esc(dica)}"><rect x="${(padL + i * passo).toFixed(1)}" y="${padT}" width="${passo.toFixed(1)}" height="${plotH}" fill="transparent"/>${barra}${ponto}</g>`;
+  }).join('');
+  const ticks = [max, 0, min].map((v) => `<text class="axislabel" x="${padL - 6}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end">${formatNumeroBR(v, 1)}%</text>`).join('');
+  const rotulos = lista.map((m, i) => {
+    const ponta = i === 0 || i === lista.length - 1;
+    const eJan = m.mes.endsWith('-01');
+    const perto = lista.some((o, j) => o.mes.endsWith('-01') && j !== i && Math.abs(j - i) < 3);
+    if (!eJan && !(ponta && !perto)) return '';
+    return `<text class="axislabel" x="${(padL + i * passo + passo / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${rotuloMes(m.mes)}</text>`;
+  }).join('');
+  return `<svg class="at-barras at-mensal-svg" viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Rentabilidade de ${esc(ctx.ticker)} mês a mês comparada ao ${esc(idx.label)}">
+      <line class="gridline" x1="${padL}" x2="${W - padR}" y1="${zero.toFixed(1)}" y2="${zero.toFixed(1)}"/>
+      ${ticks}${barras}${rotulos}
+    </svg>
+    <div class="chart-legend2 at-mensal-legenda">
+      <span class="li"><span class="at-leg-barra" style="background:var(${ctx.cfg.token})"></span>${esc(ctx.ticker)} (rentab. no mês)</span>
+      <span class="li"><span class="at-leg-ponto"></span>${esc(idx.label)}</span>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -706,65 +845,152 @@ export function proventosHtml(ctx) {
 
 const EXTRATO_INICIAL = 15;
 
-export function extratoLinhasHtml(ctx, filtro = 'todos', { todos = false } = {}) {
-  const itens = ctx.extrato.filter((e) => filtro === 'todos' || e.grupo === filtro);
-  const exibidos = todos ? itens : itens.slice(0, EXTRATO_INICIAL);
+const PILL_EXTRATO = { provento: 'good', entrada: 'info', saida: 'warn' };
+
+export function colunasExtrato(ctx) {
   const fmtItem = (e, v) => (e.moeda === 'USD' ? formatUSD(v) : formatBRL(v));
-  const linhas = exibidos.map((e) => {
-    const pill = e.grupo === 'provento' ? 'prov' : (e.entrada ? 'entrada' : 'saida');
-    const brl = e.moeda === 'USD' && typeof e.totalBrl === 'number' ? `<span class="cc-sub">${formatBRL(e.totalBrl)}</span>` : '';
-    const lucro = typeof e.lucro === 'number' && !e.entrada ? `<span class="cc-sub ${cor(e.lucro)}">${e.lucro >= 0 ? 'lucro' : 'prejuízo'} ${fmtItem(e, Math.abs(e.lucro))}</span>` : '';
-    return `<tr>
-      <td class="cc-td-esquerda cc-td-topo" data-label="Data"><b>${formatDateBR(e.data)}</b>${e.dataCom ? `<span class="cc-sub">data com ${formatDateBR(e.dataCom)}</span>` : ''}</td>
-      <td data-label="Tipo"><span class="at-pill ${pill}">${esc(e.tipo)}</span></td>
-      <td data-label="Quantidade">${e.quantidade != null ? formatNumeroBR(e.quantidade, Number.isInteger(e.quantidade) ? 0 : 4) : '—'}</td>
-      <td data-label="${e.grupo === 'provento' ? 'Por cota' : 'Preço'}">${e.preco != null ? (e.grupo === 'provento' ? (e.moeda === 'USD' ? `US$ ${formatNumeroBR(e.preco, 4)}` : `R$ ${formatNumeroBR(e.preco, 4)}`) : fmtItem(e, e.preco)) : '—'}</td>
-      <td data-label="Total">${fmtItem(e, e.total)}${brl}${lucro}</td>
-    </tr>`;
-  }).join('');
-  const mais = itens.length > EXTRATO_INICIAL
-    ? `<button class="at-mais" type="button" data-acao="extrato-todos">${todos ? 'Mostrar menos' : `Ver tudo (${itens.length})`}</button>` : '';
-  return itens.length
-    ? `<div class="cc-tabela-wrap"><table class="cc-tabela at-tabela"><thead><tr><th>Data</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Total</th></tr></thead><tbody>${linhas}</tbody></table></div>${mais}`
-    : '<p class="hint">Nada por aqui.</p>';
+  return [
+    { label: 'Data', campo: 'data', alinharEsquerda: true, ordenarPor: (e) => e.data,
+      formatar: (e) => `<b>${formatDateBR(e.data)}</b>${e.dataCom ? `<span class="cc-sub">data com ${formatDateBR(e.dataCom)}</span>` : ''}` },
+    { label: 'Tipo', campo: 'tipo', ordenarPor: (e) => e.tipo,
+      formatar: (e) => `<span class="status-pill ${PILL_EXTRATO[e.grupo === 'provento' ? 'provento' : (e.entrada ? 'entrada' : 'saida')]}">${esc(e.tipo)}</span>` },
+    { label: 'Qtd', campo: 'quantidade', ordenarPor: (e) => e.quantidade,
+      formatar: (e) => (e.quantidade != null ? formatNumeroBR(e.quantidade, Number.isInteger(e.quantidade) ? 0 : 4) : '—') },
+    { label: ctx.ehRf ? 'Preço' : 'Preço / por cota', campo: 'preco', ordenarPor: (e) => e.preco,
+      formatar: (e) => (e.preco != null ? (e.grupo === 'provento' ? `${e.moeda === 'USD' ? 'US$' : 'R$'} ${formatNumeroBR(e.preco, 4)}` : fmtItem(e, e.preco)) : '—') },
+    { label: 'Total', campo: 'total', ordenarPor: (e) => (typeof e.totalBrl === 'number' ? e.totalBrl : e.total),
+      formatar: (e) => {
+        const brl = e.moeda === 'USD' && typeof e.totalBrl === 'number' ? `<span class="cc-sub">${formatBRL(e.totalBrl)}</span>` : '';
+        const lucro = typeof e.lucro === 'number' && !e.entrada ? `<span class="cc-sub ${cor(e.lucro)}">${e.lucro >= 0 ? 'lucro' : 'prejuízo'} ${fmtItem(e, Math.abs(e.lucro))}</span>` : '';
+        return `<b>${fmtItem(e, e.total)}</b>${brl}${lucro}`;
+      } },
+  ];
+}
+
+function rodapeExtratoHtml(ctx, lista) {
+  if (!lista.length) return '';
+  const emReais = (e) => (typeof e.totalBrl === 'number' ? e.totalBrl : (e.moeda === 'USD' ? 0 : e.total || 0));
+  const soma = (f) => lista.filter(f).reduce((s, e) => s + emReais(e), 0);
+  const partes = [
+    [ctx.ehRf ? 'aplicações' : 'compras', soma((e) => e.grupo !== 'provento' && e.entrada)],
+    [ctx.ehRf ? 'resgates' : 'vendas', soma((e) => e.grupo !== 'provento' && !e.entrada)],
+    [ctx.ehRf ? 'juros' : 'proventos', soma((e) => e.grupo === 'provento')],
+  ].filter(([, v]) => v > 0).map(([r, v]) => `${r} ${formatBRL(v)}`);
+  return `<tr><td class="cc-td-esquerda" colspan="${colunasExtrato(ctx).length}"><b>${lista.length} lançamento${lista.length === 1 ? '' : 's'}</b>${partes.length ? ` · ${partes.join(' · ')}` : ''}</td></tr>`;
 }
 
 function extratoHtml(ctx) {
+  const st = estadoTabelas(ctx).extrato;
   const temProv = ctx.extrato.some((e) => e.grupo === 'provento');
   const filtros = temProv ? `
     <div class="filter-tabs at-extrato-filtros" id="atExtratoFiltros">
-      <button class="filter-tab active" type="button" data-filtro="todos">Tudo</button>
-      <button class="filter-tab" type="button" data-filtro="movimentacao">${ctx.ehRf ? 'Aplicações e resgates' : 'Compras e vendas'}</button>
-      <button class="filter-tab" type="button" data-filtro="provento">${ctx.ehRf ? 'Juros' : 'Proventos'}</button>
+      <button class="filter-tab${st.filtro === 'todos' ? ' active' : ''}" type="button" data-filtro="todos">Tudo</button>
+      <button class="filter-tab${st.filtro === 'movimentacao' ? ' active' : ''}" type="button" data-filtro="movimentacao">${ctx.ehRf ? 'Aplicações e resgates' : 'Compras e vendas'}</button>
+      <button class="filter-tab${st.filtro === 'provento' ? ' active' : ''}" type="button" data-filtro="provento">${ctx.ehRf ? 'Juros' : 'Proventos'}</button>
     </div>` : '';
   return `
     <section class="at-bloco" id="at-extrato">
-      <div class="area-header"><h2>Extrato</h2><span class="hint">${ctx.extrato.length} lançamentos</span></div>
-      <div class="cc-tabela-card">${filtros}<div id="atExtratoTabela">${extratoLinhasHtml(ctx)}</div></div>
+      <div class="area-header"><h2>Extrato</h2><span class="hint">${ctx.extrato.length} lançamentos · clique no título de uma coluna pra ordenar</span></div>
+      <div class="cc-tabela-card">
+        <div class="at-filtros-linha">${filtros}<div id="atExtratoAnos">${chipsAnoHtml(anosDe(ctx.extrato, 'data'), st.ano, 'data-ano')}</div></div>
+        <div id="atExtratoTabela"></div>
+      </div>
     </section>`;
 }
 
+/** Desenha o gráfico do mês a mês na largura real (só quando a aba Extrato e a vista Gráfico estão visíveis). */
+function desenharGraficoMensal(doc, ctx) {
+  const alvo = doc.getElementById('atMensalGrafico');
+  if (!alvo || alvo.hidden) return;
+  const st = estadoTabelas(ctx).mensal;
+  const meses = st.ano ? ctx.mensal.filter((m) => m.mes.startsWith(st.ano)) : ctx.mensal.slice(0, 24);
+  alvo.innerHTML = mensalGraficoSvg(ctx, meses, Math.round(alvo.clientWidth || 640));
+}
+
 function ligarExtratoEMensal(doc, ctx) {
-  const estado = { filtro: 'todos', todos: false, mensalTodos: false };
-  const tabela = doc.getElementById('atExtratoTabela');
-  const filtros = doc.getElementById('atExtratoFiltros');
-  const redesenhar = () => { if (tabela) tabela.innerHTML = extratoLinhasHtml(ctx, estado.filtro, { todos: estado.todos }); };
-  if (filtros) {
-    filtros.querySelectorAll('.filter-tab').forEach((b) => b.addEventListener('click', () => {
-      filtros.querySelectorAll('.filter-tab').forEach((x) => x.classList.toggle('active', x === b));
-      estado.filtro = b.dataset.filtro; estado.todos = false; redesenhar();
-    }));
-  }
-  if (tabela) tabela.addEventListener('click', (ev) => {
-    if (ev.target.closest && ev.target.closest('[data-acao="extrato-todos"]')) { estado.todos = !estado.todos; redesenhar(); }
-  });
-  const mensal = doc.getElementById('at-mensal');
-  if (mensal) mensal.addEventListener('click', (ev) => {
-    if (ev.target.closest && ev.target.closest('[data-acao="mensal-todos"]')) {
-      estado.mensalTodos = !estado.mensalTodos;
-      mensal.innerHTML = mensalHtml(ctx, { todos: estado.mensalTodos });
+  const est = estadoTabelas(ctx);
+  const colsM = colunasMensal(ctx);
+  const colsE = colunasExtrato(ctx);
+  const alternarOrdem = (ordenacao, campo) => (ordenacao.campo === campo
+    ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
+    : { campo, direcao: campo === 'tipo' ? 'asc' : 'desc' }); // coluna nova: texto A-Z, número/data do maior pro menor
+
+  const tabMensal = doc.getElementById('atMensalTabela');
+  const desenharMensal = () => {
+    if (!tabMensal) return;
+    const st = est.mensal;
+    const filtrados = st.ano ? ctx.mensal.filter((m) => m.mes.startsWith(st.ano)) : ctx.mensal;
+    const ordenados = ordenarLista(filtrados, colsM, st.ordenacao);
+    const limitar = !st.ano && !st.todos && ordenados.length > MENSAL_INICIAL;
+    renderTabelaAtivosCarteiras(doc, tabMensal, limitar ? ordenados.slice(0, MENSAL_INICIAL) : ordenados, colsM, {
+      ordenacao: st.ordenacao,
+      linhaTotalHtml: rodapeMensalHtml(ctx, filtrados, st.ano),
+      onOrdenar: (campo) => { st.ordenacao = alternarOrdem(st.ordenacao, campo); desenharMensal(); },
+    });
+    const tabela = tabMensal.querySelector('table');
+    if (tabela) tabela.classList.add('at-tabela', 'at-tabela-mensal');
+    if (!st.ano && filtrados.length > MENSAL_INICIAL) {
+      tabMensal.insertAdjacentHTML('beforeend', `<button class="at-mais" type="button" data-acao="mensal-todos">${st.todos ? 'Mostrar só 12 meses' : `Ver os ${filtrados.length} meses`}</button>`);
     }
+    desenharGraficoMensal(doc, ctx);
+  };
+  if (tabMensal) tabMensal.addEventListener('click', (ev) => {
+    if (ev.target.closest && ev.target.closest('[data-acao="mensal-todos"]')) { est.mensal.todos = !est.mensal.todos; desenharMensal(); }
   });
+  const filtrosMensal = doc.getElementById('atMensalFiltros');
+  if (filtrosMensal) filtrosMensal.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => {
+    filtrosMensal.querySelectorAll('[data-ano]').forEach((x) => x.classList.toggle('active', x === b));
+    est.mensal.ano = b.dataset.ano || null; desenharMensal();
+  }));
+  const vista = doc.getElementById('atMensalVista');
+  if (vista) vista.querySelectorAll('[data-vista]').forEach((b) => b.addEventListener('click', () => {
+    est.mensal.vista = b.dataset.vista;
+    vista.querySelectorAll('[data-vista]').forEach((x) => x.classList.toggle('active', x === b));
+    const g = doc.getElementById('atMensalGrafico');
+    if (tabMensal) tabMensal.hidden = est.mensal.vista !== 'tabela';
+    if (g) g.hidden = est.mensal.vista !== 'grafico';
+    desenharGraficoMensal(doc, ctx);
+  }));
+  const janela = doc.defaultView;
+  if (janela && typeof janela.addEventListener === 'function') {
+    let timer = null;
+    janela.addEventListener('resize', () => { janela.clearTimeout(timer); timer = janela.setTimeout(() => desenharGraficoMensal(doc, ctx), 150); });
+  }
+  desenharMensal();
+
+  const tabExtrato = doc.getElementById('atExtratoTabela');
+  const desenharExtrato = () => {
+    if (!tabExtrato) return;
+    const st = est.extrato;
+    const filtrados = ctx.extrato.filter((e) => (st.filtro === 'todos' || e.grupo === st.filtro) && (!st.ano || String(e.data).startsWith(st.ano)));
+    if (!filtrados.length) { tabExtrato.innerHTML = '<p class="hint">Nada por aqui com esse filtro.</p>'; return; }
+    const ordenados = ordenarLista(filtrados, colsE, st.ordenacao);
+    const limitar = !st.todos && ordenados.length > EXTRATO_INICIAL;
+    renderTabelaAtivosCarteiras(doc, tabExtrato, limitar ? ordenados.slice(0, EXTRATO_INICIAL) : ordenados, colsE, {
+      ordenacao: st.ordenacao,
+      linhaTotalHtml: rodapeExtratoHtml(ctx, filtrados),
+      onOrdenar: (campo) => { st.ordenacao = alternarOrdem(st.ordenacao, campo); desenharExtrato(); },
+    });
+    const tabela = tabExtrato.querySelector('table');
+    if (tabela) tabela.classList.add('at-tabela');
+    if (filtrados.length > EXTRATO_INICIAL) {
+      tabExtrato.insertAdjacentHTML('beforeend', `<button class="at-mais" type="button" data-acao="extrato-todos">${st.todos ? 'Mostrar menos' : `Ver tudo (${filtrados.length})`}</button>`);
+    }
+  };
+  if (tabExtrato) tabExtrato.addEventListener('click', (ev) => {
+    if (ev.target.closest && ev.target.closest('[data-acao="extrato-todos"]')) { est.extrato.todos = !est.extrato.todos; desenharExtrato(); }
+  });
+  const filtros = doc.getElementById('atExtratoFiltros');
+  if (filtros) filtros.querySelectorAll('[data-filtro]').forEach((b) => b.addEventListener('click', () => {
+    filtros.querySelectorAll('[data-filtro]').forEach((x) => x.classList.toggle('active', x === b));
+    est.extrato.filtro = b.dataset.filtro; est.extrato.todos = false; desenharExtrato();
+  }));
+  const anos = doc.getElementById('atExtratoAnos');
+  if (anos) anos.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => {
+    anos.querySelectorAll('[data-ano]').forEach((x) => x.classList.toggle('active', x === b));
+    est.extrato.ano = b.dataset.ano || null; est.extrato.todos = false; desenharExtrato();
+  }));
+  desenharExtrato();
 }
 
 // ---------------------------------------------------------------------------
@@ -856,15 +1082,59 @@ export function informesFundoHtml(ctx) {
   </ul><p class="hint at-fonte">Via FNet (sistema de documentos da B3/CVM) - atualizado 1x por dia.</p>`;
 }
 
+const NOTICIAS_VISIVEIS = 6;
+
+function hostDe(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return ''; }
+}
+
+/**
+ * 25/09/2026 (Tiago: "Teria como mostrar as imagens se disponível? se não um
+ * placeholder? estilo print"): cartões com imagem em cima, título e "há X
+ * horas". O Google Notícias quase nunca manda a imagem no RSS, então o normal
+ * é o placeholder: ícone do site da fonte (serviço de favicons do Google) e o
+ * nome dela, na cor da classe. Se a imagem vier e falhar, ela some e o
+ * placeholder por baixo aparece.
+ */
 export function noticiasHtml(resposta, agora = new Date()) {
-  if (!resposta) return '<div class="at-carregando"><span class="skel" style="height:16px"></span><span class="skel" style="height:16px;width:80%"></span><span class="skel" style="height:16px;width:65%"></span></div>';
+  if (!resposta) return `<div class="at-noticias-grade">${'<div class="at-noticia"><span class="skel at-noticia-img"></span><span class="skel" style="height:14px"></span><span class="skel" style="height:14px;width:70%"></span></div>'.repeat(3)}</div>`;
   if (!resposta.ok) return `<p class="hint">Não deu pra buscar as notícias agora (${esc(resposta.erro || resposta.etapa || 'erro')}).</p>`;
   const itens = (resposta.noticias || []).filter((n) => urlSegura(n.link));
   if (!itens.length) return '<p class="hint">Nenhuma notícia nos últimos 60 dias.</p>';
-  return `<ul class="at-noticias">${itens.map((n) => `
-    <li><a href="${urlSegura(n.link)}" target="_blank" rel="noopener">${esc(n.titulo)}</a>
-      <span class="at-noticia-meta">${n.fonte ? `${esc(n.fonte)} · ` : ''}${n.data ? `${formatRelativeTime(n.data, agora)} · ${formatDateBR(n.data)}` : ''}</span></li>`).join('')}
-  </ul><p class="hint at-fonte">Via Google Notícias, atualizado a cada 2 horas.</p>`;
+  const cartao = (n, i) => {
+    const host = hostDe(n.fonteUrl);
+    const iniciais = String(n.fonte || host || '?').replace(/[^A-Za-zÀ-ú0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '•';
+    const favicon = host ? `<img class="at-noticia-favicon" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64" alt="" loading="lazy" onerror="this.remove()">` : '';
+    const imagem = /^https:\/\//i.test(String(n.imagem || '')) ? `<img class="at-noticia-foto" src="${urlSegura(n.imagem)}" alt="" loading="lazy" onerror="this.remove()">` : '';
+    return `
+      <a class="at-noticia${i >= NOTICIAS_VISIVEIS ? ' at-noticia-extra' : ''}" href="${urlSegura(n.link)}" target="_blank" rel="noopener">
+        <span class="at-noticia-img" aria-hidden="true">
+          <span class="at-noticia-ph"><span class="at-noticia-marca">${favicon}<span class="at-noticia-iniciais">${esc(iniciais)}</span></span><span class="at-noticia-ph-fonte">${esc(n.fonte || host || 'Notícia')}</span></span>
+          ${imagem}
+        </span>
+        <span class="at-noticia-titulo">${esc(n.titulo)}</span>
+        <span class="at-noticia-meta">${n.data ? `${formatRelativeTime(n.data, agora)}` : ''}${n.fonte ? `${n.data ? ' · ' : ''}${esc(n.fonte)}` : ''}</span>
+      </a>`;
+  };
+  const extras = itens.length - NOTICIAS_VISIVEIS;
+  return `<div class="at-noticias-grade">${itens.map(cartao).join('')}</div>
+    ${extras > 0 ? `<button class="at-mais" type="button" data-acao="noticias-todas">Ver mais ${extras} notícia${extras === 1 ? '' : 's'}</button>` : ''}
+    <p class="hint at-fonte">Via Google Notícias, atualizado a cada 2 horas.</p>`;
+}
+
+/** "Ver mais notícias" (delegado - o conteúdo das notícias chega depois do desenho da página). */
+function ligarNoticias(raiz) {
+  if (raiz._noticiasLigadas) return;
+  raiz._noticiasLigadas = true;
+  raiz.addEventListener('click', (ev) => {
+    const btn = ev.target.closest && ev.target.closest('[data-acao="noticias-todas"]');
+    if (!btn) return;
+    const caixa = btn.closest('#atNoticiasConteudo');
+    if (!caixa) return;
+    const aberto = caixa.classList.toggle('at-noticias-todas');
+    const extras = caixa.querySelectorAll('.at-noticia-extra').length;
+    btn.textContent = aberto ? 'Mostrar menos' : `Ver mais ${extras} notícia${extras === 1 ? '' : 's'}`;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -877,19 +1147,67 @@ const CAMPOS_SOBRE = {
   acoesEua: [['setor', 'Setor'], ['industria', 'Indústria'], ['bolsa', 'Bolsa'], ['tipo', 'Tipo'], ['pais', 'País'], ['sede', 'Sede'], ['fundacao', 'Fundação'], ['moedaDividendos', 'Moeda dos dividendos'], ['retencaoDividendosBrasileiro', 'Imposto retido nos dividendos']],
 };
 
+/** Imagem do Sobre: https ou um caminho do próprio site (assets/...). */
+function srcImagemSobre(url) {
+  const u = String(url || '').trim();
+  if (/^https:\/\//i.test(u)) return urlSegura(u);
+  if (/^assets\/[\w./-]+$/.test(u)) return new URL(u, resolveSiteRootUrl()).href;
+  return null;
+}
+
+function figuraSobreHtml(img, classe = '') {
+  const src = img && srcImagemSobre(img.url);
+  if (!src) return '';
+  const leg = [img.legenda ? esc(img.legenda) : '', img.credito ? `<span class="at-sobre-credito">${esc(img.credito)}</span>` : ''].filter(Boolean).join(' ');
+  return `<figure class="at-sobre-fig ${classe}"><img src="${src}" alt="${esc(img.legenda || '')}" loading="lazy" onerror="this.closest('figure').remove()">${leg ? `<figcaption>${leg}</figcaption>` : ''}</figure>`;
+}
+
+const paragrafos = (texto) => String(texto || '').split(/\n{2,}/).map((p) => p.trim()).filter(Boolean).map((p) => `<p>${esc(p)}</p>`).join('');
+
+/**
+ * 25/09/2026 (abas): Sobre ganhou espaço próprio (aba "Sobre e IR") e aceita
+ * texto longo e imagens - em assets/data/ativos-sobre.json, além de
+ * "descricao", cada ativo pode ter "imagem" ({url, legenda, credito}, foto de
+ * destaque) e "secoes" ([{titulo, texto (parágrafos separados por linha em
+ * branco), imagem?}]). Sem isso, mostra só o que já tinha.
+ */
 export function sobreHtml(ctx) {
   const s = ctx.sobre;
   if (!s) return '';
   const campos = (CAMPOS_SOBRE[ctx.classe] || []).filter(([c]) => s[c]).map(([c, rotulo]) => `<div><dt>${rotulo}</dt><dd>${esc(s[c])}</dd></div>`).join('');
   const links = [['site', 'Site'], ['ri', 'Relações com investidores']].filter(([c]) => urlSegura(s[c]))
     .map(([c, rotulo]) => `<a class="at-link" href="${urlSegura(s[c])}" target="_blank" rel="noopener">${rotulo} ↗</a>`).join('');
+  const chips = [s.setor, s.segmento, s.tipo && ctx.classe === 'fiis' ? s.tipo : null, s.pais].filter(Boolean).map((c) => `<span class="at-chip">${esc(c)}</span>`).join('');
+  const secoes = (Array.isArray(s.secoes) ? s.secoes : []).filter((sec) => sec && (sec.titulo || sec.texto)).map((sec) => `
+        <section class="at-sobre-secao">
+          ${sec.titulo ? `<h3>${esc(sec.titulo)}</h3>` : ''}
+          ${figuraSobreHtml(sec.imagem, 'at-sobre-fig-lateral')}
+          ${paragrafos(sec.texto)}
+        </section>`).join('');
+  const fontes = (Array.isArray(s.fontes) ? s.fontes : []).map((u) => urlSegura(u)).filter(Boolean);
   return `
-    <section class="at-card" id="at-sobre" aria-labelledby="at-sobre-titulo">
-      <div class="at-card-titulo"><h2 id="at-sobre-titulo">Sobre</h2></div>
-      ${s.nome ? `<p class="at-sobre-nome">${esc(s.nome)}</p>` : ''}
-      ${s.descricao ? `<p class="at-sobre-desc">${esc(s.descricao)}</p>` : ''}
-      ${campos ? `<dl class="at-dl">${campos}</dl>` : ''}
-      ${links ? `<div class="at-links">${links}</div>` : ''}
+    <section class="at-card at-sobre" id="at-sobre" aria-labelledby="at-sobre-titulo">
+      <header class="at-sobre-topo">
+        <span class="at-logo">${logoAtivoHtml(ctx.ticker)}</span>
+        <div>
+          <h2 id="at-sobre-titulo">Sobre ${esc(ctx.ticker)}</h2>
+          ${s.nome ? `<p class="at-sobre-nome">${esc(s.nome)}</p>` : ''}
+          ${chips ? `<div class="at-chips">${chips}</div>` : ''}
+        </div>
+      </header>
+      ${figuraSobreHtml(s.imagem, 'at-sobre-fig-destaque')}
+      <div class="at-sobre-corpo">
+        <div class="at-sobre-texto">
+          ${s.descricao ? `<div class="at-sobre-desc">${paragrafos(s.descricao)}</div>` : ''}
+          ${secoes}
+        </div>
+        <aside class="at-sobre-ficha">
+          <h3>Ficha</h3>
+          ${campos ? `<dl class="at-dl">${campos}</dl>` : ''}
+          ${links ? `<div class="at-links">${links}</div>` : ''}
+        </aside>
+      </div>
+      ${fontes.length ? `<p class="hint at-fonte">Fontes: ${fontes.map((u) => `<a href="${u}" target="_blank" rel="noopener">${esc(hostDe(u))}</a>`).join(' · ')}</p>` : ''}
     </section>`;
 }
 
@@ -1009,15 +1327,22 @@ function informesFundoCardHtml_(ctx) {
     </section>`;
 }
 
+function noticiasCardHtml_() {
+  return `
+      <section class="at-card" id="at-noticias" aria-labelledby="at-noticias-titulo">
+        <div class="at-card-titulo"><h2 id="at-noticias-titulo">Últimas notícias</h2><span class="hint">Google Notícias</span></div>
+        <div id="atNoticiasConteudo">${noticiasHtml(null)}</div>
+      </section>`;
+}
+
 /**
- * 25/09/2026 (Tiago, pontos 1 e 2): Notícias e Sobre foram pra coluna
- * PRINCIPAL, logo abaixo do Extrato - ficavam só na lateral, que sobrava
- * mais alta que a principal e deixava um vão vazio no corpo da página.
- * Tese (só ações/ações EUA - FIIs não têm tese da Suno, ganham "Informes
- * do fundo" no lugar) continua na lateral, junto com a faixa de preço e
- * os indicadores - são cartões de contexto, não conteúdo pra ler.
+ * 25/09/2026 (abas): Visão geral = resumo + gráficos, proventos, notícias
+ * (logo abaixo de proventos) e a tese no corpo da página; na lateral, links,
+ * faixa de preço, indicadores e (FIIs) os informes do fundo. Extrato = mês a
+ * mês + extrato. Sobre = Sobre + imposto de renda. As 3 abas vão pro HTML de
+ * uma vez (trocar de aba é só mostrar/esconder, sem refazer nada).
  */
-export function paginaHtml(ctx) {
+export function paginaHtml(ctx, { aba = 'visao' } = {}) {
   const ehFii = ctx.classe === 'fiis';
   const lateral = ctx.ehRf ? `
       ${linksRelevantesHtml(ctx)}
@@ -1025,32 +1350,69 @@ export function paginaHtml(ctx) {
       ${linksRelevantesHtml(ctx)}
       ${faixaHtml(ctx)}
       ${indicadoresHtml(ctx)}
-      ${ehFii ? informesFundoCardHtml_(ctx) : teseCardHtml_(ctx)}`;
+      ${ehFii ? informesFundoCardHtml_(ctx) : ''}`;
   const principal = ctx.ehRf ? `
-      ${graficosHtml(ctx)}
-      <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
-      ${extratoHtml(ctx)}
-      ${sobreHtml(ctx)}` : `
+      ${graficosHtml(ctx)}` : `
       ${graficosHtml(ctx)}
       ${proventosHtml(ctx)}
-      <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
-      ${extratoHtml(ctx)}
-      <section class="at-card" id="at-noticias" aria-labelledby="at-noticias-titulo">
-        <div class="at-card-titulo"><h2 id="at-noticias-titulo">Notícias</h2></div>
-        <div id="atNoticiasConteudo">${noticiasHtml(null)}</div>
-      </section>
-      ${sobreHtml(ctx)}`;
+      ${noticiasCardHtml_()}
+      ${ehFii ? '' : teseCardHtml_(ctx)}`;
+  const painel = (id, conteudo) => `
+      <section class="at-aba" id="at-aba-${id}" role="tabpanel" aria-labelledby="at-tab-${id}"${id === aba ? '' : ' hidden'}>${conteudo}
+      </section>`;
   return `
     <div class="at-pagina" style="--accent:var(${ctx.cfg.token}); --accent-soft:var(${ctx.cfg.soft})">
       ${cabecalhoHtml(ctx)}
-      ${navSecoesHtml(ctx)}
-      <div class="at-resumo-wrap">${resumoHtml(ctx)}</div>
-      <div class="at-grade">
-        <div class="at-col at-col-principal">${principal}</div>
-        <aside class="at-col at-col-lateral">${lateral}</aside>
-      </div>
-      ${irHtml(ctx)}
+      ${abasHtml(ctx, aba)}
+      ${painel('visao', `
+        <div class="at-resumo-wrap">${resumoHtml(ctx)}</div>
+        <div class="at-grade">
+          <div class="at-col at-col-principal">${principal}</div>
+          <aside class="at-col at-col-lateral">${lateral}</aside>
+        </div>`)}
+      ${painel('extrato', `
+        <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
+        ${extratoHtml(ctx)}`)}
+      ${painel('sobre', `
+        ${sobreHtml(ctx)}
+        ${irHtml(ctx)}`)}
     </div>`;
+}
+
+/** Liga as abas: troca o painel visível, guarda no endereço e avisa os gráficos (que medem a largura). */
+function ligarAbas(doc, raiz, { aoMostrar = () => {} } = {}) {
+  const janela = doc.defaultView;
+  const botoes = [...raiz.querySelectorAll('.at-abas [data-aba]')];
+  const mostrar = (id, { foco = false } = {}) => {
+    botoes.forEach((b) => {
+      const ativa = b.dataset.aba === id;
+      b.classList.toggle('active', ativa);
+      b.setAttribute('aria-selected', String(ativa));
+      b.tabIndex = ativa ? 0 : -1;
+      if (ativa && foco) b.focus();
+    });
+    raiz.querySelectorAll('.at-aba').forEach((sec) => { sec.hidden = sec.id !== `at-aba-${id}`; });
+    try {
+      const hash = id === 'visao' ? '' : `#${id}`;
+      if (janela && janela.history && (janela.location.hash || '') !== hash) {
+        janela.history.replaceState(null, '', `${janela.location.pathname}${janela.location.search}${hash}`);
+      }
+    } catch (_) { /* sem history (testes antigos): só não lembra */ }
+    // gráficos escondidos mediram largura 0 - "resize" faz cada um redesenhar
+    try { if (janela && typeof janela.dispatchEvent === 'function') janela.dispatchEvent(new janela.Event('resize')); } catch (_) { /* nada */ }
+    aoMostrar(id);
+  };
+  botoes.forEach((b, i) => {
+    b.tabIndex = b.classList.contains('active') ? 0 : -1;
+    b.addEventListener('click', () => mostrar(b.dataset.aba));
+    b.addEventListener('keydown', (ev) => {
+      const passo = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!passo) return;
+      ev.preventDefault();
+      mostrar(botoes[(i + passo + botoes.length) % botoes.length].dataset.aba, { foco: true });
+    });
+  });
+  return mostrar;
 }
 
 /** Redesenha as barras de proventos na largura real do cartão (1 unidade = 1px, texto sem distorcer). */
@@ -1071,7 +1433,8 @@ function ligarBarras(doc, ctx) {
 }
 
 function desenhar(doc, conteudoEl, ctx) {
-  conteudoEl.innerHTML = paginaHtml(ctx);
+  const janela = doc.defaultView;
+  conteudoEl.innerHTML = paginaHtml(ctx, { aba: abaDoHash(janela && janela.location ? janela.location.hash : '') });
   doc.title = `${ctx.ticker} · Patrimônio`;
   wirePointerTooltipCarteiras_(doc, conteudoEl);
   ligarBarras(doc, ctx);
@@ -1079,6 +1442,8 @@ function desenhar(doc, conteudoEl, ctx) {
   ligarExtratoEMensal(doc, ctx);
   ligarTese(doc.getElementById('atTeseConteudo'));
   ligarCopiarIr(doc, conteudoEl);
+  ligarNoticias(conteudoEl);
+  ligarAbas(doc, conteudoEl, { aoMostrar: (id) => { if (id === 'extrato') desenharGraficoMensal(doc, ctx); } });
 }
 
 /**
@@ -1108,6 +1473,7 @@ export async function montarPaginaAtivo(token, {
     return;
   }
 
+  estadoTabelasAtivo.clear(); // página nova: filtros/ordem das tabelas voltam ao padrão
   const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false };
   const estaticosPromise = carregarEstaticosImpl();
 

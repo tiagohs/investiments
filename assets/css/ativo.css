@@ -36,11 +36,30 @@
 .at-pagina .good{ color:var(--good-ink); }
 .at-pagina .bad{ color:var(--bad-ink); }
 
-/* ---- seções (atalhos) ---- */
-.at-secoes{ display:flex; flex-wrap:wrap; gap:6px; }
-.at-secoes a{ font-size:11.5px; font-weight:600; color:var(--ink-muted); text-decoration:none; padding:5px 11px;
-  border-radius:100px; border:1px solid var(--border); background:var(--surface); }
-.at-secoes a:hover, .at-secoes a:focus-visible{ color:var(--accent); border-color:var(--accent); }
+/* ---- abas (25/09/2026): mesmos .side-item de Carteiras, em linha ---- */
+.at-abas{ display:flex; gap:6px; flex-wrap:wrap; padding:4px; border-radius:18px; background:var(--surface-3); align-self:flex-start; max-width:100%; }
+.at-abas .side-item{ width:auto; padding:7px 14px 7px 8px; }
+.at-abas .side-item:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.at-abas .side-item.active .side-ico{ background:var(--accent-soft); color:var(--accent); }
+.at-aba{ display:flex; flex-direction:column; gap:18px; min-width:0; }
+.at-aba[hidden]{ display:none; }
+
+/* ---- tags da tabela (status-pill de Carteiras + 2 variações daqui) ---- */
+.at-pagina .status-pill.info{ background:var(--accent-soft); color:var(--accent); }
+.at-pagina .status-pill.bad{ background:var(--bad-soft, var(--warn-soft)); color:var(--bad-ink); }
+.at-pagina .cc-tabela td .status-pill{ margin-top:0; font-variant-numeric:tabular-nums; }
+
+/* ---- filtros das tabelas do Extrato ---- */
+.at-filtros-linha{ display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin-bottom:12px; }
+#atMensalFiltros:not(:empty){ margin-bottom:12px; }
+.at-chips-ano .filter-tab{ font-variant-numeric:tabular-nums; }
+.at-mensal-topo{ flex-wrap:wrap; }
+.at-mensal-topo .at-vista{ margin-left:auto; }
+.cc-tabela-card > #atMensalFiltros:empty{ display:none; }
+.at-mensal-grafico{ padding:6px 2px 2px; }
+.at-mensal-svg .at-mensal-indice{ fill:var(--surface); stroke:var(--ink-muted); stroke-width:2; }
+.at-leg-barra{ width:12px; height:12px; border-radius:3px; display:inline-block; }
+.at-leg-ponto{ width:9px; height:9px; border-radius:50%; display:inline-block; border:2px solid var(--ink-muted); background:var(--surface); }
 
 /* ---- gráficos: título + toggle de moeda (ponto 4b) ---- */
 .at-graficos-titulo{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
@@ -157,18 +176,49 @@
 .at-tese-pdf{ flex:0 0 100%; }
 .at-tese-pdf iframe{ width:100%; height:min(70vh,640px); border:1px solid var(--border); border-radius:10px; background:var(--surface-3); }
 
-/* ---- notícias ---- */
-.at-noticias{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; }
-.at-noticias li{ display:flex; flex-direction:column; gap:3px; padding:10px 0; border-top:1px solid var(--border); }
-.at-noticias li:first-child{ border-top:none; padding-top:0; }
-.at-noticias a{ color:var(--ink); text-decoration:none; font-weight:600; font-size:13.5px; line-height:1.4; text-wrap:pretty; }
-.at-noticias a:hover{ color:var(--accent); text-decoration:underline; }
-.at-noticia-meta{ font-size:11px; color:var(--ink-faint); }
+/* ---- notícias (25/09/2026: cartões com imagem ou placeholder da fonte) ---- */
+.at-noticias-grade{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px 16px; }
+.at-noticia{ display:flex; flex-direction:column; gap:8px; color:var(--ink); text-decoration:none; min-width:0; }
+.at-noticia-extra{ display:none; }
+.at-noticias-todas .at-noticia-extra{ display:flex; }
+.at-noticia-img{ position:relative; display:block; aspect-ratio:16 / 9; border-radius:12px; overflow:hidden;
+  background:linear-gradient(135deg, var(--accent-soft), var(--surface-3)); }
+.at-noticia-foto{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.at-noticia-ph{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:10px; text-align:center; }
+.at-noticia-marca{ position:relative; width:44px; height:44px; border-radius:12px; background:var(--surface); box-shadow:var(--shadow);
+  display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.at-noticia-iniciais{ font-weight:700; font-size:14px; color:var(--accent); }
+.at-noticia-favicon{ position:absolute; inset:8px; width:28px; height:28px; background:var(--surface); }
+.at-noticia-ph-fonte{ font-size:11.5px; font-weight:600; color:var(--ink-muted); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.at-noticia-titulo{ font-weight:700; font-size:14.5px; line-height:1.35; text-wrap:pretty;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.at-noticia:hover .at-noticia-titulo{ color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+.at-noticia:focus-visible{ outline:2px solid var(--accent); outline-offset:4px; border-radius:12px; }
+.at-noticia .skel.at-noticia-img{ border-radius:12px; }
+.at-noticia-meta{ font-size:11.5px; color:var(--ink-faint); }
 .at-carregando{ display:flex; flex-direction:column; gap:8px; }
 
-/* ---- sobre ---- */
-.at-sobre-nome{ font-weight:700; margin:0 0 6px; font-size:13.5px; }
-.at-sobre-desc{ font-size:13.5px; line-height:1.55; margin:0; color:var(--ink); }
+/* ---- sobre (25/09/2026: aba própria - texto longo, imagens e ficha ao lado) ---- */
+.at-sobre{ display:flex; flex-direction:column; gap:18px; }
+.at-sobre-topo{ display:flex; align-items:center; gap:14px; }
+.at-sobre-topo h2{ margin:0; font-family:var(--display); font-size:20px; }
+.at-sobre-topo .at-chips{ margin-top:6px; }
+.at-sobre-nome{ font-weight:600; margin:2px 0 0; font-size:13.5px; color:var(--ink-muted); }
+.at-sobre-corpo{ display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:28px; align-items:start; }
+.at-sobre-texto{ max-width:70ch; display:flex; flex-direction:column; gap:6px; }
+.at-sobre-texto p{ margin:0 0 10px; font-size:14.5px; line-height:1.65; color:var(--ink); text-wrap:pretty; }
+.at-sobre-desc p:first-child{ font-size:15.5px; }
+.at-sobre-secao{ display:flow-root; }
+.at-sobre-secao h3{ font-family:var(--display); font-size:17px; margin:10px 0 8px; }
+.at-sobre-ficha{ position:sticky; top:16px; padding:14px 16px; border:1px solid var(--border); border-radius:12px; }
+.at-sobre-ficha h3{ margin:0; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); }
+.at-sobre-fig{ margin:0; }
+.at-sobre-fig img{ display:block; width:100%; height:auto; border-radius:12px; background:var(--surface-3); }
+.at-sobre-fig-destaque img{ max-height:340px; object-fit:cover; }
+.at-sobre-fig-lateral{ float:right; width:min(42%, 280px); margin:4px 0 10px 18px; }
+.at-sobre-fig figcaption{ font-size:11.5px; color:var(--ink-faint); margin-top:6px; }
+.at-sobre-credito{ font-style:italic; }
+.at-sobre .at-fonte a{ color:inherit; }
 .at-dl{ display:grid; grid-template-columns:minmax(0,1fr); gap:0; margin:12px 0 0; }
 .at-dl div{ display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid var(--border); }
 .at-dl dt{ font-size:11.5px; color:var(--ink-faint); flex:none; }
@@ -212,7 +262,10 @@
 @media (max-width:1100px){
   .at-grade{ grid-template-columns:minmax(0,1fr); }
   .at-col-lateral{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
-  #at-sobre, #at-tese, #at-informes, #at-links{ grid-column:1 / -1; }
+  #at-informes, #at-links{ grid-column:1 / -1; }
+  .at-noticias-grade{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .at-sobre-corpo{ grid-template-columns:minmax(0,1fr); }
+  .at-sobre-ficha{ position:static; }
   .at-prov-stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 
@@ -234,7 +287,20 @@
   .at-grade{ display:flex; flex-direction:column; align-items:stretch; gap:18px; }
   .at-col, .at-col-lateral{ display:contents; }
   #at-links{ order:1; } #at-faixa{ order:2; } #at-graficos{ order:3; } #at-indicadores{ order:4; } #at-proventos{ order:5; }
-  #at-tese{ order:6; } #at-informes{ order:6; } #at-mensal{ order:7; } #at-extrato{ order:8; } #at-noticias{ order:9; } #at-sobre{ order:10; }
+  #at-noticias{ order:6; } #at-tese{ order:7; } #at-informes{ order:7; }
+  .at-abas{ align-self:stretch; }
+  .at-abas .side-item{ flex:1 1 0; justify-content:center; padding:8px 6px; }
+  .at-abas .side-item .side-label{ position:static; width:auto; height:auto; overflow:visible; clip:auto; white-space:nowrap; font-size:12px; }
+  .at-abas .side-ico{ display:none; }
+  .at-noticias-grade{ grid-template-columns:minmax(0,1fr); gap:14px; }
+  .at-noticia{ display:grid; grid-template-columns:112px minmax(0,1fr); grid-template-rows:auto 1fr; column-gap:12px; row-gap:4px; }
+  .at-noticia-img{ grid-row:1 / 3; aspect-ratio:4 / 3; border-radius:10px; }
+  .at-noticia-titulo{ font-size:13.5px; }
+  .at-noticias-todas .at-noticia-extra{ display:grid; }
+  .at-noticia-marca{ width:34px; height:34px; } .at-noticia-favicon{ inset:5px; width:24px; height:24px; }
+  .at-noticia-ph-fonte{ display:none; }
+  .at-sobre-fig-lateral{ float:none; width:100%; margin:4px 0 10px; }
+  .at-mensal-topo .at-vista{ margin-left:0; }
   .at-card{ padding:14px; }
   .at-mini{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
   .at-ir-fonte{ padding:12px; }

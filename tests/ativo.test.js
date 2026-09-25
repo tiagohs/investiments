@@ -9,11 +9,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
-function montarDom(ref = 'TEST3') {
+function montarDom(ref = 'TEST3', hash = '') {
   const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="carteiras">
     <div id="refreshControlAtivo"></div>
     <div id="ativoLoading"></div><div id="ativoErro" hidden></div><div id="ativoConteudo" hidden></div></body></html>`,
-  { url: `https://exemplo.test/repo/ativo/index.html?ref=${encodeURIComponent(ref)}`, pretendToBeVisual: true });
+  { url: `https://exemplo.test/repo/ativo/index.html?ref=${encodeURIComponent(ref)}${hash}`, pretendToBeVisual: true });
   const w = dom.window;
   globalThis.sessionStorage = w.sessionStorage;
   globalThis.localStorage = w.localStorage;
@@ -70,8 +70,8 @@ const ESTATICOS = {
   },
 };
 
-async function montar({ resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS } = {}) {
-  const { dom, doc, w } = montarDom(ref);
+async function montar({ resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS, hash = '' } = {}) {
+  const { dom, doc, w } = montarDom(ref, hash);
   const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
   const chamadas = { ativo: [], noticias: [], teses: [] };
   await montarPaginaAtivo('tk', {
@@ -162,12 +162,36 @@ test('ativo: notícias escapadas, só links http(s), com fonte e há quanto temp
     { titulo: 'Link ruim', link: 'javascript:alert(1)', fonte: 'X', data: null },
   ] } });
   assert.deepEqual(chamadas.noticias, [{ ticker: 'TEST3', nome: 'Teste <b>S.A.</b>', classe: 'acoes' }]);
-  const itens = doc.querySelectorAll('#atNoticiasConteudo .at-noticias li');
+  const itens = doc.querySelectorAll('#atNoticiasConteudo a.at-noticia');
   assert.equal(itens.length, 1);
-  assert.equal(itens[0].querySelector('img'), null);
-  assert.equal(itens[0].querySelector('a').getAttribute('href'), 'https://news.example/1');
-  assert.equal(itens[0].querySelector('a').getAttribute('rel'), 'noopener');
-  assert.match(txt(itens[0]), /Fonte A · há 3h/);
+  assert.equal(itens[0].querySelector('.at-noticia-titulo img'), null, 'título é texto');
+  assert.match(itens[0].querySelector('.at-noticia-titulo').textContent, /<img src=x/);
+  assert.equal(itens[0].getAttribute('href'), 'https://news.example/1');
+  assert.equal(itens[0].getAttribute('rel'), 'noopener');
+  assert.equal(itens[0].getAttribute('target'), '_blank');
+  assert.match(txt(itens[0].querySelector('.at-noticia-meta')), /há 3h · Fonte A/);
+  assert.ok(itens[0].querySelector('.at-noticia-ph'), 'sem imagem: placeholder');
+  assert.equal(itens[0].querySelector('.at-noticia-foto'), null);
+});
+
+test('ativo: notícias em cartões - imagem quando vem (só https), favicon da fonte no placeholder, 6 visíveis + "ver mais"', async () => {
+  const noticias = Array.from({ length: 8 }, (_, i) => ({
+    titulo: `Notícia ${i + 1}`, link: `https://news.example/${i + 1}`, fonte: 'Jornal Teste', fonteUrl: 'https://www.jornal.example',
+    data: '2026-03-10T12:00:00Z', imagem: i === 0 ? 'https://img.example/1.jpg' : (i === 1 ? 'http://inseguro/2.jpg' : null),
+  }));
+  const { doc, w } = await montar({ noticias: { ok: true, noticias } });
+  const cartoes = [...doc.querySelectorAll('#atNoticiasConteudo a.at-noticia')];
+  assert.equal(cartoes.length, 8);
+  assert.equal(cartoes[0].querySelector('.at-noticia-foto').getAttribute('src'), 'https://img.example/1.jpg');
+  assert.equal(cartoes[1].querySelector('.at-noticia-foto'), null, 'http não entra');
+  assert.match(cartoes[2].querySelector('.at-noticia-favicon').getAttribute('src'), /s2\/favicons\?domain=jornal\.example/);
+  assert.equal(doc.querySelectorAll('.at-noticia-extra').length, 2);
+  const caixa = doc.getElementById('atNoticiasConteudo');
+  const btn = caixa.querySelector('[data-acao="noticias-todas"]');
+  assert.match(btn.textContent, /Ver mais 2 notícias/);
+  clique(w, btn);
+  assert.ok(caixa.classList.contains('at-noticias-todas'));
+  assert.equal(btn.textContent, 'Mostrar menos');
 });
 
 test('ativo: Sobre (só links http) e IR = onde baixar o informe deste ativo', async () => {
@@ -261,4 +285,92 @@ test('ativo: IR "Na declaração" - ficha 03/01 com CNPJ, discriminação de 31/
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(copiado, doc.getElementById(btn.dataset.copiar).textContent);
   assert.equal(btn.textContent, 'Copiado ✓');
+});
+
+test('ativo: abas - Visão geral aberta; Extrato e Sobre escondidas; clique troca o painel e guarda no endereço; setas do teclado navegam', async () => {
+  const { doc, w } = await montar();
+  const painel = (id) => doc.getElementById(`at-aba-${id}`);
+  assert.equal(painel('visao').hidden, false);
+  assert.equal(painel('extrato').hidden, true);
+  assert.equal(painel('sobre').hidden, true);
+  assert.ok(painel('visao').querySelector('#at-graficos') && painel('visao').querySelector('#at-proventos') && painel('visao').querySelector('#at-noticias') && painel('visao').querySelector('#at-tese'));
+  assert.ok(painel('extrato').querySelector('#at-mensal') && painel('extrato').querySelector('#at-extrato'));
+  assert.ok(painel('sobre').querySelector('#at-sobre') && painel('sobre').querySelector('#at-ir'));
+  const ordem = [...painel('visao').querySelectorAll('.at-col-principal > section')].map((s) => s.id);
+  assert.deepEqual(ordem, ['at-graficos', 'at-proventos', 'at-noticias', 'at-tese'], 'notícias logo abaixo de proventos; tese no corpo');
+
+  const aba = (id) => doc.getElementById(`at-tab-${id}`);
+  clique(w, aba('extrato'));
+  assert.equal(painel('extrato').hidden, false);
+  assert.equal(painel('visao').hidden, true);
+  assert.equal(aba('extrato').getAttribute('aria-selected'), 'true');
+  assert.equal(w.location.hash, '#extrato');
+  aba('extrato').dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  assert.equal(painel('sobre').hidden, false);
+  assert.equal(w.location.hash, '#sobre');
+  clique(w, aba('visao'));
+  assert.equal(w.location.hash, '');
+});
+
+test('ativo: abre direto na aba do endereço (#sobre)', async () => {
+  const { doc } = await montar({ hash: '#sobre' });
+  assert.equal(doc.getElementById('at-aba-sobre').hidden, false);
+  assert.equal(doc.getElementById('at-aba-visao').hidden, true);
+  assert.ok(doc.getElementById('at-tab-sobre').classList.contains('active'));
+});
+
+test('ativo: mês a mês - ordena pelo título da coluna, rodapé com o acumulado e alternador Tabela/Gráfico', async () => {
+  const { doc, w } = await montar({ hash: '#extrato' });
+  const meses = () => [...doc.querySelectorAll('#atMensalTabela tbody tr')].map((tr) => txt(tr.querySelector('td')));
+  assert.deepEqual(meses(), ['mar/26', 'fev/26', 'jan/26'], 'mais recente primeiro');
+  const thMes = [...doc.querySelectorAll('#atMensalTabela th.cc-th-ordenavel')].find((th) => /Mês/.test(th.textContent));
+  clique(w, thMes);
+  assert.deepEqual(meses(), ['jan/26', 'fev/26', 'mar/26']);
+  assert.match(txt(doc.querySelector('#atMensalTabela tfoot')), /Desde o início \(3 meses\) · rentab\./);
+  assert.ok(doc.querySelector('#atMensalTabela .status-pill'), 'rentabilidade como tag');
+  clique(w, doc.querySelector('#atMensalVista [data-vista="grafico"]'));
+  assert.equal(doc.getElementById('atMensalTabela').hidden, true);
+  assert.ok(doc.querySelector('#atMensalGrafico svg.at-mensal-svg'));
+  assert.match(txt(doc.getElementById('atMensalGrafico')), /TEST3 \(rentab\. no mês\)/);
+});
+
+test('ativo: extrato - tags por tipo, ordenação pelo título, filtro por ano e rodapé com as somas', async () => {
+  const resposta = respostaAcao();
+  resposta.transacoes.unshift({ data: '2025-11-03', tipo: 'Compra', preco: 9, quantidade: 5, taxa: 0, total: 45, totalBrl: 45, lucro: null });
+  resposta.transacoes.push({ data: '2026-03-02', tipo: 'Venda', preco: 13, quantidade: 5, taxa: 0, total: 65, totalBrl: 65, lucro: 8 });
+  const { doc, w } = await montar({ resposta, hash: '#extrato' });
+  const linhas = () => [...doc.querySelectorAll('#atExtratoTabela tbody tr')];
+  assert.equal(linhas().length, 5);
+  assert.ok(linhas()[0].querySelector('.status-pill.warn'), 'venda = tag de saída');
+  assert.match(txt(doc.querySelector('#atExtratoTabela tfoot')), /5 lançamentos · compras R\$\s*265,00 · vendas R\$\s*65,00 · proventos R\$\s*5,00/);
+  const thTotal = [...doc.querySelectorAll('#atExtratoTabela th.cc-th-ordenavel')].find((th) => /Total/.test(th.textContent));
+  clique(w, thTotal);
+  assert.match(txt(linhas()[0]), /R\$\s*120,00/, 'maior total primeiro');
+  clique(w, doc.querySelector('#atExtratoAnos [data-ano="2025"]'));
+  assert.equal(linhas().length, 1);
+  assert.match(txt(linhas()[0]), /03\/11\/2025/);
+  clique(w, doc.querySelector('#atExtratoFiltros [data-filtro="provento"]'));
+  assert.match(txt(doc.getElementById('atExtratoTabela')), /Nada por aqui/);
+});
+
+test('ativo: Sobre com seções longas e imagens (https ou assets/ do site; o resto fica de fora)', async () => {
+  const estaticos = structuredClone(ESTATICOS);
+  Object.assign(estaticos.sobre.ativos.TEST3, {
+    imagem: { url: 'https://img.example/fabrica.jpg', legenda: 'Fábrica', credito: 'Foto: Exemplo' },
+    secoes: [
+      { titulo: 'História', texto: 'Primeiro parágrafo.\n\nSegundo parágrafo.', imagem: { url: 'assets/imgs/teste.webp', legenda: 'Sede' } },
+      { titulo: 'Negócio', texto: 'Texto.', imagem: { url: 'javascript:alert(1)' } },
+    ],
+    fontes: ['https://fonte.example/a', 'javascript:alert(1)'],
+  });
+  const { doc } = await montar({ estaticos });
+  const sobre = doc.getElementById('at-sobre');
+  const imgs = [...sobre.querySelectorAll('figure img')].map((i) => i.getAttribute('src'));
+  assert.equal(imgs.length, 2, 'javascript: fica de fora');
+  assert.equal(imgs[0], 'https://img.example/fabrica.jpg');
+  assert.match(imgs[1], /\/assets\/imgs\/teste\.webp$/, 'caminho do site vira endereço absoluto');
+  assert.equal(sobre.querySelectorAll('.at-sobre-secao').length, 2);
+  assert.equal(sobre.querySelectorAll('.at-sobre-secao')[0].querySelectorAll('p').length, 2);
+  assert.match(txt(sobre), /Foto: Exemplo/);
+  assert.deepEqual([...sobre.querySelectorAll('.at-fonte a')].map((a) => a.textContent), ['fonte.example']);
 });

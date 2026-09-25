@@ -23,7 +23,7 @@
  */
 
 var ATIVO_CACHE_NOTICIAS_TTL = 2 * 60 * 60; // 2h
-var ATIVO_CACHE_NOTICIAS_PREFIXO = 'noticias_v1_'; // chave = prefixo + TICKER (ver limparCacheNoticiasAtivos_)
+var ATIVO_CACHE_NOTICIAS_PREFIXO = 'noticias_v2_'; // chave = prefixo + TICKER (ver limparCacheNoticiasAtivos_). v2 (25/09/2026): + imagem e fonteUrl
 var PROP_PASTA_TESES = 'TESES_PASTA_ID';
 
 function handleAtivo(e, auth) {
@@ -359,7 +359,20 @@ function extrairItensRss_(xml) {
     var data = new Date(campo(bloco, 'pubDate'));
     var link = campo(bloco, 'link');
     if (!titulo || !/^https?:\/\//.test(link)) continue;
-    itens.push({ titulo: titulo, link: link, fonte: fonte || null, data: isNaN(data.getTime()) ? null : data.toISOString() });
+    // 25/09/2026 (Tiago: "teria como mostrar as imagens se disponível?"): o
+    // Google Notícias quase nunca manda imagem no RSS - mas se vier
+    // (media:content / media:thumbnail / enclosure / <img> na descrição),
+    // aproveita; sem imagem o site mostra um placeholder com o ícone do site
+    // da fonte (fonteUrl).
+    var mImg = bloco.match(/<media:(?:content|thumbnail)[^>]*\burl="([^"]+)"/) ||
+      bloco.match(/<enclosure[^>]*\burl="([^"]+)"[^>]*type="image/) ||
+      bloco.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').match(/<img[^>]*\bsrc="(https?:[^"]+)"/);
+    var imagem = mImg && /^https:\/\//.test(mImg[1].replace(/&amp;/g, '&')) ? mImg[1].replace(/&amp;/g, '&') : null;
+    var mFonte = bloco.match(/<source[^>]*\burl="(https?:[^"]+)"/);
+    itens.push({
+      titulo: titulo, link: link, fonte: fonte || null, data: isNaN(data.getTime()) ? null : data.toISOString(),
+      imagem: imagem, fonteUrl: mFonte ? mFonte[1].replace(/&amp;/g, '&') : null
+    });
   }
   return itens.sort(function (a, b) { return (b.data || '') < (a.data || '') ? -1 : 1; });
 }
