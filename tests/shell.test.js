@@ -1148,3 +1148,14 @@ test('mountRefreshControl() sem container não quebra (só devolve no-ops)', asy
   await controle.atualizar();
   controle.pararTimer();
 });
+
+// 25/09/2026: botão Sair do topo
+test('setupLogoutButton(): clicar em Sair apaga o token e manda pro login', async () => {
+  const { JSDOM } = await import('jsdom');
+  const { setupLogoutButton } = await import('../assets/js/shell.js');
+  const doc = new JSDOM('<button id="logoutBtn"></button>').window.document;
+  const passos = [];
+  setupLogoutButton(doc, { clearTokenImpl: () => passos.push('limpou'), redirectImpl: () => passos.push('login') });
+  doc.getElementById('logoutBtn').click();
+  assert.deepEqual(passos, ['limpou', 'login']);
+});

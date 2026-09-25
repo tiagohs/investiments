@@ -48,7 +48,7 @@
  */
 
 import { initTheme, toggleTheme } from './theme.js';
-import { getToken } from './auth.js';
+import { getToken, clearToken } from './auth.js';
 import { getSyncHistorico, syncNow, syncRendaFixaEIndices, limparCacheHistorico } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
@@ -663,6 +663,16 @@ export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = 
   redirectImpl(win);
 }
 
+/** 25/09/2026: botão "Sair" do topo - esquece a sessão deste aparelho e vai pro login. */
+export function setupLogoutButton(doc, { clearTokenImpl = clearToken, redirectImpl = redirectParaLogin, win = doc.defaultView } = {}) {
+  const btn = doc.getElementById('logoutBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    clearTokenImpl();
+    redirectImpl(win);
+  });
+}
+
 /**
  * Real-world entry point: fetches the partial, injects it, marks the
  * active section from body[data-section], wires popovers + theme +
@@ -688,6 +698,7 @@ export async function mountShell(options = {}) {
     markActiveSection(doc, doc.body.dataset.section || null);
     setupPopovers(doc);
     setupThemeToggle(doc, { initTheme, toggleTheme });
+    setupLogoutButton(doc);
     setupAuthGate(doc, { onAuthenticated: options.onAuthenticated });
   } catch (error) {
     console.error('shell.js: failed to mount the shell', error);
