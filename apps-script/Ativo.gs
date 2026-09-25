@@ -98,6 +98,14 @@ function montarTelaAtivo_(ref) {
   var faixa52 = null;
   if (classe === 'fiis') { try { faixa52 = faixa52DaCarteiraFiis_(ss, ticker); } catch (eF52) { faixa52 = null; } }
 
+  // 25/09/2026 (Tiago, ponto 2): FIIs não têm tese da Suno - em vez disso,
+  // os informes/atualizações do fundo (FNet), lidos de uma aba já
+  // atualizada 1x por dia (rápido - ver FnetInformesFii.gs).
+  var informesFundo = null;
+  if (classe === 'fiis') {
+    try { informesFundo = lerInformesFundoFii_(ss, ticker); } catch (eInf) { informesFundo = { ok: false, etapa: 'informesFundo', erro: String(eInf) }; }
+  }
+
   var primeiraData = serie.length ? serie[0].data : (transacoes.length ? transacoes[0].data : hoje);
   return {
     ok: true,
@@ -113,6 +121,7 @@ function montarTelaAtivo_(ref) {
     aReceber: anunciados.aReceber,
     pagosNaoLancados: anunciados.pagosNaoLancados,
     faixa52: faixa52,
+    informesFundo: informesFundo,
     indices: indicesDesde_(primeiraData)
   };
 }

@@ -213,6 +213,31 @@ export function montarHistoricoAtivo(resposta) {
   return pontos;
 }
 
+/**
+ * 25/09/2026 #2 (Tiago: "os gráficos estão em reais, traga o filtro
+ * R$/Dólar" - ação EUA): os mesmos 4 campos do histórico do ativo (`ativo`,
+ * `fluxoCaixaAtivo`, `fluxoAplicadoAtivo`, `proventosAtivo`), em dólar -
+ * divide pelo câmbio do próprio dia (`cambioUsd`, já vem em cada ponto de
+ * montarHistoricoAtivo). Mesma técnica de inicio.js!comCamposUsdAcoesEua:
+ * é o mesmo câmbio que converteu pra reais, então a volta é exata. Ponto
+ * sem câmbio (antes da 1ª posição) fica com os campos em null.
+ */
+export function comCamposUsdAtivo(historico) {
+  return (historico || []).map((p) => {
+    const c = p.cambioUsd;
+    if (!(typeof c === 'number' && Number.isFinite(c) && c > 0)) {
+      return { ...p, ativoUsd: null, fluxoCaixaAtivoUsd: null, fluxoAplicadoAtivoUsd: null, proventosAtivoUsd: null };
+    }
+    const div = (v) => (typeof v === 'number' && Number.isFinite(v) ? v / c : null);
+    return { ...p, ativoUsd: div(p.ativo), fluxoCaixaAtivoUsd: div(p.fluxoCaixaAtivo), fluxoAplicadoAtivoUsd: div(p.fluxoAplicadoAtivo), proventosAtivoUsd: div(p.proventosAtivo) };
+  });
+}
+
+/** 25/09/2026: o histórico tem câmbio por dia (dá pra mostrar o ativo em dólar)? */
+export function historicoAtivoTemCambioUsd(historico) {
+  return Array.isArray(historico) && historico.some((p) => typeof p.cambioUsd === 'number' && p.cambioUsd > 0);
+}
+
 /** Valor aplicado acumulado em cada ponto. */
 export function aplicadoAcumulado(historico) {
   let soma = 0;
@@ -384,7 +409,12 @@ export function faixaDePreco(resposta) {
   }
   if (min == null) { min = atual; max = atual; fonte = 'atual'; }
   const teto = num(a.precoTeto);
-  const pm = num(a.precoMedio);
+  // 25/09/2026 (Tiago, print de PAM): preço médio 0/ausente (bug de dado a
+  // montante, na planilha) não pode virar um marcador "PM" fora da escala -
+  // 0 já ficava fora de [min,max] e ia parar numa posição absurda (a marca
+  // "perdida" fora da barra). Preço médio zerado é sempre inválido (nenhum
+  // ativo é comprado a R$/US$ 0) - trata como ausente, igual a null.
+  const pm = num(a.precoMedio) > 0 ? num(a.precoMedio) : null;
   const valores = [min, max, atual, teto, pm].filter((v) => v != null && v > 0);
   const escalaMin = Math.min(...valores);
   const escalaMax = Math.max(...valores);

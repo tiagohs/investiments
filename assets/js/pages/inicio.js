@@ -824,6 +824,10 @@ export const CAMPO_PRINCIPAL_POR_VISAO = {
   // 25/09/2026: tela Detalhe do ativo - histórico de UM ativo montado no
   // front (ativo-calc.js!montarHistoricoAtivo), com os mesmos nomes de campo
   ativoAcoes: 'ativo', ativoFiis: 'ativo', ativoAcoesEua: 'ativo', ativoRendaFixa: 'ativo',
+  // 25/09/2026 #2 (Tiago: "os graficos estao em reais, traga o filtro
+  // R$/Dolar"): Ações EUA em dólar na tela do ativo - mesmo padrão de
+  // carteiraAcoesEuaUsd acima, ver ativo-calc.js!comCamposUsdAtivo.
+  ativoAcoesEuaUsd: 'ativoUsd',
 };
 
 /** Campo de fluxo de caixa liquido diario (aporte/retirada/provento, ver
@@ -844,6 +848,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   carteiraRendaFixaLongoPrazo: 'fluxoCaixaRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
   ativoAcoes: 'fluxoCaixaAtivo', ativoFiis: 'fluxoCaixaAtivo', ativoAcoesEua: 'fluxoCaixaAtivo', ativoRendaFixa: 'fluxoCaixaAtivo',
+  ativoAcoesEuaUsd: 'fluxoCaixaAtivoUsd',
 };
 
 /** 21/09/2026 (pedido do Tiago - "Valor aplicado" tem que ser só capital
@@ -868,6 +873,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   carteiraRendaFixaLongoPrazo: 'fluxoAplicadoRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoAplicadoRendaEmergencial',
   ativoAcoes: 'fluxoAplicadoAtivo', ativoFiis: 'fluxoAplicadoAtivo', ativoAcoesEua: 'fluxoAplicadoAtivo', ativoRendaFixa: 'fluxoAplicadoAtivo',
+  ativoAcoesEuaUsd: 'fluxoAplicadoAtivoUsd',
 };
 
 /** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
@@ -958,6 +964,11 @@ const BENCHMARKS_POR_VISAO = {
     { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
     { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
   ],
+  // 25/09/2026 #2: mesma comparação de ativoAcoesEua, com o ativo em dólar
+  ativoAcoesEuaUsd: [
+    { campo: 'sp500', label: 'S&P 500', cor: '--ink-faint', dash: null },
+    { campo: 'indiceCdi', label: 'CDI', cor: '--rf', dash: '6 4' },
+  ],
 };
 
 // 19/09/2026: cor da linha do Portfólio (a série principal) por visão -
@@ -969,7 +980,7 @@ export const COR_PRINCIPAL_POR_VISAO = {
   total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes', internacional: '--acoes',
   carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa', carteiraAcoesEuaUsd: '--usa',
   carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
-  ativoAcoes: '--acoes', ativoFiis: '--fiis', ativoAcoesEua: '--usa', ativoRendaFixa: '--rf',
+  ativoAcoes: '--acoes', ativoFiis: '--fiis', ativoAcoesEua: '--usa', ativoRendaFixa: '--rf', ativoAcoesEuaUsd: '--usa',
 };
 
 /** Índice do primeiro valor numérico válido (não-nulo, finito) e diferente de
@@ -1406,6 +1417,7 @@ const LABEL_POR_VISAO_RENTABILIDADE = {
   carteiraRendaFixaLongoPrazo: 'Longo prazo',
   carteiraRendaFixaEmergencial: 'Reserva de emergência',
   ativoAcoes: 'Saldo do ativo', ativoFiis: 'Saldo do ativo', ativoAcoesEua: 'Saldo do ativo (em reais)', ativoRendaFixa: 'Saldo do título',
+  ativoAcoesEuaUsd: 'Saldo do ativo (em dólar)',
 };
 
 /**

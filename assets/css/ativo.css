@@ -42,6 +42,15 @@
   border-radius:100px; border:1px solid var(--border); background:var(--surface); }
 .at-secoes a:hover, .at-secoes a:focus-visible{ color:var(--accent); border-color:var(--accent); }
 
+/* ---- gráficos: título + toggle de moeda (ponto 4b) ---- */
+.at-graficos-titulo{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+
+/* ---- links relevantes (ponto 3) ---- */
+.at-links-grade{ display:flex; flex-direction:column; gap:7px; }
+.at-link-relevante{ display:flex; align-items:center; gap:6px; font-size:12.5px; font-weight:600;
+  color:var(--ink); text-decoration:none; padding:8px 11px; border-radius:9px; background:var(--surface-3); }
+.at-link-relevante:hover, .at-link-relevante:focus-visible{ color:var(--accent); background:var(--accent-soft); }
+
 /* ---- resumo ---- */
 .at-resumo .eyebrow{ display:block; margin-bottom:4px; }
 .at-resumo{ border-left:4px solid var(--accent); }
@@ -189,7 +198,7 @@
 @media (max-width:1100px){
   .at-grade{ grid-template-columns:minmax(0,1fr); }
   .at-col-lateral{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
-  #at-sobre, #at-tese{ grid-column:1 / -1; }
+  #at-sobre, #at-tese, #at-informes, #at-links{ grid-column:1 / -1; }
   .at-prov-stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 
@@ -210,8 +219,8 @@
   .at-logo .cc-logo{ width:48px; height:48px; font-size:15px; }
   .at-grade{ display:flex; flex-direction:column; align-items:stretch; gap:18px; }
   .at-col, .at-col-lateral{ display:contents; }
-  #at-faixa{ order:1; } #at-graficos{ order:2; } #at-indicadores{ order:3; } #at-proventos{ order:4; }
-  #at-tese{ order:5; } #at-mensal{ order:6; } #at-extrato{ order:7; } #at-noticias{ order:8; } #at-sobre{ order:9; }
+  #at-links{ order:1; } #at-faixa{ order:2; } #at-graficos{ order:3; } #at-indicadores{ order:4; } #at-proventos{ order:5; }
+  #at-tese{ order:6; } #at-informes{ order:6; } #at-mensal{ order:7; } #at-extrato{ order:8; } #at-noticias{ order:9; } #at-sobre{ order:10; }
   .at-card{ padding:14px; }
   .at-mini{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
   .at-regras, .at-onde{ grid-template-columns:minmax(0,1fr); padding-left:4px; }

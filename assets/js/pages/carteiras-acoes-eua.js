@@ -59,6 +59,11 @@ export function moedaAtualAcoesEua() {
 
 const CHAVE_CACHE_ACOES_EUA = 'carteiras_acoes_eua_v2';
 
+// 25/09/2026 (Tiago, ponto 3): link da carteira recomendada da Suno pra esta subpágina.
+const LINKS_RELEVANTES_ACOES_EUA = `<div class="cc-links-relevantes">
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/internacional" target="_blank" rel="noopener">Carteira recomendada: Internacional ↗</a>
+</div>`;
+
 function montarColunas_(cambio) {
   return [
     {
@@ -186,6 +191,7 @@ function desenhar(doc, dados) {
         <button class="filter-tab" type="button" data-moeda="USD" aria-pressed="false">US$</button>
       </div>
     </div>
+    ${LINKS_RELEVANTES_ACOES_EUA}
     <div id="acoesEuaResumo"></div>
     <div id="acoesEuaBenchmarks" class="cc-benchmarks"></div>
     ${montarBlocoGraficosHtml_()}

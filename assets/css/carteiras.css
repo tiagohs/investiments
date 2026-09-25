@@ -81,24 +81,6 @@
 .cg-chart-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px;
       padding:16px 16px 6px; position:relative; }
 
-/* 19/09/2026 #7 (pedido do Tiago - "na tela de renda fixa sao tres
-   graficos por tipo... No desktop, primeira row com o grafico da
-   carteira atual renda fixa, e na seugnda row, grafico de longo
-   pazo/renda emergencial lado a lado"): row 2 de cada seção de gráfico
-   de Renda Fixa (Longo Prazo + Reserva de Emergência) - 2 `.cg-chart-card`
-   lado a lado no desktop, mesmo breakpoint de `.cg-hero-grid` (empilha
-   em 1 coluna no celular, cada card com a largura cheia). `margin-top`
-   compensa o `.cg-chart-card` de cima (row 1, Carteira total) não ter
-   margem própria (o `.area-header` de cada seção já cuida do espaço
-   ACIMA da row 1). */
-.cc-charts-par{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
-@media (max-width:820px){ .cc-charts-par{ grid-template-columns:1fr; } }
-/* Título pequeno de cada sub-gráfico (Carteira total/Longo prazo/Reserva
-   de emergência) - só existe nas subpáginas de classe com mais de 1
-   gráfico por seção (hoje só Renda Fixa); as outras 3 subpáginas usam só
-   o `.area-header` da seção como título, sem precisar de um 2º nível. */
-.cc-chart-titulo{ font-family:var(--display); font-weight:600; font-size:15px; margin-bottom:8px; }
-
 /* ---- cards de classe ---- */
 /* 19/09/2026 (pedido do Tiago pós-teste): fixo em 2 colunas (2 cards por
    linha) em vez de auto-fit - da mais espaco pra cada card mostrar a
@@ -213,6 +195,15 @@
   .cc-resumo-valor{ font-size:26px; }
 }
 
+/* 25/09/2026 (Tiago, ponto 3): links relevantes da carteira recomendada
+ * da Suno - mesmo padrão visual de .at-secoes (ativo.css), pílulas com
+ * borda. Uma linha própria logo abaixo do título da subpágina (não dá
+ * pra dividir o area-header com o hint sem brigar o space-between). */
+.cc-links-relevantes{ display:flex; flex-wrap:wrap; gap:6px; margin:-6px 0 16px; }
+.cc-link-relevante{ font-size:11.5px; font-weight:600; color:var(--ink-muted); text-decoration:none; padding:5px 11px;
+  border-radius:100px; border:1px solid var(--border); background:var(--surface); }
+.cc-link-relevante:hover, .cc-link-relevante:focus-visible{ color:var(--accent); border-color:var(--accent); }
+
 .cc-benchmarks{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
 .cc-benchmark-chip{ display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--ink-muted);
       background:var(--surface-3); border-radius:100px; padding:5px 12px; }
@@ -259,12 +250,6 @@
   .cc-donut-card .distrib{ flex-wrap:wrap; }
   .cc-donut-card .distrib-donut{ width:90px; height:90px; }
   .cc-donut-card .distrib-legenda{ gap:12px; }
-}
-/* 25/09/2026: celular estreito (~370px) - as 2 colunas da legenda não cabem
-   (valor + % + "i" passavam da tela e davam scroll lateral em Ações/FIIs):
-   uma coluna só, com a largura inteira. */
-@media (max-width:480px){
-  .cc-donut-card .distrib-legenda{ flex-direction:column; gap:8px; flex-basis:100%; }
 }
 
 /* 19/09/2026 #5 (pedido do Tiago - "a tabela de fiis começou com
@@ -368,13 +353,7 @@
   .cc-tabela tfoot tr{ display:flex; flex-wrap:wrap; border-top:none; border-radius:14px; background:var(--surface-2);
         padding:0; margin-top:2px; }
   .cc-tabela tfoot td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
-        padding:9px 14px; border-bottom:1px solid var(--border); text-align:right;
-        white-space:normal; }
-  /* 24/09/2026: o total de Ações EUA ("$ … (R$ …)" + "de $ … (R$ …)")
-     não cabia numa linha e alargava a página inteira no celular - a
-     célula agora quebra linha e o "de …" (custo) vai pra linha de baixo. */
-  .cc-tabela td{ flex-wrap:wrap; }
-  .cc-tabela td .cc-sub{ flex-basis:100%; text-align:right; }
+        padding:9px 14px; border-bottom:1px solid var(--border); text-align:right; }
   .cc-tabela tfoot td:last-child{ border-bottom:none; }
   .cc-tabela tfoot td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
         letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
@@ -407,18 +386,3 @@
 .cc-busca-icone{ font-size:12px; color:var(--ink-faint); }
 .cc-busca-input{ border:none; outline:none; font-size:12px; font-family:var(--body-f); background:transparent; width:100%; color:var(--ink); }
 .cc-filtros-dica{ margin-bottom:10px; }
-
-/* 24/09/2026: botão R$ | US$ de Ações EUA (reaproveita .filter-tab) -
-   compacto, no lado direito do título da página */
-.cc-moeda-toggle{ flex-wrap:nowrap; gap:4px; margin:0; align-self:center; }
-.cc-moeda-toggle .filter-tab{ min-width:44px; padding-inline:10px; }
-
-/* 25/09/2026: proventos nas Carteiras (carteiras-proventos.js) - 2ª linha do
-   stat do hero ("R$ ... em 12 meses") e o link da área abaixo da tabela. */
-.cc-resumo-stat-sub{ display:block; font-family:var(--body-f); font-size:11px; font-weight:500; color:var(--ink-muted); margin-top:3px; }
-.cc-proventos-link{ color:var(--acoes); text-decoration:none; font-weight:600; }
-.cc-proventos-link:hover{ text-decoration:underline; }
-/* 25/09/2026 (Tiago: tabela de Renda Fixa rolava no desktop): menos respiro
-   lateral nas células e o título quebra em 2 linhas em vez de esticar. */
-#rendaFixaTabela .cc-tabela th, #rendaFixaTabela .cc-tabela td{ padding-left:6px; padding-right:6px; }
-#rendaFixaTabela .cc-tabela td.cc-td-esquerda{ white-space:normal; min-width:150px; }

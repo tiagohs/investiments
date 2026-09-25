@@ -28,6 +28,7 @@ import { logoAtivoHtml, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_,
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
   resumoPosicao, percentualNaCarteira, irDaClasse, ordenarTeses, cambioMaisRecente,
+  comCamposUsdAtivo, historicoAtivoTemCambioUsd,
 } from './ativo-calc.js';
 
 const VERSAO_CACHE = 'v1';
@@ -107,6 +108,7 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
     percentualCarteira: percentualNaCarteira(historico),
     sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
     ir: irDaClasse(ir, classe),
+    informesFundo: resposta.informesFundo || null,
   };
 }
 
@@ -122,8 +124,88 @@ function linkCarteira(ctx) {
 }
 
 // ---------------------------------------------------------------------------
+// Links relevantes (site oficial, RI, Suno, B3) - topo da coluna lateral
+// ---------------------------------------------------------------------------
+
+// 25/09/2026 (Tiago, ponto 3): URLs da Suno (site privado dele - ele
+// confirmou os padrões, não tem endpoint pra descobrir isso). Carteira
+// recomendada de Ações: quase tudo é "Dividendos" - só VAMO3 e B3SA3 são
+// da carteira "Valor" (confirmado por ele).
+export const SUNO_CARTEIRAS_URL = {
+  dividendos: 'https://investidor.suno.com.br/carteiras/dividendos',
+  valor: 'https://investidor.suno.com.br/carteiras/valor',
+  fiis: 'https://investidor.suno.com.br/carteiras/fiis',
+  internacional: 'https://investidor.suno.com.br/carteiras/internacional',
+  rendaFixa: 'https://investidor.suno.com.br/carteiras/renda-fixa',
+  reservaEmergencia: 'https://investidor.suno.com.br/carteiras/reserva-de-emergencia',
+};
+const TICKERS_SUNO_CARTEIRA_VALOR = new Set(['VAMO3', 'B3SA3']);
+
+// B3 não tem link direto por ticker sem o ID numérico interno da empresa
+// (só o buscador descobre isso navegando) - por enquanto aponta pro
+// buscador oficial de empresas listadas, não pro ativo certeiro.
+const B3_EMPRESAS_LISTADAS_URL = 'https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/renda-variavel/empresas-listadas.htm';
+
+/** "https://investidor.suno.com.br/acoes/WIZC3" / ".../fiis/PMLL11" - sem padrão pra EUA/RF. */
+function sunoDetalheAtivoUrl_(ctx) {
+  if (ctx.classe === 'acoes') return `https://investidor.suno.com.br/acoes/${encodeURIComponent(ctx.ticker)}`;
+  if (ctx.classe === 'fiis') return `https://investidor.suno.com.br/fiis/${encodeURIComponent(ctx.ticker)}`;
+  return null;
+}
+
+/** Carteira recomendada da Suno em que o ativo está (Dividendos/Valor,
+ * FIIs, Internacional, Renda Fixa/Reserva de emergência). */
+function sunoCarteiraUrl_(ctx) {
+  if (ctx.classe === 'acoes') return TICKERS_SUNO_CARTEIRA_VALOR.has(ctx.ticker) ? SUNO_CARTEIRAS_URL.valor : SUNO_CARTEIRAS_URL.dividendos;
+  if (ctx.classe === 'fiis') return SUNO_CARTEIRAS_URL.fiis;
+  if (ctx.classe === 'acoesEua') return SUNO_CARTEIRAS_URL.internacional;
+  if (ctx.ehRf) return (ctx.ativo && ctx.ativo.tipoCarteira === 'emergencial') ? SUNO_CARTEIRAS_URL.reservaEmergencia : SUNO_CARTEIRAS_URL.rendaFixa;
+  return null;
+}
+
+function linkRelevanteHtml_(rotulo, url) {
+  return url ? `<a class="at-link-relevante" href="${urlSegura(url) || esc(url)}" target="_blank" rel="noopener">${rotulo} ↗</a>` : '';
+}
+
+export function linksRelevantesHtml(ctx) {
+  const s = ctx.sobre;
+  const itens = [
+    linkRelevanteHtml_('Site oficial', s ? urlSegura(s.site) : null),
+    linkRelevanteHtml_('Relação com investidores', s ? urlSegura(s.ri) : null),
+    linkRelevanteHtml_('Carteira recomendada (Suno)', sunoCarteiraUrl_(ctx)),
+    linkRelevanteHtml_('Detalhes do ativo (Suno)', sunoDetalheAtivoUrl_(ctx)),
+    ...(ctx.classe === 'acoes' || ctx.classe === 'fiis' ? [linkRelevanteHtml_('Empresas listadas na B3', B3_EMPRESAS_LISTADAS_URL)] : []),
+  ].filter(Boolean);
+  if (!itens.length) return '';
+  return `
+    <section class="at-card at-links-relevantes" id="at-links" aria-labelledby="at-links-titulo">
+      <div class="at-card-titulo"><h2 id="at-links-titulo">Links relevantes</h2></div>
+      <div class="at-links-grade">${itens.join('')}</div>
+    </section>`;
+}
+
+// ---------------------------------------------------------------------------
 // Cabeçalho + navegação das seções
 // ---------------------------------------------------------------------------
+
+// 25/09/2026 (Tiago, ponto 6): 3 imagens genéricas pra renda fixa, por
+// tipo de título - não por ticker (LOGOS_ATIVOS é por ticker, não serve
+// aqui). Indexador manda pros 2 Tesouro Direto; LCI do Inter é o único
+// caso de instituição por enquanto. Título fora dessas 3 regras continua
+// com as iniciais (fallback de sempre).
+function logoRendaFixaHtml_(a) {
+  const indexador = String(a.indexador || '').toUpperCase();
+  const tipo = String(a.tipoInvestimento || '').toUpperCase();
+  const instituicao = String(a.instituicao || '').toUpperCase();
+  let imagem = null;
+  if (indexador.includes('SELIC')) imagem = 'assets/imgs/tesouro-selic.webp';
+  else if (indexador.includes('IPCA')) imagem = 'assets/imgs/tesouro-direto.webp';
+  else if (tipo.includes('LCI') && instituicao.includes('INTER')) imagem = 'assets/imgs/banco-inter.png';
+  const iniciais = String(a.instituicao || '').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RF';
+  if (!imagem) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
+  const url = new URL(imagem, resolveSiteRootUrl()).href;
+  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
+}
 
 function cabecalhoHtml(ctx) {
   const a = ctx.ativo || {};
@@ -146,7 +228,7 @@ function cabecalhoHtml(ctx) {
     return `${trilha}
       <header class="at-cabecalho">
         <div class="at-id">
-          <span class="at-logo">${logoAtivoHtml(String(a.instituicao || ctx.ticker).replace(/[^A-Za-z]/g, '').slice(0, 2) || 'RF')}</span>
+          <span class="at-logo">${logoRendaFixaHtml_(a)}</span>
           <div class="at-id-texto">
             <h1 class="at-ticker at-ticker-rf">${esc(ctx.ticker)}</h1>
             <p class="at-nome">${esc(a.instituicao || '')}${a.vencimento ? ` · vence em ${esc(a.vencimento)}` : ''}</p>
@@ -190,13 +272,18 @@ function cabecalhoHtml(ctx) {
 }
 
 function navSecoesHtml(ctx) {
+  const ehFii = ctx.classe === 'fiis';
   const itens = [
     ['at-graficos', 'Rentabilidade'],
     ['at-mensal', 'Mês a mês'],
     ...(ctx.ehRf ? [] : [['at-proventos', 'Proventos']]),
     ['at-extrato', 'Extrato'],
-    ...(ctx.ehRf ? [] : [['at-tese', 'Tese'], ['at-noticias', 'Notícias']]),
+    ...(ctx.ehRf ? [] : [['at-noticias', 'Notícias']]),
     ...(ctx.sobre ? [['at-sobre', 'Sobre']] : []),
+    // 25/09/2026 (Tiago, ponto 2): FIIs não têm tese da Suno - em vez
+    // disso, os informes/atualizações do fundo (FNet).
+    ...(ctx.ehRf || ehFii ? [] : [['at-tese', 'Tese']]),
+    ...(ehFii ? [['at-informes', 'Informes do fundo']] : []),
     ['at-ir', 'Imposto de renda'],
   ];
   return `<nav class="at-secoes" aria-label="Seções da página">${itens.map(([id, t]) => `<a href="#${id}">${t}</a>`).join('')}</nav>`;
@@ -377,9 +464,21 @@ export function indicadoresHtml(ctx) {
 
 function graficosHtml(ctx) {
   const titulo2 = ctx.ehRf ? 'Valor aplicado × saldo bruto' : 'Valor aplicado × saldo';
+  // 25/09/2026 (Tiago, ponto 4b): "os gráficos estão em reais, traga o
+  // filtro R$/Dólar" - o toggle só faz sentido pra ações EUA (é o único
+  // caso em que o histórico do ativo é convertido de moeda); ligarGraficos
+  // decide se mostra (precisa de câmbio por dia no histórico).
+  const toggleMoeda = ctx.classe === 'acoesEua' ? `
+      <div class="filter-tabs cc-moeda-toggle" id="atMoedaToggle" role="group" aria-label="Ver valores em" hidden>
+        <button class="filter-tab" type="button" data-moeda="BRL" aria-pressed="false">R$</button>
+        <button class="filter-tab" type="button" data-moeda="USD" aria-pressed="false">US$</button>
+      </div>` : '';
   return `
     <section class="at-bloco" id="at-graficos">
-      <div class="area-header"><h2>Rentabilidade</h2><span class="hint">com proventos, descontando aportes e vendas${ctx.emDolar ? ' · em reais' : ''}</span></div>
+      <div class="area-header">
+        <div class="at-graficos-titulo"><h2>Rentabilidade</h2><span class="hint">com proventos, descontando aportes e vendas${ctx.emDolar ? ' · em reais' : ''}</span></div>
+        ${toggleMoeda}
+      </div>
       <div class="filter-tabs" id="atPeriodoTabs" style="margin-bottom:12px">
         <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
         <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
@@ -402,6 +501,18 @@ function graficosHtml(ctx) {
     </section>`;
 }
 
+/** Chave por ticker (não por classe): cada ativo lembra sua própria escolha. */
+const CHAVE_MOEDA_ATIVO_PREFIXO = 'ativo.moeda.';
+function lerMoedaAtivoGuardada_(ticker) {
+  try {
+    const v = globalThis.localStorage && globalThis.localStorage.getItem(CHAVE_MOEDA_ATIVO_PREFIXO + ticker);
+    return v === 'BRL' || v === 'USD' ? v : null;
+  } catch (_) { return null; }
+}
+function guardarMoedaAtivo_(ticker, moeda) {
+  try { if (globalThis.localStorage) globalThis.localStorage.setItem(CHAVE_MOEDA_ATIVO_PREFIXO + ticker, moeda); } catch (_) { /* sem storage: só não lembra */ }
+}
+
 function ligarGraficos(doc, ctx) {
   const tabs = doc.getElementById('atPeriodoTabs');
   if (!tabs) return;
@@ -411,24 +522,63 @@ function ligarGraficos(doc, ctx) {
     doc.getElementById('atEvolucaoChart').innerHTML = aviso;
     return;
   }
-  wireGraficosClasseCarteiras(doc, {
-    historico: ctx.historico,
-    periodoTabsContainer: tabs,
-    paineis: [{
-      visaoId: ctx.cfg.visao,
-      camposProventos: ctx.ehRf ? null : ['proventosAtivo'],
-      rentabInfoContainer: doc.getElementById('atRentabInfo'),
-      rentabChartContainer: doc.getElementById('atRentabChart'),
-      rentabLegendaContainer: doc.getElementById('atRentabLegenda'),
-      labelRentabilidade: ctx.ehRf ? 'Título' : ctx.ticker,
-      evolucaoInfoContainer: doc.getElementById('atEvolucaoInfo'),
-      evolucaoChartContainer: doc.getElementById('atEvolucaoChart'),
-      evolucaoLegendaContainer: doc.getElementById('atEvolucaoLegenda'),
-      labelInfoEvolucao: ctx.ehRf ? 'Saldo bruto' : `Saldo em ${ctx.ticker}${ctx.emDolar ? ' (em reais)' : ''}`,
-      labelValor: ctx.ehRf ? 'Saldo bruto' : 'Saldo',
-      corToken: ctx.cfg.token,
-    }],
-  });
+  // 25/09/2026 (Tiago, ponto 4b): "os gráficos estão em reais, traga o
+  // filtro R$/Dólar" - só ações EUA (o histórico do ativo, ao contrário da
+  // tabela de Carteiras, só converte pra dólar quando há câmbio por dia
+  // gravado em cada ponto - ver comCamposUsdAtivo em ativo-calc.js).
+  const podeAlternarMoeda = ctx.classe === 'acoesEua' && historicoAtivoTemCambioUsd(ctx.historico);
+  const historicoComUsd = podeAlternarMoeda ? comCamposUsdAtivo(ctx.historico) : ctx.historico;
+  const toggleEl = doc.getElementById('atMoedaToggle');
+
+  function desenhar_(moeda) {
+    const emDolar = podeAlternarMoeda && moeda === 'USD';
+    wireGraficosClasseCarteiras(doc, {
+      historico: historicoComUsd,
+      periodoTabsContainer: tabs,
+      paineis: [{
+        visaoId: emDolar ? 'ativoAcoesEuaUsd' : ctx.cfg.visao,
+        moeda: emDolar ? 'USD' : 'BRL',
+        camposProventos: ctx.ehRf ? null : [emDolar ? 'proventosAtivoUsd' : 'proventosAtivo'],
+        rentabInfoContainer: doc.getElementById('atRentabInfo'),
+        rentabChartContainer: doc.getElementById('atRentabChart'),
+        rentabLegendaContainer: doc.getElementById('atRentabLegenda'),
+        labelRentabilidade: ctx.ehRf ? 'Título' : ctx.ticker,
+        evolucaoInfoContainer: doc.getElementById('atEvolucaoInfo'),
+        evolucaoChartContainer: doc.getElementById('atEvolucaoChart'),
+        evolucaoLegendaContainer: doc.getElementById('atEvolucaoLegenda'),
+        labelInfoEvolucao: ctx.ehRf ? 'Saldo bruto' : `Saldo em ${ctx.ticker}${emDolar ? '' : (ctx.emDolar ? ' (em reais)' : '')}`,
+        labelValor: ctx.ehRf ? 'Saldo bruto' : 'Saldo',
+        corToken: ctx.cfg.token,
+      }],
+    });
+  }
+
+  if (!toggleEl || !podeAlternarMoeda) {
+    if (toggleEl) toggleEl.hidden = true;
+    desenhar_('BRL');
+    return;
+  }
+
+  function aplicarMoeda_(moeda) {
+    toggleEl.querySelectorAll('.filter-tab').forEach((b) => {
+      const ativo = b.dataset.moeda === moeda;
+      b.classList.toggle('active', ativo);
+      b.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+    });
+    desenhar_(moeda);
+  }
+  toggleEl.hidden = false;
+  if (!toggleEl._moedaLigada) {
+    toggleEl._moedaLigada = true;
+    toggleEl.querySelectorAll('.filter-tab').forEach((b) => {
+      b.addEventListener('click', () => {
+        guardarMoedaAtivo_(ctx.ticker, b.dataset.moeda);
+        aplicarMoeda_(b.dataset.moeda);
+      });
+    });
+  }
+  // Padrão dólar (a moeda do papel, mesmo padrão de carteiras-acoes-eua.js), lembrando a escolha por ativo.
+  aplicarMoeda_(lerMoedaAtivoGuardada_(ctx.ticker) || 'USD');
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +823,27 @@ function ligarTese(container) {
   });
 }
 
+/**
+ * 25/09/2026 (Tiago, ponto 2): FIIs não têm tese da Suno - em vez disso,
+ * cada FII tem sua própria "zona de informes relevantes" (fatos
+ * relevantes, comunicados ao mercado, relatórios gerenciais etc.),
+ * publicados no FNet (sistema de documentos da B3/CVM). Vem PRONTO na
+ * resposta de action=ativo (ctx.informesFundo, lido de uma aba já
+ * atualizada 1x por dia - ver apps-script/FnetInformesFii.gs) - sem
+ * chamada extra, ao contrário de Tese/Notícias.
+ */
+export function informesFundoHtml(ctx) {
+  const inf = ctx.informesFundo;
+  if (!inf) return '<p class="hint">Ainda sem informes deste fundo - rode a atualização de informes (FnetInformesFii.gs) uma vez.</p>';
+  if (!inf.ok) return `<p class="hint">Não deu pra buscar os informes agora (${esc(inf.erro || inf.etapa || 'erro')}).</p>`;
+  const itens = inf.itens || [];
+  if (!itens.length) return '<p class="hint">Nenhum informe recente deste fundo.</p>';
+  return `<ul class="at-noticias">${itens.map((i) => `
+    <li><a href="${urlSegura(i.link) || '#'}" target="_blank" rel="noopener">${esc(i.titulo || 'Documento do fundo')}</a>
+      <span class="at-noticia-meta">${i.tipo ? `${esc(i.tipo)} · ` : ''}${i.data ? formatDateBR(i.data) : ''}</span></li>`).join('')}
+  </ul><p class="hint at-fonte">Via FNet (sistema de documentos da B3/CVM) - atualizado 1x por dia.</p>`;
+}
+
 export function noticiasHtml(resposta, agora = new Date()) {
   if (!resposta) return '<div class="at-carregando"><span class="skel" style="height:16px"></span><span class="skel" style="height:16px;width:80%"></span><span class="skel" style="height:16px;width:65%"></span></div>';
   if (!resposta.ok) return `<p class="hint">Não deu pra buscar as notícias agora (${esc(resposta.erro || resposta.etapa || 'erro')}).</p>`;
@@ -739,16 +910,48 @@ export function irHtml(ctx) {
 // Página
 // ---------------------------------------------------------------------------
 
+function teseCardHtml_(ctx) {
+  return `
+    <section class="at-card" id="at-tese" aria-labelledby="at-tese-titulo">
+      <div class="at-card-titulo"><h2 id="at-tese-titulo">Tese de investimento</h2><span class="hint">Suno Research</span></div>
+      <div id="atTeseConteudo">${teseHtml(ctx, null)}</div>
+    </section>`;
+}
+
+function informesFundoCardHtml_(ctx) {
+  return `
+    <section class="at-card" id="at-informes" aria-labelledby="at-informes-titulo">
+      <div class="at-card-titulo"><h2 id="at-informes-titulo">Informes do fundo</h2><span class="hint">FNet / CVM</span></div>
+      ${informesFundoHtml(ctx)}
+    </section>`;
+}
+
+/**
+ * 25/09/2026 (Tiago, pontos 1 e 2): Notícias e Sobre foram pra coluna
+ * PRINCIPAL, logo abaixo do Extrato - ficavam só na lateral, que sobrava
+ * mais alta que a principal e deixava um vão vazio no corpo da página.
+ * Tese (só ações/ações EUA - FIIs não têm tese da Suno, ganham "Informes
+ * do fundo" no lugar) continua na lateral, junto com a faixa de preço e
+ * os indicadores - são cartões de contexto, não conteúdo pra ler.
+ */
 export function paginaHtml(ctx) {
+  const ehFii = ctx.classe === 'fiis';
   const lateral = ctx.ehRf ? `
-      ${indicadoresHtml(ctx)}
-      ${ctx.sobre ? sobreHtml(ctx) : ''}` : `
+      ${linksRelevantesHtml(ctx)}
+      ${indicadoresHtml(ctx)}` : `
+      ${linksRelevantesHtml(ctx)}
       ${faixaHtml(ctx)}
       ${indicadoresHtml(ctx)}
-      <section class="at-card" id="at-tese" aria-labelledby="at-tese-titulo">
-        <div class="at-card-titulo"><h2 id="at-tese-titulo">Tese de investimento</h2><span class="hint">Suno Research</span></div>
-        <div id="atTeseConteudo">${teseHtml(ctx, null)}</div>
-      </section>
+      ${ehFii ? informesFundoCardHtml_(ctx) : teseCardHtml_(ctx)}`;
+  const principal = ctx.ehRf ? `
+      ${graficosHtml(ctx)}
+      <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
+      ${extratoHtml(ctx)}
+      ${sobreHtml(ctx)}` : `
+      ${graficosHtml(ctx)}
+      ${proventosHtml(ctx)}
+      <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
+      ${extratoHtml(ctx)}
       <section class="at-card" id="at-noticias" aria-labelledby="at-noticias-titulo">
         <div class="at-card-titulo"><h2 id="at-noticias-titulo">Notícias</h2></div>
         <div id="atNoticiasConteudo">${noticiasHtml(null)}</div>
@@ -760,12 +963,7 @@ export function paginaHtml(ctx) {
       ${navSecoesHtml(ctx)}
       <div class="at-resumo-wrap">${resumoHtml(ctx)}</div>
       <div class="at-grade">
-        <div class="at-col at-col-principal">
-          ${graficosHtml(ctx)}
-          ${proventosHtml(ctx)}
-          <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
-          ${extratoHtml(ctx)}
-        </div>
+        <div class="at-col at-col-principal">${principal}</div>
         <aside class="at-col at-col-lateral">${lateral}</aside>
       </div>
       ${irHtml(ctx)}
@@ -839,7 +1037,9 @@ export async function montarPaginaAtivo(token, {
 
   const pedirExtras = (resposta) => {
     if (resposta.tipo === 'rf') return;
-    if (!estado.tesesPedidas) {
+    // 25/09/2026 (ponto 2): FIIs não têm tese da Suno - não vale a pena
+    // pedir (o card nem existe mais na página pra ela preencher).
+    if (!estado.tesesPedidas && resposta.classe !== 'fiis') {
       estado.tesesPedidas = true;
       Promise.resolve(getTesesImpl(token, resposta.ticker)).catch((e) => ({ ok: false, erro: String(e) }))
         .then((r) => { estado.teses = r; preencherExtras(); });

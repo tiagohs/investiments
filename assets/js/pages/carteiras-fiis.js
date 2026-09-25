@@ -32,6 +32,11 @@ import { botaoInfoHtml,
 
 const CHAVE_CACHE_FIIS = 'carteiras_fiis_v2';
 
+// 25/09/2026 (Tiago, ponto 3): link da carteira recomendada da Suno pra esta subpágina.
+const LINKS_RELEVANTES_FIIS = `<div class="cc-links-relevantes">
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/fiis" target="_blank" rel="noopener">Carteira recomendada: FIIs ↗</a>
+</div>`;
+
 const COLUNAS_ATIVOS_FIIS = [
   {
     label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
@@ -146,6 +151,7 @@ function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('fiisConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>FIIs</h2><span class="hint">fundos de investimento imobiliário</span></div>
+    ${LINKS_RELEVANTES_FIIS}
     <div id="fiisResumo"></div>
     <div id="fiisBenchmarks" class="cc-benchmarks"></div>
     ${montarBlocoGraficosHtml_()}

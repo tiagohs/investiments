@@ -28,6 +28,13 @@ import {
 
 const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v2';
 
+// 25/09/2026 (Tiago, ponto 3): as 2 carteiras recomendadas da Suno que
+// cobrem renda fixa - longo prazo e reserva de emergência.
+const LINKS_RELEVANTES_RENDA_FIXA = `<div class="cc-links-relevantes">
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/renda-fixa" target="_blank" rel="noopener">Carteira recomendada: Renda Fixa ↗</a>
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/reserva-de-emergencia" target="_blank" rel="noopener">Carteira recomendada: Reserva de emergência ↗</a>
+</div>`;
+
 // 19/09/2026 #7 (catchup pedido pelo Tiago, junto com os gráficos: "e
 // apos os graficos, lembre-se de atualizar o que falta na tela de renda
 // fixa - tabela desatualizada, filtros por tipo, etc") - rótulo EXATO dos
@@ -203,6 +210,7 @@ function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('rendaFixaConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>Renda Fixa</h2><span class="hint">longo prazo + reserva de emergência</span></div>
+    ${LINKS_RELEVANTES_RENDA_FIXA}
     <div id="rendaFixaResumo"></div>
     <div id="rendaFixaBenchmarks" class="cc-benchmarks"></div>
     ${montarBlocoGraficosHtml_()}

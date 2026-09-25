@@ -27,6 +27,15 @@ import { botaoInfoHtml,
 
 const CHAVE_CACHE_ACOES = 'carteiras_acoes_v2';
 
+// 25/09/2026 (Tiago, ponto 3): link da carteira recomendada da Suno pra
+// esta subpágina - quase toda a carteira de Ações está em "Dividendos",
+// só VAMO3/B3SA3 são da carteira "Valor" (confirmado por ele - as 2
+// aparecem juntas aqui porque a página mistura os 2 grupos).
+const LINKS_RELEVANTES_ACOES = `<div class="cc-links-relevantes">
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/dividendos" target="_blank" rel="noopener">Carteira recomendada: Dividendos ↗</a>
+  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/valor" target="_blank" rel="noopener">Carteira recomendada: Valor (VAMO3, B3SA3) ↗</a>
+</div>`;
+
 const COLUNAS_ATIVOS_ACOES = [
   {
     label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
@@ -152,6 +161,7 @@ function desenhar(doc, dados) {
   const conteudoEl = doc.getElementById('acoesConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>Ações</h2><span class="hint">renda variável nacional</span></div>
+    ${LINKS_RELEVANTES_ACOES}
     <div id="acoesResumo"></div>
     <div id="acoesBenchmarks" class="cc-benchmarks"></div>
     ${montarBlocoGraficosHtml_()}
