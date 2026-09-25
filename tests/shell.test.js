@@ -45,6 +45,7 @@ const SHELL_PARTIAL_HTML = `
         <button type="button" data-sync="rendaFixa">Renda Fixa e índices</button>
         <button type="button" data-sync="proventos">Proventos (FNet)</button>
         <button type="button" data-sync="informes">Informes dos FIIs</button>
+        <button type="button" data-sync="videos">Vídeos</button>
         <div class="sync-log" id="syncLog"><div class="hint">Nenhuma sincronização registrada ainda.</div></div>
         <a id="syncSheetLink" href="#">link</a>
       </div>
@@ -471,13 +472,14 @@ function fakesSync(chamadas, extra = {}) {
     syncRendaFixaEIndicesImpl: async (token) => { chamadas.push(['rendaFixa', token]); return { ok: true }; },
     syncProventosFnetImpl: async (token) => { chamadas.push(['proventos', token]); return { ok: true }; },
     syncInformesFnetImpl: async (token) => { chamadas.push(['informes', token]); return { ok: true }; },
+    syncVideosImpl: async (token) => { chamadas.push(['videos', token]); return { ok: true }; },
     carregarStatusSyncImpl: async () => { chamadas.push(['status']); },
     ...extra,
   };
 }
 const clicar = (doc, el) => el.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
-test('setupSyncNowButton(): "Sincronizar tudo" chama as 4 sincronizações com o token, em sequência, e recarrega o status ao final', async () => {
+test('setupSyncNowButton(): "Sincronizar tudo" chama as 5 sincronizações com o token, em sequência, e recarrega o status ao final', async () => {
   const doc = mountedDoc();
   const chamadas = [];
   setupSyncNowButton(doc, fakesSync(chamadas));
@@ -490,11 +492,12 @@ test('setupSyncNowButton(): "Sincronizar tudo" chama as 4 sincronizações com o
     ['rendaFixa', 'token-abc'],
     ['proventos', 'token-abc'],
     ['informes', 'token-abc'],
+    ['videos', 'token-abc'],
     ['status'],
   ]);
 });
 
-for (const [id, esperado] of [['ativos', 'ativos'], ['rendaFixa', 'rendaFixa'], ['proventos', 'proventos'], ['informes', 'informes']]) {
+for (const [id, esperado] of [['ativos', 'ativos'], ['rendaFixa', 'rendaFixa'], ['proventos', 'proventos'], ['informes', 'informes'], ['videos', 'videos']]) {
   test(`setupSyncNowButton(): botão "${id}" força SÓ essa sincronização e recarrega o status`, async () => {
     const doc = mountedDoc();
     const chamadas = [];
@@ -517,6 +520,7 @@ test('setupSyncNowButton(): enquanto uma sincronização roda, TODOS os botões 
     syncRendaFixaEIndicesImpl: pendente,
     syncProventosFnetImpl: pendente,
     syncInformesFnetImpl: pendente,
+    syncVideosImpl: pendente,
     carregarStatusSyncImpl: async () => {},
   });
 
@@ -528,18 +532,21 @@ test('setupSyncNowButton(): enquanto uma sincronização roda, TODOS os botões 
 
   assert.equal(btn.disabled, true);
   assert.equal(chip.disabled, true);
-  assert.equal(btn.textContent, 'Sincronizando 1/4…');
+  assert.equal(btn.textContent, 'Sincronizando 1/5…');
 
   resolvedores[0]({ ok: true });
   await esvaziarFila();
-  assert.equal(btn.textContent, 'Sincronizando 2/4…');
+  assert.equal(btn.textContent, 'Sincronizando 2/5…');
 
   resolvedores[1]({ ok: true });
   await esvaziarFila();
   resolvedores[2]({ ok: true });
   await esvaziarFila();
-  assert.equal(btn.textContent, 'Sincronizando 4/4…');
+  assert.equal(btn.textContent, 'Sincronizando 4/5…');
   resolvedores[3]({ ok: true });
+  await esvaziarFila();
+  assert.equal(btn.textContent, 'Sincronizando 5/5…');
+  resolvedores[4]({ ok: true });
   await esvaziarFila();
 
   assert.equal(btn.disabled, false);
@@ -588,7 +595,7 @@ test('setupSyncNowButton(): uma sincronização falhar não impede as seguintes 
   clicar(doc, btn);
   await esvaziarFila();
 
-  assert.deepEqual(chamadas, [['rendaFixa', 'token-abc'], ['informes', 'token-abc'], ['status']]);
+  assert.deepEqual(chamadas, [['rendaFixa', 'token-abc'], ['informes', 'token-abc'], ['videos', 'token-abc'], ['status']]);
   assert.equal(btn.disabled, false);
   assert.equal(doc.querySelector('[data-sync="ativos"]').disabled, false);
 });

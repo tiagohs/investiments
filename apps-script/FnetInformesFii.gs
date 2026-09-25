@@ -99,6 +99,7 @@ function atualizarInformesFiiFnet_(origem) {
   });
 
   gravarInformesFii_(ss, informes);
+  if (typeof invalidarCacheAtivos_ === 'function') invalidarCacheAtivos_(); // Ativo.gs (informes aparecem na tela do FII)
 
   var partes = ['FNet (informes de fundo): ' + informes.length + ' documento(s) de ' + tickers.length + ' FII(s)'];
   if (semCnpj.length) partes.push('sem CNPJ (digite na aba ' + ABA_FII_CNPJ + '): ' + semCnpj.join(', '));

@@ -78,6 +78,9 @@ function doGet(e) {
   if (action === 'tesesAtivo') { // 25/09/2026: teses no Google Drive (Ativo.gs)
     return handleTesesAtivo(e, auth);
   }
+  if (action === 'videos') { // 25/09/2026: vídeos do YouTube por ativo/carteira (Videos.gs)
+    return handleVideos(e, auth);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
@@ -107,6 +110,9 @@ function doPost(e) {
   }
   if (action === 'sincronizarProventosFnet') { // 25/09/2026: botão "Proventos (FNet)" (FnetProventos.gs)
     return handleSincronizarProventosFnet(e);
+  }
+  if (action === 'sincronizarVideos') { // 25/09/2026: botão "Vídeos" (Videos.gs)
+    return handleSincronizarVideos(e);
   }
   if (action === 'sincronizarInformesFnet') { // 25/09/2026: botão "Informes dos FIIs" (FnetInformesFii.gs)
     return handleSincronizarInformesFnet(e);

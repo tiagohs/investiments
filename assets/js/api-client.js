@@ -462,6 +462,23 @@ export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' }
   return request('GET', 'noticiasAtivo', token, { ticker, nome, classe });
 }
 
+/**
+ * 25/09/2026: vídeos do YouTube dos canais cadastrados (apps-script/Videos.gs).
+ * `termos` (tela do ativo): ticker e apelidos; `carteira` (página de uma
+ * carteira): acoes, fiis, acoesEua ou rendaFixa.
+ */
+export async function getVideos(token, { termos = [], carteira = '' } = {}) {
+  const params = {};
+  if (termos.length) params.termos = termos.join('|');
+  if (carteira) params.carteira = carteira;
+  return request('GET', 'videos', token, params);
+}
+
+/** Botão "Vídeos" do popover Registro de Controle - atualiza os vídeos agora. */
+export async function syncVideos(token) {
+  return request('POST', 'sincronizarVideos', token);
+}
+
 /** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
 export async function getTesesAtivo(token, ticker) {
   return request('GET', 'tesesAtivo', token, { ticker });

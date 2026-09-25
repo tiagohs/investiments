@@ -24,6 +24,7 @@ import {
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { refDaUrl } from '../link-ativo.js';
+import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js';
 import { logoAtivoHtml, logoRendaFixaHtml, renderTabelaAtivosCarteiras, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
@@ -438,8 +439,90 @@ const AJUDA = {
   yoc: 'Yield on cost: proventos dos últimos 12 meses sobre o valor que você aplicou (não sobre a cotação de hoje).',
 };
 
-function indicadorHtml(label, valor, { ajuda = '', sub = '', texto = false } = {}) {
-  return `<div class="at-ind"><span class="at-ind-label">${label}${botaoInfoHtml(ajuda, { pequeno: true })}</span><span class="at-ind-valor${texto ? ' texto' : ''}">${valor}</span>${sub ? `<span class="at-ind-sub">${sub}</span>` : ''}</div>`;
+function indicadorHtml(label, valor, { ajuda = '', sub = '', texto = false, conclusao = '' } = {}) {
+  return `<div class="at-ind"><div class="at-ind-linha"><span class="at-ind-label">${label}${botaoInfoHtml(ajuda, { pequeno: true })}</span><span class="at-ind-valor${texto ? ' texto' : ''}">${valor}</span></div>${sub ? `<span class="at-ind-sub">${sub}</span>` : ''}${conclusao ? `<p class="at-ind-conclusao">${conclusao}</p>` : ''}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 25/09/2026 (Tiago: "gostei que você incluiu 'A cotação está 41,5% acima do
+// seu preço-teto'. Coloque esse tipo de conclusão abaixo de cada indicador"):
+// uma frase por indicador traduzindo o número - só contas com os dados da
+// planilha e o CDI de 12 meses da série da Início; comparação, não recomendação.
+// ---------------------------------------------------------------------------
+
+const pctTxt = (v, casas = 1) => `${formatNumeroBR(v, casas)}%`;
+const destaque = (texto, bom) => `<b class="${bom ? 'good' : 'bad'}">${texto}</b>`;
+
+export function conclusoesIndicadores(ctx) {
+  const a = ctx.ativo || {};
+  const out = {};
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const cdi = num(ctx.resposta && ctx.resposta.referencias && ctx.resposta.referencias.cdi12m);
+  const dy = num(a.dyPercentual) != null ? a.dyPercentual * 100 : null;
+  const saldo = num(ctx.posicao && ctx.posicao.saldo);
+
+  if (dy != null) {
+    if (dy <= 0) out.dy = 'Não pagou proventos nos últimos 12 meses.';
+    else if (cdi && cdi > 0) {
+      const rel = (dy / cdi) * 100;
+      out.dy = `Só em proventos, rendeu ${pctTxt(dy)} em 12 meses: ${destaque(`${formatNumeroBR(rel, 0)}% do CDI`, dy >= cdi)} do período (${pctTxt(cdi)}).`;
+    } else out.dy = `Pagou ${pctTxt(dy)} da cotação atual em proventos nos últimos 12 meses.`;
+  }
+
+  const yoc = num(ctx.proventos && ctx.proventos.yieldOnCost12);
+  if (yoc != null && yoc > 0) {
+    const y = yoc * 100;
+    let fim = '.';
+    if (dy != null && dy > 0 && Math.abs(y - dy) >= 0.1) {
+      fim = y > dy ? ` - ${destaque('mais que o DY de hoje', true)}, porque você comprou abaixo da cotação atual.`
+        : ` - ${destaque('menos que o DY de hoje', false)}, porque você comprou acima da cotação atual.`;
+    }
+    out.yoc = `Sobre o que você aplicou, os proventos de 12 meses renderam ${pctTxt(y)}${fim}`;
+  }
+
+  const pvp = num(a.pvp);
+  if (pvp != null && pvp > 0) {
+    const dif = (pvp - 1) * 100;
+    out.pvp = Math.abs(dif) < 2
+      ? 'Negocia praticamente pelo valor patrimonial.'
+      : `O mercado paga ${ctx.emDolar ? 'US$' : 'R$'} ${formatNumeroBR(pvp, 2)} por ${ctx.emDolar ? 'US$' : 'R$'} 1,00 de patrimônio: ${destaque(`${pctTxt(Math.abs(dif))} ${dif < 0 ? 'abaixo' : 'acima'}`, dif < 0)} do valor patrimonial.`;
+  }
+
+  const pl = num(a.pl);
+  if (pl != null && pl !== 0) {
+    if (pl < 0) out.pl = `${destaque('Teve prejuízo', false)} nos últimos 12 meses (P/L negativo).`;
+    else {
+      const ey = 100 / pl;
+      out.pl = `O preço equivale a ${formatNumeroBR(pl, 1)} anos do lucro atual - um lucro de ${cdi ? destaque(pctTxt(ey), ey >= cdi) : pctTxt(ey)} ao ano sobre a cotação${cdi ? ` (o CDI rendeu ${pctTxt(cdi)} em 12 meses)` : ''}.`;
+    }
+  }
+
+  const liq = num(a.liquidezDiaria);
+  if (liq != null && liq > 0) {
+    out.liquidez = `Negocia em média ${formatBRLCompacto(liq)} por dia${saldo ? `; a sua posição equivale a ${pctTxt((saldo / liq) * 100, saldo / liq < 0.01 ? 2 : 1)} de um dia de negociação` : ''}.`;
+  }
+  const caixa = num(a.percentualEmCaixa);
+  if (caixa != null) out.caixa = `${pctTxt(caixa * 100)} do patrimônio do fundo está em caixa, ainda não aplicado em imóveis ou papéis.`;
+  const pat = num(a.patrimonio);
+  if (pat != null && pat > 0 && saldo) out.patrimonio = `Você tem ${pctTxt((saldo / pat) * 100, saldo / pat < 0.0001 ? 4 : 3)} do fundo.`;
+
+  const teto = num(a.precoTeto), atual = num(a.precoAtual);
+  if (teto && atual) {
+    const m = (teto - atual) / teto;
+    out.teto = `A cotação está ${destaque(`${pctTxt(Math.abs(m) * 100)} ${m >= 0 ? 'abaixo' : 'acima'}`, m >= 0)} do seu preço-teto${m >= 0 ? ' (margem de segurança).' : '.'}`;
+  }
+
+  if (ctx.ehRf && a.vencimento && ctx.resposta && ctx.resposta.hoje) {
+    const p = String(a.vencimento).split('/').map(Number);
+    const [ano, mes] = p.length === 3 ? [p[2], p[1]] : [p[1], p[0]];
+    const [ah, mh] = String(ctx.resposta.hoje).split('-').map(Number);
+    const meses = (ano - ah) * 12 + (mes - mh);
+    if (Number.isFinite(meses)) {
+      out.vencimento = meses <= 0 ? 'Já venceu ou vence neste mês.'
+        : `Faltam ${meses >= 12 ? `${Math.floor(meses / 12)} ano${Math.floor(meses / 12) === 1 ? '' : 's'}${meses % 12 ? ` e ${meses % 12} ${meses % 12 === 1 ? 'mês' : 'meses'}` : ''}` : `${meses} ${meses === 1 ? 'mês' : 'meses'}`} para o vencimento.`;
+    }
+  }
+  return out;
 }
 
 export function indicadoresHtml(ctx) {
@@ -448,6 +531,7 @@ export function indicadoresHtml(ctx) {
   const n = (v, d = 2) => (typeof v === 'number' ? formatNumeroBR(v, d) : '—');
   let itens;
   let titulo = 'Indicadores';
+  const c = conclusoesIndicadores(ctx);
   if (ctx.ehRf) {
     titulo = 'Características';
     const ir = a.irSeResgatasseHoje;
@@ -455,7 +539,7 @@ export function indicadoresHtml(ctx) {
       indicadorHtml('Tipo', esc(a.tipoInvestimento || '—'), { texto: true }),
       indicadorHtml('Indexador', esc(a.indexador || '—')),
       indicadorHtml('Rentab. contratada', esc((a.rentabilidadeContratada && a.rentabilidadeContratada.texto) || '—')),
-      indicadorHtml('Vencimento', esc(a.vencimento || '—')),
+      indicadorHtml('Vencimento', esc(a.vencimento || '—'), { conclusao: c.vencimento }),
       indicadorHtml('Instituição', esc(a.instituicao || '—'), { texto: true }),
       indicadorHtml('Quantidade', n(a.quantidade, 2)),
       indicadorHtml('IR se resgatasse hoje', ir ? formatBRL(ir.impostoSeResgatasseHoje) : '—', { sub: ir && ir.detalhes ? esc(typeof ir.detalhes === 'string' ? ir.detalhes : '') : '' }),
@@ -463,19 +547,19 @@ export function indicadoresHtml(ctx) {
     ];
   } else {
     itens = [
-      indicadorHtml('DY 12 meses', formatPercentFromFraction(a.dyPercentual).replace('+', ''), { ajuda: AJUDA.dy, sub: typeof a.dyValor === 'number' ? `${ctx.fmt(a.dyValor)} por ${ctx.classe === 'fiis' ? 'cota' : 'ação'}` : '' }),
-      indicadorHtml('Yield on cost', formatPercentFromFraction(ctx.proventos.yieldOnCost12).replace('+', ''), { ajuda: AJUDA.yoc }),
-      indicadorHtml('P/VP', n(a.pvp), { ajuda: AJUDA.pvp, sub: a.descontoPvp ? esc(a.descontoPvp) : '' }),
+      indicadorHtml('DY 12 meses', formatPercentFromFraction(a.dyPercentual).replace('+', ''), { ajuda: AJUDA.dy, sub: typeof a.dyValor === 'number' ? `${ctx.fmt(a.dyValor)} por ${ctx.classe === 'fiis' ? 'cota' : 'ação'}` : '', conclusao: c.dy }),
+      indicadorHtml('Yield on cost', formatPercentFromFraction(ctx.proventos.yieldOnCost12).replace('+', ''), { ajuda: AJUDA.yoc, conclusao: c.yoc }),
+      indicadorHtml('P/VP', n(a.pvp), { ajuda: AJUDA.pvp, sub: a.descontoPvp ? esc(a.descontoPvp) : '', conclusao: c.pvp }),
     ];
-    if (ctx.classe !== 'fiis') itens.push(indicadorHtml('P/L', n(a.pl), { ajuda: AJUDA.pl, sub: a.descontoPl ? esc(a.descontoPl) : '' }));
+    if (ctx.classe !== 'fiis') itens.push(indicadorHtml('P/L', n(a.pl), { ajuda: AJUDA.pl, sub: a.descontoPl ? esc(a.descontoPl) : '', conclusao: c.pl }));
     if (ctx.classe === 'fiis') {
       itens.push(
-        indicadorHtml('Liquidez diária', typeof a.liquidezDiaria === 'number' ? formatBRLCompacto(a.liquidezDiaria) : '—', { ajuda: AJUDA.liquidez }),
-        indicadorHtml('Em caixa', typeof a.percentualEmCaixa === 'number' ? formatPercentFromFraction(a.percentualEmCaixa, 1).replace('+', '') : '—', { ajuda: AJUDA.caixa }),
-        indicadorHtml('Patrimônio do fundo', typeof a.patrimonio === 'number' ? formatBRLCompacto(a.patrimonio) : '—', { ajuda: AJUDA.patrimonio }),
+        indicadorHtml('Liquidez diária', typeof a.liquidezDiaria === 'number' ? formatBRLCompacto(a.liquidezDiaria) : '—', { ajuda: AJUDA.liquidez, conclusao: c.liquidez }),
+        indicadorHtml('Em caixa', typeof a.percentualEmCaixa === 'number' ? formatPercentFromFraction(a.percentualEmCaixa, 1).replace('+', '') : '—', { ajuda: AJUDA.caixa, conclusao: c.caixa }),
+        indicadorHtml('Patrimônio do fundo', typeof a.patrimonio === 'number' ? formatBRLCompacto(a.patrimonio) : '—', { ajuda: AJUDA.patrimonio, conclusao: c.patrimonio }),
       );
     }
-    itens.push(indicadorHtml('Preço-teto', valorComBrl(ctx, a.precoTeto)));
+    itens.push(indicadorHtml('Preço-teto', valorComBrl(ctx, a.precoTeto), { conclusao: c.teto }));
   }
   return `
     <section class="at-card" id="at-indicadores" aria-labelledby="at-ind-titulo">
@@ -633,13 +717,66 @@ function estadoTabelas(ctx) {
 
 const anosDe = (lista, campo) => [...new Set(lista.map((x) => String(x[campo] || '').slice(0, 4)).filter(Boolean))].sort().reverse();
 
-function chipsAnoHtml(anos, ativo, attr) {
+/** Filtro de ano (select compacto, do lado direito do título - Tiago: "o filtro ficou perdido"). */
+function selectAnoHtml(anos, ativo, id) {
   if (anos.length < 2) return '';
-  return `<div class="filter-tabs at-chips-ano">
-    <button type="button" class="filter-tab${ativo ? '' : ' active'}" ${attr}="">Todos os anos</button>
-    ${anos.map((a) => `<button type="button" class="filter-tab${ativo === a ? ' active' : ''}" ${attr}="${a}">${a}</button>`).join('')}
-  </div>`;
+  return `<label class="at-select-caixa" title="Filtrar por ano"><span class="at-sr">Ano</span>
+    <select class="at-select" id="${id}">
+      <option value=""${ativo ? '' : ' selected'}>Todos os anos</option>
+      ${anos.map((a) => `<option value="${a}"${ativo === a ? ' selected' : ''}>${a}</option>`).join('')}
+    </select></label>`;
 }
+
+function botaoCsvHtml(id) {
+  return `<button type="button" class="at-csv" id="${id}" title="Baixar a tabela (com o filtro atual) como CSV pra abrir no Excel/Planilhas">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>CSV</button>`;
+}
+
+// ---- exportar CSV (25/09/2026: "me dê a opção de exportar essas tabelas para um csv") ----
+// Separador ";" e vírgula decimal (o Excel/Planilhas em português abre direto,
+// cada número numa coluna) + BOM pra acentuação sair certa.
+export function csvDe(cabecalhos, linhas) {
+  const cel = (v) => {
+    if (v == null || (typeof v === 'number' && !Number.isFinite(v))) return '';
+    const txt = typeof v === 'number' ? String(Math.round(v * 1e6) / 1e6).replace('.', ',') : String(v);
+    return /[";\r\n]/.test(txt) ? `"${txt.replace(/"/g, '""')}"` : txt;
+  };
+  return '﻿' + [cabecalhos, ...linhas].map((l) => l.map(cel).join(';')).join('\r\n');
+}
+
+const dataBrCsv = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '');
+
+export function csvMensal(ctx, lista) {
+  const idx = ctx.cfg.indice.label;
+  const cab = ['Mês', 'Saldo (R$)', ...(ctx.ehRf ? [] : ['Quantidade']), 'Rentabilidade no mês (%)', `${idx} (%)`, 'CDI (%)', '% do patrimônio', ...(ctx.ehRf ? [] : ['Proventos (R$)']), 'Aplicado (R$)'];
+  const linhas = lista.map((m) => [
+    `${m.mes.slice(5, 7)}/${m.mes.slice(0, 4)}`, m.saldo, ...(ctx.ehRf ? [] : [m.cotas]), m.rentabilidade, m.indice, m.cdi,
+    m.percentualCarteira != null ? m.percentualCarteira * 100 : null, ...(ctx.ehRf ? [] : [m.proventos || 0]), m.aplicado,
+  ]);
+  return csvDe(cab, linhas);
+}
+
+export function csvExtrato(ctx, lista) {
+  const cab = ['Data', 'Data com', 'Tipo', 'Quantidade', ctx.ehRf ? 'Preço' : 'Preço / por cota', 'Moeda', 'Total', 'Total (R$)', 'Lucro/prejuízo'];
+  const linhas = lista.map((e) => [
+    dataBrCsv(e.data), dataBrCsv(e.dataCom), e.tipo, e.quantidade, e.preco, e.moeda, e.total,
+    typeof e.totalBrl === 'number' ? e.totalBrl : (e.moeda === 'USD' ? null : e.total), typeof e.lucro === 'number' && !e.entrada ? e.lucro : null,
+  ]);
+  return csvDe(cab, linhas);
+}
+
+function baixarCsv(doc, nomeArquivo, conteudo) {
+  const janela = doc.defaultView;
+  if (!janela || !janela.Blob || !janela.URL || typeof janela.URL.createObjectURL !== 'function') return false;
+  const url = janela.URL.createObjectURL(new janela.Blob([conteudo], { type: 'text/csv;charset=utf-8' }));
+  const a = doc.createElement('a');
+  a.href = url; a.download = nomeArquivo; a.hidden = true;
+  doc.body.appendChild(a); a.click(); a.remove();
+  janela.setTimeout(() => janela.URL.revokeObjectURL(url), 2000);
+  return true;
+}
+
+const nomeArquivoCsv = (ctx, qual, ano) => `${String(ctx.ticker).replace(/[^\w.-]+/g, '-').slice(0, 40)}-${qual}${ano ? `-${ano}` : ''}.csv`;
 
 /** Ordena como renderTabelaAtivosCarteiras (pra poder cortar em N linhas ANTES de mandar pra ela). */
 function ordenarLista(lista, colunas, ordenacao) {
@@ -695,19 +832,22 @@ function rodapeMensalHtml(ctx, lista, ano) {
   return `<tr><td class="cc-td-esquerda" colspan="${colunasMensal(ctx).length}"><b>${ano ? `Em ${ano}` : `Desde o início (${lista.length} meses)`}</b> · ${partes.join(' · ')}</td></tr>`;
 }
 
-/** Casca do Mês a mês: cabeçalho, alternador Tabela/Gráfico e filtro por ano (a tabela/gráfico entram em ligarExtratoEMensal). */
+/** Casca do Mês a mês: título à esquerda, controles (vista, ano, CSV) à direita; tabela/gráfico entram em ligarExtratoEMensal. */
 export function mensalHtml(ctx) {
   const st = estadoTabelas(ctx).mensal;
   if (!ctx.mensal.length) return '<div class="area-header"><h2>Mês a mês</h2></div><p class="hint">Sem histórico ainda.</p>';
   return `
-    <div class="area-header at-mensal-topo"><h2>Mês a mês</h2><span class="hint">saldo no fim do mês, em reais</span>
-      <div class="filter-tabs at-vista" id="atMensalVista" role="group" aria-label="Ver como">
-        <button type="button" class="filter-tab${st.vista === 'tabela' ? ' active' : ''}" data-vista="tabela">Tabela</button>
-        <button type="button" class="filter-tab${st.vista === 'grafico' ? ' active' : ''}" data-vista="grafico">Gráfico</button>
+    <div class="area-header at-tabela-topo"><h2>Mês a mês</h2><span class="hint">saldo no fim do mês, em reais</span>
+      <div class="at-controles">
+        <div class="filter-tabs at-vista" id="atMensalVista" role="group" aria-label="Ver como">
+          <button type="button" class="filter-tab${st.vista === 'tabela' ? ' active' : ''}" data-vista="tabela">Tabela</button>
+          <button type="button" class="filter-tab${st.vista === 'grafico' ? ' active' : ''}" data-vista="grafico">Gráfico</button>
+        </div>
+        ${selectAnoHtml(anosDe(ctx.mensal, 'mes'), st.ano, 'atMensalAno')}
+        ${botaoCsvHtml('atMensalCsv')}
       </div>
     </div>
     <div class="cc-tabela-card">
-      <div id="atMensalFiltros">${chipsAnoHtml(anosDe(ctx.mensal, 'mes'), st.ano, 'data-ano')}</div>
       <div id="atMensalTabela"${st.vista === 'tabela' ? '' : ' hidden'}></div>
       <div id="atMensalGrafico" class="at-mensal-grafico"${st.vista === 'grafico' ? '' : ' hidden'}></div>
     </div>`;
@@ -883,18 +1023,20 @@ function extratoHtml(ctx) {
   const st = estadoTabelas(ctx).extrato;
   const temProv = ctx.extrato.some((e) => e.grupo === 'provento');
   const filtros = temProv ? `
-    <div class="filter-tabs at-extrato-filtros" id="atExtratoFiltros">
-      <button class="filter-tab${st.filtro === 'todos' ? ' active' : ''}" type="button" data-filtro="todos">Tudo</button>
-      <button class="filter-tab${st.filtro === 'movimentacao' ? ' active' : ''}" type="button" data-filtro="movimentacao">${ctx.ehRf ? 'Aplicações e resgates' : 'Compras e vendas'}</button>
-      <button class="filter-tab${st.filtro === 'provento' ? ' active' : ''}" type="button" data-filtro="provento">${ctx.ehRf ? 'Juros' : 'Proventos'}</button>
-    </div>` : '';
+        <div class="filter-tabs at-extrato-filtros" id="atExtratoFiltros" role="group" aria-label="Tipo de lançamento">
+          <button class="filter-tab${st.filtro === 'todos' ? ' active' : ''}" type="button" data-filtro="todos">Tudo</button>
+          <button class="filter-tab${st.filtro === 'movimentacao' ? ' active' : ''}" type="button" data-filtro="movimentacao">${ctx.ehRf ? 'Aplicações e resgates' : 'Compras e vendas'}</button>
+          <button class="filter-tab${st.filtro === 'provento' ? ' active' : ''}" type="button" data-filtro="provento">${ctx.ehRf ? 'Juros' : 'Proventos'}</button>
+        </div>` : '';
   return `
     <section class="at-bloco" id="at-extrato">
-      <div class="area-header"><h2>Extrato</h2><span class="hint">${ctx.extrato.length} lançamentos · clique no título de uma coluna pra ordenar</span></div>
-      <div class="cc-tabela-card">
-        <div class="at-filtros-linha">${filtros}<div id="atExtratoAnos">${chipsAnoHtml(anosDe(ctx.extrato, 'data'), st.ano, 'data-ano')}</div></div>
-        <div id="atExtratoTabela"></div>
+      <div class="area-header at-tabela-topo"><h2>Extrato</h2><span class="hint">${ctx.extrato.length} lançamentos</span>
+        <div class="at-controles">${filtros}
+          ${selectAnoHtml(anosDe(ctx.extrato, 'data'), st.ano, 'atExtratoAno')}
+          ${botaoCsvHtml('atExtratoCsv')}
+        </div>
       </div>
+      <div class="cc-tabela-card"><div id="atExtratoTabela"></div></div>
     </section>`;
 }
 
@@ -937,11 +1079,14 @@ function ligarExtratoEMensal(doc, ctx) {
   if (tabMensal) tabMensal.addEventListener('click', (ev) => {
     if (ev.target.closest && ev.target.closest('[data-acao="mensal-todos"]')) { est.mensal.todos = !est.mensal.todos; desenharMensal(); }
   });
-  const filtrosMensal = doc.getElementById('atMensalFiltros');
-  if (filtrosMensal) filtrosMensal.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => {
-    filtrosMensal.querySelectorAll('[data-ano]').forEach((x) => x.classList.toggle('active', x === b));
-    est.mensal.ano = b.dataset.ano || null; desenharMensal();
-  }));
+  const anoMensal = doc.getElementById('atMensalAno');
+  if (anoMensal) anoMensal.addEventListener('change', () => { est.mensal.ano = anoMensal.value || null; desenharMensal(); });
+  const csvMensalBtn = doc.getElementById('atMensalCsv');
+  if (csvMensalBtn) csvMensalBtn.addEventListener('click', () => {
+    const st = est.mensal;
+    const lista = ordenarLista(st.ano ? ctx.mensal.filter((m) => m.mes.startsWith(st.ano)) : ctx.mensal, colsM, st.ordenacao);
+    baixarCsv(doc, nomeArquivoCsv(ctx, 'mes-a-mes', st.ano), csvMensal(ctx, lista));
+  });
   const vista = doc.getElementById('atMensalVista');
   if (vista) vista.querySelectorAll('[data-vista]').forEach((b) => b.addEventListener('click', () => {
     est.mensal.vista = b.dataset.vista;
@@ -985,11 +1130,14 @@ function ligarExtratoEMensal(doc, ctx) {
     filtros.querySelectorAll('[data-filtro]').forEach((x) => x.classList.toggle('active', x === b));
     est.extrato.filtro = b.dataset.filtro; est.extrato.todos = false; desenharExtrato();
   }));
-  const anos = doc.getElementById('atExtratoAnos');
-  if (anos) anos.querySelectorAll('[data-ano]').forEach((b) => b.addEventListener('click', () => {
-    anos.querySelectorAll('[data-ano]').forEach((x) => x.classList.toggle('active', x === b));
-    est.extrato.ano = b.dataset.ano || null; est.extrato.todos = false; desenharExtrato();
-  }));
+  const anoExtrato = doc.getElementById('atExtratoAno');
+  if (anoExtrato) anoExtrato.addEventListener('change', () => { est.extrato.ano = anoExtrato.value || null; est.extrato.todos = false; desenharExtrato(); });
+  const csvExtratoBtn = doc.getElementById('atExtratoCsv');
+  if (csvExtratoBtn) csvExtratoBtn.addEventListener('click', () => {
+    const st = est.extrato;
+    const lista = ordenarLista(ctx.extrato.filter((e) => (st.filtro === 'todos' || e.grupo === st.filtro) && (!st.ano || String(e.data).startsWith(st.ano))), colsE, st.ordenacao);
+    baixarCsv(doc, nomeArquivoCsv(ctx, 'extrato', st.ano), csvExtrato(ctx, lista));
+  });
   desenharExtrato();
 }
 
@@ -1185,30 +1333,32 @@ export function sobreHtml(ctx) {
           ${paragrafos(sec.texto)}
         </section>`).join('');
   const fontes = (Array.isArray(s.fontes) ? s.fontes : []).map((u) => urlSegura(u)).filter(Boolean);
+  // 25/09/2026 (Tiago: "tem que ficar em cards separados, como antes"): texto
+  // num cartão, ficha no outro (lado a lado; um embaixo do outro no celular)
   return `
-    <section class="at-card at-sobre" id="at-sobre" aria-labelledby="at-sobre-titulo">
-      <header class="at-sobre-topo">
-        <span class="at-logo">${logoAtivoHtml(ctx.ticker)}</span>
-        <div>
-          <h2 id="at-sobre-titulo">Sobre ${esc(ctx.ticker)}</h2>
-          ${s.nome ? `<p class="at-sobre-nome">${esc(s.nome)}</p>` : ''}
-          ${chips ? `<div class="at-chips">${chips}</div>` : ''}
-        </div>
-      </header>
-      ${figuraSobreHtml(s.imagem, 'at-sobre-fig-destaque')}
-      <div class="at-sobre-corpo">
+    <div class="at-sobre-grade" id="at-sobre">
+      <section class="at-card at-sobre" aria-labelledby="at-sobre-titulo">
+        <header class="at-sobre-topo">
+          <span class="at-logo">${logoAtivoHtml(ctx.ticker)}</span>
+          <div>
+            <h2 id="at-sobre-titulo">Sobre ${esc(ctx.ticker)}</h2>
+            ${s.nome ? `<p class="at-sobre-nome">${esc(s.nome)}</p>` : ''}
+            ${chips ? `<div class="at-chips">${chips}</div>` : ''}
+          </div>
+        </header>
+        ${figuraSobreHtml(s.imagem, 'at-sobre-fig-destaque')}
         <div class="at-sobre-texto">
           ${s.descricao ? `<div class="at-sobre-desc">${paragrafos(s.descricao)}</div>` : ''}
           ${secoes}
         </div>
-        <aside class="at-sobre-ficha">
-          <h3>Ficha</h3>
-          ${campos ? `<dl class="at-dl">${campos}</dl>` : ''}
-          ${links ? `<div class="at-links">${links}</div>` : ''}
-        </aside>
-      </div>
-      ${fontes.length ? `<p class="hint at-fonte">Fontes: ${fontes.map((u) => `<a href="${u}" target="_blank" rel="noopener">${esc(hostDe(u))}</a>`).join(' · ')}</p>` : ''}
-    </section>`;
+        ${fontes.length ? `<p class="hint at-fonte">Fontes: ${fontes.map((u) => `<a href="${u}" target="_blank" rel="noopener">${esc(hostDe(u))}</a>`).join(' · ')}</p>` : ''}
+      </section>
+      <aside class="at-card at-sobre-ficha" aria-labelledby="at-ficha-titulo">
+        <div class="at-card-titulo"><h2 id="at-ficha-titulo">Ficha</h2></div>
+        ${campos ? `<dl class="at-dl">${campos}</dl>` : ''}
+        ${links ? `<div class="at-links">${links}</div>` : ''}
+      </aside>
+    </div>`;
 }
 
 /**
@@ -1356,6 +1506,7 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
       ${graficosHtml(ctx)}
       ${proventosHtml(ctx)}
       ${noticiasCardHtml_()}
+      ${secaoVideosHtml('at-videos', { hint: 'dos seus canais do YouTube que citam o ativo' })}
       ${ehFii ? '' : teseCardHtml_(ctx)}`;
   const painel = (id, conteudo) => `
       <section class="at-aba" id="at-aba-${id}" role="tabpanel" aria-labelledby="at-tab-${id}"${id === aba ? '' : ' hidden'}>${conteudo}
@@ -1459,6 +1610,7 @@ export async function montarPaginaAtivo(token, {
   getNoticiasImpl = getNoticiasAtivo,
   getTesesImpl = getTesesAtivo,
   carregarEstaticosImpl = carregarEstaticosPadrao,
+  getVideosImpl = undefined,
   agora = () => new Date(),
 } = {}) {
   const loadingEl = doc.getElementById('ativoLoading');
@@ -1509,6 +1661,14 @@ export async function montarPaginaAtivo(token, {
     erroEl.hidden = true;
     conteudoEl.hidden = false;
     desenhar(doc, conteudoEl, estado.ctx);
+    // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece
+    if (!estado.ctx.ehRf) {
+      if (!estado.videos) {
+        const termos = [estado.ctx.ticker, ...((estado.ctx.sobre && estado.ctx.sobre.apelidos) || [])];
+        estado.videos = criarCarregadorVideos(token, { termos }, { ...(getVideosImpl ? { getVideosImpl } : {}), agora });
+      }
+      estado.videos(doc.getElementById('at-videos'));
+    }
     preencherExtras();
     pedirExtras(resposta);
   };

@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken, clearToken } from './auth.js';
-import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, limparCacheHistorico } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 import { limparCacheDados } from './cache-dados.js';
@@ -566,7 +566,7 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
  * (ver carregarStatusSync): uma falha de rede aqui não pode quebrar a
  * página, só deixa o popover sem se atualizar.
  */
-export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRendaFixaEIndicesImpl = syncRendaFixaEIndices, syncProventosFnetImpl = syncProventosFnet, syncInformesFnetImpl = syncInformesFnet, carregarStatusSyncImpl = carregarStatusSync } = {}) {
+export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRendaFixaEIndicesImpl = syncRendaFixaEIndices, syncProventosFnetImpl = syncProventosFnet, syncInformesFnetImpl = syncInformesFnet, syncVideosImpl = syncVideos, carregarStatusSyncImpl = carregarStatusSync } = {}) {
   const button = doc.getElementById('syncNowBtn');
   if (!button || !token) return;
 
@@ -583,8 +583,10 @@ export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRend
     rendaFixa: { impl: syncRendaFixaEIndicesImpl, rotulo: 'Renda Fixa/Índices' },
     proventos: { impl: syncProventosFnetImpl, rotulo: 'proventos (FNet)' },
     informes: { impl: syncInformesFnetImpl, rotulo: 'informes dos FIIs (FNet)' },
+    // 25/09/2026: vídeos dos canais do YouTube (Videos.gs, gatilho de 6h)
+    videos: { impl: syncVideosImpl, rotulo: 'vídeos (YouTube)' },
   };
-  const ordemTudo = ['ativos', 'rendaFixa', 'proventos', 'informes'];
+  const ordemTudo = ['ativos', 'rendaFixa', 'proventos', 'informes', 'videos'];
   const individuais = Array.from(doc.querySelectorAll('[data-sync]')).filter((el) => passos[el.dataset.sync]);
   const todos = [button, ...individuais];
   let ocupado = false;

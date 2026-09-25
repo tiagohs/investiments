@@ -297,7 +297,7 @@ test('ativo: abas - Visão geral aberta; Extrato e Sobre escondidas; clique troc
   assert.ok(painel('extrato').querySelector('#at-mensal') && painel('extrato').querySelector('#at-extrato'));
   assert.ok(painel('sobre').querySelector('#at-sobre') && painel('sobre').querySelector('#at-ir'));
   const ordem = [...painel('visao').querySelectorAll('.at-col-principal > section')].map((s) => s.id);
-  assert.deepEqual(ordem, ['at-graficos', 'at-proventos', 'at-noticias', 'at-tese'], 'notícias logo abaixo de proventos; tese no corpo');
+  assert.deepEqual(ordem, ['at-graficos', 'at-proventos', 'at-noticias', 'at-videos', 'at-tese'], 'notícias logo abaixo de proventos, depois vídeos; tese no corpo');
 
   const aba = (id) => doc.getElementById(`at-tab-${id}`);
   clique(w, aba('extrato'));
@@ -346,7 +346,11 @@ test('ativo: extrato - tags por tipo, ordenação pelo título, filtro por ano e
   const thTotal = [...doc.querySelectorAll('#atExtratoTabela th.cc-th-ordenavel')].find((th) => /Total/.test(th.textContent));
   clique(w, thTotal);
   assert.match(txt(linhas()[0]), /R\$\s*120,00/, 'maior total primeiro');
-  clique(w, doc.querySelector('#atExtratoAnos [data-ano="2025"]'));
+  const selAno = doc.getElementById('atExtratoAno');
+  assert.deepEqual([...selAno.options].map((o) => o.value), ['', '2026', '2025'], 'filtro de ano do lado direito do título');
+  assert.ok(selAno.closest('.area-header .at-controles'));
+  selAno.value = '2025';
+  selAno.dispatchEvent(new w.Event('change', { bubbles: true }));
   assert.equal(linhas().length, 1);
   assert.match(txt(linhas()[0]), /03\/11\/2025/);
   clique(w, doc.querySelector('#atExtratoFiltros [data-filtro="provento"]'));
@@ -373,4 +377,74 @@ test('ativo: Sobre com seções longas e imagens (https ou assets/ do site; o re
   assert.equal(sobre.querySelectorAll('.at-sobre-secao')[0].querySelectorAll('p').length, 2);
   assert.match(txt(sobre), /Foto: Exemplo/);
   assert.deepEqual([...sobre.querySelectorAll('.at-fonte a')].map((a) => a.textContent), ['fonte.example']);
+});
+
+test('ativo: exportar CSV - extrato e mês a mês com o filtro atual (separador ";", vírgula decimal, BOM)', async () => {
+  const { csvDe, csvExtrato, csvMensal } = await import('../assets/js/pages/ativo.js');
+  const csv = csvDe(['A', 'B'], [[1.5, 'texto; com "aspas"'], [null, 2]]);
+  assert.equal(csv, '﻿A;B\r\n1,5;"texto; com ""aspas"""\r\n;2');
+  const { doc, w } = await montar({ hash: '#extrato' });
+  const baixados = [];
+  w.URL.createObjectURL = (blob) => { baixados.push(blob); return 'blob:x'; };
+  w.URL.revokeObjectURL = () => {};
+  const nomes = [];
+  w.HTMLAnchorElement.prototype.click = function () { nomes.push(this.download); };
+  clique(w, doc.querySelector('#atExtratoFiltros [data-filtro="provento"]'));
+  clique(w, doc.getElementById('atExtratoCsv'));
+  clique(w, doc.getElementById('atMensalCsv'));
+  assert.deepEqual(nomes, ['TEST3-extrato.csv', 'TEST3-mes-a-mes.csv']);
+  const texto = await baixados[0].text();
+  const linhas = texto.replace('﻿', '').split('\r\n');
+  assert.equal(linhas[0], 'Data;Data com;Tipo;Quantidade;Preço / por cota;Moeda;Total;Total (R$);Lucro/prejuízo');
+  assert.equal(linhas.length, 2, 'só o provento (filtro atual)');
+  assert.equal(linhas[1], '15/02/2026;05/02/2026;Dividendo;20;0,25;BRL;5;5;');
+  const mensal = (await baixados[1].text()).split('\r\n');
+  assert.match(mensal[0].replace(/^\ufeff/, ''), /^Mês;Saldo \(R\$\);Quantidade;Rentabilidade no mês \(%\);Ibovespa \(%\)/);
+  assert.equal(mensal.length, 4);
+  assert.ok(typeof csvExtrato === 'function' && typeof csvMensal === 'function');
+});
+
+test('ativo: indicadores com uma conclusão embaixo de cada um (DY x CDI, P/VP, P/L, preço-teto)', async () => {
+  const resposta = respostaAcao();
+  resposta.referencias = { cdi12m: 10 };
+  const { doc } = await montar({ resposta });
+  const ind = doc.getElementById('at-indicadores');
+  const conclusoes = [...ind.querySelectorAll('.at-ind-conclusao')].map((p) => txt(p));
+  assert.ok(conclusoes.some((t) => /Só em proventos, rendeu 5,0% em 12 meses: 50% do CDI do período \(10,0%\)\./.test(t)), conclusoes.join(' | '));
+  assert.ok(conclusoes.some((t) => /R\$ 0,90 por R\$ 1,00 de patrimônio: 10,0% abaixo do valor patrimonial/.test(t)));
+  assert.ok(conclusoes.some((t) => /7,5 anos do lucro atual - um lucro de 13,3% ao ano sobre a cotação \(o CDI rendeu 10,0% em 12 meses\)/.test(t)));
+  assert.ok(conclusoes.some((t) => /A cotação está 10,0% abaixo do seu preço-teto \(margem de segurança\)\./.test(t)));
+  assert.ok(ind.querySelector('.at-ind-conclusao b.good'), 'destaque verde quando favorável');
+});
+
+test('ativo: vídeos - seção na visão geral; busca com ticker + apelidos só quando aparece na tela; toca no próprio cartão', async () => {
+  const pedidos = [];
+  const estaticos = structuredClone(ESTATICOS);
+  estaticos.sobre.ativos.TEST3.apelidos = ['Teste SA'];
+  const { dom, doc, w } = montarDom('TEST3');
+  let observado = null;
+  w.IntersectionObserver = class { constructor(cb) { this.cb = cb; } observe(el) { observado = { cb: this.cb, el }; } disconnect() {} };
+  const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
+  await montarPaginaAtivo('tk', {
+    doc,
+    getAtivoImpl: async () => structuredClone(respostaAcao()),
+    getNoticiasImpl: async () => ({ ok: true, noticias: [] }),
+    getTesesImpl: async () => ({ ok: true, configurado: false }),
+    getVideosImpl: async (t, p) => { pedidos.push(p); return { ok: true, configurado: true, videos: [{ id: 'abcdefghijk', canal: 'Canal X', titulo: 'TEST3 <b>vale?</b>', publicado: '2026-03-09T12:00:00Z' }] }; },
+    carregarEstaticosImpl: async () => estaticos,
+    agora: () => new Date('2026-03-10T15:00:00Z'),
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(pedidos, [], 'ainda não apareceu na tela');
+  assert.equal(observado.el.id, 'at-videos');
+  observado.cb([{ isIntersecting: true }]);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(pedidos, [{ termos: ['TEST3', 'Teste SA'] }]);
+  const card = doc.querySelector('#at-videos .vd-card');
+  assert.match(card.querySelector('img').getAttribute('src'), /i\.ytimg\.com\/vi\/abcdefghijk\//);
+  assert.equal(card.querySelector('.vd-titulo').textContent, 'TEST3 <b>vale?</b>', 'título é texto');
+  assert.match(txt(card.querySelector('.vd-meta')), /Canal X · há 1d/);
+  clique(w, card.querySelector('.vd-thumb'));
+  assert.match(card.querySelector('iframe.vd-player').getAttribute('src'), /youtube-nocookie\.com\/embed\/abcdefghijk/);
+  dom.window.close();
 });

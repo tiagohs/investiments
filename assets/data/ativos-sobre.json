@@ -1,6 +1,6 @@
 {
  "atualizadoEm": "2026-09",
- "observacao": "Dados cadastrais estáticos (descrição com palavras próprias, CNPJ, site/RI). Números de mercado (cotação, DY, P/L) vêm da planilha, não daqui.",
+ "observacao": "Dados cadastrais estáticos (descrição com palavras próprias, CNPJ, site/RI). Números de mercado (cotação, DY, P/L) vêm da planilha, não daqui. \"apelidos\": como o ativo aparece em manchetes e vídeos (filtro dos Vídeos do YouTube; o ticker sempre entra).",
  "ativos": {
   "WIZC3": {
    "classe": "acoes",
@@ -18,6 +18,10 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/wizc3",
     "https://ri.wiz.co/en/sobre-nos/"
+   ],
+   "apelidos": [
+    "Wiz Co",
+    "Wiz"
    ]
   },
   "VAMO3": {
@@ -36,6 +40,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/vamo3",
     "https://ri.grupovamos.com.br/a-vamos/historico/"
+   ],
+   "apelidos": [
+    "Vamos"
    ]
   },
   "SEER3": {
@@ -54,6 +61,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/seer3",
     "https://ri.sereducacional.com/"
+   ],
+   "apelidos": [
+    "Ser Educacional"
    ]
   },
   "TUPY3": {
@@ -72,6 +82,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/tupy3",
     "https://ri.tupy.com.br/en/company/history/"
+   ],
+   "apelidos": [
+    "Tupy"
    ]
   },
   "AXIA3": {
@@ -91,6 +104,11 @@
     "https://statusinvest.com.br/acoes/axia3",
     "https://borainvestir.b3.com.br/noticias/empresas/eletrobras-muda-nome-para-axia-energia-3-anos-apos-privatizacao-confira-novo-ticker/",
     "https://www.infomoney.com.br/mercados/b3-aprova-migracao-da-axia-energia-axia3-para-novo-mercado/"
+   ],
+   "apelidos": [
+    "Axia Energia",
+    "Eletrobras",
+    "ELET3"
    ]
   },
   "AXIA7": {
@@ -110,6 +128,11 @@
     "https://br.advfn.com/jornal/2026/04/axia-energia-aprova-migracao-para-o-novo-mercado-e-conversao-de-acoes-na-b3",
     "https://br.advfn.com/jornal/2026/09/axia-energia-aprova-resgate-de-r-3-9-bilhoes-em-acoes-pnc-veja-datas-e-conversao",
     "https://statusinvest.com.br/acoes/axia7"
+   ],
+   "apelidos": [
+    "Axia Energia",
+    "Eletrobras",
+    "ELET6"
    ]
   },
   "AGRO3": {
@@ -128,6 +151,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/agro3",
     "https://ri.brasil-agro.com/en/brasilagro/history-and-profile/"
+   ],
+   "apelidos": [
+    "BrasilAgro"
    ]
   },
   "B3SA3": {
@@ -146,6 +172,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/b3sa3",
     "https://ri.b3.com.br/pt-br/"
+   ],
+   "apelidos": [
+    "B3"
    ]
   },
   "BBAS3": {
@@ -164,6 +193,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/bbas3",
     "https://ri.bb.com.br/"
+   ],
+   "apelidos": [
+    "Banco do Brasil"
    ]
   },
   "BBSE3": {
@@ -182,6 +214,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/bbse3",
     "https://www.bbseguridaderi.com.br/"
+   ],
+   "apelidos": [
+    "BB Seguridade"
    ]
   },
   "EGIE3": {
@@ -200,6 +235,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/egie3",
     "https://www.engie.com.br/en/investors/engie-brasil-energia-corporation/"
+   ],
+   "apelidos": [
+    "Engie"
    ]
   },
   "PETR4": {
@@ -218,6 +256,9 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/petr4",
     "https://www.investidorpetrobras.com.br/"
+   ],
+   "apelidos": [
+    "Petrobras"
    ]
   },
   "VALE3": {
@@ -236,7 +277,8 @@
    "fontes": [
     "https://statusinvest.com.br/acoes/vale3",
     "https://vale.com/pt/investidores"
-   ]
+   ],
+   "apelidos": []
   },
   "BTLG11": {
    "classe": "fiis",
@@ -257,6 +299,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/btlg11",
     "https://btlg.btgpactual.com/en/about-the-fund/profile/"
+   ],
+   "apelidos": [
+    "BTG Logística"
    ]
   },
   "GARE11": {
@@ -278,6 +323,10 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/gare11",
     "https://statusinvest.com.br/fundos-imobiliarios/gare11"
+   ],
+   "apelidos": [
+    "Guardian Real Estate",
+    "GALG11"
    ]
   },
   "PMLL11": {
@@ -299,6 +348,11 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/pmll11",
     "https://www.infomoney.com.br/onde-investir/mudancas-no-fii-mall11-patria-assume-gestao-e-fundo-adotara-novo-nome/"
+   ],
+   "apelidos": [
+    "Patria Malls",
+    "Pátria Malls",
+    "MALL11"
    ]
   },
   "VGIP11": {
@@ -320,6 +374,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/vgip11",
     "https://valorainvest.com.br/en/fund/vgip11/"
+   ],
+   "apelidos": [
+    "Valora CRI"
    ]
   },
   "TRXF11": {
@@ -341,6 +398,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/trxf11",
     "https://www.trxf11.com.br/"
+   ],
+   "apelidos": [
+    "TRX Real Estate"
    ]
   },
   "RECR11": {
@@ -362,6 +422,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/recr11",
     "https://rec-gestao.com/fundos/recr11/"
+   ],
+   "apelidos": [
+    "REC Recebíveis"
    ]
   },
   "RBRY11": {
@@ -383,6 +446,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/rbry11",
     "https://fiis.com.br/rbry11/"
+   ],
+   "apelidos": [
+    "RBR Crédito"
    ]
   },
   "KNUQ11": {
@@ -404,6 +470,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/knuq11",
     "https://www.kinea.com.br/fundos/fundo-imobiliario-kinea-unique/"
+   ],
+   "apelidos": [
+    "Kinea Unique"
    ]
   },
   "HGRU11": {
@@ -425,6 +494,11 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/hgru11",
     "https://realestate.patria.com/en/property-reits/hgru11/"
+   ],
+   "apelidos": [
+    "Pátria Renda Urbana",
+    "Patria Renda Urbana",
+    "CSHG Renda Urbana"
    ]
   },
   "XPML11": {
@@ -446,6 +520,9 @@
    "fontes": [
     "https://www.fundsexplorer.com.br/funds/xpml11",
     "https://www.xpasset.com.br/en/fundos/xp-malls/"
+   ],
+   "apelidos": [
+    "XP Malls"
    ]
   },
   "GPRK": {
@@ -467,6 +544,9 @@
     "https://stockanalysis.com/stocks/gprk/company/",
     "https://taxsummaries.pwc.com/bermuda/corporate/withholding-taxes",
     "https://ir.geo-park.com/overview/default.aspx"
+   ],
+   "apelidos": [
+    "GeoPark"
    ]
   },
   "CHTR": {
@@ -487,6 +567,10 @@
    "fontes": [
     "https://www.prnewswire.com/news-releases/charter-and-cox-communications-complete-transaction-benefiting-customers-local-communities-employees-and-shareholders-302855936.html",
     "https://stockanalysis.com/stocks/chtr/company/"
+   ],
+   "apelidos": [
+    "Charter Communications",
+    "Spectrum"
    ]
   },
   "SIRI": {
@@ -507,6 +591,10 @@
    "fontes": [
     "https://investor.siriusxm.com/company-information",
     "https://stockanalysis.com/stocks/siri/company/"
+   ],
+   "apelidos": [
+    "Sirius XM",
+    "SiriusXM"
    ]
   },
   "EWBC": {
@@ -527,6 +615,9 @@
    "fontes": [
     "https://investor.eastwestbank.com/corporate-profile/default.aspx",
     "https://stockanalysis.com/stocks/ewbc/company/"
+   ],
+   "apelidos": [
+    "East West Bancorp"
    ]
   },
   "PAM": {
@@ -548,6 +639,10 @@
     "https://ri.pampa.com/en/investor-services/faq/",
     "https://stockanalysis.com/stocks/pam/company/",
     "https://taxsummaries.pwc.com/argentina/corporate/withholding-taxes"
+   ],
+   "apelidos": [
+    "Pampa Energía",
+    "Pampa Energia"
    ]
   },
   "PROSY": {
@@ -568,6 +663,9 @@
    "fontes": [
     "https://www.prosus.com/investors/resources/american-depository-receipt-program",
     "https://taxsummaries.pwc.com/netherlands/corporate/withholding-taxes"
+   ],
+   "apelidos": [
+    "Prosus"
    ]
   },
   "VNOM": {
@@ -588,6 +686,9 @@
    "fontes": [
     "https://www.viperenergy.com/",
     "https://stockanalysis.com/stocks/vnom/company/"
+   ],
+   "apelidos": [
+    "Viper Energy"
    ]
   }
  }

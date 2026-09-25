@@ -4,6 +4,7 @@
  */
 
 import { getCarteirasAcoes, getHome } from '../api-client.js';
+import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -177,6 +178,7 @@ function desenhar(doc, dados) {
       </div>
     </div>
     ${secaoProventosCarteiraHtml('acoesProventos')}
+    ${secaoVideosHtml('acoesVideos')}
   `;
 
   if (dados.historico && dados.historico.length) {
@@ -261,7 +263,8 @@ function desenhar(doc, dados) {
   renderizarTabela();
 }
 
-export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome } = {}) {
+export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+  const preencherVideos = criarCarregadorVideos(token, { carteira: 'acoes' }, getVideosImpl ? { getVideosImpl } : {});
   const loadingEl = doc.getElementById('acoesLoading');
   const erroEl = doc.getElementById('acoesErro');
   const conteudoEl = doc.getElementById('acoesConteudo');
@@ -273,6 +276,7 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
   const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_ACOES), lerCacheDados('home')]);
   if (cacheCarteira) {
     desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
+    preencherVideos(doc.getElementById('acoesVideos'));
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -298,6 +302,7 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
     conteudoEl.hidden = false;
     const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
+    preencherVideos(doc.getElementById('acoesVideos'));
     gravarCacheDados(CHAVE_CACHE_ACOES, resposta.carteira);
   }
 

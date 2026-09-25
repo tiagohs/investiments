@@ -50,12 +50,25 @@
 .at-pagina .cc-tabela td .status-pill{ margin-top:0; font-variant-numeric:tabular-nums; }
 
 /* ---- filtros das tabelas do Extrato ---- */
-.at-filtros-linha{ display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin-bottom:12px; }
-#atMensalFiltros:not(:empty){ margin-bottom:12px; }
-.at-chips-ano .filter-tab{ font-variant-numeric:tabular-nums; }
-.at-mensal-topo{ flex-wrap:wrap; }
-.at-mensal-topo .at-vista{ margin-left:auto; }
-.cc-tabela-card > #atMensalFiltros:empty{ display:none; }
+/* 25/09/2026 (Tiago: "o filtro ficou perdido, quebrado, coloque do lado
+   direito, como em outros lugares"): título + hint à esquerda, controles
+   (tipo, ano, CSV) numa linha só à direita - quebra pra baixo no celular. */
+.at-tabela-topo{ flex-wrap:wrap; align-items:center; row-gap:10px; }
+.at-tabela-topo .hint{ margin-right:auto; }
+.at-controles{ display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px; margin-left:auto; }
+.at-controles .filter-tabs{ flex-wrap:nowrap; }
+.at-sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.at-select-caixa{ position:relative; display:inline-flex; }
+.at-select{ appearance:none; -webkit-appearance:none; font:700 11.5px var(--body-f); color:var(--ink); cursor:pointer;
+  padding:6px 28px 6px 12px; border-radius:100px; border:1px solid var(--border); background:var(--surface);
+  font-variant-numeric:tabular-nums; }
+.at-select-caixa::after{ content:""; position:absolute; right:12px; top:50%; width:6px; height:6px; margin-top:-5px;
+  border-right:2px solid var(--ink-muted); border-bottom:2px solid var(--ink-muted); transform:rotate(45deg); pointer-events:none; }
+.at-select:hover, .at-csv:hover{ border-color:var(--ink-faint); }
+.at-select:focus-visible, .at-csv:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.at-csv{ display:inline-flex; align-items:center; gap:6px; font:700 11.5px var(--body-f); color:var(--ink-muted); cursor:pointer;
+  padding:6px 12px; border-radius:100px; border:1px solid var(--border); background:var(--surface); }
+.at-csv:hover{ color:var(--accent); }
 .at-mensal-grafico{ padding:6px 2px 2px; }
 .at-mensal-svg .at-mensal-indice{ fill:var(--surface); stroke:var(--ink-muted); stroke-width:2; }
 .at-leg-barra{ width:12px; height:12px; border-radius:3px; display:inline-block; }
@@ -125,14 +138,23 @@
 .at-mini dd{ margin:2px 0 0; font-family:var(--mono); font-size:12.5px; font-weight:600; }
 
 /* ---- indicadores ---- */
-.at-ind-grade{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 14px; }
-.at-ind{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:8px 0; border-top:1px solid var(--border); }
+.at-ind-grade{ display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
+.at-ind{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:9px 0; border-top:1px solid var(--border); }
+.at-ind-linha{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.at-ind-linha .at-ind-valor{ text-align:right; }
+/* 25/09/2026: frase de conclusão embaixo de cada indicador */
+.at-ind-conclusao{ margin:4px 0 0; font-size:12px; line-height:1.45; color:var(--ink-muted); text-wrap:pretty; }
+.at-ind-conclusao b{ font-weight:700; color:var(--ink); }
+.at-ind-conclusao b.good{ color:var(--good-ink); }
+.at-ind-conclusao b.bad{ color:var(--bad-ink); }
 .at-ind-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:600; }
 .at-ind-valor{ font-family:var(--mono); font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .at-ind-valor.texto{ font-family:var(--body-f); font-size:13.5px; line-height:1.35; }
 .at-ind-sub{ font-size:11px; color:var(--ink-muted); overflow-wrap:anywhere; }
 .at-prov-stats{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px 16px; }
 .at-prov-stats .at-ind{ border-top:none; padding:0; }
+.at-prov-stats .at-ind-linha{ flex-direction:column; align-items:flex-start; gap:2px; }
+.at-prov-stats .at-ind-linha .at-ind-valor{ text-align:left; }
 
 /* ---- proventos ---- */
 .at-barras-wrap{ min-height:150px; }
@@ -199,19 +221,20 @@
 .at-carregando{ display:flex; flex-direction:column; gap:8px; }
 
 /* ---- sobre (25/09/2026: aba própria - texto longo, imagens e ficha ao lado) ---- */
+/* 25/09/2026 (Tiago: "tem que ficar em cards separados, como antes"):
+   texto num cartão, ficha no outro, lado a lado (1 coluna ≤1100px) */
+.at-sobre-grade{ display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:22px; align-items:start; scroll-margin-top:16px; }
 .at-sobre{ display:flex; flex-direction:column; gap:18px; }
 .at-sobre-topo{ display:flex; align-items:center; gap:14px; }
 .at-sobre-topo h2{ margin:0; font-family:var(--display); font-size:20px; }
 .at-sobre-topo .at-chips{ margin-top:6px; }
 .at-sobre-nome{ font-weight:600; margin:2px 0 0; font-size:13.5px; color:var(--ink-muted); }
-.at-sobre-corpo{ display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:28px; align-items:start; }
 .at-sobre-texto{ max-width:70ch; display:flex; flex-direction:column; gap:6px; }
 .at-sobre-texto p{ margin:0 0 10px; font-size:14.5px; line-height:1.65; color:var(--ink); text-wrap:pretty; }
 .at-sobre-desc p:first-child{ font-size:15.5px; }
 .at-sobre-secao{ display:flow-root; }
 .at-sobre-secao h3{ font-family:var(--display); font-size:17px; margin:10px 0 8px; }
-.at-sobre-ficha{ position:sticky; top:16px; padding:14px 16px; border:1px solid var(--border); border-radius:12px; }
-.at-sobre-ficha h3{ margin:0; font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); }
+.at-sobre-ficha .at-dl{ margin-top:0; }
 .at-sobre-fig{ margin:0; }
 .at-sobre-fig img{ display:block; width:100%; height:auto; border-radius:12px; background:var(--surface-3); }
 .at-sobre-fig-destaque img{ max-height:340px; object-fit:cover; }
@@ -264,8 +287,7 @@
   .at-col-lateral{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
   #at-informes, #at-links{ grid-column:1 / -1; }
   .at-noticias-grade{ grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .at-sobre-corpo{ grid-template-columns:minmax(0,1fr); }
-  .at-sobre-ficha{ position:static; }
+  .at-sobre-grade{ grid-template-columns:minmax(0,1fr); }
   .at-prov-stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 
@@ -300,7 +322,7 @@
   .at-noticia-marca{ width:34px; height:34px; } .at-noticia-favicon{ inset:5px; width:24px; height:24px; }
   .at-noticia-ph-fonte{ display:none; }
   .at-sobre-fig-lateral{ float:none; width:100%; margin:4px 0 10px; }
-  .at-mensal-topo .at-vista{ margin-left:0; }
+  .at-controles{ margin-left:0; justify-content:flex-start; width:100%; }
   .at-card{ padding:14px; }
   .at-mini{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
   .at-ir-fonte{ padding:12px; }

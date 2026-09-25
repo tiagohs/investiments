@@ -192,3 +192,24 @@ test('Contas da tela com a planilha real: ganho desde o início = saldo - compra
   }
   assert.ok(conferidos >= 10, `conferiu ${conferidos} ativos`);
 });
+
+test('Tela do ativo com a planilha real: cache - pré-aquecer calcula todos sem falha; depois a abertura vem do cache (igual ao cálculo) e a posição de hoje continua ao vivo', async (t) => {
+  if (!TEM_FIXTURES) { t.skip('tests/harness/fixtures.json ausente - ver tests/harness/README.md'); return; }
+  const telas = await carregarTodasAsTelasComDadosReais();
+  const sb = telas.sandbox;
+  const ticker = String(plain(telas.carteirasAcoes).ativos[0].ticker).toUpperCase();
+  sb.MEMO_ATIVO_ = {};
+  const semCache = plain(sb.montarBaseAtivo_(sb.SpreadsheetApp.getActiveSpreadsheet(), ticker));
+  const r = plain(sb.preAquecerCacheAtivos_());
+  assert.deepEqual(r.falhas, [], 'nenhum ativo falhou');
+  assert.ok(r.calculados + r.jaEmCache === r.ativos && r.faltaramPorTempo === 0, JSON.stringify(r));
+  const t0 = Date.now();
+  const tela = plain(sb.montarTelaAtivo_(ticker));
+  const ms = Date.now() - t0;
+  assert.equal(tela.ok, true);
+  assert.deepEqual(tela.serie, semCache.serie, 'série do cache = calculada');
+  assert.deepEqual(tela.transacoes, semCache.transacoes);
+  assert.ok(tela.ativo && tela.ativo.ticker, 'posição de hoje preenchida fora do cache');
+  assert.ok(typeof tela.referencias === 'object');
+  t.diagnostic(`pré-aquecer: ${r.ativos} ativos em ${r.ms}ms · abertura com cache: ${ms}ms`);
+});

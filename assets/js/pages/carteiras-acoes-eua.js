@@ -11,6 +11,7 @@
  */
 
 import { getCarteirasAcoesEua, getHome } from '../api-client.js';
+import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -207,6 +208,7 @@ function desenhar(doc, dados) {
       </div>
     </div>
     ${secaoProventosCarteiraHtml('acoesEuaProventos')}
+    ${secaoVideosHtml('acoesEuaVideos')}
   `;
 
   // Tooltips "i" (cabeçalho, nota de ativo, equivalente em R$, legenda do
@@ -384,7 +386,8 @@ function desenhar(doc, dados) {
   }
 }
 
-export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua, getHomeImpl = getHome } = {}) {
+export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+  const preencherVideos = criarCarregadorVideos(token, { carteira: 'acoesEua' }, getVideosImpl ? { getVideosImpl } : {});
   const loadingEl = doc.getElementById('acoesEuaLoading');
   const erroEl = doc.getElementById('acoesEuaErro');
   const conteudoEl = doc.getElementById('acoesEuaConteudo');
@@ -396,6 +399,7 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
   const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_ACOES_EUA), lerCacheDados('home')]);
   if (cacheCarteira) {
     desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
+    preencherVideos(doc.getElementById('acoesEuaVideos'));
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -414,6 +418,7 @@ export async function montarPaginaCarteirasAcoesEua(token, { doc = document, get
     conteudoEl.hidden = false;
     const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
+    preencherVideos(doc.getElementById('acoesEuaVideos'));
     gravarCacheDados(CHAVE_CACHE_ACOES_EUA, resposta.carteira);
   }
 

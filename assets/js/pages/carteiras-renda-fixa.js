@@ -10,6 +10,7 @@
  */
 
 import { getCarteirasRendaFixa, getHome } from '../api-client.js';
+import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -228,6 +229,7 @@ function desenhar(doc, dados) {
         <div id="rendaFixaTabela"></div>
       </div>
     </div>
+    ${secaoVideosHtml('rendaFixaVideos')}
   `;
 
   // Tooltips "i" (cabeçalho, legenda do donut) - ligado 1x no container
@@ -382,7 +384,8 @@ function desenhar(doc, dados) {
   renderizarTabela();
 }
 
-export async function montarPaginaCarteirasRendaFixa(token, { doc = document, getCarteirasRendaFixaImpl = getCarteirasRendaFixa, getHomeImpl = getHome } = {}) {
+export async function montarPaginaCarteirasRendaFixa(token, { doc = document, getCarteirasRendaFixaImpl = getCarteirasRendaFixa, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+  const preencherVideos = criarCarregadorVideos(token, { carteira: 'rendaFixa' }, getVideosImpl ? { getVideosImpl } : {});
   const loadingEl = doc.getElementById('rendaFixaLoading');
   const erroEl = doc.getElementById('rendaFixaErro');
   const conteudoEl = doc.getElementById('rendaFixaConteudo');
@@ -394,6 +397,7 @@ export async function montarPaginaCarteirasRendaFixa(token, { doc = document, ge
   const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_RENDA_FIXA), lerCacheDados('home')]);
   if (cacheCarteira) {
     desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null });
+    preencherVideos(doc.getElementById('rendaFixaVideos'));
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -412,6 +416,7 @@ export async function montarPaginaCarteirasRendaFixa(token, { doc = document, ge
     conteudoEl.hidden = false;
     const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
     desenhar(doc, dados);
+    preencherVideos(doc.getElementById('rendaFixaVideos'));
     gravarCacheDados(CHAVE_CACHE_RENDA_FIXA, resposta.carteira);
   }
 

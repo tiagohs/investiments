@@ -92,6 +92,8 @@ function chaveCacheTelaProventos_(ss) {
 /** Faz a próxima leitura da tela Proventos (e da meta de Renda Passiva) recalcular. */
 function invalidarCacheProventos_() {
   try { PropertiesService.getScriptProperties().setProperty(PROP_VERSAO_CACHE_PROVENTOS, String(Date.now())); } catch (e) { /* cache é só otimização */ }
+  // 25/09/2026: a tela de cada ativo também mostra proventos/anúncios (Ativo.gs)
+  if (typeof invalidarCacheAtivos_ === 'function') invalidarCacheAtivos_();
 }
 
 function montarTelaProventosComCache_() {

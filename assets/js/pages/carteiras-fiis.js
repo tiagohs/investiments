@@ -9,6 +9,7 @@
  */
 
 import { getCarteirasFiis, getHome } from '../api-client.js';
+import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -167,6 +168,7 @@ function desenhar(doc, dados) {
       </div>
     </div>
     ${secaoProventosCarteiraHtml('fiisProventos')}
+    ${secaoVideosHtml('fiisVideos')}
   `;
 
   // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
@@ -260,7 +262,8 @@ function desenhar(doc, dados) {
   }
 }
 
-export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome } = {}) {
+export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+  const preencherVideos = criarCarregadorVideos(token, { carteira: 'fiis' }, getVideosImpl ? { getVideosImpl } : {});
   const loadingEl = doc.getElementById('fiisLoading');
   const erroEl = doc.getElementById('fiisErro');
   const conteudoEl = doc.getElementById('fiisConteudo');
@@ -272,6 +275,7 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
   const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_FIIS), lerCacheDados('home')]);
   if (cacheCarteira) {
     desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
+    preencherVideos(doc.getElementById('fiisVideos'));
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
@@ -290,6 +294,7 @@ export async function montarPaginaCarteirasFiis(token, { doc = document, getCart
     conteudoEl.hidden = false;
     const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
     desenhar(doc, dados);
+    preencherVideos(doc.getElementById('fiisVideos'));
     gravarCacheDados(CHAVE_CACHE_FIIS, resposta.carteira);
   }
 

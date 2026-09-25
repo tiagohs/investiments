@@ -59,28 +59,132 @@ function handleTesesAtivo(e, auth) {
 // Tela do ativo
 // ---------------------------------------------------------------------------
 
-function montarTelaAtivo_(ref) {
-  if (/^rf:/i.test(ref)) return montarTelaAtivoRendaFixa_(ref.slice(3));
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ticker = ref.toUpperCase();
-  var hoje = chaveDiaISOInicio_(new Date());
-  var classes = classesDaCarteiraParaProventos_(ss);
-  var classe = classes[ticker] || null;
+// ---------------------------------------------------------------------------
+// 25/09/2026 (Tiago: "tem demorado mais de 15 segundos na primeira vez que
+// entro em um ativo"): a parte pesada da resposta (série diária, transações,
+// proventos, anúncios, índices) vai pro CacheService por ativo, com chave que
+// muda sozinha quando alguma aba ganha linha nova (contagens) ou quando o dia
+// vira, e uma versão que "Limpar cache"/FNet/importação B3 trocam. A posição
+// de hoje (cotação ao vivo) continua sendo lida a cada abertura. Um gatilho a
+// cada 2h pré-aquece todos os ativos da carteira (instalarGatilhoPreAquecerAtivos),
+// então nem a 1ª abertura do dia espera o cálculo inteiro.
+// ---------------------------------------------------------------------------
 
-  // posição de hoje (mesma linha da tabela de Carteiras)
-  var ativo = null;
-  var nomesClasse = { acoes: 'Ações', fiis: 'FIIs', acoesEua: 'Ações EUA' };
-  var ordem = classe ? [classe] : ['acoes', 'fiis', 'acoesEua'];
-  for (var i = 0; i < ordem.length && !ativo; i++) {
+var PROP_VERSAO_CACHE_ATIVOS = 'ATIVO_CACHE_VERSAO';
+var ATIVO_PREAQUECER_LIMITE_MS_ = 4.5 * 60 * 1000;
+
+/** Memória da EXECUÇÃO atual (o pré-aquecimento lê cada aba grande 1 vez só, não 1 vez por ativo). */
+var MEMO_ATIVO_ = {};
+function memoAtivo_(chave, fn) {
+  if (!Object.prototype.hasOwnProperty.call(MEMO_ATIVO_, chave)) MEMO_ATIVO_[chave] = fn();
+  return MEMO_ATIVO_[chave];
+}
+
+/** Faz a próxima abertura de qualquer ativo recalcular (Limpar cache, FNet, importação B3). */
+function invalidarCacheAtivos_() {
+  try { PropertiesService.getScriptProperties().setProperty(PROP_VERSAO_CACHE_ATIVOS, String(Date.now())); } catch (e) { /* cache é só otimização */ }
+}
+
+function chaveCacheAtivo_(ss, ref) {
+  var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
+  var versao = '0';
+  try { versao = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_ATIVOS) || '0'; } catch (e) { /* sem versão */ }
+  var contagens = memoAtivo_('contagens', function () {
+    return [ABA_PATRIMONIO_INICIO, ABA_TRANSACOES_BR_FLUXO, ABA_TRANSACOES_USA_FLUXO, 'Proventos', 'Proventos - USA', 'Auxiliar_ativos',
+      ABA_HISTORICO_RF, 'Transações Renda Fixa'].map(linhas).join('_');
+  });
+  // hash curto do ref (título de renda fixa tem espaço e pode ser longo; chave do cache tem limite de tamanho)
+  var texto = String(ref).toUpperCase(), h1 = 5381, h2 = 52711;
+  for (var i = 0; i < texto.length; i++) { var c = texto.charCodeAt(i); h1 = ((h1 * 33) ^ c) >>> 0; h2 = ((h2 * 31) + c) >>> 0; }
+  return 'ativo_v1_' + h1.toString(36) + h2.toString(36) + texto.length + '_' + chaveDiaISOInicio_(new Date()) + '_' + contagens + '_' + versao;
+}
+
+/** Lê do cache ou calcula e grava (mesmos helpers em pedaços da série da Início - passa de 100KB). */
+function comCacheAtivo_(ss, ref, fn) {
+  var chave = chaveCacheAtivo_(ss, ref);
+  var emCache = null;
+  try { emCache = lerSerieHistoricoCache_(chave); } catch (e) { emCache = null; }
+  if (emCache) return emCache;
+  var r = fn();
+  if (r && r.ok) { try { gravarSerieHistoricoCache_(chave, r); } catch (e) { /* segue sem cache */ } }
+  return r;
+}
+
+/** Rodar UMA vez no editor: pré-aquece o cache de todos os ativos a cada 2 horas. */
+function instalarGatilhoPreAquecerAtivos() {
+  var jaExiste = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'gatilhoPreAquecerAtivos'; });
+  if (jaExiste) { Logger.log('Gatilho já existe, nada a fazer.'); return; }
+  ScriptApp.newTrigger('gatilhoPreAquecerAtivos').timeBased().everyHours(2).create();
+  Logger.log('Gatilho de pré-aquecimento dos ativos instalado (a cada 2 horas).');
+}
+
+function gatilhoPreAquecerAtivos() { preAquecerCacheAtivos_(); }
+
+/** Roda na hora, pelo editor (mostra quanto tempo levou). */
+function rodarPreAquecerAtivosDireto() {
+  var r = preAquecerCacheAtivos_();
+  Logger.log(JSON.stringify(r));
+}
+
+function preAquecerCacheAtivos_() {
+  var inicio = Date.now();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var refs = Object.keys(classesDaCarteiraParaProventos_(ss));
+  try {
+    (montarCarteirasRendaFixa_().ativos || []).forEach(function (a) {
+      if (a.nomePersonalizado) refs.push('rf:' + String(a.nomePersonalizado).trim() + '|' + String(a.instituicao || '').trim());
+    });
+  } catch (e) { /* sem renda fixa */ }
+  var feitos = 0, jaEstavam = 0, falhas = [], faltaram = 0;
+  refs.forEach(function (ref) {
+    if (Date.now() - inicio > ATIVO_PREAQUECER_LIMITE_MS_) { faltaram++; return; }
     try {
-      var dados = montarCarteiraClasse_(nomesClasse[ordem[i]]);
-      if (ordem[i] === 'fiis') { try { enriquecerAtivosComCarteiraFiis_(dados.ativos); } catch (eF) { /* extras opcionais */ } }
+      var chave = chaveCacheAtivo_(ss, ref);
+      if (lerSerieHistoricoCache_(chave)) { jaEstavam++; return; }
+      var r = /^rf:/i.test(ref) ? montarTelaAtivoRendaFixa_(ref.slice(3)) : montarBaseAtivo_(ss, ref.toUpperCase());
+      if (r && r.ok) { gravarSerieHistoricoCache_(chave, r); feitos++; }
+    } catch (e) { falhas.push(ref + ': ' + String(e).slice(0, 60)); }
+  });
+  return { ativos: refs.length, calculados: feitos, jaEmCache: jaEstavam, faltaramPorTempo: faltaram, falhas: falhas, ms: Date.now() - inicio };
+}
+
+/** Linha da tabela de Carteiras do ativo (posição e cotação de HOJE - nunca vem do cache). */
+function posicaoAtualDoAtivo_(ss, ticker, classeConhecida) {
+  var nomesClasse = { acoes: 'Ações', fiis: 'FIIs', acoesEua: 'Ações EUA' };
+  var ordem = classeConhecida ? [classeConhecida] : ['acoes', 'fiis', 'acoesEua'];
+  for (var i = 0; i < ordem.length; i++) {
+    try {
+      var dados = memoAtivo_('carteira_' + ordem[i], function () {
+        var d = montarCarteiraClasse_(nomesClasse[ordem[i]]);
+        if (ordem[i] === 'fiis') { try { enriquecerAtivosComCarteiraFiis_(d.ativos); } catch (eF) { /* extras opcionais */ } }
+        return d;
+      });
       var achado = (dados.ativos || []).filter(function (a) { return String(a.ticker).toUpperCase() === ticker; })[0];
-      if (achado) { ativo = achado; classe = ordem[i]; }
+      if (achado) return { ativo: achado, classe: ordem[i] };
     } catch (eC) { /* classe sem aba: segue */ }
   }
+  return { ativo: null, classe: classeConhecida || null };
+}
 
-  var mapas = mapasDoPatrimonioParaProventos_(ss);
+function montarTelaAtivo_(ref) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (/^rf:/i.test(ref)) return comCacheAtivo_(ss, ref, function () { return montarTelaAtivoRendaFixa_(ref.slice(3)); });
+  var ticker = ref.toUpperCase();
+  var classes = memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); });
+  var atual = posicaoAtualDoAtivo_(ss, ticker, classes[ticker] || null);
+  var base = comCacheAtivo_(ss, ticker, function () { return montarBaseAtivo_(ss, ticker, atual.classe); });
+  if (!base || !base.ok) return base;
+  base.ativo = atual.ativo;
+  base.hoje = chaveDiaISOInicio_(new Date());
+  return base;
+}
+
+/** Tudo do ativo menos a posição de hoje (é o que vai pro cache). */
+function montarBaseAtivo_(ss, ticker, classeConhecida) {
+  var hoje = chaveDiaISOInicio_(new Date());
+  var classe = classeConhecida || memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); })[ticker] || null;
+
+  var mapas = memoAtivo_('mapas', function () { return mapasDoPatrimonioParaProventos_(ss); });
   var serie = serieDoAtivo_(ss, ticker);
   if (!classe) {
     var linhaClasse = serie.length ? serie[0].classeBruta : null;
@@ -91,7 +195,7 @@ function montarTelaAtivo_(ref) {
   var proventos = proventosDoAtivo_(ss, ticker, mapas.mapaCambioUsd);
   var anunciados = { aReceber: [], pagosNaoLancados: [] };
   try {
-    var a = montarProventosAnunciados_(null, { mapaCambioUsd: mapas.mapaCambioUsd });
+    var a = memoAtivo_('anunciados', function () { return montarProventosAnunciados_(null, { mapaCambioUsd: mapas.mapaCambioUsd }); });
     anunciados.aReceber = a.aReceber.filter(function (p) { return p.ticker === ticker; });
     anunciados.pagosNaoLancados = a.pagosNaoLancados.filter(function (p) { return p.ticker === ticker; });
   } catch (eA) { /* sem anúncios */ }
@@ -115,7 +219,7 @@ function montarTelaAtivo_(ref) {
     ticker: ticker,
     classe: classe,
     moeda: emDolar ? 'USD' : 'BRL',
-    ativo: ativo,
+    ativo: null, // montarTelaAtivo_ põe a posição de hoje (fora do cache)
     serie: serie.map(function (p) { return { data: p.data, cotas: p.cotas, preco: p.preco, valor: p.valor, cambio: p.cambio, valorBrl: p.valorBrl }; }),
     transacoes: transacoes,
     proventos: proventos,
@@ -123,8 +227,26 @@ function montarTelaAtivo_(ref) {
     pagosNaoLancados: anunciados.pagosNaoLancados,
     faixa52: faixa52,
     informesFundo: informesFundo,
-    indices: indicesDesde_(primeiraData)
+    indices: indicesDesde_(primeiraData),
+    referencias: referenciasDeMercado_()
   };
+}
+
+/**
+ * 25/09/2026 (conclusões dos indicadores): CDI dos últimos 12 meses (%), pra
+ * comparar com o DY - da série da Início (mesma régua dos gráficos).
+ */
+function referenciasDeMercado_() {
+  var serie = [];
+  try { serie = memoAtivo_('serieInicio', function () { return montarSerieHistoricoInicio_(); }); } catch (e) { return {}; }
+  var pts = serie.filter(function (p) { return typeof p.indiceCdi === 'number' && p.indiceCdi > 0; });
+  if (pts.length < 2) return {};
+  var ult = pts[pts.length - 1];
+  var alvo = somarDiasChaveAtivo_(ult.data, -365);
+  var base = null;
+  for (var i = pts.length - 1; i >= 0; i--) { if (pts[i].data <= alvo) { base = pts[i]; break; } }
+  if (!base) return {};
+  return { cdi12m: Math.round((ult.indiceCdi / base.indiceCdi - 1) * 10000) / 100, cdi12mAte: ult.data };
 }
 
 /**
@@ -150,7 +272,8 @@ function serieDoAtivo_(ss, ticker) {
   var aba = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
   if (!aba || aba.getLastRow() < 2) return [];
   var porDia = {};
-  aba.getRange(2, 1, aba.getLastRow() - 1, 8).getValues().forEach(function (l) {
+  var linhasAba = memoAtivo_('linhasPatrimonio', function () { return aba.getRange(2, 1, aba.getLastRow() - 1, 8).getValues(); });
+  linhasAba.forEach(function (l) {
     if (String(l[1] || '').trim().toUpperCase() !== ticker || !(l[0] instanceof Date)) return;
     var chave = chaveDiaISOInicio_(l[0]);
     var num = function (v) { return typeof v === 'number' && isFinite(v) ? v : null; };
@@ -172,7 +295,9 @@ function transacoesDoAtivo_(ss, ticker, emDolar, mapaCambioUsd) {
   var aba = ss.getSheetByName(emDolar ? ABA_TRANSACOES_USA_FLUXO : ABA_TRANSACOES_BR_FLUXO);
   if (!aba || aba.getLastRow() < LINHA_DADOS_TRANSACOES_FLUXO) return [];
   var out = [];
-  aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, aba.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1, 12).getValues().forEach(function (l) {
+  memoAtivo_('transacoes_' + (emDolar ? 'usa' : 'br'), function () {
+    return aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, aba.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1, 12).getValues();
+  }).forEach(function (l) {
     if (String(l[0] || '').trim().toUpperCase() !== ticker || !(l[1] instanceof Date)) return;
     var tipo = String(l[2] || '').trim();
     if (!/compra|venda/i.test(tipo)) return;
@@ -197,7 +322,7 @@ function transacoesDoAtivo_(ss, ticker, emDolar, mapaCambioUsd) {
 function proventosDoAtivo_(ss, ticker, mapaCambioUsd) {
   var hoje = chaveDiaISOInicio_(new Date());
   var chaves = Object.keys(mapaCambioUsd || {}).sort();
-  return lerLinhasAbaProventos_(ss).filter(function (p) { return p.ticker === ticker && p.dataPagamento <= hoje && p.tipo !== 'Juros'; })
+  return memoAtivo_('linhasProventos', function () { return lerLinhasAbaProventos_(ss); }).filter(function (p) { return p.ticker === ticker && p.dataPagamento <= hoje && p.tipo !== 'Juros'; })
     .map(function (p) {
       var cambio = p.moeda === 'USD' ? (chaves.length ? cambioUsdParaData_(mapaCambioUsd, chaves, p.dataPagamento) : null) : 1;
       var liquido = Math.round(p.liquido * 100) / 100;
@@ -214,7 +339,7 @@ function proventosDoAtivo_(ss, ticker, mapaCambioUsd) {
 /** Índices da série da Início (em cache) a partir de uma data. */
 function indicesDesde_(dataInicial) {
   var serie = [];
-  try { serie = montarSerieHistoricoInicio_(); } catch (e) { return []; }
+  try { serie = memoAtivo_('serieInicio', function () { return montarSerieHistoricoInicio_(); }); } catch (e) { return []; }
   var desde = dataInicial ? somarDiasChaveAtivo_(dataInicial, -7) : '0000-00-00';
   return serie.filter(function (p) { return p.data >= desde; }).map(function (p) {
     return { data: p.data, cdi: p.indiceCdi, ipca: p.indiceIpca, ibovespa: p.ibovespa, ifix: p.ifix, sp500: p.sp500, cambioUsd: p.cambioUsd, patrimonio: p.patrimonio };
@@ -237,7 +362,7 @@ function montarTelaAtivoRendaFixa_(chave) {
   var partes = String(chave).split('|');
   var nome = String(partes[0] || '').trim();
   var inst = normalizarInstituicaoRF_(partes[1] || '');
-  var carteira = montarCarteirasRendaFixa_();
+  var carteira = memoAtivo_('carteiraRf', function () { return montarCarteirasRendaFixa_(); });
   var ativo = (carteira.ativos || []).filter(function (a) {
     return String(a.nomePersonalizado || '').trim().toUpperCase() === nome.toUpperCase() && normalizarInstituicaoRF_(a.instituicao) === inst;
   })[0] || null;
