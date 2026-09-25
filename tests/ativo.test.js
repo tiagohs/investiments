@@ -439,7 +439,7 @@ test('ativo: vídeos - seção na visão geral; busca com ticker + apelidos só 
   assert.equal(observado.el.id, 'at-videos');
   observado.cb([{ isIntersecting: true }]);
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(pedidos, [{ termos: ['TEST3', 'Teste SA'] }]);
+  assert.deepEqual(pedidos, [{ termos: ['TEST3', 'Teste SA'], ticker: 'TEST3' }]);
   const card = doc.querySelector('#at-videos .vd-card');
   assert.match(card.querySelector('img').getAttribute('src'), /i\.ytimg\.com\/vi\/abcdefghijk\//);
   assert.equal(card.querySelector('.vd-titulo').textContent, 'TEST3 <b>vale?</b>', 'título é texto');

@@ -77,21 +77,72 @@ test('Vídeos: ID do canal direto, pelo link /channel/ ou pela página do @nome 
   assert.equal(sb.extrairIdCanalDoHtml_('{"externalId":"UCzzzzzzzzzzzzzzzzzzzzzz"}'), 'UCzzzzzzzzzzzzzzzzzzzzzz');
 });
 
-test('Vídeos: filtro por termos (palavra inteira, sem diferenciar maiúsculas) e por carteira (canal marcado ou ticker da carteira)', () => {
+test('Vídeos: filtro do ativo - palavra inteira, sem acento; sigla só em maiúsculas; nome em qualquer caixa', () => {
   const { sb } = sandbox();
   const videos = [
-    { id: '1', titulo: 'Análise de TEST3 hoje', descricao: '', carteiras: [] },
-    { id: '2', titulo: 'TEST33 não é TEST3?', descricao: '', carteiras: [] },
-    { id: '3', titulo: 'Mercado', descricao: 'A empresa teste s.a. divulgou', carteiras: [] },
-    { id: '4', titulo: 'Fundos imobiliários da semana', descricao: '', carteiras: ['fiis'] },
-    { id: '5', titulo: 'ATEST3X', descricao: '', carteiras: [] },
+    { id: '1', titulo: 'Análise de TEST3 hoje', descricao: '', carteiras: [], publicado: '2026-09-20' },
+    { id: '2', titulo: 'TEST33 não é TEST3?', descricao: '', carteiras: [], publicado: '2026-09-19' },
+    { id: '3', titulo: 'Mercado', descricao: 'A Empresa Téste divulgou', carteiras: [], publicado: '2026-09-18' },
+    { id: '4', titulo: 'ATEST3X e test3', descricao: '', carteiras: [], publicado: '2026-09-17' },
   ];
   const ids = (r) => plain(r).map((v) => v.id);
-  assert.deepEqual(ids(sb.filtrarVideos_(videos, { termos: ['test3'] })), ['1', '2']);
-  assert.deepEqual(ids(sb.filtrarVideos_(videos, { termos: ['Empresa Teste S.A.'] })), ['3']);
-  assert.deepEqual(ids(sb.filtrarVideos_(videos, { termos: [] })), [], 'sem termo, nada');
-  assert.deepEqual(ids(sb.filtrarVideos_(videos, { carteira: 'fiis', tickersCarteira: ['TEST3'] })), ['1', '2', '4']);
+  assert.deepEqual(ids(sb.filtrarVideos_(videos, { alvos: [{ ticker: 'TEST3', termos: ['TEST3'] }] })), ['1', '2'], 'sigla em minúsculas não conta');
+  assert.deepEqual(ids(sb.filtrarVideos_(videos, { alvos: [{ ticker: 'TEST3', termos: ['empresa teste'] }] })), ['3'], 'nome sem acento/caixa, na descrição também');
+  assert.deepEqual(ids(sb.filtrarVideos_(videos, { alvos: [] })), [], 'sem termo, nada');
+  assert.deepEqual(ids(sb.filtrarVideos_(videos, { alvos: [{ ticker: 'TEST3', termos: ['TEST3'], descartar: ['hoje'] }] })), ['2'], 'descartar tira o vídeo');
+  const r = plain(sb.filtrarVideos_(videos, { alvos: [{ ticker: 'TEST3', termos: ['TEST3'] }] }));
+  assert.deepEqual(r[0], { id: '1', titulo: 'Análise de TEST3 hoje', publicado: '2026-09-20', ativos: ['TEST3'], motivo: 'ativo' });
   assert.deepEqual(plain(sb.normalizarCarteirasVideo_('FIIs, Ações; eua, renda fixa, xyz')), ['fiis', 'acoes', 'acoesEua', 'rendaFixa']);
+});
+
+test('Vídeos: página da carteira - 1º os que citam ativos dela (ticker + apelido do site + termo da aba), depois o tema (só no título) e o canal marcado', () => {
+  const ss = planilhaFalsa({
+    Auxiliar_ativos: [['Classe', 'Ticker'], ['Ações', 'TEST3'], ['Ações', 'OUTR4'], ['FIIs', 'FUND11']],
+    'aux_videos-termos': [['h'], ['acoes', '', '', ''], ['OUTR4', 'Outra Holding', 'podcast', ''], ['todos', '', 'bolsa família', '']],
+  });
+  const { sb } = sandbox({ ss });
+  sb.classesDaCarteiraParaProventos_ = () => ({ TEST3: 'acoes', OUTR4: 'acoes', FUND11: 'fiis' });
+  const videos = [
+    { id: 'tema1', titulo: 'Ibovespa bate recorde', descricao: '', carteiras: [], publicado: '2026-09-25' },
+    { id: 'desc1', titulo: 'Semana no mercado', descricao: 'falamos da Teste Energia', carteiras: [], publicado: '2026-09-10' },
+    { id: 'extra1', titulo: 'Outra Holding compra rival', descricao: '', carteiras: [], publicado: '2026-09-11' },
+    { id: 'desc2', titulo: 'Ações baratas', descricao: 'ações de sempre, ibovespa etc', carteiras: [], publicado: '2026-09-24' },
+    { id: 'fora1', titulo: 'Ações e o Bolsa Família', descricao: 'TEST3', carteiras: [], publicado: '2026-09-23' },
+    { id: 'fora2', titulo: 'Podcast com a Outra Holding', descricao: '', carteiras: [], publicado: '2026-09-22' },
+    { id: 'nada1', titulo: 'Culinária', descricao: 'ações do dia a dia', carteiras: [], publicado: '2026-09-21' },
+    { id: 'fii1', titulo: 'FUND11 paga mais', descricao: '', carteiras: ['acoes'], publicado: '2026-09-20' },
+  ];
+  const opcoes = sb.opcoesFiltroVideos_(ss, { carteira: 'acoes', apelidos: 'TEST3:Teste Energia;FUND11:Fundo X' });
+  const r = plain(sb.filtrarVideos_(videos, opcoes));
+  assert.deepEqual(r.map((v) => [v.id, v.motivo, v.ativos]), [
+    ['extra1', 'ativo', ['OUTR4']],
+    ['desc1', 'ativo', ['TEST3']],
+    ['tema1', 'tema', []],
+    ['desc2', 'tema', []],
+    ['fii1', 'tema', []],
+  ]);
+  // tela do ativo: termos do site + extras da aba; "todos" descarta
+  const o2 = sb.opcoesFiltroVideos_(ss, { termos: 'OUTR4|Outra SA', ticker: 'OUTR4' });
+  assert.deepEqual(plain(o2.alvos[0].termos), ['OUTR4', 'OUTR4', 'Outra SA', 'Outra Holding']);
+  assert.deepEqual(plain(sb.filtrarVideos_(videos, o2)).map((v) => v.id), ['extra1']);
+  assert.deepEqual(plain(sb.lerApelidosVideo_('petr4:Petrobras, Petróleo;;X')), { PETR4: ['Petrobras', 'Petróleo'] });
+  // sem linha da carteira na aba: tema padrão
+  const ss2 = planilhaFalsa({});
+  const { sb: sb2 } = sandbox({ ss: ss2 });
+  sb2.classesDaCarteiraParaProventos_ = () => ({});
+  assert.ok(plain(sb2.opcoesFiltroVideos_(ss2, { carteira: 'fiis' }).tema).includes('fundos imobiliários'));
+});
+
+test('Vídeos: configurarVideosDireto cria a aba de termos com o tema de cada carteira (e não mexe se já existe)', () => {
+  const ss = planilhaFalsa({ 'aux_videos-canais': [['h']] });
+  const { sb } = sandbox({ ss });
+  sb.configurarVideosDireto();
+  const linhas = ss.getSheetByName('aux_videos-termos')._dados();
+  assert.deepEqual(linhas.slice(1, 5).map((l) => l[0]), ['acoes', 'fiis', 'acoesEua', 'rendaFixa']);
+  assert.match(linhas[2][1], /fundos imobiliários/);
+  ss.getSheetByName('aux_videos-termos')._dados()[1][1] = 'meu tema';
+  sb.configurarVideosDireto();
+  assert.equal(ss.getSheetByName('aux_videos-termos')._dados()[1][1], 'meu tema');
 });
 
 test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras do canal, joga fora o que tem mais de 1 ano e registra falha', () => {

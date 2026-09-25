@@ -8,15 +8,29 @@
  * aba aux_videos (guarda 1 ano) - assim o histórico vai crescendo além dos 15
  * do feed. O site só lê essa aba (rápido) e filtra:
  *  - tela do ativo: título/descrição que citam o ticker ou um apelido
- *    (ex.: "Petrobras") - o site manda os termos;
- *  - página de uma carteira: vídeos dos canais marcados com aquela carteira
- *    + vídeos de qualquer canal que citem um ticker dela.
+ *    (ex.: "Petrobras" - apelidos em assets/data/ativos-sobre.json, o site
+ *    manda) + os termos extras da aba aux_videos-termos;
+ *  - página de uma carteira (26/09/2026, Tiago: "em ações não veio nada..
+ *    mas internamente, algumas ações têm vídeos"): 1º os vídeos que citam
+ *    QUALQUER ativo da carteira (mesma regra da tela do ativo - ticker +
+ *    apelidos + extras), com o ticker marcado no cartão; depois os "do
+ *    tema" - canal marcado com a carteira ou termo do tema NO TÍTULO
+ *    ("fundos imobiliários", "Ibovespa", "renda fixa"...).
+ *
+ * Regra de comparação: palavra inteira, sem diferenciar acentos. Sigla em
+ * maiúsculas (PETR4, CDB, IFIX) só casa em maiúsculas; nome ("Petrobras")
+ * casa de qualquer jeito. Termo do tema só vale no título (a descrição tem
+ * patrocínio, links e texto padrão do canal - "ações", "bolsa" aparecem em
+ * quase todas).
  *
  * Os canais ficam na aba aux_videos-canais (você edita na planilha): coluna A
  * = link do canal, @nome ou ID (UC...); coluna B (opcional) = carteiras do
  * canal: acoes, fiis, acoesEua, rendaFixa (separadas por vírgula).
+ * Ajuste fino (opcional) na aba aux_videos-termos: por ativo (ticker) ou
+ * carteira, termos a mais e termos que descartam o vídeo; a linha "todos"
+ * descarta em todo lugar. As linhas das carteiras já vêm com o tema padrão.
  *
- * Primeira vez: rode configurarVideosDireto() (cria a aba), preencha os
+ * Primeira vez: rode configurarVideosDireto() (cria as abas), preencha os
  * canais, rode rodarVideosDireto() e instalarGatilhoVideos().
  */
 
@@ -27,12 +41,25 @@ var CABECALHO_VIDEOS = ['ID do vídeo', 'Canal', 'Título', 'Publicado em', 'Des
 var VIDEOS_DIAS_GUARDAR = 365;
 var VIDEOS_MAX_RESPOSTA = 12;
 var CARTEIRAS_VIDEOS = ['acoes', 'fiis', 'acoesEua', 'rendaFixa'];
+var ABA_VIDEOS_TERMOS = 'aux_videos-termos';
+var CABECALHO_VIDEOS_TERMOS = ['Ativo ou carteira (ticker, acoes, fiis, acoesEua, rendaFixa ou todos)', 'Termos a mais (separados por vírgula)', 'Descartar vídeos que citam (separados por vírgula)', 'Observação'];
+// Tema de cada carteira - só no TÍTULO. Vale enquanto a linha da carteira na
+// aba aux_videos-termos não existir ou estiver com a coluna B vazia.
+var TEMAS_VIDEOS_PADRAO = {
+  acoes: ['ações', 'Ibovespa', 'bolsa brasileira', 'bolsa de valores', 'small caps', 'dividendos de ações'],
+  fiis: ['FII', 'FIIs', 'fundo imobiliário', 'fundos imobiliários', 'IFIX'],
+  acoesEua: ['ações americanas', 'bolsa americana', 'stocks', 'S&P 500', 'Nasdaq', 'Wall Street', 'investir no exterior'],
+  rendaFixa: ['renda fixa', 'Tesouro Direto', 'Tesouro IPCA', 'Tesouro Selic', 'Tesouro Reserva', 'Tesouro Prefixado', 'CDB', 'LCI', 'LCA', 'CRI', 'CRA', 'debêntures', 'Selic', 'CDI']
+};
 
 // ---------------------------------------------------------------------------
 // Configuração / gatilho
 // ---------------------------------------------------------------------------
 
-/** Rodar 1x: cria a aba de canais (com cabeçalho) se ainda não existe. */
+/**
+ * Rodar 1x (pode rodar de novo, não apaga nada): cria a aba de canais e a de
+ * termos (esta já com o tema padrão de cada carteira, pra você ver e editar).
+ */
 function configurarVideosDireto() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var aba = ss.getSheetByName(ABA_VIDEOS_CANAIS);
@@ -42,6 +69,17 @@ function configurarVideosDireto() {
     Logger.log('Aba ' + ABA_VIDEOS_CANAIS + ' criada. Coloque um canal por linha (link, @nome ou ID) e rode rodarVideosDireto().');
   } else {
     Logger.log('Aba ' + ABA_VIDEOS_CANAIS + ' já existe - ' + Math.max(aba.getLastRow() - 1, 0) + ' canal(is).');
+  }
+  if (!ss.getSheetByName(ABA_VIDEOS_TERMOS)) {
+    var termos = ss.insertSheet(ABA_VIDEOS_TERMOS);
+    var linhas = [CABECALHO_VIDEOS_TERMOS].concat(CARTEIRAS_VIDEOS.map(function (c) {
+      return [c, TEMAS_VIDEOS_PADRAO[c].join(', '), '', 'Tema da carteira (só no título do vídeo)'];
+    })).concat([
+      ['todos', '', '', 'Coluna C: vídeos que citam isso somem de todas as telas'],
+      ['PETR4', '', '', 'Exemplo: termos a mais pra um ativo (o ticker e o nome já entram sozinhos)']
+    ]);
+    termos.getRange(1, 1, linhas.length, CABECALHO_VIDEOS_TERMOS.length).setValues(linhas);
+    Logger.log('Aba ' + ABA_VIDEOS_TERMOS + ' criada com o tema padrão de cada carteira.');
   }
 }
 
@@ -220,29 +258,122 @@ function atualizarVideos_(origem) {
 // Leitura pro site
 // ---------------------------------------------------------------------------
 
-function regexTermoVideo_(termo) {
-  var t = String(termo || '').trim();
-  if (t.length < 2) return null;
-  var escapado = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp('(^|[^A-Za-z0-9À-ÿ])' + escapado + '($|[^A-Za-z0-9À-ÿ])', 'i');
+function semAcentoVideo_(texto) {
+  return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function listaTermosVideo_(texto) {
+  return String(texto || '').split(/[,;\n]/).map(function (t) { return t.trim(); }).filter(Boolean);
 }
 
 /**
- * termos: ticker/apelidos (tela do ativo). carteira + tickersCarteira: página
- * de uma carteira (canal marcado com ela OU vídeo que cita um ticker dela).
+ * Termo -> RegExp de palavra inteira, sem acento. Sigla toda em maiúsculas
+ * (PETR4, CDB, IFIX) exige maiúsculas no texto; nome ignora maiúsculas.
+ */
+function regexTermoVideo_(termo) {
+  var t = semAcentoVideo_(String(termo || '').trim());
+  if (t.length < 2) return null;
+  var sigla = /^[A-Z0-9&]{2,8}$/.test(t) && /[A-Z]/.test(t);
+  var escapado = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp('(^|[^A-Za-z0-9])' + escapado + '($|[^A-Za-z0-9])', sigla ? '' : 'i');
+}
+
+/** Aba aux_videos-termos -> { PETR4: {termos, descartar}, acoes: {...}, todos: {...} }. */
+function lerTermosVideos_(ss) {
+  var out = {};
+  var aba = ss.getSheetByName(ABA_VIDEOS_TERMOS);
+  if (!aba || aba.getLastRow() < 2) return out;
+  aba.getRange(2, 1, aba.getLastRow() - 1, 3).getValues().forEach(function (l) {
+    var bruto = String(l[0] || '').trim();
+    if (!bruto) return;
+    var chave = bruto.toLowerCase() === 'todos' ? 'todos' : (normalizarCarteirasVideo_(bruto)[0] || bruto.toUpperCase());
+    var atual = out[chave] || (out[chave] = { termos: [], descartar: [] });
+    atual.termos = atual.termos.concat(listaTermosVideo_(l[1]));
+    atual.descartar = atual.descartar.concat(listaTermosVideo_(l[2]));
+  });
+  return out;
+}
+
+/** "PETR4:Petrobras,Petróleo;AXIA3:Eletrobras" (o site manda) -> { PETR4: [...], AXIA3: [...] }. */
+function lerApelidosVideo_(texto) {
+  var out = {};
+  String(texto || '').split(';').forEach(function (par) {
+    var i = par.indexOf(':');
+    if (i < 1) return;
+    out[par.slice(0, i).trim().toUpperCase()] = listaTermosVideo_(par.slice(i + 1));
+  });
+  return out;
+}
+
+/**
+ * opcoes:
+ *  - alvos: [{ ticker, termos, descartar }] - vídeo que cita um termo do
+ *    alvo (título ou descrição) entra no 1º grupo, com o ticker marcado;
+ *  - carteira + tema: 2º grupo - canal marcado com a carteira ou termo do
+ *    tema no título;
+ *  - descartar: termos que tiram o vídeo de qualquer grupo.
+ * Devolve até opcoes.max vídeos: 1º grupo, depois o 2º; mais novo primeiro.
  */
 function filtrarVideos_(videos, opcoes) {
   var o = opcoes || {};
-  var regexes = (o.termos || []).map(regexTermoVideo_).filter(Boolean);
-  var regexTickers = (o.tickersCarteira || []).map(regexTermoVideo_).filter(Boolean);
-  var cita = function (v, lista) {
-    var texto = v.titulo + '\n' + v.descricao;
-    return lista.some(function (r) { return r.test(texto); });
+  var rx = function (lista) { return (lista || []).map(regexTermoVideo_).filter(Boolean); };
+  var alvos = (o.alvos || []).map(function (a) {
+    return { ticker: a.ticker, termos: rx(a.termos), descartar: rx(a.descartar) };
+  }).filter(function (a) { return a.termos.length; });
+  var tema = rx(o.tema);
+  var descartar = rx(o.descartar);
+  var saida = [];
+  videos.forEach(function (v) {
+    var titulo = semAcentoVideo_(v.titulo);
+    var descricao = semAcentoVideo_(v.descricao);
+    var cita = function (lista, soTitulo) {
+      return lista.some(function (r) { return r.test(titulo) || (!soTitulo && r.test(descricao)); });
+    };
+    if (descartar.length && cita(descartar)) return;
+    var ativos = alvos.filter(function (a) { return cita(a.termos) && !(a.descartar.length && cita(a.descartar)); })
+      .map(function (a) { return a.ticker; });
+    var doTema = !ativos.length && ((o.carteira && (v.carteiras || []).indexOf(o.carteira) !== -1) || (tema.length && cita(tema, true)));
+    if (!ativos.length && !doTema) return;
+    saida.push({ v: v, ativos: ativos, grupo: ativos.length ? 0 : 1 });
+  });
+  saida.sort(function (a, b) {
+    if (a.grupo !== b.grupo) return a.grupo - b.grupo;
+    return a.v.publicado < b.v.publicado ? 1 : (a.v.publicado > b.v.publicado ? -1 : 0);
+  });
+  return saida.slice(0, o.max || VIDEOS_MAX_RESPOSTA).map(function (x) {
+    return { id: x.v.id, canal: x.v.canal, titulo: x.v.titulo, publicado: x.v.publicado, ativos: x.ativos, motivo: x.grupo === 0 ? 'ativo' : 'tema' };
+  });
+}
+
+/** Monta as opções do filtro a partir da requisição + aba de termos. */
+function opcoesFiltroVideos_(ss, p) {
+  var termosAba = lerTermosVideos_(ss);
+  var extra = function (chave) { return termosAba[chave] || { termos: [], descartar: [] }; };
+  var carteira = CARTEIRAS_VIDEOS.indexOf(p.carteira) !== -1 ? p.carteira : null;
+  if (carteira) {
+    var apelidos = lerApelidosVideo_(p.apelidos);
+    var tickers = [];
+    if (carteira !== 'rendaFixa') {
+      var classes = classesDaCarteiraParaProventos_(ss); // Proventos.gs
+      tickers = Object.keys(classes).filter(function (t) { return classes[t] === carteira; });
+    }
+    var cfg = extra(carteira);
+    return {
+      carteira: carteira,
+      alvos: tickers.map(function (t) {
+        return { ticker: t, termos: [t].concat(apelidos[t] || [], extra(t).termos), descartar: extra(t).descartar };
+      }),
+      tema: cfg.termos.length ? cfg.termos : TEMAS_VIDEOS_PADRAO[carteira],
+      descartar: extra('todos').descartar.concat(cfg.descartar)
+    };
+  }
+  var termos = String(p.termos || '').split('|').map(function (t) { return t.trim(); }).filter(Boolean);
+  var ticker = String(p.ticker || termos[0] || '').trim().toUpperCase();
+  if (!ticker) return { alvos: [] };
+  return {
+    alvos: [{ ticker: ticker, termos: [ticker].concat(termos, extra(ticker).termos), descartar: extra(ticker).descartar }],
+    descartar: extra('todos').descartar
   };
-  return videos.filter(function (v) {
-    if (o.carteira) return (v.carteiras || []).indexOf(o.carteira) !== -1 || cita(v, regexTickers);
-    return regexes.length ? cita(v, regexes) : false;
-  }).slice(0, o.max || VIDEOS_MAX_RESPOSTA);
 }
 
 function handleVideos(e, auth) {
@@ -252,17 +383,11 @@ function handleVideos(e, auth) {
     var p = (e && e.parameter) || {};
     var configurado = lerCanaisVideos_(ss).length > 0;
     var videos = lerVideos_(ss);
-    var termos = String(p.termos || p.ticker || '').split('|').map(function (t) { return t.trim(); }).filter(Boolean);
-    var carteira = CARTEIRAS_VIDEOS.indexOf(p.carteira) !== -1 ? p.carteira : null;
-    var tickersCarteira = [];
-    if (carteira && carteira !== 'rendaFixa') {
-      var classes = classesDaCarteiraParaProventos_(ss); // Proventos.gs
-      tickersCarteira = Object.keys(classes).filter(function (t) { return classes[t] === carteira; });
-    }
-    var lista = filtrarVideos_(videos, { termos: termos, carteira: carteira, tickersCarteira: tickersCarteira });
+    var opcoes = opcoesFiltroVideos_(ss, p);
     return jsonOut({
       ok: true, configurado: configurado, totalGuardados: videos.length,
-      videos: lista.map(function (v) { return { id: v.id, canal: v.canal, titulo: v.titulo, publicado: v.publicado }; })
+      carteira: opcoes.carteira || null,
+      videos: filtrarVideos_(videos, opcoes)
     });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'videos', erro: String(erro) });

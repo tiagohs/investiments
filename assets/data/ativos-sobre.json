@@ -1,6 +1,6 @@
 {
  "atualizadoEm": "2026-09",
- "observacao": "Dados cadastrais estáticos (descrição com palavras próprias, CNPJ, site/RI). Números de mercado (cotação, DY, P/L) vêm da planilha, não daqui. \"apelidos\": como o ativo aparece em manchetes e vídeos (filtro dos Vídeos do YouTube; o ticker sempre entra).",
+ "observacao": "Dados cadastrais estáticos (descrição com palavras próprias, CNPJ, site/RI). Números de mercado (cotação, DY, P/L) vêm da planilha, não daqui. \"apelidos\": como o ativo aparece em manchetes e vídeos (filtro dos Vídeos do YouTube; o ticker sempre entra). Evite palavra comum (Vamos, Vale, B3 - a bolsa): pegaria vídeo que não é do ativo.",
  "ativos": {
   "WIZC3": {
    "classe": "acoes",
@@ -41,9 +41,7 @@
     "https://statusinvest.com.br/acoes/vamo3",
     "https://ri.grupovamos.com.br/a-vamos/historico/"
    ],
-   "apelidos": [
-    "Vamos"
-   ]
+   "apelidos": ["Grupo Vamos", "Vamos Locação"]
   },
   "SEER3": {
    "classe": "acoes",
@@ -173,9 +171,7 @@
     "https://statusinvest.com.br/acoes/b3sa3",
     "https://ri.b3.com.br/pt-br/"
    ],
-   "apelidos": [
-    "B3"
-   ]
+   "apelidos": []
   },
   "BBAS3": {
    "classe": "acoes",

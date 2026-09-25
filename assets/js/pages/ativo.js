@@ -1665,7 +1665,7 @@ export async function montarPaginaAtivo(token, {
     if (!estado.ctx.ehRf) {
       if (!estado.videos) {
         const termos = [estado.ctx.ticker, ...((estado.ctx.sobre && estado.ctx.sobre.apelidos) || [])];
-        estado.videos = criarCarregadorVideos(token, { termos }, { ...(getVideosImpl ? { getVideosImpl } : {}), agora });
+        estado.videos = criarCarregadorVideos(token, { termos, ticker: estado.ctx.ticker }, { ...(getVideosImpl ? { getVideosImpl } : {}), agora });
       }
       estado.videos(doc.getElementById('at-videos'));
     }

@@ -467,10 +467,17 @@ export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' }
  * `termos` (tela do ativo): ticker e apelidos; `carteira` (página de uma
  * carteira): acoes, fiis, acoesEua ou rendaFixa.
  */
-export async function getVideos(token, { termos = [], carteira = '' } = {}) {
+export async function getVideos(token, { termos = [], ticker = '', carteira = '', apelidos = null } = {}) {
   const params = {};
   if (termos.length) params.termos = termos.join('|');
+  if (ticker) params.ticker = ticker;
   if (carteira) params.carteira = carteira;
+  // 26/09/2026: página da carteira manda os apelidos de cada ativo ("PETR4:Petrobras;AXIA3:Axia Energia,Eletrobras")
+  if (apelidos && typeof apelidos === 'object') {
+    const txt = Object.entries(apelidos).filter(([, l]) => Array.isArray(l) && l.length)
+      .map(([t, l]) => `${t}:${l.map((a) => String(a).replace(/[;:,|]/g, ' ')).join(',')}`).join(';');
+    if (txt) params.apelidos = txt;
+  }
   return request('GET', 'videos', token, params);
 }
 
