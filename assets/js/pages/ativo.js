@@ -24,10 +24,10 @@ import {
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { refDaUrl } from '../link-ativo.js';
-import { logoAtivoHtml, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
+import { logoAtivoHtml, logoRendaFixaHtml, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
-  resumoPosicao, percentualNaCarteira, irDaClasse, ordenarTeses, cambioMaisRecente,
+  resumoPosicao, percentualNaCarteira, informesIrDoAtivo, declaracaoIrDoAtivo, ordenarTeses, cambioMaisRecente,
   comCamposUsdAtivo, historicoAtivoTemCambioUsd,
 } from './ativo-calc.js';
 
@@ -107,7 +107,12 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
     extrato: montarExtrato(resposta),
     percentualCarteira: percentualNaCarteira(historico),
     sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
-    ir: irDaClasse(ir, classe),
+    ir: informesIrDoAtivo(ir, { ticker: resposta.ticker, classe, instituicao: resposta.ativo && resposta.ativo.instituicao }),
+    declaracaoIr: declaracaoIrDoAtivo(ir, {
+      classe, ticker: resposta.ticker, hoje: resposta.hoje, transacoes: resposta.transacoes || [], ativo: resposta.ativo || null, historico,
+      ehRf: resposta.tipo === 'rf',
+      sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
+    }),
     informesFundo: resposta.informesFundo || null,
   };
 }
@@ -141,10 +146,35 @@ export const SUNO_CARTEIRAS_URL = {
 };
 const TICKERS_SUNO_CARTEIRA_VALOR = new Set(['VAMO3', 'B3SA3']);
 
-// B3 não tem link direto por ticker sem o ID numérico interno da empresa
-// (só o buscador descobre isso navegando) - por enquanto aponta pro
-// buscador oficial de empresas listadas, não pro ativo certeiro.
-const B3_EMPRESAS_LISTADAS_URL = 'https://www.b3.com.br/pt_br/produtos-e-servicos/negociacao/renda-variavel/empresas-listadas.htm';
+// 25/09/2026 (Tiago: "remova os da b3 (nenhum funciona) e coloque o
+// tradingview no lugar, e inclua o do google"): TradingView e Google
+// Finance. Brasil: bolsa BMFBOVESPA / BVMF. EUA: bolsa do "Sobre"
+// (ativos-sobre.json, campo bolsa: NYSE, NASDAQ, OTC).
+const BOLSA_EUA = {
+  NYSE: { tradingView: 'NYSE', google: 'NYSE' },
+  NASDAQ: { tradingView: 'NASDAQ', google: 'NASDAQ' },
+  OTC: { tradingView: 'OTC', google: 'OTCMKTS' },
+};
+
+export function tradingViewUrl(ctx) {
+  const t = encodeURIComponent(String(ctx.ticker || '').toUpperCase());
+  if (!t || ctx.ehRf) return null;
+  if (ctx.classe === 'acoesEua') {
+    const b = BOLSA_EUA[String((ctx.sobre && ctx.sobre.bolsa) || '').toUpperCase()];
+    return b ? `https://www.tradingview.com/symbols/${b.tradingView}-${t}/` : `https://www.tradingview.com/symbols/${t}/`;
+  }
+  return `https://www.tradingview.com/symbols/BMFBOVESPA-${t}/`;
+}
+
+export function googleFinanceUrl(ctx) {
+  const t = encodeURIComponent(String(ctx.ticker || '').toUpperCase());
+  if (!t || ctx.ehRf) return null;
+  if (ctx.classe === 'acoesEua') {
+    const b = BOLSA_EUA[String((ctx.sobre && ctx.sobre.bolsa) || '').toUpperCase()];
+    return b ? `https://www.google.com/finance/quote/${t}:${b.google}` : `https://www.google.com/finance?q=${t}`;
+  }
+  return `https://www.google.com/finance/quote/${t}:BVMF`;
+}
 
 /** "https://investidor.suno.com.br/acoes/WIZC3" / ".../fiis/PMLL11" - sem padrão pra EUA/RF. */
 function sunoDetalheAtivoUrl_(ctx) {
@@ -174,7 +204,8 @@ export function linksRelevantesHtml(ctx) {
     linkRelevanteHtml_('Relação com investidores', s ? urlSegura(s.ri) : null),
     linkRelevanteHtml_('Carteira recomendada (Suno)', sunoCarteiraUrl_(ctx)),
     linkRelevanteHtml_('Detalhes do ativo (Suno)', sunoDetalheAtivoUrl_(ctx)),
-    ...(ctx.classe === 'acoes' || ctx.classe === 'fiis' ? [linkRelevanteHtml_('Empresas listadas na B3', B3_EMPRESAS_LISTADAS_URL)] : []),
+    linkRelevanteHtml_('TradingView', tradingViewUrl(ctx)),
+    linkRelevanteHtml_('Google Finance', googleFinanceUrl(ctx)),
   ].filter(Boolean);
   if (!itens.length) return '';
   return `
@@ -187,25 +218,6 @@ export function linksRelevantesHtml(ctx) {
 // ---------------------------------------------------------------------------
 // Cabeçalho + navegação das seções
 // ---------------------------------------------------------------------------
-
-// 25/09/2026 (Tiago, ponto 6): 3 imagens genéricas pra renda fixa, por
-// tipo de título - não por ticker (LOGOS_ATIVOS é por ticker, não serve
-// aqui). Indexador manda pros 2 Tesouro Direto; LCI do Inter é o único
-// caso de instituição por enquanto. Título fora dessas 3 regras continua
-// com as iniciais (fallback de sempre).
-function logoRendaFixaHtml_(a) {
-  const indexador = String(a.indexador || '').toUpperCase();
-  const tipo = String(a.tipoInvestimento || '').toUpperCase();
-  const instituicao = String(a.instituicao || '').toUpperCase();
-  let imagem = null;
-  if (indexador.includes('SELIC')) imagem = 'assets/imgs/tesouro-selic.webp';
-  else if (indexador.includes('IPCA')) imagem = 'assets/imgs/tesouro-direto.webp';
-  else if (tipo.includes('LCI') && instituicao.includes('INTER')) imagem = 'assets/imgs/banco-inter.png';
-  const iniciais = String(a.instituicao || '').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RF';
-  if (!imagem) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
-  const url = new URL(imagem, resolveSiteRootUrl()).href;
-  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
-}
 
 function cabecalhoHtml(ctx) {
   const a = ctx.ativo || {};
@@ -228,7 +240,7 @@ function cabecalhoHtml(ctx) {
     return `${trilha}
       <header class="at-cabecalho">
         <div class="at-id">
-          <span class="at-logo">${logoRendaFixaHtml_(a)}</span>
+          <span class="at-logo">${logoRendaFixaHtml(a)}</span>
           <div class="at-id-texto">
             <h1 class="at-ticker at-ticker-rf">${esc(ctx.ticker)}</h1>
             <p class="at-nome">${esc(a.instituicao || '')}${a.vencimento ? ` · vence em ${esc(a.vencimento)}` : ''}</p>
@@ -881,27 +893,98 @@ export function sobreHtml(ctx) {
     </section>`;
 }
 
+/**
+ * 25/09/2026: "Imposto de renda" virou um guia de ONDE e COMO baixar o
+ * informe de rendimentos deste ativo (Tiago: "sinto que tem muita
+ * informação inútil na área de IR") - sai tudo que era regra geral
+ * (alíquotas, DARF, declaração, avisos). Conteúdo em
+ * assets/data/imposto-renda.json, que o Tiago edita à mão todo ano.
+ */
+/**
+ * 25/09/2026: "Na declaração" - ficha/grupo/código de Bens e Direitos e a
+ * discriminação pronta pra colar (31/12 do ano passado + prévia de hoje),
+ * montada com as transações do app (ativo-calc.js!declaracaoIrDoAtivo).
+ */
+export function declaracaoIrHtml(ctx) {
+  const d = ctx.declaracaoIr;
+  if (!d) return '';
+  const f = d.ficha;
+  const linhas = [
+    ['Ficha', 'Bens e Direitos'],
+    ['Grupo', `${f.grupo} - ${f.grupoNome}`],
+    ['Código', `${f.codigo} - ${f.codigoNome}`],
+    ['Localização', f.localizacao],
+    f.cnpj ? ['CNPJ', f.cnpj] : null,
+    f.negociadoEmBolsa ? ['Negociado em bolsa', `Sim · código ${ctx.ticker}`] : null,
+  ].filter(Boolean);
+  const posicao = (p, i) => {
+    const valor = p.valor == null ? '—' : formatBRL(p.valor);
+    const corpo = p.texto
+      ? `<p class="at-ir-texto" id="atIrTexto${i}">${esc(p.texto)}</p>
+         <button type="button" class="at-ir-copiar" data-copiar="atIrTexto${i}">Copiar texto</button>`
+      : `<p class="hint">Sem posição nessa data.</p>`;
+    return `
+      <div class="at-ir-disc${p.previa ? ' at-ir-previa' : ''}">
+        <div class="at-ir-disc-topo"><b>${esc(p.rotulo)}</b><span class="at-ir-valor"><small>${esc(p.valorRotulo || '')}</small>${valor}</span></div>
+        ${corpo}
+      </div>`;
+  };
+  return `
+    <div class="at-ir-declaracao">
+      <h3>Na declaração</h3>
+      <dl class="at-ir-ficha">${linhas.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
+      <div class="at-ir-discs">${d.posicoes.map(posicao).join('')}</div>
+      ${d.notas.length ? d.notas.map((n) => `<p class="hint at-ir-nota">${esc(n)}</p>`).join('') : ''}
+    </div>`;
+}
+
+/** Botões "Copiar texto" da seção Na declaração. */
+function ligarCopiarIr(doc, raiz) {
+  raiz.querySelectorAll('.at-ir-copiar').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const alvo = doc.getElementById(btn.dataset.copiar);
+      if (!alvo) return;
+      const original = btn.textContent;
+      try {
+        const nav = doc.defaultView && doc.defaultView.navigator;
+        await nav.clipboard.writeText(alvo.textContent);
+        btn.textContent = 'Copiado ✓';
+      } catch (_) {
+        const sel = doc.defaultView && doc.defaultView.getSelection && doc.defaultView.getSelection();
+        if (sel) { const r = doc.createRange(); r.selectNodeContents(alvo); sel.removeAllRanges(); sel.addRange(r); }
+        btn.textContent = 'Selecionado - use Ctrl+C';
+      }
+      setTimeout(() => { btn.textContent = original; }, 1800);
+    });
+  });
+}
+
 export function irHtml(ctx) {
   const ir = ctx.ir;
-  if (!ir || !ir.classe) return '';
-  const regra = (r) => `<li><b>${esc(r.titulo)}</b><p>${esc(r.texto)}</p>${urlSegura(r.fonte) ? `<a class="at-fonte-link" href="${urlSegura(r.fonte)}" target="_blank" rel="noopener">fonte ↗</a>` : ''}</li>`;
-  const bloco = (titulo, itens, aberto = false) => (itens.length ? `
-    <details class="at-ir-bloco"${aberto ? ' open' : ''}><summary>${titulo}</summary><ul class="at-regras">${itens.map(regra).join('')}</ul></details>` : '');
-  const onde = ir.ondeBaixar.length ? `
-    <details class="at-ir-bloco" open><summary>Onde baixar os informes</summary>
-      <ul class="at-onde">${ir.ondeBaixar.map((o) => `<li>${urlSegura(o.url) ? `<a href="${urlSegura(o.url)}" target="_blank" rel="noopener">${esc(o.nome)} ↗</a>` : `<b>${esc(o.nome)}</b>`}<p>${esc(o.oQue)}</p></li>`).join('')}</ul>
-    </details>` : '';
+  if (!ir) return '';
+  const link = (l) => (urlSegura(l.url) ? `<a class="at-ir-link" href="${urlSegura(l.url)}" target="_blank" rel="noopener">${esc(l.rotulo || l.url)} ↗</a>` : '');
+  const fonte = (f) => `
+    <article class="at-ir-fonte">
+      <header class="at-ir-fonte-topo"><h3>${esc(f.nome)}</h3>${f.papel ? `<span class="at-chip">${esc(f.papel)}</span>` : ''}</header>
+      ${f.resumo ? `<p class="at-ir-resumo">${esc(f.resumo)}</p>` : ''}
+      ${(f.passos || []).length ? `<ul class="at-ir-passos">${f.passos.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+      ${(f.links || []).length ? `<div class="at-ir-links">${f.links.map(link).join('')}</div>` : ''}
+      ${(f.notas || []).length ? f.notas.map((n) => `<p class="hint at-ir-nota">${esc(n)}</p>`).join('') : ''}
+    </article>`;
+  const corpo = ir.fontes.length
+    ? `<div class="at-ir-fontes">${ir.fontes.map(fonte).join('')}</div>`
+    : `<p class="hint">Ainda não sei quem emite o informe de ${esc(ctx.ticker)}. Cadastre em assets/data/imposto-renda.json (porTicker).</p>`;
+  const notas = ir.notas.length ? `<div class="at-ir-avisos">${ir.notas.map((n) => `<p>${esc(n)}</p>`).join('')}</div>` : '';
+  const rodape = [ir.prazo, ir.atualizadoEm ? `Atualizado em ${textoMesAno(ir.atualizadoEm)}.` : ''].filter(Boolean).map(esc).join(' ');
   return `
     <section class="at-bloco" id="at-ir">
-      <div class="area-header"><h2>Imposto de renda</h2><span class="hint">${esc(ir.classe.titulo)}</span></div>
+      <div class="area-header"><h2>Imposto de renda</h2><span class="hint">Como declarar e onde baixar o informe</span></div>
       <div class="at-card">
-        ${onde}
-        ${bloco('Regras da classe', ir.classe.regras || [], true)}
-        ${bloco('Proventos', ir.proventos)}
-        ${bloco('DARF', ir.darf)}
-        ${bloco('Declaração anual', ir.declaracao)}
-        ${ir.avisos.length ? `<div class="at-ir-avisos">${ir.avisos.map((a) => `<p>${esc(a)}</p>`).join('')}</div>` : ''}
-        <p class="hint at-fonte">${esc(ir.aviso || '')}${ir.atualizadoEm ? ` Atualizado em ${esc(textoMesAno(ir.atualizadoEm))}.` : ''}</p>
+        ${declaracaoIrHtml(ctx)}
+        <h3 class="at-ir-subtitulo">Onde baixar o informe</h3>
+        ${corpo}
+        ${notas}
+        ${rodape ? `<p class="hint at-fonte">${rodape}</p>` : ''}
       </div>
     </section>`;
 }
@@ -995,6 +1078,7 @@ function desenhar(doc, conteudoEl, ctx) {
   ligarGraficos(doc, ctx);
   ligarExtratoEMensal(doc, ctx);
   ligarTese(doc.getElementById('atTeseConteudo'));
+  ligarCopiarIr(doc, conteudoEl);
 }
 
 /**

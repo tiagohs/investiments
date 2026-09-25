@@ -60,11 +60,13 @@ function respostaAcao() {
 const ESTATICOS = {
   sobre: { ativos: { TEST3: { classe: 'acoes', nome: 'Teste Sociedade Anônima', descricao: 'Empresa de <i>teste</i>.', setor: 'Setor X', cnpj: '00.000.000/0000-00', site: 'https://exemplo.test', ri: 'javascript:alert(1)' } } },
   ir: {
-    aviso: 'Resumo informativo.', atualizadoEm: '2026-09',
-    classes: { acoes: { titulo: 'Ações brasileiras', regras: [{ titulo: 'Regra A', texto: 'Texto A', fonte: 'https://gov.example/a' }] } },
-    proventos: [{ titulo: 'JCP', texto: 'jcp', classes: ['acoes'] }, { titulo: 'Rendimentos de FII', texto: 'fii', classes: ['fiis'] }],
-    darf: [], declaracao: [{ titulo: 'Bens e Direitos', texto: 'b' }],
-    ondeBaixar: [{ nome: 'B3', oQue: 'informe', url: 'https://b3.example', classes: ['acoes'] }], avisos: [],
+    prazo: 'Até o fim de fevereiro.', atualizadoEm: '2026-09',
+    fontes: {
+      esc: { nome: 'Escriturador Teste', papel: 'Escriturador', resumo: 'Chega por e-mail.', passos: ['App › Documentos › Informe.'], links: [{ rotulo: 'Portal', url: 'https://escriturador.example' }, { rotulo: 'Ruim', url: 'javascript:alert(1)' }] },
+      fii: { nome: 'Administrador de FII', passos: [] },
+    },
+    porTicker: { TEST3: ['esc'] }, porPrefixo: {}, porInstituicao: [], porClasse: { fiis: ['fii'] }, notas: {},
+    declaracao: { acoes: { grupo: '03', grupoNome: 'Participações societárias', codigo: '01', codigoNome: 'Ações (inclusive as listadas em bolsa)', localizacao: '105 - Brasil', negociadoEmBolsa: true } },
   },
 };
 
@@ -168,18 +170,20 @@ test('ativo: notícias escapadas, só links http(s), com fonte e há quanto temp
   assert.match(txt(itens[0]), /Fonte A · há 3h/);
 });
 
-test('ativo: Sobre (só links http) e IR só da classe do ativo', async () => {
+test('ativo: Sobre (só links http) e IR = onde baixar o informe deste ativo', async () => {
   const { doc } = await montar();
   const sobre = doc.getElementById('at-sobre');
   assert.match(txt(sobre), /Teste Sociedade Anônima/);
   assert.equal(sobre.querySelector('i'), null, 'descrição é texto');
   assert.equal(sobre.querySelectorAll('.at-links a').length, 1, 'o link javascript: fica de fora');
   const ir = doc.getElementById('at-ir');
-  assert.match(txt(ir), /Ações brasileiras/);
-  assert.match(txt(ir), /JCP/);
-  assert.doesNotMatch(txt(ir), /Rendimentos de FII/);
+  assert.match(txt(ir), /Onde baixar o informe/);
+  assert.match(txt(ir), /Escriturador Teste/);
+  assert.match(txt(ir), /App › Documentos › Informe\./);
+  assert.doesNotMatch(txt(ir), /Administrador de FII/, 'fonte de outra classe não aparece');
   assert.match(txt(ir), /Atualizado em setembro de 2026/);
-  assert.equal(ir.querySelector('.at-onde a').getAttribute('href'), 'https://b3.example');
+  const links = [...ir.querySelectorAll('.at-ir-link')].map((a) => a.getAttribute('href'));
+  assert.deepEqual(links, ['https://escriturador.example'], 'o link javascript: fica de fora');
 });
 
 test('ativo: renda fixa - sem tese/notícias/faixa, com características e o saldo bruto no topo', async () => {
@@ -219,4 +223,42 @@ test('ativo: fora da carteira avisa; erro do Apps Script e endereço sem ?ref= m
   const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
   await montarPaginaAtivo('tk', { doc: doc3, ref: '', getAtivoImpl: async () => { throw new Error('não devia chamar'); }, carregarEstaticosImpl: async () => ({}) });
   assert.match(txt(doc3.getElementById('ativoErro')), /Nenhum ativo informado/);
+});
+
+test('ativo: links relevantes - sem B3; TradingView e Google Finance (Brasil: BMFBOVESPA/BVMF; EUA: bolsa do "Sobre")', async () => {
+  const { doc } = await montar();
+  const hrefs = [...doc.querySelectorAll('#at-links a')].map((a) => a.getAttribute('href'));
+  assert.ok(hrefs.includes('https://www.tradingview.com/symbols/BMFBOVESPA-TEST3/'));
+  assert.ok(hrefs.includes('https://www.google.com/finance/quote/TEST3:BVMF'));
+  assert.ok(!hrefs.some((h) => /b3\.com\.br/.test(h)), 'sem links da B3');
+
+  const { tradingViewUrl, googleFinanceUrl } = await import('../assets/js/pages/ativo.js');
+  const eua = (bolsa) => ({ ticker: 'TSTU', classe: 'acoesEua', sobre: bolsa ? { bolsa } : null });
+  assert.equal(tradingViewUrl(eua('NYSE')), 'https://www.tradingview.com/symbols/NYSE-TSTU/');
+  assert.equal(googleFinanceUrl(eua('NASDAQ')), 'https://www.google.com/finance/quote/TSTU:NASDAQ');
+  assert.equal(googleFinanceUrl(eua('OTC')), 'https://www.google.com/finance/quote/TSTU:OTCMKTS');
+  assert.equal(tradingViewUrl(eua('OTC')), 'https://www.tradingview.com/symbols/OTC-TSTU/');
+  assert.equal(tradingViewUrl(eua(null)), 'https://www.tradingview.com/symbols/TSTU/', 'sem bolsa: deixa o TradingView achar');
+  assert.equal(tradingViewUrl({ ticker: 'Tesouro X', ehRf: true }), null, 'renda fixa não tem');
+});
+
+test('ativo: IR "Na declaração" - ficha 03/01 com CNPJ, discriminação de 31/12 do ano passado e prévia de hoje, botão copia o texto', async () => {
+  const { doc, w } = await montar();
+  const decl = doc.querySelector('#at-ir .at-ir-declaracao');
+  assert.ok(decl, 'bloco Na declaração');
+  assert.match(txt(decl), /Grupo 03 - Participações societárias/);
+  assert.match(txt(decl), /Código 01 - Ações/);
+  assert.match(txt(decl), /CNPJ 00\.000\.000\/0000-00/);
+  const textos = [...decl.querySelectorAll('.at-ir-texto')].map((p) => p.textContent);
+  assert.ok(textos.length >= 1);
+  assert.ok(textos.every((t) => /CÓDIGO DE NEGOCIAÇÃO TEST3/.test(t)));
+  assert.match(txt(decl), /Hoje \(prévia de 31\/12\/2026\)/);
+
+  let copiado = null;
+  Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async (t) => { copiado = t; } }, configurable: true });
+  const btn = decl.querySelector('.at-ir-copiar');
+  btn.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(copiado, doc.getElementById(btn.dataset.copiar).textContent);
+  assert.equal(btn.textContent, 'Copiado ✓');
 });

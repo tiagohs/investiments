@@ -65,7 +65,10 @@ test('sessão: recusada se adulterada, expirada, de outro e-mail, criada a parti
   const [p0, p1, p2] = token.split('.');
   const outroPayload = Buffer.from(JSON.stringify({ email: sb.EMAIL, exp: 9999999999 })).toString('base64url');
   assert.equal(sb.verificarToken(`${p0}.${outroPayload}.${p2}`).ok, false, 'dados trocados, assinatura velha');
-  assert.equal(sb.verificarToken(`${p0}.${p1}.${p2.slice(0, -1)}A`).ok, false);
+  // 25/09/2026: troca o 1º caractere da assinatura (antes era o último virar
+  // "A" - quando ele JÁ era "A", o token não mudava e o teste falhava ~1 em 16)
+  const assinaturaTrocada = (p2[0] === 'A' ? 'B' : 'A') + p2.slice(1);
+  assert.equal(sb.verificarToken(`${p0}.${p1}.${assinaturaTrocada}`).ok, false, 'assinatura adulterada');
   assert.match(sb.verificarTokenSessao_(token, Date.now() + (sb.SESSAO_DIAS + 1) * 86400000).erro, /expirada/);
   assert.match(sb.verificarToken(sb.criarTokenSessao_('outra@pessoa.test').token).erro, /não autorizado/);
   const deSessao = JSON.parse(sb.handleCriarSessao(sb.verificarToken(token)).getContent());

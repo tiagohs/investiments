@@ -139,7 +139,7 @@ import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, format
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
-import { urlAtivoTicker } from '../link-ativo.js';
+import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -1261,6 +1261,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       linkAtivo.href = urlAtivoTicker(item.ativo);
       linkAtivo.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
       td.appendChild(linkAtivo);
+      td.appendChild(criarLinkNovaAba(doc, linkAtivo.href, item.ativo)); // 25/09/2026: ↗ nova aba (só desktop, no hover)
       // Ícone "i" — a célula inteira já é .radar-info-alvo com tooltip
       // (diferença vs. meta, Segmento/Tipo nos FIIs), mas isso sozinho
       // não dava nenhuma pista visual de que dava pra

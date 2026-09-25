@@ -471,20 +471,149 @@ export function percentualNaCarteira(historico) {
   return ult && num(ult.patrimonioTotal) ? ult.ativo / ult.patrimonioTotal : null;
 }
 
-/** Regras de IR que valem pra classe do ativo (assets/data/imposto-renda.json). */
-export function irDaClasse(ir, classe) {
-  if (!ir || !ir.classes) return null;
-  const temClasse = (item) => !item.classes || item.classes.includes(classe);
+/**
+ * 25/09/2026 (Tiago: "quero que seja mais instrutivo para mim... foque no
+ * que me importa: como baixar os informes de rendimentos, links"): de onde
+ * sai o informe de rendimentos DESTE ativo (assets/data/imposto-renda.json,
+ * editado à mão). Primeira regra que acha ganha: porTicker › porPrefixo ›
+ * porInstituicao (texto contido na instituição, maiúsculas) › porClasse.
+ * Devolve null sem arquivo; `fontes` vazio quando o ativo ainda não foi
+ * cadastrado em nenhuma regra.
+ */
+export function informesIrDoAtivo(ir, { ticker = '', classe = '', instituicao = '' } = {}) {
+  if (!ir || !ir.fontes) return null;
+  const t = String(ticker || '').trim().toUpperCase();
+  const inst = String(instituicao || '').trim().toUpperCase();
+  let ids = (ir.porTicker && ir.porTicker[t]) || null;
+  if (!ids && ir.porPrefixo) {
+    const prefixo = Object.keys(ir.porPrefixo).find((p) => t.startsWith(p.toUpperCase()));
+    if (prefixo) ids = ir.porPrefixo[prefixo];
+  }
+  if (!ids && inst && Array.isArray(ir.porInstituicao)) {
+    const regra = ir.porInstituicao.find((r) => r && r.contem && inst.includes(String(r.contem).toUpperCase()));
+    if (regra) ids = regra.fontes;
+  }
+  if (!ids && ir.porClasse) ids = ir.porClasse[classe] || null;
+  const fontes = (ids || []).filter((id) => ir.fontes[id]).map((id) => ({ id, ...ir.fontes[id] }));
+  const notas = [...((ir.notas && ir.notas[t]) || []), ...((ir.notas && ir.notas[classe]) || [])];
+  return { fontes, notas, prazo: ir.prazo || '', atualizadoEm: ir.atualizadoEm || '' };
+}
+
+// ---------------------------------------------------------------------------
+// 25/09/2026 (Tiago, depois de analisar a pasta IR do Drive): "Na
+// declaração" - ficha/grupo/código de Bens e Direitos (imposto-renda.json,
+// público) + a discriminação pronta pra colar, montada AQUI com as
+// transações do app (os valores nunca vão pro repositório).
+// ---------------------------------------------------------------------------
+
+/**
+ * Posição pelo custo médio até `ateData` (inclusive): compra soma quantidade e
+ * custo (com a taxa); venda tira a mesma fração do custo. `custoBrl` só existe
+ * se toda compra tiver o valor em reais (Ações EUA: câmbio do dia da compra).
+ */
+export function posicaoFiscal(transacoes, ateData, { emDolar = false } = {}) {
+  let quantidade = 0;
+  let custo = 0;
+  let custoBrl = 0;
+  let temBrl = true;
+  [...(transacoes || [])].filter((t) => t && t.data && t.data <= ateData).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0)).forEach((t) => {
+    const q = Number(t.quantidade) || 0;
+    if (t.tipo === 'Compra') {
+      const total = Number(t.total) || 0;
+      const totalBrl = emDolar ? (typeof t.totalBrl === 'number' ? t.totalBrl : null) : total;
+      if (totalBrl == null) temBrl = false;
+      quantidade += q;
+      custo += total;
+      custoBrl += totalBrl || 0;
+    } else if (t.tipo === 'Venda' && quantidade > 0) {
+      const fracao = Math.min(q / quantidade, 1);
+      custo -= custo * fracao;
+      custoBrl -= custoBrl * fracao;
+      quantidade -= q;
+    }
+  });
+  if (quantidade <= 1e-9) return { quantidade: 0, custo: 0, custoBrl: 0, precoMedio: null };
+  const arred = (v) => Math.round(v * 100) / 100;
   return {
-    aviso: ir.aviso,
-    atualizadoEm: ir.atualizadoEm,
-    classe: ir.classes[classe] || null,
-    proventos: (ir.proventos || []).filter(temClasse),
-    darf: (ir.darf || []).filter(temClasse),
-    declaracao: ir.declaracao || [],
-    ondeBaixar: (ir.ondeBaixar || []).filter(temClasse),
-    avisos: ir.avisos || [],
+    quantidade: Math.round(quantidade * 1e6) / 1e6,
+    custo: arred(custo),
+    custoBrl: temBrl ? arred(custoBrl) : null,
+    precoMedio: custo / quantidade,
   };
+}
+
+const fmt2 = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtQtd = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 6 });
+const dataBr = (iso) => { const [a, m, d] = String(iso).split('-'); return `${d}/${m}/${a}`; };
+const nomeLimpo = (nome) => String(nome || '').replace(/\s*\(antig[oa][^)]*\)/gi, '').trim().toUpperCase();
+
+function textoDiscriminacao(classe, dados, pos, quando) {
+  const { ticker, nome, cnpj, bolsa } = dados;
+  const q = fmtQtd(pos.quantidade);
+  if (classe === 'fiis') {
+    return `${q} COTAS DO FII ${nome} - CÓDIGO DE NEGOCIAÇÃO ${ticker}${cnpj ? ` - CNPJ DO FUNDO ${cnpj}` : ''}. PREÇO MÉDIO R$ ${fmt2(pos.precoMedio)}; CUSTO TOTAL R$ ${fmt2(pos.custo)} ${quando}.`;
+  }
+  if (classe === 'acoesEua') {
+    const emReais = pos.custoBrl != null ? `, EQUIVALENTE A R$ ${fmt2(pos.custoBrl)} PELO CÂMBIO DE CADA COMPRA` : '';
+    return `${q} AÇÕES ${nome} - CÓDIGO DE NEGOCIAÇÃO ${ticker}${bolsa ? ` (${String(bolsa).toUpperCase()})` : ''}, CUSTODIADAS NA INTERACTIVE BROKERS LLC (EUA). PREÇO MÉDIO US$ ${fmt2(pos.precoMedio)}; CUSTO TOTAL US$ ${fmt2(pos.custo)}${emReais} ${quando}.`;
+  }
+  return `${q} AÇÕES ${nome} - CÓDIGO DE NEGOCIAÇÃO ${ticker}${cnpj ? ` - CNPJ ${cnpj}` : ''}. PREÇO MÉDIO R$ ${fmt2(pos.precoMedio)}; CUSTO TOTAL R$ ${fmt2(pos.custo)} ${quando}.`;
+}
+
+/** Saldo do histórico na última data <= `data` (renda fixa). */
+function saldoHistoricoAte(historico, data) {
+  let ultimo = null;
+  (historico || []).forEach((p) => { if (p && p.data <= data && typeof p.ativo === 'number') ultimo = p; });
+  return ultimo ? Math.round(ultimo.ativo * 100) / 100 : null;
+}
+
+/**
+ * Tudo que a seção "Na declaração" mostra: a ficha (grupo/código/localização)
+ * e 2 posições - 31/12 do ano passado (vai na coluna "situação em 31/12" do
+ * ano anterior da próxima declaração) e hoje (prévia do próximo 31/12).
+ * null sem imposto-renda.json ou sem a classe lá.
+ */
+export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [], sobre = null, ativo = null, historico = [], ehRf = false } = {}) {
+  const decl = ir && ir.declaracao;
+  const chave = ehRf ? 'rendaFixa' : classe;
+  if (!decl || !decl[chave] || !hoje) return null;
+  const base = decl[chave];
+  const ano = Number(String(hoje).slice(0, 4));
+  const fim = `${ano - 1}-12-31`;
+  const ficha = { grupo: base.grupo, grupoNome: base.grupoNome, codigo: base.codigo, codigoNome: base.codigoNome, localizacao: base.localizacao, negociadoEmBolsa: !!base.negociadoEmBolsa };
+  const notas = [...(base.notas || [])];
+  const a = ativo || {};
+
+  if (ehRf) {
+    const tipo = `${a.tipoInvestimento || ''} ${ticker || ''}`.toUpperCase();
+    const isento = base.isentos && base.isentos.contem.some((p) => new RegExp(`\\b${p}\\b`).test(tipo));
+    if (isento) { ficha.codigo = base.isentos.codigo; ficha.codigoNome = base.isentos.codigoNome; }
+    const fonte = (informesIrDoAtivo(ir, { ticker, classe: 'rendaFixa', instituicao: a.instituicao }) || { fontes: [] }).fontes[0];
+    if (fonte && fonte.cnpj) ficha.cnpj = fonte.cnpj;
+    const texto = [String(ticker || '').toUpperCase(), a.indexador ? `(${String(a.indexador).toUpperCase()})` : '', a.vencimento ? `- VENCIMENTO ${a.vencimento}` : '', a.instituicao ? `- ${String(a.instituicao).toUpperCase()}` : ''].filter(Boolean).join(' ').replace(/\.*$/, '.');
+    const posicoes = [
+      { rotulo: `Situação em 31/12/${ano - 1}`, data: fim, texto, valor: saldoHistoricoAte(historico, fim), valorRotulo: 'saldo no app' },
+      { rotulo: `Hoje (prévia de 31/12/${ano})`, data: hoje, texto, valor: saldoHistoricoAte(historico, hoje), valorRotulo: 'saldo no app', previa: true },
+    ];
+    return { ficha, posicoes, notas };
+  }
+
+  const emDolar = classe === 'acoesEua';
+  if (!emDolar && sobre && sobre.cnpj) ficha.cnpj = sobre.cnpj;
+  const dados = { ticker: String(ticker || '').toUpperCase(), nome: nomeLimpo((sobre && sobre.nome) || a.nome || ticker), cnpj: sobre && sobre.cnpj, bolsa: sobre && sobre.bolsa };
+  const montar = (data, rotulo, previa) => {
+    const pos = posicaoFiscal(transacoes, data, { emDolar });
+    const quando = `EM ${dataBr(data)}`;
+    return {
+      rotulo, data, previa: !!previa,
+      quantidade: pos.quantidade,
+      texto: pos.quantidade > 0 ? textoDiscriminacao(classe, dados, pos, quando) : '',
+      valor: pos.quantidade > 0 ? (emDolar ? pos.custoBrl : pos.custo) : 0,
+      valorRotulo: 'custo de aquisição',
+    };
+  };
+  if (decl.notaConsolidado) notas.push(decl.notaConsolidado);
+  return { ficha, posicoes: [montar(fim, `Situação em 31/12/${ano - 1}`, false), montar(hoje, `Hoje (prévia de 31/12/${ano})`, true)], notas };
 }
 
 /** "25/09/2026.pdf" etc. já vem com `data` do Apps Script; aqui só ordena e marca a mais nova. */

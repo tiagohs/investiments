@@ -20,3 +20,7 @@ tests/harness/relatorio/
 # 25/09/2026: teses da Suno (conteúdo de assinante, com marca d'água do CPF do
 # Tiago) - o repositório é PÚBLICO, nunca commitar
 documents/
+
+# 25/09/2026: informes de rendimentos em PDF (têm CPF e valores reais) - o
+# repositório é PÚBLICO, nunca commitar PDF de assets/imgs
+assets/imgs/*.pdf

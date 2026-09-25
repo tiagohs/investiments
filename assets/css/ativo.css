@@ -175,24 +175,38 @@
 .at-dl dd{ margin:0; font-size:12.5px; text-align:right; overflow-wrap:anywhere; }
 .at-links{ display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; }
 
-/* ---- imposto de renda ---- */
-.at-ir-bloco{ border-top:1px solid var(--border); }
-.at-ir-bloco:first-child{ border-top:none; }
-.at-ir-bloco summary{ cursor:pointer; padding:11px 0; font-weight:700; font-size:14px; list-style:none; display:flex; align-items:center; gap:8px; }
-.at-ir-bloco summary::-webkit-details-marker{ display:none; }
-.at-ir-bloco summary::before{ content:'›'; display:inline-block; width:12px; color:var(--accent); font-size:18px; line-height:1; transition:transform .15s; }
-.at-ir-bloco[open] summary::before{ transform:rotate(90deg); }
-.at-ir-bloco summary:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:6px; }
-.at-regras, .at-onde{ list-style:none; padding:0 0 10px 20px; margin:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px 22px; }
-.at-regras li, .at-onde li{ font-size:13px; line-height:1.5; }
-.at-regras p, .at-onde p{ margin:3px 0 0; color:var(--ink-muted); max-width:68ch; }
-.at-onde a{ font-weight:700; color:var(--accent); text-decoration:none; }
-.at-onde a:hover{ text-decoration:underline; }
-.at-fonte-link{ font-size:11px; color:var(--ink-faint); }
-.at-ir-avisos{ background:var(--surface-3); border-radius:10px; padding:10px 14px; margin-top:6px; font-size:12.5px; color:var(--ink-muted); }
+/* ---- imposto de renda (25/09/2026: guia de onde baixar o informe) ---- */
+.at-ir-declaracao{ display:flex; flex-direction:column; gap:12px; padding-bottom:18px; margin-bottom:16px; border-bottom:1px solid var(--border); }
+.at-ir-declaracao h3, .at-ir-subtitulo{ margin:0; font-size:15px; font-weight:700; }
+.at-ir-subtitulo{ margin-bottom:12px; }
+.at-ir-ficha{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:8px 20px; margin:0; }
+.at-ir-ficha div{ display:flex; flex-direction:column; gap:2px; }
+.at-ir-ficha dt{ font-size:11px; font-weight:600; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.04em; }
+.at-ir-ficha dd{ margin:0; font-size:13px; }
+.at-ir-discs{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.at-ir-disc{ display:flex; flex-direction:column; gap:8px; padding:12px 14px; border-radius:12px; background:var(--surface-3); }
+.at-ir-previa{ background:transparent; border:1px dashed var(--border); }
+.at-ir-disc-topo{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:13px; }
+.at-ir-valor{ display:flex; align-items:baseline; gap:6px; font-weight:700; font-variant-numeric:tabular-nums; }
+.at-ir-valor small{ font-size:11px; font-weight:500; color:var(--ink-faint); }
+.at-ir-texto{ margin:0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; line-height:1.55; overflow-wrap:anywhere; user-select:all; }
+.at-ir-copiar{ align-self:flex-start; font:inherit; font-size:12px; font-weight:700; color:var(--accent); background:var(--accent-soft); border:none; border-radius:100px; padding:5px 12px; cursor:pointer; }
+.at-ir-copiar:hover{ text-decoration:underline; }
+.at-ir-copiar:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.at-ir-fontes{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; }
+.at-ir-fonte{ display:flex; flex-direction:column; gap:8px; padding:14px 16px; border:1px solid var(--border); border-radius:12px; }
+.at-ir-fonte-topo{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+.at-ir-fonte-topo h3{ margin:0; font-size:15px; font-weight:700; }
+.at-ir-resumo{ margin:0; font-size:13px; line-height:1.5; max-width:68ch; }
+.at-ir-passos{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:12.5px; line-height:1.5; color:var(--ink-muted); }
+.at-ir-passos li::marker{ color:var(--accent); }
+.at-ir-links{ display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
+.at-ir-link{ font-size:12px; font-weight:700; color:var(--accent); text-decoration:none; padding:5px 10px; border-radius:100px; background:var(--accent-soft); }
+.at-ir-link:hover{ text-decoration:underline; }
+.at-ir-link:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.at-ir-nota{ margin:0; }
+.at-ir-avisos{ background:var(--surface-3); border-radius:10px; padding:10px 14px; margin-top:12px; font-size:12.5px; color:var(--ink-muted); }
 .at-ir-avisos p{ margin:4px 0; }
-
-@media (prefers-reduced-motion: reduce){ .at-ir-bloco summary::before{ transition:none; } }
 
 /* ---- telas médias: 1 coluna, cartões laterais em 2 colunas ---- */
 @media (max-width:1100px){
@@ -223,6 +237,6 @@
   #at-tese{ order:6; } #at-informes{ order:6; } #at-mensal{ order:7; } #at-extrato{ order:8; } #at-noticias{ order:9; } #at-sobre{ order:10; }
   .at-card{ padding:14px; }
   .at-mini{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
-  .at-regras, .at-onde{ grid-template-columns:minmax(0,1fr); padding-left:4px; }
+  .at-ir-fonte{ padding:12px; }
   .at-teses li{ align-items:flex-start; }
 }

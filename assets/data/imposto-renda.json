@@ -1,69 +1,328 @@
 {
   "atualizadoEm": "2026-09",
-  "aviso": "Resumo informativo levantado em setembro de 2026 a partir de fontes oficiais (Receita Federal, Planalto, B3) e das corretoras. Não substitui um contador; confira os códigos no programa do IRPF quando ele sair.",
-  "classes": {
-    "acoes": {"titulo": "Ações brasileiras", "regras": [
-      {"titulo": "Alíquota do swing trade", "texto": "O lucro líquido com ações vendidas em bolsa (operações comuns, sem day trade) paga 15%, apurado mês a mês. A MP 1.303/2025, que alteraria essa tributação, perdeu a validade, então essa regra continua valendo em 2026.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "Isenção de vendas até R$ 20 mil no mês", "texto": "Se o total de VENDAS de ações no mercado à vista no mês (somando todas as corretoras) ficar em até R$ 20.000, o lucro é isento. A isenção não vale para day trade, ETFs, FIIs nem BDRs. O que conta é o valor vendido, não o lucro.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2004/lei/l11033.htm"},
-      {"titulo": "Preço médio e custos", "texto": "O custo de aquisição é o preço médio ponderado das compras. Corretagem e emolumentos da nota podem ser somados ao custo de compra e descontados do valor de venda.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "Compensação de prejuízos", "texto": "O prejuízo em operações comuns pode ser abatido de lucros futuros de operações comuns, sem prazo de validade. Para isso, informe o prejuízo mês a mês na ficha Renda Variável da declaração. Prejuízo de meses isentos também pode ser informado e compensado.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "IR retido na fonte (\"dedo-duro\")", "texto": "A corretora retém 0,005% sobre o valor das vendas, desde que a retenção passe de R$ 1. Esse valor é uma antecipação e pode ser descontado do DARF do mês.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "Imposto mínimo para alta renda (IRPFM)", "texto": "Desde 2026, quem tem renda total acima de R$ 600 mil no ano pode ter imposto mínimo extra (até 10% a partir de R$ 1,2 milhão). Os ganhos em bolsa entram nessa conta, mas o IR já pago sobre eles é descontado.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm"}
-    ]},
-    "fiis": {"titulo": "Fundos imobiliários (FIIs)", "regras": [
-      {"titulo": "Ganho na venda de cotas: 20%", "texto": "O lucro na venda de cotas de FII paga 20%, sem isenção para vendas até R$ 20 mil. O imposto é apurado mensalmente, como nas ações.", "fonte": "https://www.planalto.gov.br/ccivil_03/leis/l8668.htm"},
-      {"titulo": "Prejuízo de FII", "texto": "FII tem ficha mensal própria na declaração. O entendimento usual é que prejuízo com FII só abate lucro com FII, sem compensar com ações. Confirme com contador.", "fonte": "https://borainvestir.b3.com.br/noticias/imposto-de-renda/como-declarar-fiis-no-imposto-de-renda/"},
-      {"titulo": "Rendimentos mensais isentos (com condições)", "texto": "Os rendimentos distribuídos por FII negociado em bolsa são isentos para pessoa física quando: o fundo tem pelo menos 100 cotistas, você tem menos de 10% das cotas e dos rendimentos, e pessoas ligadas a você somam menos de 30%.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2004/lei/l11033.htm"},
-      {"titulo": "Isenção mantida em 2026", "texto": "A MP 1.303/2025 deixava os FIIs isentos e caducou em 8/10/2025, então nada mudou. Os rendimentos de FII também ficaram fora do cálculo do imposto mínimo da Lei 15.270/2025.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/congresso/adc-67-mpv1.303.htm"}
-    ]},
-    "acoesEua": {"titulo": "Ações americanas e ADRs (Interactive Brokers)", "regras": [
-      {"titulo": "15% na declaração anual (Lei 14.754/2023)", "texto": "Ações, ADRs, ETFs e saldo remunerado no exterior são aplicações financeiras no exterior. Lucros na venda e rendimentos (dividendos, juros) pagam 15% sobre o total do ano, calculado na declaração anual e não mês a mês.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/lei/l14754.htm"},
-      {"titulo": "Sem isenção de R$ 20 mil ou R$ 35 mil", "texto": "Desde 2024, vendas no exterior não têm limite de isenção: todo ganho entra na apuração, inclusive a variação do dólar sobre o valor investido.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "Compensação de perdas", "texto": "Perdas no exterior (com comprovante, como o extrato da IBKR) abatem ganhos e rendimentos no exterior do mesmo ano. O que sobrar passa para os anos seguintes. Essas perdas não abatem lucros de ações brasileiras.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "Conversão para reais", "texto": "Pelo Perguntas e Respostas da Receita, cada compra é convertida pela cotação de venda do dólar (PTAX do Banco Central) no dia da operação, e o imposto pago no exterior pela cotação de compra do dia em que foi pago. O ganho é calculado em reais.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"}
-    ]},
-    "rendaFixa": {"titulo": "Renda fixa (Tesouro Direto, CDB, LCI/LCA)", "regras": [
-      {"titulo": "Tesouro Direto e CDB: tabela regressiva", "texto": "O IR é retido na fonte sobre o rendimento: 22,5% até 180 dias, 20% de 181 a 360 dias, 17,5% de 361 a 720 dias e 15% acima de 720 dias. Esse imposto é definitivo e não precisa de DARF.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-      {"titulo": "LCI e LCA continuam isentas", "texto": "O rendimento de LCI, LCA, CRI, CRA e poupança é isento de IR para pessoa física. A MP 1.303/2025, que criaria 7,5% sobre novas LCI/LCA, caducou sem virar lei.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/congresso/adc-67-mpv1.303.htm"},
-      {"titulo": "Fora do imposto mínimo", "texto": "Rendimentos de LCI, LCA, CRI, CRA e poupança não entram na base do imposto mínimo da Lei 15.270. Os de CDB e Tesouro entram, mas o IR retido na fonte sobre eles é descontado.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm"}
-    ]}
+  "comoEditar": "Arquivo editado à mão (Tiago). 'fontes' descreve cada lugar que emite informe; 'porTicker', 'porPrefixo', 'porInstituicao' e 'porClasse' dizem qual fonte vale pra cada ativo (a primeira regra que achar ganha, nessa ordem). Um ativo pode ter mais de uma fonte.",
+  "prazo": "Os informes do ano anterior saem até o fim de fevereiro.",
+  "fontes": {
+    "bb": {
+      "nome": "Banco do Brasil",
+      "papel": "Escriturador",
+      "resumo": "Chega por e-mail até 28 de fevereiro, se você tem e-mail cadastrado no BB ou na B3. O PDF vem com senha: os 4 primeiros dígitos do CPF.",
+      "passos": [
+        "E-mail: remetente informe.escritural@bb.com.br. Se não achar, procure no spam.",
+        "App BB (correntista): Menu › Serviços › Imposto de Renda › Informe de ativos escriturais.",
+        "Internet Banking: Menu › Serviços › Imposto de Renda › Informe de ativos escriturais.",
+        "Sem conta no BB: pelo site de informe de ativos escriturais (link abaixo)."
+      ],
+      "links": [
+        {
+          "rotulo": "Informe para não correntistas",
+          "url": "https://www.bb.com.br/informeativosescriturais"
+        }
+      ],
+      "notas": [
+        "Conferido no app do BB."
+      ]
+    },
+    "bradesco": {
+      "nome": "Bradesco Custódia",
+      "papel": "Escriturador",
+      "resumo": "Sem conta no Bradesco: o informe sai pelo portal de Documentos Digitais da Custódia.",
+      "passos": [
+        "Não correntista: entre no portal Documentos Digitais Custódia (link abaixo) e baixe o informe do ano.",
+        "Correntista: banco.bradesco › Investimentos › Consultas › Posição de ativos escriturais › Consulta informe de rendimentos – 2ª via."
+      ],
+      "links": [
+        {
+          "rotulo": "Portal Documentos Digitais",
+          "url": "https://documentosdigitaiscustodia.bradesco/login"
+        },
+        {
+          "rotulo": "Como funciona (Bradesco)",
+          "url": "https://custodia.bradesco/custodia/pt/escrituracao-de-ativos"
+        }
+      ]
+    },
+    "itau": {
+      "nome": "Itaú",
+      "papel": "Escriturador",
+      "resumo": "O informe fica no app do Itaú, em Meus documentos.",
+      "passos": [
+        "App Itaú: Perfil › Mais opções › Informações da conta › Meus documentos › Informes de Rendimentos."
+      ],
+      "links": [
+        {
+          "rotulo": "Imposto de Renda no Itaú",
+          "url": "https://www.itau.com.br/imposto-renda#section-3"
+        }
+      ]
+    },
+    "btg": {
+      "nome": "BTG Pactual",
+      "papel": "Administrador / escriturador",
+      "resumo": "Pelo Portal do Investidor do BTG (para quem não tem os FIIs custodiados no BTG).",
+      "passos": [
+        "Primeiro acesso: cadastro com documento de identificação e validação por selfie (link chega por SMS ou e-mail). Espere a aprovação por e-mail.",
+        "Depois de entrar: escolha o ano em \"Ano base\" e clique em \"Informe de rendimentos AAAA\". O PDF baixa na hora.",
+        "Problema no acesso: ir.psf@btgpactual.com."
+      ],
+      "links": [
+        {
+          "rotulo": "Portal do Investidor BTG",
+          "url": "https://portaldoinvestidor.btgpactual.com/login"
+        }
+      ]
+    },
+    "genial": {
+      "nome": "Genial Investimentos",
+      "papel": "Administrador",
+      "resumo": "Site exclusivo da Genial para cotistas que não são clientes da corretora.",
+      "passos": [
+        "Entre no site de IR da Genial (link abaixo) e baixe o informe do ano."
+      ],
+      "links": [
+        {
+          "rotulo": "IR Genial",
+          "url": "https://ir.genial.com.vc/"
+        }
+      ]
+    },
+    "apex": {
+      "nome": "Apex Group",
+      "papel": "Administrador / escriturador",
+      "resumo": "Pelo Portal do Investidor da Apex.",
+      "passos": [
+        "Primeiro acesso: \"Primeiro Acesso\" › CPF e e-mail › valide o e-mail e crie a senha.",
+        "Depois de entrar: \"Informe de Rendimentos\" › escolha o ano-base › baixe (ou peça por e-mail).",
+        "Problema no acesso: informederendimentos@apexgroup.com (nome, CPF e telefone)."
+      ],
+      "links": [
+        {
+          "rotulo": "Portal do Investidor Apex",
+          "url": "https://portal.apexgroupbrazil.com.br/portal-investidor/ui/login"
+        }
+      ]
+    },
+    "nubank": {
+      "nome": "Nubank (ex-NuInvest)",
+      "papel": "Corretora",
+      "resumo": "Um informe só com tudo que está no Nubank: Tesouro Direto, renda fixa e fundos. O PDF é enviado para o seu e-mail.",
+      "passos": [
+        "App Nubank: ícone de perfil (canto superior esquerdo) › engrenagem › Outros › Documentos › Informe de Rendimentos."
+      ],
+      "links": [
+        {
+          "rotulo": "Imposto de Renda no Nubank",
+          "url": "https://nubank.com.br/nu/imposto-de-renda"
+        }
+      ],
+      "cnpj": "62.169.875/0001-79"
+    },
+    "xp": {
+      "nome": "XP Investimentos",
+      "papel": "Corretora",
+      "resumo": "Informe consolidado de renda fixa (inclui Tesouro Direto), fundos e previdência.",
+      "passos": [
+        "App XP: toque nas suas iniciais (canto superior esquerdo) › Imposto de Renda › Informe de Rendimentos › escolha o ano.",
+        "Site XP: Minha Conta › Imposto de Renda › Informe de Rendimentos › escolha o ano › Download."
+      ],
+      "links": [
+        {
+          "rotulo": "Ajuda XP: onde achar o informe",
+          "url": "https://atendimento.xpi.com.br/artigo/4540-onde-encontro-meus-informes-de-rendimentos-no-app-e-no-site-xp"
+        }
+      ],
+      "cnpj": "02.332.886/0001-04"
+    },
+    "inter": {
+      "nome": "Banco Inter",
+      "papel": "Banco emissor",
+      "resumo": "A LCI do Inter entra no informe de rendimentos do próprio Inter.",
+      "passos": [
+        "App Inter (atualizado): Perfil › Informe de rendimentos › Gerar demonstrativo."
+      ],
+      "links": [],
+      "cnpj": "00.416.968/0001-01"
+    },
+    "ibkr": {
+      "nome": "Interactive Brokers",
+      "papel": "Corretora (EUA)",
+      "resumo": "Não existe \"informe de rendimentos\" brasileiro: você usa os relatórios anuais da IBKR.",
+      "passos": [
+        "Portal do cliente: Reports › Tax › Tax Forms › Form 1042-S (dividendos e imposto retido nos EUA).",
+        "Reports › Statements › Activity › período Annual: extrato do ano todo, com operações, dividendos e imposto retido.",
+        "Dividend Report: resumo de todos os dividendos do ano e do imposto retido em cada um."
+      ],
+      "links": [
+        {
+          "rotulo": "Relatórios de fim de ano (IBKR)",
+          "url": "https://www.interactivebrokers.com/en/support/tax-nonus-reports.php"
+        },
+        {
+          "rotulo": "Formulários fiscais (IBKR)",
+          "url": "https://www.interactivebrokers.com/en/support/tax-nonus-forms.php"
+        }
+      ]
+    }
   },
-  "proventos": [
-    {"titulo": "Dividendos", "texto": "Continuam isentos, exceto quando a mesma empresa paga mais de R$ 50 mil no mês à mesma pessoa física. Nesse caso, a empresa retém 10% sobre o total do mês. Dividendos de lucros até 2025 com distribuição aprovada até 31/12/2025 ficam fora dessa retenção.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2025/lei/l15270.htm", "classes": ["acoes"]},
-    {"titulo": "JCP", "texto": "Desde 1/1/2026, o IR retido na fonte sobre juros sobre capital próprio subiu de 15% para 17,5% (LC 224/2025). É tributação exclusiva: o valor já chega líquido e não gera DARF.", "fonte": "https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp224.htm", "classes": ["acoes"]},
-    {"titulo": "Rendimentos de FII", "texto": "São isentos para pessoa física se o FII é negociado em bolsa, tem 100 ou mais cotistas e você tem menos de 10% das cotas. Também não entram no imposto mínimo.", "fonte": "https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2004/lei/l11033.htm", "classes": ["fiis"]},
-    {"titulo": "Dividendos do exterior", "texto": "Somam-se aos demais rendimentos do exterior e pagam 15% na declaração anual, sem carnê-leão mensal. Os EUA retêm 30% na fonte para residentes no Brasil, pois não há tratado.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf", "classes": ["acoesEua"]},
-    {"titulo": "Crédito do imposto pago nos EUA", "texto": "Há reciprocidade com os EUA (AD SRF 28/2000), então o imposto pago lá pode ser descontado do devido no Brasil, até o valor do IR brasileiro sobre aquela renda. Na prática, os 30% retidos costumam zerar os 15% brasileiros sobre dividendos, mas o excedente não é devolvido.", "fonte": "https://www.lexml.gov.br/urn/urn:lex:br:ministerio.fazenda;secretaria.receita.federal:ato.declaratorio:2000-04-26;28", "classes": ["acoesEua"]},
-    {"titulo": "Dividendos e o imposto mínimo anual", "texto": "Quem tem renda anual acima de R$ 600 mil soma os dividendos à base do imposto mínimo (até 10%). Os 10% retidos na fonte são descontados desse cálculo. Abaixo de R$ 600 mil, não há imposto mínimo.", "fonte": "https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2025/dezembro/receita-federal-lanca-perguntas-e-respostas-sobre-tributacao-de-altas-rendas-consideracoes-sobre-lucros-e-dividendos", "classes": ["acoes"]}
+  "porTicker": {
+    "BBAS3": [
+      "bb"
+    ],
+    "BBSE3": [
+      "bb"
+    ],
+    "B3SA3": [
+      "bradesco"
+    ],
+    "VALE3": [
+      "bradesco"
+    ],
+    "PETR4": [
+      "bradesco"
+    ],
+    "TUPY3": [
+      "btg"
+    ],
+    "AGRO3": [
+      "itau"
+    ],
+    "EGIE3": [
+      "itau"
+    ],
+    "KNUQ11": [
+      "itau"
+    ],
+    "WIZC3": [
+      "itau"
+    ],
+    "VAMO3": [
+      "itau"
+    ],
+    "SEER3": [
+      "itau"
+    ],
+    "BTLG11": [
+      "btg"
+    ],
+    "RBRY11": [
+      "btg"
+    ],
+    "VGIP11": [
+      "btg"
+    ],
+    "XPML11": [
+      "btg"
+    ],
+    "PMLL11": [
+      "genial"
+    ],
+    "HGRU11": [
+      "genial"
+    ],
+    "RECR11": [
+      "apex"
+    ],
+    "TRXF11": [
+      "apex"
+    ]
+  },
+  "porPrefixo": {
+    "AXIA": [
+      "itau"
+    ]
+  },
+  "porInstituicao": [
+    {
+      "contem": "XP INVESTIMENTOS",
+      "fontes": [
+        "xp"
+      ]
+    },
+    {
+      "contem": "NU INVESTIMENTOS",
+      "fontes": [
+        "nubank"
+      ]
+    },
+    {
+      "contem": "NUBANK",
+      "fontes": [
+        "nubank"
+      ]
+    },
+    {
+      "contem": "INTER",
+      "fontes": [
+        "inter"
+      ]
+    }
   ],
-  "darf": [
-    {"titulo": "Ações e FIIs (swing trade): código 6015", "texto": "Use o código 6015. O prazo é o último dia útil do mês seguinte ao do ganho (contado a partir do mês da liquidação da venda). Desconte o IR \"dedo-duro\" retido no mês.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf", "classes": ["acoes", "fiis"]},
-    {"titulo": "Valor mínimo de R$ 10", "texto": "Não se emite DARF de valor abaixo de R$ 10. O valor é somado ao imposto dos meses seguintes até chegar a R$ 10 e então é pago no prazo do último mês.", "fonte": "https://www.planalto.gov.br/ccivil_03/leis/l9430.htm", "classes": ["acoes", "fiis"]},
-    {"titulo": "Exterior (IBKR): sem DARF mensal e sem carnê-leão", "texto": "O imposto de 15% sobre aplicações no exterior é calculado na declaração anual e pago com o saldo do ajuste: quota única ou até 8 quotas. O carnê-leão não se aplica mais a esses rendimentos desde 2024.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf", "classes": ["acoesEua"]},
-    {"titulo": "Renda fixa, JCP e dividendos acima de R$ 50 mil", "texto": "Nesses casos, quem retém e recolhe é a instituição ou a empresa pagadora. O investidor não emite DARF.", "fonte": "https://www.gov.br/receitafederal/pt-br/assuntos/noticias/2026/agosto/receita-federal-orienta-sobre-os-procedimentos-para-o-recolhimento-do-imposto-de-renda-retido-na-fonte-sobre-lucros-e-dividendos", "classes": ["rendaFixa", "acoes"]}
-  ],
-  "declaracao": [
-    {"titulo": "Bens e Direitos", "texto": "Ações brasileiras: grupo 03, código 01. FIIs: grupo 07, código 03. Tesouro Direto e CDB: grupo 04, código 02. LCI/LCA: grupo 04, código 03. Ações e ADRs nos EUA: grupo 03, código 01, com país Estados Unidos e o quadro Aplicação Financeira preenchido. Informe sempre o custo de aquisição, não o valor de mercado.", "fonte": "https://borainvestir.b3.com.br/noticias/imposto-de-renda/como-declarar-acoes-no-imposto-de-renda/"},
-    {"titulo": "Rendimentos isentos", "texto": "Dividendos: código 09. Lucro com vendas de ações até R$ 20 mil no mês: código 20. Rendimentos de FII: código 99 com a descrição do fundo. Rendimentos de LCI/LCA: código 12.", "fonte": "https://borainvestir.b3.com.br/noticias/imposto-de-renda/como-declarar-acoes-no-imposto-de-renda/"},
-    {"titulo": "Tributação exclusiva/definitiva", "texto": "JCP: código 10. Rendimentos de Tesouro Direto e CDB resgatados ou vencidos: código 06 (aplicações financeiras), com o IR retido pela instituição.", "fonte": "https://borainvestir.b3.com.br/noticias/imposto-de-renda/renda-fixa-imposto-de-renda/como-declarar-investimentos-do-tesouro-direto-no-imposto-de-renda-2026/"},
-    {"titulo": "Renda Variável (ações e FIIs)", "texto": "Preencha mês a mês a ficha Renda Variável (operações comuns e a parte de FII), com resultados, prejuízos a compensar, IR retido e DARFs pagos. Os ganhos em bolsa não se somam à base do ajuste anual.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"},
-    {"titulo": "Aplicações no exterior", "texto": "Em cada bem no exterior, preencha o quadro Aplicação Financeira com o rendimento ou a perda realizada no ano e o imposto pago no exterior. O programa calcula os 15% no demonstrativo próprio.", "fonte": "https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/perguntas-e-respostas/dirpf/p-r-irpf-2026-v1-00-2026-04-23.pdf"}
-  ],
-  "ondeBaixar": [
-    {"nome": "B3 - Área do Investidor", "oQue": "Posição consolidada de todas as corretoras, extrato de negociações, proventos recebidos e relatório auxiliar de IR.", "url": "https://www.investidor.b3.com.br/", "classes": ["acoes", "fiis", "rendaFixa"]},
-    {"nome": "NU Invest", "oQue": "Informe de rendimentos anual e notas de corretagem.", "url": "https://ajuda.nuinvest.com.br/hc/pt-br/articles/360000309734-Imposto-de-Renda-como-acessar-o-Informe-de-Rendimentos-para-clientes-", "classes": ["acoes", "fiis"]},
-    {"nome": "XP Investimentos", "oQue": "Informes de rendimentos de renda variável, renda fixa (CDB, LCI, Tesouro) e notas de negociação.", "url": "https://atendimento.xpi.com.br/artigo/4540-onde-encontro-meus-informes-de-rendimentos-no-app-e-no-site-xp", "classes": ["acoes", "fiis", "rendaFixa"]},
-    {"nome": "Interactive Brokers", "oQue": "Activity Statement anual (1/1 a 31/12) com operações, dividendos, retenção na fonte e juros, além do Form 1042-S e do Dividend Report.", "url": "https://www.interactivebrokers.com/pt/support/reports-and-dates.php", "classes": ["acoesEua"]},
-    {"nome": "Tesouro Direto", "oQue": "Extrato e consulta de títulos. O informe de rendimentos vem da corretora custodiante (XP) e também aparece na Área do Investidor B3.", "url": "https://www.tesourodireto.com.br/", "classes": ["rendaFixa"]},
-    {"nome": "Receita Federal - Meu Imposto de Renda", "oQue": "Programa da declaração, declaração on-line, pré-preenchida e Perguntas e Respostas oficial.", "url": "https://www.gov.br/receitafederal/pt-br/assuntos/meu-imposto-de-renda", "classes": ["acoes", "fiis", "acoesEua", "rendaFixa"]},
-    {"nome": "Sicalc (emitir DARF)", "oQue": "Emite DARF com código 6015 para ações e FIIs, inclusive em atraso, com multa e juros.", "url": "https://sicalc.receita.economia.gov.br/sicalc/principal", "classes": ["acoes", "fiis"]}
-  ],
-  "avisos": [
-    "A MP 1.303/2025 caducou em 8/10/2025 (Ato Declaratório do Congresso nº 67/2025): continuam valendo a isenção de LCI/LCA, a isenção de rendimentos de FII e os 15% no swing trade.",
-    "O PL 5.444/2026 (23/09/2026) propõe subir a isenção mensal de R$ 20 mil para R$ 60 mil. É só um projeto, não está em vigor.",
-    "A Receita ainda não publicou o programa, os códigos e o prazo da declaração de 2027 (ano-calendário 2026). Podem surgir campos novos para dividendos acima de R$ 50 mil e para o imposto mínimo. Confirme os códigos quando o programa sair.",
-    "JCP declarado em 2025 e pago em 2026: confira no informe da empresa se a retenção foi de 15% ou 17,5%.",
-    "Conversão cambial no exterior: siga o Perguntas e Respostas da Receita e guarde a memória de cálculo.",
-    "Compensação entre FII e ações: o entendimento usual é que prejuízo de FII só abate lucro de FII, mas não há texto oficial explícito. Confirme com contador."
-  ]
+  "porClasse": {
+    "acoesEua": [
+      "ibkr"
+    ]
+  },
+  "notas": {
+    "rendaFixa": [
+      "Tesouro Direto e fundos comprados pela corretora saem no informe da própria corretora (Nubank e XP)."
+    ],
+    "TUPY3": [
+      "Até meados de 2025 o escriturador era o Bradesco: o informe de 2025 veio dos dois (Bradesco com os proventos, BTG com a posição). A partir de 2026, só BTG."
+    ]
+  },
+  "declaracao": {
+    "_comoFunciona": "Onde cada classe entra na ficha Bens e Direitos (códigos da Receita, iguais para todo mundo). A discriminação e os valores são montados pelo app com as suas transações - nunca ficam neste arquivo.",
+    "acoes": {
+      "grupo": "03",
+      "grupoNome": "Participações societárias",
+      "codigo": "01",
+      "codigoNome": "Ações (inclusive as listadas em bolsa)",
+      "localizacao": "105 - Brasil",
+      "negociadoEmBolsa": true,
+      "cnpj": "da empresa"
+    },
+    "fiis": {
+      "grupo": "07",
+      "grupoNome": "Fundos",
+      "codigo": "03",
+      "codigoNome": "Fundos de Investimento Imobiliário (FII)",
+      "localizacao": "105 - Brasil",
+      "negociadoEmBolsa": true,
+      "cnpj": "do fundo"
+    },
+    "acoesEua": {
+      "grupo": "03",
+      "grupoNome": "Participações societárias",
+      "codigo": "01",
+      "codigoNome": "Ações (inclusive as listadas em bolsa)",
+      "localizacao": "249 - Estados Unidos",
+      "negociadoEmBolsa": true,
+      "notas": [
+        "Dividendos do ano entram no próprio bem, em \"Lucros e Dividendos\" (Lei 14.754/2023), com o valor recebido em reais - foi assim na declaração passada."
+      ]
+    },
+    "rendaFixa": {
+      "grupo": "04",
+      "grupoNome": "Aplicações e investimentos",
+      "codigo": "02",
+      "codigoNome": "Títulos públicos e privados sujeitos à tributação (Tesouro Direto, CDB, RDB e outros)",
+      "localizacao": "105 - Brasil",
+      "cnpj": "da instituição",
+      "isentos": {
+        "contem": [
+          "LCI",
+          "LCA",
+          "CRI",
+          "CRA"
+        ],
+        "codigo": "03",
+        "codigoNome": "Títulos isentos de tributação (LCI, LCA, CRI, CRA e outros)"
+      },
+      "notas": [
+        "O valor da situação em 31/12 é o do informe da corretora - o saldo abaixo é só a referência do app.",
+        "Na declaração passada o Tesouro da XP foi numa linha só (\"investimento em renda fixa, Tesouro Direto\"); dá pra manter assim ou separar por título."
+      ]
+    },
+    "notaConsolidado": "O texto soma todas as corretoras. Na declaração passada alguns ativos foram em duas linhas (custódia antiga e Nu) - se mantiver assim, divida a quantidade e o custo entre elas."
+  }
 }

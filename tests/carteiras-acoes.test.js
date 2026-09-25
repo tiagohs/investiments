@@ -301,3 +301,18 @@ test('montarPaginaCarteirasAcoes(): sem histórico (getHome falhou), mostra avis
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
 });
+
+test('montarPaginaCarteirasAcoes(): ticker abre na mesma aba e o ↗ ao lado abre a mesma tela em nova aba', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO }), getHomeImpl: GET_HOME_VAZIO });
+    const grupo = doc.querySelector('.cc-tabela tbody tr .link-ativo-grupo');
+    const ticker = grupo.querySelector('a.link-ativo');
+    const novaAba = grupo.querySelector('a.link-ativo-nova-aba');
+    assert.equal(ticker.getAttribute('target'), null, 'ticker: mesma aba');
+    assert.equal(novaAba.getAttribute('target'), '_blank');
+    assert.equal(novaAba.getAttribute('rel'), 'noopener');
+    assert.equal(novaAba.getAttribute('href'), ticker.getAttribute('href'));
+    assert.match(novaAba.getAttribute('aria-label'), new RegExp(`Abrir ${ticker.textContent} em nova aba`));
+  });
+});

@@ -8,10 +8,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   montarHistoricoAtivo, aplicadoAcumulado, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
-  resumoPosicao, eventosDoAtivo, tipoMovimentacaoRf, irDaClasse, ordenarTeses, valorAtualBrl, percentualNaCarteira,
+  resumoPosicao, eventosDoAtivo, tipoMovimentacaoRf, informesIrDoAtivo, posicaoFiscal, declaracaoIrDoAtivo, ordenarTeses, valorAtualBrl, percentualNaCarteira,
 } from '../assets/js/pages/ativo-calc.js';
 import { calcularResumoRentabilidade, filtrarHistoricoPorPeriodo } from '../assets/js/pages/inicio.js';
-import { refAtivo, urlAtivo, urlAtivoTicker, refDaUrl } from '../assets/js/link-ativo.js';
+import { refAtivo, urlAtivo, urlAtivoTicker, refDaUrl, linkNovaAbaHtml, linkAtivoComNovaAbaHtml } from '../assets/js/link-ativo.js';
 
 const perto = (a, b, tol = 1e-6) => assert.ok(Math.abs(a - b) <= tol, `${a} ≈ ${b}`);
 
@@ -201,22 +201,52 @@ test('renda fixa: aplicação/resgate por PEPS, juros semestrais contam como pro
   assert.equal(e[0].grupo, 'provento');
 });
 
-test('IR: só as regras, proventos, DARF e informes da classe do ativo', () => {
+test('IR: fonte do informe por ticker › prefixo › instituição › classe; notas do ticker e da classe', () => {
   const ir = {
-    aviso: 'a', atualizadoEm: '2026-09',
-    classes: { acoes: { titulo: 'Ações', regras: [{ titulo: 'r1' }] }, fiis: { titulo: 'FIIs', regras: [] } },
-    proventos: [{ titulo: 'JCP', classes: ['acoes'] }, { titulo: 'Rendimentos', classes: ['fiis'] }],
-    darf: [{ titulo: '6015', classes: ['acoes', 'fiis'] }],
-    declaracao: [{ titulo: 'Bens' }],
-    ondeBaixar: [{ nome: 'B3', classes: ['acoes', 'fiis'] }, { nome: 'Corretora EUA', classes: ['acoesEua'] }],
-    avisos: ['x'],
+    prazo: 'Até fevereiro.', atualizadoEm: '2026-09',
+    fontes: { esc1: { nome: 'Escriturador 1' }, esc2: { nome: 'Escriturador 2' }, corr: { nome: 'Corretora' }, eua: { nome: 'Corretora EUA' } },
+    porTicker: { TEST3: ['esc1'], DUPL11: ['esc1', 'esc2'], FANT3: ['naoExiste'] },
+    porPrefixo: { ABCD: ['esc2'] },
+    porInstituicao: [{ contem: 'CORRETORA X', fontes: ['corr'] }],
+    porClasse: { acoesEua: ['eua'] },
+    notas: { DUPL11: ['confira nos dois'], rendaFixa: ['nota rf'] },
   };
-  const a = irDaClasse(ir, 'acoes');
-  assert.equal(a.classe.titulo, 'Ações');
-  assert.deepEqual(a.proventos.map((p) => p.titulo), ['JCP']);
-  assert.deepEqual(a.ondeBaixar.map((p) => p.nome), ['B3']);
-  assert.equal(a.darf.length, 1);
-  assert.equal(irDaClasse(null, 'acoes'), null);
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'test3', classe: 'acoes' }).fontes.map((f) => f.nome), ['Escriturador 1']);
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'DUPL11', classe: 'fiis' }).fontes.map((f) => f.id), ['esc1', 'esc2']);
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'DUPL11', classe: 'fiis' }).notas, ['confira nos dois']);
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'ABCD7', classe: 'acoes' }).fontes.map((f) => f.id), ['esc2'], 'prefixo');
+  const rf = informesIrDoAtivo(ir, { ticker: 'Título qualquer', classe: 'rendaFixa', instituicao: 'Corretora X S.A.' });
+  assert.deepEqual(rf.fontes.map((f) => f.id), ['corr'], 'instituição, sem diferenciar maiúsculas');
+  assert.deepEqual(rf.notas, ['nota rf']);
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'AAPL', classe: 'acoesEua' }).fontes.map((f) => f.id), ['eua'], 'classe');
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'NOVO3', classe: 'acoes' }).fontes, [], 'sem cadastro');
+  assert.deepEqual(informesIrDoAtivo(ir, { ticker: 'FANT3', classe: 'acoes' }).fontes, [], 'fonte que não existe fica de fora');
+  assert.equal(informesIrDoAtivo(ir, { ticker: 'TEST3' }).prazo, 'Até fevereiro.');
+  assert.equal(informesIrDoAtivo(null, { ticker: 'TEST3' }), null);
+});
+
+test('IR: o arquivo real (assets/data/imposto-renda.json) cobre os ativos que o Tiago listou e só aponta pra fontes que existem', async () => {
+  const fs = await import('node:fs');
+  const ir = JSON.parse(fs.readFileSync(new URL('../assets/data/imposto-renda.json', import.meta.url), 'utf8'));
+  const fonteDe = (ticker, classe = 'acoes', instituicao = '') => informesIrDoAtivo(ir, { ticker, classe, instituicao }).fontes.map((f) => f.id);
+  assert.deepEqual(fonteDe('BBAS3'), ['bb']);
+  assert.deepEqual(fonteDe('PETR4'), ['bradesco']);
+  assert.deepEqual(fonteDe('AXIA3'), ['itau']);
+  assert.deepEqual(fonteDe('AXIA7'), ['itau']);
+  assert.deepEqual(fonteDe('XPML11', 'fiis'), ['btg'], 'informe de 2025 veio do BTG');
+  assert.deepEqual(fonteDe('TRXF11', 'fiis'), ['apex']);
+  assert.deepEqual(fonteDe('TUPY3'), ['btg'], 'trocou de escriturador em 2025');
+  assert.deepEqual(fonteDe('HGRU11', 'fiis'), ['genial']);
+  assert.deepEqual(fonteDe('Tesouro Selic 2029', 'rendaFixa', 'XP INVESTIMENTOS CCTVM S/A.'), ['xp']);
+  assert.deepEqual(fonteDe('Tesouro IPCA+', 'rendaFixa', 'NU INVESTIMENTOS S.A. - CTVM'), ['nubank']);
+  assert.deepEqual(fonteDe('LCI', 'rendaFixa', 'BANCO INTER S/A'), ['inter']);
+  assert.deepEqual(fonteDe('PAM', 'acoesEua'), ['ibkr']);
+  const todas = [...Object.values(ir.porTicker), ...Object.values(ir.porPrefixo), ...ir.porInstituicao.map((r) => r.fontes), ...Object.values(ir.porClasse)].flat();
+  todas.forEach((id) => assert.ok(ir.fontes[id], `fonte "${id}" existe`));
+  Object.values(ir.fontes).flatMap((f) => f.links || []).forEach((l) => {
+    assert.match(l.url, /^https:\/\//, 'só https');
+    assert.doesNotMatch(l.url, /b3\.com\.br/, 'sem links da B3');
+  });
 });
 
 test('teses: mais nova primeiro, marcada', () => {
@@ -233,4 +263,95 @@ test('endereço da tela do ativo: ticker ou rf:<título>|<instituição>, absolu
   const u = urlAtivo('rf:Tesouro IPCA+ 2029|XP', { raizSite });
   assert.equal(refDaUrl(u), 'rf:Tesouro IPCA+ 2029|XP', 'o "+" e o "|" sobrevivem à ida e volta');
   assert.equal(refDaUrl('nao é url'), '');
+});
+
+test('link-ativo: ícone de nova aba (target _blank + noopener, href escapado) junto do link normal do ticker', () => {
+  const html = linkNovaAbaHtml('https://x.test/ativo/index.html?ref=A&b="c"', 'ABC3');
+  assert.match(html, /class="link-ativo-nova-aba"/);
+  assert.match(html, /target="_blank" rel="noopener"/);
+  assert.match(html, /href="https:\/\/x\.test\/ativo\/index\.html\?ref=A&amp;b=&quot;c&quot;"/);
+  assert.match(html, /aria-label="Abrir ABC3 em nova aba"/);
+  const grupo = linkAtivoComNovaAbaHtml('https://x.test/a', 'ABC3', 'ABC3');
+  assert.match(grupo, /^<span class="link-ativo-grupo"><a class="link-ativo" href="https:\/\/x\.test\/a">ABC3<\/a><a class="link-ativo-nova-aba"/);
+});
+
+test('IR: posição fiscal pelo custo médio (taxa entra no custo, venda tira a fração, data de corte inclusiva)', () => {
+  const tr = [
+    { data: '2025-03-10', tipo: 'Compra', quantidade: 10, total: 101 },
+    { data: '2025-06-10', tipo: 'Compra', quantidade: 10, total: 121 },
+    { data: '2025-12-31', tipo: 'Venda', quantidade: 5, total: 70 },
+    { data: '2026-02-01', tipo: 'Compra', quantidade: 5, total: 60 },
+  ];
+  const p = posicaoFiscal(tr, '2025-12-31');
+  assert.equal(p.quantidade, 15);
+  assert.equal(p.custo, 166.5, '222 - 1/4 de 222');
+  assert.equal(p.custoBrl, 166.5);
+  assert.ok(Math.abs(p.precoMedio - 11.1) < 1e-9);
+  assert.equal(posicaoFiscal(tr, '2025-06-09').quantidade, 10, 'compra depois do corte não conta');
+  assert.deepEqual(posicaoFiscal(tr, '2024-12-31'), { quantidade: 0, custo: 0, custoBrl: 0, precoMedio: null });
+  const zerada = posicaoFiscal([{ data: '2025-01-02', tipo: 'Compra', quantidade: 2, total: 20 }, { data: '2025-02-02', tipo: 'Venda', quantidade: 2, total: 30 }], '2025-12-31');
+  assert.equal(zerada.quantidade, 0);
+});
+
+test('IR: Ações EUA - custo em reais pelo câmbio de cada compra; sem o valor em reais de alguma compra, custoBrl fica null', () => {
+  const tr = [
+    { data: '2025-01-10', tipo: 'Compra', quantidade: 1.5, total: 30, totalBrl: 150 },
+    { data: '2025-05-10', tipo: 'Compra', quantidade: 0.5, total: 12, totalBrl: 66 },
+  ];
+  const p = posicaoFiscal(tr, '2025-12-31', { emDolar: true });
+  assert.equal(p.quantidade, 2);
+  assert.equal(p.custo, 42);
+  assert.equal(p.custoBrl, 216);
+  assert.equal(posicaoFiscal([{ ...tr[0], totalBrl: null }], '2025-12-31', { emDolar: true }).custoBrl, null);
+});
+
+const IR_DECL = {
+  fontes: { corr: { nome: 'Corretora', cnpj: '11.111.111/0001-11' } },
+  porInstituicao: [{ contem: 'CORRETORA X', fontes: ['corr'] }],
+  declaracao: {
+    acoes: { grupo: '03', grupoNome: 'Participações societárias', codigo: '01', codigoNome: 'Ações', localizacao: '105 - Brasil', negociadoEmBolsa: true },
+    fiis: { grupo: '07', grupoNome: 'Fundos', codigo: '03', codigoNome: 'FII', localizacao: '105 - Brasil', negociadoEmBolsa: true },
+    acoesEua: { grupo: '03', grupoNome: 'Participações societárias', codigo: '01', codigoNome: 'Ações', localizacao: '249 - Estados Unidos', negociadoEmBolsa: true, notas: ['dividendos no bem'] },
+    rendaFixa: { grupo: '04', grupoNome: 'Aplicações', codigo: '02', codigoNome: 'Tributados', localizacao: '105 - Brasil', isentos: { contem: ['LCI', 'LCA'], codigo: '03', codigoNome: 'Isentos' } },
+    notaConsolidado: 'soma tudo',
+  },
+};
+
+test('IR: "Na declaração" - ficha da classe, texto de 31/12 do ano passado e prévia de hoje (ações e FII)', () => {
+  const tr = [{ data: '2025-04-01', tipo: 'Compra', quantidade: 10, total: 105 }, { data: '2026-02-01', tipo: 'Compra', quantidade: 10, total: 95 }];
+  const d = declaracaoIrDoAtivo(IR_DECL, { classe: 'acoes', ticker: 'TEST3', hoje: '2026-09-20', transacoes: tr, sobre: { nome: 'Teste S.A. (antiga Velha)', cnpj: '00.000.000/0001-00' } });
+  assert.equal(d.ficha.grupo, '03');
+  assert.equal(d.ficha.cnpj, '00.000.000/0001-00');
+  assert.equal(d.posicoes[0].rotulo, 'Situação em 31/12/2025');
+  assert.equal(d.posicoes[0].texto, '10 AÇÕES TESTE S.A. - CÓDIGO DE NEGOCIAÇÃO TEST3 - CNPJ 00.000.000/0001-00. PREÇO MÉDIO R$ 10,50; CUSTO TOTAL R$ 105,00 EM 31/12/2025.');
+  assert.equal(d.posicoes[0].valor, 105);
+  assert.equal(d.posicoes[1].previa, true);
+  assert.match(d.posicoes[1].texto, /^20 AÇÕES .* CUSTO TOTAL R\$ 200,00 EM 20\/09\/2026\.$/);
+  assert.deepEqual(d.notas, ['soma tudo']);
+
+  const fii = declaracaoIrDoAtivo(IR_DECL, { classe: 'fiis', ticker: 'TEST11', hoje: '2026-01-15', transacoes: [{ data: '2026-01-10', tipo: 'Compra', quantidade: 3, total: 300 }], sobre: { nome: 'Fundo Teste FII', cnpj: '22.222.222/0001-22' } });
+  assert.equal(fii.ficha.codigo, '03');
+  assert.equal(fii.posicoes[0].texto, '', 'não tinha em 31/12/2025');
+  assert.equal(fii.posicoes[0].valor, 0);
+  assert.match(fii.posicoes[1].texto, /^3 COTAS DO FII FUNDO TESTE FII - CÓDIGO DE NEGOCIAÇÃO TEST11 - CNPJ DO FUNDO 22\.222\.222\/0001-22\./);
+});
+
+test('IR: "Na declaração" - Ações EUA (US$ + reais, país 249) e renda fixa (LCI vai pra 04-03, CNPJ da instituição, saldo do histórico)', () => {
+  const eua = declaracaoIrDoAtivo(IR_DECL, { classe: 'acoesEua', ticker: 'TSTU', hoje: '2026-09-20', transacoes: [{ data: '2025-05-01', tipo: 'Compra', quantidade: 2.5, total: 50, totalBrl: 275 }], sobre: { nome: 'Test Corp', bolsa: 'NYSE' } });
+  assert.equal(eua.ficha.localizacao, '249 - Estados Unidos');
+  assert.equal(eua.ficha.cnpj, undefined);
+  assert.equal(eua.posicoes[0].texto, '2,5 AÇÕES TEST CORP - CÓDIGO DE NEGOCIAÇÃO TSTU (NYSE), CUSTODIADAS NA INTERACTIVE BROKERS LLC (EUA). PREÇO MÉDIO US$ 20,00; CUSTO TOTAL US$ 50,00, EQUIVALENTE A R$ 275,00 PELO CÂMBIO DE CADA COMPRA EM 31/12/2025.');
+  assert.equal(eua.posicoes[0].valor, 275, 'situação em reais');
+  assert.ok(eua.notas.includes('dividendos no bem'));
+
+  const historico = [{ data: '2025-12-30', ativo: 1000.123 }, { data: '2026-01-02', ativo: 1010 }, { data: '2026-09-20', ativo: 1100 }];
+  const rf = declaracaoIrDoAtivo(IR_DECL, { ehRf: true, classe: 'rendaFixa', ticker: 'LCI Teste', hoje: '2026-09-20', historico, ativo: { tipoInvestimento: 'LCI / LCA Pós-fixada', indexador: 'CDI', vencimento: '01/2028', instituicao: 'Corretora X S.A.' } });
+  assert.equal(rf.ficha.codigo, '03');
+  assert.equal(rf.ficha.cnpj, '11.111.111/0001-11');
+  assert.equal(rf.posicoes[0].valor, 1000.12, 'último saldo até 31/12');
+  assert.equal(rf.posicoes[1].valor, 1100);
+  assert.equal(rf.posicoes[0].texto, 'LCI TESTE (CDI) - VENCIMENTO 01/2028 - CORRETORA X S.A.', 'sem ponto duplo');
+  const tesouro = declaracaoIrDoAtivo(IR_DECL, { ehRf: true, ticker: 'Tesouro Selic 2029', hoje: '2026-09-20', ativo: { tipoInvestimento: 'Tesouro Selic (LFT)' } });
+  assert.equal(tesouro.ficha.codigo, '02');
+  assert.equal(declaracaoIrDoAtivo(null, { classe: 'acoes', ticker: 'X', hoje: '2026-01-01' }), null);
 });

@@ -428,6 +428,20 @@ svg{ display:block; }
 a.link-ativo{ color:inherit; text-decoration:none; }
 a.link-ativo:hover{ color:var(--acoes); text-decoration:underline; text-underline-offset:2px; }
 a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; border-radius:4px; }
+/* 25/09/2026: ícone "abrir em nova aba" ao lado do ticker (link-ativo.js!
+   linkNovaAbaHtml) - só com mouse (desktop), invisível até passar o mouse
+   na linha ou no ticker; no celular não existe (toque abre a tela normal). */
+.link-ativo-grupo{ display:inline-flex; align-items:center; gap:5px; }
+.link-ativo-nova-aba{ display:none; }
+@media (hover:hover) and (pointer:fine){
+  .link-ativo-nova-aba{ display:inline-flex; align-items:center; color:var(--ink-muted); opacity:0; transition:opacity .12s ease;
+        border-radius:4px; line-height:0; flex:none; }
+  tr:hover .link-ativo-nova-aba, li:hover .link-ativo-nova-aba, .link-ativo-grupo:hover .link-ativo-nova-aba,
+  .link-ativo-nova-aba:focus-visible{ opacity:1; }
+  .link-ativo-nova-aba:hover{ color:var(--acoes); }
+  .link-ativo-nova-aba:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+}
+@media (prefers-reduced-motion: reduce){ .link-ativo-nova-aba{ transition:none; } }
 /* 25/09/2026: botão Sair (mesmo círculo do sync-badge) */
 .logout-btn{ display:inline-flex; align-items:center; justify-content:center; color:var(--ink-muted); cursor:pointer; background:var(--surface); }
 .logout-btn:hover{ color:var(--bad-ink); border-color:var(--bad-ink); }

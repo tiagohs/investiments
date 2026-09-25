@@ -309,3 +309,19 @@ test('montarPaginaCarteirasRendaFixa(): sem histórico (getHome falhou), mostra 
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
 });
+
+test('montarPaginaCarteirasRendaFixa(): tabela com imagem do título (igual às outras tabelas) e ↗ de nova aba ao lado do nome', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: CARTEIRA_RF_EXEMPLO }), getHomeImpl: GET_HOME_VAZIO });
+    const linhas = [...doc.querySelectorAll('.cc-tabela tbody tr')];
+    const celTesouro = linhas.map((tr) => tr.querySelector('.cc-ativo-cel')).find((c) => c && /Tesouro IPCA/.test(c.textContent));
+    assert.ok(celTesouro, 'célula do título com logo');
+    assert.match(celTesouro.querySelector('.cc-logo img').getAttribute('src'), /assets\/imgs\/tesouro-direto\.webp$/);
+    const celCdb = linhas.map((tr) => tr.querySelector('.cc-ativo-cel')).find((c) => c && /CDB Banco X/.test(c.textContent));
+    assert.ok(celCdb.querySelector('.cc-logo-fallback'), 'sem imagem própria: iniciais');
+    const novaAba = celTesouro.querySelector('a.link-ativo-nova-aba');
+    assert.equal(novaAba.getAttribute('target'), '_blank');
+    assert.equal(novaAba.getAttribute('href'), celTesouro.querySelector('b a.link-ativo').getAttribute('href'));
+  });
+});

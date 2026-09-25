@@ -13,7 +13,7 @@ import { getCarteirasRendaFixa, getHome } from '../api-client.js';
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { urlAtivo, refAtivo } from '../link-ativo.js'; // 25/09/2026: título -> tela do ativo
+import { urlAtivo, refAtivo, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: título -> tela do ativo
 import {
   somaCampoHistorico_,
   renderResumoClasseCarteiras,
@@ -24,6 +24,7 @@ import {
   filtrarAtivosPorBusca,
   wirePointerTooltipCarteiras_,
   wireGraficosClasseCarteiras,
+  logoRendaFixaHtml,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v2';
@@ -71,7 +72,9 @@ const COLUNAS_ATIVOS_RENDA_FIXA = [
     ordenarPor: (a) => a.nomePersonalizado || a.tipoInvestimento || a.codigo || '',
     formatar: (a) => {
       const nome = a.nomePersonalizado || a.tipoInvestimento || a.codigo || '—';
-      return `<div><b><a class="link-ativo" href="${urlAtivo(refAtivo({ ...a, classe: 'rf' }))}">${nome}</a></b>${a.instituicao ? `<span class="cc-ativo-nome">${a.instituicao}</span>` : ''}</div>`;
+      // 25/09/2026: logo (Tesouro Selic/IPCA, Inter) igual às outras tabelas + ↗ nova aba
+      const href = urlAtivo(refAtivo({ ...a, classe: 'rf' }));
+      return `<div class="cc-ativo-cel"><a class="link-ativo" href="${href}" tabindex="-1" aria-hidden="true">${logoRendaFixaHtml(a)}</a><div><b>${linkAtivoComNovaAbaHtml(href, nome, nome)}</b>${a.instituicao ? `<span class="cc-ativo-nome">${a.instituicao}</span>` : ''}</div></div>`;
     },
   },
   { label: 'Vencimento', campo: 'vencimento', ordenarPor: (a) => a.vencimento || '', formatar: (a) => a.vencimento || '—' },

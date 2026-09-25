@@ -221,6 +221,26 @@ export function logoAtivoHtml(ticker) {
   return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
 }
 
+// 25/09/2026 (Tiago, ponto 6; movida de ativo.js pra cá pra tabela de
+// Renda Fixa usar a mesma): 3 imagens genéricas pra renda fixa, por
+// tipo de título - não por ticker (LOGOS_ATIVOS é por ticker, não serve
+// aqui). Indexador manda pros 2 Tesouro Direto; LCI do Inter é o único
+// caso de instituição por enquanto. Título fora dessas 3 regras continua
+// com as iniciais (fallback de sempre).
+export function logoRendaFixaHtml(a) {
+  const indexador = String(a.indexador || '').toUpperCase();
+  const tipo = String(a.tipoInvestimento || '').toUpperCase();
+  const instituicao = String(a.instituicao || '').toUpperCase();
+  let imagem = null;
+  if (indexador.includes('SELIC')) imagem = 'assets/imgs/tesouro-selic.webp';
+  else if (indexador.includes('IPCA')) imagem = 'assets/imgs/tesouro-direto.webp';
+  else if (tipo.includes('LCI') && instituicao.includes('INTER')) imagem = 'assets/imgs/banco-inter.png';
+  const iniciais = String(a.instituicao || '').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RF';
+  if (!imagem) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
+  const url = new URL(imagem, resolveSiteRootUrl()).href;
+  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
+}
+
 /**
  * "i" que abre uma tooltip por toque/hover - NÃO é mais `title` nativo
  * (19/09/2026 #4, pedido do Tiago: "as tooltips não estão funcionando.
