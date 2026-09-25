@@ -23,6 +23,7 @@
  */
 
 var ATIVO_CACHE_NOTICIAS_TTL = 2 * 60 * 60; // 2h
+var ATIVO_CACHE_NOTICIAS_PREFIXO = 'noticias_v1_'; // chave = prefixo + TICKER (ver limparCacheNoticiasAtivos_)
 var PROP_PASTA_TESES = 'TESES_PASTA_ID';
 
 function handleAtivo(e, auth) {
@@ -305,7 +306,7 @@ function buscarNoticiasAtivo_(ticker, nome, classe) {
   ticker = String(ticker || '').trim().toUpperCase();
   if (!ticker) return [];
   var cache = CacheService.getScriptCache();
-  var chave = 'noticias_v1_' + ticker;
+  var chave = ATIVO_CACHE_NOTICIAS_PREFIXO + ticker;
   var emCache = cache.get(chave);
   if (emCache) return JSON.parse(emCache);
   var nomeLimpo = String(nome || '').replace(/\b(S\.?A\.?|Inc\.?|Ltd\.?|N\.V\.|FII|Fundo de Investimento Imobili[aá]rio)\b/gi, '').replace(/\s+/g, ' ').trim();
@@ -318,6 +319,24 @@ function buscarNoticiasAtivo_(ticker, nome, classe) {
   var itens = extrairItensRss_(resp.getContentText()).slice(0, 10);
   try { cache.put(chave, JSON.stringify(itens), ATIVO_CACHE_NOTICIAS_TTL); } catch (e) { /* cache é só otimização */ }
   return itens;
+}
+
+/**
+ * 25/09/2026 (Tiago: "ao clicar em limpar cache, ainda to recebendo cache
+ * de quando entro em uma tela de ativo"): o botão "Limpar cache" também
+ * apaga as notícias guardadas (2h) de cada ativo da carteira. O
+ * CacheService não lista chaves, então monta a chave de cada ticker da aba
+ * Auxiliar_ativos (coluna B) - apagar chave que não existe não dá erro.
+ */
+function limparCacheNoticiasAtivos_(ss) {
+  var aba = ss.getSheetByName('Auxiliar_ativos');
+  if (!aba || aba.getLastRow() < 2) return 0;
+  var chaves = aba.getRange(2, 2, aba.getLastRow() - 1, 1).getValues()
+    .map(function (l) { return String(l[0] || '').trim().toUpperCase(); })
+    .filter(function (t) { return t; })
+    .map(function (t) { return ATIVO_CACHE_NOTICIAS_PREFIXO + t; });
+  if (chaves.length) CacheService.getScriptCache().removeAll(chaves);
+  return chaves.length;
 }
 
 /** Lê <item> de um RSS 2.0 sem depender de XmlService (texto simples, testável). */

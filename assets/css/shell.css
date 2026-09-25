@@ -208,6 +208,15 @@ svg{ display:block; }
    viram 3 filhos disputando o space-between em vez de 2). */
 .sync-panel-actions{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
 .sync-panel-head h3{ font-size:13px; font-family:var(--display); font-weight:600; }
+/* 25/09/2026: "Forçar só:" - um botão por sincronização diária, logo
+   abaixo do cabeçalho (o "Sincronizar tudo" continua lá em cima). */
+.sync-individuais{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:0 4px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+.sync-individuais-rotulo{ font-size:10.5px; color:var(--ink-faint); font-weight:600; letter-spacing:.02em; margin-right:2px; }
+.sync-chip{ font-family:var(--body-f); font-size:11px; font-weight:600; color:var(--ink-muted); background:transparent;
+      border:1px solid var(--border); border-radius:100px; padding:4px 10px; cursor:pointer; white-space:nowrap; }
+.sync-chip:hover:not(:disabled){ background:var(--surface-2); color:var(--ink); }
+.sync-chip:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.sync-chip:disabled{ opacity:.6; cursor:default; }
 /* 16/09/2026: o popover passou a listar o histórico inteiro (antes só a
    última sincronização - ver shell.js!renderSyncLog), não só 1 linha -
    sem altura máxima própria, isso empurrava o popover inteiro (que em

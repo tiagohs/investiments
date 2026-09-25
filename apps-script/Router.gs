@@ -105,6 +105,12 @@ function doPost(e) {
   if (action === 'sincronizarRendaFixaEIndices') {
     return handleSincronizarRendaFixaEIndices(e);
   }
+  if (action === 'sincronizarProventosFnet') { // 25/09/2026: botão "Proventos (FNet)" (FnetProventos.gs)
+    return handleSincronizarProventosFnet(e);
+  }
+  if (action === 'sincronizarInformesFnet') { // 25/09/2026: botão "Informes dos FIIs" (FnetInformesFii.gs)
+    return handleSincronizarInformesFnet(e);
+  }
   if (action === 'limparCacheHistorico') {
     return handleLimparCacheHistorico(e);
   }

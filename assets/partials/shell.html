@@ -57,9 +57,22 @@
             <h3>Registro de Controle</h3>
             <div class="sync-panel-actions">
               <button class="btn btn-ghost" id="limparCacheBtn" type="button" style="padding:6px 10px; font-size:11px"
-                      title="Limpa o cache do gráfico de Rentabilidade - use se corrigiu um valor direto na planilha e o app ainda mostra o número antigo">Limpar cache</button>
-              <button class="btn btn-primary" id="syncNowBtn" type="button" style="padding:6px 12px; font-size:11.5px">Sincronizar agora</button>
+                      title="Apaga todo o cache (servidor e este aparelho) - use se corrigiu algo direto na planilha e o app ainda mostra o número antigo">Limpar cache</button>
+              <button class="btn btn-primary" id="syncNowBtn" type="button" style="padding:6px 12px; font-size:11.5px"
+                      title="Roda as 4 sincronizações em sequência (pode levar alguns minutos)">Sincronizar tudo</button>
             </div>
+          </div>
+          <!-- 25/09/2026: forçar só uma das sincronizações diárias (shell.js!setupSyncNowButton) -->
+          <div class="sync-individuais" role="group" aria-label="Forçar só uma sincronização">
+            <span class="sync-individuais-rotulo">Forçar só:</span>
+            <button class="sync-chip" type="button" data-sync="ativos"
+                    title="Ações, FIIs e EUA: cotações e histórico do patrimônio (automático ~10h)">Ativos</button>
+            <button class="sync-chip" type="button" data-sync="rendaFixa"
+                    title="Renda Fixa, CDI, SELIC, IPCA e índices (automático ~11h)">Renda Fixa e índices</button>
+            <button class="sync-chip" type="button" data-sync="proventos"
+                    title="Proventos anunciados dos FIIs no FNet (automático ~12h) - pode levar alguns minutos">Proventos (FNet)</button>
+            <button class="sync-chip" type="button" data-sync="informes"
+                    title="Fatos relevantes e comunicados dos FIIs no FNet (automático ~12h20) - pode levar alguns minutos">Informes dos FIIs</button>
           </div>
           <div class="sync-log" id="syncLog">
             <div class="hint" style="padding:9px 4px">Carregando…</div>

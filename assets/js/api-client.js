@@ -178,6 +178,25 @@ export async function syncRendaFixaEIndices(token) {
 }
 
 /**
+ * 25/09/2026: botões "Proventos (FNet)" e "Informes dos FIIs" do popover
+ * "Registro de Controle" (shell.js!setupSyncNowButton) - forçam na hora as
+ * rotinas que os gatilhos diários rodam ~12h/~12h20 (ver
+ * apps-script/FnetProventos.gs e FnetInformesFii.gs). Uma rodada só; o FNet
+ * é lento, então cada uma pode levar alguns minutos.
+ *
+ * @param {string} token
+ * @return {Promise<Object>} `{ ok, resultado: { status, detalhe } }` or
+ *   `{ ok:false, etapa, erro }`.
+ */
+export async function syncProventosFnet(token) {
+  return request('POST', 'sincronizarProventosFnet', token);
+}
+
+export async function syncInformesFnet(token) {
+  return request('POST', 'sincronizarInformesFnet', token);
+}
+
+/**
  * "Limpar cache" (botão no popover "Registro de Controle", topo do app,
  * 17/09/2026 - ver apps-script/HistoricoInicio.gs!limparCacheHistoricoInicio_
  * e shell.js!setupLimparCacheButton). Apaga o cache (CacheService, TTL de

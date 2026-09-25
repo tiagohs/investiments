@@ -20,6 +20,7 @@ import {
   setupAuthGate,
   setupSyncNowButton,
   setupLimparCacheButton,
+  limparCacheLocalNavegador,
   renderSyncStatus,
   renderSyncLog,
   categoriaSync_,
@@ -27,6 +28,9 @@ import {
   mountShell,
   mountRefreshControl,
 } from '../assets/js/shell.js';
+
+/** Espera as promessas pendentes (uma volta da fila de macrotarefas). */
+const esvaziarFila = () => new Promise((r) => setTimeout(r, 0));
 
 const SHELL_PARTIAL_HTML = `
   <template id="shell-header-template">
@@ -36,7 +40,11 @@ const SHELL_PARTIAL_HTML = `
       <button id="syncBadgeBtn" data-toggle-panel="syncPanel" aria-expanded="false">sync</button>
       <div class="overlay-panel" id="syncPanel">
         <button id="limparCacheBtn" type="button">Limpar cache</button>
-        <button id="syncNowBtn" type="button">Sincronizar agora</button>
+        <button id="syncNowBtn" type="button">Sincronizar tudo</button>
+        <button type="button" data-sync="ativos">Ativos</button>
+        <button type="button" data-sync="rendaFixa">Renda Fixa e índices</button>
+        <button type="button" data-sync="proventos">Proventos (FNet)</button>
+        <button type="button" data-sync="informes">Informes dos FIIs</button>
         <div class="sync-log" id="syncLog"><div class="hint">Nenhuma sincronização registrada ainda.</div></div>
         <a id="syncSheetLink" href="#">link</a>
       </div>
@@ -139,7 +147,7 @@ test('setupAuthGate() also dispara carregarStatusSyncImpl com o token, quando au
   assert.equal(calledWith, 'token-existente');
 });
 
-test('setupAuthGate() também liga o botão "Sincronizar agora" (setupSyncNowButtonImpl) quando autenticado', () => {
+test('setupAuthGate() também liga os botões de sincronização (setupSyncNowButtonImpl) quando autenticado', () => {
   const doc = makeDom();
   let calledWith = null;
   setupAuthGate(doc, {
@@ -450,147 +458,149 @@ test('renderSyncLog() não desenha o botão "i" quando a linha não tem Detalhe'
 });
 
 // --- setupSyncNowButton ---------------------------------------------------
-// 14/09/2026: o botao dispara DUAS chamadas SEPARADAS em sequencia -
-// syncNowImpl (acoes/FIIs/USA, com seu proprio loop de retomada) e depois
-// syncRendaFixaEIndicesImpl (Renda Fixa/Indices/CDI/SELIC) - nunca
-// combinadas numa mesma requisicao (ver comentario em api-client.js!
-// syncRendaFixaEIndices pro motivo: combinadas, estourava o limite de
-// execucao do Apps Script sempre que havia backlog).
+// 14/09/2026: cada sincronização é uma chamada SEPARADA (nunca combinadas
+// numa mesma requisição - ver api-client.js!syncRendaFixaEIndices).
+// 25/09/2026: 4 sincronizações (ativos, Renda Fixa/Índices, proventos e
+// informes dos FIIs no FNet) - "Sincronizar tudo" roda as 4 em sequência e
+// cada botão [data-sync] força só a sua.
 
-test('setupSyncNowButton() chama as duas sincronizacoes com o token, em sequencia, e recarrega o status ao final', async () => {
+function fakesSync(chamadas, extra = {}) {
+  return {
+    token: 'token-abc',
+    syncNowImpl: async (token) => { chamadas.push(['ativos', token]); return { ok: true }; },
+    syncRendaFixaEIndicesImpl: async (token) => { chamadas.push(['rendaFixa', token]); return { ok: true }; },
+    syncProventosFnetImpl: async (token) => { chamadas.push(['proventos', token]); return { ok: true }; },
+    syncInformesFnetImpl: async (token) => { chamadas.push(['informes', token]); return { ok: true }; },
+    carregarStatusSyncImpl: async () => { chamadas.push(['status']); },
+    ...extra,
+  };
+}
+const clicar = (doc, el) => el.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+
+test('setupSyncNowButton(): "Sincronizar tudo" chama as 4 sincronizações com o token, em sequência, e recarrega o status ao final', async () => {
   const doc = mountedDoc();
   const chamadas = [];
-  setupSyncNowButton(doc, {
-    token: 'token-abc',
-    syncNowImpl: async (token) => { chamadas.push(['acoes', token]); return { ok: true }; },
-    syncRendaFixaEIndicesImpl: async (token) => { chamadas.push(['rendaFixaEIndices', token]); return { ok: true }; },
-    carregarStatusSyncImpl: async () => { chamadas.push(['status']); },
-  });
+  setupSyncNowButton(doc, fakesSync(chamadas));
 
-  const btn = doc.getElementById('syncNowBtn');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  clicar(doc, doc.getElementById('syncNowBtn'));
+  await esvaziarFila();
 
   assert.deepEqual(chamadas, [
-    ['acoes', 'token-abc'],
-    ['rendaFixaEIndices', 'token-abc'],
+    ['ativos', 'token-abc'],
+    ['rendaFixa', 'token-abc'],
+    ['proventos', 'token-abc'],
+    ['informes', 'token-abc'],
     ['status'],
   ]);
 });
 
-test('setupSyncNowButton() desabilita o botao e troca o texto enquanto esta em voo, dos dois passos ate o final', async () => {
+for (const [id, esperado] of [['ativos', 'ativos'], ['rendaFixa', 'rendaFixa'], ['proventos', 'proventos'], ['informes', 'informes']]) {
+  test(`setupSyncNowButton(): botão "${id}" força SÓ essa sincronização e recarrega o status`, async () => {
+    const doc = mountedDoc();
+    const chamadas = [];
+    setupSyncNowButton(doc, fakesSync(chamadas));
+
+    clicar(doc, doc.querySelector(`[data-sync="${id}"]`));
+    await esvaziarFila();
+
+    assert.deepEqual(chamadas, [[esperado, 'token-abc'], ['status']]);
+  });
+}
+
+test('setupSyncNowButton(): enquanto uma sincronização roda, TODOS os botões ficam desabilitados, o clicado mostra o progresso, e voltam ao normal no final', async () => {
   const doc = mountedDoc();
-  let resolverAcoes;
-  let resolverRendaFixa;
+  const resolvedores = [];
+  const pendente = () => new Promise((r) => { resolvedores.push(r); });
   setupSyncNowButton(doc, {
     token: 'token-abc',
-    syncNowImpl: () => new Promise((r) => { resolverAcoes = r; }),
-    syncRendaFixaEIndicesImpl: () => new Promise((r) => { resolverRendaFixa = r; }),
+    syncNowImpl: pendente,
+    syncRendaFixaEIndicesImpl: pendente,
+    syncProventosFnetImpl: pendente,
+    syncInformesFnetImpl: pendente,
     carregarStatusSyncImpl: async () => {},
   });
 
   const btn = doc.getElementById('syncNowBtn');
-  const textoOriginal = btn.textContent;
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
+  const chip = doc.querySelector('[data-sync="proventos"]');
+  const textos = [btn.textContent, chip.textContent];
+  clicar(doc, btn);
+  await esvaziarFila();
 
   assert.equal(btn.disabled, true);
-  assert.equal(btn.textContent, 'Sincronizando…');
+  assert.equal(chip.disabled, true);
+  assert.equal(btn.textContent, 'Sincronizando 1/4…');
 
-  resolverAcoes({ ok: true });
-  await Promise.resolve();
-  await Promise.resolve();
+  resolvedores[0]({ ok: true });
+  await esvaziarFila();
+  assert.equal(btn.textContent, 'Sincronizando 2/4…');
 
-  // ainda em voo - agora no 2º passo (Renda Fixa/Índices)
-  assert.equal(btn.disabled, true);
-
-  resolverRendaFixa({ ok: true });
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  resolvedores[1]({ ok: true });
+  await esvaziarFila();
+  resolvedores[2]({ ok: true });
+  await esvaziarFila();
+  assert.equal(btn.textContent, 'Sincronizando 4/4…');
+  resolvedores[3]({ ok: true });
+  await esvaziarFila();
 
   assert.equal(btn.disabled, false);
-  assert.equal(btn.textContent, textoOriginal);
+  assert.equal(chip.disabled, false);
+  assert.deepEqual([btn.textContent, chip.textContent], textos);
 });
 
-test('setupSyncNowButton() clique duplo enquanto ja esta sincronizando nao chama syncNowImpl 2 vezes', async () => {
+test('setupSyncNowButton(): botão individual mostra "Sincronizando…" (sem contador)', async () => {
   const doc = mountedDoc();
-  let chamadas = 0;
   let resolver;
-  setupSyncNowButton(doc, {
-    token: 'token-abc',
-    syncNowImpl: () => { chamadas += 1; return new Promise((r) => { resolver = r; }); },
-    syncRendaFixaEIndicesImpl: async () => ({ ok: true }),
-    carregarStatusSyncImpl: async () => {},
-  });
-
-  const btn = doc.getElementById('syncNowBtn');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-
-  assert.equal(chamadas, 1);
+  setupSyncNowButton(doc, fakesSync([], { syncInformesFnetImpl: () => new Promise((r) => { resolver = r; }) }));
+  const chip = doc.querySelector('[data-sync="informes"]');
+  clicar(doc, chip);
+  await esvaziarFila();
+  assert.equal(chip.textContent, 'Sincronizando…');
   resolver({ ok: true });
+  await esvaziarFila();
+  assert.equal(chip.textContent, 'Informes dos FIIs');
 });
 
-test('setupSyncNowButton() trata falha de syncNowImpl sem lancar, ainda rodando o passo de Renda Fixa/Indices e recarregando o status', async () => {
+test('setupSyncNowButton(): clicar em outro botão enquanto uma sincronização roda não dispara nada novo', async () => {
   const doc = mountedDoc();
-  let rendaFixaChamada = false;
-  let statusRecarregado = false;
-  setupSyncNowButton(doc, {
-    token: 'token-abc',
+  const chamadas = [];
+  let resolver;
+  setupSyncNowButton(doc, fakesSync(chamadas, { syncNowImpl: () => { chamadas.push(['ativos']); return new Promise((r) => { resolver = r; }); } }));
+
+  clicar(doc, doc.getElementById('syncNowBtn'));
+  clicar(doc, doc.getElementById('syncNowBtn'));
+  clicar(doc, doc.querySelector('[data-sync="proventos"]'));
+  await esvaziarFila();
+
+  assert.deepEqual(chamadas, [['ativos']]);
+  resolver({ ok: true });
+  await esvaziarFila();
+});
+
+test('setupSyncNowButton(): uma sincronização falhar não impede as seguintes nem trava os botões', async () => {
+  const doc = mountedDoc();
+  const chamadas = [];
+  setupSyncNowButton(doc, fakesSync(chamadas, {
     syncNowImpl: async () => { throw new Error('rede caiu'); },
-    syncRendaFixaEIndicesImpl: async () => { rendaFixaChamada = true; return { ok: true }; },
-    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
-  });
+    syncProventosFnetImpl: async () => { throw new Error('FNet fora do ar'); },
+  }));
 
   const btn = doc.getElementById('syncNowBtn');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  clicar(doc, btn);
+  await esvaziarFila();
 
-  assert.equal(rendaFixaChamada, true);
-  assert.equal(statusRecarregado, true);
+  assert.deepEqual(chamadas, [['rendaFixa', 'token-abc'], ['informes', 'token-abc'], ['status']]);
   assert.equal(btn.disabled, false);
+  assert.equal(doc.querySelector('[data-sync="ativos"]').disabled, false);
 });
 
-test('setupSyncNowButton() trata falha de syncRendaFixaEIndicesImpl sem lancar, ainda recarregando o status e reabilitando o botao', async () => {
+test('setupSyncNowButton() sem token nao liga nada (clicar nao chama nenhuma sincronização)', () => {
   const doc = mountedDoc();
-  let statusRecarregado = false;
-  setupSyncNowButton(doc, {
-    token: 'token-abc',
-    syncNowImpl: async () => ({ ok: true }),
-    syncRendaFixaEIndicesImpl: async () => { throw new Error('rede caiu'); },
-    carregarStatusSyncImpl: async () => { statusRecarregado = true; },
-  });
+  const chamadas = [];
+  setupSyncNowButton(doc, { ...fakesSync(chamadas), token: null });
 
-  const btn = doc.getElementById('syncNowBtn');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(statusRecarregado, true);
-  assert.equal(btn.disabled, false);
-});
-
-test('setupSyncNowButton() sem token nao liga nada (clicar nao chama syncNowImpl)', () => {
-  const doc = mountedDoc();
-  let chamado = false;
-  setupSyncNowButton(doc, {
-    token: null,
-    syncNowImpl: async () => { chamado = true; },
-  });
-
-  const btn = doc.getElementById('syncNowBtn');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(chamado, false);
+  clicar(doc, doc.getElementById('syncNowBtn'));
+  clicar(doc, doc.querySelector('[data-sync="ativos"]'));
+  assert.deepEqual(chamadas, []);
 });
 
 test('setupSyncNowButton() nao quebra quando a pagina nao tem #syncNowBtn', () => {
@@ -619,9 +629,7 @@ test('setupLimparCacheButton() chama limparCacheHistoricoImpl com o token, mostr
 
   const btn = doc.getElementById('limparCacheBtn');
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await esvaziarFila();
 
   assert.equal(chamadoCom, 'token-abc');
   assert.equal(btn.textContent, 'Cache limpo ✓');
@@ -632,7 +640,7 @@ test('setupLimparCacheButton() chama limparCacheHistoricoImpl com o token, mostr
   assert.equal(reloadChamado, true);
 });
 
-test('setupLimparCacheButton() quando o backend diz que já estava sem cache, ainda confirma e agenda o reload', async () => {
+test('setupLimparCacheButton() quando o servidor já estava sem cache, ainda confirma (o do aparelho foi limpo) e agenda o reload', async () => {
   const doc = mountedDoc();
   let callbackAgendado = null;
   setupLimparCacheButton(doc, {
@@ -644,11 +652,9 @@ test('setupLimparCacheButton() quando o backend diz que já estava sem cache, ai
 
   const btn = doc.getElementById('limparCacheBtn');
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await esvaziarFila();
 
-  assert.equal(btn.textContent, 'Já estava sem cache');
+  assert.equal(btn.textContent, 'Cache limpo ✓');
   assert.ok(callbackAgendado);
 });
 
@@ -710,9 +716,7 @@ test('setupLimparCacheButton() trata falha sem lancar, mostra mensagem de erro e
   const btn = doc.getElementById('limparCacheBtn');
   const textoOriginal = btn.textContent;
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await esvaziarFila();
 
   assert.equal(btn.disabled, false);
   assert.equal(btn.textContent, textoOriginal);
@@ -731,9 +735,7 @@ test('setupLimparCacheButton() sem win/setTimeoutImpl nao agenda reload - so res
   const btn = doc.getElementById('limparCacheBtn');
   const textoOriginal = btn.textContent;
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  await esvaziarFila();
 
   assert.equal(btn.disabled, false);
   assert.equal(btn.textContent, textoOriginal);
@@ -755,6 +757,80 @@ test('setupLimparCacheButton() sem token nao liga nada (clicar nao chama limparC
 test('setupLimparCacheButton() nao quebra quando a pagina nao tem #limparCacheBtn', () => {
   const doc = makeDom();
   assert.doesNotThrow(() => setupLimparCacheButton(doc, { token: 'token-abc' }));
+});
+
+test('setupLimparCacheButton() também limpa o cache DESTE aparelho (IndexedDB: telas de ativo etc.) antes de agendar o reload', async () => {
+  const doc = mountedDoc();
+  const ordem = [];
+  let callbackAgendado = null;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => { ordem.push('servidor'); return { ok: true, resultado: { limpou: true } }; },
+    limparCacheLocalImpl: async () => { await esvaziarFila(); ordem.push('aparelho'); },
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: (cb) => { ordem.push('reload agendado'); callbackAgendado = cb; },
+  });
+
+  doc.getElementById('limparCacheBtn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esvaziarFila();
+  await esvaziarFila();
+
+  assert.deepEqual(ordem, ['servidor', 'aparelho', 'reload agendado']);
+  assert.ok(callbackAgendado);
+});
+
+test('setupLimparCacheButton() limpa o cache do aparelho mesmo quando o servidor falha', async () => {
+  const doc = mountedDoc();
+  let limpouAparelho = false;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => { throw new Error('rede caiu'); },
+    limparCacheLocalImpl: async () => { limpouAparelho = true; },
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: () => {},
+  });
+
+  doc.getElementById('limparCacheBtn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esvaziarFila();
+
+  assert.equal(limpouAparelho, true);
+});
+
+test('setupLimparCacheButton() resposta ok:false do servidor conta como falha (sem reload)', async () => {
+  const doc = mountedDoc();
+  let agendou = false;
+  setupLimparCacheButton(doc, {
+    token: 'token-abc',
+    limparCacheHistoricoImpl: async () => ({ ok: false, erro: 'x' }),
+    limparCacheLocalImpl: async () => {},
+    win: { location: { reload: () => {} } },
+    setTimeoutImpl: () => { agendou = true; },
+  });
+  const btn = doc.getElementById('limparCacheBtn');
+  const textoOriginal = btn.textContent;
+  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esvaziarFila();
+
+  assert.equal(agendou, false);
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, textoOriginal);
+});
+
+test('limparCacheLocalNavegador() apaga o IndexedDB (cache-dados) e todo o Cache Storage; nunca lança', async () => {
+  let limpouDados = false;
+  const apagados = [];
+  await limparCacheLocalNavegador({
+    limparCacheDadosImpl: async () => { limpouDados = true; },
+    cachesImpl: { keys: async () => ['patrimonio-shell-v2', 'outro'], delete: async (n) => { apagados.push(n); return true; } },
+  });
+  assert.equal(limpouDados, true);
+  assert.deepEqual(apagados, ['patrimonio-shell-v2', 'outro']);
+
+  await assert.doesNotReject(limparCacheLocalNavegador({
+    limparCacheDadosImpl: async () => { throw new Error('quota'); },
+    cachesImpl: { keys: async () => { throw new Error('bloqueado'); }, delete: async () => true },
+  }));
+  await assert.doesNotReject(limparCacheLocalNavegador({ limparCacheDadosImpl: async () => {}, cachesImpl: undefined }));
 });
 
 // --- parseShellPartial ---------------------------------------------------

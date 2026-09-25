@@ -86,6 +86,20 @@ function rodarProventosFnetDireto() {
   Logger.log(r.status + ' - ' + r.detalhe);
 }
 
+/**
+ * 25/09/2026 (Tiago: "preciso ter a opção de clicar em um botão para cada
+ * sincronização ser forçada quando eu quiser"): botão "Proventos (FNet)"
+ * do popover Registro de Controle (shell.js!setupSyncNowButton). Mesma
+ * rotina do gatilho diário, origem "Manual" no Registro de Controle.
+ */
+function handleSincronizarProventosFnet(e) {
+  try {
+    return jsonOut({ ok: true, resultado: atualizarProventosAnunciadosFii_('Manual') });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'sincronizarProventosFnet', erro: String(erro) });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rotina diária
 // ---------------------------------------------------------------------------

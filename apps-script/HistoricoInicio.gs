@@ -884,6 +884,11 @@ function limparCacheHistoricoInicio_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   // 25/09/2026: o botão "Limpar cache" também refaz a tela Proventos / meta de Renda Passiva
   if (typeof invalidarCacheProventos_ === 'function') invalidarCacheProventos_();
+  // 25/09/2026: ...e as notícias de cada ativo (tela do ativo - Ativo.gs)
+  var noticiasRemovidas = 0;
+  if (typeof limparCacheNoticiasAtivos_ === 'function') {
+    try { noticiasRemovidas = limparCacheNoticiasAtivos_(ss); } catch (eNot) { Logger.log('limparCacheNoticiasAtivos_: ' + eNot); }
+  }
 
   var abaPatrimonio = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
   if (!abaPatrimonio) throw new Error('aba não encontrada: ' + ABA_PATRIMONIO_INICIO);
@@ -903,7 +908,7 @@ function limparCacheHistoricoInicio_() {
   var cache = CacheService.getScriptCache();
   var qtdPedacosTexto = cache.get(chave + '_meta');
   if (!qtdPedacosTexto) {
-    return { limpou: false, motivo: 'já não havia cache pra essa chave (estava frio)', chave: chave };
+    return { limpou: false, motivo: 'já não havia cache pra essa chave (estava frio)', chave: chave, noticiasRemovidas: noticiasRemovidas };
   }
 
   var qtdPedacos = Number(qtdPedacosTexto);
@@ -911,7 +916,7 @@ function limparCacheHistoricoInicio_() {
   for (var i = 0; i < qtdPedacos; i++) chavesParaRemover.push(chave + '_' + i);
   cache.removeAll(chavesParaRemover);
 
-  return { limpou: true, chave: chave, pedacosRemovidos: qtdPedacos };
+  return { limpou: true, chave: chave, pedacosRemovidos: qtdPedacos, noticiasRemovidas: noticiasRemovidas };
 }
 
 /** Handler chamado pelo Router (doPost, action=limparCacheHistorico) - ver limparCacheHistoricoInicio_ acima. */

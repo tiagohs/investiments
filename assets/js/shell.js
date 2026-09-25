@@ -49,9 +49,10 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken, clearToken } from './auth.js';
-import { getSyncHistorico, syncNow, syncRendaFixaEIndices, limparCacheHistorico } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, limparCacheHistorico } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
+import { limparCacheDados } from './cache-dados.js';
 
 /**
  * The shell partial always lives at assets/partials/shell.html relative
@@ -550,10 +551,11 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
 }
 
 /**
- * Wires #syncNowBtn (dentro do popover "Registro de Controle") pra rodar
- * uma sincronização manual completa (ações/FIIs/USA + Renda Fixa +
- * Índices/CDI/SELIC — ver Sync.gs!handleSincronizarAgora) e recarregar o
- * popover com o resultado ao final.
+ * Wires #syncNowBtn ("Sincronizar tudo", dentro do popover "Registro de
+ * Controle") pra rodar uma sincronização manual completa (ações/FIIs/USA +
+ * Renda Fixa/Índices/CDI/SELIC + proventos e informes dos FIIs no FNet),
+ * e os botões [data-sync] pra forçar só uma delas; recarrega o popover com
+ * o resultado ao final.
  *
  * 14/09/2026: pedido do Tiago - o botão já existia no HTML (assets/
  * partials/shell.html) mas nunca tinha sido ligado a nada (nenhum
@@ -564,34 +566,68 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
  * (ver carregarStatusSync): uma falha de rede aqui não pode quebrar a
  * página, só deixa o popover sem se atualizar.
  */
-export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRendaFixaEIndicesImpl = syncRendaFixaEIndices, carregarStatusSyncImpl = carregarStatusSync } = {}) {
+export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRendaFixaEIndicesImpl = syncRendaFixaEIndices, syncProventosFnetImpl = syncProventosFnet, syncInformesFnetImpl = syncInformesFnet, carregarStatusSyncImpl = carregarStatusSync } = {}) {
   const button = doc.getElementById('syncNowBtn');
   if (!button || !token) return;
 
-  button.addEventListener('click', async () => {
-    if (button.disabled) return;
-    const textoOriginal = button.textContent;
-    button.disabled = true;
-    button.textContent = 'Sincronizando…';
-    // 14/09/2026: as duas chamadas rodam em requisições SEPARADAS de
-    // propósito (uma depois da outra), nunca combinadas numa só - ver o
-    // comentário de syncRendaFixaEIndices (api-client.js) pro motivo.
-    // Cada uma no seu próprio try/catch: uma falhar não pode impedir a
-    // outra de rodar nem deixar o botão travado em "Sincronizando…".
-    try {
-      await syncNowImpl(token);
-    } catch (error) {
-      console.error('shell.js: falha ao sincronizar ações/FIIs/USA', error);
-    }
-    try {
-      await syncRendaFixaEIndicesImpl(token);
-    } catch (error) {
-      console.error('shell.js: falha ao sincronizar Renda Fixa/Índices', error);
+  // 25/09/2026 (Tiago: "agora temos pelo menos tres syncs, preciso ter a
+  // opção de clicar em um botão para cada sincronização ser forçada quando
+  // eu quiser"): as 4 rotinas que os gatilhos diários rodam, cada uma com
+  // seu botão ([data-sync="..."] no popover), e "Sincronizar tudo"
+  // (#syncNowBtn) roda as 4 em sequência. Cada uma é uma requisição
+  // SEPARADA (nunca combinadas numa só - ver o comentário de
+  // syncRendaFixaEIndices em api-client.js pro motivo) e cada uma no seu
+  // próprio try/catch: uma falhar não impede as outras nem trava os botões.
+  const passos = {
+    ativos: { impl: syncNowImpl, rotulo: 'ações/FIIs/USA' },
+    rendaFixa: { impl: syncRendaFixaEIndicesImpl, rotulo: 'Renda Fixa/Índices' },
+    proventos: { impl: syncProventosFnetImpl, rotulo: 'proventos (FNet)' },
+    informes: { impl: syncInformesFnetImpl, rotulo: 'informes dos FIIs (FNet)' },
+  };
+  const ordemTudo = ['ativos', 'rendaFixa', 'proventos', 'informes'];
+  const individuais = Array.from(doc.querySelectorAll('[data-sync]')).filter((el) => passos[el.dataset.sync]);
+  const todos = [button, ...individuais];
+  let ocupado = false;
+
+  async function rodar(ids, botao) {
+    if (ocupado) return;
+    ocupado = true;
+    const textos = todos.map((el) => el.textContent);
+    todos.forEach((el) => { el.disabled = true; });
+    for (let i = 0; i < ids.length; i += 1) {
+      botao.textContent = ids.length > 1 ? `Sincronizando ${i + 1}/${ids.length}…` : 'Sincronizando…';
+      try {
+        await passos[ids[i]].impl(token);
+      } catch (error) {
+        console.error(`shell.js: falha ao sincronizar ${passos[ids[i]].rotulo}`, error);
+      }
     }
     await carregarStatusSyncImpl(doc, { token });
-    button.disabled = false;
-    button.textContent = textoOriginal;
-  });
+    todos.forEach((el, i) => { el.disabled = false; el.textContent = textos[i]; });
+    ocupado = false;
+  }
+
+  button.addEventListener('click', () => rodar(ordemTudo, button));
+  individuais.forEach((el) => el.addEventListener('click', () => rodar([el.dataset.sync], el)));
+}
+
+/**
+ * 25/09/2026 (Tiago: "ao clicar em limpar cache, ainda to recebendo cache
+ * de quando entro em uma tela de ativo.. quero que tudo seja limpo"): o
+ * lado do NAVEGADOR do botão "Limpar cache" - apaga as respostas guardadas
+ * no IndexedDB (cache-dados.js: Início, Distribuições, Carteiras,
+ * Proventos e cada tela de ativo) e o Cache Storage do service worker
+ * (ícones/fontes - sw.js). NÃO mexe no login (token) nem nas preferências
+ * de tela (tema, R$/US$, filtros de Proventos) - isso não é cache.
+ * Nunca lança.
+ */
+export async function limparCacheLocalNavegador({ limparCacheDadosImpl = limparCacheDados, cachesImpl = typeof caches !== 'undefined' ? caches : undefined } = {}) {
+  try { await limparCacheDadosImpl(); } catch (_) { /* segue */ }
+  if (!cachesImpl) return;
+  try {
+    const nomes = await cachesImpl.keys();
+    await Promise.all(nomes.map((nome) => cachesImpl.delete(nome)));
+  } catch (_) { /* segue */ }
 }
 
 /**
@@ -615,7 +651,7 @@ export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRend
  * injetáveis pros testes (mesmo padrão de winImpl em setupAuthGate) -
  * sem win (ambiente de teste), pula o reload.
  */
-export function setupLimparCacheButton(doc, { token, limparCacheHistoricoImpl = limparCacheHistorico, win = typeof window !== 'undefined' ? window : undefined, setTimeoutImpl = typeof setTimeout !== 'undefined' ? setTimeout : undefined } = {}) {
+export function setupLimparCacheButton(doc, { token, limparCacheHistoricoImpl = limparCacheHistorico, limparCacheLocalImpl = limparCacheLocalNavegador, win = typeof window !== 'undefined' ? window : undefined, setTimeoutImpl = typeof setTimeout !== 'undefined' ? setTimeout : undefined } = {}) {
   const button = doc.getElementById('limparCacheBtn');
   if (!button || !token) return;
 
@@ -624,10 +660,15 @@ export function setupLimparCacheButton(doc, { token, limparCacheHistoricoImpl = 
     const textoOriginal = button.textContent;
     button.disabled = true;
     button.textContent = 'Limpando…';
+    // 25/09/2026: o cache DESTE aparelho (IndexedDB de todas as telas,
+    // inclusive "ativo:<ticker>") some junto - começa já, em paralelo com o
+    // servidor, e sempre termina antes do reload. Nunca lança.
+    const limpezaLocal = Promise.resolve().then(() => limparCacheLocalImpl()).catch(() => {});
     try {
       const resposta = await limparCacheHistoricoImpl(token);
-      const limpou = resposta && resposta.ok && resposta.resultado && resposta.resultado.limpou;
-      button.textContent = limpou ? 'Cache limpo ✓' : 'Já estava sem cache';
+      await limpezaLocal;
+      if (!resposta || !resposta.ok) throw new Error((resposta && resposta.erro) || 'resposta inválida do servidor');
+      button.textContent = 'Cache limpo ✓';
       if (win && setTimeoutImpl) {
         setTimeoutImpl(() => win.location.reload(), 900);
         return; // a página vai recarregar - não reabilita o botão à toa

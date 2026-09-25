@@ -64,6 +64,15 @@ function rodarInformesFnetDireto() {
   Logger.log(r.status + ' - ' + r.detalhe);
 }
 
+/** Botão "Informes dos FIIs" do popover Registro de Controle (ver handleSincronizarProventosFnet). */
+function handleSincronizarInformesFnet(e) {
+  try {
+    return jsonOut({ ok: true, resultado: atualizarInformesFiiFnet_('Manual') });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'sincronizarInformesFnet', erro: String(erro) });
+  }
+}
+
 function atualizarInformesFiiFnet_(origem) {
   var inicio = Date.now();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
