@@ -339,3 +339,22 @@ test('getAtivo()/getNoticiasAtivo()/getTesesAtivo() fazem GET com a action e os 
   assert.equal(urls[2].searchParams.get('ticker'), 'TEST3');
   assert.ok(urls.every((u) => u.searchParams.get('token') === 'tok'));
 });
+
+// 25/09/2026: login -> sessão de vários dias (Auth.gs!handleCriarSessao)
+test('criarSessao() faz POST com o token do Google; resposta "autenticação" recusada esquece o token guardado', async (t) => {
+  const { criarSessao, getAtivo: getAtivo2 } = await import('../assets/js/api-client.js');
+  const { setToken, getToken } = await import('../assets/js/auth.js');
+  let corpo;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => { corpo = opts && opts.body; return jsonResponse({ ok: true, token: 's1.a.b', exp: 1 }); });
+  const r = await criarSessao('google.jwt.x');
+  assert.equal(r.token, 's1.a.b');
+  assert.equal(corpo.get('action'), 'criarSessao');
+  assert.equal(corpo.get('token'), 'google.jwt.x');
+
+  const b64 = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+  setToken(`s1.${b64}.x`);
+  assert.ok(getToken());
+  t.mock.method(globalThis, 'fetch', async () => jsonResponse({ ok: false, etapa: 'autenticação', erro: 'sessão expirada' }));
+  await getAtivo2(getToken(), 'TEST3');
+  assert.equal(getToken(), null);
+});

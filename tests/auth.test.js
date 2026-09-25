@@ -25,16 +25,32 @@ function makeFakeJwt(payload) {
   return `fake-header.${base64url}.fake-signature`;
 }
 
-function withFakeSessionStorage(run) {
-  const store = new Map();
-  globalThis.sessionStorage = {
+// 25/09/2026: troca os 2 storages globais (o Node 25 tem os dois de verdade)
+// e devolve os originais no fim - cada teste escolhe se há localStorage.
+function withStorages({ local = null, sessao = null }, run) {
+  const originais = {
+    localStorage: Object.getOwnPropertyDescriptor(globalThis, 'localStorage'),
+    sessionStorage: Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'),
+  };
+  const fake = (store) => (store ? {
     getItem: (key) => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => store.set(key, value),
     removeItem: (key) => store.delete(key),
-  };
-  return Promise.resolve(run(store)).finally(() => {
-    delete globalThis.sessionStorage;
+  } : undefined);
+  Object.defineProperty(globalThis, 'localStorage', { value: fake(local), configurable: true, writable: true });
+  Object.defineProperty(globalThis, 'sessionStorage', { value: fake(sessao), configurable: true, writable: true });
+  return Promise.resolve(run()).finally(() => {
+    for (const nome of ['localStorage', 'sessionStorage']) {
+      if (originais[nome]) Object.defineProperty(globalThis, nome, originais[nome]);
+      else delete globalThis[nome];
+    }
   });
+}
+
+// sem localStorage (navegador que bloqueia), o sessionStorage guarda o token
+function withFakeSessionStorage(run) {
+  const store = new Map();
+  return withStorages({ sessao: store }, () => run(store));
 }
 
 async function freshAuthModule() {
@@ -135,5 +151,33 @@ test('getToken() on a fresh module load discards an expired token found in sessi
 
     const fresh = await freshAuthModule();
     assert.equal(fresh.getToken(), null);
+  });
+});
+
+// 25/09/2026: a sessão de vários dias fica no localStorage - sobrevive a
+// fechar a aba; o sessionStorage só é lido como reserva (token de antes).
+test('com localStorage: setToken() grava lá (e limpa o sessionStorage antigo); uma página nova lê de lá; clearToken() limpa', async () => {
+  const local = new Map();
+  const sessao = new Map();
+  await withStorages({ local, sessao }, async () => {
+    sessao.set(STORAGE_KEY, makeFakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 }));
+    const sessao7d = `s1.${makeFakeJwt({ exp: Math.floor(Date.now() / 1000) + 7 * 86400 }).split('.')[1]}.assinatura`;
+    setToken(sessao7d);
+    assert.equal(local.get(STORAGE_KEY), sessao7d);
+    assert.equal(sessao.has(STORAGE_KEY), false);
+    const fresh = await freshAuthModule();
+    assert.equal(fresh.getToken(), sessao7d, 'depois de fechar e abrir de novo');
+    fresh.clearToken();
+    assert.equal(local.has(STORAGE_KEY), false);
+  });
+});
+
+test('com localStorage vazio, um token antigo no sessionStorage ainda vale (reserva)', async () => {
+  const sessao = new Map();
+  await withStorages({ local: new Map(), sessao }, async () => {
+    const velho = makeFakeJwt({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    sessao.set(STORAGE_KEY, velho);
+    const fresh = await freshAuthModule();
+    assert.equal(fresh.getToken(), velho);
   });
 });

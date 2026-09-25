@@ -1,5 +1,13 @@
 /**
  * auth.js — manages the Google Identity Services token for the session.
+ *
+ * 25/09/2026 (Tiago: "o token tem expirado muito rápido"): o token do
+ * Google (1 hora) agora só serve pro login - auth-ui.js troca ele por uma
+ * sessão do Apps Script (Auth.gs!criarTokenSessao_, vários dias, mesmo
+ * formato de 3 partes com `exp`), e ela fica no localStorage: sobrevive a
+ * fechar a aba/o app (o sessionStorage, que era usado antes, sumia). O
+ * sessionStorage continua sendo LIDO como reserva (token antigo de antes
+ * dessa mudança).
  * No DOM, no Google library calls here — this only stores/reads/decodes
  * the token; the actual "Sign in with Google" button and its callback
  * live in shell.js (item 8), which calls setToken() once GIS hands it a
@@ -19,25 +27,41 @@ const STORAGE_KEY = 'investiments_auth_token';
 
 let memoryToken = null;
 
-function readStoredToken() {
+function lerDe(armazenamento) {
   try {
-    if (typeof sessionStorage === 'undefined') return null;
-    return sessionStorage.getItem(STORAGE_KEY);
+    return armazenamento ? armazenamento.getItem(STORAGE_KEY) : null;
   } catch {
     return null;
   }
 }
 
+function localStorageOuNulo() {
+  try { return typeof localStorage === 'undefined' ? null : localStorage; } catch { return null; }
+}
+
+function sessionStorageOuNulo() {
+  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage; } catch { return null; }
+}
+
+function readStoredToken() {
+  return lerDe(localStorageOuNulo()) || lerDe(sessionStorageOuNulo());
+}
+
 function writeStoredToken(token) {
+  const local = localStorageOuNulo();
+  const sessao = sessionStorageOuNulo();
   try {
-    if (typeof sessionStorage === 'undefined') return;
-    if (token) {
-      sessionStorage.setItem(STORAGE_KEY, token);
-    } else {
-      sessionStorage.removeItem(STORAGE_KEY);
-    }
+    if (token && local) local.setItem(STORAGE_KEY, token);
+    else if (local) local.removeItem(STORAGE_KEY);
   } catch {
     // Private mode, blocked site data, quota, etc. — degrade silently.
+  }
+  try {
+    // o sessionStorage só guarda se não houver localStorage (e sempre limpa o antigo)
+    if (token && !local && sessao) sessao.setItem(STORAGE_KEY, token);
+    else if (sessao) sessao.removeItem(STORAGE_KEY);
+  } catch {
+    // idem
   }
 }
 

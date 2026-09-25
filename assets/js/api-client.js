@@ -12,6 +12,7 @@
  */
 
 import { APPS_SCRIPT_URL } from './config.js';
+import { clearToken } from './auth.js';
 
 /**
  * Low-level request helper — GET for read actions, POST (form-encoded,
@@ -32,7 +33,11 @@ async function request(method, action, token, params = {}) {
       const body = new URLSearchParams({ action, token, ...params });
       response = await fetch(APPS_SCRIPT_URL, { method: 'POST', body });
     }
-    return await response.json();
+    const json = await response.json();
+    // 25/09/2026: sessão recusada (expirou/foi encerrada) - esquece o token,
+    // e a próxima página já manda pro login em vez de repetir o erro.
+    if (json && json.ok === false && json.etapa === 'autenticação') clearToken();
+    return json;
   } catch (err) {
     return { ok: false, etapa: 'network', erro: String(err) };
   }
@@ -441,4 +446,12 @@ export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' }
 /** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
 export async function getTesesAtivo(token, ticker) {
   return request('GET', 'tesesAtivo', token, { ticker });
+}
+
+/**
+ * 25/09/2026: troca o token do Google (vale 1 hora) por uma sessão do Apps
+ * Script de vários dias (Auth.gs!handleCriarSessao). `{ ok, token, exp, dias }`.
+ */
+export async function criarSessao(tokenGoogle) {
+  return request('POST', 'criarSessao', tokenGoogle);
 }

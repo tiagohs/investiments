@@ -17,6 +17,7 @@
 
 import { CLIENT_ID } from './config.js';
 import { setToken } from './auth.js';
+import { criarSessao } from './api-client.js';
 
 const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 const GIS_SCRIPT_ID = 'gsi-client-script';
@@ -80,6 +81,22 @@ export function renderSignInButton({ buttonContainerId, onSignedIn, googleImpl =
 }
 
 /**
+ * 25/09/2026: o token do Google vale só 1 hora - troca por uma sessão do
+ * Apps Script (vários dias, ver Auth.gs). Se a troca falhar (Apps Script
+ * ainda sem a versão nova, sem rede...), segue com o token do Google mesmo:
+ * o login nunca trava por causa disso.
+ */
+export async function trocarPorSessao(tokenGoogle, criarSessaoImpl = criarSessao) {
+  try {
+    const resposta = await criarSessaoImpl(tokenGoogle);
+    if (resposta && resposta.ok && typeof resposta.token === 'string' && resposta.token.split('.').length === 3) return resposta.token;
+  } catch (e) {
+    console.error('auth-ui.js: não deu pra criar a sessão, seguindo com o token do Google', e);
+  }
+  return tokenGoogle;
+}
+
+/**
  * Ponto de entrada de verdade, chamado por shell.js quando ainda não há
  * token válido: mostra o gate (classe "open"), carrega o GIS, desenha o
  * botão. Ao logar com sucesso, grava o token (auth.js!setToken) e chama
@@ -94,6 +111,7 @@ export async function mountAuthGate({
   errorId = 'authGateErro',
   onReady = () => {},
   doc = document,
+  criarSessaoImpl = criarSessao,
 } = {}) {
   const gate = doc.getElementById(gateId);
   if (gate) gate.classList.add('open');
@@ -103,7 +121,8 @@ export async function mountAuthGate({
     renderSignInButton({
       buttonContainerId,
       doc,
-      onSignedIn: (token) => {
+      onSignedIn: async (tokenGoogle) => {
+        const token = await trocarPorSessao(tokenGoogle, criarSessaoImpl);
         setToken(token);
         if (gate) gate.classList.remove('open');
         onReady(token);

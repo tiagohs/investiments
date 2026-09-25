@@ -90,6 +90,9 @@ function doPost(e) {
     return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   }
 
+  if (action === 'criarSessao') { // 25/09/2026: login do Google (1h) -> sessão de vários dias (Auth.gs)
+    return handleCriarSessao(auth);
+  }
   if (action === 'importarTransacoesB3') {
     return handleImportarTransacoesB3(e);
   }

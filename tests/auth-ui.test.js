@@ -84,3 +84,21 @@ test('renderSignInButton() does nothing (no throw) when googleImpl has no accoun
   assert.doesNotThrow(() => renderSignInButton({ buttonContainerId: 'gsiButtonContainer', onSignedIn: () => {}, googleImpl: {}, doc }));
   assert.doesNotThrow(() => renderSignInButton({ buttonContainerId: 'gsiButtonContainer', onSignedIn: () => {}, googleImpl: null, doc }));
 });
+
+// 25/09/2026: o token do Google (1 hora) é trocado por uma sessão de vários
+// dias; se a troca falhar, o login segue com o token do Google.
+test('trocarPorSessao(): usa a sessão do Apps Script; sem ela (erro, resposta estranha, exceção) fica o token do Google', async () => {
+  const { trocarPorSessao } = await import('../assets/js/auth-ui.js');
+  const recebidos = [];
+  assert.equal(await trocarPorSessao('google.jwt.x', async (t) => { recebidos.push(t); return { ok: true, token: 's1.dados.assinatura', exp: 1 }; }), 's1.dados.assinatura');
+  assert.deepEqual(recebidos, ['google.jwt.x']);
+  assert.equal(await trocarPorSessao('google.jwt.x', async () => ({ ok: false, etapa: 'autenticação', erro: 'x' })), 'google.jwt.x');
+  assert.equal(await trocarPorSessao('google.jwt.x', async () => ({ ok: true, token: 'sem-pontos' })), 'google.jwt.x');
+  const erroOriginal = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await trocarPorSessao('google.jwt.x', async () => { throw new Error('rede'); }), 'google.jwt.x');
+  } finally {
+    console.error = erroOriginal;
+  }
+});
