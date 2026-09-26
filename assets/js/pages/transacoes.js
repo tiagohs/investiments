@@ -144,7 +144,8 @@ export async function montarPaginaTransacoes(token, {
 
   const cache = await lerCacheDados(CHAVE_CACHE);
   if (cache && cache.dados && cache.dados.ok) desenhar(cache.dados);
-  await carregar();
-  // sem atualização automática: a tela tem campos sendo digitados (carrinho, valores finais)
-  mountRefreshControl(doc, refreshEl, carregar, { setIntervalImpl: null }).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  await mountRefreshControl(doc, refreshEl, carregar, { setIntervalImpl: null }).atualizar();
 }

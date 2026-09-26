@@ -448,7 +448,7 @@ a.widget-tile:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px;
    ocupa muito espaço"). pages/inicio-painel.js + pages/inicio-intradia.js.
    ===================================================================== */
 .sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
-#inicioConteudo > .refresh-control{ margin-bottom:12px; }
+#refreshControlInicio{ margin-bottom:12px; }
 
 /* ---- gráfico do dia (índices e favoritos) ---- */
 .intradia-slot{ position:relative; display:block; min-width:0; }

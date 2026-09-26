@@ -87,6 +87,9 @@ function doGet(e) {
   if (action === 'infoNovoAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleInfoNovoAtivo(e, auth);
   }
+  if (action === 'despesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
+    return handleDespesas(e, auth);
+  }
   if (action === 'intradia') { // 26/09/2026: gráfico do dia dos favoritos e dos índices (Intradia.gs)
     return handleIntradia(e);
   }
@@ -125,6 +128,9 @@ function doPost(e) {
   }
   if (action === 'adicionarAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleAdicionarAtivo(e);
+  }
+  if (action === 'salvarDespesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
+    return handleSalvarDespesas(e);
   }
   if (action === 'removerAtivo') {
     return handleRemoverAtivo(e);

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organização Financeira</title>
+
+<!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
+<link rel="manifest" href="../manifest.json">
+<meta name="theme-color" content="#2A78D6">
+<link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
+<link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Patrimônio">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/css/shell.css">
+<!-- 26/09/2026: inicio.css (.skel) e carteiras.css (.status-pill,
+     carregando/erro) entram pelas classes reaproveitadas; organizacao.css
+     tem só o que é desta tela. -->
+<link rel="stylesheet" href="../assets/css/inicio.css">
+<link rel="stylesheet" href="../assets/css/carteiras.css">
+<link rel="stylesheet" href="../assets/css/organizacao.css">
+</head>
+<body data-section="organizacao">
+
+<div class="wrap">
+  <div id="shell-header"></div>
+
+  <main class="og-pagina">
+    <div class="og-titulo">
+      <div>
+        <h1>Organização Financeira</h1>
+        <p>Despesas essenciais, custo de vida e a meta da reserva de emergência.</p>
+      </div>
+      <div id="refreshControlOrganizacao" class="refresh-control"></div>
+    </div>
+    <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
+      <div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+      <span class="skel" style="height:110px;border-radius:14px"></span>
+      <span class="skel" style="height:420px;border-radius:14px"></span>
+    </div>
+    <div class="carteiras-erro" id="organizacaoErro" hidden></div>
+    <div id="organizacaoConteudo" hidden></div>
+  </main>
+
+  <div id="shell-footer"></div>
+</div>
+<script type="module">
+  import { mountShell } from '../assets/js/shell.js';
+  import { montarPaginaOrganizacao } from '../assets/js/pages/organizacao.js';
+  mountShell({
+    onAuthenticated(token) {
+      montarPaginaOrganizacao(token, { doc: document });
+    },
+  });
+</script>
+</body>
+</html>

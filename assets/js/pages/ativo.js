@@ -1690,6 +1690,9 @@ export async function montarPaginaAtivo(token, {
     gravarCacheDados(chaveCache(ref), resposta);
   }
 
-  await carregarERedesenhar();
-  if (refreshEl) mountRefreshControl(doc, refreshEl, carregarERedesenhar).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  if (refreshEl) await mountRefreshControl(doc, refreshEl, carregarERedesenhar).atualizar();
+  else await carregarERedesenhar();
 }

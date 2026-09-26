@@ -282,7 +282,9 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
   clearIntervalImpl = typeof clearInterval === 'function' ? clearInterval : null,
   agora = () => new Date(),
 } = {}) {
-  if (!container) return { atualizar: async () => {}, marcarAtualizado: () => {}, pararTimer: () => {} };
+  // Sem lugar pro botão, atualizar() ainda busca: desde 26/09/2026 as páginas
+  // fazem a 1ª carga por aqui (o botão aparece com "Atualizando…" já no início).
+  if (!container) return { atualizar: async () => { await aoAtualizar(); }, marcarAtualizado: () => {}, pararTimer: () => {} };
   container.innerHTML = '';
 
   const btn = doc.createElement('button');

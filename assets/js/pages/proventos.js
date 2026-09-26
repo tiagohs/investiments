@@ -596,8 +596,10 @@ export async function montarPaginaProventos(token, { doc = document, getProvento
 
   const cache = await lerCacheDados(CHAVE_CACHE);
   if (cache) desenhar(cache.dados);
-  await carregar();
-  mountRefreshControl(doc, refreshEl, carregar).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  await mountRefreshControl(doc, refreshEl, carregar).atualizar();
 
   // o gráfico usa a largura real do cartão: redesenha quando a tela muda de tamanho
   const win = doc.defaultView;

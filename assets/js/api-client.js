@@ -583,3 +583,23 @@ export async function getTesesAtivo(token, ticker) {
 export async function criarSessao(tokenGoogle) {
   return request('POST', 'criarSessao', tokenGoogle);
 }
+
+/** 26/09/2026: tela Organização Financeira - despesas essenciais + reserva (Despesas.gs). */
+export async function getDespesas(token) {
+  return request('GET', 'despesas', token);
+}
+
+/**
+ * Grava a lista inteira de despesas (+ folga, meses e sobra da reserva) de uma
+ * vez. `assinatura` é a que veio no getDespesas: se a aba mudou nesse meio
+ * tempo o back-end recusa ({ ok:false, conflito:true }) em vez de atropelar.
+ */
+export async function salvarDespesas(token, { itens, folga, meses, sobra, assinatura }) {
+  return request('POST', 'salvarDespesas', token, {
+    itens: JSON.stringify(itens || []),
+    folga: folga == null ? '' : String(folga),
+    meses: meses == null ? '' : String(meses),
+    sobra: sobra == null ? '' : String(sobra),
+    assinatura: assinatura || '',
+  });
+}

@@ -84,6 +84,9 @@
 .goal-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; padding-top:12px; border-top:1px solid var(--border); }
 .goal-stats .k{ font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); margin-bottom:2px; }
 .goal-stats .v{ font-family:var(--mono); font-size:13.5px; font-weight:600; }
+/* 26/09/2026: Renda Emergencial -> Organização Financeira (de onde vem a média de gastos) */
+.goal-link{ display:inline-block; margin-top:10px; font-size:11.5px; font-weight:600; color:var(--acoes); text-decoration:none; }
+.goal-link:hover{ text-decoration:underline; }
 
 /* ---- Badge "atingida" (Renda Emergencial) — mesmas cores good/warn do
    .status-ico/.toast já usados no resto do app. ---- */

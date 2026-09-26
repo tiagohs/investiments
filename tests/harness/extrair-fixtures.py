@@ -46,6 +46,8 @@ SHEETS = [
     'Carteira FIIs',
     'RF Contratada - Resumo',
     'RF Contratada - Lotes',
+    # --- 26/09/2026: tela Organização Financeira (Despesas.gs) ---
+    'Despesas Essenciais',
 ]
 
 

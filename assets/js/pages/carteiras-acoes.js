@@ -306,6 +306,8 @@ export async function montarPaginaCarteirasAcoes(token, { doc = document, getCar
     gravarCacheDados(CHAVE_CACHE_ACOES, resposta.carteira);
   }
 
-  await carregarERedesenhar();
-  mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
 }

@@ -1668,6 +1668,16 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       campos: [{ nome: 'meses', rotulo: 'Meses de reserva desejados', valor: rendaEmergencial.meses, tipo: 'numero' }],
       onSalvar: async (valores) => onSalvarRendaEmergencial && onSalvarRendaEmergencial(valores.meses),
     }));
+    // 26/09/2026: a média de gastos vem das despesas essenciais - editadas na
+    // tela Organização Financeira (organizacao/despesas.html).
+    const card = container.lastElementChild;
+    if (card && typeof rendaEmergencial.mediaGastos === 'number' && Number.isFinite(rendaEmergencial.mediaGastos)) {
+      const link = doc.createElement('a');
+      link.className = 'goal-link';
+      link.href = 'organizacao/despesas.html';
+      link.textContent = `Custo de vida ${formatBRL(rendaEmergencial.mediaGastos)}/mês · editar despesas ›`;
+      card.appendChild(link);
+    }
   }
 }
 
@@ -1794,11 +1804,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
     try { desenharResposta(emCache.dados); } catch (erro) { console.error('cache da página não desenhou', erro); }
   }
 
-  await carregarERedesenhar();
-
-  // Botão "Atualizar dados" + timer automático (5 em 5 min) — reaproveita
-  // carregarERedesenhar (busca de novo, só redesenha depois que os dados
-  // chegam, sem mostrar skeleton de novo). marcarAtualizado() só registra
-  // o horário da carga inicial que acabou de acontecer, sem buscar de novo.
-  mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
 }

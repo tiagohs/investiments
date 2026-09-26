@@ -27,6 +27,9 @@
          esquerda; Proventos do mês e Meus ativos (lista enxuta) na lateral.
          Ver pages/inicio-painel.js e pages/inicio-intradia.js. -->
 
+    <!-- 26/09/2026: "Atualizar dados" fora do conteúdo - aparece já no carregamento e continua lá se a busca falhar. -->
+    <div id="refreshControlInicio" class="refresh-control"></div>
+
     <div class="inicio-loading" id="inicioLoading" aria-hidden="true">
       <div class="skel-faixa"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
       <span class="skel skel-header" style="margin-top:14px"></span>
@@ -37,7 +40,6 @@
     <div class="inicio-erro" id="inicioErro" hidden></div>
 
     <div id="inicioConteudo" hidden>
-      <div id="refreshControlInicio" class="refresh-control"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
 
       <section class="mkt-secao" aria-label="Índices e câmbio - referência de mercado, não é dado da sua carteira">
@@ -163,6 +165,9 @@
          loading/erro. Ordem das seções aqui é a ordem que o Tiago pediu:
          Objetivos → Radar → Metas. -->
 
+    <!-- 26/09/2026: "Atualizar dados" fora do conteúdo - aparece já no carregamento e continua lá se a busca falhar. -->
+    <div id="refreshControlDistribuicoes" class="refresh-control"></div>
+
     <div class="metas-loading" id="metasLoading" aria-hidden="true">
       <span class="skel skel-header"></span>
       <div class="obj-grid">
@@ -182,7 +187,6 @@
     <div class="metas-erro" id="metasErro" hidden></div>
 
     <div id="metasConteudo" hidden>
-      <div id="refreshControlDistribuicoes" class="refresh-control"></div>
       <div class="avisos-banner" id="metasAvisos" hidden></div>
 
       <div class="area-header">

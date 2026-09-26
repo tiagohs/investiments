@@ -2589,14 +2589,8 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     try { desenharResposta(emCache.dados); } catch (erro) { console.error('cache da página não desenhou', erro); }
   }
 
-  await carregarERedesenhar();
-
-  // Botão "Atualizar dados" + timer automático (5 em 5 min - pedido do
-  // Tiago, 14/09/2026). carregarERedesenhar busca de novo e só redesenha
-  // depois que os dados chegam (nunca reexibe o skeleton), e
-  // wireGraficoRentabilidade/wireFiltroAtivos/wireTooltipAtivos (acima)
-  // agora são idempotentes - religar não duplica listener, só atualiza o
-  // que está na tela com o dado novo. marcarAtualizado() só registra o
-  // horário da carga inicial que já aconteceu, sem buscar de novo.
-  mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).marcarAtualizado();
+  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
+  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
+  // carregamento e no erro também, que é quando mais se precisa dele.
+  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
 }
