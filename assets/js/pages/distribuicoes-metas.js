@@ -1395,8 +1395,8 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
  * #, o texto começa alinhado com o Ativo). No celular ela vira o pé do card
  * do ativo (distribuicoes-metas.css).
  */
-function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas) {
-  const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas));
+function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas, itensDoBloco) {
+  const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas, itensDoBloco));
   if (!html) return null;
   const tr = doc.createElement('tr');
   tr.className = 'radar-momento-tr';
@@ -1424,7 +1424,7 @@ function compararRadar_(a, b, campo) {
  * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
  * pra sobreviver a troca de aba sem perder o estado.
  */
-function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null }) {
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null, itensDoBloco = null }) {
   const colunas = colunasRadarPara_(chaveTabela);
   const wrap = doc.createElement('div');
   wrap.className = 'radar-table-wrap';
@@ -1476,7 +1476,7 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
   }
   for (const item of ordenados) {
     tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
-    const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1);
+    const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1, itensDoBloco || itens);
     if (momento) tbody.appendChild(momento);
   }
   table.appendChild(tbody);
@@ -1568,6 +1568,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       ordenacao,
       cotacaoDolar: radar.cotacaoDolar,
       metas,
+      itensDoBloco: bloco.itens, // ranking "X de N" conta o bloco todo, mesmo com filtro de tipo de FII
       onOrdenar: (campo) => {
         ordenacao = ordenacao.campo === campo
           ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
@@ -1577,7 +1578,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     }));
     const nota = doc.createElement('p');
     nota.className = 'radar-momento-nota';
-    nota.textContent = 'Embaixo de cada ativo, a leitura dos seus critérios: preço-teto, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
+    nota.textContent = 'Embaixo de cada ativo, a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
     tableContainer.appendChild(nota);
   }
 

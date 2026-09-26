@@ -23,7 +23,7 @@ import {
   CLASSES_APORTE, NOME_CLASSE_APORTE, MESES_CURTOS, MESES_LONGOS,
   chaveItem, carrinhoVazio, definirQuantidade, definirValorRf, removerDoCarrinho, atualizarPrecos,
   itensDoCarrinho, totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo,
-  finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte,
+  finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
 } from './aportes-calc.js';
 import { momentoHtml } from './momento-aporte.js';
 
@@ -211,6 +211,7 @@ function stepperHtml(classe, ativo, qtd, moeda) {
 // 26/09/2026: "momento de aporte" embaixo de cada ativo - HTML compartilhado com o Radar (momento-aporte.js)
 function prateleiraRvHtml(estado, dados, classe) {
   const lista = filtrarPrateleira(dados.classes[classe] || [], estado, { classe, metas: dados.metas, hoje: dados.hoje });
+  const nRanking = totalRanking(dados.classes[classe]);
   if (!lista.length) return `<p class="tx-vazio">${(dados.classes[classe] || []).length ? 'Nenhum ativo com esse filtro.' : 'Nenhum ativo dessa classe na carteira.'}</p>`;
   const linhas = lista.map((a) => {
     const it = estado.carrinho.itens[chaveItem(classe, a.ticker)];
@@ -227,7 +228,7 @@ function prateleiraRvHtml(estado, dados, classe) {
         <td data-rot="Na classe" class="tx-mono">${formatNumeroBR((a.peso || 0) * 100, 1)}%</td>
         <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}</td>
         <td data-rot="Subtotal" class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? dinheiro(qtd * (a.precoAtual || 0), a.moeda) : '<span class="tx-fraco">—</span>'}</td>
-      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje), 8)}`;
+      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking }), 8)}`;
   }).join('');
   return `
     <div class="tx-tabela-wrap">
@@ -286,7 +287,8 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
     const folga = (a) => (a.precoTeto > 0 && a.precoAtual > 0 ? a.precoAtual / a.precoTeto : 9);
     out = [...out].sort((a, b) => folga(a) - folga(b));
   } else if (ordem === 'momento') {
-    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje).pontos]));
+    const n = totalRanking(lista);
+    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n }).pontos]));
     out = [...out].sort((a, b) => pontos.get(b) - pontos.get(a));
   } else if (ordem === 'ultimo') {
     const d = (a) => (a.ultimoPago && a.ultimoPago.data) || '';
@@ -318,7 +320,7 @@ function prateleiraHtml(estado, dados) {
       </div>
     </div>
     <div id="txPrateleiraLista">${rf ? prateleiraRfHtml(estado, dados) : prateleiraRvHtml(estado, dados, estado.classeAtiva)}</div>
-    <p class="tx-momento-nota">Embaixo de cada ativo, a leitura dos <b>seus</b> critérios: preço-teto, % desejado do Radar, preço médio, última compra, P/VP e P/L${rf ? ', taxa de hoje x a sua média contratada e as metas de Renda Fixa' : ''}. Não é recomendação de compra.</p>`;
+    <p class="tx-momento-nota">Embaixo de cada ativo, a leitura dos <b>seus</b> critérios: preço-teto, ranking da Suno, % desejado do Radar, preço médio, última compra, P/VP e P/L${rf ? ', taxa de hoje x a sua média contratada e as metas de Renda Fixa' : ''}. Não é recomendação de compra.</p>`;
 }
 
 function carrinhoConteudoHtml(estado, dados) {

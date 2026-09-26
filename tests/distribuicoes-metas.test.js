@@ -2103,3 +2103,19 @@ test('momento-aporte.js: item do Radar vira ativo pra leitura (sem quantidade: "
   assert.equal(d.querySelector('.momento-mais summary').textContent.trim(), `+${m.sinais.length - 3} sinais`);
   assert.equal(momentoHtml(null), '');
 });
+
+test('renderRadarOportunidades(): o momento considera o ranking dentro do bloco inteiro (mesmo com filtro de tipo de FII)', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const fii = RADAR_EXEMPLO.fiis.itens[0];
+  const itens = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ ...fii, linha: 80 + n, ranking: n, ativo: `FII${n}11`, tipo: n === 8 ? 'Papel' : 'Tijolo' }));
+  renderRadarOportunidades(doc, container, { ...RADAR_EXEMPLO, fiis: { itens, total: {} } });
+  container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const textos = [...container.querySelectorAll('.radar-momento-tr')].map((tr) => tr.textContent.replace(/\s+/g, ' '));
+  assert.match(textos[0], /Ranking 1 de 8: entre os primeiros da Suno/);
+  assert.match(textos[7], /Ranking 8 de 8: entre os últimos da Suno/);
+  container.querySelector('.radar-fii-legenda-papel').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const soPapel = [...container.querySelectorAll('.radar-momento-tr')];
+  assert.equal(soPapel.length, 1);
+  assert.match(soPapel[0].textContent, /Ranking 8 de 8/, 'o filtro não muda o "de N"');
+});

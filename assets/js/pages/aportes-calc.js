@@ -238,7 +238,7 @@ function sinalMetaClasse(sinais, meta, nome, peso = 0.5) {
   else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da fatia desejada (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, -peso);
 }
 
-function momentoRendaVariavel(a, classe, metas) {
+function momentoRendaVariavel(a, classe, metas, totalRanking) {
   const sinais = [];
   const preco = a.precoAtual;
   let acimaDoTeto = false;
@@ -284,9 +284,31 @@ function momentoRendaVariavel(a, classe, metas) {
   }
   if (typeof a.variacaoDia === 'number' && a.variacaoDia <= -0.02) sinal(sinais, 'bom', `Caindo ${pctTxt(-a.variacaoDia)} hoje`, 0.5);
   if (metas) sinalMetaClasse(sinais, metas[classe], NOME_META_CLASSE[classe]);
+  // Ranking (26/09/2026, Tiago: "o ranking é uma forma da Suno dizer que é um
+  // bom momento de investir naquele ativo, por questões externas, não só
+  // fundamentalistas... pode influenciar pra algo 'bom momento' para 'neutro',
+  // se o ativo estiver entre os últimos"): 1º quarto da lista soma, último
+  // quarto pesa contra e nunca deixa ser "Bom momento".
+  const rk = r && r.ranking > 0 ? r.ranking : null;
+  let entreOsUltimos = false;
+  if (rk && totalRanking >= 3 && rk <= totalRanking) {
+    const posicao = (rk - 1) / (totalRanking - 1);
+    if (posicao <= 0.25) sinal(sinais, 'bom', `Ranking ${rk} de ${totalRanking}: entre os primeiros da Suno`, 1);
+    else if (posicao >= 0.75) { entreOsUltimos = true; sinal(sinais, 'ruim', `Ranking ${rk} de ${totalRanking}: entre os últimos da Suno`, -1); }
+    else sinal(sinais, 'neutro', `Ranking ${rk} de ${totalRanking} na Suno`, 0);
+  }
   const pontos = sinais.reduce((s, x) => s + x.peso, 0);
-  const nivel = acimaDoTeto || pontos <= -1 ? 'esperar' : (pontos >= 3 ? 'bom' : 'neutro');
+  let nivel = acimaDoTeto || pontos <= -1 ? 'esperar' : (pontos >= 3 ? 'bom' : 'neutro');
+  if (nivel === 'bom' && entreOsUltimos) nivel = 'neutro';
   return fechar(sinais, nivel);
+}
+
+/** Maior ranking do Radar numa lista de ativos (da prateleira ou do próprio Radar) - o "de N" do ranking. */
+export function totalRanking(lista) {
+  return (lista || []).reduce((m, a) => {
+    const r = a && (a.radar ? a.radar.ranking : a.ranking);
+    return typeof r === 'number' && r > m ? r : m;
+  }, 0);
 }
 
 function textoTaxa(indice, taxa) {
@@ -330,7 +352,8 @@ function momentoRendaFixa(t, metas, hoje) {
 }
 
 /** a = item de dados.classes[classe] (Aportes.gs!ativosParaAporte_ + enriquecerMomentoAporte_); metas = dados.metas. */
-export function momentoAporte(a, classe, metas = null, hoje = '') {
+/** opcoes.totalRanking = quantos ativos tem o bloco do Radar dessa classe (pra "ranking X de N"). */
+export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0 } = {}) {
   if (!a) return fechar([], 'neutro');
-  return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje) : momentoRendaVariavel(a, classe, metas);
+  return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje) : momentoRendaVariavel(a, classe, metas, total);
 }

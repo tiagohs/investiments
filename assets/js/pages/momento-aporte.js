@@ -6,7 +6,7 @@
  * aqui ficam o HTML (um só, pras duas telas ficarem iguais) e os adaptadores
  * dos dados do Radar. Estilo: .momento* em shell.css.
  */
-import { momentoAporte } from './aportes-calc.js';
+import { momentoAporte, totalRanking } from './aportes-calc.js';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -53,7 +53,7 @@ export function ativoDoRadar(item, chaveTabela) {
     variacaoDia: num(item.variacaoDia),
     ultimoPago: null,
     radar: {
-      pvp: num(item.pvp), pl: num(item.pl), descontoPl: typeof item.descontoPl === 'string' ? item.descontoPl : null,
+      ranking: num(item.ranking), pvp: num(item.pvp), pl: num(item.pl), descontoPl: typeof item.descontoPl === 'string' ? item.descontoPl : null,
       percentualDesejado: num(item.percentualDesejado), percentualAtual: num(item.percentualAtual), valorInvestir: num(item.valorInvestir),
     },
   };
@@ -82,7 +82,10 @@ export function metasDaDistribuicao(resposta) {
   };
 }
 
-/** Momento de um item do Radar (tabela = acoesNacionais | acoesInternacionais | fiis). */
-export function momentoDoRadar(item, chaveTabela, metas = null) {
-  return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas);
+/**
+ * Momento de um item do Radar (tabela = acoesNacionais | acoesInternacionais | fiis).
+ * itensDoBloco = o bloco inteiro (sem filtro de tipo de FII), pro "ranking X de N".
+ */
+export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null) {
+  return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas, '', { totalRanking: totalRanking(itensDoBloco || [item]) });
 }

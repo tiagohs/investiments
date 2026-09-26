@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, removerDoCarrinho, atualizarPrecos, itensDoCarrinho,
   totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo, finalDoItem, concluirAporte, totalAporte,
-  classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, chaveItem, momentoAporte,
+  classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, chaveItem, momentoAporte, totalRanking,
 } from '../assets/js/pages/aportes-calc.js';
 
 const CLASSES = {
@@ -104,4 +104,21 @@ test('momento de aporte: teto, meta do Radar (com o R$ que falta), preço médio
   assert.equal(limite.nivel, 'neutro');
   const eua = momentoAporte({ ticker: 'AAA', moeda: 'USD', precoAtual: 10, precoTeto: 12, radar: { percentualDesejado: 0.2, percentualAtual: 0.1, valorInvestir: 70.26 } }, 'acoesEua');
   assert.match(eua.sinais[1].texto, /faltam US\$ 70,26/);
+});
+
+test('momento de aporte: ranking da Suno - primeiros somam, últimos pesam contra e nunca deixam ser "Bom momento"', () => {
+  const base = { ticker: 'ABCD3', moeda: 'BRL', precoAtual: 20, precoTeto: 25, radar: { percentualDesejado: 0.1, percentualAtual: 0.03, valorInvestir: 500 } };
+  const comRanking = (ranking) => ({ ...base, radar: { ...base.radar, ranking } });
+  assert.equal(totalRanking([comRanking(3), comRanking(12), { radar: null }, { ranking: 7 }]), 12);
+  const primeiro = momentoAporte(comRanking(2), 'acoes', null, '', { totalRanking: 12 });
+  assert.equal(primeiro.nivel, 'bom');
+  assert.ok(primeiro.sinais.some((x) => x.tom === 'bom' && x.texto === 'Ranking 2 de 12: entre os primeiros da Suno'));
+  const ultimo = momentoAporte(comRanking(11), 'acoes', null, '', { totalRanking: 12 });
+  assert.equal(ultimo.pontos, 3, 'teto (+2) + % desejado (+2) - ranking (-1): pelos pontos seria "bom"...');
+  assert.equal(ultimo.nivel, 'neutro', '...mas entre os últimos do ranking fica neutro');
+  assert.ok(ultimo.sinais.some((x) => x.tom === 'ruim' && x.texto === 'Ranking 11 de 12: entre os últimos da Suno'));
+  const meio = momentoAporte(comRanking(6), 'acoes', null, '', { totalRanking: 12 });
+  assert.ok(meio.sinais.some((x) => x.tom === 'neutro' && x.texto === 'Ranking 6 de 12 na Suno'));
+  assert.ok(!momentoAporte(comRanking(2), 'acoes', null, '', { totalRanking: 2 }).sinais.some((x) => /Ranking/.test(x.texto)), 'lista curta demais: ranking não diz nada');
+  assert.ok(!momentoAporte(comRanking(2), 'acoes').sinais.some((x) => /Ranking/.test(x.texto)), 'sem o total, não chuta');
 });
