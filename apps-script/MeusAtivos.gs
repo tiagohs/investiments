@@ -92,7 +92,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
   if (!abaAux) throw new Error('aba não encontrada: ' + ABA_AUXILIAR_ATIVOS);
   var ultimaLinhaAux = abaAux.getLastRow();
   if (ultimaLinhaAux >= 2) {
-    var cambioUsd = Number(ss.getSheetByName('Distribuição e Metas').getRange('K56').getValue()) || 0;
+    var cambioUsd = Number(cotacaoDolarHoje_(ss)) || 0; // 26/09/2026: era K56 fixo (Planilha.gs)
     var dados = abaAux.getRange(2, 1, ultimaLinhaAux - 1, 15).getValues();
     dados.forEach(function (linha) {
       var ticker = linha[1];

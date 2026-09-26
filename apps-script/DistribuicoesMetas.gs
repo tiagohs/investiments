@@ -398,9 +398,12 @@ function montarRadarOportunidades_() {
     percentualDiferenca: 'O', novaCarteira: 'N', valorInvestir: 'Q', tipo: 'S'
   };
 
-  var nacionais = lerBlocoRadar_(dm, 42, colunasNacionais);
-  var internacionais = lerBlocoRadar_(dm, 59, colunasInternacionais);
-  var fiis = lerBlocoRadar_(dm, 82, colunasFiis);
+  // 26/09/2026: linha inicial de cada bloco achada pelo cabeçalho (Planilha.gs) -
+  // adicionar um ativo insere linha no Radar e empurra os blocos de baixo
+  var local = localDistribuicaoMetas_(dm);
+  var nacionais = lerBlocoRadar_(dm, local.radarAcoes, colunasNacionais);
+  var internacionais = lerBlocoRadar_(dm, local.radarUsa, colunasInternacionais);
+  var fiis = lerBlocoRadar_(dm, local.radarFiis, colunasFiis);
 
   var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6);
   var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6);
@@ -421,7 +424,7 @@ function montarRadarOportunidades_() {
     acoesNacionais: { itens: nacionais.itens, total: total_(nacionais.linhaTotal, 'N', 'Q', 'S') },
     acoesInternacionais: { itens: internacionais.itens, total: total_(internacionais.linhaTotal, 'M', 'N', 'Q') },
     fiis: { itens: fiis.itens, total: total_(fiis.linhaTotal, 'M', 'N', 'Q') },
-    cotacaoDolar: dm.getRange('K56').getValue()
+    cotacaoDolar: dm.getRange(local.dolar).getValue()
   };
 }
 
@@ -472,8 +475,9 @@ function montarSplitsInternos_() {
     total: { carteiraAtual: totalAcoes[0], novaCarteira: totalAcoes[1], valorInvestir: totalAcoes[2] }
   };
 
-  var linhasFiis = dm.getRange('B73:G75').getValues();
-  var totalFiis = dm.getRange('E76:G76').getValues()[0];
+  var linhaFiis = localDistribuicaoMetas_(dm).objetivosFiis; // 26/09/2026: era fixo em 73
+  var linhasFiis = dm.getRange('B' + linhaFiis + ':G' + (linhaFiis + 2)).getValues();
+  var totalFiis = dm.getRange('E' + (linhaFiis + 3) + ':G' + (linhaFiis + 3)).getValues()[0];
   var fiis = {
     itens: linhasFiis.map(linhaParaObjeto_),
     total: {
@@ -517,8 +521,8 @@ function montarLinksRecomendados_() {
   return {
     acoesDividendos: link_('C38'),
     acoesValor: link_('C39'),
-    acoesInternacional: link_('C56'),
-    fiis: link_('C79')
+    acoesInternacional: link_(localDistribuicaoMetas_(dm).linkUsa),
+    fiis: link_(localDistribuicaoMetas_(dm).linkFiis)
   };
 }
 
@@ -561,6 +565,9 @@ function handleSalvarRadarItem(e) {
     if (!cols) {
       return jsonOut({ ok: false, erro: 'tabela inválida: ' + tabela });
     }
+    // 26/09/2026: 1ª linha do bloco pelo cabeçalho (ver Planilha.gs)
+    var localRadar = localDistribuicaoMetas_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Distribuição e Metas'));
+    cols.primeiraLinha = { acoesNacionais: localRadar.radarAcoes, acoesInternacionais: localRadar.radarUsa, fiis: localRadar.radarFiis }[tabela];
 
     var linha = parseInt(e.parameter.linha, 10);
     if (isNaN(linha) || linha < cols.primeiraLinha) {
@@ -676,7 +683,8 @@ function handleSalvarSplitInterno(e) {
     if (bloco === 'acoes') {
       range = 'C34:C35';
     } else if (bloco === 'fiis') {
-      range = 'C73:C75';
+      var linhaObj = localDistribuicaoMetas_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Distribuição e Metas')).objetivosFiis;
+      range = 'C' + linhaObj + ':C' + (linhaObj + 2); // era C73:C75 (26/09/2026)
     } else {
       return jsonOut({ ok: false, erro: 'bloco inválido: ' + bloco });
     }

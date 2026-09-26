@@ -74,6 +74,12 @@
         <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 12v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5"/><ellipse cx="15" cy="12" rx="6" ry="3"/></svg></span>
         <span class="side-label">Renda Fixa</span>
       </button>
+
+      <!-- 26/09/2026: cadastrar ativo novo (assets/js/pages/novo-ativo.js + apps-script/NovoAtivo.gs) -->
+      <button class="side-item side-add" type="button" data-novo-ativo="" title="Adicionar ativo">
+        <span class="side-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+        <span class="side-label">Adicionar ativo</span>
+      </button>
     </nav>
 
     <div class="section-content">
@@ -210,12 +216,22 @@
 </div>
 
 <script type="module">
-  import { mountShell } from '../assets/js/shell.js';
+  import { mountShell, limparCacheLocalNavegador } from '../assets/js/shell.js';
   import { mountCarteirasRouter } from '../assets/js/carteiras-router.js';
+  import { ligarNovoAtivo, CLASSE_DA_PAGINA } from '../assets/js/pages/novo-ativo.js';
 
   mountShell({
     onAuthenticated(token) {
       mountCarteirasRouter(document, { token });
+      ligarNovoAtivo(document, {
+        token,
+        classeAtual: () => CLASSE_DA_PAGINA[(document.querySelector('.side-item.active[data-page]') || {}).dataset?.page] || '',
+        async aoFechar({ cadastrou }) {
+          if (!cadastrou) return;
+          await limparCacheLocalNavegador();
+          window.location.reload();
+        },
+      });
     },
   });
 </script>

@@ -143,6 +143,7 @@ function mediaRendaPassiva12Meses_(recebidos, hoje) {
  * histórico em si fica em cache e não devolve esses mapas).
  */
 function mapasDoPatrimonioParaProventos_(ss) {
+  if (typeof carregarListasTickersDaPlanilha_ === 'function') carregarListasTickersDaPlanilha_(ss); // FII novo (Planilha.gs)
   var mapaCambioUsd = {}, classePorTicker = {};
   var aba = ss.getSheetByName('aux_historico-patrimonio');
   if (!aba || aba.getLastRow() < 2) return { mapaCambioUsd: mapaCambioUsd, classePorTicker: classePorTicker };

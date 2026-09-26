@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken, clearToken } from './auth.js';
-import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico, consolidar } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 import { limparCacheDados } from './cache-dados.js';
@@ -543,6 +543,8 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
     // igual antes (ver renderSyncStatus).
     renderSyncStatus(doc, lista && lista.length ? lista[0] : null);
     renderSyncLog(doc, lista);
+    // 26/09/2026: aviso "Consolidação necessária" (Consolidacao.gs) vem junto
+    if (resposta.ok && 'consolidacao' in resposta) renderConsolidacao(doc, resposta.consolidacao);
   } catch (error) {
     console.error('shell.js: falha ao carregar o status de sincronização', error);
     renderSyncStatus(doc, null);
@@ -611,6 +613,138 @@ export function setupSyncNowButton(doc, { token, syncNowImpl = syncNow, syncRend
 
   button.addEventListener('click', () => rodar(ordemTudo, button));
   individuais.forEach((el) => el.addEventListener('click', () => rodar([el.dataset.sync], el)));
+}
+
+// ---------------------------------------------------------------------------
+// 26/09/2026: "Consolidação necessária" (Tiago: "algo parecido com a Kinvo:
+// ele mostra uma notificação 'Consolidação necessária', onde clico, e tudo é
+// atualizado"). Aparece no topo quando entram transações/ativos novos
+// (Lancamentos.gs / NovoAtivo.gs marcam, Consolidacao.gs guarda); o clique
+// roda as rodadas de action=consolidar e recarrega a página com tudo novo.
+// ---------------------------------------------------------------------------
+
+function escHtml_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Frase curta do que falta (ativos, renda fixa). */
+export function resumoPendenciaConsolidacao(estado) {
+  if (!estado || !estado.pendente) return '';
+  const partes = [];
+  const ativos = [...new Set([...(estado.ativos || []), ...(estado.precos || [])])];
+  if (ativos.length) partes.push(`${ativos.length === 1 ? 'histórico de' : 'históricos de'} ${ativos.slice(0, 6).join(', ')}${ativos.length > 6 ? ` e mais ${ativos.length - 6}` : ''}`);
+  if (estado.rf) partes.push('Renda Fixa');
+  return partes.join(' · ');
+}
+
+/** Mostra/esconde o aviso no topo. estado = resumoConsolidacao_ do back-end (ou null = não sabe: não mexe). */
+export function renderConsolidacao(doc, estado) {
+  const wrap = doc.getElementById('consolWrap');
+  if (!wrap || estado === undefined) return;
+  const pendente = !!(estado && estado.pendente);
+  if (wrap.dataset.rodando === '1') return; // no meio de uma consolidação: quem manda é o botão
+  wrap.hidden = !pendente;
+  if (!pendente) return;
+  const btn = doc.getElementById('consolBtn');
+  if (btn) btn.title = `Consolidação necessária: ${resumoPendenciaConsolidacao(estado)}`;
+  const oque = doc.getElementById('consolOque');
+  if (oque) oque.textContent = resumoPendenciaConsolidacao(estado);
+  const lista = doc.getElementById('consolMotivos');
+  if (lista) {
+    const motivos = (estado.motivos || []).slice(0, 5);
+    lista.innerHTML = motivos.length
+      ? motivos.map((m) => `<li><span>${escHtml_(m.texto)}</span>${m.quando ? `<small>${escHtml_(formatDateTimeBR(m.quando))}</small>` : ''}</li>`).join('')
+      : '';
+    lista.hidden = !motivos.length;
+  }
+}
+
+/**
+ * Liga o botão "Consolidar agora" (#consolGo) e os avisos vindos das telas
+ * (window 'consolidacao:pendente' = mostra; 'consolidacao:abrir' = abre o
+ * painel). Ao terminar: limpa o cache deste aparelho e recarrega.
+ */
+export function setupConsolidacao(doc, { token, consolidarImpl = consolidar, limparCacheLocalImpl = limparCacheLocalNavegador, win = doc.defaultView, setTimeoutImpl = typeof setTimeout !== 'undefined' ? setTimeout : undefined } = {}) {
+  const wrap = doc.getElementById('consolWrap');
+  const go = doc.getElementById('consolGo');
+  if (!wrap || !go || !token) return;
+  const progresso = doc.getElementById('consolProgresso');
+  const painel = doc.getElementById('consolPanel');
+  const btn = doc.getElementById('consolBtn');
+
+  if (win && typeof win.addEventListener === 'function') {
+    win.addEventListener('consolidacao:pendente', (ev) => renderConsolidacao(doc, ev.detail || null));
+    win.addEventListener('consolidacao:abrir', () => {
+      if (wrap.hidden) wrap.hidden = false;
+      if (painel && !painel.classList.contains('open') && btn) btn.click();
+    });
+  }
+
+  const linhas = [];
+  function mostrarProgresso(rodape = '') {
+    if (!progresso) return;
+    const html = linhas.join('') + rodape;
+    progresso.hidden = !html;
+    progresso.innerHTML = html;
+  }
+  const passo = (texto, cls = '') => `<div class="consol-passo${cls ? ` ${cls}` : ''}">${texto}</div>`;
+
+  async function rodar(tudo) {
+    if (go.disabled) return;
+    go.disabled = true;
+    wrap.dataset.rodando = '1';
+    wrap.classList.add('rodando');
+    const textoOriginal = go.textContent;
+    go.innerHTML = '<span class="spinner" aria-hidden="true"></span>Consolidando…';
+    linhas.length = 0;
+    mostrarProgresso(passo('Recalculando o histórico…'));
+    let resposta = null;
+    try {
+      resposta = await consolidarImpl(token, {
+        tudo,
+        onRodada: (r) => {
+          (r.feito || []).forEach((f) => linhas.push(passo(escHtml_(f), 'ok')));
+          const rodape = r.status === 'ocupado' ? passo('Esperando a sincronização que está rodando terminar…')
+            : (r.continuar ? passo('Próxima etapa…') : '');
+          mostrarProgresso(rodape);
+        },
+      });
+    } catch (error) {
+      resposta = { ok: false, erro: String(error) };
+    }
+    delete wrap.dataset.rodando;
+    wrap.classList.remove('rodando');
+    if (!resposta || !resposta.ok) {
+      mostrarProgresso(passo(`Não deu pra consolidar: ${escHtml_((resposta && resposta.erro) || 'erro desconhecido')}. Tenta de novo em instantes.`, 'erro'));
+      go.disabled = false;
+      go.textContent = textoOriginal;
+      return;
+    }
+    const r = resposta.resultado || {};
+    (r.avisos || []).forEach((a) => linhas.push(passo(escHtml_(a), 'aviso')));
+    if (r.incompleto || r.continuar) {
+      mostrarProgresso(passo('Ainda falta um pedaço (o histórico de preços de ativo novo pode levar mais de uma rodada) - clique em Continuar.'));
+      go.disabled = false;
+      go.textContent = 'Continuar';
+      return;
+    }
+    mostrarProgresso(passo('<b>Pronto.</b> Recarregando com tudo atualizado…', 'ok'));
+    const avisos = (r.avisos || []).length;
+    go.textContent = 'Consolidado ✓';
+    try { await limparCacheLocalImpl(); } catch (_) { /* segue */ }
+    if (win && win.location && setTimeoutImpl) setTimeoutImpl(() => win.location.reload(), avisos ? 3500 : 1400);
+  }
+
+  go.addEventListener('click', () => rodar(false));
+  // "Recalcular histórico" (Registro de Controle): refaz o histórico de TODOS os ativos com as transações de hoje
+  doc.querySelectorAll('[data-consolidar-tudo]').forEach((b) => b.addEventListener('click', () => {
+    if (go.disabled) return;
+    wrap.hidden = false;
+    const oque = doc.getElementById('consolOque');
+    if (oque) oque.textContent = 'Recalcular o histórico de todos os ativos e da Renda Fixa';
+    if (painel && !painel.classList.contains('open') && btn) btn.click();
+    rodar(true);
+  }));
 }
 
 /**
@@ -691,10 +825,11 @@ export function setupLimparCacheButton(doc, { token, limparCacheHistoricoImpl = 
  * injectable for tests, same pattern as setupThemeToggle takes its two
  * theme.js functions as params.
  */
-export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, setupSyncNowButtonImpl = setupSyncNowButton, setupLimparCacheButtonImpl = setupLimparCacheButton, win = typeof window !== 'undefined' ? window : undefined } = {}) {
+export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = getToken, redirectImpl = redirectParaLogin, carregarStatusSyncImpl = carregarStatusSync, setupSyncNowButtonImpl = setupSyncNowButton, setupLimparCacheButtonImpl = setupLimparCacheButton, setupConsolidacaoImpl = setupConsolidacao, win = typeof window !== 'undefined' ? window : undefined } = {}) {
   const token = getTokenImpl();
   if (token) {
     setMainVisible(doc, true);
+    setupConsolidacaoImpl(doc, { token }); // antes das telas: elas podem avisar logo no 1º carregamento
     onAuthenticated(token);
     carregarStatusSyncImpl(doc, { token });
     setupSyncNowButtonImpl(doc, { token });

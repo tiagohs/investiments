@@ -140,6 +140,7 @@ import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
+import { momentoHtml, momentoDoRadar, metasDaDistribuicao } from './momento-aporte.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -734,7 +735,7 @@ const COLUNAS_RADAR = [
   { chave: 'precoTeto', rotulo: 'Preço-teto', editavel: true, numerica: true },
   { chave: 'vies', rotulo: 'Viés' },
   { chave: 'descontoPvp', rotulo: 'Desc. P/VP', numerica: true, dica: 'Com desconto quando o P/VP calculado (coluna H da planilha) é menor que 1 — está caro quando é maior ou igual a 1.' },
-  { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true, dica: 'Com desconto quando o retorno (1 ÷ P/L) fica abaixo da taxa de renda fixa atual — está caro quando fica acima. Calculado só pra Ações Nacionais.' },
+  { chave: 'descontoPl', rotulo: 'Desc. P/L', numerica: true, dica: 'Com desconto quando o retorno pelo lucro (1 ÷ P/L) fica acima da taxa de renda fixa atual — está caro quando fica abaixo. Calculado só pra Ações Nacionais.' },
   { chave: 'percentualDesejado', rotulo: '% atual x meta', editavel: true, numerica: true,
     dica: 'Barra mostra o % atual da carteira nesse ativo; o traço marca o % desejado (editável). Toque/passe o mouse pro valor exato de cada um.' },
   { chave: 'carteiraAtual', rotulo: 'Carteira atual', numerica: true, iconeDica: true,
@@ -895,7 +896,8 @@ function criarCelulaPctAtualMeta_(doc, item) {
  *    ..." ou "... 5,67% abaixo ..." da taxa) - em vez de refazer essa
  *    conta aqui (arriscando divergir da planilha por arredondamento
  *    ou por não ter a taxa disponível no front-end), só lê a palavra:
- *    "abaixo" da taxa = com desconto, "acima" = caro.
+ *    "acima" da taxa = com desconto, "abaixo" = caro (invertido em
+ *    26/09/2026 - retorno pelo lucro acima da renda fixa = ação barata).
  */
 function badgeDesconto_(chaveColuna, item) {
   const bruto = item[chaveColuna];
@@ -906,8 +908,10 @@ function badgeDesconto_(chaveColuna, item) {
     if (typeof item.pvp !== 'number') return null;
     comDesconto = item.pvp < 1;
   } else if (chaveColuna === 'descontoPl') {
-    if (/abaixo/i.test(bruto)) comDesconto = true;
-    else if (/acima/i.test(bruto)) comDesconto = false;
+    // 26/09/2026 (Tiago: "pode inverter"): retorno pelo lucro ACIMA da renda
+    // fixa = ação barata (com desconto); abaixo = caro. Antes era o contrário.
+    if (/acima/i.test(bruto)) comDesconto = true;
+    else if (/abaixo/i.test(bruto)) comDesconto = false;
     else return null;
   } else {
     return null;
@@ -1260,8 +1264,26 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       linkAtivo.className = 'link-ativo';
       linkAtivo.href = urlAtivoTicker(item.ativo);
       linkAtivo.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
-      td.appendChild(linkAtivo);
-      td.appendChild(criarLinkNovaAba(doc, linkAtivo.href, item.ativo)); // 25/09/2026: ↗ nova aba (só desktop, no hover)
+      const chaveTipoFii = chaveTabela === 'fiis' ? chaveTipoFii_(item.tipo) : null;
+      if (chaveTipoFii) {
+        // 26/09/2026 (Tiago: "igual na tabela da carteira de FIIs: tira a cor
+        // de fundo e coloca o identificador abaixo do nome do ticker, com uma
+        // bolinha com a cor"): ticker em cima, "● Tijolo" embaixo.
+        const bloco = doc.createElement('span');
+        bloco.className = 'radar-ativo-bloco';
+        const linhaTicker = doc.createElement('span');
+        linhaTicker.className = 'radar-ativo-linha';
+        linhaTicker.append(linkAtivo, criarLinkNovaAba(doc, linkAtivo.href, item.ativo));
+        const tipo = doc.createElement('span');
+        tipo.className = `radar-fii-tipo radar-fii-tipo-${chaveTipoFii}`;
+        tipo.innerHTML = '<i aria-hidden="true"></i>';
+        tipo.append(String(item.tipo).trim());
+        bloco.append(linhaTicker, tipo);
+        td.appendChild(bloco);
+      } else {
+        td.appendChild(linkAtivo);
+        td.appendChild(criarLinkNovaAba(doc, linkAtivo.href, item.ativo)); // 25/09/2026: ↗ nova aba (só desktop, no hover)
+      }
       // Ícone "i" — a célula inteira já é .radar-info-alvo com tooltip
       // (diferença vs. meta, Segmento/Tipo nos FIIs), mas isso sozinho
       // não dava nenhuma pista visual de que dava pra
@@ -1271,16 +1293,6 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       infoAtivo.className = 'radar-info-icon';
       infoAtivo.textContent = 'i';
       td.appendChild(infoAtivo);
-      // Cor por tipo de FII (pedido do Tiago, 14/09/2026): só na célula
-      // do Ativo (desktop) - no card do mobile, essa mesma célula tem
-      // .radar-card-topo, e o CSS (:has) espalha a cor pra área do
-      // header inteira (Ranking + Ativo juntos), não só o texto do
-      // ticker. Rodada anterior pintava a LINHA inteira - Tiago achou
-      // feio, voltou atrás.
-      if (chaveTabela === 'fiis') {
-        const chaveTipo = chaveTipoFii_(item.tipo);
-        if (chaveTipo) td.classList.add(`radar-fii-cor-${chaveTipo}`);
-      }
     } else {
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
     }
@@ -1376,6 +1388,28 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
   return tr;
 }
 
+/**
+ * 26/09/2026 (Tiago: "Inclua isso também na tabela de ativos da tela
+ * Distribuição e Metas"): o mesmo "momento de aporte" da tela de Aportes,
+ * numa linha logo abaixo de cada ativo (1ª célula vazia = embaixo da coluna
+ * #, o texto começa alinhado com o Ativo). No celular ela vira o pé do card
+ * do ativo (distribuicoes-metas.css).
+ */
+function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas) {
+  const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas));
+  if (!html) return null;
+  const tr = doc.createElement('tr');
+  tr.className = 'radar-momento-tr';
+  const vazio = doc.createElement('td');
+  vazio.className = 'radar-momento-vazio';
+  const td = doc.createElement('td');
+  td.className = 'radar-momento-td';
+  td.colSpan = nColunas - 1;
+  td.innerHTML = html;
+  tr.append(vazio, td);
+  return tr;
+}
+
 function compararRadar_(a, b, campo) {
   const va = a[campo];
   const vb = b[campo];
@@ -1390,7 +1424,7 @@ function compararRadar_(a, b, campo) {
  * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
  * pra sobreviver a troca de aba sem perder o estado.
  */
-function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar }) {
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null }) {
   const colunas = colunasRadarPara_(chaveTabela);
   const wrap = doc.createElement('div');
   wrap.className = 'radar-table-wrap';
@@ -1442,6 +1476,8 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
   }
   for (const item of ordenados) {
     tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
+    const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1);
+    if (momento) tbody.appendChild(momento);
   }
   table.appendChild(tbody);
 
@@ -1471,7 +1507,7 @@ const TABELAS_RADAR = [
  * (renderSplitInterno) que fica ACIMA desta tabela, já que ele mostra
  * conteúdo diferente conforme a aba do Radar ativa.
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null } = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!radar) return;
@@ -1531,6 +1567,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       onSalvarItem,
       ordenacao,
       cotacaoDolar: radar.cotacaoDolar,
+      metas,
       onOrdenar: (campo) => {
         ordenacao = ordenacao.campo === campo
           ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
@@ -1538,6 +1575,10 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
         desenhar();
       },
     }));
+    const nota = doc.createElement('p');
+    nota.className = 'radar-momento-nota';
+    nota.textContent = 'Embaixo de cada ativo, a leitura dos seus critérios: preço-teto, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
+    tableContainer.appendChild(nota);
   }
 
   for (const { chave, rotulo } of TABELAS_RADAR) {
@@ -1699,6 +1740,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
     });
 
     renderRadarOportunidades(doc, radarContainer, resposta.radar, {
+      metas: metasDaDistribuicao(resposta),
       onSalvarItem: async (tabela, item) => {
         const r = await salvarRadarItemImpl(token, tabela, item);
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');

@@ -535,6 +535,20 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
       partes.push('Renda Fixa falhou: ' + String(erro));
     }
 
+    // 26/09/2026: Carteira Renda Fixa - quantidade/valor aplicado das
+    // Transações e valor atualizado (PU do Tesouro / curva do CDI). Nunca
+    // remove linha aqui (só a consolidação, pedida pelo Tiago) - ver
+    // CarteiraRendaFixaSync.gs. Falhar aqui não derruba o resto.
+    if (typeof sincronizarCarteiraRendaFixa_ === 'function') {
+      try {
+        var resultadoCarteiraRf = sincronizarCarteiraRendaFixa_({});
+        partes.push('Carteira Renda Fixa: ' + resultadoCarteiraRf.resumo);
+      } catch (erroCarteiraRf) {
+        if (status === 'Sucesso') status = 'Atenção';
+        partes.push('Carteira Renda Fixa não atualizada: ' + String(erroCarteiraRf));
+      }
+    }
+
     // 13/09/2026: lê aux_historico-indices UMA vez aqui (mapa índice -> última
     // data salva) e passa pros dois passos abaixo — antes, Índices (Ibovespa)
     // e Taxas (CDI+SELIC) reliam a aba inteira cada um por conta própria (até

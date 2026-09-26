@@ -47,6 +47,21 @@
         <span id="refreshLabel">--</span>
       </div>
 
+      <!-- 26/09/2026: "Consolidação necessária" (shell.js!setupConsolidacao / Consolidacao.gs) -->
+      <div class="sync-wrap consol-wrap" id="consolWrap" hidden>
+        <button class="consol-pill" id="consolBtn" type="button" aria-expanded="false" aria-haspopup="true" data-toggle-panel="consolPanel">
+          <span class="consol-dot" aria-hidden="true"></span><span class="consol-txt">Consolidação necessária</span><span class="consol-txt-curto" aria-hidden="true">Consolidar</span>
+        </button>
+        <div class="overlay-panel consol-panel" id="consolPanel" role="dialog" aria-labelledby="consolTitulo">
+          <div class="sync-panel-head"><h3 id="consolTitulo">Consolidação necessária</h3></div>
+          <p class="consol-oque" id="consolOque"></p>
+          <p class="consol-explica">Entraram transações ou ativos novos. Os dias já gravados do histórico ainda estão com as quantidades antigas. Consolidar recalcula o patrimônio a partir dessas datas, monta o histórico de ativo novo e atualiza a Renda Fixa. Depois disso gráficos, rentabilidade e totais já contam tudo.</p>
+          <ul class="consol-motivos" id="consolMotivos" hidden></ul>
+          <div class="consol-progresso" id="consolProgresso" role="status" aria-live="polite" hidden></div>
+          <button class="btn btn-primary consol-go" id="consolGo" type="button">Consolidar agora</button>
+        </div>
+      </div>
+
       <div class="sync-wrap">
         <button class="sync-badge" id="syncBadgeBtn" type="button" aria-expanded="false" aria-haspopup="true"
                 data-toggle-panel="syncPanel" title="Sincronização: aguardando primeira verificação">
@@ -75,6 +90,8 @@
                     title="Fatos relevantes e comunicados dos FIIs no FNet (automático ~12h20) - pode levar alguns minutos">Informes dos FIIs</button>
             <button class="sync-chip" type="button" data-sync="videos"
                     title="Vídeos novos dos seus canais do YouTube (automático a cada 6h)">Vídeos</button>
+            <button class="sync-chip" type="button" data-consolidar-tudo
+                    title="Refaz as quantidades de todo o histórico do patrimônio com as transações de hoje (e a Renda Fixa) - use se corrigiu ou lançou uma transação antiga direto na planilha">Recalcular histórico</button>
           </div>
           <div class="sync-log" id="syncLog">
             <div class="hint" style="padding:9px 4px">Carregando…</div>
@@ -116,7 +133,7 @@
       <span class="nav-active-bar"></span>
     </div>
     <div class="nav-item" data-section="transacoes">
-      <a class="nav-link" href="transacoes/compras.html" title="Transações" data-section="transacoes">
+      <a class="nav-link" href="transacoes/index.html" title="Transações" data-section="transacoes">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h13M17 8l-3-3M17 8l-3 3"/><path d="M20 16H7M7 16l3-3M7 16l3 3"/></svg>
         <span class="nav-label">Transações</span>
       </a>

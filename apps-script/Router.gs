@@ -81,6 +81,15 @@ function doGet(e) {
   if (action === 'videos') { // 25/09/2026: vídeos do YouTube por ativo/carteira (Videos.gs)
     return handleVideos(e, auth);
   }
+  if (action === 'transacoes') { // 26/09/2026: tela Transações - aportes + lançamentos (Aportes.gs)
+    return handleTransacoes(e, auth);
+  }
+  if (action === 'infoNovoAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
+    return handleInfoNovoAtivo(e, auth);
+  }
+  if (action === 'consolidacao') { // 26/09/2026: aviso "Consolidação necessária" (Consolidacao.gs)
+    return handleConsolidacaoStatus(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
@@ -101,6 +110,24 @@ function doPost(e) {
   }
   if (action === 'importarProventosB3') { // 24/09/2026: tela Proventos (Proventos.gs)
     return handleImportarProventosB3(e);
+  }
+  if (action === 'salvarAporte') { // 26/09/2026: tela Transações - carrinho de aportes (Aportes.gs)
+    return handleSalvarAporte(e);
+  }
+  if (action === 'excluirAporte') {
+    return handleExcluirAporte(e);
+  }
+  if (action === 'importarLancamentos') { // 26/09/2026: tela Transações - extratos B3/IBKR (Lancamentos.gs)
+    return handleImportarLancamentos(e);
+  }
+  if (action === 'adicionarAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
+    return handleAdicionarAtivo(e);
+  }
+  if (action === 'removerAtivo') {
+    return handleRemoverAtivo(e);
+  }
+  if (action === 'consolidar') { // 26/09/2026: botão "Consolidar agora" (Consolidacao.gs)
+    return handleConsolidar(e);
   }
   if (action === 'sincronizarAgora') {
     return handleSincronizarAgora(e);

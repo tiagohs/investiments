@@ -486,6 +486,82 @@ export async function syncVideos(token) {
   return request('POST', 'sincronizarVideos', token);
 }
 
+/**
+ * 26/09/2026: tela Transações (action=transacoes) - ativos pro carrinho de
+ * aportes, aportes, resumo investido por mês e a lista de lançamentos
+ * (apps-script/Aportes.gs + Lancamentos.gs).
+ */
+export async function getTransacoes(token) {
+  return request('GET', 'transacoes', token);
+}
+
+/** Grava (ou regrava pelo id) um aporte: { id?, data, status: 'aguardando'|'concluido', observacao, itens }. */
+export async function salvarAporte(token, aporte) {
+  return request('POST', 'salvarAporte', token, { aporte: JSON.stringify(aporte) });
+}
+
+/** Cancela um aporte em andamento ou apaga um concluído. */
+export async function excluirAporte(token, id) {
+  return request('POST', 'excluirAporte', token, { id });
+}
+
+/**
+ * Itens lidos dos extratos (lancamentos-parse.js). simular=true só confere o
+ * que já está na planilha; false grava os novos (e os marcados com forcar).
+ */
+export async function importarLancamentos(token, itens, { simular = false, origem = 'Importação' } = {}) {
+  return request('POST', 'importarLancamentos', token, { itens: JSON.stringify(itens), simular: simular ? '1' : '0', origem });
+}
+
+/**
+ * 26/09/2026: Carteiras - adicionar ativo (apps-script/NovoAtivo.gs).
+ * infoNovoAtivo: o ticker já existe? está na base da planilha (preço/DY/P-VP)?
+ * + sugestões pros campos (setores, tipos...).
+ */
+export async function getInfoNovoAtivo(token, classe, ticker = '') {
+  return request('GET', 'infoNovoAtivo', token, { classe, ticker });
+}
+
+/** Cadastra o ativo (Carteira + Radar + Auxiliar_ativos). simular=true só devolve o plano (linhas). */
+export async function adicionarAtivo(token, ativo, { simular = false } = {}) {
+  return request('POST', 'adicionarAtivo', token, { ativo: JSON.stringify(ativo), simular: simular ? '1' : '0' });
+}
+
+/** Desfaz um cadastro errado (só ativo sem nenhuma transação). */
+export async function removerAtivo(token, classe, ticker) {
+  return request('POST', 'removerAtivo', token, { classe, ticker });
+}
+
+/** 26/09/2026: estado do aviso "Consolidação necessária" (Consolidacao.gs). */
+export async function getConsolidacao(token) {
+  return request('GET', 'consolidacao', token);
+}
+
+/**
+ * Uma rodada da consolidação (recalcula o histórico com as transações novas,
+ * monta o histórico de ativo novo, refaz a Renda Fixa). Enquanto
+ * resultado.continuar, chama de novo - onRodada(resultado, n) a cada volta.
+ */
+export async function consolidar(token, { tudo = false, onRodada = null, maxRodadas = 8, esperaOcupadoMs = 8000, esperar = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let ultima = null;
+  const feito = [];
+  const avisos = [];
+  let marcouTudo = false;
+  for (let n = 1; n <= maxRodadas; n += 1) {
+    // tudo=true ("Recalcular histórico"): marca todos os ativos só na 1ª rodada
+    const resposta = await request('POST', 'consolidar', token, tudo && !marcouTudo ? { tudo: '1' } : {});
+    if (resposta && resposta.ok) marcouTudo = true; // o servidor marca antes de tentar a trava
+    if (!resposta || !resposta.ok) return resposta || { ok: false, erro: 'sem resposta' };
+    ultima = resposta.resultado || {};
+    feito.push(...(ultima.feito || []));
+    avisos.push(...(ultima.avisos || []));
+    if (onRodada) onRodada(ultima, n);
+    if (!ultima.continuar) return { ok: true, resultado: { ...ultima, feito, avisos, rodadas: n } };
+    if (ultima.status === 'ocupado') await esperar(esperaOcupadoMs);
+  }
+  return { ok: true, resultado: { ...ultima, feito, avisos, rodadas: maxRodadas, incompleto: true } };
+}
+
 /** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
 export async function getTesesAtivo(token, ticker) {
   return request('GET', 'tesesAtivo', token, { ticker });

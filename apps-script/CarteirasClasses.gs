@@ -278,7 +278,7 @@ function lerMapaTipoFiisPorTicker_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dm = ss.getSheetByName(ABA_DISTRIBUICAO_METAS_CLASSES);
   if (!dm) return {};
-  var bloco = lerBlocoRadar_(dm, LINHA_INICIO_BLOCO_FIIS_RADAR_CLASSES, { ativo: 'C', tipo: 'S' });
+  var bloco = lerBlocoRadar_(dm, typeof localDistribuicaoMetas_ === 'function' ? localDistribuicaoMetas_(dm).radarFiis : LINHA_INICIO_BLOCO_FIIS_RADAR_CLASSES, { ativo: 'C', tipo: 'S' });
   var mapa = {};
   bloco.itens.forEach(function (item) {
     var tipo = normalizarTipoFii_(item.tipo);

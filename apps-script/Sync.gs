@@ -337,6 +337,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
   if (!abaHistorico) throw new Error('Aba "' + nomeAbaHistorico + '" não encontrada.');
   var tickersParaFalhar = (opcoes && opcoes.tickersParaFalhar) || [];
 
+  carregarListasTickersDaPlanilha_(ss); // 26/09/2026: + ativos novos de Auxiliar_ativos (Planilha.gs)
   var todosTickers = TICKERS_BR.concat(TICKERS_USA);
   var tickers = (tickersEspecificos && tickersEspecificos.length) ? tickersEspecificos : todosTickers;
 
@@ -1002,7 +1003,10 @@ function handleSyncHistorico(e) {
   try {
     var limite = (e && e.parameter && e.parameter.limite) ? parseInt(e.parameter.limite, 10) : 20;
     if (!limite || limite < 1) limite = 20;
-    return jsonOut({ ok: true, resultado: lerRegistroControle_(limite) });
+    // 26/09/2026: + o aviso "Consolidação necessária" (Consolidacao.gs) - o topo do site já busca isto em toda página
+    var consolidacao = null;
+    try { if (typeof resumoConsolidacao_ === 'function') consolidacao = resumoConsolidacao_(); } catch (eC) { consolidacao = null; }
+    return jsonOut({ ok: true, resultado: lerRegistroControle_(limite), consolidacao: consolidacao });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }

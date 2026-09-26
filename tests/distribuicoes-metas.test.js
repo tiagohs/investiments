@@ -896,7 +896,7 @@ test('renderRadarOportunidades() desenha as 3 abas e a tabela da aba ativa (Aç�
   const abas = container.querySelectorAll('.filter-tab');
   assert.equal(abas.length, 3);
   assert.equal(abas[0].classList.contains('active'), true);
-  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.equal(linhas.length, 2);
   assert.match(linhas[0].textContent, /WIZC3/);
   assert.match(linhas[1].textContent, /VAMO3/);
@@ -942,12 +942,12 @@ test('renderRadarOportunidades(): clicar no cabeçalho "Ativo" ordena por ele; c
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
 
   container.querySelector('.radar-th-btn[data-campo="ativo"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  let linhas = container.querySelectorAll('.radar-table tbody tr');
+  let linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.match(linhas[0].textContent, /VAMO3/);
   assert.match(linhas[1].textContent, /WIZC3/);
 
   container.querySelector('.radar-th-btn[data-campo="ativo"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  linhas = container.querySelectorAll('.radar-table tbody tr');
+  linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.match(linhas[0].textContent, /WIZC3/);
   assert.match(linhas[1].textContent, /VAMO3/);
 });
@@ -963,7 +963,7 @@ test('renderRadarOportunidades(): "Editar" revela inputs pré-preenchidos de Ran
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, ranking 1
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3, ranking 1
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
   assert.equal(inputs.length, 3);
@@ -979,7 +979,7 @@ test('renderRadarOportunidades(): "Salvar" chama onSalvarItem(tabela, item) com 
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO, {
     onSalvarItem: async (tabela, item) => { chamou = { tabela, item }; },
   });
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
   inputs[0].value = '3';
@@ -1005,7 +1005,7 @@ test('renderRadarOportunidades(): campo em branco ao salvar mostra erro e não c
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO, {
     onSalvarItem: async () => { chamou = true; },
   });
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const inputs = primeiraLinha.querySelectorAll('.radar-edit-input');
   inputs[0].value = '';
@@ -1021,12 +1021,12 @@ test('renderRadarOportunidades(): "Cancelar" reverte a linha pro estado original
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
-  let primeiraLinha = container.querySelector('.radar-table tbody tr');
+  let primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(container.querySelectorAll('.radar-edit-input').length, 3);
   container.querySelector('.radar-cancelar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(container.querySelectorAll('.radar-edit-input').length, 0);
-  primeiraLinha = container.querySelector('.radar-table tbody tr');
+  primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   assert.notEqual(primeiraLinha.querySelector('.radar-editar-btn'), null);
 });
 
@@ -1074,7 +1074,7 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Está c
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   // WIZC3 (ranking 1, 1ª linha por default): pvp 1.69 (>= 1), descontoPvp '169% (1,69 P/VP)'.
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   // índice 0 dos badges agora é o de Preço médio (coluna nova) - o de P/VP é o 2º.
   const badgePvp = primeiraLinha.querySelectorAll('.radar-desconto-badge')[1];
   assert.equal(badgePvp.textContent, 'Está caro');
@@ -1090,7 +1090,7 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/VP mostra "Com des
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   // PMLL11 (FIIs): pvp 0.95 (< 1).
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linha = container.querySelector('.radar-table tbody tr');
+  const linha = container.querySelector('.radar-table tbody tr.radar-linha');
   // índice 0 dos badges agora é o de Preço médio (coluna nova) - o de P/VP é o 2º.
   const badgePvp = linha.querySelectorAll('.radar-desconto-badge')[1];
   assert.equal(badgePvp.textContent, 'Com desconto');
@@ -1101,16 +1101,17 @@ test('renderRadarOportunidades(): célula de Desconto sobre P/L segue a palavra 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   // índice 0 dos badges = Preço médio, 1 = P/VP, 2 = P/L.
-  // WIZC3 (ranking 1): descontoPl '15,87% (1,62% acima - retorno em 6,30 anos)' -> caro.
+  // 26/09/2026 (invertido a pedido do Tiago): retorno pelo lucro ACIMA da renda fixa = com desconto.
+  // WIZC3 (ranking 1): descontoPl '15,87% (1,62% acima - retorno em 6,30 anos)' -> com desconto.
   const badgeWizc3 = linhas[0].querySelectorAll('.radar-desconto-badge')[2];
-  assert.equal(badgeWizc3.textContent, 'Está caro');
-  assert.equal(badgeWizc3.classList.contains('bad'), true);
-  // VAMO3 (ranking 2): descontoPl '8,58% (5,67% abaixo - retorno em 11,66 anos)' -> com desconto.
+  assert.equal(badgeWizc3.textContent, 'Com desconto');
+  assert.equal(badgeWizc3.classList.contains('good'), true);
+  // VAMO3 (ranking 2): descontoPl '8,58% (5,67% abaixo - retorno em 11,66 anos)' -> caro.
   const badgeVamo3 = linhas[1].querySelectorAll('.radar-desconto-badge')[2];
-  assert.equal(badgeVamo3.textContent, 'Com desconto');
-  assert.equal(badgeVamo3.classList.contains('good'), true);
+  assert.equal(badgeVamo3.textContent, 'Está caro');
+  assert.equal(badgeVamo3.classList.contains('bad'), true);
 });
 
 test('renderRadarOportunidades(): cabeçalho de Desconto sobre P/VP e P/L vira alvo de tooltip com o detalhe da conta', () => {
@@ -1122,7 +1123,7 @@ test('renderRadarOportunidades(): cabeçalho de Desconto sobre P/VP e P/L vira a
   assert.equal(thPvp.classList.contains('radar-info-alvo'), true);
   assert.match(thPvp.dataset.tooltip, /menor que 1/);
   assert.equal(thPl.classList.contains('radar-info-alvo'), true);
-  assert.match(thPl.dataset.tooltip, /taxa de renda fixa/);
+  assert.match(thPl.dataset.tooltip, /acima da taxa de renda fixa/);
 });
 
 // 16/09/2026: Tiago pediu a coluna "Preço Médio" (coluna G da planilha,
@@ -1137,7 +1138,7 @@ test('renderRadarOportunidades(): coluna "Preço médio" aparece com o rótulo c
   const th = container.querySelector('.radar-th-btn[data-campo="precoMedio"]');
   assert.ok(th);
   assert.match(th.textContent, /Preço médio/);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3: precoAtual 7.82, precoMedio 7.61
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3: precoAtual 7.82, precoMedio 7.61
   const celulaPrecoMedio = primeiraLinha.children[3];
   const badge = celulaPrecoMedio.querySelector('.radar-desconto-badge');
   assert.ok(badge);
@@ -1148,7 +1149,7 @@ test('renderRadarOportunidades(): tag de Preço médio fica verde quando a cota�
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // WIZC3: precoAtual 7.82 > precoMedio 7.61
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const badge = primeiraLinha.children[3].querySelector('.radar-desconto-badge');
   assert.equal(badge.classList.contains('good'), true);
   assert.equal(badge.classList.contains('bad'), false);
@@ -1165,7 +1166,7 @@ test('renderRadarOportunidades(): tag de Preço médio fica vermelha quando a co
     },
   };
   renderRadarOportunidades(doc, container, dados);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const badge = primeiraLinha.children[3].querySelector('.radar-desconto-badge');
   assert.equal(badge.classList.contains('bad'), true);
   assert.equal(badge.classList.contains('good'), false);
@@ -1185,7 +1186,7 @@ test('renderRadarOportunidades(): tag de Preço médio sem cor (nem verde nem ve
     },
   };
   renderRadarOportunidades(doc, container, dados);
-  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   for (const linha of linhas) {
     const badge = linha.children[3].querySelector('.radar-desconto-badge');
     assert.equal(badge.classList.contains('good'), false);
@@ -1224,14 +1225,14 @@ test('renderRadarOportunidades(): "Comprar"/"Aguardar" mostram só a tag (badge)
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, Comprar
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3, Comprar
   const celulaVies = Array.from(primeiraLinha.children).find((td) => td.querySelector('.goal-badge'));
   assert.equal(celulaVies.classList.contains('radar-vies-comprar'), false);
   assert.equal(primeiraLinha.classList.contains('radar-linha-aguardar'), false);
   assert.equal(celulaVies.querySelector('.goal-badge').classList.contains('good'), true);
 
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linhaGprk = container.querySelector('.radar-table tbody tr'); // GPRK, Aguardar
+  const linhaGprk = container.querySelector('.radar-table tbody tr.radar-linha'); // GPRK, Aguardar
   assert.equal(linhaGprk.classList.contains('radar-linha-aguardar'), false);
   const celulaViesGprk = Array.from(linhaGprk.children).find((td) => td.querySelector('.goal-badge'));
   assert.equal(celulaViesGprk.classList.contains('radar-vies-comprar'), false);
@@ -1243,7 +1244,7 @@ test('renderRadarOportunidades(): Desconto sobre P/L "—" (sem badge/tooltip) q
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linhaGprk = container.querySelector('.radar-table tbody tr'); // só tem 1 item nessa tabela no fixture
+  const linhaGprk = container.querySelector('.radar-table tbody tr.radar-linha'); // só tem 1 item nessa tabela no fixture
   const colunas = Array.from(linhaGprk.children).map((td) => td.textContent.trim());
   assert.ok(colunas.includes('—'));
   assert.equal(linhaGprk.querySelectorAll('.radar-desconto-badge').length, 2); // Preço médio + P/VP, P/L é '—'
@@ -1253,7 +1254,7 @@ test('renderRadarOportunidades(): Ranking tem badge próprio e Preço-teto fica 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const badgeRank = primeiraLinha.querySelector('.radar-rank-badge');
   assert.equal(badgeRank.textContent, '1');
   assert.match(primeiraLinha.querySelector('.radar-preco-teto').textContent, /10,00/); // formatBRL usa espaço não-quebrável entre "R$" e o número
@@ -1264,7 +1265,7 @@ test('renderRadarOportunidades(): R$ investir/resgatar ganha um ícone "i" com "
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, novaCarteira: 5869.89
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3, novaCarteira: 5869.89
   // índice 9 = "Carteira atual" (0 ranking, 1 ativo, 2 preço atual, 3
   // preço médio, 4 preço-teto, 5 viés, 6 desc. P/VP, 7 desc. P/L, 8 %
   // atual x meta, 9 carteira atual) - "Investir/resgatar" virou a 2ª
@@ -1282,8 +1283,8 @@ test('renderRadarOportunidades(): pointermove sobre a célula do Ativo mostra o 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const celulaAtivo = container.querySelector('.radar-table tbody tr td'); // 1ª célula = ranking, mas o alvo certo é a 2ª
-  const celulaAtivoReal = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelector('.radar-table tbody tr.radar-linha td'); // 1ª célula = ranking, mas o alvo certo é a 2ª
+  const celulaAtivoReal = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
   assert.equal(celulaAtivoReal.classList.contains('radar-info-alvo'), true);
 
   celulaAtivoReal.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 50, clientY: 50, bubbles: true }));
@@ -1306,7 +1307,7 @@ test('renderRadarOportunidades(): no toque, tocar na célula do Ativo abre a too
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
 
   celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
     clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
@@ -1321,7 +1322,7 @@ test('renderRadarOportunidades(): no toque, tocar de novo na mesma célula do At
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
 
   celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
     clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
@@ -1338,7 +1339,7 @@ test('renderRadarOportunidades(): no toque, tocar fora da célula aberta fecha a
   const doc = makeDom('<div id="c"></div><div id="fora">Fora da tabela</div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
 
   celulaAtivo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
     clientX: 50, clientY: 50, bubbles: true, pointerType: 'touch',
@@ -1368,7 +1369,7 @@ test('renderRadarOportunidades(): cada célula tem data-label (pro card do mobil
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const celulas = Array.from(primeiraLinha.children);
   assert.equal(celulas[0].dataset.label, '#'); // ranking
   assert.equal(celulas[1].dataset.label, 'Ativo');
@@ -1381,7 +1382,7 @@ test('renderRadarOportunidades(): Ranking e Ativo têm a classe radar-card-topo 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const celulas = Array.from(primeiraLinha.children);
   assert.equal(celulas[0].classList.contains('radar-card-topo'), true); // ranking
   assert.equal(celulas[1].classList.contains('radar-card-topo'), true); // ativo
@@ -1393,12 +1394,12 @@ test('renderRadarOportunidades(): célula do Ativo mostra o logo (assets/imgs/, 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3, tem logo em assets/imgs/acoes/WIZC3.png
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3, tem logo em assets/imgs/acoes/WIZC3.png
   const logo = primeiraLinha.querySelector('.radar-logo');
   assert.ok(logo);
   assert.equal(logo.classList.contains('radar-logo-fallback'), false);
   assert.match(logo.querySelector('img').src, /WIZC3\.png$/);
-  assert.match(primeiraLinha.querySelectorAll('.radar-table tbody tr td, td')[1]?.textContent || primeiraLinha.children[1].textContent, /WIZC3/);
+  assert.match(primeiraLinha.querySelectorAll('.radar-table tbody tr.radar-linha td, td')[1]?.textContent || primeiraLinha.children[1].textContent, /WIZC3/);
 });
 
 test('renderRadarOportunidades(): sem logo mapeado (ou se a imagem falha ao carregar) cai no círculo com as iniciais do ticker', () => {
@@ -1423,7 +1424,7 @@ test('renderRadarOportunidades(): imagem do logo que falha ao carregar (evento "
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3
   const img = primeiraLinha.querySelector('.radar-logo img');
   img.dispatchEvent(new doc.defaultView.Event('error'));
   const logo = primeiraLinha.querySelector('.radar-logo');
@@ -1454,7 +1455,7 @@ test('renderRadarOportunidades(): Preço atual mostra a variação % do dia emba
     fiis: { itens: [], total: {} },
   };
   renderRadarOportunidades(doc, container, dados);
-  const linhas = container.querySelectorAll('.radar-table tbody tr');
+  const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   const variacaoWizc3 = linhas[0].querySelector('.radar-preco-variacao');
   assert.match(variacaoWizc3.textContent, /-0,21%/);
   assert.equal(variacaoWizc3.classList.contains('bad'), true);
@@ -1467,7 +1468,7 @@ test('renderRadarOportunidades(): sem variacaoDia (null) não desenha o span de 
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // itens do fixture não têm variacaoDia
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   // 16/09/2026: a célula de Carteira atual (índice 9) também usa
   // .radar-preco-variacao pro valor de Investir/resgatar embaixo, então
   // o teste precisa mirar só na célula de Preço atual (índice 2).
@@ -1484,7 +1485,7 @@ test('renderRadarOportunidades(): "% desejado" e "% atual" viram 1 coluna só ("
   assert.equal(rotulos.some((r) => r.includes('% desejado')), false);
   assert.equal(rotulos.some((r) => r === '% atual'), false);
 
-  const primeiraLinha = container.querySelector('.radar-table tbody tr'); // WIZC3: 3%/11%
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha'); // WIZC3: 3%/11%
   const barra = primeiraLinha.querySelector('.radar-pct-wrap');
   assert.ok(barra);
   assert.match(barra.querySelector('.radar-pct-label b').textContent, /3%/);
@@ -1495,7 +1496,7 @@ test('renderRadarOportunidades(): "% desejado" e "% atual" viram 1 coluna só ("
   // continua editável (edita só % desejado) - "Editar" ainda revela os
   // mesmos 3 inputs de sempre (Ranking/Preço-teto/% desejado).
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { onSalvarItem: async () => {} });
-  const linhaEditavel = container.querySelector('.radar-table tbody tr');
+  const linhaEditavel = container.querySelector('.radar-table tbody tr.radar-linha');
   linhaEditavel.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(linhaEditavel.querySelectorAll('.radar-edit-input').length, 3);
 });
@@ -1515,7 +1516,7 @@ test('renderRadarOportunidades(): Ações Internacionais mostram Carteira atual 
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
+  const linha = container.querySelector('.radar-table tbody tr.radar-linha'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
   // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9).
   assert.match(celulas[9].textContent, /\$557\.70/); // carteira atual
@@ -1541,7 +1542,7 @@ test('renderRadarOportunidades(): Carteira atual/Investir-resgatar em Ações In
   const dados = { ...RADAR_EXEMPLO, cotacaoDolar: 5 };
   renderRadarOportunidades(doc, container, dados);
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linha = container.querySelector('.radar-table tbody tr'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
+  const linha = container.querySelector('.radar-table tbody tr.radar-linha'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
   // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9), com 2 conversões.
   assert.match(celulas[9].textContent, /\$557\.70/);
@@ -1557,7 +1558,7 @@ test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não 
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // sem cotacaoDolar no fixture
   container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   assert.equal(container.querySelector('.radar-cotacao-dolar'), null);
-  const linha = container.querySelector('.radar-table tbody tr');
+  const linha = container.querySelector('.radar-table tbody tr.radar-linha');
   // 16/09/2026: o ícone "i" de "Nova carteira" continua aparecendo (é
   // info complementar, não conversão de moeda) - o que não deve
   // aparecer sem cotacaoDolar é o .moeda-conv (equivalente em reais).
@@ -1568,7 +1569,7 @@ test('renderRadarOportunidades(): sem cotacaoDolar, Ações Internacionais não 
 // feio" (Tiago) - agora só a célula do Ativo ganha a cor por Tipo (o
 // CSS espalha isso pra área do header inteira no card do mobile, via
 // :has(), sem precisar de mais classe nenhuma aqui no JS).
-test('renderRadarOportunidades(): célula do Ativo (só ela, não a linha) ganha classe de cor pelo Tipo do FII (Tijolo/Híbrido/Papel)', () => {
+test('renderRadarOportunidades(): FIIs mostram o Tipo embaixo do ticker, com a bolinha da cor (sem fundo colorido)', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   const dados = {
@@ -1585,14 +1586,15 @@ test('renderRadarOportunidades(): célula do Ativo (só ela, não a linha) ganha
   };
   renderRadarOportunidades(doc, container, dados);
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const linhas = container.querySelectorAll('.radar-table tbody tr');
-  assert.equal(linhas[0].classList.contains('radar-linha-fii-tijolo'), false); // linha não pinta mais
-  const celulaAtivo0 = linhas[0].children[1]; // ranking(0), ativo(1)
-  assert.equal(celulaAtivo0.classList.contains('radar-fii-cor-tijolo'), true);
-  assert.equal(linhas[1].children[1].classList.contains('radar-fii-cor-hibrido'), true);
-  assert.equal(linhas[2].children[1].classList.contains('radar-fii-cor-papel'), true);
-  // outras células da linha (ex. ranking) não ganham a cor.
-  assert.equal(linhas[0].children[0].classList.contains('radar-fii-cor-tijolo'), false);
+  const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
+  // 26/09/2026 (Tiago): sem cor de fundo - o tipo vai embaixo do ticker, com bolinha da cor
+  assert.equal(container.querySelectorAll('[class*="radar-fii-cor-"]').length, 0);
+  const tipos = [...linhas].map((l) => { const t = l.children[1].querySelector('.radar-fii-tipo'); return [t.className, t.textContent]; });
+  assert.deepEqual(tipos, [['radar-fii-tipo radar-fii-tipo-tijolo', 'Tijolo'], ['radar-fii-tipo radar-fii-tipo-hibrido', 'Híbrido'], ['radar-fii-tipo radar-fii-tipo-papel', 'Papel']]);
+  const bloco = linhas[0].children[1].querySelector('.radar-ativo-bloco');
+  assert.equal(bloco.firstElementChild.className, 'radar-ativo-linha', 'ticker em cima, tipo embaixo');
+  assert.equal(bloco.querySelector('.link-ativo').textContent, 'PMLL11');
+  assert.ok(bloco.querySelector('.radar-fii-tipo i'), 'bolinha');
 });
 
 test('renderRadarOportunidades(): legenda de tipo de FII aparece só na aba FIIs', () => {
@@ -1620,7 +1622,7 @@ test('renderRadarOportunidades(): não existe mais coluna "Tipo" (nem cabeçalho
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   const rotulos = Array.from(container.querySelectorAll('.radar-th-btn')).map((b) => b.textContent);
   assert.equal(rotulos.includes('Tipo'), false);
-  const linha = container.querySelector('.radar-table tbody tr');
+  const linha = container.querySelector('.radar-table tbody tr.radar-linha');
   assert.equal(Array.from(linha.children).some((td) => td.dataset.label === 'Tipo'), false);
 });
 
@@ -1642,24 +1644,24 @@ test('renderRadarOportunidades(): clicar num tipo na legenda filtra a tabela de 
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_FIIS_3_TIPOS);
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 3);
+  assert.equal(container.querySelectorAll('.radar-table tbody tr.radar-linha').length, 3);
 
   const btnTijolo = container.querySelector('.radar-fii-legenda-tijolo');
   btnTijolo.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  let linhas = container.querySelectorAll('.radar-table tbody tr');
+  let linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.equal(linhas.length, 1);
   assert.match(linhas[0].textContent, /PMLL11/);
   assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), true);
 
   // clicar de novo no mesmo tipo desliga o filtro.
   container.querySelector('.radar-fii-legenda-tijolo').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  linhas = container.querySelectorAll('.radar-table tbody tr');
+  linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.equal(linhas.length, 3);
   assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), false);
 
   // trocar pra outro tipo troca o filtro (não acumula).
   container.querySelector('.radar-fii-legenda-hibrido').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  linhas = container.querySelectorAll('.radar-table tbody tr');
+  linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   assert.equal(linhas.length, 1);
   assert.match(linhas[0].textContent, /TRXF11/);
   assert.equal(container.querySelector('.radar-fii-legenda-tijolo').classList.contains('active'), false);
@@ -1672,11 +1674,11 @@ test('renderRadarOportunidades(): trocar de aba reseta o filtro de tipo de FII',
   renderRadarOportunidades(doc, container, RADAR_FIIS_3_TIPOS);
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   container.querySelector('.radar-fii-legenda-papel').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 1);
+  assert.equal(container.querySelectorAll('.radar-table tbody tr.radar-linha').length, 1);
 
   container.querySelector('[data-tabela="acoesNacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(container.querySelectorAll('.radar-table tbody tr').length, 3);
+  assert.equal(container.querySelectorAll('.radar-table tbody tr.radar-linha').length, 3);
   assert.equal(container.querySelector('.radar-fii-legenda-papel').classList.contains('active'), false);
 });
 
@@ -1688,7 +1690,7 @@ test('renderRadarOportunidades(): célula do Ativo e a barra "% atual x meta" ga
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO);
-  const primeiraLinha = container.querySelector('.radar-table tbody tr');
+  const primeiraLinha = container.querySelector('.radar-table tbody tr.radar-linha');
   const celulaAtivo = primeiraLinha.children[1];
   assert.ok(celulaAtivo.querySelector('.radar-info-icon'));
   const celulaPct = primeiraLinha.children[8];
@@ -1705,7 +1707,7 @@ test('renderRadarOportunidades(): tooltip do Ativo, nos FIIs, acrescenta "Segmen
   };
   renderRadarOportunidades(doc, container, dados);
   container.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
   assert.match(celulaAtivo.dataset.tooltip, /Shopping \(Tijolo\)/);
 });
 
@@ -1713,7 +1715,7 @@ test('renderRadarOportunidades(): tooltip do Ativo não quebra quando o item nã
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');
   renderRadarOportunidades(doc, container, RADAR_EXEMPLO); // WIZC3 (Nacionais), sem segmento
-  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr td')[1];
+  const celulaAtivo = container.querySelectorAll('.radar-table tbody tr.radar-linha td')[1];
   assert.equal(celulaAtivo.dataset.tooltip.includes('undefined'), false);
 });
 
@@ -1919,7 +1921,7 @@ test('montarPaginaDistribuicoesMetas(): salvar um item do Radar de oportunidades
 
   await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarRadarItemImpl });
 
-  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr');
+  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr.radar-linha');
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
@@ -1944,7 +1946,7 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar item do Radar mostra erro
 
   await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarRadarItemImpl });
 
-  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr');
+  const primeiraLinha = doc.getElementById('radarOportunidadesGrid').querySelector('.radar-table tbody tr.radar-linha');
   primeiraLinha.querySelector('.radar-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   primeiraLinha.querySelector('.radar-salvar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
@@ -2059,4 +2061,45 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado do split inter
 
   assert.equal(chamadasGet, 1);
   assert.match(splitGrid.querySelector('.goal-edit-status').textContent, /soma inválida/);
+});
+
+// ---- 26/09/2026: "momento de aporte" embaixo de cada ativo do Radar (momento-aporte.js) ----
+test('renderRadarOportunidades(): cada ativo ganha, logo abaixo, o "momento de aporte" (mesma leitura da tela de Aportes), com as metas da página', async () => {
+  const { metasDaDistribuicao } = await import('../assets/js/pages/momento-aporte.js');
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const metas = metasDaDistribuicao({ objetivos: OBJETIVOS_EXEMPLO, splitsInternos: SPLITS_INTERNOS_EXEMPLO });
+  assert.deepEqual(metas.acoes, { desejado: 0.6, atual: 0.6257188358, carteiraAtual: 29975.54, valorInvestir: 0 });
+  assert.equal(metas.rfEmergencial.desejado, 0.9);
+  assert.equal(metas.fiis.desejado, 0.4);
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { metas });
+  const linhas = [...container.querySelectorAll('.radar-table tbody tr')];
+  assert.deepEqual(linhas.map((tr) => tr.className), ['radar-linha', 'radar-momento-tr', 'radar-linha', 'radar-momento-tr']);
+  const momentoWiz = linhas[1];
+  assert.equal(momentoWiz.children.length, 2, 'célula vazia embaixo do # e o momento embaixo do resto');
+  assert.equal(momentoWiz.children[1].colSpan, linhas[0].children.length - 1);
+  const texto = momentoWiz.textContent.replace(/\s+/g, ' ');
+  assert.match(texto, /Bom momento/);
+  assert.match(texto, /Abaixo do preço-teto \(R\$ 10,00\): margem de 27,9%/);
+  assert.match(texto, /Abaixo do % desejado no Radar \(3,4% de 11,0%\): faltam R\$ 4\.931/);
+  assert.ok(momentoWiz.querySelector('.momento.nivel-bom'));
+  assert.match(container.querySelector('.radar-momento-nota').textContent, /Não é recomendação/);
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  const gprk = container.querySelector('.radar-momento-tr');
+  assert.match(gprk.textContent.replace(/\s+/g, ' '), /Melhor esperar.*Acima do preço-teto \(US\$ 10,35\)/);
+});
+
+test('momento-aporte.js: item do Radar vira ativo pra leitura (sem quantidade: "tem posição" = carteira atual > 0) e o HTML esconde o que passa de 3 sinais', async () => {
+  const { ativoDoRadar, momentoHtml, momentoDoRadar } = await import('../assets/js/pages/momento-aporte.js');
+  const item = RADAR_EXEMPLO.acoesNacionais.itens.find((i) => i.ativo === 'WIZC3');
+  const a = ativoDoRadar({ ...item, variacaoDia: -0.03 }, 'acoesNacionais');
+  assert.deepEqual([a.ticker, a.moeda, a.quantidade, a.radar.valorInvestir, a.variacaoDia], ['WIZC3', 'BRL', 1, 4931.49, -0.03]);
+  assert.equal(ativoDoRadar(RADAR_EXEMPLO.acoesInternacionais.itens[0], 'acoesInternacionais').moeda, 'USD');
+  const m = momentoDoRadar({ ...item, variacaoDia: -0.03 }, 'acoesNacionais');
+  assert.ok(m.sinais.length > 3);
+  const dom = new JSDOM(`<div>${momentoHtml(m)}</div>`);
+  const d = dom.window.document;
+  assert.equal(d.querySelectorAll('.momento > .momento-sinais > .momento-sinal').length, 3);
+  assert.equal(d.querySelector('.momento-mais summary').textContent.trim(), `+${m.sinais.length - 3} sinais`);
+  assert.equal(momentoHtml(null), '');
 });

@@ -316,6 +316,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var linhasRvPorTicker_ = {}; // ticker -> [{ chave, preco, valorBrl, classeBruta }] (só linhas com Valor BRL preenchido)
 
   if (linhasPatrimonio > 0) {
+    if (typeof carregarListasTickersDaPlanilha_ === 'function') carregarListasTickersDaPlanilha_(ss); // FII novo (Planilha.gs, 26/09/2026)
     abaPatrimonio.getRange(2, 1, linhasPatrimonio, 8).getValues().forEach(function (linha) {
       var data = linha[0];
       if (!(data instanceof Date)) return;

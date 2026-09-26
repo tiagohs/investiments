@@ -190,9 +190,15 @@
    ganha o fundo — no card do mobile, o :has() abaixo espalha essa cor
    pra área do header inteira (Ranking + Ativo, que ali formam 1 bloco
    visual só), não só o texto do ticker. */
-.radar-table td.radar-fii-cor-tijolo{ background:var(--fii-tijolo-soft); }
-.radar-table td.radar-fii-cor-hibrido{ background:var(--fii-hibrido-soft); }
-.radar-table td.radar-fii-cor-papel{ background:var(--fii-papel-soft); }
+/* 26/09/2026 (Tiago): sem fundo - o tipo vai embaixo do ticker, com uma
+   bolinha da cor (igual à tabela da Carteira de FIIs). */
+.radar-ativo-bloco{ display:inline-flex; flex-direction:column; align-items:flex-start; gap:2px; vertical-align:middle; text-align:left; line-height:1.2; }
+.radar-ativo-linha{ display:inline-flex; align-items:center; gap:4px; }
+.radar-fii-tipo{ display:inline-flex; align-items:center; gap:5px; font-family:var(--body-f); font-size:10.5px; font-weight:500; color:var(--ink-faint); }
+.radar-fii-tipo i{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--ink-faint); }
+.radar-fii-tipo-tijolo i{ background:var(--fii-tijolo); }
+.radar-fii-tipo-hibrido i{ background:var(--fii-hibrido); }
+.radar-fii-tipo-papel i{ background:var(--fii-papel); }
 
 /* Legenda acima da tabela de FIIs — 1 pill por tipo, com a mesma cor
    suave do fundo de linha e a fotinho que o Tiago organizou em
@@ -356,12 +362,6 @@
      os 2, não só a célula do Ativo sozinha - :has() olha pro irmão
      .radar-fii-cor-* dentro da mesma linha e pinta toda a área
      .radar-card-topo (funciona em Chrome/Safari/Firefox atuais). */
-  .radar-table tr:has(> td.radar-fii-cor-tijolo) td.radar-card-topo,
-  .radar-table tr:has(> td.radar-fii-cor-tijolo) td.radar-acoes{ background:var(--fii-tijolo-soft); }
-  .radar-table tr:has(> td.radar-fii-cor-hibrido) td.radar-card-topo,
-  .radar-table tr:has(> td.radar-fii-cor-hibrido) td.radar-acoes{ background:var(--fii-hibrido-soft); }
-  .radar-table tr:has(> td.radar-fii-cor-papel) td.radar-card-topo,
-  .radar-table tr:has(> td.radar-fii-cor-papel) td.radar-acoes{ background:var(--fii-papel-soft); }
 
   /* Lápis (Editar) sobe pro header do card, do lado direito, ao invés
      de virar sua própria linha lá embaixo (pedido do Tiago,
@@ -387,4 +387,24 @@
   .radar-preco-wrap{ flex-direction:row; align-items:baseline; gap:6px; }
 
   .radar-fii-legenda{ margin:0 0 10px; }
+}
+
+
+/* ---- 26/09/2026: "momento de aporte" embaixo de cada ativo do Radar
+   (pages/momento-aporte.js; o painel .momento* é de shell.css). Tela larga:
+   linha logo abaixo do ativo, um respiro entre os valores e o painel, o hover
+   da linha não pinta o painel. Celular: vira o pé do card do ativo (o card de
+   cima perde a borda de baixo e a sombra; a sombra fica no pé). ---- */
+.radar-table tbody tr.radar-linha:has(+ .radar-momento-tr) td{ border-bottom:none; }
+.radar-table tbody tr.radar-momento-tr td{ padding:4px 14px 14px; text-align:left; white-space:normal; }
+.radar-table tbody tr.radar-momento-tr td.radar-momento-vazio{ padding:0; }
+.radar-table tbody tr.radar-momento-tr:hover{ background:none; }
+.radar-momento-nota{ font-size:11px; line-height:1.5; color:var(--ink-faint); margin-top:10px; }
+@media (max-width:640px){
+  .radar-table tbody tr.radar-linha:has(+ .radar-momento-tr){ margin-bottom:0; border-bottom:none; border-radius:14px 14px 0 0; box-shadow:none; padding-bottom:0; }
+  .radar-table tbody tr.radar-momento-tr{ display:block; margin:0 0 10px; padding:10px 12px 12px; border-top:none; border-radius:0 0 14px 14px; }
+  .radar-table tbody tr.radar-momento-tr:last-child{ margin-bottom:0; }
+  .radar-table tbody tr.radar-momento-tr td{ display:block; padding:0; border:none; text-align:left; }
+  .radar-table tbody tr.radar-momento-tr td::before{ content:none; }
+  .radar-table tbody tr.radar-momento-tr td.radar-momento-vazio{ display:none; }
 }

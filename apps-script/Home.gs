@@ -258,7 +258,7 @@ function montarHome_() {
   var spxValor = blocoAux[8][0]; // B15
   var spxVar = blocoAux[9][0]; // B16
 
-  var usd = distribuicaoMetas.getRange('K56').getValue();
+  var usd = distribuicaoMetas.getRange(localDistribuicaoMetas_(distribuicaoMetas).dolar).getValue(); // 26/09/2026: era K56 fixo (Planilha.gs)
 
   return {
     patrimonio: {

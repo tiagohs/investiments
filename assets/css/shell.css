@@ -481,3 +481,71 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .vd-ativo:hover, .vd-ativo:focus-visible{ text-decoration:underline; }
 .vd-grupo + .vd-grupo{ margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
 .vd-grupo-titulo{ font:700 11px var(--body-f); text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); margin:0 0 10px; }
+
+/* ---- 26/09/2026: "Consolidação necessária" (shell.js!setupConsolidacao).
+   Pílula âmbar no topo, só aparece com pendência; o painel reaproveita o
+   .overlay-panel do Registro de Controle. ---- */
+.consol-wrap[hidden]{ display:none; }
+.consol-pill{ display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 13px 0 11px; border-radius:100px;
+      border:1px solid color-mix(in srgb, var(--warn) 55%, transparent); background:var(--warn-soft); color:var(--warn-ink);
+      font-family:var(--body-f); font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; box-shadow:var(--shadow); }
+.consol-pill:hover{ border-color:var(--warn); }
+.consol-pill:focus-visible{ outline:2px solid var(--warn); outline-offset:2px; }
+.consol-dot{ width:8px; height:8px; border-radius:50%; background:var(--warn); flex:none; position:relative; }
+.consol-dot::after{ content:''; position:absolute; inset:-4px; border-radius:50%; border:2px solid var(--warn); opacity:0; animation:consolPulso 2.2s ease-out infinite; }
+.consol-wrap.rodando .consol-dot::after{ animation-duration:.9s; }
+@keyframes consolPulso{ 0%{ transform:scale(.6); opacity:.7; } 100%{ transform:scale(1.5); opacity:0; } }
+.consol-txt-curto{ display:none; }
+@media (max-width:520px){ .consol-txt{ display:none; } .consol-txt-curto{ display:inline; } .consol-pill{ padding:0 11px 0 10px; } }
+.consol-panel{ width:min(340px, calc(100vw - 32px)); }
+.consol-oque{ font-size:12.5px; font-weight:700; color:var(--ink); padding:0 4px 6px; }
+.consol-oque:empty{ display:none; }
+.consol-explica{ font-size:12px; line-height:1.5; color:var(--ink-muted); padding:0 4px 10px; }
+.consol-motivos{ list-style:none; margin:0 0 10px; padding:8px 10px; border-radius:10px; background:var(--surface-3); display:flex; flex-direction:column; gap:6px; }
+.consol-motivos li{ display:flex; flex-direction:column; gap:1px; font-size:11.5px; color:var(--ink); }
+.consol-motivos small{ font-size:10.5px; color:var(--ink-faint); }
+.consol-progresso{ display:flex; flex-direction:column; gap:5px; margin:0 0 10px; padding:0 4px; max-height:220px; overflow-y:auto; }
+.consol-passo{ font-size:11.5px; line-height:1.45; color:var(--ink-muted); padding-left:16px; position:relative; }
+.consol-passo::before{ content:''; position:absolute; left:3px; top:.5em; width:6px; height:6px; border-radius:50%; background:var(--ink-faint); }
+.consol-passo.ok{ color:var(--ink); } .consol-passo.ok::before{ background:var(--good); }
+.consol-passo.aviso{ color:var(--warn-ink); } .consol-passo.aviso::before{ background:var(--warn); }
+.consol-passo.erro{ color:var(--bad-ink); } .consol-passo.erro::before{ background:var(--bad); }
+.consol-go{ width:100%; justify-content:center; }
+@media (prefers-reduced-motion: reduce){ .consol-dot::after{ animation:none; } }
+
+/* ---- 26/09/2026: "momento de aporte" (pages/momento-aporte.js) - embaixo de
+   cada ativo em Transações › Aportes e no Radar de oportunidades. Painel
+   suave (o mesmo do celular também no desktop, pedido do Tiago): selo com o
+   veredito em cima, os sinais que mais pesam embaixo - em colunas na tela
+   larga, um embaixo do outro no celular; "+N" abre o resto ali mesmo. ---- */
+.momento{ position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; min-width:0; text-align:left; white-space:normal;
+      padding:10px 14px 11px; border-radius:12px; background:var(--surface-3); }
+.momento-selo{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-family:var(--body-f); font-size:10.5px; font-weight:700;
+      letter-spacing:.02em; line-height:1; white-space:nowrap; padding:5px 10px 5px 8px; border-radius:100px; background:var(--surface); color:var(--ink-muted); cursor:help; }
+.momento-selo i{ width:7px; height:7px; border-radius:50%; background:var(--na); flex:none; }
+.momento.nivel-bom .momento-selo{ background:var(--good-soft); color:var(--good-ink); }
+.momento.nivel-bom .momento-selo i{ background:var(--good); }
+.momento.nivel-esperar .momento-selo{ background:var(--warn-soft); color:var(--warn-ink); }
+.momento.nivel-esperar .momento-selo i{ background:var(--warn); }
+.momento-sinais{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); align-items:start; gap:6px 22px; min-width:0; }
+.momento-sinal{ display:flex; align-items:flex-start; gap:6px; font-family:var(--body-f); font-size:12px; line-height:1.45; color:var(--ink-muted); min-width:0; }
+.momento-txt{ min-width:0; }
+.momento-ico{ width:12px; height:12px; flex:none; margin-top:2.5px; }
+.momento-ico svg{ width:100%; height:100%; display:block; }
+.momento-sinal.bom .momento-ico{ color:var(--good); }
+.momento-sinal.ruim .momento-ico{ color:var(--bad); }
+.momento-sinal.neutro .momento-ico{ color:var(--ink-faint); }
+.momento-mais-li{ display:flex; }
+.momento-mais summary{ list-style:none; cursor:pointer; font-family:var(--body-f); font-size:10.5px; font-weight:700; line-height:1; color:var(--ink-muted);
+      padding:4px 9px; border-radius:100px; border:1px solid var(--border); background:var(--surface); }
+.momento-mais summary::-webkit-details-marker{ display:none; }
+.momento-mais summary:hover{ color:var(--ink); border-color:var(--ink-faint); }
+.momento-mais summary:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.momento-mais-li:has(> .momento-mais[open]){ grid-column:1 / -1; }
+.momento-mais[open]{ width:100%; }
+.momento-mais[open] summary{ display:none; }
+.momento-sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+@media (max-width:640px){
+  .momento{ padding:9px 11px 10px; gap:7px; }
+  .momento-sinais{ grid-template-columns:minmax(0, 1fr); gap:5px; }
+}
