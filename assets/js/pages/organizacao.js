@@ -21,6 +21,7 @@ import {
   CATEGORIAS, SEM_CATEGORIA, categoriaSugerida, lerValorBR, mensalDespesa, calcularOrganizacao, rascunhoDoServidor,
   novoItemDespesa, estadoItem, mudancasRascunho, validarRascunho, payloadRascunho, impactoRascunho,
 } from './organizacao-calc.js';
+import { montarAbaSalario } from './organizacao-salario.js';
 
 const CHAVE_CACHE = 'despesas';
 const CHAVE_ORDEM = 'organizacao.ordem';
@@ -275,7 +276,7 @@ export function htmlBarra(mud, imp, { erros = [], salvando = false, erro = '', c
 // ---------------------------------------------------------------------------
 
 export async function montarPaginaOrganizacao(token, {
-  doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true,
+  doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true, salarioOpcoes = {},
 } = {}) {
   const loadingEl = doc.getElementById('organizacaoLoading');
   const erroEl = doc.getElementById('organizacaoErro');
@@ -571,12 +572,35 @@ export async function montarPaginaOrganizacao(token, {
     });
   }
 
+  // 26/09/2026: 2 abas - Despesas (o que já existia) e Salário e investimentos
+  // (organizacao-salario.js, carregada só quando abre). #salario no endereço
+  // abre direto nela.
+  const abasEl = doc.getElementById('ogAbas');
+  const painelDespesas = doc.getElementById('painelDespesas');
+  const painelSalario = doc.getElementById('painelSalario');
+  const salarioEl = doc.getElementById('salarioConteudo');
+  let salario = null;
+  function mostrarAba(qual) {
+    const aba = qual === 'salario' && painelSalario ? 'salario' : 'despesas';
+    if (painelDespesas) painelDespesas.hidden = aba !== 'despesas';
+    if (painelSalario) painelSalario.hidden = aba !== 'salario';
+    if (abasEl) abasEl.querySelectorAll('[data-aba]').forEach((b) => { const a = b.dataset.aba === aba; b.classList.toggle('active', a); b.setAttribute('aria-selected', String(a)); });
+    if (aba === 'salario' && !salario && salarioEl) salario = montarAbaSalario({ doc, el: salarioEl, token, ...salarioOpcoes });
+    if (win && win.history && typeof win.history.replaceState === 'function' && win.location) {
+      const hash = aba === 'salario' ? '#salario' : '';
+      try { if ((win.location.hash || '') !== hash) win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}${hash}`); } catch (e) { /* ok */ }
+    }
+  }
+  if (abasEl) abasEl.addEventListener('click', (ev) => { const b = ev.target.closest('[data-aba]'); if (b) mostrarAba(b.dataset.aba); });
+  mostrarAba(win && win.location && win.location.hash === '#salario' ? 'salario' : 'despesas');
+  const atualizarTudo = async () => { await carregar(); if (salario && salario.dados) await salario.recarregar(); };
+
   const cache = await lerCacheDados(CHAVE_CACHE);
   if (cache && cache.dados && cache.dados.ok) { aplicarDados(cache.dados); desenharTudo(); }
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
-  if (refresh) await mountRefreshControl(doc, refreshEl, carregar, { setIntervalImpl: null }).atualizar();
+  if (refresh) await mountRefreshControl(doc, refreshEl, atualizarTudo, { setIntervalImpl: null }).atualizar();
   else await carregar();
-  return { get rascunho() { return rascunho; }, get dados() { return dados; } };
+  return { get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, mostrarAba };
 }

@@ -33,10 +33,15 @@
     <div class="og-titulo">
       <div>
         <h1>Organização Financeira</h1>
-        <p>Despesas essenciais, custo de vida e a meta da reserva de emergência.</p>
+        <p>Despesas essenciais, salário e quanto você investe de verdade.</p>
       </div>
       <div id="refreshControlOrganizacao" class="refresh-control"></div>
     </div>
+    <div class="og-abas" role="tablist" aria-label="Organização Financeira" id="ogAbas">
+      <button type="button" role="tab" class="og-aba active" data-aba="despesas" aria-selected="true" aria-controls="painelDespesas">Despesas</button>
+      <button type="button" role="tab" class="og-aba" data-aba="salario" aria-selected="false" aria-controls="painelSalario">Salário e investimentos</button>
+    </div>
+    <div id="painelDespesas" role="tabpanel">
     <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
       <div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
       <span class="skel" style="height:110px;border-radius:14px"></span>
@@ -44,6 +49,8 @@
     </div>
     <div class="carteiras-erro" id="organizacaoErro" hidden></div>
     <div id="organizacaoConteudo" hidden></div>
+    </div>
+    <div id="painelSalario" role="tabpanel" hidden><div id="salarioConteudo" class="sl-conteudo"></div></div>
   </main>
 
   <div id="shell-footer"></div>

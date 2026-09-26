@@ -87,6 +87,9 @@ function doGet(e) {
   if (action === 'infoNovoAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleInfoNovoAtivo(e, auth);
   }
+  if (action === 'salario') { // 26/09/2026: Organização Financeira - aba Salário (Salario.gs)
+    return handleSalario(e, auth);
+  }
   if (action === 'despesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleDespesas(e, auth);
   }
@@ -128,6 +131,15 @@ function doPost(e) {
   }
   if (action === 'adicionarAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleAdicionarAtivo(e);
+  }
+  if (action === 'salvarSalarioBase') { // 26/09/2026: Organização Financeira - aba Salário (Salario.gs)
+    return handleSalvarSalarioBase(e);
+  }
+  if (action === 'salvarPagamentoSalario') {
+    return handleSalvarPagamentoSalario(e);
+  }
+  if (action === 'excluirPagamentoSalario') {
+    return handleExcluirPagamentoSalario(e);
   }
   if (action === 'salvarDespesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleSalvarDespesas(e);

@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getDespesas, salvarDespesas, getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -373,4 +373,28 @@ test('getIntradia() calls action=intradia with the keys joined by comma', async 
   assert.equal(params.get('action'), 'intradia');
   assert.equal(params.get('simbolos'), 'IBOV,acoes:AAAA3,usa:CCCC');
   assert.equal(params.get('token'), 'tok');
+});
+
+// 26/09/2026: Organização Financeira (Despesas.gs / Salario.gs)
+test('Organização: getDespesas/getSalario (GET) e as gravações (POST form-encoded, JSON onde precisa)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getDespesas('tk');
+  await getSalario('tk');
+  await salvarDespesas('tk', { itens: [{ nome: 'X', valor: 1 }], folga: 0.1, meses: 6, sobra: 0.1, assinatura: 'a' });
+  await salvarSalarioBase('tk', { liquido: 1000, percentual: 0.2 });
+  await salvarPagamentoSalario('tk', { mes: '2026-01', liquido: 10 }, { usarComoBase: true });
+  await excluirPagamentoSalario('tk', '2026-01', 'Mensal');
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
+    ['GET', 'despesas'], ['GET', 'salario'], ['POST', 'salvarDespesas'], ['POST', 'salvarSalarioBase'], ['POST', 'salvarPagamentoSalario'], ['POST', 'excluirPagamentoSalario'],
+  ]);
+  assert.deepEqual(JSON.parse(vistos[2].params.get('itens')), [{ nome: 'X', valor: 1 }]);
+  assert.equal(vistos[2].params.get('assinatura'), 'a');
+  assert.equal(vistos[3].params.get('percentual'), '0.2');
+  assert.equal(JSON.parse(vistos[4].params.get('pagamento')).mes, '2026-01');
+  assert.equal(vistos[4].params.get('usarComoBase'), '1');
+  assert.equal(vistos[5].params.get('tipo'), 'Mensal');
 });

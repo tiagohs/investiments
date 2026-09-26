@@ -603,3 +603,25 @@ export async function salvarDespesas(token, { itens, folga, meses, sobra, assina
     assinatura: assinatura || '',
   });
 }
+
+/** 26/09/2026: aba Salário e investimentos da Organização Financeira (Salario.gs). */
+export async function getSalario(token) {
+  return request('GET', 'salario', token);
+}
+
+/** Salário líquido (DM!N11) e/ou % pra investir (fração 0-1, DM!Q11). */
+export async function salvarSalarioBase(token, { liquido, percentual }) {
+  return request('POST', 'salvarSalarioBase', token, {
+    liquido: liquido == null ? '' : String(liquido),
+    percentual: percentual == null ? '' : String(percentual),
+  });
+}
+
+/** Grava (ou substitui, mesmo mês + tipo) um pagamento na aba 'Salário'. */
+export async function salvarPagamentoSalario(token, pagamento, { usarComoBase = false } = {}) {
+  return request('POST', 'salvarPagamentoSalario', token, { pagamento: JSON.stringify(pagamento || {}), usarComoBase: usarComoBase ? '1' : '' });
+}
+
+export async function excluirPagamentoSalario(token, mes, tipo) {
+  return request('POST', 'excluirPagamentoSalario', token, { mes: mes || '', tipo: tipo || '' });
+}
