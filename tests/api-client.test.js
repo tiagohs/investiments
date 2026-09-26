@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -357,4 +357,20 @@ test('criarSessao() faz POST com o token do Google; resposta "autenticação" re
   t.mock.method(globalThis, 'fetch', async () => jsonResponse({ ok: false, etapa: 'autenticação', erro: 'sessão expirada' }));
   await getAtivo2(getToken(), 'TEST3');
   assert.equal(getToken(), null);
+});
+
+// 26/09/2026: gráfico do dia da Início (apps-script/Intradia.gs)
+test('getIntradia() calls action=intradia with the keys joined by comma', async (t) => {
+  let capturedUrl;
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    capturedUrl = url;
+    assert.equal(opts.method, 'GET');
+    return jsonResponse({ ok: true, resultado: { IBOV: null } });
+  });
+  const r = await getIntradia('tok', ['IBOV', 'acoes:AAAA3', 'usa:CCCC']);
+  assert.equal(r.ok, true);
+  const params = new URL(capturedUrl).searchParams;
+  assert.equal(params.get('action'), 'intradia');
+  assert.equal(params.get('simbolos'), 'IBOV,acoes:AAAA3,usa:CCCC');
+  assert.equal(params.get('token'), 'tok');
 });

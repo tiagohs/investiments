@@ -127,12 +127,14 @@
  * `title` escondendo nada.
  */
 
-import { getHome, getHistoricoAtivo } from '../api-client.js';
+import { getHome, getHistoricoAtivo, getIntradia } from '../api-client.js';
 import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import { renderProventosAnunciados } from './inicio-proventos.js';
+import { renderFaixaMercado, completarFaixaComIntradia, renderResumoCompacto, wireListaAtivos } from './inicio-painel.js';
+import { CHAVES_MERCADO, chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
@@ -2428,11 +2430,65 @@ export function renderAvisos(container, avisos) {
  * ver shell.js). getHomeImpl é injetável pra teste (sem precisar de
  * fetch/token reais).
  */
-export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome, salvarFavoritosImpl = null, opcoesFavoritos = null } = {}) {
+export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome, getIntradiaImpl = getIntradia, salvarFavoritosImpl = null, opcoesFavoritos = null } = {}) {
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
   const refreshControlEl = doc.getElementById('refreshControlInicio');
+  const faixaEl = doc.getElementById('faixaMercado');
+
+  // 26/09/2026: gráfico do dia (inicio-intradia.js / Intradia.gs) - dos
+  // índices da faixa de mercado e dos favoritos. Guardado aqui pra redesenhar
+  // na hora (Atualizar dados, estrela, arrastar) sem buscar de novo; busca
+  // de novo no máximo 1x por minuto, e só as chaves que faltam no meio tempo.
+  const seriesIntradia = {};
+  let ultimaBuscaIntradia = 0;
+  let pendentesIntradia = new Set();
+  let agendado = false;
+  const hojeISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  function aplicarIntradia(series) {
+    if (!conteudoEl) return;
+    preencherIntradia(conteudoEl, series, { hojeISO: hojeISO() });
+    completarFaixaComIntradia(faixaEl, series);
+  }
+  async function buscarIntradia(chaves, { forcar = false } = {}) {
+    if (!getIntradiaImpl || !chaves.length) return;
+    const agora = Date.now();
+    const lista = forcar || agora - ultimaBuscaIntradia > 60000 ? chaves : chaves.filter((c) => !(c in seriesIntradia));
+    if (!lista.length) { aplicarIntradia(seriesIntradia); return; }
+    if (lista.length === chaves.length) ultimaBuscaIntradia = agora;
+    let r = null;
+    try { r = await getIntradiaImpl(token, lista); } catch (e) { r = null; }
+    if (r && r.ok && r.resultado) {
+      Object.assign(seriesIntradia, r.resultado);
+      aplicarIntradia(r.resultado);
+    }
+  }
+  function pedirIntradia(chaves) {
+    chaves.forEach((c) => pendentesIntradia.add(c));
+    if (agendado) return;
+    agendado = true;
+    Promise.resolve().then(() => {
+      agendado = false;
+      const lista = [...pendentesIntradia];
+      pendentesIntradia = new Set();
+      buscarIntradia(lista);
+    });
+  }
+  // cartão de favorito = o mesmo de "Meus ativos" + o gráfico do dia
+  function criarCardFavorito(d, ativo, opcoes) {
+    const card = criarAtivoCard(d, ativo, opcoes);
+    const chave = chaveIntradiaDoAtivo(ativo);
+    if (!chave) return card;
+    card.classList.add('com-intradia');
+    const slot = d.createElement('div');
+    slot.className = 'ativo-intradia intradia-slot';
+    slot.dataset.intradia = chave;
+    card.insertBefore(slot, card.querySelector('.ativo-card-acoes'));
+    if (chave in seriesIntradia) preencherIntradia(card, { [chave]: seriesIntradia[chave] }, { hojeISO: hojeISO() });
+    else pedirIntradia([chave]);
+    return card;
+  }
 
   function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
@@ -2449,8 +2505,8 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     if (erroEl) erroEl.hidden = true;
 
     renderAvisos(doc.getElementById('inicioAvisos'), resposta.avisos);
-    renderIndicesCambio(doc, doc.getElementById('indicesCambioGrid'), { indices: resposta.indices, cambio: resposta.cambio });
-    renderResumoPatrimonio(doc, doc.getElementById('resumoPatrimonio'), {
+    renderFaixaMercado(doc, faixaEl, { indices: resposta.indices, cambio: resposta.cambio });
+    renderResumoCompacto(doc, doc.getElementById('resumoPatrimonio'), {
       patrimonio: resposta.patrimonio,
       ativos: resposta.ativos,
       cambio: resposta.cambio,
@@ -2477,13 +2533,19 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       })),
     });
 
-    renderMeusAtivos(doc, doc.getElementById('meusAtivosGrid'), resposta.ativos, 'todos');
-    wireFiltroAtivos(doc, doc.getElementById('filtroAtivosTabs'), doc.getElementById('meusAtivosGrid'), resposta.ativos);
-    wireTooltipAtivos(doc, doc.getElementById('meusAtivosGrid'));
-    wireGraficoAtivo(doc, doc.getElementById('meusAtivosGrid'), { token });
+    // 26/09/2026: "Meus ativos" virou lista enxuta na coluna lateral
+    // (inicio-painel.js) - a estrela continua sendo a mesma (.ativo-fav-btn).
+    const meusAtivosLista = doc.getElementById('meusAtivosGrid');
+    wireListaAtivos(doc, {
+      lista: meusAtivosLista,
+      abas: doc.getElementById('filtroAtivosTabs'),
+      busca: doc.getElementById('alBusca'),
+      ordem: doc.getElementById('alOrdem'),
+      contador: doc.getElementById('alContador'),
+      mais: doc.getElementById('alMais'),
+    }, resposta.ativos || [], { cambioUsd: resposta.cambio && resposta.cambio.usd });
 
-    // 23/09/2026: Favoritos (inicio-favoritos.js) - área logo abaixo de
-    // "Índices & câmbio"; a lista salva vem junto na resposta da Início.
+    // 23/09/2026: Favoritos (inicio-favoritos.js); a lista salva vem junto na resposta da Início.
     const favoritosGrid = doc.getElementById('favoritosGrid');
     montarFavoritos(doc, {
       secao: doc.getElementById('favoritosSecao'),
@@ -2491,11 +2553,11 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       botaoEditar: doc.getElementById('favoritosEditar'),
       dica: doc.getElementById('favoritosDica'),
       status: doc.getElementById('favoritosStatus'),
-      meusAtivosGrid: doc.getElementById('meusAtivosGrid'),
+      meusAtivosGrid: meusAtivosLista,
       ativos: resposta.ativos || [],
       favoritos: Array.isArray(resposta.favoritos) ? resposta.favoritos : [],
       token,
-      criarCard: criarAtivoCard,
+      criarCard: criarCardFavorito,
       ...(salvarFavoritosImpl ? { salvarImpl: salvarFavoritosImpl } : {}),
       ...(opcoesFavoritos || {}), // só teste (ex.: acharCardNoPonto - JSDOM não tem layout)
     });
@@ -2504,6 +2566,10 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
 
     // 24/09/2026: proventos a receber (FIIs, FNet/B3) - ver inicio-proventos.js
     renderProventosAnunciados(doc, doc.getElementById('proventosSecao'), resposta.proventosAnunciados);
+
+    aplicarIntradia(seriesIntradia);
+    const chavesFavoritos = favoritosGrid ? [...favoritosGrid.querySelectorAll('[data-intradia]')].map((el) => el.dataset.intradia) : [];
+    buscarIntradia([...CHAVES_MERCADO, ...chavesFavoritos]);
   }
 
   // 25/09/2026 (Tiago: "demorando muito pra carregar"): desenha na hora com

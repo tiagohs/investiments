@@ -87,6 +87,9 @@ function doGet(e) {
   if (action === 'infoNovoAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleInfoNovoAtivo(e, auth);
   }
+  if (action === 'intradia') { // 26/09/2026: gráfico do dia dos favoritos e dos índices (Intradia.gs)
+    return handleIntradia(e);
+  }
   if (action === 'consolidacao') { // 26/09/2026: aviso "Consolidação necessária" (Consolidacao.gs)
     return handleConsolidacaoStatus(e);
   }

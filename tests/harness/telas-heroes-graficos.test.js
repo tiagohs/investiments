@@ -153,6 +153,37 @@ function serieComUsd(s) {
 }
 const r2 = (v) => Math.round(v * 100) / 100;
 
+// 26/09/2026: o resumo da Início virou um cartão só com 4 abas-número
+// (inicio-painel.js renderResumoCompacto). Lê o que a TELA mostra em cada aba:
+// valor, variação (▲/▼ + R$ no title + %) e a distribuição da aba escolhida
+// (Ações EUA mostram US$ na legenda, com o R$ no title do item).
+function lerResumoCompactoInicio(dom, doc) {
+  const box = doc.getElementById('resumoPatrimonio');
+  const clicarAba = (v) => box.querySelector(`.rc-visao[data-visao="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const out = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].map((visao) => {
+    clicarAba(visao);
+    const b = box.querySelector(`.rc-visao[data-visao="${visao}"]`);
+    const delta = b.querySelector('.rc-delta');
+    const sinal = delta.classList.contains('bad') ? -1 : 1;
+    const valor = lerBRL(b.querySelector('.rc-valor').textContent);
+    const dif = delta.getAttribute('title') ? sinal * Math.abs(lerBRL(delta.getAttribute('title'))) : null;
+    const pct = lerPct(delta.textContent);
+    const itens = [...box.querySelectorAll('.rc-legenda li')];
+    return {
+      visao,
+      label: b.querySelector('.rc-rotulo').textContent.trim(),
+      valor,
+      ontem: dif == null ? null : Math.round((valor - dif) * 100) / 100,
+      varPct: pct == null ? null : sinal * Math.abs(pct),
+      fatias: itens.map((li) => { const t = li.getAttribute('title'); return lerBRL(t && /R\$/.test(t) ? t : li.querySelector('.rc-leg-valor').textContent); }),
+      distribTexto: itens.map((li) => `${li.querySelector('.rc-leg-nome').textContent} ${li.querySelector('b').textContent} ${li.querySelector('.rc-leg-valor').textContent}`).join(' · '),
+    };
+  });
+  clicarAba('total');
+  return out;
+}
+
+
 function pular(t) {
   if (!TEM_FIXTURES) { t.skip('tests/harness/fixtures.json ausente - ver tests/harness/README.md'); return true; }
   return false;
@@ -330,7 +361,7 @@ async function montarInicioNaTela(home) {
   const doc = dom.window.document;
   // o partial guarda a Início num <template> (router.js injeta) - mesma coisa aqui
   doc.body.append(doc.getElementById('page-inicio-template').content.cloneNode(true));
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl: async () => home });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl: async () => home, getIntradiaImpl: null });
   return { dom, doc };
 }
 function clicarPeriodo(doc, periodoId) {
@@ -544,25 +575,21 @@ test('Início: cards do resumo - valor = ao vivo e "ontem era" = fechamento do �
     nacional: [home.patrimonio.nacional, ontem.nacional + ajRf - ajRe],
     rendaEmergencial: [home.patrimonio.rendaEmergencial, ontem.rendaEmergencial + ajRe],
   };
-  const cards = [...doc.querySelectorAll('#resumoPatrimonio .resumo-card')];
+  const cards = lerResumoCompactoInicio(dom, doc);
   const erros = [];
   ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].forEach((visaoId, i) => {
-    const valorTela = lerBRL(cards[i].querySelector('.resumo-value').textContent);
-    const txtOntem = cards[i].querySelector('.resumo-ontem').textContent;
-    const ontemTela = lerBRL(txtOntem);
-    const varTela = lerPct(txtOntem.slice(txtOntem.lastIndexOf(' - ')));
+    const { valor: valorTela, ontem: ontemTela, varPct: varTela, fatias } = cards[i];
     const [vHoje, vOntem] = esperado[visaoId];
     const varEsperada = r2((vHoje / vOntem - 1) * 100);
     t.diagnostic(`${visaoId}: hoje ${valorTela} | ontem era ${ontemTela} (${ontem.data}) | ${varTela}%`);
     if (Math.abs(valorTela - r2(vHoje)) > 0.011) erros.push(`${visaoId}: valor ${valorTela} != ${r2(vHoje)}`);
     if (Math.abs(ontemTela - r2(vOntem)) > 0.011) erros.push(`${visaoId}: ontem ${ontemTela} != ${r2(vOntem)}`);
     if (Math.abs(varTela - varEsperada) > 0.011) erros.push(`${visaoId}: variação ${varTela} != ${varEsperada}`);
-    // 23/09/2026 #3: as fatias por classe dentro do card somam o valor do
-    // card (antes a fatia "Ações EUA" ficava alguns centavos diferente do resto)
+    // 23/09/2026 #3: as fatias por classe da distribuição somam o valor da
+    // visão (antes a fatia "Ações EUA" ficava alguns centavos diferente do resto)
     if (visaoId !== 'rendaEmergencial') {
-      const fatias = [...cards[i].querySelector('.resumo-distrib').textContent.matchAll(/R\$\s*[\d.]+,\d{2}/g)].map((m) => lerBRL(m[0]));
       const somaFatias = fatias.reduce((a, b) => a + b, 0);
-      if (Math.abs(somaFatias - r2(vHoje)) > 0.021) erros.push(`${visaoId}: fatias por classe somam ${r2(somaFatias)} != valor do card ${r2(vHoje)} (${fatias.join(' + ')})`);
+      if (Math.abs(somaFatias - r2(vHoje)) > 0.021) erros.push(`${visaoId}: fatias por classe somam ${r2(somaFatias)} != valor da visão ${r2(vHoje)} (${fatias.join(' + ')})`);
     }
   });
   dom.window.close();

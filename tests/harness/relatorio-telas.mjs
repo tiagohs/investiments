@@ -403,6 +403,36 @@ function legenda(doc, id) {
     .filter((x) => x.texto !== 'Portfólio');
 }
 
+// 26/09/2026: o resumo da Início virou um cartão só com 4 abas-número
+// (inicio-painel.js renderResumoCompacto). Lê o que a TELA mostra em cada aba:
+// valor, variação (▲/▼ + R$ no title + %) e a distribuição da aba escolhida
+// (Ações EUA mostram US$ na legenda, com o R$ no title do item).
+function lerResumoCompactoInicio(dom, doc) {
+  const box = doc.getElementById('resumoPatrimonio');
+  const clicarAba = (v) => box.querySelector(`.rc-visao[data-visao="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const out = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].map((visao) => {
+    clicarAba(visao);
+    const b = box.querySelector(`.rc-visao[data-visao="${visao}"]`);
+    const delta = b.querySelector('.rc-delta');
+    const sinal = delta.classList.contains('bad') ? -1 : 1;
+    const valor = lerBRL(b.querySelector('.rc-valor').textContent);
+    const dif = delta.getAttribute('title') ? sinal * Math.abs(lerBRL(delta.getAttribute('title'))) : null;
+    const pct = lerPct(delta.textContent);
+    const itens = [...box.querySelectorAll('.rc-legenda li')];
+    return {
+      visao,
+      label: b.querySelector('.rc-rotulo').textContent.trim(),
+      valor,
+      ontem: dif == null ? null : Math.round((valor - dif) * 100) / 100,
+      varPct: pct == null ? null : sinal * Math.abs(pct),
+      fatias: itens.map((li) => { const t = li.getAttribute('title'); return lerBRL(t && /R\$/.test(t) ? t : li.querySelector('.rc-leg-valor').textContent); }),
+      distribTexto: itens.map((li) => `${li.querySelector('.rc-leg-nome').textContent} ${li.querySelector('b').textContent} ${li.querySelector('.rc-leg-valor').textContent}`).join(' · '),
+    };
+  });
+  clicarAba('total');
+  return out;
+}
+
 async function lerTelas(r, I) {
   const home = r.home;
   const telas = { inicio: { cards: [], rentab: {} }, vg: { porPeriodo: {} }, sub: {} };
@@ -413,19 +443,8 @@ async function lerTelas(r, I) {
     const dom = new JSDOM(`<!doctype html><html><body>${html}</body></html>`);
     const doc = dom.window.document;
     doc.body.append(doc.getElementById('page-inicio-template').content.cloneNode(true));
-    await I.montarPaginaInicio('t', { doc, getHomeImpl: async () => home });
-    telas.inicio.cards = [...doc.querySelectorAll('#resumoPatrimonio .resumo-card')].map((c) => {
-      const tOntem = c.querySelector('.resumo-ontem').textContent;
-      const distrib = c.querySelector('.resumo-distrib');
-      return {
-        label: texto(c.querySelector('.resumo-label')),
-        valor: lerBRL(c.querySelector('.resumo-value').textContent),
-        ontem: lerBRL(tOntem),
-        varPct: lerPct(tOntem.slice(tOntem.lastIndexOf(' - '))),
-        fatias: distrib ? [...distrib.textContent.matchAll(/R\$\s*[\d.]+,\d{2}/g)].map((m) => lerBRL(m[0])) : [],
-        distribTexto: texto(distrib).replace(/ i( |$)/g, ' · ').replace(/ · $/, ''),
-      };
-    });
+    await I.montarPaginaInicio('t', { doc, getHomeImpl: async () => home, getIntradiaImpl: null });
+    telas.inicio.cards = lerResumoCompactoInicio(dom, doc);
     for (const per of PERIODOS) {
       clicar(dom, doc, `#periodoTabs .filter-tab[data-periodo="${per}"]`);
       telas.inicio.rentab[per] = {};

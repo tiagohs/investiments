@@ -532,6 +532,15 @@ export async function removerAtivo(token, classe, ticker) {
   return request('POST', 'removerAtivo', token, { classe, ticker });
 }
 
+/**
+ * 26/09/2026: série do dia (velas de 5 min) pro gráfico dos favoritos e dos
+ * índices da Início (apps-script/Intradia.gs). chaves: 'IBOV', 'IFIX', 'SPX',
+ * 'USD', 'EUR' ou 'classe:TICKER' (acoes/fiis/usa). { ok, resultado: { chave: serie|null } }
+ */
+export async function getIntradia(token, chaves) {
+  return request('GET', 'intradia', token, { simbolos: (chaves || []).join(',') });
+}
+
 /** 26/09/2026: estado do aviso "Consolidação necessária" (Consolidacao.gs). */
 export async function getConsolidacao(token) {
   return request('GET', 'consolidacao', token);

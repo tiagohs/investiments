@@ -19,27 +19,19 @@
 -->
 <template id="page-inicio-template">
 
-    <!-- Fase 2 (13/09/2026): cards de Índices & Câmbio + resumo de
-         Patrimônio (Total/Longo Prazo/Renda Emergencial, sempre juntos),
-         gráfico de Rentabilidade (com seletor de período) e a grade
-         "Meus Ativos" clicável — ver docs/plano-implementacao.html, Fase 2. -->
+    <!-- 26/09/2026 (Tiago: "ela tem coisas muito grandes, ocupa muito
+         espaço"): Início reorganizada - faixa fina de mercado (índices e
+         câmbio com o gráfico do dia), Favoritos (com o gráfico do dia),
+         Minha carteira num cartão só (as 4 visões viram abas-número e a
+         distribuição uma barra), e embaixo 2 colunas: Rentabilidade à
+         esquerda; Proventos do mês e Meus ativos (lista enxuta) na lateral.
+         Ver pages/inicio-painel.js e pages/inicio-intradia.js. -->
 
-    <!-- Skeleton de carregamento (13/09/2026) - placeholders no formato do
-         conteúdo real (grade de índices/câmbio + resumo de patrimônio) em
-         vez de um spinner central genérico, pra reduzir o "salto" visual
-         quando os dados chegam. Ver o bug de especificidade CSS documentado
-         em inicio.css sobre [hidden] - a mesma regra vale aqui. -->
     <div class="inicio-loading" id="inicioLoading" aria-hidden="true">
-      <span class="skel skel-header"></span>
-      <div class="skel-grid">
-        <span class="skel skel-tile"></span>
-        <span class="skel skel-tile"></span>
-        <span class="skel skel-tile"></span>
-        <span class="skel skel-tile"></span>
-        <span class="skel skel-tile"></span>
-      </div>
-      <span class="skel skel-header" style="margin-top:10px"></span>
-      <span class="skel skel-hero"></span>
+      <div class="skel-faixa"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+      <span class="skel skel-header" style="margin-top:14px"></span>
+      <span class="skel" style="height:190px;border-radius:18px"></span>
+      <div class="skel-colunas"><span class="skel" style="height:420px;border-radius:18px"></span><span class="skel" style="height:420px;border-radius:18px"></span></div>
     </div>
 
     <div class="inicio-erro" id="inicioErro" hidden></div>
@@ -48,16 +40,13 @@
       <div id="refreshControlInicio" class="refresh-control"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
 
-      <div class="area-header">
-        <h2>Índices &amp; câmbio</h2>
-        <span class="hint">referência de mercado — não é dado da sua carteira</span>
-      </div>
-      <div class="widget-grid" id="indicesCambioGrid"></div>
+      <section class="mkt-secao" aria-label="Índices e câmbio - referência de mercado, não é dado da sua carteira">
+        <div class="mkt-faixa" id="faixaMercado"></div>
+      </section>
 
       <!-- 23/09/2026: Favoritos (assets/js/pages/inicio-favoritos.js) - cópia
-           dos cards de "Meus ativos" marcados com a estrela, na ordem salva
-           (aba Auxiliar_favoritos da planilha). Reordenar: lápis -> arrastar
-           -> Concluir. -->
+           dos ativos marcados com a estrela, na ordem salva (aba
+           Auxiliar_favoritos). 26/09/2026: cada cartão traz o gráfico do dia. -->
       <section class="favoritos-secao" id="favoritosSecao" hidden>
         <div class="area-header">
           <h2>Favoritos</h2>
@@ -68,79 +57,99 @@
         <div class="favoritos-status" id="favoritosStatus" role="status" aria-live="polite"></div>
       </section>
 
-      <div class="area-header">
-        <h2>Minha carteira — situação atual</h2>
-        <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
-      </div>
-      <!-- 13/09/2026: as 3 divisoes (Total/Longo Prazo/Renda Emergencial)
-           sempre visiveis juntas, sem aba - a pedido do Tiago. Ver
-           renderResumoPatrimonio em pages/inicio.js. -->
-      <div id="resumoPatrimonio"></div>
-
-      <div class="area-header" style="margin-top:26px">
-        <h2>Rentabilidade</h2>
-      </div>
-      <div class="filter-tabs" id="periodoTabs" style="margin-bottom:14px">
-        <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
-        <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
-        <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-        <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
-        <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
-        <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
-      </div>
-
-      <div class="rentab-grid">
-        <div class="rentab-card rentab-card-full">
-          <div class="rentab-card-info" id="rentabInfoTotal"></div>
-          <div class="rentab-card-chart" id="rentabChartTotal"></div>
-          <div class="chart-legend2" id="rentabLegendaTotal"></div>
-        </div>
-        <!-- 23/09/2026 #9 (pedido do Tiago): Longo Prazo ao lado do Nacional,
-             e Ações Internacionais ao lado da Renda Emergencial (nessa ordem). -->
-        <div class="rentab-card">
-          <div class="rentab-card-info" id="rentabInfoLongoPrazo"></div>
-          <div class="rentab-card-chart" id="rentabChartLongoPrazo"></div>
-          <div class="chart-legend2" id="rentabLegendaLongoPrazo"></div>
-        </div>
-        <div class="rentab-card">
-          <div class="rentab-card-info" id="rentabInfoNacional"></div>
-          <div class="rentab-card-chart" id="rentabChartNacional"></div>
-          <div class="chart-legend2" id="rentabLegendaNacional"></div>
-        </div>
-        <div class="rentab-card">
-          <div class="rentab-card-info" id="rentabInfoInternacional"></div>
-          <div class="rentab-card-chart" id="rentabChartInternacional"></div>
-          <div class="chart-legend2" id="rentabLegendaInternacional"></div>
-        </div>
-        <div class="rentab-card">
-          <div class="rentab-card-info" id="rentabInfoRendaEmergencial"></div>
-          <div class="rentab-card-chart" id="rentabChartRendaEmergencial"></div>
-          <div class="chart-legend2" id="rentabLegendaRendaEmergencial"></div>
-        </div>
-      </div>
-
-      <!-- 24/09/2026: proventos do mês (recebidos e a receber) - ver inicio-proventos.js.
-           25/09/2026 (Tiago): logo abaixo dos gráficos de Rentabilidade. -->
-      <section class="proventos-secao" id="proventosSecao" style="margin-top:26px" hidden>
+      <section class="home-carteira">
         <div class="area-header">
-          <h2>Proventos do mês</h2>
-          <span class="hint">recebidos e a receber · aba Proventos, B3 e FNet</span>
+          <h2>Minha carteira</h2>
+          <span class="personal-chip">🔒 Seus dados · aba Dash Geral</span>
         </div>
-        <div class="prov-card prov-corpo"></div>
+        <div id="resumoPatrimonio"></div>
       </section>
 
-      <div class="area-header" style="margin-top:26px">
-        <h2>Meus ativos</h2>
-        <span class="hint">cartão inteiro é o link pro Detalhe do Ativo</span>
+      <div class="home-colunas">
+        <div class="home-principal">
+          <div class="area-header">
+            <h2>Rentabilidade</h2>
+          </div>
+          <div class="filter-tabs" id="periodoTabs" style="margin-bottom:14px">
+            <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
+            <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
+            <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
+            <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
+            <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
+            <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
+          </div>
+
+          <div class="rentab-grid">
+            <div class="rentab-card rentab-card-full">
+              <div class="rentab-card-info" id="rentabInfoTotal"></div>
+              <div class="rentab-card-chart" id="rentabChartTotal"></div>
+              <div class="chart-legend2" id="rentabLegendaTotal"></div>
+            </div>
+            <div class="rentab-card">
+              <div class="rentab-card-info" id="rentabInfoLongoPrazo"></div>
+              <div class="rentab-card-chart" id="rentabChartLongoPrazo"></div>
+              <div class="chart-legend2" id="rentabLegendaLongoPrazo"></div>
+            </div>
+            <div class="rentab-card">
+              <div class="rentab-card-info" id="rentabInfoNacional"></div>
+              <div class="rentab-card-chart" id="rentabChartNacional"></div>
+              <div class="chart-legend2" id="rentabLegendaNacional"></div>
+            </div>
+            <div class="rentab-card">
+              <div class="rentab-card-info" id="rentabInfoInternacional"></div>
+              <div class="rentab-card-chart" id="rentabChartInternacional"></div>
+              <div class="chart-legend2" id="rentabLegendaInternacional"></div>
+            </div>
+            <div class="rentab-card">
+              <div class="rentab-card-info" id="rentabInfoRendaEmergencial"></div>
+              <div class="rentab-card-chart" id="rentabChartRendaEmergencial"></div>
+              <div class="chart-legend2" id="rentabLegendaRendaEmergencial"></div>
+            </div>
+          </div>
+          <p class="rentab-dica" aria-hidden="true">Deslize pro lado: Longo Prazo, Nacional, Internacional e Renda Emergencial →</p>
+        </div>
+
+        <aside class="home-lateral" aria-label="Proventos e meus ativos">
+          <!-- 24/09/2026: proventos do mês (inicio-proventos.js) -->
+          <section class="proventos-secao lateral-card" id="proventosSecao" hidden>
+            <div class="lateral-cab">
+              <h2>Proventos do mês</h2>
+              <a class="lateral-link" href="proventos/index.html">Ver tudo ›</a>
+            </div>
+            <div class="prov-corpo"></div>
+          </section>
+
+          <section class="lateral-card al-card">
+            <div class="lateral-cab">
+              <h2>Meus ativos</h2>
+              <span class="hint" id="alContador"></span>
+            </div>
+            <div class="al-ferramentas">
+              <label class="al-busca"><span class="sr-only">Buscar ativo</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+                <input type="search" id="alBusca" placeholder="Buscar ativo" autocomplete="off">
+              </label>
+              <label class="al-ordem"><span class="sr-only">Ordenar</span>
+                <select id="alOrdem">
+                  <option value="carteira">Carteira</option>
+                  <option value="alta">Maior alta</option>
+                  <option value="queda">Maior queda</option>
+                  <option value="posicao">Maior posição</option>
+                </select>
+              </label>
+            </div>
+            <div class="al-abas" id="filtroAtivosTabs" role="group" aria-label="Filtrar por classe">
+              <button type="button" class="al-aba active" data-classe="todos" aria-pressed="true">Todos <span class="al-n"></span></button>
+              <button type="button" class="al-aba" data-classe="acoes" aria-pressed="false">Ações <span class="al-n"></span></button>
+              <button type="button" class="al-aba" data-classe="fiis" aria-pressed="false">FIIs <span class="al-n"></span></button>
+              <button type="button" class="al-aba" data-classe="usa" aria-pressed="false">EUA <span class="al-n"></span></button>
+              <button type="button" class="al-aba" data-classe="rf" aria-pressed="false">RF <span class="al-n"></span></button>
+            </div>
+            <ul class="al-lista" id="meusAtivosGrid"></ul>
+            <button type="button" class="al-mais" id="alMais" hidden></button>
+          </section>
+        </aside>
       </div>
-      <div class="filter-tabs" id="filtroAtivosTabs" style="margin-bottom:12px">
-        <button class="filter-tab active" type="button" data-classe="todos">Todos</button>
-        <button class="filter-tab" type="button" data-classe="acoes">Ações</button>
-        <button class="filter-tab" type="button" data-classe="fiis">FIIs</button>
-        <button class="filter-tab" type="button" data-classe="usa">Ações EUA</button>
-        <button class="filter-tab" type="button" data-classe="rf">Renda Fixa</button>
-      </div>
-      <div class="ativos-grid" id="meusAtivosGrid"></div>
     </div>
   </template>
 

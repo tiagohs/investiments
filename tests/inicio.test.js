@@ -1803,7 +1803,7 @@ function makePaginaDom() {
     <div id="inicioConteudo" hidden>
       <div id="refreshControlInicio"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
-      <div class="widget-grid" id="indicesCambioGrid"></div>
+      <div class="mkt-faixa" id="faixaMercado"></div>
       <div id="resumoPatrimonio"></div>
       <div class="filter-tabs" id="periodoTabs">
         <button class="filter-tab" data-periodo="30d">30 dias</button>
@@ -1813,11 +1813,11 @@ function makePaginaDom() {
       <div id="rentabInfoLongoPrazo"></div><div id="rentabChartLongoPrazo"></div><div id="rentabLegendaLongoPrazo"></div>
       <div id="rentabInfoNacional"></div><div id="rentabChartNacional"></div><div id="rentabLegendaNacional"></div>
       <div id="rentabInfoRendaEmergencial"></div><div id="rentabChartRendaEmergencial"></div><div id="rentabLegendaRendaEmergencial"></div>
-      <div class="filter-tabs" id="filtroAtivosTabs">
-        <button class="filter-tab active" data-classe="todos">Todos</button>
-        <button class="filter-tab" data-classe="rf">Renda Fixa</button>
+      <div class="al-abas" id="filtroAtivosTabs">
+        <button class="al-aba active" data-classe="todos">Todos <span class="al-n"></span></button>
+        <button class="al-aba" data-classe="rf">Renda Fixa <span class="al-n"></span></button>
       </div>
-      <div id="meusAtivosGrid"></div>
+      <ul id="meusAtivosGrid"></ul>
     </div>
   `);
 }
@@ -1831,20 +1831,21 @@ test('montarPaginaInicio() renders every section and hides the loading state on 
     cambio: { usd: 5.09, eur: 5.92 },
   });
 
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
 
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
-  assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3); // ibovespa + usd + eur
-  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.resumo-value'));
+  assert.equal(doc.getElementById('faixaMercado').querySelectorAll('.mkt').length, 3); // ibovespa + usd + eur
+  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.rc-visao-total .rc-valor'));
   assert.equal(doc.getElementById('inicioErro').hidden, true);
 });
 
 // 17/09/2026 #2: painel de Rentabilidade Nacional (#rentabChartNacional)
-// e o 4º card do resumo (Patrimônio Nacional) precisam vir montados de
+// e a 4ª visão do resumo (Patrimônio Nacional - desde 26/09 uma aba do
+// resumo compacto, não mais um card) precisam vir montados de
 // cara, junto com os outros 3 já existentes - mesmo fio (PAINEIS_RENTABILIDADE/
 // ORDEM_RESUMO) que já monta Total/Longo Prazo/Renda Emergencial.
-test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e o 4º card do resumo', async () => {
+test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e a 4ª visão do resumo', async () => {
   const doc = makePaginaDom();
   const getHomeImpl = async () => ({
     ok: true,
@@ -1858,18 +1859,18 @@ test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e o 
     cambio: { usd: 5.09, eur: 5.92 },
   });
 
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
 
   assert.ok(doc.getElementById('rentabChartNacional').querySelector('svg'), 'painel de Rentabilidade Nacional precisa desenhar de cara, igual aos outros 3');
   assert.match(doc.getElementById('rentabInfoNacional').textContent, /Patrimônio Nacional/);
-  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.resumo-card').length, 4);
+  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.rc-visao').length, 4);
 });
 
 test('montarPaginaInicio() shows the error state (and keeps the content hidden) when the back-end rejects the call', async () => {
   const doc = makePaginaDom();
   const getHomeImpl = async () => ({ ok: false, etapa: 'autenticação', erro: 'token expirado' });
 
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
 
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.equal(doc.getElementById('inicioConteudo').hidden, true);
@@ -1887,7 +1888,7 @@ test('montarPaginaInicio() surfaces avisos (partial section failure) without hid
     avisos: { historico: 'Error: algo falhou' },
   });
 
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
 
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
   assert.equal(doc.getElementById('inicioAvisos').hidden, false);
@@ -1915,7 +1916,7 @@ test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenh
     };
   };
 
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
   assert.equal(chamadasGet, 1);
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.match(doc.getElementById('resumoPatrimonio').textContent, /100\.000/);
@@ -1930,7 +1931,7 @@ test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenh
 
   assert.equal(chamadasGet, 2);
   assert.equal(doc.getElementById('inicioLoading').hidden, true, 'skeleton nunca reaparece num refresh');
-  assert.equal(doc.getElementById('indicesCambioGrid').querySelectorAll('.widget-tile').length, 3, 'widgets não duplicam');
+  assert.equal(doc.getElementById('faixaMercado').querySelectorAll('.mkt').length, 3, 'faixa não duplica');
   assert.match(doc.getElementById('resumoPatrimonio').textContent, /250\.000/, 'redesenha com o patrimônio novo');
 });
 

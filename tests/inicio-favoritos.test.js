@@ -51,7 +51,7 @@ async function montar({ favoritos = [], salvarImpl, opcoesFavoritos } = {}) {
   const { dom, doc } = paginaInicio();
   const chamadas = [];
   const salvar = salvarImpl || (async (_t, ids) => { chamadas.push(ids); return { ok: true, favoritos: ids }; });
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl: async () => homeFake(favoritos), salvarFavoritosImpl: salvar, opcoesFavoritos });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl: async () => homeFake(favoritos), getIntradiaImpl: null, salvarFavoritosImpl: salvar, opcoesFavoritos });
   const secao = doc.getElementById('favoritosSecao');
   return { dom, doc, secao, ctrl: secao._favoritos, chamadas, grid: doc.getElementById('favoritosGrid'), meus: doc.getElementById('meusAtivosGrid') };
 }
@@ -72,10 +72,15 @@ test('favoritos: id "classe:ref" (código do título na Renda Fixa), alternar, m
 });
 
 // --- layout ---
-test('Início: Favoritos fica logo abaixo de "Índices & câmbio" e acima da Rentabilidade; Rentabilidade = Total, depois Longo Prazo | Nacional, depois Ações Internacionais | Renda Emergencial', () => {
+test('Início: faixa de mercado -> Favoritos -> Minha carteira -> Rentabilidade (com Proventos e Meus ativos na coluna lateral); Rentabilidade = Total, depois Longo Prazo | Nacional, depois Ações Internacionais | Renda Emergencial', () => {
   const { doc } = paginaInicio();
-  const ordem = [...doc.querySelectorAll('#indicesCambioGrid, #favoritosSecao, #resumoPatrimonio, #periodoTabs')].map((e) => e.id);
-  assert.deepEqual(ordem, ['indicesCambioGrid', 'favoritosSecao', 'resumoPatrimonio', 'periodoTabs']);
+  const ordem = [...doc.querySelectorAll('#faixaMercado, #favoritosSecao, #resumoPatrimonio, #periodoTabs, #proventosSecao, #meusAtivosGrid')].map((e) => e.id);
+  assert.deepEqual(ordem, ['faixaMercado', 'favoritosSecao', 'resumoPatrimonio', 'periodoTabs', 'proventosSecao', 'meusAtivosGrid']);
+  const lateral = doc.querySelector('.home-colunas > aside.home-lateral');
+  assert.ok(lateral, 'coluna lateral ao lado dos gráficos');
+  assert.ok(lateral.contains(doc.getElementById('proventosSecao')));
+  assert.ok(lateral.contains(doc.getElementById('meusAtivosGrid')));
+  assert.ok(doc.querySelector('.home-colunas > .home-principal').contains(doc.getElementById('periodoTabs')));
   const cards = [...doc.querySelectorAll('.rentab-grid > .rentab-card')];
   assert.deepEqual(cards.map((c) => c.querySelector('.rentab-card-info').id), ['rentabInfoTotal', 'rentabInfoLongoPrazo', 'rentabInfoNacional', 'rentabInfoInternacional', 'rentabInfoRendaEmergencial']);
   assert.deepEqual(cards.map((c) => c.classList.contains('rentab-card-full')), [true, false, false, false, false], 'só o Total ocupa a linha inteira; os outros 4 ficam 2 a 2');
@@ -94,16 +99,16 @@ test('Início: painel "Ações Internacionais" desenha com valor = Ações EUA e
 });
 
 // --- estrela ---
-test('Meus ativos: estrela em todo card; clicar favorita sem navegar, aparece na área, salva a lista; clicar de novo desfavorita', async () => {
+test('Meus ativos: estrela em toda linha; clicar favorita sem navegar, aparece na área, salva a lista; clicar de novo desfavorita', async () => {
   const { dom, doc, grid, meus, chamadas, ctrl } = await montar();
-  assert.equal(meus.querySelectorAll('.ativo-card .ativo-fav-btn').length, ATIVOS.length);
+  assert.equal(meus.querySelectorAll('.al-item .ativo-fav-btn').length, ATIVOS.length);
   assert.equal(doc.getElementById('favoritosSecao').hidden, false);
   assert.match(grid.textContent, /Toque na estrela/);
 
   const estrela = meus.querySelector('.ativo-fav-btn[data-fav-id="fiis:BBBB11"]');
   const ev = evento(dom, 'click');
   estrela.dispatchEvent(ev);
-  assert.equal(ev.defaultPrevented, true, 'a estrela fica dentro do <a> do card - não pode navegar');
+  assert.equal(ev.defaultPrevented, true, 'a estrela fica dentro do <a> da linha - não pode navegar');
   await ctrl.aguardarGravacoes();
   assert.deepEqual(chamadas, [['fiis:BBBB11']]);
   assert.deepEqual(tickersNaArea(grid), ['BBBB11']);
@@ -119,8 +124,8 @@ test('Meus ativos: estrela em todo card; clicar favorita sem navegar, aparece na
 
 test('Meus ativos: trocar a aba de classe mantém a estrela acesa dos favoritos', async () => {
   const { dom, doc, meus } = await montar({ favoritos: ['fiis:BBBB11'] });
-  doc.querySelector('#filtroAtivosTabs .filter-tab[data-classe="fiis"]').dispatchEvent(evento(dom, 'click'));
-  assert.equal(meus.querySelectorAll('.ativo-card').length, 1);
+  doc.querySelector('#filtroAtivosTabs .al-aba[data-classe="fiis"]').dispatchEvent(evento(dom, 'click'));
+  assert.equal(meus.querySelectorAll('.al-item').length, 1);
   assert.equal(meus.querySelector('.ativo-fav-btn').getAttribute('aria-pressed'), 'true');
 });
 
