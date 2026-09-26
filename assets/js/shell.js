@@ -100,7 +100,8 @@ export function fixNavLinkHrefs(doc, rootUrl) {
 
 /** Fetches the shell partial's raw HTML text. */
 export async function fetchShellPartial(url, fetchImpl = fetch) {
-  const response = await fetchImpl(url);
+  // 26/09/2026: 'no-cache' pelo mesmo motivo do pages.html (router.js).
+  const response = await fetchImpl(url, { cache: 'no-cache' });
   if (!response.ok) {
     throw new Error(`shell.html fetch failed: ${response.status}`);
   }

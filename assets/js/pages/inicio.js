@@ -2435,7 +2435,10 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
   const refreshControlEl = doc.getElementById('refreshControlInicio');
-  const faixaEl = doc.getElementById('faixaMercado');
+  // Partial antigo em cache (HTML de antes de 26/09 com o JS novo): desenha a
+  // faixa no lugar dos cartões antigos em vez de deixar "Índices & câmbio" vazio.
+  const faixaEl = doc.getElementById('faixaMercado') || doc.getElementById('indicesCambioGrid');
+  if (faixaEl && faixaEl.id !== 'faixaMercado') faixaEl.classList.add('mkt-faixa');
 
   // 26/09/2026: gráfico do dia (inicio-intradia.js / Intradia.gs) - dos
   // índices da faixa de mercado e dos favoritos. Guardado aqui pra redesenhar

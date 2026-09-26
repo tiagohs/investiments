@@ -77,7 +77,11 @@ export function resolvePagesPartialUrl() {
 
 /** Busca o HTML bruto do partial. */
 export async function fetchPagesPartial(url, fetchImpl = fetch) {
-  const response = await fetchImpl(url);
+  // 26/09/2026: cache 'no-cache' = o navegador sempre confere com o servidor
+  // (ETag/If-Modified-Since, 304 se nada mudou). Sem isso o GitHub Pages
+  // (max-age=600) deixava o partial até 10 min velho enquanto o JS já era o
+  // novo - a Início nova abria no HTML antigo (sem índices, sem coluna lateral).
+  const response = await fetchImpl(url, { cache: 'no-cache' });
   if (!response.ok) {
     throw new Error(`pages.html fetch failed: ${response.status}`);
   }

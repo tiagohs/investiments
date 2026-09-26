@@ -2001,3 +2001,16 @@ test('comCamposUsdAcoesEua(): valor, fluxo e aplicado em dólar = campo em reais
   assert.equal(historicoTemCambioUsd(h), true);
   assert.equal(historicoTemCambioUsd([{ acoesEua: 1 }]), false);
 });
+
+// 26/09/2026: HTML antigo em cache (sem #faixaMercado) com o JS novo - a faixa
+// de índices desenha no lugar dos cartões antigos em vez de sumir.
+test('montarPaginaInicio(): partial antigo em cache (só #indicesCambioGrid) ainda mostra os índices', async () => {
+  const doc = makePaginaDom();
+  const faixa = doc.getElementById('faixaMercado');
+  faixa.id = 'indicesCambioGrid';
+  const getHomeImpl = async () => ({ ok: true, patrimonio: PATRIMONIO_EXEMPLO, indices: { ibovespa: { valor: 100000, variacaoDia: 0.5 } }, cambio: { usd: 5, eur: 6 } });
+  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
+  const antigo = doc.getElementById('indicesCambioGrid');
+  assert.equal(antigo.querySelectorAll('.mkt').length, 3);
+  assert.ok(antigo.classList.contains('mkt-faixa'));
+});

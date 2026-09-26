@@ -14,6 +14,7 @@ import {
   injectPageContainers,
   resolveRouteKey,
   mountRouter,
+  fetchPagesPartial,
 } from '../assets/js/router.js';
 
 const PAGES_PARTIAL_HTML = `
@@ -267,4 +268,14 @@ test('popstate troca de aba (sem buscar dado de novo se já visitada) e não emp
   assert.equal(doc.getElementById('page-b').hidden, true);
   assert.equal(chamadasA, 1, 'A já tinha sido visitada — popstate não busca de novo');
   assert.equal(winImpl.pushStateCalls.length, pushStatesAntesDoPopstate, 'popstate nunca empilha uma entrada nova');
+});
+
+// 26/09/2026: o partial precisa sempre conferir com o servidor - o GitHub Pages
+// manda max-age=600 e um pages.html velho com o JS novo abriu a Início sem
+// índices e sem a coluna lateral.
+test('fetchPagesPartial() pede o partial com cache "no-cache" (revalida sempre)', async () => {
+  let opcoes = null;
+  const html = await fetchPagesPartial('fake://pages.html', async (_url, o) => { opcoes = o; return { ok: true, text: async () => '<p>ok</p>' }; });
+  assert.equal(html, '<p>ok</p>');
+  assert.deepEqual(opcoes, { cache: 'no-cache' });
 });

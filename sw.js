@@ -44,7 +44,7 @@
  * doesn't match the current CACHE_NAME).
  */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `patrimonio-shell-${CACHE_VERSION}`;
 
 // Requests whose `destination` marks them as the static shell rather
@@ -84,9 +84,14 @@ async function cacheFirst(request) {
   return response;
 }
 
-async function networkFirst(request) {
+// 26/09/2026 (v3): CSS/JS vão com cache 'no-cache' - o fetch do worker também
+// passa pelo cache HTTP do navegador, e o GitHub Pages manda max-age=600: sem
+// isso, logo depois de um deploy, um JS novo podia rodar com um CSS (ou outro
+// módulo) de até 10 min atrás. Navegação não aceita RequestInit (TypeError),
+// então ela segue como antes.
+async function networkFirst(request, { revalidar = false } = {}) {
   try {
-    const response = await fetch(request);
+    const response = await (revalidar ? fetch(request, { cache: 'no-cache' }) : fetch(request));
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, response.clone());
@@ -115,13 +120,10 @@ self.addEventListener('fetch', (event) => {
 
   // Navigations (HTML pages) AND now CSS/JS too (destination style/
   // script) - both go network-first, see the header comment above.
-  if (
-    request.mode === 'navigate'
-    || request.destination === 'document'
-    || request.destination === 'style'
-    || request.destination === 'script'
-  ) {
+  if (request.mode === 'navigate' || request.destination === 'document') {
     event.respondWith(networkFirst(request));
+  } else if (request.destination === 'style' || request.destination === 'script') {
+    event.respondWith(networkFirst(request, { revalidar: true }));
   }
   // Anything else same-origin (e.g. a fetch() with no `destination`,
   // like the shell.html partial fetched via shell.js!fetchShellPartial)

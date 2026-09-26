@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import {
+  fetchShellPartial,
   parseShellPartial,
   injectShell,
   markActiveSection,
@@ -1241,4 +1242,36 @@ test('setupLogoutButton(): clicar em Sair apaga o token e manda pro login', asyn
   setupLogoutButton(doc, { clearTokenImpl: () => passos.push('limpou'), redirectImpl: () => passos.push('login') });
   doc.getElementById('logoutBtn').click();
   assert.deepEqual(passos, ['limpou', 'login']);
+});
+
+test('fetchShellPartial() pede o partial com cache "no-cache" (revalida sempre)', async () => {
+  let opcoes = null;
+  await fetchShellPartial('fake://shell.html', async (_url, o) => { opcoes = o; return { ok: true, text: async () => '' }; });
+  assert.deepEqual(opcoes, { cache: 'no-cache' });
+});
+
+// sw.js roda no escopo do service worker: lido como texto e executado num
+// "self" falso, só pra conferir que CSS/JS revalidam e navegação não recebe
+// RequestInit (o navegador lança TypeError com mode "navigate" + init).
+test('sw.js: CSS/JS vão pra rede com cache "no-cache"; navegação vai sem opções', async () => {
+  const fs = await import('node:fs');
+  const vm = await import('node:vm');
+  const codigo = fs.readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  const ouvintes = {};
+  const chamadas = [];
+  const sb = {
+    self: { addEventListener: (t, f) => { ouvintes[t] = f; }, location: { origin: 'https://x.test' }, skipWaiting() {} },
+    caches: { open: async () => ({ put() {} }), match: async () => null, keys: async () => [] },
+    fetch: async (req, init) => { chamadas.push([req.destination || req.mode, init]); return { ok: true, clone() { return this; } }; },
+    URL,
+  };
+  vm.createContext(sb);
+  vm.runInContext(codigo, sb);
+  const disparar = async (req) => { let p; ouvintes.fetch({ request: { method: 'GET', url: 'https://x.test/a', ...req }, respondWith: (x) => { p = x; } }); await p; };
+  await disparar({ destination: 'script' });
+  await disparar({ destination: 'style' });
+  await disparar({ mode: 'navigate', destination: 'document' });
+  assert.equal(chamadas[0][1] && chamadas[0][1].cache, 'no-cache');
+  assert.equal(chamadas[1][1] && chamadas[1][1].cache, 'no-cache');
+  assert.equal(chamadas[2][1], undefined);
 });
