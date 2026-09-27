@@ -5,24 +5,26 @@
 // 'Compras de Investimento', isso me permite perceber quais eu comprei e
 // quais eu NAO comprei na última compra... Gosto que ora coloca quando o
 // preço que eu irei pagar agora está mais caro ou barato da última vez
-// que comprei... Talvez um filtro de botão pra não ficar fiis, ações etc,
-// um embaixo do outro?... no lugar de 1, 3 etc, pode colocar o valor
-// individual que paguei e quantidade, clicando mostra algo mais
-// formatado (como o último pago)... mantenha o mês atual em andamento."
+// que comprei... Seria legal... eu passar o mouse ou clicar (no mobile), e
+// ver quais ativos comprei na data daquele preço... Talvez um filtro de
+// botão pra não ficar fiis, ações etc, um embaixo do outro?... no lugar de
+// 1, 3 etc, pode colocar o valor individual que paguei e quantidade,
+// clicando mostra algo mais formatado (como o último pago)... mantenha o
+// mês atual em andamento."
 //
-// Mapa: ativo × mês (linhas fixas pela carteira, sticky à esquerda),
-// filtro de classe (só 1 visível por vez) e de período (6/12 meses), a
-// célula mostra preço médio pago + quantidade (tag) e uma seta ▲/▼ vs a
-// compra anterior; clicar abre um popover formatado (estilo do "último
-// pago" da prateleira) com o detalhe de cada compra daquele mês, a
-// comparação com a compra anterior/hoje, seu preço médio e - pra ativos
-// em dólar - a conversão em reais (câmbio do dia de cada compra e de
-// hoje, com o efeito do dólar isolado). O mês corrente aparece marcado
-// "em andamento", nunca como uma rodada fechada que "faltou".
+// Mapa: ativo × mês (linhas fixas pela carteira, coluna do ativo presa à
+// esquerda), filtro de classe (só 1 visível por vez) e de período (6/12
+// meses). A célula mostra o preço médio pago no mês + a quantidade (tag) e
+// uma seta ▲/▼ vs a compra anterior (a última ANTES desse mês). Passar o
+// mouse mostra um resumo (title); clicar abre o popover ao lado do quadrado
+// (estilo do "último pago" da prateleira) com cada compra do mês, a
+// comparação com a compra anterior e com hoje, seu preço médio, o que mais
+// você comprou no mesmo dia e - pra ativos em dólar - a conversão em reais
+// (câmbio do dia de cada compra e de hoje, com o efeito do dólar isolado).
+// O mês corrente aparece "em andamento", nunca como rodada que "faltou".
 //
-// As contas ficam em aportes-mapa-calc.js; aqui só desenha e liga os
-// eventos (reaproveita o mesmo <section> de aportes.js, então a
-// interatividade é ligada de dentro de ligarAportes - ver aportes.js).
+// As contas ficam em aportes-mapa-calc.js; aqui só o HTML. Os eventos (e a
+// posição do popover) ficam em aportes.js!ligarAportes, que já escuta a aba.
 
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
@@ -34,24 +36,39 @@ import {
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dm = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '—');
-const dma = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}/${k.slice(0, 4)}` : '—');
+const dmaCurto = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}/${k.slice(2, 4)}` : '—');
 const usd = (v) => (typeof v === 'number' && Number.isFinite(v) ? `US$ ${formatNumeroBR(v)}` : '—');
 const dinheiro = (v, moeda) => (moeda === 'USD' ? usd(v) : formatBRL(v));
 const qtdTxt = (q) => (typeof q === 'number' ? formatNumeroBR(q, q % 1 ? 4 : 0) : '—');
 const pct = (v, casas = 1) => `${v > 0 ? '+' : ''}${formatNumeroBR(v * 100, casas)}%`;
 const rotuloMes = (chave) => `${MESES_CURTOS[Number(chave.slice(5, 7)) - 1]}/${chave.slice(2, 4)}`;
 const corClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).cor || '--ink-muted';
+const nomeClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).nome || '';
+const milhar = (v) => (v >= 1000 ? `R$ ${formatNumeroBR(v / 1000, 1)} mil` : `R$ ${formatNumeroBR(Math.round(v), 0)}`);
 const PERIODOS_MAPA = [6, 12];
+const MESES_ALERTA = 3;
 
 export function estadoInicialMapa() {
   return { classeAtiva: 'fiis', periodo: 6, selecionado: null };
+}
+
+/** O que o mapa precisa, calculado uma vez por desenho. */
+export function dadosDoMapa(dados) {
+  const mapaClasse = classePorTicker(dados.classes || {});
+  return { mapaClasse, compras: todasAsCompras(dados.lancamentos, mapaClasse) };
+}
+
+/** O item da carteira (dados.classes) de um ativo do mapa - pra cotação/preço médio de hoje. */
+export function ativoDaCarteira(dados, classe, ativo) {
+  if (classe === 'rendaFixa') return (dados.classes.rendaFixa || []).find((a) => a.titulo === ativo) || null;
+  return (dados.classes[classe] || []).find((a) => a.ticker === ativo) || null;
 }
 
 function segClasseHtml(estado, contagens) {
   return `
     <div class="tx-seg tx-mapa-seg" role="group" aria-label="Classe do mapa">
       ${CLASSES_APORTE.map((c) => `
-        <button type="button" class="tx-seg-btn${estado.classeAtiva === c.id ? ' active' : ''}" data-mapa-classe="${c.id}">
+        <button type="button" class="tx-seg-btn${estado.classeAtiva === c.id ? ' active' : ''}" data-mapa-classe="${c.id}" aria-pressed="${estado.classeAtiva === c.id}">
           <span class="tx-dot" style="background:var(${c.cor})"></span><span class="tx-longo">${c.nome}</span><span class="tx-curto">${c.curto}</span>
           ${contagens[c.id] ? `<span class="tx-seg-n">${contagens[c.id]}</span>` : ''}
         </button>`).join('')}
@@ -60,141 +77,155 @@ function segClasseHtml(estado, contagens) {
 
 function segPeriodoHtml(estado) {
   return `
-    <div class="tx-seg tx-mapa-seg" role="group" aria-label="Período do mapa">
-      ${PERIODOS_MAPA.map((p) => `<button type="button" class="tx-seg-btn${estado.periodo === p ? ' active' : ''}" data-mapa-periodo="${p}">${p} meses</button>`).join('')}
+    <div class="tx-seg tx-mapa-seg tx-mapa-periodo" role="group" aria-label="Período do mapa">
+      ${PERIODOS_MAPA.map((p) => `<button type="button" class="tx-seg-btn${estado.periodo === p ? ' active' : ''}" data-mapa-periodo="${p}" aria-pressed="${estado.periodo === p}">${p} meses</button>`).join('')}
     </div>`;
 }
 
-function celulaHtml(classe, ativo, mesChave, cel, selecionado) {
-  if (!cel) return '<td class="tx-mapa-td"><div class="tx-mapa-vazia">—</div></td>';
-  const seta = cel.delta == null ? '' : (cel.delta > 0.005 ? '<i class="bad">▲</i>' : (cel.delta < -0.005 ? '<i class="good">▼</i>' : ''));
+function dicaCelula(ativo, mesChave, cel) {
+  const compras = cel.itens.map((c) => (cel.rf ? `${dm(c.data)} ${formatBRL(c.valor)}` : `${dm(c.data)} ${qtdTxt(c.qtd)} × ${dinheiro(c.preco, c.moeda)}`)).join(' · ');
+  const vs = cel.delta == null ? '' : ` · ${pct(cel.delta)} vs a compra anterior`;
+  return `${ativo} em ${rotuloMes(mesChave)}: ${compras}${vs}. Clique pra ver o detalhe.`;
+}
+
+function celulaHtml(classe, ativo, mesChave, cel, selecionado, atual) {
+  if (!cel) return `<td class="tx-mapa-td${atual ? ' atual' : ''}"><div class="tx-mapa-vazia" aria-label="não comprou">${atual ? '' : '—'}</div></td>`;
+  const seta = cel.delta == null ? '' : (cel.delta > 0.005 ? '<i class="bad" aria-label="mais caro">▲</i>' : (cel.delta < -0.005 ? '<i class="good" aria-label="mais barato">▼</i>' : ''));
   const topo = cel.rf ? formatBRL(cel.valor) : `${dinheiro(cel.precoMedio, cel.moeda)}${seta}`;
-  const sel = selecionado && selecionado.ativo === ativo && selecionado.mes === mesChave;
+  const sel = !!(selecionado && selecionado.ativo === ativo && selecionado.mes === mesChave);
   return `
-    <td class="tx-mapa-td">
-      <button type="button" class="tx-mapa-cel${sel ? ' sel' : ''}" style="--cor:var(${corClasse(classe)})" data-mapa-cel="${esc(ativo)}|${mesChave}" aria-label="${esc(ativo)} em ${rotuloMes(mesChave)}" aria-pressed="${!!sel}">
+    <td class="tx-mapa-td${atual ? ' atual' : ''}">
+      <button type="button" class="tx-mapa-cel${sel ? ' sel' : ''}" style="--cor:var(${corClasse(classe)})" data-mapa-cel="${esc(ativo)}|${mesChave}" title="${esc(dicaCelula(ativo, mesChave, cel))}" aria-label="${esc(ativo)} em ${rotuloMes(mesChave)}" aria-expanded="${sel}" aria-controls="txMapaPop">
         <span class="tx-mapa-p">${topo}</span>
-        ${cel.rf ? '' : `<span class="tx-mapa-q">×${qtdTxt(cel.qtd)}</span>`}
+        ${cel.rf ? (cel.itens.length > 1 ? `<span class="tx-mapa-q">${cel.itens.length} aplicações</span>` : '') : `<span class="tx-mapa-q">×${qtdTxt(cel.qtd)}</span>`}
       </button>
     </td>`;
 }
 
 function ultimaHtml(semComprar, ultima) {
-  if (!ultima) return '<span class="tx-fraco">nunca comprou</span>';
-  if (semComprar != null && semComprar >= 3) return `<span class="status-pill warn">há ${semComprar} meses</span>`;
-  return `<span class="tx-mono">${dma(ultima.data)}</span>`;
+  if (!ultima) return '<span class="tx-chip tx-chip-fraco">nunca</span>';
+  if (semComprar != null && semComprar >= MESES_ALERTA) return `<span class="tx-chip warn" title="Última compra em ${dmaCurto(ultima.data)}">há ${semComprar} meses</span>`;
+  return `<span class="tx-chip tx-mono">${dmaCurto(ultima.data)}</span>`;
 }
 
 function logoMapaHtml(classe, ativo) {
-  return classe === 'rendaFixa' ? logoRendaFixaHtml({ tipoInvestimento: ativo }) : logoAtivoHtml(ativo);
+  return classe === 'rendaFixa' ? logoRendaFixaHtml({ indexador: /selic/i.test(ativo) ? 'SELIC' : (/ipca/i.test(ativo) ? 'IPCA' : ''), tipoInvestimento: ativo }) : logoAtivoHtml(ativo);
 }
 
 export function mapaHtml(estado, dados) {
-  const mapaClasse = classePorTicker(dados.classes);
-  const compras = todasAsCompras(dados.lancamentos, mapaClasse);
+  const { mapaClasse, compras } = dadosDoMapa(dados);
   const meses = ultimosMeses(dados.hoje, estado.periodo);
   const ativos = ativosDaClasseMapa(estado.classeAtiva, dados.classes, compras);
   const contagens = {};
   CLASSES_APORTE.forEach((c) => { contagens[c.id] = ativosDaClasseMapa(c.id, dados.classes, compras).length; });
+  const atual = meses.map((m) => ehMesAtual(m, dados.hoje));
 
+  const semComprarPorAtivo = new Map(ativos.map((a) => [a.ativo, mesesSemComprar(compras, a.ativo, dados.hoje)]));
   const linhas = ativos.map((a) => {
     const celulas = meses.map((m) => celulaMapa(compras, a.ativo, m));
-    const semComprar = mesesSemComprar(compras, a.ativo, dados.hoje);
-    const ultima = ultimaCompra(compras, a.ativo);
     return `
       <tr>
-        <th class="at tx-mapa-at" scope="row"><span class="tx-ativo">${logoMapaHtml(estado.classeAtiva, a.ativo)}<span class="tx-ativo-nome"><b>${esc(a.ativo)}</b>${a.nome ? `<small>${esc(a.nome)}</small>` : ''}</span></span></th>
-        ${meses.map((m, i) => celulaHtml(estado.classeAtiva, a.ativo, m, celulas[i], estado.selecionado)).join('')}
-        <td class="tx-mapa-ult">${ultimaHtml(semComprar, ultima)}</td>
+        <th class="tx-mapa-at" scope="row"><span class="tx-ativo">${logoMapaHtml(estado.classeAtiva, a.ativo)}<span class="tx-ativo-nome"><b>${esc(a.ativo)}</b>${a.nome ? `<small title="${esc(a.nome)}">${esc(a.nome)}</small>` : ''}</span></span></th>
+        ${meses.map((m, i) => celulaHtml(estado.classeAtiva, a.ativo, m, celulas[i], estado.selecionado, atual[i])).join('')}
+        <td class="tx-mapa-ult">${ultimaHtml(semComprarPorAtivo.get(a.ativo), ultimaCompra(compras, a.ativo))}</td>
       </tr>`;
   }).join('');
 
   const totais = meses.map((m) => ativos.reduce((s, a) => { const c = celulaMapa(compras, a.ativo, m); return s + (c ? c.valorBRL : 0); }, 0));
-
+  const nomeDaClasse = nomeClasse(estado.classeAtiva);
   const rodada = resumoUltimaRodada(compras, ativos, meses);
+  const parados = ativos.filter((a) => { const n = semComprarPorAtivo.get(a.ativo); return n != null && n >= MESES_ALERTA; });
+  const chips = (lista) => `${lista.slice(0, 6).map((a) => `<span class="tx-chip">${esc(a.ativo)}</span>`).join('')}${lista.length > 6 ? `<span class="tx-fraco">+${lista.length - 6}</span>` : ''}`;
   const resumoHtml = rodada ? `
     <div class="tx-mapa-resumo">
-      <span>${rodada.atual ? 'Mês em andamento' : 'Última rodada'}: <b>${rotuloMes(rodada.mes)}</b>${rodada.datas.length ? ` <span class="tx-fraco">(${rodada.datas.map(dm).join(', ')})</span>` : ''} · <b>${rodada.entraram.length} de ${ativos.length}</b> ${CLASSES_APORTE.find((c) => c.id === estado.classeAtiva).nome}</span>
-      ${rodada.ficaramDeFora.length && estado.classeAtiva !== 'rendaFixa' ? `<span>${rodada.atual ? 'Ainda faltam' : 'Ficaram de fora'}: ${rodada.ficaramDeFora.slice(0, 6).map((a) => `<span class="tx-chip">${esc(a.ativo)}</span>`).join(' ')}${rodada.ficaramDeFora.length > 6 ? ` +${rodada.ficaramDeFora.length - 6}` : ''}</span>` : ''}
-    </div>` : '<p class="tx-vazio">Sem compras registradas nessa classe/período.</p>';
+      <span class="tx-mapa-resumo-item">${rodada.atual ? 'Mês em andamento' : 'Última rodada'}: <b>${rotuloMes(rodada.mes)}</b>${rodada.datas.length ? ` <span class="tx-fraco">(${rodada.datas.map(dm).join(', ')})</span>` : ''} · <b>${rodada.entraram.length} de ${ativos.length}</b> ${esc(nomeDaClasse)}</span>
+      ${rodada.ficaramDeFora.length && estado.classeAtiva !== 'rendaFixa' ? `<span class="tx-mapa-resumo-item">${rodada.atual ? 'Ainda não entraram' : 'Ficaram de fora'}: ${chips(rodada.ficaramDeFora)}</span>` : ''}
+      ${parados.length && estado.classeAtiva !== 'rendaFixa' ? `<span class="tx-mapa-resumo-item">${MESES_ALERTA}+ meses sem comprar: ${parados.map((a) => `<span class="tx-chip warn">${esc(a.ativo)}</span>`).join('')}</span>` : ''}
+    </div>` : `<div class="tx-mapa-resumo"><span class="tx-mapa-resumo-item">Nenhuma compra de ${esc(nomeDaClasse)} nos últimos ${estado.periodo} meses.</span></div>`;
 
+  const cabMeses = meses.map((m, i) => `<th scope="col"${atual[i] ? ' class="atual"' : ''}>${rotuloMes(m)}${atual[i] ? '<small>em andamento</small>' : ''}</th>`).join('');
   return `
     <section class="tx-secao" id="txMapaCompras" aria-labelledby="txMapaTitulo">
       <div class="tx-secao-cab">
         <h2 id="txMapaTitulo">Aportes realizados</h2>
-        <span class="hint">o que você comprou em cada mês - clique num quadrado pra ver a compra</span>
+        <span class="hint">o que você comprou em cada mês · clique num quadrado pra ver a compra</span>
       </div>
       <div class="tx-mapa-card">
         <div class="tx-mapa-filtros">${segClasseHtml(estado, contagens)}${segPeriodoHtml(estado)}</div>
         ${resumoHtml}
+        ${ativos.length ? `
         <div class="tx-mapa-wrap" id="txMapaWrap">
           <table class="tx-mapa">
-            <thead><tr><th class="esq">Ativo</th>${meses.map((m) => `<th${ehMesAtual(m, dados.hoje) ? ' class="atual"' : ''}>${rotuloMes(m)}${ehMesAtual(m, dados.hoje) ? '<small>em andamento</small>' : ''}</th>`).join('')}<th class="esq">Última</th></tr></thead>
-            <tbody>${linhas || `<tr><td colspan="${meses.length + 2}" class="tx-vazio">Nenhum ativo dessa classe ainda.</td></tr>`}</tbody>
-            ${linhas ? `<tfoot><tr><td class="esq">Total${estado.classeAtiva === 'acoesEua' ? ' em R$' : ''}</td>${totais.map((v) => `<td>${v ? (v >= 1000 ? `${formatNumeroBR(v / 1000, 1)} mil` : formatNumeroBR(Math.round(v), 0)) : '<span class="tx-fraco">—</span>'}</td>`).join('')}<td></td></tr></tfoot>` : ''}
+            <thead><tr><th class="tx-mapa-at esq" scope="col">Ativo</th>${cabMeses}<th class="tx-mapa-ult esq" scope="col">Última</th></tr></thead>
+            <tbody>${linhas}</tbody>
+            <tfoot><tr><td class="tx-mapa-at esq">Total${estado.classeAtiva === 'acoesEua' ? ' em R$' : ''}</td>${totais.map((v, i) => `<td class="tx-mapa-tot${atual[i] ? ' atual' : ''}">${v ? milhar(v) : '<span class="tx-fraco">—</span>'}</td>`).join('')}<td class="tx-mapa-ult"></td></tr></tfoot>
           </table>
-        </div>
+        </div>` : `<p class="tx-mapa-sem">Nenhum ativo de ${esc(nomeDaClasse)} na carteira.</p>`}
         <div class="tx-mapa-leg">
-          <span>preço pago (média do mês) e <span class="tx-chip tx-chip-qtd">×qtd</span></span>
+          <span><b class="tx-mono">R$ 00,00</b> preço médio pago no mês e <span class="tx-mapa-q">×qtd</span></span>
           <span><b class="bad">▲</b> mais caro que a compra anterior</span>
           <span><b class="good">▼</b> mais barato</span>
-          <span>— não comprou</span>
-          ${estado.classeAtiva === 'acoesEua' ? '<span>EUA: preço em dólar; o total do mês e o popover mostram em reais (câmbio do dia)</span>' : ''}
+          <span><span class="tx-mapa-leg-vazia">—</span> não comprou</span>
+          ${estado.classeAtiva === 'acoesEua' ? '<span>EUA: preço em dólar; o total do mês e o detalhe mostram em reais (câmbio do dia)</span>' : ''}
         </div>
-        <div class="tx-mapa-pop" id="txMapaPop"${estado.selecionado ? '' : ' hidden'}>${popoverMapaHtml(estado, dados, mapaClasse, compras)}</div>
+        <div class="tx-mapa-pop" id="txMapaPop" role="dialog" aria-label="Detalhe da compra"${estado.selecionado ? '' : ' hidden'}>${popoverMapaHtml(estado, dados, { mapaClasse, compras })}</div>
       </div>
     </section>`;
 }
 
 function linhaPopoverHtml(item, rf) {
+  const brl = item.moeda === 'USD' && item.valorBRL ? `<small>${formatBRL(item.valorBRL)} · câmbio ${formatNumeroBR(item.cambio, 2)}</small>` : '';
   return `
     <tr>
-      <td>${dm(item.data)}</td>
-      <td>${rf ? '' : `<span class="tx-chip tx-chip-qtd">×${qtdTxt(item.qtd)}</span>`}</td>
-      <td>${rf ? '' : dinheiro(item.preco, item.moeda)}</td>
-      <td>${dinheiro(item.valor, item.moeda)}${item.moeda === 'USD' && item.valorBRL ? `<small>R$ ${formatNumeroBR(item.valorBRL)} · câmbio ${formatNumeroBR(item.cambio, 2)}</small>` : ''}</td>
+      <td class="esq tx-mono">${dm(item.data)}</td>
+      <td>${rf ? '' : `<span class="tx-mapa-q">×${qtdTxt(item.qtd)}</span>`}</td>
+      <td class="tx-mono">${rf ? '' : dinheiro(item.preco, item.moeda)}</td>
+      <td class="tx-mono"><b>${dinheiro(item.valor, item.moeda)}</b>${brl}</td>
     </tr>`;
 }
 
-export function popoverMapaHtml(estado, dados, mapaClasseParam, comprasParam) {
+export function popoverMapaHtml(estado, dados, calculado = null) {
   const sel = estado.selecionado;
   if (!sel) return '';
-  const mapaClasse = mapaClasseParam || classePorTicker(dados.classes);
-  const compras = comprasParam || todasAsCompras(dados.lancamentos, mapaClasse);
-  const lista = (dados.classes[estado.classeAtiva] || []).find((a) => a.ticker === sel.ativo)
-    || (dados.classes.rendaFixa || []).find((a) => a.titulo === sel.ativo);
-  const precoAtual = lista ? (lista.precoAtual != null ? lista.precoAtual : null) : null;
-  const precoMedioHoje = lista ? (lista.precoMedio != null ? lista.precoMedio : null) : null;
+  const { compras } = calculado || dadosDoMapa(dados);
+  const naCarteira = ativoDaCarteira(dados, estado.classeAtiva, sel.ativo);
+  const precoAtual = naCarteira && naCarteira.precoAtual != null ? naCarteira.precoAtual : null;
+  const precoMedioHoje = naCarteira && naCarteira.precoMedio != null ? naCarteira.precoMedio : null;
   const pop = popoverMapa(compras, sel.ativo, sel.mes, { precoAtual, precoMedioHoje, cambioHoje: dados.cambio });
   if (!pop) return '';
   const dl = [];
-  if (!pop.rf && pop.anterior) {
-    dl.push(`<dt>vs compra anterior <small class="tx-fraco">${dma(pop.anterior.data)} · ${dinheiro(pop.anterior.preco, pop.moeda)}</small></dt><dd class="${pop.delta > 0 ? 'bad' : 'good'}">${pct(pop.delta)}<small>${pop.delta > 0 ? 'mais caro' : 'mais barato'}</small></dd>`);
+  if (!pop.rf && pop.anterior && pop.delta != null) {
+    dl.push(`<dt>vs compra anterior<small>${dmaCurto(pop.anterior.data)} · ${dinheiro(pop.anterior.preco, pop.moeda)}</small></dt><dd><span class="tx-var ${pop.delta > 0 ? 'bad' : 'good'}">${pct(pop.delta)}</span><small>${pop.delta > 0 ? 'mais caro' : 'mais barato'}</small></dd>`);
+  } else if (!pop.rf) {
+    dl.push('<dt>vs compra anterior</dt><dd><small>primeira compra</small></dd>');
   }
   if (!pop.rf && pop.vsHoje != null) {
-    dl.push(`<dt>vs cotação de hoje <small class="tx-fraco">${dinheiro(precoAtual, pop.moeda)}</small></dt><dd class="${pop.vsHoje > 0 ? 'good' : 'bad'}">${pct(pop.vsHoje)}<small>${pop.vsHoje > 0 ? 'valorizou desde então' : 'hoje está mais barato'}</small></dd>`);
+    dl.push(`<dt>vs cotação de hoje<small>${dinheiro(precoAtual, pop.moeda)}</small></dt><dd><span class="tx-var ${pop.vsHoje > 0 ? 'good' : 'bad'}">${pct(pop.vsHoje)}</span><small>${pop.vsHoje > 0 ? 'valorizou desde então' : 'hoje está mais barato'}</small></dd>`);
   }
-  if (!pop.rf && precoMedioHoje) dl.push(`<dt>seu preço médio hoje</dt><dd>${dinheiro(precoMedioHoje, pop.moeda)}</dd>`);
-  if (pop.moeda === 'USD') {
-    dl.push(`<dt>em reais <small class="tx-fraco">câmbio ${formatNumeroBR(pop.cambioMedio, 2)} → hoje ${formatNumeroBR(dados.cambio, 2)}</small></dt><dd>${formatBRL(pop.pagoBRL)}<small>hoje valem ${pop.hojeBRL != null ? formatBRL(pop.hojeBRL) : '—'}</small></dd>`);
-    if (pop.efeitoDolar != null) dl.push(`<dt>efeito do dólar</dt><dd class="${dados.cambio > pop.cambioMedio ? 'good' : 'bad'}">${pct(pop.efeitoDolar)}<small>só pela variação do câmbio</small></dd>`);
+  if (!pop.rf && precoMedioHoje) dl.push(`<dt>seu preço médio hoje</dt><dd><b>${dinheiro(precoMedioHoje, pop.moeda)}</b></dd>`);
+  if (pop.moeda === 'USD' && pop.pagoBRL) {
+    dl.push(`<dt>em reais<small>câmbio ${formatNumeroBR(pop.cambioMedio, 2)} no dia → ${formatNumeroBR(dados.cambio, 2)} hoje</small></dt><dd><b>${formatBRL(pop.pagoBRL)}</b><small>hoje valem ${pop.hojeBRL != null ? formatBRL(pop.hojeBRL) : '—'}</small></dd>`);
+    if (pop.efeitoDolar != null) dl.push(`<dt>efeito do dólar<small>só pela variação do câmbio</small></dt><dd><span class="tx-var ${pop.efeitoDolar > 0 ? 'good' : 'bad'}">${pct(pop.efeitoDolar)}</span></dd>`);
   }
+  if (pop.rf) dl.push(`<dt>aplicado no mês</dt><dd><b>${formatBRL(pop.valor)}</b></dd>`);
+  const podeRepetir = !!naCarteira;
   return `
     <div class="tx-mapa-pop-cab">
-      <span class="tx-mapa-pop-classe" style="--cor:var(${corClasse(estado.classeAtiva)})">${CLASSES_APORTE.find((c) => c.id === estado.classeAtiva).nome}</span>
-      <b class="tx-mono">${esc(sel.ativo)}</b><span class="tx-fraco">${rotuloMes(sel.mes)}</span>
+      <span class="tx-mapa-pop-classe" style="--cor:var(${corClasse(estado.classeAtiva)})">${esc(nomeClasse(estado.classeAtiva))}</span>
+      <b>${esc(sel.ativo)}</b><span class="tx-fraco">${rotuloMes(sel.mes)}${pop.itens.length > 1 ? ` · ${pop.itens.length} compras` : ''}</span>
       <button type="button" class="tx-mapa-pop-fechar" data-mapa-fechar aria-label="Fechar">×</button>
     </div>
-    <div class="tx-tabela-wrap tx-mapa-pop-tabela">
-      <table class="tx-tabela">
-        <thead><tr><th class="esq">Data</th><th>Qtd</th><th>Preço</th><th>Total</th></tr></thead>
-        <tbody>${pop.itens.map((it) => linhaPopoverHtml(it, pop.rf)).join('')}</tbody>
-      </table>
-    </div>
+    <table class="tx-mapa-pop-t">
+      <thead><tr><th class="esq">Data</th><th>Qtd</th><th>Preço</th><th>Total</th></tr></thead>
+      <tbody>${pop.itens.map((it) => linhaPopoverHtml(it, pop.rf)).join('')}</tbody>
+    </table>
     ${dl.length ? `<dl class="tx-mapa-pop-dl">${dl.join('')}</dl>` : ''}
     ${pop.mesmoDia.length ? `
-      <div class="tx-mapa-pop-junto">${pop.itens.length > 1 ? 'Nessas datas' : 'No mesmo dia'} você também comprou:
-        <div>${pop.mesmoDia.map((c) => `<span class="tx-chip" title="${esc(`${qtdTxt(c.qtd)} · ${dinheiro(c.valor, 'BRL')}`)}"><span class="tx-dot" style="background:var(${corClasse(c.classe)})"></span>${esc(c.ativo)}</span>`).join('')}</div>
+      <div class="tx-mapa-pop-junto"><span>${pop.itens.length > 1 ? 'Nessas datas' : 'No mesmo dia'} você também comprou</span>
+        <div>${pop.mesmoDia.map((c) => `<span class="tx-chip" title="${esc(c.qtd ? `${qtdTxt(c.qtd)} · ${dinheiro(c.valor, c.classe === 'acoesEua' ? 'USD' : 'BRL')}` : formatBRL(c.valor))}"><span class="tx-dot" style="background:var(${corClasse(c.classe)})"></span>${esc(c.ativo)}</span>`).join('')}</div>
       </div>` : ''}
-    ${!pop.rf ? `<div class="tx-mapa-pop-rod"><button type="button" class="btn btn-ghost tx-btn-sm" data-mapa-grafico="${esc(sel.ativo)}">Ver gráfico do preço</button></div>` : ''}`;
+    <div class="tx-mapa-pop-rod">
+      ${!pop.rf ? `<button type="button" class="btn btn-ghost tx-btn-sm" data-mapa-grafico="${esc(sel.ativo)}">Ver lançamentos e gráfico</button>` : ''}
+      ${podeRepetir ? `<button type="button" class="btn btn-primary tx-btn-sm" data-mapa-repetir="${esc(sel.ativo)}|${sel.mes}">Repetir no carrinho</button>` : ''}
+    </div>`;
 }

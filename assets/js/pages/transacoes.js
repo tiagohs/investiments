@@ -144,6 +144,8 @@ export async function montarPaginaTransacoes(token, {
           desenharPainel();
           const pL = conteudo.querySelector('#txPainel-lancamentos');
           if (pL && pL._txCtx) abrirGraficoPara(pL._txCtx, ticker);
+          const lista = conteudo.querySelector('#txLista');
+          if (lista && typeof lista.scrollIntoView === 'function') lista.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
       }
     }

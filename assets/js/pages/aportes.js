@@ -35,7 +35,8 @@ import {
   finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
 } from './aportes-calc.js';
 import { momentoHtml } from './momento-aporte.js';
-import { estadoInicialMapa, mapaHtml } from './aportes-mapa.js';
+import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
+import { celulaMapa } from './aportes-mapa-calc.js';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dm = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '—');
@@ -49,7 +50,7 @@ const corClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).cor ||
 const dotHtml = (classe) => `<span class="tx-dot" style="background:var(${corClasse(classe)})"></span>`;
 const diasEntre = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
 /** Linha pequena mono com a conversão em reais, no mesmo estilo do "no dia"/"hoje" do popover do mapa. */
-const brlHtml = (v, rotulo = '') => `<small class="tx-brl">R$ ${formatNumeroBR(v)}${rotulo ? ` <span class="tx-fraco">${rotulo}</span>` : ''}</small>`;
+const brlHtml = (v, rotulo = '', dica = '') => `<small class="tx-brl"${dica ? ` title="${dica}"` : ''}>R$ ${formatNumeroBR(v)}${rotulo ? ` <span class="tx-fraco">${rotulo}</span>` : ''}</small>`;
 const lerNumeroCampo = (s) => {
   const t = String(s == null ? '' : s).trim().replace(/\s/g, '');
   if (!t) return null;
@@ -99,7 +100,12 @@ function inputHtml(attrs, valor, { decimal = true, rotulo = '', prefixo = '' } =
   return `<label class="tx-campo">${prefixo ? `<span class="tx-campo-pre">${prefixo}</span>` : ''}<input type="text" inputmode="${decimal ? 'decimal' : 'numeric'}" ${attrs} value="${esc(valor)}" aria-label="${esc(rotulo)}" autocomplete="off"></label>`;
 }
 
-function linhaAndamentoHtml(a, it, i, dig) {
+/** Total de um item em dólar: US$ e, embaixo, em reais pelo câmbio de hoje (é o dia da compra). */
+function totalPagoHtml(valor, moeda, cambio) {
+  return `${dinheiro(valor, moeda)}${moeda === 'USD' && cambio > 0 ? brlHtml(valor * cambio, `câmbio ${formatNumeroBR(cambio, 2)}`) : ''}`;
+}
+
+function linhaAndamentoHtml(a, it, i, dig, cambio) {
   const f = finalDoItem(it, dig);
   const nomeAtivo = it.classe === 'rendaFixa' ? `<b>${esc(it.ativo)}</b><small>${esc(it.instituicao || 'Renda Fixa')}</small>` : `<b>${esc(it.ativo)}</b><small>${NOME_CLASSE_APORTE[it.classe]}</small>`;
   if (it.classe === 'rendaFixa') {
@@ -116,10 +122,10 @@ function linhaAndamentoHtml(a, it, i, dig) {
   return `
     <tr data-i="${i}">
       <td class="esq"><span class="tx-ativo">${logoAtivoHtml(it.ativo)}<span class="tx-ativo-nome">${nomeAtivo}</span></span></td>
-      <td data-rot="Planejado"><span class="tx-planejado">${qtdTxt(it.qtdPlanejada)} × ${precoTxt(it.precoPlanejado, it.moeda)}</span><small>${dinheiro(it.valorPlanejado, it.moeda)}</small></td>
+      <td data-rot="Planejado"><span class="tx-planejado">${qtdTxt(it.qtdPlanejada)} × ${precoTxt(it.precoPlanejado, it.moeda)}</span><small>${dinheiro(it.valorPlanejado, it.moeda)}${it.moeda === 'USD' && cambio > 0 ? ` ≈ ${formatBRL(it.valorPlanejado * cambio)}` : ''}</small></td>
       <td data-rot="Qtd final">${inputHtml(`data-final="qtd" data-aporte="${esc(a.id)}" data-i="${i}"`, numCampo(dig.qtd != null ? dig.qtd : (it.qtdFinal != null ? it.qtdFinal : it.qtdPlanejada)), { decimal: it.moeda === 'USD', rotulo: `Quantidade comprada de ${it.ativo}` })}</td>
       <td data-rot="Preço pago">${inputHtml(`data-final="preco" data-aporte="${esc(a.id)}" data-i="${i}"`, dinheiroCampo(dig.preco != null ? dig.preco : (it.precoFinal != null ? it.precoFinal : it.precoPlanejado)), { rotulo: `Preço pago em ${it.ativo}`, prefixo: pre })}</td>
-      <td data-rot="Total pago" class="tx-final-total" data-total-i="${i}">${dinheiro(f.valor, it.moeda)}</td>
+      <td data-rot="Total pago" class="tx-final-total" data-total-i="${i}">${totalPagoHtml(f.valor, it.moeda, cambio)}</td>
     </tr>`;
 }
 
@@ -177,7 +183,7 @@ function andamentoHtml(estado, dados) {
           <div class="tx-tabela-wrap">
             <table class="tx-tabela tx-tabela-andamento">
               <thead><tr><th class="esq">Ativo</th><th>Planejado</th><th>Qtd comprada</th><th>Preço pago</th><th>Total pago</th></tr></thead>
-              <tbody>${a.itens.map((it, i) => linhaAndamentoHtml(a, it, i, dig[i] || {})).join('')}</tbody>
+              <tbody>${a.itens.map((it, i) => linhaAndamentoHtml(a, it, i, dig[i] || {}, dados.cambio)).join('')}</tbody>
             </table>
           </div>
           <p class="tx-nota">Quantidade 0 = não comprou esse ativo (sai do aporte ao concluir).${usaEua ? ` Ações EUA convertidas pelo dólar de hoje (${formatBRL(dados.cambio)}).` : ''}</p>
@@ -197,8 +203,8 @@ function ultimoPagoHtml(a, hoje, { cambioHoje = null } = {}) {
   const dif = a.precoAtual > 0 ? ((a.precoAtual / u.preco) - 1) * 100 : null;
   const dias = hoje && u.data ? diasEntre(u.data, hoje) : null;
   const conversao = a.moeda === 'USD' ? `
-      ${u.cambioDia > 0 ? brlHtml(u.preco * u.cambioDia, `no dia · câmbio ${formatNumeroBR(u.cambioDia, 2)}`) : ''}
-      ${cambioHoje > 0 ? brlHtml(u.preco * cambioHoje, 'no câmbio de hoje') : ''}` : '';
+      ${u.cambioDia > 0 ? brlHtml(u.preco * u.cambioDia, 'no dia', `câmbio do dia da compra: ${formatNumeroBR(u.cambioDia, 2)}`) : ''}
+      ${cambioHoje > 0 ? brlHtml(u.preco * cambioHoje, 'hoje', `câmbio de hoje: ${formatNumeroBR(cambioHoje, 2)}`) : ''}` : '';
   return `
     <span class="tx-ultimo">
       <b>${precoTxt(u.preco, a.moeda)}</b>
@@ -238,7 +244,7 @@ function prateleiraRvHtml(estado, dados, classe) {
     return `
       <tr class="${qtd ? 'no-carrinho' : ''}" data-linha="${esc(classe)}:${esc(a.ticker)}">
         <td class="esq"><a class="tx-ativo" href="${esc(urlAtivoTicker(a.ticker))}">${logoAtivoHtml(a.ticker)}<span class="tx-ativo-nome"><b>${esc(a.ticker)}</b><small>${esc(a.nome || '')}</small></span></a></td>
-        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, `câmbio ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<small class="${variacao >= 0 ? 'good' : 'bad'}">${pct(variacao, 2)} hoje</small>` : ''}</td>
+        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, '', `câmbio de hoje: ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<small class="${variacao >= 0 ? 'good' : 'bad'}">${pct(variacao, 2)} hoje</small>` : ''}</td>
         <td data-rot="Último pago">${ultimoPagoHtml(a, dados.hoje, { cambioHoje: dados.cambio })}</td>
         <td data-rot="Preço-teto">${tetoHtml(a)}</td>
         <td data-rot="Viés">${vies.classe ? `<span class="status-pill ${vies.classe}">${vies.texto}</span>` : '<span class="tx-fraco">—</span>'}</td>
@@ -336,6 +342,7 @@ function prateleiraHtml(estado, dados) {
         ${rf ? '' : `<label class="tx-toggle"><input type="checkbox" id="txSoComprar"${estado.soComprar ? ' checked' : ''}><span>Só viés Comprar</span></label>`}
       </div>
     </div>
+    ${estado.classeAtiva === 'acoesEua' && dados.cambio > 0 ? `<p class="tx-nota tx-nota-cambio">Em dólar, com a conversão em reais embaixo: cotação e subtotal pelo câmbio de hoje (<b>${formatBRL(dados.cambio)}</b>); o último pago pelo câmbio do dia da compra e pelo de hoje.</p>` : ''}
     <div id="txPrateleiraLista">${rf ? prateleiraRfHtml(estado, dados) : prateleiraRvHtml(estado, dados, estado.classeAtiva)}</div>
     <p class="tx-momento-nota">Embaixo de cada ativo, a leitura dos <b>seus</b> critérios: preço-teto, ranking da Suno, % desejado do Radar, preço médio, última compra, P/VP e P/L${rf ? ', taxa de hoje x a sua média contratada e as metas de Renda Fixa' : ''}. Não é recomendação de compra.</p>`;
 }
@@ -471,6 +478,15 @@ function resumoHtml(estado, dados) {
     </section>`;
 }
 
+/** Câmbio do dia `data` (ou o mais recente antes dele) visto nos lançamentos em dólar - vem de Aportes.gs (aux_historico-patrimonio). */
+function cambioDoDia(dados, data) {
+  let melhor = null;
+  (dados.lancamentos || []).forEach((l) => {
+    if (l.moeda === 'USD' && l.cambio > 0 && l.data <= data && (!melhor || l.data > melhor.data)) melhor = l;
+  });
+  return melhor ? melhor.cambio : null;
+}
+
 function historicoHtml(estado, dados) {
   const lista = dados.aportes.filter((a) => a.status === 'concluido');
   const porMes = {};
@@ -478,8 +494,9 @@ function historicoHtml(estado, dados) {
   const meses = Object.keys(porMes).sort().reverse();
   const visiveis = estado.historicoTodos ? meses : meses.slice(0, 3);
   const cartao = (a) => {
-    const pago = totalAporte(a, 'final', dados.cambio);
-    const planejado = totalAporte(a, 'planejado', dados.cambio);
+    const cambioAporte = a.itens.some((it) => it.moeda === 'USD') ? (cambioDoDia(dados, a.data) || dados.cambio) : dados.cambio;
+    const pago = totalAporte(a, 'final', cambioAporte);
+    const planejado = totalAporte(a, 'planejado', cambioAporte);
     const confirmando = estado.confirmando === `excluir:${a.id}`;
     return `
       <details class="tx-hist"${estado.abertos[a.id] ? ' open' : ''} data-hist="${esc(a.id)}">
@@ -490,7 +507,7 @@ function historicoHtml(estado, dados) {
         </summary>
         <div class="tx-hist-corpo">
           <ul class="tx-hist-itens">${a.itens.map((it) => `
-            <li>${logoItemHtml(it)}<span><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? esc(it.instituicao || 'Renda Fixa') : `${qtdTxt(it.qtdFinal)} × ${precoTxt(it.precoFinal, it.moeda)}`}</small></span><b class="tx-mono">${dinheiro(it.valorFinal, it.moeda)}</b></li>`).join('')}
+            <li>${logoItemHtml(it)}<span><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? esc(it.instituicao || 'Renda Fixa') : `${qtdTxt(it.qtdFinal)} × ${precoTxt(it.precoFinal, it.moeda)}`}</small></span><b class="tx-mono">${dinheiro(it.valorFinal, it.moeda)}${it.moeda === 'USD' ? (() => { const c = cambioDoDia(dados, a.data) || dados.cambio; return c > 0 ? brlHtml(it.valorFinal * c, `câmbio ${formatNumeroBR(c, 2)}`) : ''; })() : ''}</b></li>`).join('')}
           </ul>
           ${confirmando ? `
             <div class="tx-confirmar tx-confirmar-perigo">
@@ -556,6 +573,7 @@ export function renderAportes(ctx) {
   // redesenho só troca o contexto que eles leem
   el._txCtx = ctx;
   if (!el._txAportesLigado) { el._txAportesLigado = true; ligarAportes(el); }
+  aposDesenharMapa(ctx);
 }
 
 function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {
@@ -616,15 +634,109 @@ function atualizarTotaisAndamento(ctx, id) {
   const dig = estado.digitados[id] || {};
   a.itens.forEach((it, i) => {
     const cel = el.querySelector(`[data-aporte-card="${id}"] [data-total-i="${i}"]`);
-    if (cel) cel.textContent = dinheiro(finalDoItem(it, dig[i] || {}).valor, it.moeda);
+    if (cel) cel.innerHTML = it.classe === 'rendaFixa' ? formatBRL(finalDoItem(it, dig[i] || {}).valor) : totalPagoHtml(finalDoItem(it, dig[i] || {}).valor, it.moeda, dados.cambio);
   });
   const pe = el.querySelector(`[data-rodape="${id}"]`);
   if (pe) pe.innerHTML = rodapeAndamentoHtml(a, estado, dados.cambio);
 }
 
+// ---------------------------------------------------------------------------
+// Mapa de compras ("Aportes realizados"): trocar classe/período redesenha a
+// seção; abrir/fechar o detalhe de um quadrado NÃO redesenha (a rolagem
+// horizontal do mapa e o foco ficam onde estavam).
+// ---------------------------------------------------------------------------
+
 function redesenharMapa(ctx) {
   const s = ctx.el.querySelector('#txMapaCompras');
   if (s) s.outerHTML = mapaHtml(ctx.estado.mapa, ctx.dados);
+  aposDesenharMapa(ctx);
+}
+
+/** Depois de desenhar: o mês mais recente sempre à vista (a tabela rola pra direita) e o popover no lugar. */
+function aposDesenharMapa(ctx) {
+  const wrap = ctx.el.querySelector('#txMapaWrap');
+  if (wrap) {
+    const sel = wrap.querySelector('.tx-mapa-cel.sel');
+    if (!sel) wrap.scrollLeft = wrap.scrollWidth;
+  }
+  posicionarPopMapa(ctx);
+}
+
+/** Popover logo abaixo do quadrado (ou acima, se não couber); no celular o CSS vira uma folha presa embaixo. */
+function posicionarPopMapa(ctx) {
+  const pop = ctx.el.querySelector('#txMapaPop');
+  const btn = ctx.el.querySelector('.tx-mapa-cel.sel');
+  if (!pop || pop.hidden || !btn) return;
+  const card = pop.parentElement;
+  if (!card || typeof card.getBoundingClientRect !== 'function') return;
+  const c = card.getBoundingClientRect();
+  const r = btn.getBoundingClientRect();
+  const larg = pop.offsetWidth || 380;
+  const alt = pop.offsetHeight || 0;
+  let left = r.left - c.left + r.width / 2 - larg / 2;
+  left = Math.max(8, Math.min(left, c.width - larg - 8));
+  let top = r.bottom - c.top + 8;
+  const win = ctx.doc.defaultView;
+  const alturaTela = (win && win.innerHeight) || 0;
+  if (alturaTela && alt && r.bottom + alt + 16 > alturaTela && r.top - alt - 16 > 0) top = r.top - c.top - alt - 8;
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(top)}px`;
+}
+
+function abrirPopMapa(ctx, sel) {
+  const { el, estado, dados } = ctx;
+  estado.mapa.selecionado = sel;
+  const pop = el.querySelector('#txMapaPop');
+  if (!pop) { redesenharMapa(ctx); return; }
+  pop.innerHTML = popoverMapaHtml(estado.mapa, dados);
+  pop.hidden = !pop.innerHTML.trim();
+  el.querySelectorAll('.tx-mapa-cel').forEach((b) => {
+    const ativo = b.getAttribute('data-mapa-cel') === `${sel.ativo}|${sel.mes}`;
+    b.classList.toggle('sel', ativo);
+    b.setAttribute('aria-expanded', String(ativo));
+  });
+  posicionarPopMapa(ctx);
+}
+
+function fecharPopMapa(ctx, { focar = false } = {}) {
+  const { el, estado } = ctx;
+  const sel = estado.mapa.selecionado;
+  estado.mapa.selecionado = null;
+  const pop = el.querySelector('#txMapaPop');
+  if (pop) { pop.hidden = true; pop.innerHTML = ''; }
+  el.querySelectorAll('.tx-mapa-cel.sel').forEach((b) => { b.classList.remove('sel'); b.setAttribute('aria-expanded', 'false'); });
+  if (focar && sel) {
+    const b = el.querySelector(`[data-mapa-cel="${sel.ativo}|${sel.mes}"]`);
+    if (b && typeof b.focus === 'function') b.focus();
+  }
+}
+
+/** "Repetir no carrinho": a mesma quantidade (ou o mesmo valor, na RF) daquele mês, com a cotação de agora. */
+function repetirDoMapa(ctx, ativo, mes) {
+  const { el, doc, dados, estado } = ctx;
+  const classe = estado.mapa.classeAtiva;
+  const a = ativoDaCarteira(dados, classe, ativo);
+  const cel = celulaMapa(dadosDoMapa(dados).compras, ativo, mes);
+  if (!a || !cel) return;
+  const rotulo = `${MESES_CURTOS[Number(mes.slice(5, 7)) - 1]}/${mes.slice(2, 4)}`;
+  if (classe === 'rendaFixa') {
+    estado.carrinho = definirValorRf(estado.carrinho, { ativo: a.titulo, instituicao: a.instituicao }, cel.valor);
+    estado.mensagem = { tipo: 'ok', html: `<b>${esc(a.titulo)}</b> foi pro carrinho com ${formatBRL(cel.valor)}, o mesmo valor aplicado em ${rotulo}.` };
+  } else {
+    const preco = a.precoAtual > 0 ? a.precoAtual : cel.precoMedio;
+    estado.carrinho = definirQuantidade(estado.carrinho, { classe, ativo, moeda: a.moeda, preco }, cel.qtd);
+    const dif = cel.precoMedio ? (preco / cel.precoMedio - 1) * 100 : null;
+    estado.mensagem = { tipo: 'ok', html: `<b>${esc(ativo)}</b> foi pro carrinho: ${qtdTxt(cel.qtd)} × ${precoTxt(preco, a.moeda)} (cotação de agora${dif != null && Math.abs(dif) >= 0.05 ? `, ${pct(dif)} vs os ${precoTxt(cel.precoMedio, a.moeda)} de ${rotulo}` : ''}).` };
+  }
+  ctx.salvarCarrinho(estado.carrinho);
+  estado.classeAtiva = classe;
+  estado.busca = '';
+  estado.mapa.selecionado = null;
+  renderAportes(ctx);
+  const alvo = doc.getElementById('txNovoAporte');
+  if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const linha = el.querySelector(`[data-linha="${classe}:${ativo}"]`);
+  if (linha && linha.classList) linha.classList.add('tx-destaque');
 }
 
 async function executar(ctx, fn, sucesso) {
@@ -650,7 +762,9 @@ function ligarAportes(el) {
     const ctx = el._txCtx;
     const { doc, dados, estado } = ctx;
     const redesenhar = () => renderAportes(ctx);
-    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico]');
+    // clicar fora do popover do mapa (e fora de outro quadrado) fecha ele
+    if (estado.mapa.selecionado && !ev.target.closest('#txMapaPop') && !ev.target.closest('[data-mapa-cel]')) fecharPopMapa(ctx);
+    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico],[data-mapa-repetir]');
     if (!alvo || !el.contains(alvo)) return;
     if (alvo.hasAttribute('data-rolar')) {
       const destino = doc.getElementById(alvo.getAttribute('data-rolar'));
@@ -672,13 +786,13 @@ function ligarAportes(el) {
     if (alvo.hasAttribute('data-mapa-cel')) {
       const [ativo, mes] = alvo.getAttribute('data-mapa-cel').split('|');
       const sel = estado.mapa.selecionado;
-      estado.mapa.selecionado = (sel && sel.ativo === ativo && sel.mes === mes) ? null : { ativo, mes };
-      redesenharMapa(ctx);
+      if (sel && sel.ativo === ativo && sel.mes === mes) { fecharPopMapa(ctx); return; }
+      abrirPopMapa(ctx, { ativo, mes });
       return;
     }
-    if (alvo.hasAttribute('data-mapa-fechar')) {
-      estado.mapa.selecionado = null;
-      redesenharMapa(ctx);
+    if (alvo.hasAttribute('data-mapa-fechar')) { fecharPopMapa(ctx, { focar: true }); return; }
+    if (alvo.hasAttribute('data-mapa-repetir')) {
+      repetirDoMapa(ctx, ...alvo.getAttribute('data-mapa-repetir').split('|'));
       return;
     }
     if (alvo.hasAttribute('data-mapa-grafico')) {
@@ -776,6 +890,13 @@ function ligarAportes(el) {
       });
     }
   });
+
+  el.addEventListener('keydown', (ev) => {
+    const ctx = el._txCtx;
+    if (ev.key === 'Escape' && ctx && ctx.estado.mapa.selecionado) fecharPopMapa(ctx, { focar: true });
+  });
+  const win = el.ownerDocument && el.ownerDocument.defaultView;
+  if (win && typeof win.addEventListener === 'function') win.addEventListener('resize', () => { if (el._txCtx) posicionarPopMapa(el._txCtx); });
 
   el.addEventListener('toggle', (ev) => {
     const { estado } = el._txCtx;

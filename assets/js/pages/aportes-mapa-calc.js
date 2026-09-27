@@ -91,7 +91,10 @@ export function celulaMapa(compras, ativo, mesChave) {
   const qtd = rf ? null : doMes.reduce((s, c) => s + num(c.qtd), 0);
   const valor = doMes.reduce((s, c) => s + num(c.valor), 0);
   const precoMedio = rf || !qtd ? null : valor / qtd;
-  const anterior = historicoAtivo(compras, ativo).filter((c) => c.data < doMes[0].data && num(c.preco) > 0).pop() || null;
+  // a compra anterior é a última ANTES do mês (27/09/2026: comparar com
+  // doMes[0] podia pegar outra compra do próprio mês - ex.: TRXF11 em
+  // ago/26 aparecia "▲" contra uma compra de agosto, não contra julho)
+  const anterior = historicoAtivo(compras, ativo).filter((c) => c.data < `${mesChave}-01` && num(c.preco) > 0).pop() || null;
   const valorBRL = doMes[0].moeda === 'USD' ? doMes.reduce((s, c) => s + num(c.valorBRL), 0) : valor;
   return {
     itens: doMes.slice().sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0)),

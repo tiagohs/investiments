@@ -35,7 +35,7 @@ const DADOS = {
   lancamentos: [
     { destino: 'transacoes', data: '2026-09-01', ativo: 'TEST11', tipo: 'Compra', qtd: 1, preco: 98, valor: 98, moeda: 'BRL' },
     { destino: 'proventos', data: '2026-08-25', ativo: 'TEST11', tipo: 'Rendimento', qtd: 10, preco: 0.8, valor: 8, moeda: 'BRL' },
-    { destino: 'transacoesUsa', data: '2025-12-01', ativo: 'AAA', tipo: 'Compra', qtd: 1, preco: 10, valor: 10, moeda: 'USD' },
+    { destino: 'transacoesUsa', data: '2025-12-01', ativo: 'AAA', tipo: 'Compra', qtd: 1, preco: 10, valor: 10, moeda: 'USD', cambio: 5, valorBRL: 50 },
   ],
 };
 
@@ -318,4 +318,56 @@ test('lançamentos: ativo sem cadastro -> atalho pro cadastro em Carteiras, "Con
   assert.deepEqual(eventos[0], ['pendente', consolidacao], 'o topo do site é avisado na hora');
   clique(w, doc.querySelector('[data-lanc="consolidar"]'));
   assert.deepEqual(eventos[1], ['abrir']);
+});
+
+test('aportes: mapa de compras - quadrado com preço e ×qtd, clicar abre o detalhe ao lado, fora fecha, repetir no carrinho', async () => {
+  const { doc, w } = await montar();
+  const secao = doc.getElementById('txMapaCompras');
+  assert.ok(secao, 'Aportes realizados fica na aba Aportes');
+  assert.ok(secao.compareDocumentPosition(doc.getElementById('txNovoAporte')) & 4, 'acima de "Novo aporte"');
+  assert.ok(doc.querySelector('[data-mapa-classe="fiis"]').classList.contains('active'));
+  assert.match(txt(secao.querySelector('thead')), /set\/26 em andamento/);
+  const cel = doc.querySelector('[data-mapa-cel="TEST11|2026-09"]');
+  assert.match(txt(cel), /R\$ 98,00 ×1/);
+  assert.match(cel.getAttribute('title').replace(/\s+/g, ' '), /TEST11 em set\/26: 01\/09 1 × R\$ 98,00/);
+  const pop = doc.getElementById('txMapaPop');
+  assert.equal(pop.hidden, true);
+  clique(w, cel);
+  assert.equal(pop.hidden, false);
+  assert.ok(cel.classList.contains('sel'));
+  assert.match(txt(pop), /FIIs TEST11 set\/26/);
+  assert.match(txt(pop), /01\/09 ×1 R\$ 98,00 R\$ 98,00/);
+  assert.match(txt(pop), /vs cotação de hoje R\$ 100,00 \+2,0%/);
+  clique(w, doc.querySelector('.tx-etapas'));
+  assert.equal(pop.hidden, true, 'clicar fora fecha');
+  assert.ok(!cel.classList.contains('sel'));
+  clique(w, cel);
+  clique(w, pop.querySelector('[data-mapa-repetir]'));
+  const guardado = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
+  assert.deepEqual([guardado.itens['fiis:TEST11'].qtd, guardado.itens['fiis:TEST11'].preco], [1, 100]);
+  assert.match(txt(doc.querySelector('.tx-aviso')), /TEST11 foi pro carrinho: 1 × R\$ 100,00/);
+  assert.ok(doc.querySelector('[data-classe="fiis"]').classList.contains('active'), 'a prateleira troca pra classe do ativo');
+  clique(w, doc.querySelector('[data-mapa-classe="acoesEua"]'));
+  assert.match(txt(doc.querySelector('#txMapaCompras tfoot')), /Total em R\$/);
+  assert.match(txt(doc.querySelector('#txMapaCompras .tx-mapa-ult')), /Última/);
+});
+
+test('lançamentos: tipo em tag, ativo com a classe, "Em reais" nas compras em dólar; o botão do mapa abre o gráfico do ativo', async () => {
+  const historico = [];
+  const { doc, w } = await montar({ getHistoricoAtivoImpl: async (t, ticker) => { historico.push(ticker); return { ok: true, resultado: { ticker, serie: [{ data: '2025-10-01', preco: 95 }, { data: '2026-06-01', preco: 97 }, { data: '2026-09-25', preco: 100 }] } }; } });
+  clique(w, doc.querySelector('[data-mapa-cel="TEST11|2026-09"]'));
+  clique(w, doc.querySelector('#txMapaPop [data-mapa-grafico]'));
+  for (let i = 0; i < 20 && !doc.querySelector('#txListaGrafico svg'); i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(doc.getElementById('txPainel-lancamentos').hidden, false, 'foi pra aba Lançamentos');
+  assert.deepEqual(historico, ['TEST11']);
+  assert.equal(doc.getElementById('txListaAtivo').value, 'TEST11');
+  assert.ok(doc.querySelector('#txListaGrafico svg.ag-chart'));
+  assert.equal(doc.querySelectorAll('#txListaGrafico .ag-ponto').length, 1, 'a compra de 01/09 vira um ponto');
+  assert.match(txt(doc.querySelector('.ag-stats')), /Compras no período: 1/);
+  const linha = doc.querySelector('.tx-lista-linha');
+  assert.ok(linha.querySelector('.tx-tipo-compra'));
+  assert.match(txt(linha), /TEST11 FIIs Compra ×1 R\$ 98,00 R\$ 98,00/);
+  digitar(w, doc.getElementById('txListaAtivo'), '', 'change');
+  const usa = [...doc.querySelectorAll('.tx-lista-linha')].find((l) => /AAA/.test(txt(l)));
+  assert.match(txt(usa), /AAA Ações EUA Compra ×1 US\$ 10,00 US\$ 10,00 R\$ 50,00 câmbio 5,00/);
 });

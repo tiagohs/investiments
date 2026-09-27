@@ -25,12 +25,10 @@ function larguraReal(container) {
   return w > 40 ? Math.round(w) : 640;
 }
 
-function pathDaLinha(pontos, x, y) {
+/** Linha do preço pela DATA de cada ponto (a série pula fins de semana/feriados - pelo índice, os pontos de compra ficariam fora da linha). */
+function pathDaLinha(serie, x, y) {
   let d = '';
-  pontos.forEach((v, i) => {
-    if (v == null) return;
-    d += `${i === 0 ? 'M' : 'L'}${x(i, pontos.length).toFixed(1)} ${y(v).toFixed(1)} `;
-  });
+  serie.forEach((p, i) => { d += `${i === 0 ? 'M' : 'L'}${x(p.data).toFixed(1)} ${y(p.preco).toFixed(1)} `; });
   return d.trim();
 }
 
@@ -38,7 +36,6 @@ function pathDaLinha(pontos, x, y) {
 function pathDoPrecoMedio(pontosPm, x) {
   let d = '';
   pontosPm.forEach((p) => {
-    if (p.precoMedio == null) return;
     const xx = x(p.x).toFixed(1);
     const yy = p.y.toFixed(1);
     d += d ? `H${xx}V${yy}` : `M${xx},${yy}`;
@@ -53,7 +50,7 @@ export function renderGraficoCompras(doc, container, { serie, compras, moeda, fo
   }
   const W = larguraReal(container);
   const H = 260;
-  const padL = 8, padR = 58, padT = 14, padB = 24;
+  const padL = 46, padR = 74, padT = 14, padB = 24;
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const t0 = new Date(`${serie[0].data}T00:00:00`).getTime();
@@ -72,7 +69,6 @@ export function renderGraficoCompras(doc, container, { serie, compras, moeda, fo
   const folga = (maxV - minV) * 0.1 || Math.abs(maxV) * 0.05 || 1;
   minV -= folga; maxV += folga;
   const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
-  const xIdx = (i, n) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
 
   const ticks = 4;
   let eixoSvg = '';
@@ -80,14 +76,21 @@ export function renderGraficoCompras(doc, container, { serie, compras, moeda, fo
     const v = minV + (maxV - minV) * (t / ticks);
     const yy = y(v);
     eixoSvg += `<line class="ag-grade" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
-    eixoSvg += `<text class="ag-eixo" x="${W - padR + 6}" y="${(yy + 3).toFixed(1)}">${formatNumeroBR(v, v < 20 ? 2 : 0)}</text>`;
+    eixoSvg += `<text class="ag-eixo" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatNumeroBR(v, v < 20 ? 2 : 0)}</text>`;
   }
   let mesesSvg = '';
-  for (let d = new Date(t0); d.getTime() <= t1; d.setMonth(d.getMonth() + 2)) {
-    mesesSvg += `<text class="ag-eixo" x="${xData(d.toISOString().slice(0, 10)).toFixed(1)}" y="${H - 6}" text-anchor="middle">${MESES_CURTOS[d.getMonth()]}</text>`;
+  // um rótulo no dia 1 de cada mês (a cada 2 meses em tela estreita), com o ano no de janeiro
+  const passo = plotW < 420 ? 2 : 1;
+  const d0 = new Date(`${serie[0].data.slice(0, 7)}-01T00:00:00`);
+  for (let d = new Date(d0.getFullYear(), d0.getMonth() + 1, 1), i = 0; d.getTime() <= t1; d.setMonth(d.getMonth() + 1), i += 1) {
+    if (i % passo) continue;
+    const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+    const xx = xData(chave);
+    mesesSvg += `<line class="ag-grade ag-grade-v" x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${padT}" y2="${padT + plotH}"/>`;
+    mesesSvg += `<text class="ag-eixo" x="${xx.toFixed(1)}" y="${H - 6}" text-anchor="middle">${MESES_CURTOS[d.getMonth()]}${d.getMonth() === 0 ? `/${String(d.getFullYear()).slice(2)}` : ''}</text>`;
   }
 
-  const linhaSvg = `<path class="ag-linha" d="${pathDaLinha(precos, xIdx, y)}"/>`;
+  const linhaSvg = `<path class="ag-linha" d="${pathDaLinha(serie, xData, y)}"/>`;
   const pmComXY = pmPontos.filter((p) => p.precoMedio != null).map((p) => ({ x: p.data, y: y(p.precoMedio) }));
   const pmSvg = pmComXY.length ? `<path class="ag-pm" d="${pathDoPrecoMedio(pmComXY, xData)}"/>` : '';
 
@@ -95,11 +98,15 @@ export function renderGraficoCompras(doc, container, { serie, compras, moeda, fo
   const pontosSvg = periodo.map((c) => {
     const valor = c.qtd * c.preco;
     const r = 3.5 + 7 * Math.sqrt(Math.max(valor, 0) / maxValorCompra);
-    return `<circle class="ag-ponto" cx="${xData(c.data).toFixed(1)}" cy="${y(c.preco).toFixed(1)}" r="${r.toFixed(1)}"><title>${dma(c.data)} · ${formatNumeroBR(c.qtd, c.qtd % 1 ? 4 : 0)} × ${formatMoeda(c.preco)} = ${formatMoeda(valor)}</title></circle>`;
+    return `<circle class="ag-ponto" tabindex="0" cx="${xData(c.data).toFixed(1)}" cy="${y(c.preco).toFixed(1)}" r="${r.toFixed(1)}"><title>${dma(c.data)} · ${formatNumeroBR(c.qtd, c.qtd % 1 ? 4 : 0)} × ${formatMoeda(c.preco)} = ${formatMoeda(valor)}</title></circle>`;
   }).join('');
 
   const ultimo = serie[serie.length - 1];
-  const rotuloHoje = `<text class="ag-rot" x="${W - padR + 6}" y="${(y(ultimo.preco) - 6).toFixed(1)}">hoje ${formatMoeda(ultimo.preco)}</text>`;
+  const xu = xData(ultimo.data);
+  const yu = y(ultimo.preco);
+  // "hoje" na margem da direita, na altura do último preço (fora da área dos pontos)
+  const yRot = Math.max(padT + 10, Math.min(yu, padT + plotH - 12));
+  const rotuloHoje = `<circle class="ag-hoje" cx="${xu.toFixed(1)}" cy="${yu.toFixed(1)}" r="3.5"/><line class="ag-hoje-guia" x1="${(xu + 4).toFixed(1)}" x2="${(W - padR + 6).toFixed(1)}" y1="${yu.toFixed(1)}" y2="${yu.toFixed(1)}"/><text class="ag-rot-leg" x="${W - padR + 10}" y="${(yRot - 4).toFixed(1)}">hoje</text><text class="ag-rot" x="${W - padR + 10}" y="${(yRot + 9).toFixed(1)}">${formatMoeda(ultimo.preco)}</text>`;
 
   container.innerHTML = `
     <svg class="ag-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Preço e suas compras">

@@ -25,6 +25,7 @@ import { DESTINOS, TIPOS_ARQUIVO, lerArquivos, valorDoItem } from './lancamentos
 import { MESES_LONGOS } from './aportes-calc.js';
 import { classePorTicker, todasAsCompras } from './aportes-mapa-calc.js';
 import { renderGraficoCompras } from './aportes-grafico.js';
+import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
 
 const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const POR_PAGINA = 40;
@@ -386,21 +387,48 @@ export function filtrarLista(lista, { filtro = 'todos', ano = '', busca = '', at
   });
 }
 
-function linhaLancHtml(l, anteriorMapa) {
+const NOME_CLASSE_LISTA = { acoes: 'Ações', fiis: 'FIIs', acoesEua: 'Ações EUA', rendaFixa: 'Renda Fixa' };
+const COR_CLASSE_LISTA = { acoes: '--acoes', fiis: '--fiis', acoesEua: '--usa', rendaFixa: '--rf' };
+
+/** Classe de um lançamento (pro logo, a bolinha de cor e o nome embaixo do ativo). */
+function classeDoLancamento(l, mapaClasse) {
+  if (l.destino === 'rendaFixa') return 'rendaFixa';
+  if (l.destino === 'transacoesUsa' || l.destino === 'proventosUsa') return 'acoesEua';
+  return mapaClasse[l.ativo] || (/11[A-Z]?$/.test(String(l.ativo || '')) ? 'fiis' : 'acoes');
+}
+
+/** Tipo como tag colorida (compra azul, venda vermelha, aplicação âmbar, provento verde). */
+function tipoTagHtml(l) {
+  const t = String(l.tipo || '');
+  let cls = 'outro';
+  if (l.destino === 'proventos' || l.destino === 'proventosUsa') cls = 'prov';
+  else if (l.destino === 'rendaFixa') cls = /compra|aplica/i.test(t) ? 'aplic' : (/venda|resgate/i.test(t) ? 'venda' : (/juros/i.test(t) ? 'prov' : 'outro'));
+  else if (/compra/i.test(t)) cls = 'compra';
+  else if (/venda/i.test(t)) cls = 'venda';
+  const limpo = t.trim().toLowerCase().replace(/^./, (c) => c.toUpperCase());
+  const rotulo = l.destino === 'rendaFixa' && /compra|aplica/i.test(t) ? 'Aplicação' : limpo;
+  return `<span class="tx-tipo tx-tipo-${cls}">${esc(rotulo)}</span>`;
+}
+
+function linhaLancHtml(l, ctxLista) {
+  const { anteriorMapa, mapaClasse } = ctxLista;
+  const classe = classeDoLancamento(l, mapaClasse);
+  const rf = l.destino === 'rendaFixa';
+  const logo = rf ? logoRendaFixaHtml({ indexador: /selic/i.test(l.ativo) ? 'SELIC' : (/ipca/i.test(l.ativo) ? 'IPCA' : ''), tipoInvestimento: l.ativo, instituicao: l.inst }) : logoAtivoHtml(l.ativo);
   const compra = (l.destino === 'transacoes' || l.destino === 'transacoesUsa') && /compra/i.test(l.tipo);
   const ant = compra ? compraAnterior(anteriorMapa, l.ativo, l.data) : null;
   const dif = ant && num(l.preco) > 0 ? (l.preco / ant.preco - 1) * 100 : null;
+  const usdLinha = l.moeda === 'USD' && l.valorBRL != null;
   return `
     <tr class="tx-lista-linha">
-      <td data-rot="Data" class="tx-mono">${dma(l.data)}</td>
-      <td data-rot="Onde"><span class="tx-onde"><span class="tx-dot" style="background:var(${COR_DESTINO[l.destino]})"></span>${esc(DESTINOS[l.destino] ? DESTINOS[l.destino].curto : l.destino)}</span></td>
-      <td data-rot="Ativo" class="esq"><b>${esc(l.ativo)}</b>${l.inst ? `<small>${esc(l.inst)}</small>` : ''}</td>
-      <td data-rot="Tipo">${esc(l.tipo)}</td>
-      <td data-rot="Qtd">${l.destino === 'rendaFixa' ? '<span class="tx-fraco">—</span>' : `<span class="tx-chip tx-chip-qtd">×${numTxt(l.qtd, 4)}</span>`}</td>
-      <td data-rot="Preço" class="tx-mono">${l.preco == null ? '—' : dinheiro(l.preco, l.moeda)}</td>
-      <td data-rot="Valor" class="tx-mono"><b>${l.valor == null ? '—' : dinheiro(l.valor, l.moeda)}</b></td>
-      <td data-rot="Em reais" class="tx-mono">${l.moeda === 'USD' && l.valorBRL != null ? `${formatBRL(l.valorBRL)}<small>câmbio ${formatNumeroBR(l.cambio, 2)}</small>` : '<span class="tx-fraco">—</span>'}</td>
-      <td data-rot="vs. anterior">${dif == null ? '' : `<span class="tx-var ${dif > 0 ? 'bad' : 'good'}">${dif > 0 ? '▲' : '▼'} ${numTxt(Math.abs(dif), 1)}%<small>vs ${dma(ant.data)}</small></span>`}</td>
+      <td data-rot="Data" class="tx-mono tx-lista-data">${dma(l.data).slice(0, 5)}</td>
+      <td data-rot="Ativo" class="esq"><span class="tx-ativo">${logo}<span class="tx-ativo-nome"><b>${esc(l.ativo)}</b><small><span class="tx-dot" style="background:var(${COR_CLASSE_LISTA[classe]})"></span>${NOME_CLASSE_LISTA[classe]}${l.inst ? ` · ${esc(l.inst)}` : ''}</small></span></span></td>
+      <td data-rot="Tipo">${tipoTagHtml(l)}</td>
+      <td data-rot="Qtd"${rf || !l.qtd ? ' class="tx-td-vazio"' : ''}>${rf || !l.qtd ? '' : `<span class="tx-chip tx-chip-qtd">×${numTxt(l.qtd, 4)}</span>`}</td>
+      <td data-rot="Preço" class="tx-mono${l.preco == null || rf ? ' tx-td-vazio' : ''}">${l.preco == null || rf ? '' : dinheiro(l.preco, l.moeda)}</td>
+      <td data-rot="Total" class="tx-mono"><b>${l.valor == null ? '—' : dinheiro(l.valor, l.moeda)}</b></td>
+      <td data-rot="Em reais" class="tx-mono${usdLinha ? '' : ' tx-td-vazio'}">${usdLinha ? `${formatBRL(l.valorBRL)}<small>câmbio ${formatNumeroBR(l.cambio, 2)}</small>` : '<span class="tx-fraco">—</span>'}</td>
+      <td data-rot="vs. compra anterior"${dif == null ? ' class="tx-td-vazio"' : ''}>${dif == null ? '' : `<span class="tx-vs ${dif > 0 ? 'bad' : 'good'}">${dif > 0 ? '▲' : '▼'} ${numTxt(Math.abs(dif), 1)}%</span><small>vs ${dma(ant.data).slice(0, 5)}/${ant.data.slice(2, 4)}</small>`}</td>
     </tr>`;
 }
 
@@ -408,7 +436,7 @@ function totalMesHtml(rotulo, valor) {
   return `<span class="tx-lista-mes-tot">${rotulo} <b>${formatBRL(valor)}</b></span>`;
 }
 
-function grupoMesHtml(mesChave, itensDoMes, estadoLista, anteriorMapa) {
+function grupoMesHtml(mesChave, itensDoMes, estadoLista, ctxLista) {
   const movs = itensDoMes.filter((l) => l.destino !== 'proventos' && l.destino !== 'proventosUsa').sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
   const provs = itensDoMes.filter((l) => l.destino === 'proventos' || l.destino === 'proventosUsa').sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
   const brl = (l) => (l.moeda === 'USD' ? num(l.valorBRL) : num(l.valor));
@@ -420,31 +448,49 @@ function grupoMesHtml(mesChave, itensDoMes, estadoLista, anteriorMapa) {
   return `
     <tbody>
       <tr class="tx-lista-mes">
-        <td colspan="9">
+        <td colspan="8">
           <span class="tx-lista-mes-nome">${MESES_LONGOS[Number(mesChave.slice(5, 7)) - 1]} <small>${mesChave.slice(0, 4)}</small></span>
-          ${totalMesHtml('Compras', compras)}
+          ${compras ? totalMesHtml('Compras', compras) : ''}
           ${vendas ? totalMesHtml('Vendas', vendas) : ''}
           ${pv ? totalMesHtml('Proventos', pv) : ''}
         </td>
       </tr>
-      ${movs.map((l) => linhaLancHtml(l, anteriorMapa)).join('')}
+      ${movs.map((l) => linhaLancHtml(l, ctxLista)).join('')}
       ${provs.length ? `
       <tr class="tx-lista-provs">
-        <td colspan="3"><button type="button" class="tx-link" data-provs-toggle="${mesChave}">${aberto ? 'ocultar' : `ver os ${provs.length} ›`}</button> <span class="tx-fraco">proventos de ${esc(tickersProv.slice(0, 5).join(', '))}${tickersProv.length > 5 ? ` +${tickersProv.length - 5}` : ''}</span></td>
-        <td></td><td></td><td></td>
-        <td class="tx-mono"><b>${formatBRL(pv)}</b></td>
-        <td></td><td></td>
+        <td colspan="3" class="esq"><span class="tx-tipo tx-tipo-prov">${provs.length} provento${provs.length > 1 ? 's' : ''}</span> <span class="tx-fraco">${esc(tickersProv.slice(0, 6).join(', '))}${tickersProv.length > 6 ? ` +${tickersProv.length - 6}` : ''}</span></td>
+        <td class="tx-td-vazio"></td><td class="tx-td-vazio"></td>
+        <td data-rot="Total" class="tx-mono"><b>${formatBRL(pv)}</b></td>
+        <td class="tx-td-vazio"></td>
+        <td class="tx-lista-provs-acao"><button type="button" class="tx-link" data-provs-toggle="${mesChave}" aria-expanded="${aberto}">${aberto ? 'ocultar ‹' : `ver os ${provs.length} ›`}</button></td>
       </tr>
-      ${aberto ? provs.map((l) => linhaLancHtml(l, anteriorMapa)).join('') : ''}` : ''}
+      ${aberto ? provs.map((l) => linhaLancHtml(l, ctxLista)).join('') : ''}` : ''}
     </tbody>`;
 }
 
 function graficoListaHtml(estado) {
   const g = estado.lista.grafico;
   if (!g || !g.aberto) return '';
-  if (g.carregando) return '<div class="tx-aviso" role="status"><span class="tx-spinner" aria-hidden="true"></span>Carregando o histórico de preço…</div>';
-  if (g.erro) return `<div class="tx-aviso erro" role="status">${esc(g.erro)}</div>`;
-  return `<div class="tx-lista-grafico" id="txListaGrafico"></div>`;
+  let corpo = '<div class="tx-lista-grafico-corpo" id="txListaGrafico"></div>';
+  if (g.carregando) corpo = '<div class="tx-aviso" role="status"><span class="tx-spinner" aria-hidden="true"></span>Carregando o histórico de preço…</div>';
+  else if (g.erro) corpo = `<div class="tx-aviso erro" role="status">${esc(g.erro)}</div>`;
+  return `
+    <div class="tx-lista-grafico">
+      <div class="tx-lista-grafico-cab">
+        <h3>Suas compras no preço</h3>
+        <span class="hint">${esc(g.ticker || '')} · últimos 12 meses · cada ponto é uma compra sua (preço que você pagou)</span>
+        <button type="button" class="tx-mapa-pop-fechar" data-lanc="grafico" aria-label="Fechar gráfico">×</button>
+      </div>
+      ${corpo}
+    </div>`;
+}
+
+/** Os últimos 12 meses do histórico de preço (a série vem inteira do back-end). */
+export function ultimos12Meses(serie) {
+  if (!serie || !serie.length) return [];
+  const fim = serie[serie.length - 1].data;
+  const ini = `${Number(fim.slice(0, 4)) - 1}${fim.slice(4)}`;
+  return serie.filter((p) => p.data >= ini && typeof p.preco === 'number' && p.preco > 0);
 }
 
 function listaHtml(estado, dados) {
@@ -452,13 +498,12 @@ function listaHtml(estado, dados) {
   const todos = dados.lancamentos || [];
   const anos = [...new Set(todos.map((l) => String(l.data).slice(0, 4)).filter(Boolean))].sort().reverse();
   const porDestinoAno = filtrarLista(todos, { filtro: f.filtro, ano: f.ano });
-  const ativos = [...new Set(porDestinoAno.map((l) => l.ativo).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const ativos = [...new Set([...porDestinoAno.map((l) => l.ativo), f.ativo].filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const filtrados = filtrarLista(todos, f);
-  const anteriorMapa = historicoComprasPorAtivo(todos);
+  const ctxLista = { anteriorMapa: historicoComprasPorAtivo(todos), mapaClasse: classePorTicker(dados.classes || {}) };
   const meses = [...new Set(filtrados.map((l) => String(l.data).slice(0, 7)))].sort().reverse();
   const mesesVisiveis = meses.slice(0, f.mesesVisiveis || MESES_LISTA_INICIAL);
-  const mapaClasse = classePorTicker(dados.classes || {});
-  const podeGrafico = !!f.ativo && todasAsCompras(todos, mapaClasse).some((c) => c.ativo === f.ativo);
+  const podeGrafico = !!f.ativo && todasAsCompras(todos, ctxLista.mapaClasse).some((c) => c.ativo === f.ativo);
   const graficoAberto = !!(f.grafico && f.grafico.aberto);
   return `
     <section class="tx-secao" id="txLista" aria-labelledby="txListaTitulo">
@@ -481,8 +526,8 @@ function listaHtml(estado, dados) {
         ${filtrados.length ? `
         <div class="tx-tabela-wrap">
           <table class="tx-tabela tx-tabela-lista">
-            <thead><tr><th>Data</th><th>Onde</th><th class="esq">Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Valor</th><th>Em reais</th><th>vs. anterior</th></tr></thead>
-            ${mesesVisiveis.map((m) => grupoMesHtml(m, filtrados.filter((l) => String(l.data).slice(0, 7) === m), f, anteriorMapa)).join('')}
+            <thead><tr><th>Data</th><th class="esq">Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Total</th><th>Em reais</th><th>vs. compra anterior</th></tr></thead>
+            ${mesesVisiveis.map((m) => grupoMesHtml(m, filtrados.filter((l) => String(l.data).slice(0, 7) === m), f, ctxLista)).join('')}
           </table>
         </div>
         ${meses.length > mesesVisiveis.length ? `<button type="button" class="tx-mais" data-lanc="mais-meses">Ver mais meses (faltam ${meses.length - mesesVisiveis.length})</button>` : ''}`
@@ -541,12 +586,13 @@ function desenharGraficoLista(ctx) {
   const compras = todasAsCompras(dados.lancamentos, mapaClasse).filter((c) => c.ativo === g.ticker);
   const moeda = mapaClasse[g.ticker] === 'acoesEua' ? 'USD' : 'BRL';
   const formatMoeda = (v) => (moeda === 'USD' ? usd(v) : formatBRL(v));
-  renderGraficoCompras(doc, cont, { serie: g.serie, compras, moeda, formatMoeda });
+  renderGraficoCompras(doc, cont, { serie: ultimos12Meses(g.serie), compras, moeda, formatMoeda });
 }
 
 /** Abre (buscando o histórico, se preciso) o gráfico de `ticker` na lista - usado pelo botão da própria lista e pelo "Ver gráfico do preço" do popover do mapa de compras (aportes.js, evento transacoes:verGrafico). */
 export async function abrirGraficoPara(ctx, ticker) {
   const f = ctx.estado.lista;
+  if (f.ativo !== ticker) { f.filtro = 'todos'; f.ano = ''; f.busca = ''; f.mesesVisiveis = MESES_LISTA_INICIAL; }
   f.ativo = ticker;
   f.grafico = { aberto: true, ticker, carregando: true, serie: null, erro: null };
   redesenharLista(ctx);

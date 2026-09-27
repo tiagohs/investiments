@@ -102,3 +102,15 @@ test('popoverMapa: detalhe da compra, comparação com a anterior/hoje e convers
   assert.ok(Math.abs(popUsd.hojeBRL - (12 * 2 * 5.5)) < 1e-9);
   assert.ok(Math.abs(popUsd.efeitoDolar - (5.5 / 5 - 1)) < 1e-9);
 });
+
+test('celulaMapa: a "compra anterior" é a última ANTES do mês, não outra compra do próprio mês', () => {
+  const compras = [
+    { ativo: 'QQQQ11', data: '2026-08-20', qtd: 1, preco: 80, valor: 80, moeda: 'BRL', classe: 'fiis' },
+    { ativo: 'QQQQ11', data: '2026-07-10', qtd: 1, preco: 90, valor: 90, moeda: 'BRL', classe: 'fiis' },
+    { ativo: 'QQQQ11', data: '2026-08-05', qtd: 2, preco: 70, valor: 140, moeda: 'BRL', classe: 'fiis' },
+  ];
+  const ago = celulaMapa(compras, 'QQQQ11', '2026-08');
+  assert.equal(ago.anterior.data, '2026-07-10');
+  assert.equal(ago.itens.map((c) => c.data).join(','), '2026-08-05,2026-08-20', 'compras do mês em ordem');
+  assert.ok(ago.delta < 0, 'agosto (média 73,33) ficou mais barato que julho (90)');
+});
