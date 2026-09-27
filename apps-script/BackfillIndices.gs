@@ -715,7 +715,13 @@ function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
       detalhe.push(nome + ': já em dia');
       return;
     }
-    var linhas = buscarTaxasBcbComoLinhas_(nome, inicio, ontem);
+    // 27/09/2026 (bug real: 6 linhas de IPCA de 01/08/2026 no Controle 14):
+    // em série MENSAL (IPCA) o BCB devolve o mês inteiro mesmo pedindo a
+    // partir do dia 2 - o registro "01/08" voltava em TODA execução diária e
+    // era gravado de novo. Só entra o que é depois da última data salva.
+    var linhas = buscarTaxasBcbComoLinhas_(nome, inicio, ontem).filter(function (l) {
+      return !ultimaData || l[0] > ultimaData;
+    });
     linhasNovas = linhasNovas.concat(linhas);
     detalhe.push(nome + ': ' + linhas.length + ' linha(s) nova(s)' + (linhas.length === 0 ? ' (sem dado publicado no período)' : ''));
   });
@@ -842,4 +848,38 @@ function testarBenchmarksRendaFixaHojeDireto() {
     cdiSelic: buscarCdiSelicAnualizadosHoje_(),
     ipca: buscarIpcaAcumulado12Meses_()
   }, null, 2));
+}
+
+/**
+ * 27/09/2026 - rodar UMA vez no editor: apaga as linhas repetidas de
+ * aux_historico-indices (mesmo Índice + mesma Data, fica a 1ª). Causa: o
+ * IPCA de 01/08/2026 era regravado a cada execução diária (ver
+ * atualizarTaxasBcbIncremental_) - com 6 cópias, o "IPCA (12m)" da Renda
+ * Fixa e a linha do IPCA nos gráficos contavam agosto 6 vezes.
+ * Só mostra o que faria: removerIndicesRepetidos(); aplica: removerIndicesRepetidos(true).
+ */
+function removerIndicesRepetidos(aplicar) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(ABA_HISTORICO_INDICES);
+  if (!aba || aba.getLastRow() < 2) return { repetidas: 0 };
+  var n = aba.getLastRow() - 1;
+  var dados = aba.getRange(2, 1, n, 3).getValues();
+  var vistos = {};
+  var ficam = [];
+  var repetidas = [];
+  dados.forEach(function (l) {
+    var d = l[0] instanceof Date ? l[0].getTime() : String(l[0]);
+    var chave = l[1] + '|' + d;
+    if (l[1] !== '' && vistos[chave]) { repetidas.push(l[1] + ' ' + (l[0] instanceof Date ? formatarDataIndice_(l[0]) : l[0]) + ' = ' + l[2]); return; }
+    vistos[chave] = true;
+    ficam.push(l);
+  });
+  Logger.log(repetidas.length + ' linha(s) repetida(s)' + (repetidas.length ? ': ' + repetidas.slice(0, 20).join('; ') : ''));
+  if (aplicar && repetidas.length) {
+    while (ficam.length < n) ficam.push(['', '', '']);
+    aba.getRange(2, 1, n, 3).setValues(ficam);
+    SpreadsheetApp.flush();
+    try { if (typeof limparCacheHistoricoInicio_ === 'function') limparCacheHistoricoInicio_(); } catch (e) { /* ok */ }
+  }
+  return { repetidas: repetidas.length, aplicado: !!(aplicar && repetidas.length), detalhe: repetidas };
 }

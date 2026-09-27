@@ -185,6 +185,22 @@ export const CHECAGENS_QUALIDADE = [
     },
   },
   {
+    id: 'indicesRepetidos',
+    titulo: 'aux_historico-indices: nenhum índice repetido na mesma data',
+    // 27/09/2026: o IPCA de 01/08/2026 foi gravado 6x (cada execução diária
+    // regravava o mês) - o "IPCA (12m)" contava agosto 6 vezes.
+    rodar: ({ fixtures }) => {
+      const vistos = new Map();
+      for (const l of (fixtures['aux_historico-indices']?.linhas || []).slice(1)) {
+        if (!l || !l[1] || !l[0] || !l[0].__date__) continue;
+        const k = `${l[1]}|${l[0].__date__}`;
+        vistos.set(k, (vistos.get(k) || 0) + 1);
+      }
+      return [...vistos.entries()].filter(([, n]) => n > 1)
+        .map(([k, n]) => `${k.split('|')[0]} de ${k.split('|')[1].slice(0, 10)}: ${n} linhas - rode removerIndicesRepetidos(true) no Apps Script (BackfillIndices.gs)`);
+    },
+  },
+  {
     id: 'tickerIncorporado',
     titulo: 'Transações e Transações - USA: nenhum ticker que já foi incorporado por outro (a posição vive no ticker novo)',
     // 27/09/2026: STR (Sitio Royalties) foi incorporada pela VNOM em

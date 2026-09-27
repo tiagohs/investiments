@@ -50,10 +50,16 @@ test('B3 e Interactive Brokers: quantidade de cada ativo (pelas Transações) = 
   const { fixtures, sandbox } = await dados();
   const fora = new Set(sandbox.TICKERS_FORA_DO_HISTORICO || []);
   const qtd = {};
+  // 27/09/2026: só o que já tinha sido negociado ATÉ o dia do print de cada
+  // corretora - compra feita depois (ex.: 23/09, com o print da B3 de 22/09)
+  // ainda não está naquela custódia.
+  const ate = { 'Transações': REF.b3.dataFechamento, 'Transações - USA': REF.ibkr.data };
   for (const aba of ['Transações', 'Transações - USA']) {
     for (const l of (fixtures[aba]?.linhas || []).slice(6)) {
       const tk = String(l[0] || '').trim().toUpperCase();
       if (!tk || fora.has(tk) || typeof l[10] !== 'number') continue;
+      const data = l[1] && l[1].__date__ ? l[1].__date__.slice(0, 10) : '';
+      if (ate[aba] && data > ate[aba]) continue;
       qtd[tk] = (qtd[tk] || 0) + l[10];
     }
   }

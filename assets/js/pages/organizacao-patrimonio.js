@@ -847,7 +847,11 @@ export function montarAbaPatrimonio({
       desenharPainel();
       try {
         lib = lib || await carregarPdf(doc);
-        const bytes = arq.bytes || await arq.arrayBuffer();
+        // 27/09/2026: NÃO usar "arq.bytes" - todo File/Blob moderno já tem um
+        // MÉTODO bytes() (Blob.prototype.bytes), e o pdf.js recebia a função
+        // em vez dos dados ("Invalid PDF binary data"). O PDF do Drive vem em
+        // arq.conteudo (Uint8Array); o do seletor, pelo arrayBuffer().
+        const bytes = arq.conteudo instanceof Uint8Array ? arq.conteudo : new Uint8Array(await arq.arrayBuffer());
         const linhas = await lerPdf(lib, bytes);
         const r = lerDocumento(linhas);
         est.importacao.itens.push({ arquivo: arq.nome || arq.name, ...r, incluir: true });
@@ -901,7 +905,7 @@ export function montarAbaPatrimonio({
     for (const a of marcados) {
       let r;
       try { r = await getArquivoIrImpl(token, a.id); } catch (e) { r = { ok: false, erro: String(e) }; }
-      if (r && r.ok && r.base64) arquivos.push({ nome: `${a.pasta}/${a.nome}`, bytes: base64ParaBytes(r.base64) });
+      if (r && r.ok && r.base64) arquivos.push({ nome: `${a.pasta}/${a.nome}`, conteudo: base64ParaBytes(r.base64) });
       else {
         est.importacao = est.importacao || { itens: [] };
         est.importacao.itens.push({ arquivo: `${a.pasta}/${a.nome}`, tipo: 'ir', erro: (r && r.erro) || 'não veio' });

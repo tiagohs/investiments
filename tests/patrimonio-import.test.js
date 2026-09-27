@@ -205,3 +205,17 @@ test('dataIso aceita dd/mm/aaaa, dd.mm.aaaa e dd/mm/aa', () => {
   assert.equal(dataIso('20/09/26'), '2026-09-20');
   assert.equal(dataIso('x'), null);
 });
+
+test('pdf.js de verdade: letra acentuada vem como item separado ("Hist  ó  rico") - os leitores juntam de volta', async () => {
+  const { juntarAcentos } = await import('../assets/js/pages/patrimonio-import.js');
+  assert.deepEqual(juntarAcentos(['Hist  ó  rico de Movimenta  ç  õ  es  OUTUBRO/2024', 'DATA DE ADMISS  Ã  O  PIS/PASEP', 'R$ -  2.778,81  R$  9.109,95']),
+    ['Histórico de Movimentações  OUTUBRO/2024', 'DATA DE ADMISSÃO  PIS/PASEP', 'R$ -  2.778,81  R$  9.109,95']);
+  const linhas = FGTS.map((l) => l
+    .replace('ADMISSÃO', 'ADMISS  Ã  O').replace('OPÇÃO', 'OP  ÇÃ  O').replace('CÓDIGO', 'C  Ó  DIGO')
+    .replace('Histórico de Movimentações', 'Hist  ó  rico de Movimenta  ç  õ  es').replace('LANÇAMENTO', 'LAN  Ç  AMENTO'));
+  assert.equal(identificarDocumento(linhas), 'fgts');
+  const r = lerExtratoFgts(linhas);
+  assert.equal(r.empregador, 'EMPRESA INVENTADA LTDA');
+  assert.equal(r.afastamento, '2023-06-30');
+  assert.equal(r.depositos, 1700);
+});

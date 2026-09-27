@@ -37,6 +37,27 @@ export function dataIso(s) {
   const ano = m[3].length === 2 ? `20${m[3]}` : m[3];
   return `${ano}-${m[2]}-${m[1]}`;
 }
+/**
+ * 27/09/2026: o pdf.js entrega cada letra acentuada como um item separado
+ * nesses PDFs (Caixa/FGTS usam uma fonte que quebra ali), e extrairLinhasPdf
+ * junta itens com 2 espaços: "Hist  ó  rico de Movimenta  ç  õ  es". Aqui a
+ * letra acentuada volta a grudar na palavra (só nos "2 espaços" do pdf.js;
+ * espaço simples dentro do texto fica como está).
+ */
+export function juntarAcentos(linhas) {
+  const A = '\u00C0-\u00FF';
+  const antes = new RegExp(`([A-Za-z${A}]) {2}([${A}]+)`, 'g');
+  const depois = new RegExp(`([${A}]+) {2}([A-Za-z${A}])`, 'g');
+  return (linhas || []).map((l) => {
+    let s = String(l == null ? '' : l);
+    for (let k = 0; k < 6; k += 1) {
+      const novo = s.replace(antes, '$1$2').replace(depois, '$1$2');
+      if (novo === s) break;
+      s = novo;
+    }
+    return s;
+  });
+}
 const plano = (linhas) => semAcento((linhas || []).join(' ')).replace(/\s+/g, ' ').toUpperCase().trim();
 const achar = (t, re) => { const m = t.match(re); return m ? m[1] : null; };
 
@@ -45,6 +66,7 @@ const achar = (t, re) => { const m = t.match(re); return m ? m[1] : null; };
 // ---------------------------------------------------------------------------
 
 export function identificarDocumento(linhas) {
+  linhas = juntarAcentos(linhas);
   const t = plano(linhas);
   if (/DECLARACAO DE AJUSTE ANUAL/.test(t) && /ANO-CALENDARIO/.test(t)) return 'ir';
   if (/HISTORICO DE MOVIMENTACOES/.test(t) && /EMPREGADOR/.test(t) && /(DEPOSITO|JAM|SAQUE)/.test(t)) return 'fgts';
@@ -107,6 +129,7 @@ function bensPorGrupo(t, layoutNovo) {
 }
 
 export function lerDeclaracaoIr(linhas) {
+  linhas = juntarAcentos(linhas);
   const t = plano(linhas);
   const ex = t.match(/EXERCICIO\s+(\d{4})\s+ANO-CALENDARIO\s+(\d{4})/);
   if (!ex) throw new Error('não parece uma "Cópia da Declaração" do IRPF (não achei EXERCÍCIO/ANO-CALENDÁRIO)');
@@ -180,6 +203,7 @@ export const MOTIVOS_SAQUE_FGTS = {
 };
 
 export function lerExtratoFgts(linhas) {
+  linhas = juntarAcentos(linhas);
   const ls = (linhas || []).map((l) => semAcento(l).toUpperCase());
   const t = plano(linhas);
   let empregador = null;
@@ -275,6 +299,7 @@ export function contaFgtsParaSalvar(c) {
 // ---------------------------------------------------------------------------
 
 export function lerCtps(linhas) {
+  linhas = juntarAcentos(linhas);
   const ls = (linhas || []).map((l) => semAcento(l).toUpperCase().replace(/\s+/g, ' ').trim()).filter(Boolean);
   const tudo = ls.join(' ');
   if (!/CARTEIRA DE TRABALHO DIGITAL/.test(tudo)) throw new Error('não parece a Carteira de Trabalho Digital (contratos)');
@@ -330,6 +355,7 @@ export function lerCtps(linhas) {
 // ---------------------------------------------------------------------------
 
 export function lerExtratoCaixaHabitacao(linhas) {
+  linhas = juntarAcentos(linhas);
   const t = plano(linhas);
   if (!/DEMONSTRATIVO DE EVOLUCAO/.test(t)) throw new Error('não parece o "Demonstrativo de Evolução - Habitação" da Caixa');
   const dataSaldo = dataIso(achar(t, /SALDO DEVEDOR TEORICO EM\s+(\d{2}\/\d{2}\/\d{2,4})/));
@@ -376,6 +402,7 @@ export function lerExtratoCaixaHabitacao(linhas) {
 // ---------------------------------------------------------------------------
 
 export function lerExtratoFies(linhas) {
+  linhas = juntarAcentos(linhas);
   const t = plano(linhas);
   const saldo = numBR(achar(t, new RegExp(`VALOR DO SALDO DEVEDOR\\s+(${NUM})`)));
   if (saldo == null) throw new Error('não achei o "Valor do saldo devedor" no comprovante');

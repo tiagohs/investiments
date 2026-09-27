@@ -56,7 +56,11 @@ async function montar(extra = {}) {
     getArquivosIrImpl: async () => ({ ok: true, configurado: true, arquivos: [{ id: 'a1', nome: 'Cópia da Declaração.pdf', pasta: '2025', tamanho: 300000 }] }),
     getArquivoIrImpl: async (_t, id) => ({ ok: true, id, base64: 'QUJD' }),
     carregarPdf: async () => ({}),
-    lerPdf: async (_lib, bytes) => (bytes && bytes.byteLength === 3 ? IR_LINHAS : FIES_LINHAS),
+    // como o pdf.js: só aceita bytes de verdade (TypedArray), nunca uma função
+    lerPdf: async (_lib, bytes) => {
+      if (!(bytes instanceof Uint8Array)) throw new Error('Invalid PDF binary data: either TypedArray, string, or array-like object is expected in the data property.');
+      return bytes.byteLength === 3 ? IR_LINHAS : FIES_LINHAS;
+    },
     ...extra,
   });
   await aba.pronto;
@@ -143,7 +147,8 @@ test('Aba Patrimônio: formulário recusa o que falta (sem valor manual)', async
 
 test('Aba Patrimônio: importar PDF (FIES) mostra pra conferir e salva só os totais', async () => {
   const { el, aba, salvos, w } = await montar();
-  await aba.lerArquivos([{ name: 'comprovante.pdf', arrayBuffer: async () => new ArrayBuffer(10) }]);
+  // um File de verdade tem o MÉTODO bytes() (Blob.prototype.bytes) - não pode confundir com os dados
+  await aba.lerArquivos([{ name: 'comprovante.pdf', arrayBuffer: async () => new ArrayBuffer(10), bytes: async () => new Uint8Array(10) }]);
   const painel = txt(el.querySelector('#ptPainel'));
   assert.match(painel, /Conferir antes de salvar/);
   assert.match(painel, /FIES \(Banco do Brasil\)/);
