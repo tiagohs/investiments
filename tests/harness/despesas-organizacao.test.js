@@ -134,9 +134,11 @@ function criarPlanilhaFalsa({ itens, folga = 0.1, meses = 6, sobra = 0.1, reserv
     const faixa = (col, r0, r1, a = aba) => { const out = []; for (let r = r0; r <= r1; r += 1) out.push(a.ler(r, colNum(col))); return out; };
     let m;
     if ((m = f.match(/^=B(\d+)\+\(B\1\*(\$C\$\d+)\)$/))) return ref(`B${m[1]}`) * (1 + ref(m[2]));
-    if ((m = f.match(/^=IF\(E(\d+)="Anual",B\1\/12,B\1\)\*\(1\+(\$C\$\d+)\)$/))) return (aba.ler(Number(m[1]), 5) === 'Anual' ? ref(`B${m[1]}`) / 12 : ref(`B${m[1]}`)) * (1 + ref(m[2]));
+    // 27/09/2026: a planilha é pt-BR - setFormula() precisa de ";" (com "," vira #ERROR! no Sheets)
+    if (/^=(IF|SUMIF)\(/.test(f) && /,(?=(?:[^"]*"[^"]*")*[^"]*$)/.test(f)) return '#ERROR!';
+    if ((m = f.match(/^=IF\(E(\d+)="Anual";B\1\/12;B\1\)\*\(1\+(\$C\$\d+)\)$/))) return (aba.ler(Number(m[1]), 5) === 'Anual' ? ref(`B${m[1]}`) / 12 : ref(`B${m[1]}`)) * (1 + ref(m[2]));
     if ((m = f.match(/^=SUM\(([A-Z])(\d+):\1(\d+)\)$/))) return faixa(m[1], Number(m[2]), Number(m[3])).reduce((s, v) => s + n(v), 0);
-    if ((m = f.match(/^=SUMIF\(E(\d+):E(\d+),"<>Anual",B\1:B\2\)\+SUMIF\(E\1:E\2,"Anual",B\1:B\2\)\/12$/))) {
+    if ((m = f.match(/^=SUMIF\(E(\d+):E(\d+);"<>Anual";B\1:B\2\)\+SUMIF\(E\1:E\2;"Anual";B\1:B\2\)\/12$/))) {
       const e = faixa('E', Number(m[1]), Number(m[2])); const b = faixa('B', Number(m[1]), Number(m[2]));
       return b.reduce((s, v, i) => s + (e[i] === 'Anual' ? n(v) / 12 : n(v)), 0);
     }
@@ -229,7 +231,8 @@ test('Despesas.gs: salvar edita, insere, marca anual e a DM (K11 -> meta) acompa
   assert.equal(de.ler(6, 5), 'Frequência');
   assert.equal(de.ler(6, 7), 'rascunho à parte', 'colunas F:J não são tocadas');
   assert.equal(dm.cel.get('11,11').f, "='Despesas Essenciais'!$C$12", 'K11 da DM continua apontando pro Total');
-  assert.equal(de.cel.get('10,3').f, '=IF(E10="Anual",B10/12,B10)*(1+$C$5)');
+  assert.equal(de.cel.get('10,3').f, '=IF(E10="Anual";B10/12;B10)*(1+$C$5)', '";" - a planilha é pt-BR');
+  assert.equal(r.despesas.erroFormula, null);
   // gasto real: 1000 + 600 + 100 + 1200/12 + 90 = 1890 · com folga 2079
   assert.ok(perto(r.despesas.totalReal, 1890));
   assert.ok(perto(r.despesas.totalComFolga, 2079));
@@ -296,4 +299,26 @@ test('Despesas.gs: nome que começa com "=" vira texto (não fórmula)', () => {
   const r = semRealm(sb.salvarDespesasOrganizacao_(ss, { itens: [{ nome: '=1+1', valor: 10 }] }, new Date()));
   assert.equal(r.ok, true, r.erro);
   assert.equal(ss.getSheetByName('Despesas Essenciais').ler(7, 1), "'=1+1");
+});
+
+test('Despesas.gs: fórmula com "," (pt-BR dá #ERROR!) -> total vira null com aviso, não zero; repararFormulasDespesas() reescreve com ";"', () => {
+  const sb = sandboxGs();
+  sb.Logger = { log() {} };
+  const ss = criarPlanilhaFalsa({ itens: ITENS });
+  sb.SpreadsheetApp.getActiveSpreadsheet = () => ss;
+  const de = ss.getSheetByName('Despesas Essenciais');
+  // o estado que o 1º salvamento pelo site deixou na planilha real (26/09/2026)
+  for (let r = 7; r <= 9; r += 1) de.cel.set(`${r},3`, { f: `=IF(E${r}="Anual",B${r}/12,B${r})*(1+$C$5)` });
+  de.cel.set('10,2', { f: '=SUMIF(E7:E9,"<>Anual",B7:B9)+SUMIF(E7:E9,"Anual",B7:B9)/12' });
+  const quebrada = semRealm(sb.lerDespesasOrganizacao_(ss));
+  assert.equal(quebrada.despesas.erroFormula, '#ERROR!');
+  assert.equal(quebrada.despesas.totalReal, null, 'erro não vira R$ 0,00');
+  const msg = sb.repararFormulasDespesas();
+  assert.match(msg, /3 linhas; gasto real 1600, com folga 1760/);
+  assert.equal(de.cel.get('8,3').f, '=IF(E8="Anual";B8/12;B8)*(1+$C$5)');
+  assert.equal(de.ler(8, 1), 'Mercado Teste', 'nome e valor ficam');
+  const ok = semRealm(sb.lerDespesasOrganizacao_(ss));
+  assert.equal(ok.despesas.erroFormula, null);
+  assert.ok(perto(ok.despesas.totalReal, 1600));
+  assert.ok(perto(ok.reserva.meta, 1760 * 6 * 1.1), 'a meta da reserva (DM) volta junto');
 });

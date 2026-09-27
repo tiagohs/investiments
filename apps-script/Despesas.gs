@@ -86,6 +86,7 @@ function handleSalvarDespesas(e) {
 function numDespesa_(v) {
   if (typeof v === 'number' && isFinite(v)) return v;
   if (typeof v === 'string' && v.trim() !== '') {
+    if (/^#/.test(v.trim())) return null; // #ERROR!, #REF!... não é zero
     var n = Number(v.replace(/[^\d,.\-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
     return isFinite(n) ? n : null;
   }
@@ -157,13 +158,18 @@ function lerDespesasOrganizacao_(ss) {
   var c = function (linha, col) { return numDespesa_(b[linha - 10][col.charCodeAt(0) - 75]); };
   var reservaAtual = numDespesa_(dm.getRange('E19').getValue());
 
+  // 27/09/2026: total com erro na planilha (#ERROR!, #REF!...) - avisa a tela
+  // em vez de virar zero calado
+  var erroFormula = [linhaTotal[1], linhaTotal[2]].filter(function (v) { return typeof v === 'string' && /^#/.test(v.trim()); })[0] || null;
+
   return {
     despesas: {
       folga: folga,
       itens: itens,
       totalReal: numDespesa_(linhaTotal[1]),
       totalComFolga: numDespesa_(linhaTotal[2]),
-      linhaTotal: layout.linhaTotal
+      linhaTotal: layout.linhaTotal,
+      erroFormula: erroFormula
     },
     reserva: {
       mediaGastos: c(11, 'K'),
@@ -189,6 +195,32 @@ function lerDespesasOrganizacao_(ss) {
     historico: lerHistoricoDespesas_(ss),
     assinatura: assinaturaDespesas_(itens, folga)
   };
+}
+
+/**
+ * 27/09/2026 - rodar UMA vez no editor do Apps Script: reescreve as fórmulas
+ * da coluna C e do "Total:" da aba Despesas Essenciais (com ";" - ver
+ * planoGravacaoDespesas_). Não mexe em nome, valor, categoria nem frequência.
+ */
+function repararFormulasDespesas() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(DESPESAS_ABA_);
+  if (!aba) throw new Error('aba não encontrada: ' + DESPESAS_ABA_);
+  var valores = aba.getRange(1, 1, Math.max(aba.getLastRow(), 8), 5).getValues();
+  var layout = layoutDespesas_(valores);
+  var n = layout.linhaTotal - layout.primeira;
+  if (n < 1) return 'nenhuma despesa na aba';
+  var vazios = [];
+  for (var i = 0; i < n; i++) vazios.push({});
+  var plano = planoGravacaoDespesas_(layout, n, vazios, 'C' + layout.linhaFolga);
+  aba.getRange(plano.primeira, 3, n, 1).setFormulas(plano.c);
+  aba.getRange(plano.linhaTotal, 2).setFormula(plano.totalB);
+  aba.getRange(plano.linhaTotal, 3).setFormula(plano.totalC);
+  SpreadsheetApp.flush();
+  var d = lerDespesasOrganizacao_(ss).despesas;
+  var msg = 'Despesas Essenciais: ' + n + ' linhas; gasto real ' + d.totalReal + ', com folga ' + d.totalComFolga + (d.erroFormula ? ' - AINDA COM ERRO: ' + d.erroFormula : '');
+  Logger.log(msg);
+  return msg;
 }
 
 function lerHistoricoDespesas_(ss) {
@@ -264,11 +296,16 @@ function planoGravacaoDespesas_(layout, nAtual, itens, celulaFolga) {
     linhaTotal: ultima + 1,
     ab: itens.map(function (it) { return [it.nome, it.valor]; }),
     de: itens.map(function (it) { return [it.categoria, it.frequencia]; }),
+    // 27/09/2026: ";" como separador de argumento - a planilha é pt-BR e o
+    // setFormula() nesse locale dá #ERROR! com "," (mesmo gotcha documentado
+    // em BackfillIndices.gs). Com "," o 1º salvamento pelo site (26/09) deixou
+    // C e o Total em #ERROR!, e tudo que depende deles (K11/M11/M12 da DM,
+    // Orçamento do salário) virou zero. Nome da função continua em inglês.
     c: itens.map(function (it, i) {
       var r = primeira + i;
-      return ['=IF(E' + r + '="Anual",B' + r + '/12,B' + r + ')*(1+' + folgaAbs + ')'];
+      return ['=IF(E' + r + '="Anual";B' + r + '/12;B' + r + ')*(1+' + folgaAbs + ')'];
     }),
-    totalB: '=SUMIF(E' + primeira + ':E' + ultima + ',"<>Anual",B' + primeira + ':B' + ultima + ')+SUMIF(E' + primeira + ':E' + ultima + ',"Anual",B' + primeira + ':B' + ultima + ')/12',
+    totalB: '=SUMIF(E' + primeira + ':E' + ultima + ';"<>Anual";B' + primeira + ':B' + ultima + ')+SUMIF(E' + primeira + ':E' + ultima + ';"Anual";B' + primeira + ':B' + ultima + ')/12',
     totalC: '=SUM(C' + primeira + ':C' + ultima + ')'
   };
 }

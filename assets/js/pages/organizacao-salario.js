@@ -231,7 +231,8 @@ export function htmlOrcamento(d) {
     const l = o.liquido;
     const itens = [['ess', l.essenciais, 'Despesas essenciais'], ['inv', l.aporte, 'Meta de investimento'], ['liv', Math.max(0, l.livre), l.livre >= 0 ? 'Livre' : 'Falta']];
     html += `<h3 class="sl-sub">Do líquido (${esc(brl(l.total))})</h3>${barra(itens, l.total)}${leg(itens, l.total)}
-      <p class="og-nota fraca">Despesas pelo gasto real (aba Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(brl(-l.livre))}.</b>` : `Sobram ${esc(brl(l.livre))} livres por mês.`}</p>`;
+      <p class="og-nota fraca">Despesas pelo gasto real (aba Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(brl(-l.livre))}.</b>` : `Sobram ${esc(brl(l.livre))} livres por mês.`}</p>
+      ${d.despesas && d.despesas.erroFormula ? `<p class="og-nota bad">O total da aba Despesas Essenciais está com erro na planilha (${esc(d.despesas.erroFormula)}); aqui entrou a soma das despesas. Salvar as despesas de novo em Organização (ou rodar repararFormulasDespesas) conserta a planilha.</p>` : ''}`;
   }
   return html;
 }

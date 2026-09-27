@@ -197,7 +197,20 @@ function montarTelaSalario_(ss, hoje) {
   var despesas = null;
   try {
     var d = lerDespesasOrganizacao_(ss); // Despesas.gs
-    despesas = { totalReal: d.despesas.totalReal, totalComFolga: d.despesas.totalComFolga, reservaAtual: d.reserva.atual, metaReserva: d.reserva.meta };
+    // 27/09/2026: se o Total da aba estiver com erro, usa a soma das próprias
+    // despesas (anual /12) - a mesma conta da tela de Despesas - e avisa
+    var somaItens = (d.despesas.itens || []).reduce(function (s, it) {
+      var v = typeof it.valor === 'number' && isFinite(it.valor) ? it.valor : 0;
+      return s + (/anual/i.test(it.frequencia || '') ? v / 12 : v);
+    }, 0);
+    var real = d.despesas.totalReal;
+    var usaSoma = real === null || d.despesas.erroFormula;
+    despesas = {
+      totalReal: usaSoma ? Math.round(somaItens * 100) / 100 : real,
+      totalComFolga: usaSoma ? Math.round(somaItens * (1 + (d.despesas.folga || 0)) * 100) / 100 : d.despesas.totalComFolga,
+      reservaAtual: d.reserva.atual, metaReserva: d.reserva.meta,
+      erroFormula: d.despesas.erroFormula || null
+    };
   } catch (eD) { avisos.despesas = String(eD); }
 
   var mensal = [];

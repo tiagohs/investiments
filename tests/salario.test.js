@@ -260,3 +260,14 @@ test('Aba Salário: extra do ano salva como Previsto com o % a investir; excluir
   await esperar();
   assert.deepEqual(chamadas.excluir, [['2026-02', 'Mensal']]);
 });
+
+test('Orçamento do salário: total da aba Despesas com erro na planilha -> usa a soma das despesas e avisa (não mostra R$ 0,00 calado)', async () => {
+  const { htmlOrcamento } = await import('../assets/js/pages/organizacao-salario.js');
+  const html = htmlOrcamento({ ...JSON.parse(JSON.stringify(RESPOSTA)), despesas: { totalReal: 4200, totalComFolga: 4620, erroFormula: '#ERROR!' } });
+  const dom = new JSDOM(`<div>${html}</div>`);
+  const t = dom.window.document.body.textContent.replace(/\s+/g, ' ');
+  assert.match(t, /Despesas essenciais\s*R\$\s4\.200,00/);
+  assert.match(t, /está com erro na planilha \(#ERROR!\)/);
+  const semErro = htmlOrcamento(JSON.parse(JSON.stringify(RESPOSTA)));
+  assert.doesNotMatch(semErro, /erro na planilha/);
+});
