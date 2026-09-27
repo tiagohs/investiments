@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="../assets/css/inicio.css">
 <link rel="stylesheet" href="../assets/css/carteiras.css">
 <link rel="stylesheet" href="../assets/css/organizacao.css">
+<link rel="stylesheet" href="../assets/css/patrimonio.css">
 </head>
 <body data-section="organizacao">
 
@@ -33,13 +34,14 @@
     <div class="og-titulo">
       <div>
         <h1>Organização Financeira</h1>
-        <p>Despesas essenciais, salário e quanto você investe de verdade.</p>
+        <p>Despesas essenciais, salário, quanto você investe de verdade e o seu patrimônio.</p>
       </div>
       <div id="refreshControlOrganizacao" class="refresh-control"></div>
     </div>
     <div class="og-abas" role="tablist" aria-label="Organização Financeira" id="ogAbas">
       <button type="button" role="tab" class="og-aba active" data-aba="despesas" aria-selected="true" aria-controls="painelDespesas">Despesas</button>
       <button type="button" role="tab" class="og-aba" data-aba="salario" aria-selected="false" aria-controls="painelSalario">Salário e investimentos</button>
+      <button type="button" role="tab" class="og-aba" data-aba="patrimonio" aria-selected="false" aria-controls="painelPatrimonio">Patrimônio</button>
     </div>
     <div id="painelDespesas" role="tabpanel">
     <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
@@ -51,6 +53,7 @@
     <div id="organizacaoConteudo" hidden></div>
     </div>
     <div id="painelSalario" role="tabpanel" hidden><div id="salarioConteudo" class="sl-conteudo"></div></div>
+    <div id="painelPatrimonio" role="tabpanel" hidden><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
   </main>
 
   <div id="shell-footer"></div>

@@ -3,7 +3,7 @@
 // touches the real Apps Script Web App.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getDespesas, salvarDespesas, getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario } from '../assets/js/api-client.js';
+import { ping, getSyncStatus, getSyncHistorico, getHome, syncNow, importB3Transactions, getDistribuicoesMetas, salvarMetaRendaPassiva, salvarMetaPatrimonio, salvarMesesRendaEmergencial, limparCacheHistorico, getHistoricoAtivo, getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getDespesas, salvarDespesas, getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario, getPatrimonio, salvarPatrimonio, getArquivosIrPatrimonio, getArquivoIrPatrimonio } from '../assets/js/api-client.js';
 
 function jsonResponse(body) {
   return { json: async () => body };
@@ -397,4 +397,25 @@ test('Organização: getDespesas/getSalario (GET) e as gravações (POST form-en
   assert.equal(JSON.parse(vistos[4].params.get('pagamento')).mes, '2026-01');
   assert.equal(vistos[4].params.get('usarComoBase'), '1');
   assert.equal(vistos[5].params.get('tipo'), 'Mensal');
+});
+
+// 27/09/2026: aba Patrimônio (Patrimonio.gs)
+test('Patrimônio: getPatrimonio/arquivos do IR (GET) e salvarPatrimonio (POST com o bloco em JSON; null apaga)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getPatrimonio('tk');
+  await getArquivosIrPatrimonio('tk');
+  await getArquivoIrPatrimonio('tk', 'abc');
+  await salvarPatrimonio('tk', 'imovel', { valorCompra: 100000, dataCompra: '2020-01' });
+  await salvarPatrimonio('tk', 'outros', null);
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
+    ['GET', 'patrimonio'], ['GET', 'patrimonioIrArquivos'], ['GET', 'patrimonioIrArquivo'], ['POST', 'salvarPatrimonio'], ['POST', 'salvarPatrimonio'],
+  ]);
+  assert.equal(vistos[2].params.get('id'), 'abc');
+  assert.equal(vistos[3].params.get('chave'), 'imovel');
+  assert.deepEqual(JSON.parse(vistos[3].params.get('valor')), { valorCompra: 100000, dataCompra: '2020-01' });
+  assert.equal(vistos[4].params.get('valor'), '');
 });

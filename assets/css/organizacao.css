@@ -240,6 +240,8 @@ a.hint:hover{ color:var(--acoes); }
   padding:9px 14px 11px; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; }
 .og-aba:hover{ color:var(--ink); }
 .og-aba.active{ color:var(--ink); border-bottom-color:var(--acoes); }
+/* 27/09/2026: 3 abas (Patrimônio) - no celular cabem sem rolar */
+@media (max-width:560px){ .og-aba{ font-size:12.5px; padding-left:8px; padding-right:8px; white-space:nowrap; } }
 #painelDespesas{ display:flex; flex-direction:column; gap:14px; min-width:0; }
 #painelDespesas[hidden], #painelSalario[hidden]{ display:none; }
 .sl-conteudo{ display:flex; flex-direction:column; gap:16px; min-width:0; }

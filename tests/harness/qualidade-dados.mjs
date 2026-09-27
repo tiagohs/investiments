@@ -185,6 +185,27 @@ export const CHECAGENS_QUALIDADE = [
     },
   },
   {
+    id: 'tickerIncorporado',
+    titulo: 'Transações e Transações - USA: nenhum ticker que já foi incorporado por outro (a posição vive no ticker novo)',
+    // 27/09/2026: STR (Sitio Royalties) foi incorporada pela VNOM em
+    // 19/08/2025; as compras já têm o espelho em VNOM, e a "venda" que
+    // zerava a STR usava a cotação de outra empresa (lucro falso de
+    // US$ 1.158). apps-script/Incorporacoes.gs tira tudo de uma vez.
+    rodar: ({ fixtures }) => {
+      const INCORPORADOS = { STR: 'VNOM' };
+      const msgs = [];
+      for (const aba of ['Transações', 'Transações - USA']) {
+        const n = {};
+        for (const l of (fixtures[aba]?.linhas || []).slice(6)) {
+          const tk = String(l[0] || '').trim().toUpperCase();
+          if (INCORPORADOS[tk]) n[tk] = (n[tk] || 0) + 1;
+        }
+        Object.entries(n).forEach(([tk, q]) => msgs.push(`"${aba}": ${q} linha(s) de ${tk}, incorporada pela ${INCORPORADOS[tk]} - rode limparStrDefinitivo() e depois limparStrDefinitivoAplicar() no Apps Script (Incorporacoes.gs)`));
+      }
+      return msgs;
+    },
+  },
+  {
     id: 'vendaPrecoAbsurdo',
     titulo: 'Transações e Transações - USA: nenhuma Venda com preço mais de 4x acima (ou abaixo de 1/4) do preço médio de compra',
     // 23/09/2026 #8: venda lançada com o preço de OUTRO ativo (ex.: um
@@ -198,6 +219,7 @@ export const CHECAGENS_QUALIDADE = [
         for (const l of (fixtures[aba]?.linhas || []).slice(6)) {
           const tk = String(l[0] || '').trim();
           if (!tk || !l[1] || !l[1].__date__ || l[2] !== 'Venda') continue;
+          if (tk === 'STR') continue; // ticker incorporado: a checagem tickerIncorporado já aponta (e diz como resolver)
           const preco = Number(l[3]), medio = Number(l[9]);
           if (!(preco > 0) || !(medio > 0)) continue;
           const razao = preco / medio;

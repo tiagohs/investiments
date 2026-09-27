@@ -22,6 +22,7 @@ import {
   novoItemDespesa, estadoItem, mudancasRascunho, validarRascunho, payloadRascunho, impactoRascunho,
 } from './organizacao-calc.js';
 import { montarAbaSalario } from './organizacao-salario.js';
+import { montarAbaPatrimonio } from './organizacao-patrimonio.js';
 
 const CHAVE_CACHE = 'despesas';
 const CHAVE_ORDEM = 'organizacao.ordem';
@@ -276,7 +277,7 @@ export function htmlBarra(mud, imp, { erros = [], salvando = false, erro = '', c
 // ---------------------------------------------------------------------------
 
 export async function montarPaginaOrganizacao(token, {
-  doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true, salarioOpcoes = {},
+  doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true, salarioOpcoes = {}, patrimonioOpcoes = {},
 } = {}) {
   const loadingEl = doc.getElementById('organizacaoLoading');
   const erroEl = doc.getElementById('organizacaoErro');
@@ -574,26 +575,37 @@ export async function montarPaginaOrganizacao(token, {
 
   // 26/09/2026: 2 abas - Despesas (o que já existia) e Salário e investimentos
   // (organizacao-salario.js, carregada só quando abre). #salario no endereço
-  // abre direto nela.
+  // abre direto nela. 27/09/2026: 3ª aba, Patrimônio (organizacao-patrimonio.js),
+  // também só quando abre (#patrimonio).
   const abasEl = doc.getElementById('ogAbas');
-  const painelDespesas = doc.getElementById('painelDespesas');
-  const painelSalario = doc.getElementById('painelSalario');
+  const paineis = {
+    despesas: doc.getElementById('painelDespesas'),
+    salario: doc.getElementById('painelSalario'),
+    patrimonio: doc.getElementById('painelPatrimonio'),
+  };
   const salarioEl = doc.getElementById('salarioConteudo');
+  const patrimonioEl = doc.getElementById('patrimonioConteudo');
   let salario = null;
+  let patrimonio = null;
   function mostrarAba(qual) {
-    const aba = qual === 'salario' && painelSalario ? 'salario' : 'despesas';
-    if (painelDespesas) painelDespesas.hidden = aba !== 'despesas';
-    if (painelSalario) painelSalario.hidden = aba !== 'salario';
+    const aba = paineis[qual] ? qual : 'despesas';
+    Object.entries(paineis).forEach(([k, p]) => { if (p) p.hidden = k !== aba; });
     if (abasEl) abasEl.querySelectorAll('[data-aba]').forEach((b) => { const a = b.dataset.aba === aba; b.classList.toggle('active', a); b.setAttribute('aria-selected', String(a)); });
     if (aba === 'salario' && !salario && salarioEl) salario = montarAbaSalario({ doc, el: salarioEl, token, ...salarioOpcoes });
+    if (aba === 'patrimonio' && !patrimonio && patrimonioEl) patrimonio = montarAbaPatrimonio({ doc, el: patrimonioEl, token, ...patrimonioOpcoes });
     if (win && win.history && typeof win.history.replaceState === 'function' && win.location) {
-      const hash = aba === 'salario' ? '#salario' : '';
+      const hash = aba === 'despesas' ? '' : `#${aba}`;
       try { if ((win.location.hash || '') !== hash) win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}${hash}`); } catch (e) { /* ok */ }
     }
   }
   if (abasEl) abasEl.addEventListener('click', (ev) => { const b = ev.target.closest('[data-aba]'); if (b) mostrarAba(b.dataset.aba); });
-  mostrarAba(win && win.location && win.location.hash === '#salario' ? 'salario' : 'despesas');
-  const atualizarTudo = async () => { await carregar(); if (salario && salario.dados) await salario.recarregar(); };
+  const hashInicial = win && win.location ? String(win.location.hash || '').replace('#', '') : '';
+  mostrarAba(paineis[hashInicial] ? hashInicial : 'despesas');
+  const atualizarTudo = async () => {
+    await carregar();
+    if (salario && salario.dados) await salario.recarregar();
+    if (patrimonio && patrimonio.dados) await patrimonio.recarregar();
+  };
 
   const cache = await lerCacheDados(CHAVE_CACHE);
   if (cache && cache.dados && cache.dados.ok) { aplicarDados(cache.dados); desenharTudo(); }
@@ -602,5 +614,5 @@ export async function montarPaginaOrganizacao(token, {
   // carregamento e no erro também, que é quando mais se precisa dele.
   if (refresh) await mountRefreshControl(doc, refreshEl, atualizarTudo, { setIntervalImpl: null }).atualizar();
   else await carregar();
-  return { get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, mostrarAba };
+  return { get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, get patrimonio() { return patrimonio; }, mostrarAba };
 }

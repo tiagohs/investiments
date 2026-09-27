@@ -1,0 +1,1045 @@
+/**
+ * organizacao-patrimonio.js - 27/09/2026: aba "Patrimônio" da Organização
+ * Financeira (organizacao/despesas.html#patrimonio).
+ *
+ * Tiago: "Qual meu patrimônio total? ... quanto de fato eu tenho ... meu
+ * histórico ... minha meta futura de patrimônio pra aposentadoria ... no meu
+ * ritmo atual quanto tempo levaria ... dicas, ajuste; use gráficos, tabelas,
+ * heróis".
+ *
+ *  - Herói: patrimônio líquido = o que tem − o que deve.
+ *  - Balanço: investimentos (do site), reserva, apê (índices ou valor
+ *    digitado), FGTS, outros bens | financiamento, FIES (saldo andando
+ *    sozinho mês a mês), outras dívidas. Quanto do apê já é seu.
+ *  - Histórico (31/12 de cada ano, pelo IR) + de onde veio o crescimento.
+ *  - Carreira (CTPS) e FGTS (extratos).
+ *  - Aposentadoria: a meta SEM as parcelas das dívidas, explicada; ritmo x
+ *    meta; projeção com marcos.
+ *  - Simulador "amortizar ou investir" e "Como acelerar".
+ *  - Documentos: PDFs lidos no navegador (patrimonio-import.js) - só os
+ *    totais vão pra planilha (Patrimonio.gs, aba aux_patrimonio).
+ * Contas em patrimonio-calc.js; gráficos em patrimonio-graficos.js.
+ */
+import { getPatrimonio, salvarPatrimonio, getArquivosIrPatrimonio, getArquivoIrPatrimonio } from '../api-client.js';
+import { formatBRL, formatNumeroBR } from '../format.js';
+import { carregarPdfJs, extrairLinhasPdf } from './holerite.js';
+import { lerValorBR } from './organizacao-calc.js';
+import {
+  identificarDocumento, lerDeclaracaoIr, lerExtratoFgts, lerCtps, lerExtratoCaixaHabitacao, lerExtratoFies, contaFgtsParaSalvar, GRUPOS_IR, MOTIVOS_SAQUE_FGTS,
+} from './patrimonio-import.js';
+import {
+  mesDe, somarMeses, difMeses, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, idadeEm,
+  liberacoesDividas, resumoFgts, projetarFgts, linhaSalarios, salarioEm, crescimentoSalario, origemCrescimento, parametrosDivida,
+  amortizarOuInvestir, cronogramaDivida, saldoFinanciamento, extrasFinanciamento, mesesRestantesFinanciamento, mesesRestantesFies,
+  valorImovel, METODOS_IMOVEL, projetarFgtsMensal,
+} from './patrimonio-calc.js';
+import { graficoHistorico, graficoProjecao, graficoSalarios, barrasDivergentes, SERIES_HISTORICO, mil, brl0, mesAno } from './patrimonio-graficos.js';
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const num = (v) => typeof v === 'number' && Number.isFinite(v);
+const brl = (v) => formatBRL(v);
+const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
+const dataBR = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : (/^\d{4}-\d{2}$/.test(String(iso || '')) ? mesAno(iso) : ''); };
+const anosTxt = (a) => (a == null ? '—' : `${formatNumeroBR(Math.abs(a), Math.abs(a) < 10 ? 1 : 0)} ${Math.abs(a) >= 2 || Math.abs(a) < 1 ? 'anos' : 'ano'}`);
+const mesesTxt = (m) => (m == null ? '—' : m >= 24 ? `${formatNumeroBR(m / 12, 1)} anos` : `${m} ${m === 1 ? 'mês' : 'meses'}`);
+const numCampo = (v, casas = 2) => (num(v) ? formatNumeroBR(v, casas) : '');
+
+export const PREFS_PADRAO = {
+  incluirReservaNaAposentadoria: false, parcelasViramAporte: true, descontar: null, taxaSaque: null, rendimentoReal: null,
+  aporteModo: 'ritmo', aporteManual: null, idadeAlvo: 60, nascimento: null,
+};
+
+const NOMES_DOC = { ir: 'Declaração do IR', fgts: 'Extrato do FGTS', ctps: 'Carteira de Trabalho', caixa: 'Financiamento (Caixa)', fies: 'FIES (Banco do Brasil)' };
+
+// ---------------------------------------------------------------------------
+// Tudo que a tela mostra, calculado de uma vez
+// ---------------------------------------------------------------------------
+
+export function contextoPatrimonio(d, prefs = {}) {
+  const cfg = d.config || {};
+  const p = { ...PREFS_PADRAO, ...(cfg.preferencias || {}), ...prefs };
+  const b = balanco(d);
+  const hist = historicoAnual(d);
+  const meta = metaAposentadoria(d, { descontar: p.descontar, taxaSaque: p.taxaSaque });
+  const rendimento = num(p.rendimentoReal) ? p.rendimentoReal : meta.rendimento;
+  const alvo = meta.patrimonioSem;
+  const inv = d.investimentos || {};
+  const inicial = (inv.longoPrazo || 0) + (p.incluirReservaNaAposentadoria ? inv.reserva || 0 : 0);
+  const ritmo = aporteMedio(d.historicoMensal, d.hoje, 12);
+  const aporteMeta = d.metas && num(d.metas.aporteMeta) ? d.metas.aporteMeta : null;
+  let aporte;
+  if (p.aporteModo === 'meta' && num(aporteMeta)) aporte = aporteMeta;
+  else if (p.aporteModo === 'manual' && num(p.aporteManual)) aporte = p.aporteManual;
+  else aporte = num(ritmo) ? ritmo : (aporteMeta || 0);
+  const libs = liberacoesDividas(d, meta);
+  const liberacoes = p.parcelasViramAporte ? libs : [];
+  const proj = projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes });
+  const nasc = p.nascimento || (cfg.carreira && cfg.carreira.nascimento) || null;
+  const idadeHoje = idadeEm(nasc, d.hoje);
+  const anosAteAlvo = idadeHoje != null ? p.idadeAlvo - idadeHoje : null;
+  const coast = anosAteAlvo > 0 ? coastFi(alvo, rendimento, anosAteAlvo) : null;
+  const mes0 = Number(String(d.hoje).slice(5, 7)) - 1;
+  const quando = (m) => {
+    if (m == null) return { rotulo: 'não chega', ano: '—', idade: null, mes0 };
+    const mes = somarMeses(d.hoje, m);
+    return { rotulo: mesAno(mes), ano: Number(mes.slice(0, 4)), idade: idadeHoje != null ? Math.floor(idadeHoje + m / 12) : null, mes0, mes };
+  };
+  return {
+    d, cfg, p, b, hist, meta, rendimento, alvo, inicial, ritmo, aporteMeta, aporte, libs, liberacoes, proj,
+    nasc, idadeHoje, anosAteAlvo, coast, quando,
+    fgts: resumoFgts(cfg.fgts, d.hoje, { nascimento: nasc, depositoMensal: num(salarioEm(cfg.carreira, d.hoje)) ? salarioEm(cfg.carreira, d.hoje) * 0.08 : null }),
+    origem: origemCrescimento(d, 12),
+  };
+}
+
+/** Quanto cada ajuste antecipa (ou atrasa) a chegada na meta - os cards de "Como acelerar". */
+export function dicasAcelerar(ctx) {
+  const { d, cfg, p, meta, rendimento, alvo, inicial, aporte, liberacoes, proj, libs } = ctx;
+  const base = proj.chegou;
+  const rodar = (o = {}) => projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes, ...o }).chegou;
+  const ganho = (outro) => (base != null && outro != null ? (base - outro) / 12 : null);
+  const dicas = [];
+  const g500 = ganho(rodar({ aporte: aporte + 500 }));
+  dicas.push({
+    id: 'aporte', titulo: 'Aporte', destaque: true,
+    html: `<b>+R$ 500 por mês</b> antecipa <b>${esc(anosTxt(g500))}</b>.${num(ctx.aporteMeta) && num(ctx.ritmo) ? ` Sua meta de aporte (${esc(brl0(ctx.aporteMeta))}) está ${ctx.aporteMeta >= ctx.ritmo ? `<b>${esc(brl0(ctx.aporteMeta - ctx.ritmo))} acima</b>` : `${esc(brl0(ctx.ritmo - ctx.aporteMeta))} abaixo`} do que você aportou em média nos últimos 12 meses no longo prazo (${esc(brl0(ctx.ritmo))}).` : ''}`,
+  });
+  const cresc = crescimentoSalario(cfg.carreira, d.hoje, 5);
+  const g3 = ganho(rodar({ crescimentoAporte: 0.03 }));
+  dicas.push({
+    id: 'aumentos', titulo: 'Aumentos de salário', destaque: false,
+    html: `${cresc ? `Seu salário cresceu <b>${esc(pct(cresc.taxa, 1))} ao ano</b> nos últimos ${cresc.anos} anos. ` : ''}Se o aporte subir junto, <b>3% acima da inflação</b> por ano, você chega <b>${esc(anosTxt(g3))} antes</b>. Regra simples: metade de cada aumento vai pro aporte.`,
+  });
+  const g1 = ganho(rodar({ rendimentoReal: rendimento + 0.01 }));
+  dicas.push({
+    id: 'rendimento', titulo: 'Rendimento', destaque: false,
+    html: `<b>+1 ponto</b> de rendimento real ao ano antecipa <b>${esc(anosTxt(g1))}</b>. É onde pesam taxas, dinheiro parado em conta e quanto de IPCA+ alto você consegue travar.`,
+  });
+  if (libs.length) {
+    const sem = projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes: [] }).chegou;
+    const com = projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes: libs }).chegou;
+    const dif = sem != null && com != null ? (sem - com) / 12 : null;
+    dicas.push({
+      id: 'parcelas', titulo: 'Parcelas que viram aporte', destaque: !p.parcelasViramAporte,
+      html: `${libs.map((l) => `${esc(l.nome.replace(' quitado', ''))} acaba em <b>${esc(mesAno(somarMeses(d.hoje, l.mes)))}</b> e libera <b>${esc(brl0(l.valor))}/mês</b>`).join('; ')}. Continuar investindo esse valor ${p.parcelasViramAporte ? 'já está na conta e ' : ''}antecipa <b>${esc(anosTxt(dif))}</b>${p.parcelasViramAporte ? '' : ' - ligue "as parcelas viram aporte" pra ver'}.`,
+    });
+  }
+  // FGTS no financiamento a cada 2 anos (descontando os saques-aniversário do caminho)
+  const fg = ctx.fgts;
+  const temFin = cfg.financiamento && num(cfg.financiamento.saldo);
+  const par = temFin ? parametrosDivida('financiamento', cfg.financiamento, d.hoje) : null;
+  const efeitoAmortizar = (valor, mesAlvo) => {
+    const faltam = Math.max(0, difMeses(d.hoje, mesAlvo));
+    const saldoLa = saldoFinanciamento(cfg.financiamento, mesAlvo, extrasFinanciamento(cfg.financiamento, cfg.fgts));
+    const mesesLa = Math.max(1, (par.meses || 0) - faltam);
+    const base2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa });
+    const com2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa, extras: { 0: valor } });
+    return { meses: base2.length - com2.length, juros: base2.reduce((s, l) => s + l.juros, 0) - com2.reduce((s, l) => s + l.juros, 0) };
+  };
+  if (fg && temFin) {
+    const mesProx = fg.proximaAmortizacao < mesDe(d.hoje) ? mesDe(d.hoje) : fg.proximaAmortizacao;
+    const salario = salarioEm(cfg.carreira, d.hoje);
+    const deposito = num(salario) ? salario * 0.08 : 0;
+    const aniv = fg.aniversario || {};
+    const base = fg.contaAtiva && fg.contaAtiva.dataSaldo ? mesDe(fg.contaAtiva.dataSaldo) : mesDe(d.hoje);
+    const proj = projetarFgtsMensal(fg.saldo, deposito, base, mesProx, { mesAniversario: aniv.ativo ? aniv.mesAniversario : null });
+    const ef = efeitoAmortizar(proj.saldo, mesProx);
+    const saiu = proj.saques.reduce((s, x) => s + x.valor, 0);
+    dicas.push({
+      id: 'fgts', titulo: 'FGTS no financiamento', destaque: true,
+      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(pct(cfg.financiamento.taxaAnual, 2))} + TR.`,
+    });
+  }
+  const aniv = fg && fg.aniversario;
+  if (aniv && aniv.ativo && aniv.proximo) {
+    const hoje = aniv.comSaldoDeHoje;
+    const est = aniv.estimado;
+    const valor = est ? est.valor : hoje.valor;
+    const ef = temFin ? efeitoAmortizar(valor, aniv.proximo) : null;
+    const faixa = (x) => `${formatNumeroBR(x.aliquota * 100, 0)}% do saldo + ${brl(x.adicional)}`;
+    const mudaFaixa = est && est.aliquota !== hoje.aliquota;
+    dicas.push({
+      id: 'aniversario', titulo: 'Saque-aniversário', destaque: true,
+      html: `Cai em <b>${esc(mesAno(aniv.proximo))}</b> (do 1º dia útil até o fim de ${esc(mesAno(aniv.ate))}). Com o saldo de hoje (${esc(brl(hoje.saldo))}) dá <b>${esc(brl(hoje.valor))}</b> (${esc(faixa(hoje))}) - é o que o app do FGTS simula. Mas o valor é calculado com o saldo do dia do saque${est ? `: com os depósitos e o juro que entram até lá, o saldo vai a ~${esc(brl0(est.saldo))}${mudaFaixa ? ', passa pra faixa de cima' : ''} e o saque fica em <b>~${esc(brl0(est.valor))}</b> (${esc(faixa(est))})` : ''}. ${ef ? `Mande direto pro financiamento como amortização extra (com dinheiro não tem a espera de 2 anos): tira <b>${esc(mesesTxt(ef.meses))}</b> e <b>${esc(mil(ef.juros))} de juros</b>.` : 'Invista ou amortize - não deixe na conta.'} <b>Não antecipe</b> (os bancos cobram ~1,3% ao mês). O preço dessa modalidade: numa demissão sem justa causa você saca só a multa de 40%, o saldo fica preso (pra moradia continua valendo), e voltar pro saque-rescisão leva 25 meses. Com a sua reserva de ${esc(num(d.investimentos && d.investimentos.reserva) && d.despesas && d.despesas.totalComFolga ? formatNumeroBR(d.investimentos.reserva / d.despesas.totalComFolga, 1) : '?')} meses e o FGTS indo pro apê de qualquer jeito, ficar vale a pena - desde que o dinheiro vá pro financiamento.`,
+    });
+  }
+  // amortizar ou investir: dívidas
+  const cdiLiq = num(d.cdi) ? d.cdi * 0.85 : null;
+  if (cfg.fies && num(cfg.fies.saldo) && num(cfg.fies.taxaMensal)) {
+    const taxaAno = (1 + cfg.fies.taxaMensal) ** 12 - 1;
+    dicas.push({
+      id: 'fies', titulo: 'FIES: não precisa antecipar', destaque: false,
+      html: `O FIES custa <b>~${esc(pct(taxaAno, 1))} ao ano</b>${cdiLiq ? `, bem menos que o CDI líquido de hoje (~${esc(pct(cdiLiq, 1))})` : ''}: investir o dinheiro rende mais do que quitar antes. Deixe ele terminar no prazo (${esc(mesAno(cfg.fies.fim || ''))}).`,
+    });
+  }
+  if (cfg.financiamento && num(cfg.financiamento.saldo)) {
+    const r = amortizarOuInvestir(parametrosDivida('financiamento', cfg.financiamento, d.hoje), { valor: 10000, rendimentoAnual: cdiLiq || 0.1 });
+    if (r && r.taxaEmpate) {
+      dicas.push({
+        id: 'amortizar', titulo: 'Financiamento: amortizar ou investir?', destaque: false,
+        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. Simule abaixo.`,
+      });
+    }
+  }
+  const alvo4 = (meta.rendaSem * 12) / 0.04;
+  const c4 = rodar({ alvo: alvo4 });
+  dicas.push({
+    id: 'saque', titulo: 'Quanto sacar por ano', destaque: false,
+    html: `A meta usa <b>${esc(pct(meta.taxa, 0))} ao ano</b> (o rendimento da Distribuição e Metas). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
+  });
+  if (num(ctx.coast)) {
+    dicas.push({
+      id: 'coast', titulo: 'Coast FI', destaque: false,
+      html: `Com <b>${esc(mil(ctx.coast))}</b> investidos você já poderia parar de aportar e ainda chegar na meta aos ${esc(p.idadeAlvo)} (só com o rendimento). Hoje você tem <b>${esc(pct(inicial / ctx.coast, 0))}</b> disso.`,
+    });
+  }
+  const inv = d.investimentos || {};
+  const metaRes = d.metas && d.metas.reservaMeta;
+  if (num(inv.reserva) && num(metaRes) && inv.reserva > metaRes * 1.05) {
+    const exc = inv.reserva - metaRes;
+    const gr = ganho(rodar({ inicial: inicial + exc }));
+    dicas.push({
+      id: 'reserva', titulo: 'Reserva acima da meta', destaque: true,
+      html: `A reserva (${esc(mil(inv.reserva))}) está <b>${esc(mil(exc))} acima da meta</b> (${esc(mil(metaRes))}). Esse excedente no longo prazo antecipa <b>${esc(anosTxt(gr))}</b>.`,
+    });
+  }
+  return dicas;
+}
+
+// ---------------------------------------------------------------------------
+// Blocos (HTML)
+// ---------------------------------------------------------------------------
+
+export function htmlHero(ctx) {
+  const { b, hist } = ctx;
+  const ultimoAno = hist.filter((l) => !l.hoje).pop();
+  const primeiro = hist[0];
+  const delta = ultimoAno ? b.liquido - ultimoAno.liquido : null;
+  const partes = [
+    ...b.ativos.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'imovel' ? 'var(--pt-imo)' : a.id === 'fgts' ? 'var(--pt-fgts)' : a.outro ? 'var(--pt-out)' : 'var(--pt-inv)' })),
+    ...b.dividas.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)' })),
+  ].filter((x) => x.valor > 0);
+  const tot = partes.reduce((s, x) => s + x.valor, 0) || 1;
+  const legenda = [
+    { nome: 'Investimentos e reserva', cor: 'var(--pt-inv)', valor: b.ativos.filter((a) => a.id === 'investimentos' || a.id === 'reserva').reduce((s, a) => s + a.valor, 0) },
+    ...b.ativos.filter((a) => a.id === 'imovel' || a.id === 'fgts').map((a) => ({ nome: a.nome, cor: a.id === 'imovel' ? 'var(--pt-imo)' : 'var(--pt-fgts)', valor: a.valor })),
+    ...(b.ativos.some((a) => a.outro) ? [{ nome: 'Outros bens', cor: 'var(--pt-out)', valor: b.ativos.filter((a) => a.outro).reduce((s, a) => s + a.valor, 0) }] : []),
+    ...b.dividas.map((a) => ({ nome: a.nome, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)', valor: -a.valor })),
+  ].filter((x) => x.valor);
+  return `
+    <div class="pt-hero-num">
+      <span class="pt-rot">Patrimônio líquido hoje</span>
+      <span class="pt-grande">${esc(mil(b.liquido))}</span>
+      <span class="pt-hero-sub">${num(delta) ? `<span class="pt-pill ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : '−'}${esc(mil(Math.abs(delta)).replace('−', ''))} desde dez/${esc(ultimoAno.ano)}</span>` : ''}
+        ${primeiro && !primeiro.hoje ? ` Era <b>${esc(mil(primeiro.liquido))}</b> no fim de ${esc(primeiro.ano)}.` : ''}</span>
+    </div>
+    <div class="pt-hero-eq">
+      <div class="pt-eq">
+        <div class="pt-eq-item"><span class="pt-rot">Tudo que você tem</span><b>${esc(mil(b.totalAtivos))}</b></div><span class="pt-eq-op" aria-hidden="true">−</span>
+        <div class="pt-eq-item"><span class="pt-rot">Tudo que você deve</span><b>${esc(mil(b.totalDividas))}</b></div><span class="pt-eq-op" aria-hidden="true">=</span>
+        <div class="pt-eq-item"><span class="pt-rot">É seu de verdade</span><b>${esc(mil(b.liquido))}</b><small>${esc(pct(b.totalAtivos ? b.liquido / b.totalAtivos : null, 0))} do que você tem</small></div>
+      </div>
+      <div class="pt-barra-bal" role="img" aria-label="${esc(partes.map((x) => `${x.nome} ${brl0(x.valor)}`).join(', '))}">${partes.map((x) => `<span style="width:${((x.valor / tot) * 100).toFixed(2)}%;background:${x.cor}" title="${esc(`${x.nome}: ${brl0(x.valor)}`)}"></span>`).join('')}</div>
+      <div class="pt-leg">${legenda.map((x) => `<span><i style="background:${x.cor}"></i>${esc(x.nome)} <b>${esc(mil(x.valor))}</b></span>`).join('')}</div>
+    </div>`;
+}
+
+const pillEditar = (acao, rot = 'editar') => `<button type="button" class="pt-mini" data-acao="${esc(acao)}">${esc(rot)}</button>`;
+const pillFalta = (acao, rot = 'informar') => `<button type="button" class="pt-mini falta" data-acao="${esc(acao)}">${esc(rot)}</button>`;
+function linhaBal({ cor, nome, sub, valor, vsub = '', acao = '' }) {
+  return `<div class="pt-linha"><i style="background:${cor}"></i><span class="pt-linha-n"><b>${esc(nome)}${acao}</b><small>${sub}</small></span><span class="pt-linha-v">${valor}${vsub ? `<small>${vsub}</small>` : ''}</span></div>`;
+}
+
+export function htmlBalanco(ctx) {
+  const { d, cfg, b } = ctx;
+  const inv = d.investimentos || {};
+  const pc = inv.porClasse || {};
+  const achar = (id) => [...b.ativos, ...b.dividas].find((a) => a.id === id);
+  const custo = d.despesas && d.despesas.totalComFolga;
+  const ativos = [];
+  if (num(inv.longoPrazo)) {
+    const classes = [['Ações', pc.acoes], ['FIIs', pc.fiis], ['EUA', pc.acoesEua], ['RF', pc.rendaFixaLongoPrazo]].filter(([, v]) => num(v) && v > 0);
+    ativos.push(linhaBal({ cor: 'var(--pt-inv)', nome: 'Investimentos', sub: esc(classes.map(([n, v]) => `${n} ${mil(v)}`).join(' · ')), valor: esc(brl0(inv.longoPrazo)), vsub: 'longo prazo, do site' }));
+  }
+  if (num(inv.reserva)) ativos.push(linhaBal({ cor: 'var(--pt-inv)', nome: 'Reserva de emergência', sub: num(custo) && custo > 0 ? `cobre ${esc(formatNumeroBR(inv.reserva / custo, 1))} meses do custo de vida` : 'renda fixa marcada como reserva', valor: esc(brl0(inv.reserva)), vsub: 'do site' }));
+  const imo = achar('imovel');
+  if (imo) {
+    const v = imo.imovel;
+    const origem = v.metodo === 'manual' ? 'valor que você informou' : v.metodo === 'compra' ? 'valor de compra (sem índice)' : `${METODOS_IMOVEL[v.metodo]} · ${v.valorizacao >= 0 ? '+' : ''}${pct(v.valorizacao, 1)} desde a compra`;
+    ativos.push(linhaBal({ cor: 'var(--pt-imo)', nome: imo.nome, sub: esc(`comprado por ${mil(v.compra)} em ${mesAno(cfg.imovel.dataCompra)} · ${origem}`), valor: esc(brl0(imo.valor)), vsub: 'valor de mercado estimado', acao: pillEditar('editar:imovel') }));
+  } else ativos.push(linhaBal({ cor: 'var(--pt-imo)', nome: 'Apartamento', sub: 'valor de compra e mês - o site corrige pelos índices', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('editar:imovel') }));
+  const fg = achar('fgts');
+  if (fg) ativos.push(linhaBal({ cor: 'var(--pt-fgts)', nome: 'FGTS', sub: esc(`${(cfg.fgts.contas || []).length} ${(cfg.fgts.contas || []).length === 1 ? 'conta' : 'contas'} · saldo de ${dataBR(ctx.fgts && ctx.fgts.contaAtiva ? ctx.fgts.contaAtiva.dataSaldo : '')} · só saca em casos específicos (moradia, demissão…)`), valor: esc(brl0(fg.valor)), acao: pillEditar('importar', 'atualizar') }));
+  else ativos.push(linhaBal({ cor: 'var(--pt-fgts)', nome: 'FGTS', sub: 'importe os extratos (um por empresa) do app FGTS', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('importar', 'importar') }));
+  b.ativos.filter((a) => a.outro).forEach((a) => ativos.push(linhaBal({ cor: 'var(--pt-out)', nome: a.nome, sub: esc(a.outro.obs || 'outro bem'), valor: esc(brl0(a.valor)) })));
+  ativos.push(`<div class="pt-linha pt-linha-add">${pillEditar('editar:outros', '+ outros bens e dívidas')}<small>carro, cripto, empréstimo… só se quiser contar</small></div>`);
+
+  const dividas = [];
+  const fin = achar('financiamento');
+  if (fin) {
+    const f = cfg.financiamento;
+    const n = mesesRestantesFinanciamento({ ...f, saldo: fin.valor });
+    dividas.push(linhaBal({
+      cor: 'var(--pt-div1)', nome: `Financiamento do apê${f.banco ? ` (${f.banco})` : ''}`,
+      sub: esc(`${num(f.taxaAnual) ? `${pct(f.taxaAnual, 2)} a.a.${f.indexador ? ` + ${f.indexador}` : ''} · ` : ''}${f.sistema || 'SAC'}${n ? ` · ${n} parcelas (até ${mesAno(somarMeses(d.hoje, n))})` : ''}`),
+      valor: esc(brl0(fin.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${brl(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:financiamento'),
+    }));
+  } else dividas.push(linhaBal({ cor: 'var(--pt-div1)', nome: 'Financiamento do apê', sub: 'importe o "Demonstrativo de Evolução" da Caixa ou digite', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('editar:financiamento') }));
+  const fi = achar('fies');
+  if (fi) {
+    const f = cfg.fies;
+    const taxaAno = num(f.taxaMensal) ? (1 + f.taxaMensal) ** 12 - 1 : null;
+    dividas.push(linhaBal({
+      cor: 'var(--pt-div2)', nome: `FIES${f.banco ? ` (${f.banco})` : ''}`,
+      sub: esc(`${taxaAno != null ? `~${pct(taxaAno, 1)} a.a. · ` : ''}Price · ${mesesRestantesFies(f, d.hoje) || '?'} parcelas (até ${mesAno(f.fim)})`),
+      valor: esc(brl0(fi.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${brl(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:fies'),
+    }));
+  }
+  b.dividas.filter((a) => a.outro).forEach((a) => dividas.push(linhaBal({ cor: 'var(--pt-div2)', nome: a.nome, sub: esc(a.outro.obs || 'outra dívida'), valor: esc(brl0(a.valor)) })));
+  const ap = b.imovel;
+  const apHtml = ap && ap.valor > 0 ? `
+    <div class="pt-apto">
+      <b>Quanto do apê já é seu</b>
+      <div class="pt-apto-barra" role="img" aria-label="${esc(`${pct(ap.pct, 0)} é seu, ${brl0(ap.saldo)} ainda é do banco`)}"><span style="width:${(Math.max(0, ap.pct) * 100).toFixed(2)}%;background:var(--pt-imo)"></span><span style="width:${((ap.saldo / ap.valor) * 100).toFixed(2)}%;background:var(--pt-div1)"></span></div>
+      <span><b class="pt-num">${esc(brl0(ap.seu))}</b> (${esc(pct(ap.pct, 0))}) é seu · ${esc(brl0(ap.saldo))} ainda é do banco.${num(cfg.financiamento && cfg.financiamento.amortizacao) ? ` Cada parcela abate <b class="pt-num">${esc(brl(cfg.financiamento.amortizacao))}</b> da dívida; o resto é juros, seguro e taxa.` : ''}</span>
+    </div>` : '';
+  return `
+    <div><h3>O que você tem <span>${esc(mil(b.totalAtivos))}</span></h3>${ativos.join('')}</div>
+    <div><h3>O que você deve <span>${esc(mil(b.totalDividas))}</span></h3>${dividas.join('')}${apHtml}</div>`;
+}
+
+export function htmlHistoricoTabela(hist) {
+  const linhas = hist.map((l) => `<tr${l.hoje ? ' class="pt-hoje"' : ''}>
+    <td class="esq"><b>${esc(l.hoje ? 'Hoje' : l.ano)}</b>${l.compraImovel ? '<small>compra do apê</small>' : ''}${l.entradaImovel ? '<small>entrada do apê (FGTS)</small>' : ''}${l.fonte === 's' ? '<small>pelo site</small>' : ''}</td>
+    <td>${esc(brl0(l.ativos))}</td><td>${l.dividas ? `−${esc(brl0(l.dividas))}` : '—'}</td><td><b>${esc(brl0(l.liquido))}</b></td>
+    <td class="${num(l.noAno) ? (l.noAno >= 0 ? 'good' : 'bad') : ''}">${num(l.noAno) ? `${l.noAno >= 0 ? '+' : '−'}${esc(brl0(Math.abs(l.noAno)))}` : '—'}</td>
+    <td>${num(l.renda) ? esc(brl0(l.renda)) : '<span class="pt-fraco">—</span>'}</td>
+    <td>${num(l.convertido) ? (l.compraImovel ? '<span class="pt-fraco">(apê)</span>' : esc(pct(l.convertido, 0))) : '<span class="pt-fraco">—</span>'}</td></tr>`).join('');
+  return `<table class="pt-tab"><thead><tr><th class="esq">Ano</th><th>O que tinha</th><th>O que devia</th><th>Líquido</th><th>No ano</th><th>Renda bruta (IR)</th><th>Virou patrimônio</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+export function htmlHistoricoNota(ctx) {
+  const { cfg } = ctx;
+  const irs = (cfg.ir && cfg.ir.anos) || [];
+  const ultIr = irs[irs.length - 1];
+  const imoIr = ultIr && ultIr.grupos && ultIr.grupos['01'] ? ultIr.grupos['01'].atual : null;
+  const partes = [];
+  partes.push(irs.length
+    ? `Investimentos e contas pelo IR (${esc(irs[0].ano)}–${esc(ultIr.ano)}), que declara pelo <b>custo</b> - o que você pagou, não o valor de mercado. Hoje, pelo site.`
+    : 'Sem declarações do IR ainda: o histórico usa o patrimônio de dezembro que o site tem. Importe as declarações pra voltar mais anos.');
+  if (num(imoIr)) partes.push(`No IR o apê aparece pelo que você já pagou (${esc(brl0(imoIr))} em ${esc(ultIr.ano)}, fora a entrada); aqui ele entra pelo valor de mercado estimado e o financiamento como dívida.`);
+  if (cfg.fies) partes.push('O FIES não aparece no IR: o saldo de cada ano é refeito pelo extrato do BB (parcela e taxa fixas, pagas em dia).');
+  if (cfg.financiamento) partes.push('O saldo do financiamento nos anos anteriores sai dos saldos conhecidos (extrato, valor financiado) e das amortizações extras com o FGTS.');
+  return partes.join(' ');
+}
+
+export function htmlCrescimento(o) {
+  if (!o) return '<p class="pt-nota">Precisa de pelo menos 12 meses de histórico no site.</p>';
+  const cores = { aportes: 'var(--pt-inv)', rendimento: 'var(--pt-inv)', dividas: 'var(--pt-div1)', imovel: 'var(--pt-imo)', fgts: 'var(--pt-fgts)' };
+  return `${barrasDivergentes(o.itens.filter((i) => Math.abs(i.valor) >= 1).map((i) => ({ ...i, cor: i.valor >= 0 ? cores[i.id] : 'var(--pt-neg)' })))}
+    <p class="pt-nota">De ${esc(mesAno(o.de))} a ${esc(mesAno(o.ate))} o patrimônio líquido ${o.total >= 0 ? 'cresceu' : 'caiu'} <b class="pt-num">${esc(brl0(Math.abs(o.total)))}</b>. "Dívidas abatidas" é o saldo que caiu (parcelas + amortizações extras); o FGTS usado no apê sai de um lado e entra no outro.</p>`;
+}
+
+export function htmlCarreira(ctx, largura = 520) {
+  const car = ctx.cfg.carreira;
+  const linha = linhaSalarios(car);
+  if (!linha.length) {
+    return { html: `<div class="pt-card-cab"><h3>Carreira</h3></div><p class="pt-nota">Importe a Carteira de Trabalho Digital (app ou gov.br → Contratos de trabalho → PDF): o site monta a linha do salário e usa no FGTS e nos cenários.</p><button type="button" class="btn btn-ghost pt-btn-sm" data-acao="importar">Importar PDF</button>`, dicas: [] };
+  }
+  const g = graficoSalarios(linha, car.contratos, { largura, hoje: ctx.d.hoje });
+  const c5 = crescimentoSalario(car, ctx.d.hoje, 5);
+  const atual = linha[linha.length - 1];
+  const cargo = (car.contratos || []).flatMap((c) => c.cargos || []).filter((x) => !x.fim).pop();
+  return {
+    html: `<div class="pt-card-cab"><h3>Carreira</h3><span class="pt-hint">salário contratual, pela Carteira de Trabalho</span></div>
+      <div class="pt-mini-tiles">
+        <div><span class="pt-rot">Hoje</span><b>${esc(brl0(atual.valor))}</b><small>${esc(cargo ? cargo.cargo.toLowerCase() : atual.empregador)}</small></div>
+        <div><span class="pt-rot">Cresceu</span><b>${c5 ? esc(`${pct(c5.taxa, 1)}/ano`) : '—'}</b><small>${c5 ? `nos últimos ${c5.anos} anos (de ${esc(mil(c5.antes))})` : ''}</small></div>
+        <div><span class="pt-rot">Empresas</span><b>${(car.contratos || []).length}</b><small>desde ${esc(mesAno(mesDe(linha[0].data)))}</small></div>
+      </div>
+      <div class="pt-grafico" data-grafico="sal">${g.svg}<div class="pt-tt" hidden></div></div>`,
+    dicas: g.dicas,
+  };
+}
+
+export function htmlFgts(ctx) {
+  const fg = ctx.fgts;
+  if (!fg) return `<div class="pt-card-cab"><h3>FGTS</h3></div><p class="pt-nota">Importe os extratos do app FGTS (um PDF por empresa, inclusive as antigas): saldo, quanto foi pro apê, saques e a próxima vez que dá pra amortizar.</p><button type="button" class="btn btn-ghost pt-btn-sm" data-acao="importar">Importar extratos</button>`;
+  const destino = [
+    { id: 'moradia', nome: 'Usado no apê', valor: fg.usadoMoradia, cor: 'var(--pt-imo)' },
+    ...Object.entries(fg.saques).filter(([k, v]) => k !== 'moradia' && v > 0).map(([k, v]) => ({ id: k, nome: `Sacado: ${MOTIVOS_SAQUE_FGTS[k] || k}`, valor: v, cor: 'var(--pt-div2)' })),
+    { id: 'saldo', nome: 'Saldo hoje', valor: fg.saldo, cor: 'var(--pt-fgts)' },
+  ].filter((x) => x.valor > 0);
+  const prox = fg.proximaAmortizacao < mesDe(ctx.d.hoje) ? 'já pode' : mesAno(fg.proximaAmortizacao);
+  return `<div class="pt-card-cab"><h3>FGTS</h3><span class="pt-hint">${esc(`${(ctx.cfg.fgts.contas || []).length} contas, desde ${mesAno(mesDe(fg.desde))}`)}</span></div>
+    <div class="pt-mini-tiles">
+      <div><span class="pt-rot">Saldo</span><b>${esc(brl0(fg.saldo))}</b><small>${esc(fg.contaAtiva ? fg.contaAtiva.empregador : '')}</small></div>
+      <div><span class="pt-rot">Já entrou</span><b>${esc(mil(fg.depositos + fg.rendimentos))}</b><small>${esc(mil(fg.depositos))} depósitos + ${esc(mil(fg.rendimentos))} de juros</small></div>
+      <div><span class="pt-rot">Próximo uso no apê</span><b>${esc(prox)}</b><small>a Caixa libera a cada 2 anos</small></div>
+    </div>
+    ${fg.aniversario && fg.aniversario.ativo && fg.aniversario.proximo ? `<p class="pt-nota">Saque-aniversário: <b>${esc(mesAno(fg.aniversario.proximo))}</b>, ~<b class="pt-num">${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).valor))}</b> (${esc(formatNumeroBR((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).aliquota * 100, 0))}% do saldo + ${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).adicional))}). Pelo saldo de hoje o app do FGTS mostra ${esc(brl(fg.aniversario.comSaldoDeHoje.valor))}.</p>` : ''}
+    <p class="pt-sub-t">Pra onde foi</p>
+    ${barrasDivergentes(destino, { sinal: false })}`;
+}
+
+export function htmlMeta(ctx) {
+  const { meta, p, libs, d } = ctx;
+  const fmtp = (v) => formatNumeroBR(v, 2);
+  const marcados = meta.itens.filter((i) => i.descontar);
+  const opcoes = meta.itens.map((i) => `<label class="pt-chk-item"><input type="checkbox" data-descontar="${esc(i.nome)}"${i.descontar ? ' checked' : ''}><span>${esc(i.nome)}</span><b>${esc(brl(i.mensal))}</b></label>`).join('');
+  const quita = libs.map((l) => `${l.id === 'fies' ? 'o FIES' : 'o apê'} em ${mesAno(somarMeses(d.hoje, l.mes))}`).join(' e ');
+  return `
+    <div class="pt-meta-conta">
+      <p>A meta da <a href="../distribuicoes-metas.html">Distribuição e Metas</a> parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(brl(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
+      <ol class="pt-meta-passos">
+        <li><span>Planilha hoje</span><code>(${esc(fmtp(meta.custoComFolga))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaDM))}/mês</b><small>precisa de ${esc(mil(meta.patrimonioDM))}</small></li>
+        <li class="pt-meta-final"><span>Sem as parcelas</span><code>(${esc(fmtp(meta.custoComFolga))} − ${esc(fmtp(meta.parcelas))} × ${esc(formatNumeroBR(1 + meta.folga, 2))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaSem))}/mês</b><small>precisa de <b>${esc(mil(meta.patrimonioSem))}</b></small></li>
+      </ol>
+      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(pct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(pct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da Distribuição e Metas)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - a gente mexe nela quando fizer a tela de Metas.</p>
+    </div>
+    <details class="pt-descontar"><summary>O que conta como parcela de dívida (${marcados.length})</summary><div class="pt-chk-lista">${opcoes}</div></details>`;
+}
+
+export function htmlFuturoControles(ctx) {
+  const { p, meta, ritmo, aporteMeta, aporte, rendimento } = ctx;
+  const seg = (grupo, itens, atual) => `<div class="pt-seg" role="group" data-seg="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
+  const taxa = p.taxaSaque || meta.rendimento;
+  return `
+    <label class="pt-ctl"><span class="pt-ctl-row">Quanto sacar por ano <b>${esc(pct(taxa, 0))}</b></span>
+      ${seg('taxaSaque', [['0.04', '4%'], ['0.05', '5%'], ['', `${formatNumeroBR(meta.rendimento * 100, 0)}% (planilha)`]], p.taxaSaque ? String(p.taxaSaque) : '')}</label>
+    <label class="pt-ctl" for="ptRend"><span class="pt-ctl-row">Rendimento real ao ano <b id="ptRendV">${esc(pct(rendimento, 1))}</b></span>
+      <input type="range" id="ptRend" min="0.02" max="0.09" step="0.005" value="${rendimento}"></label>
+    <label class="pt-ctl" for="ptAporte"><span class="pt-ctl-row">Aporte por mês <b id="ptAporteV">${esc(brl0(aporte))}</b></span>
+      ${seg('aporteModo', [['ritmo', 'Seu ritmo (12m)'], ['meta', 'Sua meta']], p.aporteModo)}
+      <small class="pt-ctl-dica">ritmo ${esc(num(ritmo) ? brl0(ritmo) : '—')} · meta ${esc(num(aporteMeta) ? brl0(aporteMeta) : '—')}</small>
+      <input type="range" id="ptAporte" min="0" max="15000" step="50" value="${Math.round(aporte)}"></label>
+    <label class="pt-chk"><input type="checkbox" id="ptParcelas"${p.parcelasViramAporte ? ' checked' : ''}><span>Quando o FIES e o apê acabarem, as parcelas <b>viram aporte</b></span></label>
+    <label class="pt-chk"><input type="checkbox" id="ptReserva"${p.incluirReservaNaAposentadoria ? ' checked' : ''}><span>A reserva de emergência <b>conta</b> pra aposentadoria</span></label>
+    <label class="pt-ctl" for="ptIdade"><span class="pt-ctl-row">Idade pra comparar (Coast FI)</span><span class="pt-input"><input id="ptIdade" inputmode="numeric" value="${esc(p.idadeAlvo)}"><i>anos</i></span></label>`;
+}
+
+export function htmlFuturoTiles(ctx) {
+  const { proj, quando, alvo, inicial, meta, d, p } = ctx;
+  const q = quando(proj.chegou);
+  const passiva = num(d.proventos12m) ? d.proventos12m / 12 : null;
+  return `
+    <div class="pt-tile dest"><span class="pt-rot">Você chega lá</span><b>${esc(proj.chegou == null ? 'não chega' : proj.chegou === 0 ? 'já chegou' : q.ano)}</b><small>${proj.chegou ? `${q.idade != null ? `aos ${esc(q.idade)} anos · ` : ''}em ${esc(anosTxt(proj.chegou / 12))}` : 'em 50 anos, com esses números'}</small></div>
+    <div class="pt-tile"><span class="pt-rot">Precisa ter</span><b>${esc(mil(alvo))}</b><small>${esc(brl0(meta.rendaSem))}/mês sacando ${esc(pct(p.taxaSaque || meta.rendimento, 0))} ao ano</small></div>
+    <div class="pt-tile"><span class="pt-rot">Hoje você tem</span><b>${esc(pct(alvo ? inicial / alvo : null, 1))}</b><small>${esc(mil(inicial))} investidos${p.incluirReservaNaAposentadoria ? ' (com a reserva)' : ' (sem a reserva; o apê onde você mora não paga a aposentadoria)'}</small></div>
+    <div class="pt-tile"><span class="pt-rot">Renda passiva hoje</span><b>${esc(passiva != null ? `${brl0(passiva)}/mês` : '—')}</b><small>${passiva != null ? `${esc(pct(passiva / meta.rendaSem, 1))} da renda que você quer · proventos de 12 meses` : ''}</small></div>`;
+}
+
+export function htmlDicas(dicas) {
+  return dicas.map((x) => `<article class="pt-dica${x.destaque ? ' hl' : ''}" data-dica="${esc(x.id)}"><span class="pt-dica-t">${esc(x.titulo)}</span><p>${x.html}</p></article>`).join('');
+}
+
+export function htmlSimulador(ctx, sim) {
+  const { cfg, d } = ctx;
+  const temFin = cfg.financiamento && num(cfg.financiamento.saldo);
+  const temFies = cfg.fies && num(cfg.fies.saldo);
+  if (!temFin && !temFies) return '<p class="pt-nota">Cadastre o financiamento ou o FIES pra simular.</p>';
+  const qual = sim.divida === 'fies' && temFies ? 'fies' : (temFin ? 'financiamento' : 'fies');
+  const par = parametrosDivida(qual, cfg[qual], d.hoje);
+  const r = amortizarOuInvestir(par, { valor: sim.valor || 0, mensal: sim.mensal || 0, modo: sim.modo, rendimentoAnual: sim.rendimento });
+  const seg = (grupo, itens, atual) => `<div class="pt-seg" role="group" data-sim="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${atual === v ? 'on' : ''}" aria-pressed="${atual === v}">${esc(rot)}</button>`).join('')}</div>`;
+  const fimMes = r ? mesAno(somarMeses(d.hoje, r.meses)) : '';
+  const res = !r || (!(sim.valor > 0) && !(sim.mensal > 0)) ? '<p class="pt-nota">Coloque um valor a mais (agora ou por mês).</p>' : `
+    <div class="pt-sim-res">
+      <div class="pt-tile${r.melhor === 'amortizar' ? ' dest' : ''}"><span class="pt-rot">Amortizando</span><b>${esc(mil(r.patrimonioAmortizando))}</b><small>investido em ${esc(fimMes)}, depois de quitar (o que sobra das parcelas vai pro investimento)</small></div>
+      <div class="pt-tile${r.melhor === 'investir' ? ' dest' : ''}"><span class="pt-rot">Investindo</span><b>${esc(mil(r.patrimonioInvestindo))}</b><small>investido em ${esc(fimMes)}, pagando a dívida normal</small></div>
+    </div>
+    <p class="pt-sim-veredito"><b>${r.melhor === 'amortizar' ? 'Amortizar' : 'Investir'} deixa você com ${esc(mil(Math.abs(r.vantagemAmortizar)))} a mais</b> em ${esc(fimMes)}${r.taxaEmpate ? `. Empata se o investimento render <b>${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>` : ''}.</p>
+    <ul class="pt-sim-det">
+      ${sim.modo === 'prazo' ? `<li>Termina <b>${esc(mesesTxt(r.mesesAMenos))} antes</b> (${esc(mesAno(somarMeses(d.hoje, r.mesesComExtra)))})</li>` : `<li>Parcela de <b>${esc(brl(r.parcelaAntes))}</b> pra <b>${esc(brl(r.parcelaDepois))}</b></li>`}
+      <li>Economiza <b>${esc(mil(r.jurosEconomizados))}</b> de juros</li>
+      <li>Dívida a ${esc(pct(par.sistema === 'SAC' ? par.taxaMensal * 12 : (1 + par.taxaMensal) ** 12 - 1, 2))} a.a. (sem a TR)</li>
+    </ul>`;
+  return `
+    <div class="pt-sim-ctl">
+      <label class="pt-ctl"><span class="pt-ctl-row">Dívida</span>${seg('divida', [...(temFin ? [['financiamento', 'Financiamento']] : []), ...(temFies ? [['fies', 'FIES']] : [])], qual)}</label>
+      <label class="pt-ctl" for="ptSimValor"><span class="pt-ctl-row">A mais, agora</span><span class="pt-input"><i>R$</i><input id="ptSimValor" inputmode="decimal" value="${esc(numCampo(sim.valor, 0))}"></span></label>
+      <label class="pt-ctl" for="ptSimMensal"><span class="pt-ctl-row">A mais, todo mês</span><span class="pt-input"><i>R$</i><input id="ptSimMensal" inputmode="decimal" value="${esc(numCampo(sim.mensal, 0))}"></span></label>
+      <label class="pt-ctl"><span class="pt-ctl-row">Amortizar pra</span>${seg('modo', [['prazo', 'diminuir o prazo'], ['parcela', 'diminuir a parcela']], sim.modo)}</label>
+      <label class="pt-ctl" for="ptSimRend"><span class="pt-ctl-row">Investimento rende (líquido)</span><span class="pt-input"><input id="ptSimRend" inputmode="decimal" value="${esc(formatNumeroBR(sim.rendimento * 100, 1))}"><i>% a.a.</i></span></label>
+    </div>
+    <div class="pt-sim-saida">${res}</div>`;
+}
+
+export function htmlFontes(ctx, { driveConfigurado = false } = {}) {
+  const { cfg, d } = ctx;
+  const irs = (cfg.ir && cfg.ir.anos) || [];
+  const idx = d.indices || {};
+  const ult = (s) => (s && s.length ? mesAno(s[s.length - 1][0]) : null);
+  const itens = [
+    { ok: irs.length > 0, nome: 'Declarações do IR', det: irs.length ? `${irs.length} ${irs.length === 1 ? 'ano' : 'anos'} (${irs[0].ano}–${irs[irs.length - 1].ano})` : 'nenhuma - "Cópia da Declaração" de cada ano', acoes: `${pillEditar('importar', 'PDF')}${driveConfigurado ? pillEditar('drive-ir', 'do Drive') : ''}` },
+    { ok: !!cfg.financiamento, nome: 'Financiamento (Caixa)', det: cfg.financiamento ? `extrato de ${dataBR(cfg.financiamento.dataSaldo)}` : 'Demonstrativo de Evolução - Habitação', acoes: pillEditar('importar', 'PDF') + pillEditar('editar:financiamento') },
+    { ok: !!cfg.fies, nome: 'FIES (Banco do Brasil)', det: cfg.fies ? `extrato de ${dataBR(cfg.fies.dataSaldo)}` : 'comprovante do SISBB com o saldo devedor', acoes: pillEditar('importar', 'PDF') + pillEditar('editar:fies') },
+    { ok: !!(cfg.fgts && cfg.fgts.contas && cfg.fgts.contas.length), nome: 'FGTS', det: cfg.fgts && cfg.fgts.contas ? `${cfg.fgts.contas.length} contas` : 'um extrato por empresa (app FGTS)', acoes: pillEditar('importar', 'PDFs') },
+    { ok: !!(cfg.carreira && cfg.carreira.contratos && cfg.carreira.contratos.length), nome: 'Carteira de Trabalho', det: cfg.carreira && cfg.carreira.contratos ? `${cfg.carreira.contratos.length} contratos` : 'Contratos de trabalho (PDF)', acoes: pillEditar('importar', 'PDF') },
+    { ok: !!cfg.imovel, nome: 'Apartamento', det: cfg.imovel ? `${mil(cfg.imovel.valorCompra)} em ${mesAno(cfg.imovel.dataCompra)} · ${cfg.imovel.cidade || ''}` : 'valor e mês da compra', acoes: pillEditar('editar:imovel') },
+    { ok: !!(idx.fipezap && idx.fipezap.length) || !!(idx.ivgr && idx.ivgr.length), nome: 'Índices do imóvel', det: `FipeZap ${idx.cidade || ''} ${ult(idx.fipezap) ? `até ${ult(idx.fipezap)}` : '—'} · IVG-R ${ult(idx.ivgr) ? `até ${ult(idx.ivgr)}` : '—'}${idx.atualizadoEm ? ` · buscados em ${dataBR(idx.atualizadoEm)}` : ''}`, acoes: '' },
+  ];
+  return `
+    <ul class="pt-fontes">${itens.map((i) => `<li class="${i.ok ? 'ok' : 'falta'}"><span class="pt-fonte-st" aria-label="${i.ok ? 'ok' : 'falta'}">${i.ok ? '✓' : '•'}</span><span class="pt-fonte-n"><b>${esc(i.nome)}</b><small>${esc(i.det)}</small></span><span class="pt-fonte-a">${i.acoes}</span></li>`).join('')}</ul>
+    <p class="pt-nota">Os PDFs são lidos <b>aqui no navegador</b> e não sobem pra lugar nenhum: só os totais (saldos, valores por ano) vão pra aba <code>aux_patrimonio</code> da sua planilha, no seu Drive - nada de CPF, PIS, conta, endereço ou número de contrato.${driveConfigurado ? ' As declarações do IR podem vir direto da sua pasta do Drive.' : ' Pra ler as declarações direto da pasta do Drive, rode <code>configurarPastaIrDireto</code> uma vez no Apps Script.'}</p>`;
+}
+
+function resumoImportado(item) {
+  const x = item.dados;
+  if (item.erro) return `<span class="bad">${esc(item.erro)}</span>`;
+  if (item.tipo === 'ir') {
+    const gs = Object.entries(x.grupos).filter(([k]) => k !== '01').map(([k, g]) => `${GRUPOS_IR[k] || 'não identificado'} ${mil(g.atual)}`).join(' · ');
+    return `${esc(`Ano ${x.ano} (exercício ${x.exercicio}): bens ${brl0(x.bens)} · dívidas ${brl0(x.dividas)} · renda tributável ${brl0(x.tributaveis)}`)}<small>${esc(gs)}${x.conferido ? '' : ' · a soma por grupo não fechou (a diferença ficou em "não identificado")'}</small>`;
+  }
+  if (item.tipo === 'fgts') return `${esc(`${x.empregador}: saldo ${brl0(x.saldo)} em ${dataBR(x.dataSaldo)} · ${x.movimentos.length} lançamentos`)}<small>${esc(`depósitos ${brl0(x.depositos)} · usado no apê ${brl0(x.saques.moradia)} · saque-aniversário ${brl0(x.saques.aniversario)}`)}</small>`;
+  if (item.tipo === 'ctps') return `${esc(`${x.contratos.length} contratos`)}<small>${esc(x.contratos.map((c) => `${c.empregador} (${mesAno(mesDe(c.inicio))}–${c.fim ? mesAno(mesDe(c.fim)) : 'hoje'})`).join(' · '))}</small>`;
+  if (item.tipo === 'caixa') return `${esc(`Saldo ${brl(x.saldo)} em ${dataBR(x.dataSaldo)} · ${pct(x.taxaAnual, 2)} a.a. · ${x.sistema}`)}<small>${esc(`amortização ${brl(x.amortizacao)}/mês · ${x.prazoRestante} de ${x.prazoTotal} meses · parcela ${brl(x.parcela)}`)}</small>`;
+  if (item.tipo === 'fies') return `${esc(`Saldo ${brl(x.saldo)} em ${dataBR(x.dataSaldo)} · parcela ${brl(x.parcela)}`)}<small>${esc(`${x.restantes} parcelas até ${mesAno(x.fim)} · ~${pct((1 + x.taxaMensal) ** 12 - 1, 2)} a.a.`)}</small>`;
+  return '';
+}
+
+export function htmlImportacao(imp) {
+  const itens = imp.itens.map((it, k) => `<li class="${it.erro ? 'erro' : ''}"><label class="pt-imp-chk"><input type="checkbox" data-imp="${k}"${it.erro ? ' disabled' : it.incluir ? ' checked' : ''}><span><b>${esc(NOMES_DOC[it.tipo] || 'Documento')}</b> <small>${esc(it.arquivo)}</small></span></label><div class="pt-imp-res">${resumoImportado(it)}</div></li>`).join('');
+  const lendo = imp.lendo ? `<p class="pt-nota">Lendo ${esc(imp.lendo)}…</p>` : '';
+  const ok = imp.itens.filter((i) => !i.erro && i.incluir).length;
+  return `<div class="pt-card-cab"><h3>Conferir antes de salvar</h3><span class="pt-hint">só os totais vão pra planilha</span></div>
+    <ul class="pt-imp">${itens}</ul>${lendo}
+    ${imp.msg ? `<p class="pt-nota ${imp.erroSalvar ? 'bad' : ''}">${esc(imp.msg)}</p>` : ''}
+    <div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="imp-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-acao="imp-salvar"${ok && !imp.salvando ? '' : ' disabled'}>${imp.salvando ? 'Salvando…' : `Salvar ${ok} ${ok === 1 ? 'documento' : 'documentos'}`}</button></div>`;
+}
+
+export function htmlDriveIr(drive) {
+  if (drive.carregando) return '<p class="pt-nota">Procurando as declarações na sua pasta do IR…</p>';
+  if (drive.erro) return `<p class="pt-nota bad">${esc(drive.erro)}</p><div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="drive-fechar">Fechar</button></div>`;
+  const lista = drive.arquivos.map((a, k) => `<label class="pt-chk-item"><input type="checkbox" data-drive="${k}"${a.marcado ? ' checked' : ''}><span>${esc(a.pasta)} / ${esc(a.nome)}</span><b>${esc(formatNumeroBR(a.tamanho / 1024, 0))} KB</b></label>`).join('');
+  return `<div class="pt-card-cab"><h3>Declarações no seu Drive</h3><span class="pt-hint">${drive.arquivos.length} encontradas</span></div>
+    <div class="pt-chk-lista">${lista || '<p class="pt-nota">Nenhuma "Cópia da Declaração" na pasta.</p>'}</div>
+    <div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="drive-fechar">Fechar</button><button type="button" class="btn btn-primary" data-acao="drive-ler"${drive.arquivos.some((a) => a.marcado) ? '' : ' disabled'}>Ler as marcadas</button></div>`;
+}
+
+// --- formulários de edição ---------------------------------------------------
+
+const campo = (id, rot, valor, { tipo = 'text', dica = '', pre = '', suf = '', larg = '' } = {}) => `<label class="pt-campo" for="${id}"><span>${esc(rot)}</span><span class="pt-input${larg ? ` ${larg}` : ''}">${pre ? `<i>${esc(pre)}</i>` : ''}<input id="${id}" name="${id}" ${tipo === 'month' ? 'type="month"' : tipo === 'date' ? 'type="date"' : 'inputmode="decimal"'} value="${esc(valor == null ? '' : valor)}">${suf ? `<i>${esc(suf)}</i>` : ''}</span>${dica ? `<small>${dica}</small>` : ''}</label>`;
+const campoTexto = (id, rot, valor) => `<label class="pt-campo" for="${id}"><span>${esc(rot)}</span><span class="pt-input largo"><input id="${id}" name="${id}" value="${esc(valor || '')}" maxlength="60"></span></label>`;
+
+export function htmlEditor(tipo, ctx) {
+  const { cfg, d } = ctx;
+  const botoes = (msg = '') => `<div class="pt-form-botoes"><span class="pt-nota pt-form-msg">${msg}</span><button type="button" class="btn btn-ghost" data-acao="editor-fechar">Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>`;
+  if (tipo === 'imovel') {
+    const i = cfg.imovel || { cidade: 'São Paulo', metodo: 'media' };
+    const v = cfg.imovel ? valorImovel(cfg.imovel, d.indices, mesDe(d.hoje)) : null;
+    const opcao = (m, rot, valor) => `<label class="pt-radio"><input type="radio" name="metodo" value="${m}"${(i.metodo || 'media') === m ? ' checked' : ''}><span>${esc(rot)}</span><b>${valor ? esc(brl0(valor)) : ''}</b></label>`;
+    return `<form class="pt-form" data-form="imovel"><div class="pt-card-cab"><h3>Apartamento</h3><span class="pt-hint">o valor de mercado anda com os índices; se preferir, digite o seu</span></div>
+      <div class="pt-campos">${campoTexto('ptImoNome', 'Nome', i.nome || 'Apartamento')}${campoTexto('ptImoCidade', 'Cidade (FipeZap)', i.cidade)}
+      ${campo('ptImoCompra', 'Valor de compra', numCampo(i.valorCompra), { pre: 'R$' })}${campo('ptImoData', 'Mês da compra', i.dataCompra || '', { tipo: 'month' })}
+      ${campo('ptImoEntrada', 'Entrada (com FGTS)', numCampo(i.entrada), { pre: 'R$' })}${campo('ptImoArea', 'Área', numCampo(i.area, 1), { suf: 'm²' })}</div>
+      <p class="pt-sub-t">Qual valor usar</p>
+      <div class="pt-radios">${opcao('media', 'Média dos dois índices', v && v.media)}${opcao('fipezap', `FipeZap ${i.cidade || ''}${v && v.fipezap ? ` (até ${mesAno(v.fipezap.ate)})` : ''}`, v && v.fipezap && v.fipezap.valor)}${opcao('ivgr', `IVG-R, Banco Central${v && v.ivgr ? ` (até ${mesAno(v.ivgr.ate)})` : ''}`, v && v.ivgr && v.ivgr.valor)}${opcao('manual', 'O valor que eu digitar', null)}${opcao('compra', 'O valor de compra', i.valorCompra)}</div>
+      <div class="pt-campos">${campo('ptImoManual', 'Meu valor', numCampo(i.valorManual), { pre: 'R$' })}${campo('ptImoManualData', 'Vale a partir de', i.dataValorManual || '', { tipo: 'date' })}</div>
+      ${d.indices && num(d.indices.precoM2) && num(i.area) ? `<p class="pt-nota">Preço médio anunciado em ${esc(d.indices.cidade)}: ${esc(brl0(d.indices.precoM2))}/m² (${esc(mesAno(d.indices.mesPrecoM2))}) - ${esc(brl0(d.indices.precoM2 * i.area))} pros seus ${esc(formatNumeroBR(i.area, 1))} m². É a média da cidade toda (bairros caros puxam pra cima); por isso o site usa só a <b>variação</b> dos índices sobre o que você pagou.</p>` : ''}
+      ${botoes()}</form>`;
+  }
+  if (tipo === 'financiamento') {
+    const f = cfg.financiamento || { sistema: 'SAC', banco: 'Caixa' };
+    const imo = cfg.imovel || {};
+    const saldos = (f.saldosConhecidos || []).map((s) => `${s.data}; ${formatNumeroBR(s.saldo)}`).join('\n');
+    const extras = (f.amortizacoesExtras || []).map((s) => `${s.data}; ${formatNumeroBR(s.valor)}`).join('\n');
+    return `<form class="pt-form" data-form="financiamento"><div class="pt-card-cab"><h3>Financiamento do apê</h3><span class="pt-hint">o jeito fácil é importar o PDF "Demonstrativo de Evolução - Habitação" do app da Caixa</span></div>
+      <div class="pt-campos">${campoTexto('ptFinBanco', 'Banco', f.banco)}${campo('ptFinSaldo', 'Saldo devedor', numCampo(f.saldo), { pre: 'R$' })}${campo('ptFinData', 'Saldo em', f.dataSaldo || '', { tipo: 'date' })}
+      ${campo('ptFinTaxa', 'Juros ao ano', numCampo(num(f.taxaAnual) ? f.taxaAnual * 100 : null), { suf: '% + TR' })}${campo('ptFinAmort', 'Amortização do mês', numCampo(f.amortizacao), { pre: 'R$' })}
+      ${campo('ptFinSeguro', 'Seguro + taxa', numCampo(f.seguroTaxas), { pre: 'R$' })}${campo('ptFinParcela', 'Parcela', numCampo(f.parcela), { pre: 'R$' })}${campo('ptFinRestante', 'Parcelas faltando', f.prazoRestante || '')}</div>
+      <p class="pt-sub-t">Pra desenhar o histórico</p>
+      <div class="pt-campos">${campo('ptFinInicio', 'Início', f.dataInicio || imo.dataCompra || '', { tipo: 'month' })}${campo('ptFinFinanciado', 'Valor financiado', numCampo(f.valorFinanciado ?? (num(imo.valorCompra) && num(imo.entrada) ? imo.valorCompra - imo.entrada : null)), { pre: 'R$' })}</div>
+      <div class="pt-campos">
+        <label class="pt-campo largo" for="ptFinSaldos"><span>Saldos que você sabe (aaaa-mm-dd; valor, um por linha)</span><textarea id="ptFinSaldos" rows="3" placeholder="2024-12-31; 394.000,00">${esc(saldos)}</textarea></label>
+        <label class="pt-campo largo" for="ptFinExtras"><span>Amortizações extras com dinheiro (aaaa-mm-dd; valor)</span><textarea id="ptFinExtras" rows="3" placeholder="2025-06-15; 10.000,00">${esc(extras)}</textarea></label>
+      </div>
+      <label class="pt-chk"><input type="checkbox" id="ptFinFgts"${f.usarFgtsComoExtra === false ? '' : ' checked'}><span>Usos do FGTS na moradia depois do início contam como amortização extra (dos extratos do FGTS)</span></label>
+      ${botoes()}</form>`;
+  }
+  if (tipo === 'fies') {
+    const f = cfg.fies || { banco: 'Banco do Brasil' };
+    return `<form class="pt-form" data-form="fies"><div class="pt-card-cab"><h3>FIES</h3><span class="pt-hint">o comprovante do SISBB (app do BB) já traz tudo - importe o PDF</span></div>
+      <div class="pt-campos">${campoTexto('ptFiesBanco', 'Banco', f.banco)}${campo('ptFiesSaldo', 'Saldo devedor', numCampo(f.saldo), { pre: 'R$' })}${campo('ptFiesData', 'Saldo em', f.dataSaldo || '', { tipo: 'date' })}
+      ${campo('ptFiesParcela', 'Parcela', numCampo(f.parcela), { pre: 'R$' })}${campo('ptFiesTaxa', 'Juros ao mês', numCampo(num(f.taxaMensal) ? f.taxaMensal * 100 : null, 4), { suf: '%' })}
+      ${campo('ptFiesFim', 'Última parcela', f.fim || '', { tipo: 'month' })}${campo('ptFiesInicio', 'Começou a amortizar', f.inicioAmortizacao || '', { tipo: 'month' })}</div>
+      ${botoes()}</form>`;
+  }
+  if (tipo === 'outros') {
+    const lista = (cfg.outros || []).map((o, k) => `<div class="pt-outro" data-k="${k}"><span class="pt-input largo"><input data-o="nome" value="${esc(o.nome)}" aria-label="Nome" maxlength="60"></span><select data-o="tipo" aria-label="Tipo"><option value="bem"${o.tipo !== 'divida' ? ' selected' : ''}>Bem</option><option value="divida"${o.tipo === 'divida' ? ' selected' : ''}>Dívida</option></select><span class="pt-input"><i>R$</i><input data-o="valor" inputmode="decimal" value="${esc(numCampo(o.valor))}" aria-label="Valor"></span><button type="button" class="pt-mini" data-acao="outro-remover" aria-label="Remover ${esc(o.nome)}">remover</button></div>`).join('');
+    return `<form class="pt-form" data-form="outros"><div class="pt-card-cab"><h3>Outros bens e dívidas</h3><span class="pt-hint">carro, cripto, móveis, empréstimos… (valores de hoje)</span></div>
+      <div class="pt-outros">${lista || '<p class="pt-nota">Nada ainda.</p>'}</div>
+      <button type="button" class="btn btn-ghost pt-btn-sm" data-acao="outro-adicionar">+ adicionar</button>
+      ${botoes()}</form>`;
+  }
+  return '';
+}
+
+function lerLinhasDataValor(texto, chave) {
+  return String(texto || '').split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^(\d{4}-\d{2}(?:-\d{2})?)\s*[;,]?\s*(.+)$/);
+    const v = m ? lerValorBR(m[2]) : null;
+    return m && num(v) ? { data: m[1], [chave]: v } : null;
+  }).filter(Boolean);
+}
+
+/** Lê o formulário aberto e devolve o bloco pra salvar (ou { erro }). */
+export function lerFormulario(form, ctx) {
+  const tipo = form.dataset.form;
+  const v = (id) => { const e = form.querySelector(`#${id}`); return e ? e.value : ''; };
+  const n = (id) => lerValorBR(v(id));
+  const cfg = ctx.cfg;
+  if (tipo === 'imovel') {
+    const metodo = (form.querySelector('input[name="metodo"]:checked') || {}).value || 'media';
+    const out = { ...(cfg.imovel || {}), nome: v('ptImoNome'), cidade: v('ptImoCidade') || 'São Paulo', valorCompra: n('ptImoCompra'), dataCompra: v('ptImoData'), entrada: n('ptImoEntrada'), area: n('ptImoArea'), metodo, valorManual: n('ptImoManual'), dataValorManual: v('ptImoManualData') || null };
+    if (!num(out.valorCompra) || out.valorCompra <= 0) return { erro: 'Informe o valor de compra.' };
+    if (!/^\d{4}-\d{2}$/.test(out.dataCompra || '')) return { erro: 'Informe o mês da compra.' };
+    if (metodo === 'manual' && !num(out.valorManual)) return { erro: 'Digite o seu valor (ou escolha outra opção).' };
+    return { chave: 'imovel', valor: out };
+  }
+  if (tipo === 'financiamento') {
+    const taxa = n('ptFinTaxa');
+    const out = {
+      ...(cfg.financiamento || {}), banco: v('ptFinBanco'), saldo: n('ptFinSaldo'), dataSaldo: v('ptFinData'), taxaAnual: num(taxa) ? taxa / 100 : null,
+      amortizacao: n('ptFinAmort'), seguroTaxas: n('ptFinSeguro'), parcela: n('ptFinParcela'), prazoRestante: n('ptFinRestante'),
+      dataInicio: v('ptFinInicio') || null, valorFinanciado: n('ptFinFinanciado'),
+      saldosConhecidos: lerLinhasDataValor(v('ptFinSaldos'), 'saldo'), amortizacoesExtras: lerLinhasDataValor(v('ptFinExtras'), 'valor'),
+      usarFgtsComoExtra: !!(form.querySelector('#ptFinFgts') || {}).checked,
+    };
+    if (!num(out.saldo) || !/^\d{4}-\d{2}-\d{2}$/.test(out.dataSaldo || '')) return { erro: 'Informe o saldo devedor e a data.' };
+    if (!num(out.amortizacao) && !num(out.prazoRestante)) return { erro: 'Informe a amortização do mês ou quantas parcelas faltam.' };
+    return { chave: 'financiamento', valor: out };
+  }
+  if (tipo === 'fies') {
+    const taxa = n('ptFiesTaxa');
+    const out = { ...(cfg.fies || {}), banco: v('ptFiesBanco'), saldo: n('ptFiesSaldo'), dataSaldo: v('ptFiesData'), parcela: n('ptFiesParcela'), taxaMensal: num(taxa) ? taxa / 100 : null, fim: v('ptFiesFim') || null, inicioAmortizacao: v('ptFiesInicio') || null };
+    if (!num(out.saldo) || !/^\d{4}-\d{2}-\d{2}$/.test(out.dataSaldo || '')) return { erro: 'Informe o saldo devedor e a data.' };
+    if (!num(out.parcela)) return { erro: 'Informe a parcela.' };
+    return { chave: 'fies', valor: out };
+  }
+  if (tipo === 'outros') {
+    const lista = [...form.querySelectorAll('.pt-outro')].map((l) => {
+      const k = Number(l.dataset.k);
+      const orig = (cfg.outros || [])[k] || {};
+      return { id: orig.id, nome: l.querySelector('[data-o="nome"]').value.trim(), tipo: l.querySelector('[data-o="tipo"]').value, valor: lerValorBR(l.querySelector('[data-o="valor"]').value) };
+    }).filter((o) => o.nome);
+    if (lista.some((o) => !num(o.valor))) return { erro: 'Confira os valores.' };
+    return { chave: 'outros', valor: lista };
+  }
+  return { erro: 'formulário desconhecido' };
+}
+
+/** Junta o que foi lido dos PDFs com o que já está salvo; devolve { chave: valor } só do que mudou. */
+export function mesclarImportacao(cfg, itens) {
+  const out = {};
+  const ok = itens.filter((i) => !i.erro && i.incluir);
+  const irs = ok.filter((i) => i.tipo === 'ir').map((i) => i.dados);
+  if (irs.length) {
+    const anos = [...((cfg.ir && cfg.ir.anos) || [])];
+    irs.forEach((a) => {
+      const { nascimento, ...resto } = a;
+      const k = anos.findIndex((x) => x.ano === a.ano);
+      if (k >= 0) anos[k] = resto; else anos.push(resto);
+    });
+    out.ir = { anos: anos.sort((a, b) => a.ano - b.ano) };
+    const nasc = irs.map((a) => a.nascimento).find(Boolean);
+    if (nasc && !(cfg.carreira && cfg.carreira.nascimento) && !(cfg.preferencias && cfg.preferencias.nascimento)) out.preferencias = { ...PREFS_PADRAO, ...(cfg.preferencias || {}), nascimento: nasc };
+  }
+  const fgts = ok.filter((i) => i.tipo === 'fgts').map((i) => contaFgtsParaSalvar(i.dados));
+  if (fgts.length) {
+    const contas = [...((cfg.fgts && cfg.fgts.contas) || [])];
+    fgts.forEach((c) => {
+      const k = contas.findIndex((x) => x.empregador === c.empregador && x.admissao === c.admissao);
+      if (k >= 0) contas[k] = c; else contas.push(c);
+    });
+    out.fgts = { contas: contas.sort((a, b) => ((a.admissao || '') < (b.admissao || '') ? -1 : 1)) };
+  }
+  const ctps = ok.filter((i) => i.tipo === 'ctps').pop();
+  if (ctps) out.carreira = { nascimento: ctps.dados.nascimento || (cfg.carreira && cfg.carreira.nascimento) || null, contratos: ctps.dados.contratos };
+  const caixa = ok.filter((i) => i.tipo === 'caixa').map((i) => i.dados).sort((a, b) => (a.dataSaldo < b.dataSaldo ? -1 : 1));
+  if (caixa.length) {
+    let fin = { ...(cfg.financiamento || {}) };
+    caixa.forEach((x) => {
+      const { parcelas, ...novo } = x;
+      const saldos = [...(fin.saldosConhecidos || [])];
+      if (num(fin.saldo) && fin.dataSaldo && fin.dataSaldo !== novo.dataSaldo && !saldos.some((s) => s.data === fin.dataSaldo)) saldos.push({ data: fin.dataSaldo, saldo: fin.saldo });
+      if (novo.dataSaldo < (fin.dataSaldo || '')) { saldos.push({ data: novo.dataSaldo, saldo: novo.saldo }); return; }
+      fin = { ...fin, ...novo, saldosConhecidos: saldos.filter((s) => s.data !== novo.dataSaldo) };
+    });
+    const imo = cfg.imovel || {};
+    if (!fin.dataInicio && imo.dataCompra) fin.dataInicio = imo.dataCompra;
+    if (!num(fin.valorFinanciado) && num(imo.valorCompra) && num(imo.entrada)) fin.valorFinanciado = imo.valorCompra - imo.entrada;
+    out.financiamento = fin;
+  }
+  const fies = ok.filter((i) => i.tipo === 'fies').map((i) => i.dados).sort((a, b) => (a.dataSaldo < b.dataSaldo ? -1 : 1)).pop();
+  if (fies) { const { parcelas, ...resto } = fies; out.fies = { ...(cfg.fies || {}), ...resto }; }
+  return out;
+}
+
+/** Lê um PDF (linhas do pdf.js) com o leitor certo. */
+export function lerDocumento(linhas) {
+  const tipo = identificarDocumento(linhas);
+  if (tipo === 'ir') return { tipo, dados: lerDeclaracaoIr(linhas) };
+  if (tipo === 'fgts') return { tipo, dados: lerExtratoFgts(linhas) };
+  if (tipo === 'ctps') return { tipo, dados: lerCtps(linhas) };
+  if (tipo === 'caixa') return { tipo, dados: lerExtratoCaixaHabitacao(linhas) };
+  if (tipo === 'fies') return { tipo, dados: lerExtratoFies(linhas) };
+  throw new Error('não reconheci o documento (aceita: Cópia da Declaração do IR, extrato do FGTS, Carteira de Trabalho Digital, Demonstrativo de Evolução da Caixa, comprovante do FIES no SISBB)');
+}
+
+// ---------------------------------------------------------------------------
+// Aba
+// ---------------------------------------------------------------------------
+
+function base64ParaBytes(b64) {
+  const bin = globalThis.atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+export function montarAbaPatrimonio({
+  doc, el, token, getPatrimonioImpl = getPatrimonio, salvarImpl = salvarPatrimonio, getArquivosIrImpl = getArquivosIrPatrimonio,
+  getArquivoIrImpl = getArquivoIrPatrimonio, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf, atrasoPrefsMs = 700,
+}) {
+  let dados = null;
+  let ctx = null;
+  const est = {
+    prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '',
+    sim: { divida: 'financiamento', valor: 30000, mensal: 0, modo: 'prazo', rendimento: null },
+  };
+  let timerPrefs = null;
+  const win = doc.defaultView;
+  el._ptDicas = {};
+
+  const largura = (sel, padrao) => { const e = el.querySelector(sel); return (e && e.clientWidth) || padrao; };
+
+  function esqueleto() {
+    el.innerHTML = `
+      <section class="pt-card pt-hero" id="ptHero"></section>
+      <section class="pt-card pt-fontes-card" id="ptFontesTopo" hidden></section>
+      <div id="ptPainel"></div>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>O que você tem e o que você deve</h2><span class="pt-hint">investimentos vêm do site; financiamento e FIES andam sozinhos mês a mês</span></div>
+        <div class="pt-card pt-bal" id="ptBalanco"></div></section>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>Como seu patrimônio cresceu</h2><span class="pt-hint">31/12 de cada ano · hoje pelo site</span></div>
+        <div class="pt-card"><div class="pt-grafico" data-grafico="hist" id="ptGHist"></div>
+          <div class="pt-leg pt-leg-graf">${SERIES_HISTORICO.map((s) => `<span><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}<span><i class="pt-leg-linha"></i>Patrimônio líquido</span></div>
+          <div class="pt-tab-wrap" id="ptTHist"></div><p class="pt-nota pt-nota-pad" id="ptNotaHist"></p></div>
+        <div class="pt-card pt-pad"><div class="pt-card-cab"><h3>De onde veio o crescimento</h3><span class="pt-hint">últimos 12 meses</span></div><div id="ptOrigem"></div></div></section>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>Carreira e FGTS</h2><span class="pt-hint">pela Carteira de Trabalho e pelos extratos do FGTS</span></div>
+        <div class="pt-duas"><div class="pt-card pt-pad" id="ptCarreira"></div><div class="pt-card pt-pad" id="ptFgts"></div></div></section>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>Aposentadoria: quanto, quando e o que muda o prazo</h2><span class="pt-hint">em dinheiro de hoje (rendimento acima da inflação)</span></div>
+        <div class="pt-card pt-pad" id="ptMeta"></div>
+        <div class="pt-card pt-fut"><div class="pt-fut-ctl" id="ptCtl"></div><div class="pt-fut-res"><div class="pt-tiles" id="ptTiles"></div><div class="pt-grafico" data-grafico="proj" id="ptGProj"></div>
+          <div class="pt-leg"><span><i style="background:var(--pt-inv)"></i>Seus investimentos</span><span><i class="pt-leg-tracejado"></i>Patrimônio necessário</span><span><i style="background:var(--ink-faint)"></i>Marcos</span></div></div></div></section>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>Como acelerar</h2><span class="pt-hint">calculado com os seus números - quanto cada coisa muda o prazo</span></div><div class="pt-dicas" id="ptDicas"></div></section>
+      <section class="pt-sec" id="ptSecSim"><div class="pt-sec-cab"><h2>Simular: amortizar ou investir?</h2><span class="pt-hint">o mesmo dinheiro saindo do bolso nos dois caminhos</span></div><div class="pt-card pt-sim" id="ptSim"></div></section>
+      <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números</span></div><div class="pt-card pt-pad" id="ptFontes"></div></section>
+      <input type="file" id="ptArquivo" accept="application/pdf,.pdf" multiple hidden>`;
+    ligar();
+  }
+
+  function recalcular() { ctx = contextoPatrimonio(dados, est.prefs); }
+
+  function desenharGrafico(sel, chave, g) {
+    const box = el.querySelector(sel);
+    if (!box) return;
+    box.innerHTML = `${g.svg}<div class="pt-tt" hidden></div>`;
+    el._ptDicas[chave] = g.dicas;
+  }
+
+  function desenharFuturo({ controles = true } = {}) {
+    if (controles) el.querySelector('#ptCtl').innerHTML = htmlFuturoControles(ctx);
+    else {
+      el.querySelector('#ptRendV').textContent = pct(ctx.rendimento, 1);
+      el.querySelector('#ptAporteV').textContent = brl0(ctx.aporte);
+    }
+    el.querySelector('#ptTiles').innerHTML = htmlFuturoTiles(ctx);
+    const { proj, alvo, quando, libs } = ctx;
+    const fim = Math.min(600, Math.max(proj.chegou != null ? proj.chegou + 36 : 360, ...libs.map((l) => l.mes + 12), 120));
+    const marcos = libs.map((l) => ({ m: l.mes, titulo: l.nome, texto: mesAno(somarMeses(dados.hoje, l.mes)) }));
+    const cruza = (lim) => { const p = proj.pontos.find((x) => x.v >= lim); return p ? p.m : null; };
+    [5e5, 1e6, 2e6].filter((lim) => lim < alvo * 0.95).forEach((lim) => { const m = cruza(lim); if (m) marcos.push({ m, titulo: mil(lim), texto: quando(m).rotulo }); });
+    if (num(ctx.coast)) { const m = cruza(ctx.coast); if (m && (proj.chegou == null || m < proj.chegou)) marcos.push({ m, titulo: 'Coast FI', texto: `daí pra frente, sem aportar, chega na meta aos ${ctx.p.idadeAlvo}` }); }
+    desenharGrafico('#ptGProj', 'proj', graficoProjecao({ pontos: proj.pontos, alvo, chegou: proj.chegou, marcos, fim, quando }, { largura: largura('#ptGProj', 720) }));
+    el.querySelector('#ptDicas').innerHTML = htmlDicas(dicasAcelerar(ctx));
+  }
+
+  function desenharSimulador() {
+    if (est.sim.rendimento == null) est.sim.rendimento = num(dados.cdi) ? Math.round(dados.cdi * 0.85 * 1000) / 1000 : 0.1;
+    el.querySelector('#ptSim').innerHTML = htmlSimulador(ctx, est.sim);
+  }
+
+  function desenharPainel() {
+    const painel = el.querySelector('#ptPainel');
+    let html = '';
+    if (est.importacao) html += `<section class="pt-card pt-pad pt-painel">${htmlImportacao(est.importacao)}</section>`;
+    if (est.drive) html += `<section class="pt-card pt-pad pt-painel">${htmlDriveIr(est.drive)}</section>`;
+    if (est.editando) html += `<section class="pt-card pt-pad pt-painel">${htmlEditor(est.editando, ctx)}</section>`;
+    painel.innerHTML = html;
+    if (est.msgEditor) { const m = painel.querySelector('.pt-form-msg'); if (m) { m.textContent = est.msgEditor; m.classList.add('bad'); } }
+  }
+
+  function desenhar() {
+    if (!el.querySelector('#ptHero')) esqueleto();
+    recalcular();
+    el.querySelector('#ptHero').innerHTML = htmlHero(ctx);
+    const faltando = !ctx.cfg.imovel || !ctx.cfg.financiamento || !(ctx.cfg.ir && ctx.cfg.ir.anos && ctx.cfg.ir.anos.length);
+    const fontes = htmlFontes(ctx, { driveConfigurado: !!dados.pastaIrConfigurada });
+    const topo = el.querySelector('#ptFontesTopo');
+    topo.hidden = !faltando;
+    topo.innerHTML = faltando ? `<div class="pt-card-cab"><h3>Monte o seu patrimônio</h3><span class="pt-hint">importe os documentos (PDF) ou digite - leva uns minutos, uma vez só</span></div>${fontes}` : '';
+    el.querySelector('#ptSecFontes').hidden = faltando;
+    el.querySelector('#ptFontes').innerHTML = faltando ? '' : fontes;
+    el.querySelector('#ptBalanco').innerHTML = htmlBalanco(ctx);
+    desenharGrafico('#ptGHist', 'hist', graficoHistorico(ctx.hist, { largura: largura('#ptGHist', 720) }));
+    el.querySelector('#ptTHist').innerHTML = htmlHistoricoTabela(ctx.hist);
+    el.querySelector('#ptNotaHist').innerHTML = htmlHistoricoNota(ctx);
+    el.querySelector('#ptOrigem').innerHTML = htmlCrescimento(ctx.origem);
+    const car = htmlCarreira(ctx, largura('#ptCarreira', 520) - 32);
+    el.querySelector('#ptCarreira').innerHTML = car.html;
+    el._ptDicas.sal = car.dicas;
+    el.querySelector('#ptFgts').innerHTML = htmlFgts(ctx);
+    el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
+    desenharFuturo();
+    desenharSimulador();
+    desenharPainel();
+    if (dados.avisos) {
+      const av = Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      el.querySelector('#ptNotaHist').insertAdjacentHTML('beforeend', `<span class="pt-aviso bad"> Parte dos dados não veio: ${esc(av)}</span>`);
+    }
+  }
+
+  function salvarPrefsDepois() {
+    if (timerPrefs) clearTimeout(timerPrefs);
+    const salvar = async () => {
+      timerPrefs = null;
+      const valor = { ...PREFS_PADRAO, ...((dados.config && dados.config.preferencias) || {}), ...est.prefs };
+      let r;
+      try { r = await salvarImpl(token, 'preferencias', valor); } catch (e) { r = null; }
+      if (r && r.ok && r.config) { dados.config = r.config; est.prefs = {}; }
+    };
+    if (!atrasoPrefsMs) { salvar(); return; }
+    timerPrefs = setTimeout(salvar, atrasoPrefsMs);
+  }
+
+  function mudarPrefs(novo, { controles = false, meta = false } = {}) {
+    Object.assign(est.prefs, novo);
+    recalcular();
+    if (meta) el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
+    desenharFuturo({ controles });
+    salvarPrefsDepois();
+  }
+
+  async function salvarBloco(chave, valor) {
+    let r;
+    try { r = await salvarImpl(token, chave, valor); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (r && r.ok && r.config) dados.config = r.config;
+    return r || { ok: false, erro: 'sem resposta' };
+  }
+
+  async function lerArquivos(arquivos) {
+    est.importacao = est.importacao || { itens: [] };
+    est.drive = null;
+    let lib;
+    for (const arq of arquivos) {
+      est.importacao.lendo = arq.nome || arq.name;
+      desenharPainel();
+      try {
+        lib = lib || await carregarPdf(doc);
+        const bytes = arq.bytes || await arq.arrayBuffer();
+        const linhas = await lerPdf(lib, bytes);
+        const r = lerDocumento(linhas);
+        est.importacao.itens.push({ arquivo: arq.nome || arq.name, ...r, incluir: true });
+      } catch (e) {
+        est.importacao.itens.push({ arquivo: arq.nome || arq.name, tipo: null, erro: `não deu pra ler: ${e.message || e}` });
+      }
+    }
+    est.importacao.lendo = null;
+    desenharPainel();
+    const p = el.querySelector('#ptPainel');
+    if (p && p.scrollIntoView) try { p.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
+  }
+
+  async function salvarImportacao() {
+    const imp = est.importacao;
+    const blocos = mesclarImportacao(dados.config || {}, imp.itens);
+    const ordem = ['imovel', 'ir', 'carreira', 'fgts', 'financiamento', 'fies', 'preferencias'].filter((k) => blocos[k]);
+    if (!ordem.length) return;
+    imp.salvando = true; imp.msg = ''; imp.erroSalvar = false;
+    desenharPainel();
+    for (const chave of ordem) {
+      const r = await salvarBloco(chave, blocos[chave]);
+      if (!r.ok) {
+        imp.salvando = false; imp.erroSalvar = true;
+        imp.msg = `Não deu pra salvar (${chave}): ${r.erro || 'erro desconhecido'}`;
+        desenharPainel();
+        return;
+      }
+    }
+    est.importacao = null;
+    desenhar();
+  }
+
+  async function abrirDrive() {
+    est.drive = { carregando: true, arquivos: [] };
+    desenharPainel();
+    let r;
+    try { r = await getArquivosIrImpl(token); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (!r || !r.ok) { est.drive = { erro: `Não deu pra listar a pasta: ${(r && r.erro) || 'erro'}`, arquivos: [] }; desenharPainel(); return; }
+    if (!r.configurado) { est.drive = { erro: 'A pasta do IR ainda não foi configurada: rode configurarPastaIrDireto() uma vez no editor do Apps Script.', arquivos: [] }; desenharPainel(); return; }
+    const anos = new Set(((dados.config.ir && dados.config.ir.anos) || []).map((a) => String(a.exercicio || '')));
+    est.drive = { arquivos: (r.arquivos || []).map((a) => ({ ...a, marcado: !anos.has(String((String(a.pasta).match(/\d{4}/) || [])[0])) })) };
+    desenharPainel();
+  }
+
+  async function lerDoDrive() {
+    const marcados = est.drive.arquivos.filter((a) => a.marcado);
+    const arquivos = [];
+    est.drive = { carregando: true, arquivos: [] };
+    desenharPainel();
+    for (const a of marcados) {
+      let r;
+      try { r = await getArquivoIrImpl(token, a.id); } catch (e) { r = { ok: false, erro: String(e) }; }
+      if (r && r.ok && r.base64) arquivos.push({ nome: `${a.pasta}/${a.nome}`, bytes: base64ParaBytes(r.base64) });
+      else {
+        est.importacao = est.importacao || { itens: [] };
+        est.importacao.itens.push({ arquivo: `${a.pasta}/${a.nome}`, tipo: 'ir', erro: (r && r.erro) || 'não veio' });
+      }
+    }
+    est.drive = null;
+    await lerArquivos(arquivos);
+  }
+
+  function mostrarDica(alvo) {
+    const box = alvo.closest('[data-grafico]');
+    const tt = box && box.querySelector('.pt-tt');
+    const lista = box && el._ptDicas[box.dataset.grafico];
+    if (!tt || !lista) return;
+    const html = lista[Number(alvo.dataset.i)];
+    if (!html) return;
+    tt.innerHTML = html;
+    tt.hidden = false;
+    const rb = box.getBoundingClientRect ? box.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
+    const ra = alvo.getBoundingClientRect ? alvo.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
+    let x = ra.left - rb.left + ra.width / 2 + 12;
+    if (x > rb.width - 210) x = Math.max(4, ra.left - rb.left + ra.width / 2 - 222);
+    tt.style.left = `${x}px`;
+    tt.style.top = `${Math.max(4, 24)}px`;
+  }
+  function esconderDica(alvo) {
+    const box = alvo && alvo.closest && alvo.closest('[data-grafico]');
+    const tt = box && box.querySelector('.pt-tt');
+    if (tt) tt.hidden = true;
+  }
+
+  function ligar() {
+    el.addEventListener('mouseover', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrarDica(h); });
+    el.addEventListener('mouseout', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) esconderDica(h); });
+    el.addEventListener('focusin', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrarDica(h); });
+    el.addEventListener('focusout', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) esconderDica(h); });
+
+    el.addEventListener('click', async (ev) => {
+      const seg = ev.target.closest('[data-seg] [data-v]');
+      if (seg) {
+        const grupo = seg.closest('[data-seg]').dataset.seg;
+        const v = seg.dataset.v;
+        if (grupo === 'taxaSaque') mudarPrefs({ taxaSaque: v ? Number(v) : null }, { controles: true, meta: true });
+        else if (grupo === 'aporteModo') mudarPrefs({ aporteModo: v }, { controles: true });
+        return;
+      }
+      const sim = ev.target.closest('[data-sim] [data-v]');
+      if (sim) { est.sim[sim.closest('[data-sim]').dataset.sim] = sim.dataset.v; desenharSimulador(); return; }
+      const b = ev.target.closest('[data-acao]');
+      if (!b || !el.contains(b)) return;
+      const acao = b.dataset.acao;
+      if (acao === 'importar') el.querySelector('#ptArquivo').click();
+      else if (acao === 'drive-ir') await abrirDrive();
+      else if (acao === 'drive-fechar') { est.drive = null; desenharPainel(); }
+      else if (acao === 'drive-ler') await lerDoDrive();
+      else if (acao === 'imp-cancelar') { est.importacao = null; desenharPainel(); }
+      else if (acao === 'imp-salvar') await salvarImportacao();
+      else if (acao.startsWith('editar:')) {
+        est.editando = acao.slice(7); est.msgEditor = '';
+        desenharPainel();
+        const p = el.querySelector('#ptPainel');
+        if (p && p.scrollIntoView) try { p.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
+        const primeiro = p && p.querySelector('input');
+        if (primeiro) primeiro.focus();
+      } else if (acao === 'editor-fechar') { est.editando = null; desenharPainel(); }
+      else if (acao === 'outro-adicionar') {
+        const box = el.querySelector('.pt-outros');
+        const k = box.querySelectorAll('.pt-outro').length + 1000;
+        if (box.querySelector('p')) box.innerHTML = '';
+        box.insertAdjacentHTML('beforeend', `<div class="pt-outro" data-k="${k}"><span class="pt-input largo"><input data-o="nome" aria-label="Nome" maxlength="60" placeholder="Ex.: Carro"></span><select data-o="tipo" aria-label="Tipo"><option value="bem">Bem</option><option value="divida">Dívida</option></select><span class="pt-input"><i>R$</i><input data-o="valor" inputmode="decimal" aria-label="Valor"></span><button type="button" class="pt-mini" data-acao="outro-remover">remover</button></div>`);
+        box.querySelector('.pt-outro:last-child input').focus();
+      } else if (acao === 'outro-remover') b.closest('.pt-outro').remove();
+    });
+
+    el.addEventListener('submit', async (ev) => {
+      const form = ev.target.closest('form[data-form]');
+      if (!form) return;
+      ev.preventDefault();
+      const r = lerFormulario(form, ctx);
+      const msg = form.querySelector('.pt-form-msg');
+      if (r.erro) { msg.textContent = r.erro; msg.classList.add('bad'); return; }
+      const botao = form.querySelector('button[type="submit"]');
+      botao.disabled = true; botao.textContent = 'Salvando…';
+      const s = await salvarBloco(r.chave, r.valor);
+      if (!s.ok) { botao.disabled = false; botao.textContent = 'Salvar'; msg.textContent = `Não deu pra salvar: ${s.erro || 'erro'}`; msg.classList.add('bad'); return; }
+      est.editando = null;
+      desenhar();
+    });
+
+    el.addEventListener('change', async (ev) => {
+      const t = ev.target;
+      if (t.id === 'ptArquivo') { const arqs = [...(t.files || [])]; t.value = ''; if (arqs.length) await lerArquivos(arqs); return; }
+      if (t.id === 'ptParcelas') mudarPrefs({ parcelasViramAporte: t.checked });
+      else if (t.id === 'ptReserva') mudarPrefs({ incluirReservaNaAposentadoria: t.checked });
+      else if (t.dataset && t.dataset.descontar !== undefined) {
+        const nomes = [...el.querySelectorAll('[data-descontar]')].filter((c) => c.checked).map((c) => c.dataset.descontar);
+        mudarPrefs({ descontar: nomes }, { meta: true, controles: true });
+      } else if (t.dataset && t.dataset.imp !== undefined) { est.importacao.itens[Number(t.dataset.imp)].incluir = t.checked; desenharPainel(); }
+      else if (t.dataset && t.dataset.drive !== undefined) { est.drive.arquivos[Number(t.dataset.drive)].marcado = t.checked; desenharPainel(); }
+      else if (t.id === 'ptRend' || t.id === 'ptAporte') salvarPrefsDepois();
+      else if (t.id === 'ptIdade') { const v = lerValorBR(t.value); if (num(v) && v >= 30 && v <= 90) mudarPrefs({ idadeAlvo: Math.round(v) }); }
+      else if (t.id === 'ptSimValor' || t.id === 'ptSimMensal' || t.id === 'ptSimRend') {
+        const v = lerValorBR(t.value);
+        if (t.id === 'ptSimRend') { if (num(v)) est.sim.rendimento = v / 100; } else est.sim[t.id === 'ptSimValor' ? 'valor' : 'mensal'] = num(v) ? v : 0;
+        desenharSimulador();
+      }
+    });
+
+    el.addEventListener('input', (ev) => {
+      const t = ev.target;
+      if (t.id === 'ptRend') { Object.assign(est.prefs, { rendimentoReal: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); }
+      else if (t.id === 'ptAporte') { Object.assign(est.prefs, { aporteModo: 'manual', aporteManual: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); el.querySelectorAll('[data-seg="aporteModo"] button').forEach((x) => x.classList.remove('on')); }
+    });
+    if (win && typeof win.addEventListener === 'function') {
+      let t = null;
+      win.addEventListener('resize', () => { if (!dados || !el.offsetParent) return; clearTimeout(t); t = setTimeout(() => desenhar(), 200); });
+    }
+  }
+
+  async function carregar() {
+    let r;
+    try { r = await getPatrimonioImpl(token); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (!r || !r.ok) {
+      if (!dados) el.innerHTML = `<div class="carteiras-erro">Não deu pra carregar o patrimônio agora (${esc((r && r.etapa) || '?')}): ${esc((r && r.erro) || 'erro desconhecido')}.</div>`;
+      return;
+    }
+    dados = r;
+    dados.config = dados.config || {};
+    desenhar();
+  }
+
+  el.innerHTML = '<div class="carteiras-loading" aria-hidden="true"><span class="skel" style="height:150px;border-radius:14px"></span><span class="skel" style="height:320px;border-radius:14px"></span></div>';
+  const pronto = carregar();
+  return {
+    pronto,
+    recarregar: carregar,
+    get dados() { return dados; },
+    get contexto() { return ctx; },
+    lerArquivos,
+  };
+}

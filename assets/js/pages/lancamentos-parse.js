@@ -322,6 +322,16 @@ export function fusaoIbkr(descricao) {
   return { antigo, novo, fator: Number(a) / Number(b) };
 }
 
+/**
+ * 27/09/2026: incorporações que já aconteceram - um extrato só com as
+ * compras de ANTES da incorporação (sem a linha de "Operações societárias")
+ * também converte pro ticker novo. Só vale até a data da incorporação:
+ * depois dela o ticker antigo pode ser de outra empresa (a STR hoje é).
+ */
+export const INCORPORACOES_CONHECIDAS = {
+  STR: { antigo: 'STR', novo: 'VNOM', fator: 0.4855, ate: '2025-08-19' },
+};
+
 export function lerExtratoIbkr(texto) {
   const secoes = secoesIbkr(texto);
   const itens = [];
@@ -356,7 +366,8 @@ export function lerExtratoIbkr(texto) {
     if (!ticker || !data || !qtdBruta || preco == null) { ignorados.push({ data, ativo: ticker, detalhe: 'Operação', motivo: 'Linha incompleta.' }); return; }
     let qtd = Math.abs(qtdBruta);
     let obs = '';
-    const f = fusoes[ticker];
+    const conhecida = INCORPORACOES_CONHECIDAS[ticker];
+    const f = fusoes[ticker] || (conhecida && data <= conhecida.ate ? conhecida : null);
     if (f) { obs = `${ticker} convertido em ${f.novo} (fator ${arred(f.fator, 4)})`; qtd *= f.fator; preco /= f.fator; ticker = f.novo; }
     itens.push({ destino: 'transacoesUsa', ticker, data, tipo: qtdBruta < 0 ? 'Venda' : 'Compra', preco: arred(preco, 4), qtd: arred(qtd, 4), taxa: arred(taxa, 4), obs });
   });
@@ -383,7 +394,7 @@ export function lerExtratoIbkr(texto) {
       return;
     }
     itens.push({
-      destino: 'proventosUsa', ticker: (fusoes[ticker] && fusoes[ticker].novo) || ticker,
+      destino: 'proventosUsa', ticker: (fusoes[ticker] && fusoes[ticker].novo) || (INCORPORACOES_CONHECIDAS[ticker] && pag <= INCORPORACOES_CONHECIDAS[ticker].ate ? INCORPORACOES_CONHECIDAS[ticker].novo : ticker),
       dataCom: lerData(campo(o, 'Data', 'Date')), dataPagamento: pag, tipo: 'Dividendo',
       qtd: lerNumero(campo(o, 'Quantidade', 'Quantity')) || 0, valorPorCota: lerNumero(campo(o, 'Taxa bruta', 'Gross Rate')) || 0, valor: arred(valor, 2),
     });

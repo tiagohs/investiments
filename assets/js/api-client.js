@@ -625,3 +625,27 @@ export async function salvarPagamentoSalario(token, pagamento, { usarComoBase = 
 export async function excluirPagamentoSalario(token, mes, tipo) {
   return request('POST', 'excluirPagamentoSalario', token, { mes: mes || '', tipo: tipo || '' });
 }
+
+/** 27/09/2026: aba Patrimônio da Organização Financeira (Patrimonio.gs). */
+export async function getPatrimonio(token) {
+  return request('GET', 'patrimonio', token);
+}
+
+/**
+ * Grava um bloco da aba Patrimônio (imovel, financiamento, fies, fgts,
+ * carreira, ir, outros, preferencias). `valor` null apaga o bloco. Só vão
+ * totais - os PDFs são lidos no navegador (patrimonio-import.js).
+ */
+export async function salvarPatrimonio(token, chave, valor) {
+  return request('POST', 'salvarPatrimonio', token, { chave: chave || '', valor: valor == null ? '' : JSON.stringify(valor) });
+}
+
+/** Declarações do IR ("Cópia da Declaração") na pasta do Drive configurada. */
+export async function getArquivosIrPatrimonio(token) {
+  return request('GET', 'patrimonioIrArquivos', token);
+}
+
+/** Um PDF da pasta do IR, em base64 (o Apps Script só entrega arquivos daquela pasta). */
+export async function getArquivoIrPatrimonio(token, id) {
+  return request('GET', 'patrimonioIrArquivo', token, { id: id || '' });
+}

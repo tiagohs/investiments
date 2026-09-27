@@ -159,3 +159,16 @@ test('lançamentos: vários arquivos de uma vez - uid sequencial, nome do arquiv
   assert.match(r.arquivos[3].erro, /Não reconheci/);
   assert.equal(valorDoItem(r.itens[0]), 284.4);
 });
+
+test('IBKR: incorporação já conhecida (STR -> VNOM) converte compras de antes da data mesmo sem a linha de "Operações societárias"; depois dela, não', () => {
+  const csv = [
+    'Operações,Header,DataDiscriminator,Categoria de ativos,Moeda,Símbolo,Data/hora,Quantidade,Preço Neg.,Preço Fch.,Rendimentos,Corr/Taxa,Base,P&L realizados,P&L MTM,Código',
+    'Operações,Data,Order,Ações,USD,STR,"2025-06-11, 10:00:00",2,20,20,-40,-0.2,40.2,0,0,O',
+    'Operações,Data,Order,Ações,USD,STR,"2026-01-10, 10:00:00",1,150,150,-150,-1,151,0,0,O',
+  ].join('\n');
+  const r = lerExtratoIbkr(csv);
+  assert.equal(r.itens[0].ticker, 'VNOM');
+  assert.ok(Math.abs(r.itens[0].qtd - 0.971) < 1e-4);
+  assert.ok(Math.abs(r.itens[0].preco - 20 / 0.4855) < 1e-3);
+  assert.equal(r.itens[1].ticker, 'STR', 'depois da incorporação o ticker é de outra empresa: não converte');
+});

@@ -93,6 +93,15 @@ function doGet(e) {
   if (action === 'despesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleDespesas(e, auth);
   }
+  if (action === 'patrimonio') { // 27/09/2026: Organização Financeira - aba Patrimônio (Patrimonio.gs)
+    return handlePatrimonio(e, auth);
+  }
+  if (action === 'patrimonioIrArquivos') { // declarações do IR na pasta do Drive
+    return handleIrArquivosPatrimonio(e, auth);
+  }
+  if (action === 'patrimonioIrArquivo') {
+    return handleIrArquivoPatrimonio(e, auth);
+  }
   if (action === 'intradia') { // 26/09/2026: gráfico do dia dos favoritos e dos índices (Intradia.gs)
     return handleIntradia(e);
   }
@@ -143,6 +152,9 @@ function doPost(e) {
   }
   if (action === 'salvarDespesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleSalvarDespesas(e);
+  }
+  if (action === 'salvarPatrimonio') { // 27/09/2026: Organização Financeira - aba Patrimônio (Patrimonio.gs)
+    return handleSalvarPatrimonio(e);
   }
   if (action === 'removerAtivo') {
     return handleRemoverAtivo(e);
