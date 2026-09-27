@@ -144,6 +144,8 @@ a.tx-ativo:hover b{ color:var(--acoes); }
 .tx-var.good{ background:var(--good-soft); } .tx-var.bad{ background:var(--bad-soft); }
 .tx-teto{ font-family:var(--mono); }
 .tx-teto.bad{ text-decoration:underline dotted; text-underline-offset:3px; }
+.tx-brl{ display:block; font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:10.5px; color:var(--ink-faint); margin-top:1px; }
+.tx-brl .tx-fraco{ font-family:var(--body-f); }
 .tx-td-qtd{ width:1%; white-space:nowrap; }
 .tx-stepper{ display:inline-flex; align-items:center; background:var(--surface); border:1px solid var(--border); border-radius:100px; overflow:hidden; }
 .tx-stepper:focus-within{ border-color:var(--acoes); }
@@ -330,6 +332,64 @@ a.tx-ativo:hover b{ color:var(--acoes); }
 .tx-onde{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600; color:var(--ink-muted); white-space:nowrap; }
 .tx-tabela-lista td b{ font-weight:600; }
 
+/* 27/09/2026: agrupado por mês (Tiago: "gostei do agrupamento... deixe mais
+   formatado como tabela") - uma linha de cabeçalho por mês com os totais, e
+   os proventos entram recolhidos numa linha "ver os N ›". */
+.tx-lista-mes td{ padding:9px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); }
+.tx-lista-mes-nome{ font-family:var(--display); font-weight:600; font-size:14px; margin-right:14px; }
+.tx-lista-mes-nome small{ font-family:var(--body-f); font-weight:400; font-size:11px; color:var(--ink-faint); margin-left:4px; }
+.tx-lista-mes-tot{ font-size:11.5px; color:var(--ink-muted); margin-right:14px; }
+.tx-lista-mes-tot b{ font-family:var(--mono); color:var(--ink); }
+.tx-lista-provs td{ color:var(--ink-muted); border-bottom:1px dashed var(--border); }
+.tx-lista-provs .tx-link{ margin-right:4px; }
+.tx-lista-grafico{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px 16px; margin-bottom:2px; }
+.tx-lista-grafico:empty{ display:none; }
+
+/* ---- 27/09/2026: "Aportes realizados" - o mapa de compras (ativo × mês),
+   acima de "Novo aporte" (Tiago: "eu tenho uma tabela do lado da outra em
+   'Compras de Investimento'..."). Sticky à esquerda, célula = preço médio
+   pago + <span class="tx-chip tx-chip-qtd">×qtd</span>; clicar abre o
+   detalhe (mesma tipografia do "último pago" da prateleira, .tx-mapa-pop*). ---- */
+.tx-mapa-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:0; overflow:hidden; }
+.tx-mapa-filtros{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 14px; border-bottom:1px solid var(--border); }
+.tx-mapa-resumo{ display:flex; gap:8px 18px; flex-wrap:wrap; padding:10px 14px; font-size:12.5px; color:var(--ink-muted); border-bottom:1px solid var(--border); }
+.tx-mapa-resumo b{ color:var(--ink); }
+.tx-mapa-wrap{ overflow-x:auto; }
+table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width:640px; }
+.tx-mapa th, .tx-mapa td{ padding:0; }
+.tx-mapa thead th{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); padding:10px 4px 6px; text-align:center; }
+.tx-mapa thead th.esq{ text-align:left; padding-left:14px; }
+.tx-mapa thead th.atual{ color:var(--acoes); }
+.tx-mapa thead th small{ display:block; font-size:8.5px; text-transform:none; letter-spacing:0; font-weight:400; }
+.tx-mapa-at{ position:sticky; left:0; background:var(--surface); z-index:1; text-align:left; padding:0 10px 0 14px; white-space:nowrap; border-bottom:1px solid var(--border); }
+.tx-mapa-td{ border-bottom:1px solid var(--border); padding:4px 3px; }
+.tx-mapa-vazia{ height:44px; display:grid; place-items:center; color:var(--ink-faint); font-size:12px; background:var(--surface-3); border-radius:8px; opacity:.6; }
+.tx-mapa-cel{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; height:44px; width:100%; border-radius:8px; border:1px solid transparent;
+  font:inherit; cursor:pointer; background:color-mix(in srgb, var(--cor) 14%, transparent); color:var(--ink); }
+.tx-mapa-cel:hover{ border-color:var(--cor); }
+.tx-mapa-cel.sel{ border-color:var(--cor); box-shadow:0 0 0 2px color-mix(in srgb, var(--cor) 35%, transparent); }
+.tx-mapa-p{ font-family:var(--mono); font-size:12px; font-weight:600; white-space:nowrap; }
+.tx-mapa-p i{ font-style:normal; font-size:9.5px; margin-left:2px; }
+.tx-mapa-q{ font-family:var(--mono); font-size:10px; color:var(--ink-muted); background:var(--surface); border-radius:100px; padding:0 6px; line-height:15px; }
+.tx-mapa-ult{ border-bottom:1px solid var(--border); padding:0 12px 0 8px; white-space:nowrap; }
+.tx-mapa tfoot td{ padding:8px 3px; text-align:center; font-family:var(--mono); font-size:11.5px; font-weight:600; color:var(--ink-muted); }
+.tx-mapa tfoot td.esq{ text-align:left; padding-left:14px; font-family:var(--body-f); font-weight:700; font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); position:sticky; left:0; background:var(--surface); }
+.tx-mapa-leg{ display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--ink-muted); padding:10px 14px 12px; }
+.tx-mapa-pop{ border-top:1px solid var(--border); padding:14px 16px; }
+.tx-mapa-pop[hidden]{ display:none; }
+.tx-mapa-pop-cab{ display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.tx-mapa-pop-cab b{ font-family:var(--mono); font-size:15px; }
+.tx-mapa-pop-classe{ display:inline-flex; align-items:center; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:100px; background:color-mix(in srgb, var(--cor) 14%, transparent); color:var(--cor); }
+.tx-mapa-pop-fechar{ margin-left:auto; font:inherit; font-size:18px; line-height:1; border:none; background:none; color:var(--ink-faint); cursor:pointer; }
+.tx-mapa-pop-tabela{ margin-bottom:4px; }
+.tx-mapa-pop-tabela .tx-tabela th, .tx-mapa-pop-tabela .tx-tabela td{ padding:6px 10px; }
+.tx-mapa-pop-dl{ display:grid; grid-template-columns:1fr auto; gap:6px 10px; margin:10px 0 0; padding-top:10px; border-top:1px solid var(--border); font-size:12.5px; }
+.tx-mapa-pop-dl dt{ color:var(--ink-muted); } .tx-mapa-pop-dl dd{ margin:0; text-align:right; font-family:var(--mono); font-weight:600; }
+.tx-mapa-pop-dl dd small{ display:block; font-weight:400; font-size:10.5px; color:var(--ink-faint); font-family:var(--body-f); }
+.tx-mapa-pop-junto{ margin-top:10px; font-size:12px; color:var(--ink-muted); }
+.tx-mapa-pop-junto > div{ display:flex; gap:4px; flex-wrap:wrap; margin-top:5px; }
+.tx-mapa-pop-rod{ display:flex; gap:8px; margin-top:12px; }
+
 /* ---- telas médias: carrinho vira gaveta ---- */
 @media (max-width:1100px){
   .tx-loja{ grid-template-columns:minmax(0,1fr); }
@@ -410,6 +470,13 @@ a.tx-ativo:hover b{ color:var(--acoes); }
   .tx-tabela-lista td[data-rot="Onde"]::before{ display:none; }
   .tx-tabela-lista td.esq{ grid-column:1 / 3; grid-row:1; }
   .tx-tabela-lista td[data-rot="Data"]{ grid-row:2; }
+  .tx-tabela-lista tr.tx-lista-mes td, .tx-tabela-lista tr.tx-lista-provs td:first-child{ grid-column:1 / -1; }
+  .tx-tabela-lista tr.tx-lista-mes td::before, .tx-tabela-lista tr.tx-lista-provs td::before{ display:none; }
+  .tx-lista-mes-nome, .tx-lista-mes-tot{ display:inline-block; margin-bottom:2px; }
+  .tx-mapa-filtros{ flex-direction:column; align-items:stretch; }
+  .tx-mapa-filtros .tx-mapa-seg{ width:100%; }
+  .tx-mapa-filtros .tx-seg-btn{ flex:1; justify-content:center; }
+  .tx-mapa-pop-cab b{ font-size:14px; }
   .tx-tabela-ign td.esq{ grid-column:auto; }
   .tx-tabela-ign td.esq::before{ display:flex; }
   .tx-rotulo-largo{ grid-column:auto; }

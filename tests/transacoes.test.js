@@ -105,7 +105,9 @@ test('transações: abre em Aportes com as etapas, prateleira de Ações e o inv
   clique(w, doc.querySelector('[data-aba="lancamentos"]'));
   assert.equal(doc.getElementById('txPainel-aportes').hidden, true);
   assert.ok(doc.querySelector('#txDrop'));
-  assert.equal(doc.querySelectorAll('.tx-tabela-lista tbody tr').length, 3);
+  assert.equal(doc.querySelectorAll('.tx-lista-mes').length, 3, 'agrupado por mês');
+  assert.equal(doc.querySelectorAll('.tx-lista-linha').length, 2, 'as 2 compras (TEST11 e AAA)');
+  assert.equal(doc.querySelectorAll('.tx-lista-provs').length, 1, 'o provento entra recolhido');
   assert.equal(w.location.hash, '#lancamentos');
 });
 
@@ -240,13 +242,16 @@ test('lançamentos: soltar o extrato -> conferência com a planilha -> só os no
   assert.equal(importar[importar.length - 1].itens[0].forcar, true);
 });
 
-test('lançamentos: lista com filtro de onde/ano, busca e CSV', async () => {
+test('lançamentos: lista com filtro de onde/ano/ativo, busca, proventos recolhidos e CSV', async () => {
   const { doc, w } = await montar({}, '#lancamentos');
   clique(w, doc.querySelector('[data-lista-filtro="proventos"]'));
-  assert.equal(doc.querySelectorAll('.tx-tabela-lista tbody tr').length, 1);
+  assert.equal(doc.querySelectorAll('.tx-lista-provs').length, 1);
+  assert.equal(doc.querySelectorAll('.tx-lista-linha').length, 0, 'recolhido por padrão');
+  clique(w, doc.querySelector('[data-provs-toggle="2026-08"]'));
+  assert.equal(doc.querySelectorAll('.tx-lista-linha').length, 1, 'expandiu o provento');
   clique(w, doc.querySelector('[data-lista-filtro="todos"]'));
   digitar(w, doc.getElementById('txListaAno'), '2025', 'change');
-  assert.equal(doc.querySelectorAll('.tx-tabela-lista tbody tr').length, 1);
+  assert.equal(doc.querySelectorAll('.tx-lista-linha').length, 1);
   const { csvLancamentos, filtrarLista } = await import('../assets/js/pages/lancamentos.js');
   const csv = csvLancamentos(filtrarLista(DADOS.lancamentos, { filtro: 'todos', busca: 'test' })).replace('﻿', '').split('\r\n');
   assert.equal(csv[0], 'Data;Onde;Ativo;Tipo;Quantidade;Preço;Valor;Moeda;Instituição');

@@ -9,13 +9,19 @@
 // Os dados vêm de uma chamada só (action=transacoes, Aportes.gs) e ficam no
 // cache do navegador pra abrir na hora; o carrinho fica neste navegador
 // (localStorage) até ser confirmado.
+//
+// 27/09/2026: "Ver gráfico do preço" no popover do mapa de compras (aba
+// Aportes) dispara o evento `transacoes:verGrafico` (mesmo padrão do
+// `consolidacao:pendente`/`consolidacao:abrir` já usado entre lancamentos.js
+// e shell.js); aqui a gente escuta, troca pra aba Lançamentos, filtra pelo
+// ativo e abre o gráfico (busca o histórico de preço via getHistoricoAtivo).
 
-import { getTransacoes, salvarAporte, excluirAporte, importarLancamentos } from '../api-client.js';
+import { getTransacoes, salvarAporte, excluirAporte, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { carrinhoValido } from './aportes-calc.js';
 import { renderAportes, estadoInicialAportes } from './aportes.js';
-import { renderLancamentos, estadoInicialLancamentos, carregarSheetJs } from './lancamentos.js';
+import { renderLancamentos, estadoInicialLancamentos, carregarSheetJs, abrirGraficoPara } from './lancamentos.js';
 
 const CHAVE_CACHE = 'transacoes';
 const CHAVE_CARRINHO = 'transacoes.carrinho.v1';
@@ -58,11 +64,11 @@ function topoHtml(estado, dados) {
 }
 
 /**
- * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, importarImpl, carregarXlsx }
+ * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, importarImpl, carregarXlsx, getHistoricoAtivoImpl }
  */
 export async function montarPaginaTransacoes(token, {
   doc = document, getTransacoesImpl = getTransacoes, salvarAporteImpl = salvarAporte, excluirAporteImpl = excluirAporte,
-  importarImpl = importarLancamentos, carregarXlsx = carregarSheetJs,
+  importarImpl = importarLancamentos, carregarXlsx = carregarSheetJs, getHistoricoAtivoImpl = getHistoricoAtivo,
 } = {}) {
   const loadingEl = doc.getElementById('transacoesLoading');
   const erroEl = doc.getElementById('transacoesErro');
@@ -97,6 +103,7 @@ export async function montarPaginaTransacoes(token, {
         importar: (itens, opcoes) => importarImpl(token, itens, opcoes),
         recarregar: carregar,
         baixar: (nome, texto) => baixarArquivo(doc, nome, texto),
+        getHistoricoAtivo: (ticker) => getHistoricoAtivoImpl(token, ticker),
       });
     }
   }
@@ -122,6 +129,23 @@ export async function montarPaginaTransacoes(token, {
         desenharTopo();
         desenharPainel();
       });
+      if (win && typeof win.addEventListener === 'function') {
+        // 27/09/2026: "Ver gráfico do preço" do popover do mapa de compras (Aportes) - troca pra
+        // Lançamentos já filtrado nesse ativo e abre o gráfico "Suas compras no preço".
+        win.addEventListener('transacoes:verGrafico', (ev) => {
+          const ticker = ev.detail && ev.detail.ativo;
+          if (!ticker || !dados) return;
+          estado.aba = 'lancamentos';
+          gravarLocal(CHAVE_ABA, 'lancamentos');
+          if (win.history && typeof win.history.replaceState === 'function') {
+            try { win.history.replaceState(null, '', '#lancamentos'); } catch (e) { /* ok */ }
+          }
+          desenharTopo();
+          desenharPainel();
+          const pL = conteudo.querySelector('#txPainel-lancamentos');
+          if (pL && pL._txCtx) abrirGraficoPara(pL._txCtx, ticker);
+        });
+      }
     }
     desenharTopo();
     desenharPainel();

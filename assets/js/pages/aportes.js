@@ -15,6 +15,15 @@
 // As contas ficam em aportes-calc.js; aqui só desenha e liga os eventos.
 // Redesenho parcial de propósito: digitar uma quantidade atualiza a linha e
 // o carrinho sem refazer a prateleira (o cursor não pula).
+//
+// 27/09/2026: "Aportes realizados" (mapa de compras, Tiago: "eu tenho uma
+// tabela do lado da outra em 'Compras de Investimento'...") entra logo
+// acima de "Novo aporte" - o desenho e as contas ficam em aportes-mapa.js/
+// aportes-mapa-calc.js, aqui só a montagem na aba e os eventos (reaproveita
+// o delegated click listener de ligarAportes). E, no "Novo aporte", os
+// ativos de Ações EUA passam a mostrar cotação/último pago/subtotal também
+// em reais (câmbio de hoje; o último pago também no câmbio DO DIA da
+// compra, vindo de Aportes.gs!ativosParaAporte_ -> ultimoPago.cambioDia).
 
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { logoAtivoHtml, logoRendaFixaHtml, statusVies } from './carteiras-classe-comum.js';
@@ -26,6 +35,7 @@ import {
   finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
 } from './aportes-calc.js';
 import { momentoHtml } from './momento-aporte.js';
+import { estadoInicialMapa, mapaHtml } from './aportes-mapa.js';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dm = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '—');
@@ -38,6 +48,8 @@ const pct = (v, casas = 1) => `${v > 0 ? '+' : ''}${formatNumeroBR(v, casas)}%`;
 const corClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).cor || '--ink-muted';
 const dotHtml = (classe) => `<span class="tx-dot" style="background:var(${corClasse(classe)})"></span>`;
 const diasEntre = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
+/** Linha pequena mono com a conversão em reais, no mesmo estilo do "no dia"/"hoje" do popover do mapa. */
+const brlHtml = (v, rotulo = '') => `<small class="tx-brl">R$ ${formatNumeroBR(v)}${rotulo ? ` <span class="tx-fraco">${rotulo}</span>` : ''}</small>`;
 const lerNumeroCampo = (s) => {
   const t = String(s == null ? '' : s).trim().replace(/\s/g, '');
   if (!t) return null;
@@ -179,15 +191,19 @@ function andamentoHtml(estado, dados) {
 // 1. Novo aporte: prateleira + carrinho
 // ---------------------------------------------------------------------------
 
-function ultimoPagoHtml(a, hoje) {
+function ultimoPagoHtml(a, hoje, { cambioHoje = null } = {}) {
   const u = a.ultimoPago;
   if (!u || !(u.preco > 0)) return '<span class="tx-fraco">—</span>';
   const dif = a.precoAtual > 0 ? ((a.precoAtual / u.preco) - 1) * 100 : null;
   const dias = hoje && u.data ? diasEntre(u.data, hoje) : null;
+  const conversao = a.moeda === 'USD' ? `
+      ${u.cambioDia > 0 ? brlHtml(u.preco * u.cambioDia, `no dia · câmbio ${formatNumeroBR(u.cambioDia, 2)}`) : ''}
+      ${cambioHoje > 0 ? brlHtml(u.preco * cambioHoje, 'no câmbio de hoje') : ''}` : '';
   return `
     <span class="tx-ultimo">
       <b>${precoTxt(u.preco, a.moeda)}</b>
       <small>${dm(u.data)}${dias != null && dias >= 0 ? ` · há ${dias}d` : ''}${u.origem === 'aporte' ? ' · aporte' : ''}</small>
+      ${conversao}
       ${dif != null && Math.abs(dif) >= 0.05 ? `<span class="tx-var ${dif < 0 ? 'good' : 'bad'}" title="Cotação de agora comparada com o último preço pago">${pct(dif)}</span>` : ''}
     </span>`;
 }
@@ -218,16 +234,17 @@ function prateleiraRvHtml(estado, dados, classe) {
     const qtd = it ? it.qtd : 0;
     const vies = statusVies(a.vies);
     const variacao = typeof a.variacaoDia === 'number' ? a.variacaoDia * 100 : null;
+    const subtotalUsd = qtd ? qtd * (a.precoAtual || 0) : 0;
     return `
       <tr class="${qtd ? 'no-carrinho' : ''}" data-linha="${esc(classe)}:${esc(a.ticker)}">
         <td class="esq"><a class="tx-ativo" href="${esc(urlAtivoTicker(a.ticker))}">${logoAtivoHtml(a.ticker)}<span class="tx-ativo-nome"><b>${esc(a.ticker)}</b><small>${esc(a.nome || '')}</small></span></a></td>
-        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${variacao != null ? `<small class="${variacao >= 0 ? 'good' : 'bad'}">${pct(variacao, 2)} hoje</small>` : ''}</td>
-        <td data-rot="Último pago">${ultimoPagoHtml(a, dados.hoje)}</td>
+        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, `câmbio ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<small class="${variacao >= 0 ? 'good' : 'bad'}">${pct(variacao, 2)} hoje</small>` : ''}</td>
+        <td data-rot="Último pago">${ultimoPagoHtml(a, dados.hoje, { cambioHoje: dados.cambio })}</td>
         <td data-rot="Preço-teto">${tetoHtml(a)}</td>
         <td data-rot="Viés">${vies.classe ? `<span class="status-pill ${vies.classe}">${vies.texto}</span>` : '<span class="tx-fraco">—</span>'}</td>
         <td data-rot="Na classe" class="tx-mono">${formatNumeroBR((a.peso || 0) * 100, 1)}%</td>
         <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}</td>
-        <td data-rot="Subtotal" class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? dinheiro(qtd * (a.precoAtual || 0), a.moeda) : '<span class="tx-fraco">—</span>'}</td>
+        <td data-rot="Subtotal" class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? `${dinheiro(subtotalUsd, a.moeda)}${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(subtotalUsd * dados.cambio) : ''}` : '<span class="tx-fraco">—</span>'}</td>
       </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking }), 8)}`;
   }).join('');
   return `
@@ -330,11 +347,11 @@ function carrinhoConteudoHtml(estado, dados) {
   const editando = c.editandoId ? dados.aportes.find((a) => a.id === c.editandoId) : null;
   const grupos = CLASSES_APORTE.filter((cl) => t.porClasse[cl.id]).map((cl) => `
     <div class="tx-recibo-grupo">
-      <div class="tx-recibo-grupo-cab">${dotHtml(cl.id)}<b>${cl.nome}</b><span>${cl.id === 'acoesEua' ? usd(t.porClasse[cl.id].valor) : formatBRL(t.porClasse[cl.id].brl)}</span></div>
+      <div class="tx-recibo-grupo-cab">${dotHtml(cl.id)}<b>${cl.nome}</b><span>${cl.id === 'acoesEua' ? `${usd(t.porClasse[cl.id].valor)} <small class="tx-fraco">≈ ${formatBRL(t.porClasse[cl.id].brl)}</small>` : formatBRL(t.porClasse[cl.id].brl)}</span></div>
       ${itens.filter((it) => it.classe === cl.id).map((it) => `
         <div class="tx-recibo-linha">
           <span class="tx-recibo-ativo"><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? esc(it.instituicao || 'aplicação') : `${qtdTxt(it.qtd)} × ${precoTxt(it.preco, it.moeda)}`}</small></span>
-          <span class="tx-recibo-valor">${dinheiro(it.subtotal, it.moeda)}</span>
+          <span class="tx-recibo-valor">${dinheiro(it.subtotal, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? `<small class="tx-fraco">≈ R$ ${formatNumeroBR(it.subtotal * dados.cambio)}</small>` : ''}</span>
           <button type="button" class="tx-recibo-tirar" data-tirar="${esc(it.chave)}" aria-label="Tirar ${esc(it.ativo)} do carrinho">×</button>
         </div>`).join('')}
     </div>`).join('');
@@ -512,7 +529,7 @@ export function estadoInicialAportes(dados, carrinho) {
     carrinho: atualizarPrecos(carrinho, dados.classes), carrinhoAberto: false,
     digitados: {}, confirmando: null, abertos: {}, historicoTodos: false,
     ano: Number(dados.hoje.slice(0, 4)), mesSel: dados.hoje.slice(0, 7),
-    mensagem: null, ocupado: false,
+    mensagem: null, ocupado: false, mapa: estadoInicialMapa(),
   };
 }
 
@@ -531,6 +548,7 @@ export function renderAportes(ctx) {
     ${mensagemHtml(estado)}
     ${etapasHtml(estado, dados)}
     ${andamentoHtml(estado, dados)}
+    ${mapaHtml(estado.mapa, dados)}
     ${novoAporteHtml(estado, dados)}
     ${historicoHtml(estado, dados)}
     ${resumoHtml(estado, dados)}`;
@@ -567,7 +585,11 @@ function atualizarLinhaRv(ctx, classe, ticker) {
   const a = (dados.classes[classe] || []).find((x) => x.ticker === ticker);
   const it = estado.carrinho.itens[chaveItem(classe, ticker)];
   const cel = el.querySelector(`[data-subtotal="${classe}:${ticker}"]`);
-  if (cel) cel.innerHTML = it ? dinheiro(it.qtd * it.preco, it.moeda) : '<span class="tx-fraco">—</span>';
+  if (cel) {
+    cel.innerHTML = it
+      ? `${dinheiro(it.qtd * it.preco, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? brlHtml(it.qtd * it.preco * dados.cambio) : ''}`
+      : '<span class="tx-fraco">—</span>';
+  }
   const linha = el.querySelector(`[data-linha="${classe}:${ticker}"]`);
   if (linha) linha.classList.toggle('no-carrinho', !!it);
   return a;
@@ -600,6 +622,11 @@ function atualizarTotaisAndamento(ctx, id) {
   if (pe) pe.innerHTML = rodapeAndamentoHtml(a, estado, dados.cambio);
 }
 
+function redesenharMapa(ctx) {
+  const s = ctx.el.querySelector('#txMapaCompras');
+  if (s) s.outerHTML = mapaHtml(ctx.estado.mapa, ctx.dados);
+}
+
 async function executar(ctx, fn, sucesso) {
   const { estado } = ctx;
   if (estado.ocupado) return;
@@ -623,11 +650,40 @@ function ligarAportes(el) {
     const ctx = el._txCtx;
     const { doc, dados, estado } = ctx;
     const redesenhar = () => renderAportes(ctx);
-    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar]');
+    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico]');
     if (!alvo || !el.contains(alvo)) return;
     if (alvo.hasAttribute('data-rolar')) {
       const destino = doc.getElementById(alvo.getAttribute('data-rolar'));
       if (destino) { ev.preventDefault(); if (typeof destino.scrollIntoView === 'function') destino.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      return;
+    }
+    if (alvo.hasAttribute('data-mapa-classe')) {
+      estado.mapa.classeAtiva = alvo.getAttribute('data-mapa-classe');
+      estado.mapa.selecionado = null;
+      redesenharMapa(ctx);
+      return;
+    }
+    if (alvo.hasAttribute('data-mapa-periodo')) {
+      estado.mapa.periodo = Number(alvo.getAttribute('data-mapa-periodo'));
+      estado.mapa.selecionado = null;
+      redesenharMapa(ctx);
+      return;
+    }
+    if (alvo.hasAttribute('data-mapa-cel')) {
+      const [ativo, mes] = alvo.getAttribute('data-mapa-cel').split('|');
+      const sel = estado.mapa.selecionado;
+      estado.mapa.selecionado = (sel && sel.ativo === ativo && sel.mes === mes) ? null : { ativo, mes };
+      redesenharMapa(ctx);
+      return;
+    }
+    if (alvo.hasAttribute('data-mapa-fechar')) {
+      estado.mapa.selecionado = null;
+      redesenharMapa(ctx);
+      return;
+    }
+    if (alvo.hasAttribute('data-mapa-grafico')) {
+      const win = doc.defaultView;
+      if (win && typeof win.CustomEvent === 'function') win.dispatchEvent(new win.CustomEvent('transacoes:verGrafico', { detail: { ativo: alvo.getAttribute('data-mapa-grafico') } }));
       return;
     }
     if (alvo.hasAttribute('data-classe')) {

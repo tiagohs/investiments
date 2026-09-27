@@ -6,13 +6,29 @@
 //     (lancamentos-parse.js), conferidos no servidor contra o que já está na
 //     planilha (modo simular) e só gravados depois da revisão;
 //  2. Lançar manualmente (uma linha, qualquer aba);
-//  3. Todos os lançamentos, com filtro, busca e exportar CSV.
+//  3. Todos os lançamentos, agrupados por mês, com filtro (onde/ano/ativo),
+//     busca e exportar CSV.
+//
+// 27/09/2026: redesenho de "Todos os lançamentos" (Tiago: "gostei do
+// agrupamento. Use tag em quantidade, mas deixe mais formatado como tabela,
+// ficou meio desorganizado as informacoes. No caso do internacional, tem
+// que incluir quantos gastei em reais") - agora agrupado por mês (com uma
+// linha de totais de compras/vendas/proventos), quantidade em tag, uma
+// coluna "Em reais" pras operações em dólar (câmbio do dia, já vindo de
+// Aportes.gs!listaLancamentosTela_), indicador vs. compra anterior nas
+// compras, proventos recolhidos numa linha "ver os N ›" e um filtro por
+// ativo que, com histórico de compra, mostra o gráfico "Suas compras no
+// preço" (aportes-grafico.js) - o mesmo gráfico do popover do mapa de compras.
 
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { DESTINOS, TIPOS_ARQUIVO, lerArquivos, valorDoItem } from './lancamentos-parse.js';
+import { MESES_LONGOS } from './aportes-calc.js';
+import { classePorTicker, todasAsCompras } from './aportes-mapa-calc.js';
+import { renderGraficoCompras } from './aportes-grafico.js';
 
 const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
 const POR_PAGINA = 40;
+const MESES_LISTA_INICIAL = 6;
 const ORDEM_DESTINOS = ['transacoes', 'transacoesUsa', 'rendaFixa', 'proventos', 'proventosUsa'];
 const COR_DESTINO = { transacoes: '--acoes', transacoesUsa: '--usa', rendaFixa: '--rf', proventos: '--fiis', proventosUsa: '--usa' };
 const FILTROS_LISTA = [
@@ -24,6 +40,7 @@ const SITUACAO = {
   bloqueado: { txt: 'Bloqueado', cls: 'bad' }, invalido: { txt: 'Incompleto', cls: 'bad' }, gravado: { txt: 'Lançado agora', cls: 'good' },
 };
 
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dma = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}/${k.slice(0, 4)}` : '—');
 const usd = (v) => (typeof v === 'number' && Number.isFinite(v) ? `US$ ${formatNumeroBR(v)}` : '—');
@@ -318,14 +335,31 @@ export function itemDoFormulario(destino, valores) {
 // 3. Todos os lançamentos
 // ---------------------------------------------------------------------------
 
-export function filtrarLista(lista, { filtro = 'todos', ano = '', busca = '' } = {}) {
-  const b = busca.trim().toLowerCase();
-  return (lista || []).filter((l) => {
-    if (filtro === 'proventos' ? !(l.destino === 'proventos' || l.destino === 'proventosUsa') : (filtro !== 'todos' && l.destino !== filtro)) return false;
-    if (ano && String(l.data).slice(0, 4) !== String(ano)) return false;
-    if (b && !`${l.ativo} ${l.tipo} ${l.inst || ''}`.toLowerCase().includes(b)) return false;
-    return true;
+/**
+ * ticker -> histórico de compras (transacoes/transacoesUsa, tipo Compra,
+ * preço > 0), ordenado - pro indicador "vs. anterior" de cada linha de
+ * compra (não depende do agrupamento por mês: olha o histórico inteiro).
+ */
+function historicoComprasPorAtivo(todos) {
+  const mapa = {};
+  (todos || []).forEach((l) => {
+    if ((l.destino === 'transacoes' || l.destino === 'transacoesUsa') && /compra/i.test(l.tipo) && num(l.preco) > 0) {
+      (mapa[l.ativo] = mapa[l.ativo] || []).push({ data: l.data, preco: l.preco });
+    }
   });
+  Object.values(mapa).forEach((arr) => arr.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0)));
+  return mapa;
+}
+
+/** A compra do mesmo ativo imediatamente ANTES de `data` (ou null). */
+function compraAnterior(mapa, ativo, data) {
+  const hist = mapa[ativo];
+  if (!hist) return null;
+  let prev = null;
+  for (let i = 0; i < hist.length; i += 1) {
+    if (hist[i].data < data) prev = hist[i]; else break;
+  }
+  return prev;
 }
 
 export function csvLancamentos(lista) {
@@ -340,28 +374,99 @@ export function csvLancamentos(lista) {
   return `﻿${[cab.join(';'), ...linhas].join('\r\n')}\r\n`;
 }
 
-function listaHtml(estado, dados) {
-  const f = estado.lista;
-  const todos = dados.lancamentos || [];
-  const anos = [...new Set(todos.map((l) => String(l.data).slice(0, 4)).filter(Boolean))].sort().reverse();
-  const filtrados = filtrarLista(todos, f);
-  const visiveis = filtrados.slice(0, f.limite);
-  const linhas = visiveis.map((l) => `
-    <tr>
+/** filtro (onde), ano, ativo (ticker exato) e busca (texto livre). */
+export function filtrarLista(lista, { filtro = 'todos', ano = '', busca = '', ativo = '' } = {}) {
+  const b = busca.trim().toLowerCase();
+  return (lista || []).filter((l) => {
+    if (filtro === 'proventos' ? !(l.destino === 'proventos' || l.destino === 'proventosUsa') : (filtro !== 'todos' && l.destino !== filtro)) return false;
+    if (ano && String(l.data).slice(0, 4) !== String(ano)) return false;
+    if (ativo && l.ativo !== ativo) return false;
+    if (b && !`${l.ativo} ${l.tipo} ${l.inst || ''}`.toLowerCase().includes(b)) return false;
+    return true;
+  });
+}
+
+function linhaLancHtml(l, anteriorMapa) {
+  const compra = (l.destino === 'transacoes' || l.destino === 'transacoesUsa') && /compra/i.test(l.tipo);
+  const ant = compra ? compraAnterior(anteriorMapa, l.ativo, l.data) : null;
+  const dif = ant && num(l.preco) > 0 ? (l.preco / ant.preco - 1) * 100 : null;
+  return `
+    <tr class="tx-lista-linha">
       <td data-rot="Data" class="tx-mono">${dma(l.data)}</td>
       <td data-rot="Onde"><span class="tx-onde"><span class="tx-dot" style="background:var(${COR_DESTINO[l.destino]})"></span>${esc(DESTINOS[l.destino] ? DESTINOS[l.destino].curto : l.destino)}</span></td>
       <td data-rot="Ativo" class="esq"><b>${esc(l.ativo)}</b>${l.inst ? `<small>${esc(l.inst)}</small>` : ''}</td>
       <td data-rot="Tipo">${esc(l.tipo)}</td>
-      <td data-rot="Qtd" class="tx-mono">${numTxt(l.qtd, 4)}</td>
+      <td data-rot="Qtd">${l.destino === 'rendaFixa' ? '<span class="tx-fraco">—</span>' : `<span class="tx-chip tx-chip-qtd">×${numTxt(l.qtd, 4)}</span>`}</td>
       <td data-rot="Preço" class="tx-mono">${l.preco == null ? '—' : dinheiro(l.preco, l.moeda)}</td>
       <td data-rot="Valor" class="tx-mono"><b>${l.valor == null ? '—' : dinheiro(l.valor, l.moeda)}</b></td>
-    </tr>`).join('');
+      <td data-rot="Em reais" class="tx-mono">${l.moeda === 'USD' && l.valorBRL != null ? `${formatBRL(l.valorBRL)}<small>câmbio ${formatNumeroBR(l.cambio, 2)}</small>` : '<span class="tx-fraco">—</span>'}</td>
+      <td data-rot="vs. anterior">${dif == null ? '' : `<span class="tx-var ${dif > 0 ? 'bad' : 'good'}">${dif > 0 ? '▲' : '▼'} ${numTxt(Math.abs(dif), 1)}%<small>vs ${dma(ant.data)}</small></span>`}</td>
+    </tr>`;
+}
+
+function totalMesHtml(rotulo, valor) {
+  return `<span class="tx-lista-mes-tot">${rotulo} <b>${formatBRL(valor)}</b></span>`;
+}
+
+function grupoMesHtml(mesChave, itensDoMes, estadoLista, anteriorMapa) {
+  const movs = itensDoMes.filter((l) => l.destino !== 'proventos' && l.destino !== 'proventosUsa').sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  const provs = itensDoMes.filter((l) => l.destino === 'proventos' || l.destino === 'proventosUsa').sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  const brl = (l) => (l.moeda === 'USD' ? num(l.valorBRL) : num(l.valor));
+  const compras = movs.filter((l) => /compra|aplica/i.test(l.tipo)).reduce((s, l) => s + brl(l), 0);
+  const vendas = movs.filter((l) => /venda|resgate/i.test(l.tipo)).reduce((s, l) => s + brl(l), 0);
+  const pv = provs.reduce((s, l) => s + brl(l), 0);
+  const aberto = !!estadoLista.proventosAbertos[mesChave];
+  const tickersProv = [...new Set(provs.map((p) => p.ativo))];
+  return `
+    <tbody>
+      <tr class="tx-lista-mes">
+        <td colspan="9">
+          <span class="tx-lista-mes-nome">${MESES_LONGOS[Number(mesChave.slice(5, 7)) - 1]} <small>${mesChave.slice(0, 4)}</small></span>
+          ${totalMesHtml('Compras', compras)}
+          ${vendas ? totalMesHtml('Vendas', vendas) : ''}
+          ${pv ? totalMesHtml('Proventos', pv) : ''}
+        </td>
+      </tr>
+      ${movs.map((l) => linhaLancHtml(l, anteriorMapa)).join('')}
+      ${provs.length ? `
+      <tr class="tx-lista-provs">
+        <td colspan="3"><button type="button" class="tx-link" data-provs-toggle="${mesChave}">${aberto ? 'ocultar' : `ver os ${provs.length} ›`}</button> <span class="tx-fraco">proventos de ${esc(tickersProv.slice(0, 5).join(', '))}${tickersProv.length > 5 ? ` +${tickersProv.length - 5}` : ''}</span></td>
+        <td></td><td></td><td></td>
+        <td class="tx-mono"><b>${formatBRL(pv)}</b></td>
+        <td></td><td></td>
+      </tr>
+      ${aberto ? provs.map((l) => linhaLancHtml(l, anteriorMapa)).join('') : ''}` : ''}
+    </tbody>`;
+}
+
+function graficoListaHtml(estado) {
+  const g = estado.lista.grafico;
+  if (!g || !g.aberto) return '';
+  if (g.carregando) return '<div class="tx-aviso" role="status"><span class="tx-spinner" aria-hidden="true"></span>Carregando o histórico de preço…</div>';
+  if (g.erro) return `<div class="tx-aviso erro" role="status">${esc(g.erro)}</div>`;
+  return `<div class="tx-lista-grafico" id="txListaGrafico"></div>`;
+}
+
+function listaHtml(estado, dados) {
+  const f = estado.lista;
+  const todos = dados.lancamentos || [];
+  const anos = [...new Set(todos.map((l) => String(l.data).slice(0, 4)).filter(Boolean))].sort().reverse();
+  const porDestinoAno = filtrarLista(todos, { filtro: f.filtro, ano: f.ano });
+  const ativos = [...new Set(porDestinoAno.map((l) => l.ativo).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const filtrados = filtrarLista(todos, f);
+  const anteriorMapa = historicoComprasPorAtivo(todos);
+  const meses = [...new Set(filtrados.map((l) => String(l.data).slice(0, 7)))].sort().reverse();
+  const mesesVisiveis = meses.slice(0, f.mesesVisiveis || MESES_LISTA_INICIAL);
+  const mapaClasse = classePorTicker(dados.classes || {});
+  const podeGrafico = !!f.ativo && todasAsCompras(todos, mapaClasse).some((c) => c.ativo === f.ativo);
+  const graficoAberto = !!(f.grafico && f.grafico.aberto);
   return `
     <section class="tx-secao" id="txLista" aria-labelledby="txListaTitulo">
       <div class="tx-secao-cab">
         <h2 id="txListaTitulo">Todos os lançamentos</h2>
         <span class="hint">${filtrados.length} de ${todos.length} · direto das abas da planilha</span>
         <div class="tx-controles">
+          <label class="tx-select-caixa"><span class="tx-sr">Ativo</span><select class="tx-select" id="txListaAtivo"><option value="">Todos os ativos</option>${ativos.map((a) => `<option value="${esc(a)}"${f.ativo === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
           <label class="tx-select-caixa"><span class="tx-sr">Ano</span><select class="tx-select" id="txListaAno"><option value="">Todos os anos</option>${anos.map((a) => `<option value="${a}"${String(f.ano) === a ? ' selected' : ''}>${a}</option>`).join('')}</select></label>
           <button type="button" class="tx-csv" data-lanc="csv" title="Baixar a lista (com o filtro atual) como CSV"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>CSV</button>
         </div>
@@ -369,16 +474,18 @@ function listaHtml(estado, dados) {
       <div class="tx-lista-filtros">
         <div class="tx-seg" role="group" aria-label="Onde">${FILTROS_LISTA.map((x) => `<button type="button" class="tx-seg-btn${f.filtro === x.id ? ' active' : ''}" data-lista-filtro="${x.id}">${x.id !== 'todos' ? `<span class="tx-dot" style="background:var(${COR_DESTINO[x.id]})"></span>` : ''}${x.nome}</button>`).join('')}</div>
         <input type="search" class="tx-busca" id="txListaBusca" placeholder="Buscar ativo ou tipo" value="${esc(f.busca)}" aria-label="Buscar lançamento">
+        ${podeGrafico ? `<button type="button" class="btn btn-ghost tx-btn-sm" data-lanc="grafico">${graficoAberto ? 'Ocultar gráfico' : `Ver gráfico do preço de ${esc(f.ativo)}`}</button>` : ''}
       </div>
+      <div id="txListaGraficoCorpo">${graficoListaHtml(estado)}</div>
       <div id="txListaCorpo">
         ${filtrados.length ? `
         <div class="tx-tabela-wrap">
           <table class="tx-tabela tx-tabela-lista">
-            <thead><tr><th>Data</th><th>Onde</th><th class="esq">Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Valor</th></tr></thead>
-            <tbody>${linhas}</tbody>
+            <thead><tr><th>Data</th><th>Onde</th><th class="esq">Ativo</th><th>Tipo</th><th>Qtd</th><th>Preço</th><th>Valor</th><th>Em reais</th><th>vs. anterior</th></tr></thead>
+            ${mesesVisiveis.map((m) => grupoMesHtml(m, filtrados.filter((l) => String(l.data).slice(0, 7) === m), f, anteriorMapa)).join('')}
           </table>
         </div>
-        ${filtrados.length > visiveis.length ? `<button type="button" class="tx-mais" data-lanc="mais">Mostrar mais ${Math.min(POR_PAGINA, filtrados.length - visiveis.length)} (faltam ${filtrados.length - visiveis.length})</button>` : ''}`
+        ${meses.length > mesesVisiveis.length ? `<button type="button" class="tx-mais" data-lanc="mais-meses">Ver mais meses (faltam ${meses.length - mesesVisiveis.length})</button>` : ''}`
         : '<p class="tx-vazio">Nenhum lançamento com esse filtro.</p>'}
       </div>
     </section>`;
@@ -392,17 +499,23 @@ export function estadoInicialLancamentos() {
   return {
     arrastando: false, revisao: null, mostrarLancados: {},
     manual: { aberto: false, destino: 'transacoes', mensagem: null, pendente: null },
-    lista: { filtro: 'todos', ano: '', busca: '', limite: POR_PAGINA },
+    lista: {
+      filtro: 'todos', ano: '', busca: '', ativo: '', limite: POR_PAGINA, mesesVisiveis: MESES_LISTA_INICIAL,
+      proventosAbertos: {}, grafico: { aberto: false, ticker: null, carregando: false, serie: null, erro: null },
+    },
   };
 }
 
 /**
- * ctx: { doc, el, dados, estado, importar(itens, opcoes), carregarXlsx, recarregar(), baixar(nome, conteudo) }
+ * ctx: { doc, el, dados, estado, importar(itens, opcoes), carregarXlsx, recarregar(), baixar(nome, conteudo),
+ *   getHistoricoAtivo(ticker) } - getHistoricoAtivo é opcional: sem ele, o botão "Ver gráfico" simplesmente
+ *   não aparece pra ativos sem compra (podeGrafico já filtra isso) ou fica sem efeito se chamado.
  */
 export function renderLancamentos(ctx) {
   const { el, dados, estado } = ctx;
   el.innerHTML = `${importarHtml(estado)}${manualHtml(estado, dados)}${listaHtml(estado, dados)}`;
   el._txCtx = ctx;
+  desenharGraficoLista(ctx);
   if (!el._txLancLigado) { el._txLancLigado = true; ligarLancamentos(el); }
 }
 
@@ -414,6 +527,46 @@ function redesenharRevisao(ctx) {
 function redesenharLista(ctx) {
   const s = ctx.el.querySelector('#txLista');
   if (s) s.outerHTML = listaHtml(ctx.estado, ctx.dados);
+  desenharGraficoLista(ctx);
+}
+
+/** Desenha o SVG do gráfico "Suas compras no preço" dentro de #txListaGrafico, se estiver aberto e com histórico já carregado. */
+function desenharGraficoLista(ctx) {
+  const { doc, dados, estado } = ctx;
+  const g = estado.lista.grafico;
+  if (!g || !g.aberto || !g.serie) return;
+  const cont = ctx.el.querySelector('#txListaGrafico');
+  if (!cont) return;
+  const mapaClasse = classePorTicker(dados.classes || {});
+  const compras = todasAsCompras(dados.lancamentos, mapaClasse).filter((c) => c.ativo === g.ticker);
+  const moeda = mapaClasse[g.ticker] === 'acoesEua' ? 'USD' : 'BRL';
+  const formatMoeda = (v) => (moeda === 'USD' ? usd(v) : formatBRL(v));
+  renderGraficoCompras(doc, cont, { serie: g.serie, compras, moeda, formatMoeda });
+}
+
+/** Abre (buscando o histórico, se preciso) o gráfico de `ticker` na lista - usado pelo botão da própria lista e pelo "Ver gráfico do preço" do popover do mapa de compras (aportes.js, evento transacoes:verGrafico). */
+export async function abrirGraficoPara(ctx, ticker) {
+  const f = ctx.estado.lista;
+  f.ativo = ticker;
+  f.grafico = { aberto: true, ticker, carregando: true, serie: null, erro: null };
+  redesenharLista(ctx);
+  if (typeof ctx.getHistoricoAtivo !== 'function') { f.grafico.carregando = false; redesenharLista(ctx); return; }
+  try {
+    const resp = await ctx.getHistoricoAtivo(ticker);
+    f.grafico.carregando = false;
+    if (resp && resp.ok) f.grafico.serie = (resp.resultado && resp.resultado.serie) || [];
+    else f.grafico.erro = `Não deu pra carregar o histórico de preço: ${(resp && resp.erro) || 'erro desconhecido'}.`;
+  } catch (e) {
+    f.grafico.carregando = false;
+    f.grafico.erro = `Não deu pra carregar o histórico de preço: ${String((e && e.message) || e)}.`;
+  }
+  redesenharLista(ctx);
+}
+
+async function alternarGrafico(ctx) {
+  const f = ctx.estado.lista;
+  if (f.grafico && f.grafico.aberto) { f.grafico.aberto = false; redesenharLista(ctx); return; }
+  await abrirGraficoPara(ctx, f.ativo);
 }
 
 async function processarArquivos(ctx, arquivos) {
@@ -561,7 +714,7 @@ function ligarLancamentos(el) {
     const ctx = el._txCtx;
     const { estado } = ctx;
     const t = ev.target;
-    const alvo = t.closest('[data-lanc],[data-mostrar-lancados],[data-manual-destino],[data-lista-filtro]');
+    const alvo = t.closest('[data-lanc],[data-mostrar-lancados],[data-manual-destino],[data-lista-filtro],[data-provs-toggle]');
     if (!alvo || !el.contains(alvo)) return;
     if (alvo.hasAttribute('data-mostrar-lancados')) {
       const d = alvo.getAttribute('data-mostrar-lancados');
@@ -574,7 +727,15 @@ function ligarLancamentos(el) {
       renderLancamentos(ctx);
       return;
     }
-    if (alvo.hasAttribute('data-lista-filtro')) { estado.lista.filtro = alvo.getAttribute('data-lista-filtro'); estado.lista.limite = POR_PAGINA; redesenharLista(ctx); return; }
+    if (alvo.hasAttribute('data-lista-filtro')) {
+      estado.lista.filtro = alvo.getAttribute('data-lista-filtro'); estado.lista.mesesVisiveis = MESES_LISTA_INICIAL; redesenharLista(ctx); return;
+    }
+    if (alvo.hasAttribute('data-provs-toggle')) {
+      const mes = alvo.getAttribute('data-provs-toggle');
+      estado.lista.proventosAbertos[mes] = !estado.lista.proventosAbertos[mes];
+      redesenharLista(ctx);
+      return;
+    }
     const acao = alvo.getAttribute('data-lanc');
     if (acao === 'gravar') { alvo.disabled = true; await gravarRevisao(ctx); return; }
     if (acao === 'descartar') { estado.revisao = null; redesenharRevisao(ctx); return; }
@@ -584,7 +745,8 @@ function ligarLancamentos(el) {
       if (win && typeof win.CustomEvent === 'function') win.dispatchEvent(new win.CustomEvent('consolidacao:abrir'));
       return;
     }
-    if (acao === 'mais') { estado.lista.limite += POR_PAGINA; redesenharLista(ctx); return; }
+    if (acao === 'mais-meses') { estado.lista.mesesVisiveis += MESES_LISTA_INICIAL; redesenharLista(ctx); return; }
+    if (acao === 'grafico') { alvo.disabled = true; await alternarGrafico(ctx); return; }
     if (acao === 'forcar-manual') { alvo.disabled = true; await enviarManual(ctx, true); return; }
     if (acao === 'csv') {
       const lista = filtrarLista(ctx.dados.lancamentos, estado.lista);
@@ -603,7 +765,13 @@ function ligarLancamentos(el) {
       redesenharRevisao(ctx);
       return;
     }
-    if (t.id === 'txListaAno') { estado.lista.ano = t.value; estado.lista.limite = POR_PAGINA; redesenharLista(ctx); }
+    if (t.id === 'txListaAno') { estado.lista.ano = t.value; estado.lista.mesesVisiveis = MESES_LISTA_INICIAL; redesenharLista(ctx); return; }
+    if (t.id === 'txListaAtivo') {
+      estado.lista.ativo = t.value;
+      estado.lista.mesesVisiveis = MESES_LISTA_INICIAL;
+      estado.lista.grafico = { aberto: false, ticker: null, carregando: false, serie: null, erro: null };
+      redesenharLista(ctx);
+    }
   });
 
   el.addEventListener('input', (ev) => {
@@ -617,7 +785,7 @@ function ligarLancamentos(el) {
     }
     if (t.id === 'txListaBusca') {
       estado.lista.busca = t.value;
-      estado.lista.limite = POR_PAGINA;
+      estado.lista.mesesVisiveis = MESES_LISTA_INICIAL;
       const cursor = t.selectionStart;
       redesenharLista(ctx);
       const novo = el.querySelector('#txListaBusca');

@@ -79,7 +79,8 @@ function montarTelaTransacoes_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abas = lerAbasLanc_(ss, Object.keys(LANC_ABAS)); // Lancamentos.gs
   var aportes = lerAportes_(ss);
-  var classes = ativosParaAporte_(ss, abas, aportes);
+  var cambioHist = mapaCambioHistoricoAporte_(ss);
+  var classes = ativosParaAporte_(ss, abas, aportes, cambioHist);
   var contexto = null;
   try { contexto = enriquecerMomentoAporte_(ss, classes); } catch (eM) { Logger.log('enriquecerMomentoAporte_: ' + eM); }
   return {
@@ -89,9 +90,35 @@ function montarTelaTransacoes_() {
     classes: classes,
     metas: contexto ? contexto.metas : null,
     aportes: aportes,
-    resumo: resumoInvestidoComCache_(ss, abas),
-    lancamentos: listaLancamentosTela_(ss, abas)
+    resumo: resumoInvestidoComCache_(ss, abas, cambioHist),
+    lancamentos: listaLancamentosTela_(ss, abas, cambioHist)
   };
+}
+
+/**
+ * 27/09/2026: câmbio USD histórico (1x por chamada de handleTransacoes),
+ * reaproveitado pra converter em reais o "último pago" de Ações EUA
+ * (ativosParaAporte_), o resumo por mês (resumoInvestido_) e os
+ * lançamentos em dólar (listaLancamentosTela_) - sem reler
+ * aux_historico-patrimonio 3x na mesma requisição (Tiago, 27/09/2026:
+ * "sobre o trxf11... com isso, pode comecar" - mapa de compras + reais
+ * no Novo aporte e nos Lançamentos).
+ */
+function mapaCambioHistoricoAporte_(ss) {
+  try {
+    var mapa = mapasDoPatrimonioParaProventos_(ss).mapaCambioUsd; // Proventos.gs
+    return { mapa: mapa, chaves: Object.keys(mapa).sort() };
+  } catch (e) {
+    Logger.log('mapaCambioHistoricoAporte_: ' + e);
+    return { mapa: {}, chaves: [] };
+  }
+}
+
+/** Câmbio conhecido na data (ou o dia útil anterior mais próximo) - null se não tiver nenhum. */
+function cambioNaDataAporte_(cambioHist, data) {
+  if (!cambioHist || !cambioHist.chaves.length || !data) return null;
+  var c = cambioUsdParaData_(cambioHist.mapa, cambioHist.chaves, data); // FluxoCaixaInicio.gs
+  return typeof c === 'number' && isFinite(c) ? c : null;
 }
 
 function cambioHojeAporte_(ss) {
@@ -122,7 +149,7 @@ function chaveRfAporte_(titulo, instituicao) {
 }
 
 /** Ativos de cada classe pro carrinho, com o último preço pago. */
-function ativosParaAporte_(ss, abas, aportes) {
+function ativosParaAporte_(ss, abas, aportes, cambioHist) {
   var mapaClasse = { 'Ações': 'acoes', 'FIIs': 'fiis', 'Ações EUA': 'acoesEua' };
   var out = { acoes: [], fiis: [], acoesEua: [], rendaFixa: [] };
   var ultimas = ultimasComprasAporte_(abas.transacoes.itens);
@@ -145,6 +172,12 @@ function ativosParaAporte_(ss, abas, aportes) {
       var mapa = it.classe === 'acoesEua' ? ultimasUsa : ultimas;
       if (it.precoFinal > 0 && it.qtdFinal > 0 && (!mapa[it.ativo] || a.data > mapa[it.ativo].data)) mapa[it.ativo] = { preco: it.precoFinal, qtd: it.qtdFinal, data: a.data, origem: 'aporte' };
     });
+  });
+  // 27/09/2026: câmbio do dia da compra, pro Novo aporte mostrar o último
+  // pago também em reais (conversão do dia + conversão de hoje).
+  Object.keys(ultimasUsa).forEach(function (t) {
+    var u = ultimasUsa[t];
+    if (u && u.data) u.cambioDia = cambioNaDataAporte_(cambioHist, u.data);
   });
 
   var aux = ss.getSheetByName('Auxiliar_ativos');
@@ -191,18 +224,18 @@ function ativosParaAporte_(ss, abas, aportes) {
 // Resumo: quanto foi investido por mês (transações de verdade)
 // ---------------------------------------------------------------------------
 
-function resumoInvestidoComCache_(ss, abas) {
+function resumoInvestidoComCache_(ss, abas, cambioHist) {
   var chave = 'tx_resumo_v1_' + chaveDiaISOInicio_(new Date()) + '_' +
     ['transacoes', 'transacoesUsa', 'rendaFixa'].map(function (d) { return abas[d].itens.length; }).join('_');
   var cache = null;
   try { cache = CacheService.getScriptCache(); var v = cache.get(chave); if (v) return JSON.parse(v); } catch (e) { cache = null; }
-  var r = resumoInvestido_(ss, abas);
+  var r = resumoInvestido_(ss, abas, cambioHist);
   try { if (cache) cache.put(chave, JSON.stringify(r), 21600); } catch (e2) { /* só otimização */ }
   return r;
 }
 
 /** { 'aaaa-mm': { acoes, fiis, acoesEua, acoesEuaUsd, rendaFixa, total } } - só compras/aplicações. */
-function resumoInvestido_(ss, abas) {
+function resumoInvestido_(ss, abas, cambioHist) {
   var meses = {};
   var somar = function (data, classe, valor, usd) {
     if (!data || !(valor > 0)) return;
@@ -218,15 +251,11 @@ function resumoInvestido_(ss, abas) {
     var classe = classes[it.ticker] === 'fiis' || (!classes[it.ticker] && /11$/.test(it.ticker)) ? 'fiis' : 'acoes';
     somar(it.data, classe, (it.preco || 0) * (it.qtd || 0) + (it.taxa || 0));
   });
-  var mapaCambio = {}, chaves = [];
-  if (abas.transacoesUsa.itens.length && typeof mapasDoPatrimonioParaProventos_ === 'function') {
-    mapaCambio = mapasDoPatrimonioParaProventos_(ss).mapaCambioUsd; // Proventos.gs
-    chaves = Object.keys(mapaCambio).sort();
-  }
+  var ch = cambioHist || mapaCambioHistoricoAporte_(ss);
   abas.transacoesUsa.itens.forEach(function (it) {
     if (!/compra/i.test(it.tipo)) return;
     var usd = (it.preco || 0) * (it.qtd || 0) + (it.taxa || 0);
-    var cambio = chaves.length && typeof cambioUsdParaData_ === 'function' ? cambioUsdParaData_(mapaCambio, chaves, it.data) : null;
+    var cambio = cambioNaDataAporte_(ch, it.data);
     somar(it.data, 'acoesEua', usd * (cambio || 0), usd);
   });
   abas.rendaFixa.itens.forEach(function (it) {

@@ -375,22 +375,41 @@ function importarLancamentos_(itens, opcoes) {
  * [{ destino, data, ativo, tipo, qtd, preco, valor, moeda, inst }] das 5 abas.
  * `abas` opcional (reaproveita a leitura de quem chama).
  */
-function listaLancamentosTela_(ss, abas) {
+function listaLancamentosTela_(ss, abas, cambioHist) {
   var a = abas || lerAbasLanc_(ss, Object.keys(LANC_ABAS));
+  // 27/09/2026: câmbio do dia de cada lançamento em dólar (Transações -
+  // USA / Proventos - USA), pra tela de Lançamentos mostrar a conversão
+  // em reais sem recalcular no navegador (mesmo mapa de
+  // mapaCambioHistoricoAporte_, Aportes.gs - passado por quem já tem).
+  var ch = cambioHist || (typeof mapaCambioHistoricoAporte_ === 'function' ? mapaCambioHistoricoAporte_(ss) : null);
+  var cambioEm = function (data) { return ch && typeof cambioNaDataAporte_ === 'function' ? cambioNaDataAporte_(ch, data) : null; };
   var out = [];
   var arr = function (v, c) { return typeof v === 'number' ? Math.round(v * Math.pow(10, c)) / Math.pow(10, c) : null; };
   Object.keys(LANC_ABAS).forEach(function (d) {
     if (!a[d]) return;
     a[d].itens.forEach(function (it) {
       if (d === 'transacoes' || d === 'transacoesUsa') {
-        out.push({ destino: d, data: it.data, ativo: it.ticker, tipo: it.tipo, qtd: arr(it.qtd, 6), preco: arr(it.preco, 4),
-          valor: arr((it.qtd || 0) * (it.preco || 0), 2), taxa: arr(it.taxa, 4), moeda: d === 'transacoesUsa' ? 'USD' : 'BRL' });
+        var valor = arr((it.qtd || 0) * (it.preco || 0), 2);
+        var item = { destino: d, data: it.data, ativo: it.ticker, tipo: it.tipo, qtd: arr(it.qtd, 6), preco: arr(it.preco, 4),
+          valor: valor, taxa: arr(it.taxa, 4), moeda: d === 'transacoesUsa' ? 'USD' : 'BRL' };
+        if (d === 'transacoesUsa') {
+          var cambio = cambioEm(it.data);
+          item.cambio = cambio;
+          item.valorBRL = cambio != null && valor != null ? arr(valor * cambio, 2) : null;
+        }
+        out.push(item);
       } else if (d === 'rendaFixa') {
         out.push({ destino: d, data: it.data, ativo: it.produto, tipo: it.movimentacao, qtd: arr(it.qtd, 6), preco: arr(it.preco, 2),
           valor: arr(it.valor, 2), moeda: 'BRL', inst: it.instituicao });
       } else {
-        out.push({ destino: d, data: it.dataPagamento, dataCom: it.dataCom, ativo: it.ticker, tipo: it.tipo, qtd: arr(it.qtd, 6),
-          preco: arr(it.valorPorCota, 6), valor: arr(it.valor, 2), moeda: d === 'proventosUsa' ? 'USD' : 'BRL' });
+        var item2 = { destino: d, data: it.dataPagamento, dataCom: it.dataCom, ativo: it.ticker, tipo: it.tipo, qtd: arr(it.qtd, 6),
+          preco: arr(it.valorPorCota, 6), valor: arr(it.valor, 2), moeda: d === 'proventosUsa' ? 'USD' : 'BRL' };
+        if (d === 'proventosUsa') {
+          var cambioP = cambioEm(it.dataPagamento);
+          item2.cambio = cambioP;
+          item2.valorBRL = cambioP != null && item2.valor != null ? arr(item2.valor * cambioP, 2) : null;
+        }
+        out.push(item2);
       }
     });
   });
