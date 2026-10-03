@@ -5,8 +5,38 @@
  * (distribuicoes-metas.js). A leitura em si é aportes-calc.js!momentoAporte;
  * aqui ficam o HTML (um só, pras duas telas ficarem iguais) e os adaptadores
  * dos dados do Radar. Estilo: .momento* em shell.css.
+ *
+ * 03/10/2026: + metas de Metas e Objetivos (carregarMetasMomento: 1 busca por
+ * tela, com o cache 'metas'), preço x preço médio e sinais do motor de
+ * critérios (criterios/motor.js) - ver aportes-calc.js!momentoAporte.
  */
 import { momentoAporte, totalRanking } from './aportes-calc.js';
+import { getMetas } from '../api-client.js';
+import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { metasComCalculo } from '../metas-card.js';
+
+/**
+ * Metas de Metas e Objetivos pro momento (lista com `calc`), 1 busca por tela.
+ * aoChegar(metas) roda com o cache (na hora) e de novo com a resposta nova;
+ * falhou = null (o momento fica sem sinal de meta). Devolve a promessa.
+ */
+export function carregarMetasMomento(token, { getMetasImpl = getMetas, aoChegar = () => {}, lerCache = lerCacheDados, gravarCache = gravarCacheDados } = {}) {
+  return (async () => {
+    let metas = null;
+    try {
+      const c = await lerCache('metas');
+      if (c && c.dados && c.dados.ok) { metas = metasComCalculo(c.dados); aoChegar(metas); }
+    } catch (e) { /* sem cache */ }
+    let r = null;
+    try { r = getMetasImpl ? await getMetasImpl(token) : null; } catch (e) { r = null; }
+    if (r && r.ok) {
+      try { gravarCache('metas', r); } catch (e) { /* ok */ }
+      metas = metasComCalculo(r);
+      aoChegar(metas);
+    }
+    return metas;
+  })();
+}
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -33,7 +63,7 @@ export function momentoHtml(m, { visiveis = 3 } = {}) {
       <li class="momento-mais-li"><details class="momento-mais"><summary title="Ver os outros ${resto.length} sinais">+${resto.length}<span class="momento-sr"> sinais</span></summary><ul class="momento-sinais">${resto.map(sinalHtml).join('')}</ul></details></li>` : '';
   return `
     <div class="momento nivel-${m.nivel}">
-      <span class="momento-selo" title="Leitura dos seus critérios (preço-teto, % desejado, preço médio...). Não é recomendação."><i aria-hidden="true"></i>${esc(m.rotulo)}</span>
+      <span class="momento-selo" title="Leitura dos seus critérios (preço-teto, % desejado, preço médio, metas) e da análise de fundamentos. Não é recomendação."><i aria-hidden="true"></i>${esc(m.rotulo)}</span>
       <ul class="momento-sinais">${primeiros.map(sinalHtml).join('')}${mais}</ul>
     </div>`;
 }
@@ -52,8 +82,14 @@ export function ativoDoRadar(item, chaveTabela) {
     quantidade: num(item.carteiraAtual) > 0 ? 1 : 0, // o Radar não tem a quantidade; só importa se tem posição
     variacaoDia: num(item.variacaoDia),
     ultimoPago: null,
+    // 03/10/2026: pro motor de critérios - segmento/tipo do FII e os fundamentos (contrato, quando o Radar trouxer)
+    nome: item.nome || '',
+    segmento: item.segmento || '',
+    tipo: item.tipo || '',
+    dy: num(item.dy != null ? item.dy : item.dyPercentual),
+    fundamentos: item.fundamentos && typeof item.fundamentos === 'object' ? item.fundamentos : null,
     radar: {
-      ranking: num(item.ranking), pvp: num(item.pvp), pl: num(item.pl), descontoPl: typeof item.descontoPl === 'string' ? item.descontoPl : null,
+      ranking: num(item.ranking), pvp: num(item.pvp), pl: num(item.pl), tipo: item.tipo || null, segmento: item.segmento || null, descontoPl: typeof item.descontoPl === 'string' ? item.descontoPl : null,
       percentualDesejado: num(item.percentualDesejado), percentualAtual: num(item.percentualAtual), valorInvestir: num(item.valorInvestir),
     },
   };
@@ -86,6 +122,8 @@ export function metasDaDistribuicao(resposta) {
  * Momento de um item do Radar (tabela = acoesNacionais | acoesInternacionais | fiis).
  * itensDoBloco = o bloco inteiro (sem filtro de tipo de FII), pro "ranking X de N".
  */
-export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null) {
-  return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas, '', { totalRanking: totalRanking(itensDoBloco || [item]) });
+export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null, { metasObjetivos = null, cambio = null } = {}) {
+  return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas, '', {
+    totalRanking: totalRanking(itensDoBloco || [item]), metasObjetivos, cambio,
+  });
 }

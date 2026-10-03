@@ -360,6 +360,25 @@ export function coberturaDocumentos(arquivos, hoje) {
   return { fontes, mesesCobertos: todos, ultimoFechado };
 }
 
+/**
+ * 03/10/2026 (Tiago: "se eu for reimportar o que faltou, não reimportar o
+ * que já deu sucesso"): situação de um arquivo da lista do Drive
+ * (Gastos.gs!listarArquivosGastos_):
+ *  - 'importado' - entrou e não mudou desde então;
+ *  - 'falhou'    - a última tentativa deu erro, ou entrou com aviso (soma
+ *                  que não bate) - vai pro "Tentar de novo só os que falharam";
+ *  - 'novo'      - nunca foi tentado, ou mudou no Drive depois de importado.
+ */
+export function situacaoArquivoDrive(a) {
+  if (!a) return 'novo';
+  if (a.situacao === 'erro' || a.situacao === 'aviso') return 'falhou';
+  if (a.importado && a.alterado && a.problema) return 'falhou';
+  if (!a.importado || a.alterado) return 'novo';
+  return 'importado';
+}
+export const arquivosNovosDrive = (lista) => (lista || []).filter((a) => situacaoArquivoDrive(a) === 'novo');
+export const arquivosFalhosDrive = (lista) => (lista || []).filter((a) => situacaoArquivoDrive(a) === 'falhou');
+
 // ---------------------------------------------------------------------------
 // Essencial (aba Despesas) x real
 // ---------------------------------------------------------------------------

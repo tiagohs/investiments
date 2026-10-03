@@ -26,6 +26,10 @@
  *       SECUNDÁRIAS: 3. Snapshot do resumo diário — SnapshotResumoDiario.gs!gravarSnapshotResumoHoje_
  *                    4. Proventos FNet           — FnetProventos.gs!atualizarProventosAnunciadosFii_
  *                    5. Informes FNet            — FnetInformesFii.gs!atualizarInformesFiiFnet_
+ *                    6. Fundamentos              — Fundamentos.gs!atualizarFundamentos_
+ *                       (03/10/2026: Fundamentus/Yahoo 1x/dia, SEC 1x/semana, CVM
+ *                       1x/mês; para em ~4,5 min e a nova tentativa continua de
+ *                       onde parou - o que já está fresco é pulado)
  *     Deu certo -> agenda a próxima etapa pra daqui a 1 min. Falhou ->
  *     agenda NOVA TENTATIVA da mesma etapa pra daqui a 10 min (até 3
  *     tentativas por etapa — reagendar em vez de esperar dentro da
@@ -93,7 +97,8 @@ var AGENDA_ETAPAS_ = [
   { id: 'rendaFixaIndices', nome: 'Renda Fixa + Índices', principal: true },
   { id: 'snapshotResumo', nome: 'Snapshot do resumo diário', principal: false },
   { id: 'proventosFnet', nome: 'Proventos FNet', principal: false },
-  { id: 'informesFnet', nome: 'Informes FNet', principal: false }
+  { id: 'informesFnet', nome: 'Informes FNet', principal: false },
+  { id: 'fundamentos', nome: 'Fundamentos', principal: false } // 03/10/2026 (Fundamentos.gs)
 ];
 
 // ---------------------------------------------------------------------------
@@ -185,6 +190,8 @@ function etapaAgendaDiaria() {
 
   var idx = agendaIndiceEtapa_(estado.etapaAtual);
   var def = AGENDA_ETAPAS_[idx];
+  // 03/10/2026: estado gravado por uma versão sem esta etapa (ex.: "fundamentos")
+  if (!estado.etapas[def.id]) estado.etapas[def.id] = { status: 'pendente', tentativas: 0, ultimoErro: '', inicio: '', fim: '', detalhe: '' };
   var est = estado.etapas[def.id];
 
   // execução anterior desta etapa morreu no meio (quem disparou foi o vigia)
@@ -285,6 +292,13 @@ function agendaRodarJob_(id, est) {
       : atualizarInformesFiiFnet_('Automático');        // FnetInformesFii.gs
     return { ok: f.status !== 'Erro', detalhe: f.status + ' — ' + f.detalhe };
   }
+  if (id === 'fundamentos') {
+    // 03/10/2026: secundária. Acabou o tempo (sobrou ticker) -> conta como
+    // falha pra agenda tentar de novo em 10 min (continua de onde parou).
+    // Uma fonte fora do ar ("Atenção") não repete: amanhã tem de novo.
+    var fu = atualizarFundamentos_('Automático'); // Fundamentos.gs
+    return { ok: fu.status !== 'Erro' && !fu.porTempo, detalhe: fu.status + ' — ' + fu.detalhe };
+  }
   throw new Error('etapa desconhecida: ' + id);
 }
 
@@ -355,7 +369,7 @@ function agendaNovoEstado_(dia) {
 function agendaAvancar_(estado, idx, agora) {
   var prox = idx + 1;
   if (prox >= AGENDA_ETAPAS_.length) {
-    var falhas = AGENDA_ETAPAS_.filter(function (d) { return estado.etapas[d.id].status === 'falhou'; })
+    var falhas = AGENDA_ETAPAS_.filter(function (d) { return estado.etapas[d.id] && estado.etapas[d.id].status === 'falhou'; })
       .map(function (d) { return d.nome; });
     estado.situacao = 'concluida';
     estado.proximaExecucao = '';
@@ -384,6 +398,7 @@ function agendaFalhaFinal_(estado, idx, agora) {
   }
   var puladas = [];
   for (var i = idx + 1; i < AGENDA_ETAPAS_.length; i++) {
+    if (!estado.etapas[AGENDA_ETAPAS_[i].id]) estado.etapas[AGENDA_ETAPAS_[i].id] = { status: '', tentativas: 0, ultimoErro: '', inicio: '', fim: '', detalhe: '' };
     estado.etapas[AGENDA_ETAPAS_[i].id].status = 'pulada';
     puladas.push(AGENDA_ETAPAS_[i].nome);
   }

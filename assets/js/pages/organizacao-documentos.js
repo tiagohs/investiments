@@ -1,6 +1,6 @@
 /**
  * organizacao-documentos.js - 03/10/2026: painel "Documentos" da Organização
- * Financeira (no topo da página, valendo pras 3 abas).
+ * Financeira (no topo da página, valendo pras 4 abas - inclusive Simulações).
  *
  * Tiago: "eu tenho que saber quais documentos preciso enviar mensalmente ou
  * de vez em quando, e o que dá pra ser automatizado" e "Me mostre quais
@@ -25,9 +25,40 @@
  *   // cada fonte: a resposta da API, null (não veio) ou undefined (carregando)
  *   // aoAcao(acao, extra): 'ir-drive' | 'pdfs' (extra = arquivos) |
  *   //   'holerite' (extra = arquivo) | 'gastos-novos' | 'gastos' | 'ir-sem-drive'
+ *
+ * 03/10/2026 (Tiago: "sempre dê a opção de enviar algum doc manualmente
+ * também"): TODO item tem "Enviar arquivo" (mesmo os que chegam do Drive),
+ * que usa o mesmo leitor do site: IR, FGTS, Carteira de Trabalho, Caixa e
+ * FIES -> importação do Patrimônio ('pdfs'); holerite -> Renda ('holerite');
+ * fatura/extrato (PDF, CSV ou OFX) -> Gastos (abre a aba com 'gastos' e
+ * manda os arquivos pelo evento 'organizacao:gastos-arquivos', que a seção
+ * Gastos escuta); extrato da B3 -> Transações › Lançamentos (link).
  */
 import { documentosRenda } from './renda-calc.js';
-import { coberturaDocumentos, NOME_FONTE } from './gastos-calc.js';
+import { coberturaDocumentos, NOME_FONTE, arquivosNovosDrive, arquivosFalhosDrive } from './gastos-calc.js';
+
+/** Evento que a seção Gastos (organizacao-gastos.js) escuta no document pra importar arquivos do computador. */
+export const EVENTO_ARQUIVOS_GASTOS = 'organizacao:gastos-arquivos';
+const PDF = 'application/pdf,.pdf';
+const GASTOS_ACEITA = 'application/pdf,.pdf,.csv,.ofx,text/csv';
+const LANCAMENTOS_B3 = '../transacoes/index.html#lancamentos';
+
+/**
+ * 03/10/2026: "Enviar arquivo" de cada documento - pra onde vai e o que o
+ * seletor aceita. `href`: não é arquivo daqui (vai pra outra tela).
+ */
+export const ENVIO_DOCUMENTO = {
+  ir: { destino: 'pdfs', accept: PDF, multiplo: true },
+  holerite: { destino: 'holerite', accept: PDF },
+  faturas: { destino: 'gastos-arquivos', accept: GASTOS_ACEITA, multiplo: true },
+  extratos: { destino: 'gastos-arquivos', accept: GASTOS_ACEITA, multiplo: true },
+  fgts: { destino: 'pdfs', accept: PDF, multiplo: true },
+  ctps: { destino: 'pdfs', accept: PDF },
+  caixa: { destino: 'pdfs', accept: PDF },
+  fies: { destino: 'pdfs', accept: PDF },
+  b3: { href: LANCAMENTOS_B3, rotulo: 'Enviar extrato' },
+  investimentos: { href: LANCAMENTOS_B3, rotulo: 'Enviar extrato da B3' },
+};
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -67,16 +98,20 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   const hojeIso = isoDe(hoje || new Date());
   const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso);
   const fontes = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
-  const novos = gastosDrive && Array.isArray(gastosDrive.arquivos)
-    ? gastosDrive.arquivos.filter((a) => (!a.importado || a.alterado) && (cartao ? /cart[aã]o/i.test(a.caminho || '') : /extrato/i.test(a.caminho || ''))).length
-    : 0;
+  // 03/10/2026: "novo" = nunca tentado ou mudou no Drive; o que falhou conta à parte (gastos-calc.js)
+  const daPasta = gastosDrive && Array.isArray(gastosDrive.arquivos)
+    ? gastosDrive.arquivos.filter((a) => (cartao ? /cart[aã]o/i.test(a.caminho || '') : /extrato/i.test(a.caminho || '')))
+    : [];
+  const novos = arquivosNovosDrive(daPasta).length;
+  const falhos = arquivosFalhosDrive(daPasta).length;
+  const comFalhos = (txt) => (falhos ? `${txt} · ${falhos} com problema` : txt);
   const proxMes = mesDe(hojeIso);
   const proximo = cartao ? `fatura de ${rotMes(proxMes)} (a que vence este mês)` : `extrato de ${rotMes(cob.ultimoFechado)} (o mês que fechou)`;
   if (!fontes.length) {
     return {
       ...base, ultimo: null, estado: novos ? 'atencao' : 'falta',
-      proximo: novos ? `${novos} no Drive esperando` : 'importe pelo menos os últimos 12 meses',
-      acao: { id: novos ? 'gastos-novos' : 'gastos', rotulo: novos ? `Importar ${novos} do Drive` : 'Abrir Gastos' },
+      proximo: comFalhos(novos ? `${novos} no Drive esperando` : 'importe pelo menos os últimos 12 meses'),
+      acao: { id: novos ? 'gastos-novos' : 'gastos', rotulo: novos ? `Importar ${novos} do Drive` : (falhos ? 'Ver os que falharam' : 'Abrir Gastos') },
       detalhe: gastos === null ? 'os gastos não carregaram agora' : null,
     };
   }
@@ -93,8 +128,8 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   if (estado === 'ok' && novos) estado = 'atencao';
   return {
     ...base, estado, ultimo: partes.join(' · '),
-    proximo: novos ? `${novos} ${novos === 1 ? 'novo' : 'novos'} no Drive · ${proximo}` : (pior === 'ok' ? proximo : `faltam meses (${faltam}) - ${proximo}`),
-    acao: novos ? { id: 'gastos-novos', rotulo: `Importar ${novos} ${novos === 1 ? 'novo' : 'novos'}` } : (pior !== 'ok' ? { id: 'gastos', rotulo: 'Ver meses que faltam' } : null),
+    proximo: comFalhos(novos ? `${novos} ${novos === 1 ? 'novo' : 'novos'} no Drive · ${proximo}` : (pior === 'ok' ? proximo : `faltam meses (${faltam}) - ${proximo}`)),
+    acao: novos ? { id: 'gastos-novos', rotulo: `Importar ${novos} ${novos === 1 ? 'novo' : 'novos'}` } : (pior !== 'ok' ? { id: 'gastos', rotulo: 'Ver meses que faltam' } : (falhos ? { id: 'gastos', rotulo: 'Ver os que falharam' } : null)),
   };
 }
 
@@ -214,11 +249,19 @@ function htmlLinha(x) {
       ? `<a class="og-doc-btn${x.estado === 'ok' ? ' leve' : ''}" href="${esc(x.acao.href)}">${esc(x.acao.rotulo)}</a>`
       : `<button type="button" class="og-doc-btn${x.estado === 'ok' || x.estado === 'opcional' ? ' leve' : ''}" data-doc-acao="${esc(x.acao.id)}" data-doc="${esc(x.id)}">${esc(x.acao.rotulo)}</button>`)
     : '';
+  // 03/10/2026: "Enviar arquivo" em todo item - só some quando a ação principal já É o envio
+  const envio = ENVIO_DOCUMENTO[x.id];
+  const principalEhEnvio = !!(x.acao && envio && ((envio.destino && x.acao.id === envio.destino) || (envio.href && x.acao.href === envio.href)));
+  const enviar = envio && !principalEhEnvio
+    ? (envio.href
+      ? `<a class="og-doc-btn leve og-doc-enviar" href="${esc(envio.href)}">${esc(envio.rotulo || 'Enviar arquivo')}</a>`
+      : `<button type="button" class="og-doc-btn leve og-doc-enviar" data-doc-enviar="${esc(x.id)}">Enviar arquivo</button>`)
+    : '';
   return `<li class="og-doc est-${esc(x.estado)}" data-doc-id="${esc(x.id)}">
       <span class="og-doc-st" title="${esc(rot)}" aria-hidden="true">${SIMBOLO[x.estado] || '·'}</span>
       <div class="og-doc-n"><b>${esc(x.nome)}</b>${chip}<small>${esc(x.como)}</small></div>
       <div class="og-doc-q"><span class="og-doc-est">${esc(rot)}</span>${x.ultimo ? `<span>último: <b>${esc(x.ultimo)}</b></span>` : (x.automatico ? '' : '<span class="og-doc-fraco">o site não guarda a data deste</span>')}${x.proximo ? `<span>${esc(x.proximo)}</span>` : ''}${x.detalhe ? `<span class="og-doc-fraco">${esc(x.detalhe)}</span>` : ''}</div>
-      <div class="og-doc-a">${acao}</div>
+      <div class="og-doc-a">${acao}${enviar}</div>
     </li>`;
 }
 
@@ -249,7 +292,8 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
     </button>
     <div class="og-docs-lista" id="ogDocsLista"${aberto ? '' : ' hidden'}></div>
     <input type="file" id="ogDocsPdf" accept="application/pdf,.pdf" multiple hidden>
-    <input type="file" id="ogDocsHolerite" accept="application/pdf,.pdf" hidden>`;
+    <input type="file" id="ogDocsHolerite" accept="application/pdf,.pdf" hidden>
+    <input type="file" id="ogDocsEnviar" hidden>`;
   const barra = raiz.querySelector('.og-docs-barra');
   const lista = raiz.querySelector('.og-docs-lista');
 
@@ -265,7 +309,37 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
   raiz.classList.toggle('aberto', aberto);
   barra.addEventListener('click', () => abrir(!aberto));
   const avisar = (acao, extra) => { if (typeof aoAcao === 'function') aoAcao(acao, extra); };
+  let enviarPara = null; // id do documento do último "Enviar arquivo"
+  function mensagem(texto) {
+    let m = lista.querySelector('.og-docs-msg');
+    if (!m) { m = doc.createElement('p'); m.className = 'og-nota og-docs-msg'; m.setAttribute('role', 'status'); lista.prepend(m); }
+    m.textContent = texto;
+  }
+  /** Arquivos escolhidos no "Enviar arquivo" -> o leitor do site daquele documento. */
+  function enviarArquivos(id, arqs) {
+    const envio = ENVIO_DOCUMENTO[id];
+    if (!envio || !arqs.length) return;
+    if (envio.destino === 'holerite') { avisar('holerite', arqs[0]); return; }
+    if (envio.destino === 'pdfs') { avisar('pdfs', arqs); return; }
+    if (envio.destino === 'gastos-arquivos') {
+      avisar('gastos', { doc: id }); // abre Gastos e Despesas (monta a seção Gastos)
+      const ev = new win.CustomEvent(EVENTO_ARQUIVOS_GASTOS, { detail: { arquivos: arqs, doc: id, recebido: false } });
+      doc.dispatchEvent(ev);
+      if (!ev.detail.recebido) mensagem('Não deu pra abrir os Gastos agora - importe em Gastos e Despesas › Gastos › "Importar do computador".');
+    }
+  }
   lista.addEventListener('click', (ev) => {
+    const env = ev.target.closest('[data-doc-enviar]');
+    if (env) {
+      const envio = ENVIO_DOCUMENTO[env.dataset.docEnviar];
+      if (!envio) return;
+      const inp = raiz.querySelector('#ogDocsEnviar');
+      enviarPara = env.dataset.docEnviar;
+      inp.accept = envio.accept || '';
+      inp.multiple = !!envio.multiplo;
+      inp.click(); // no MESMO clique (o navegador exige um gesto do usuário)
+      return;
+    }
     const b = ev.target.closest('[data-doc-acao]');
     if (!b) return;
     const acao = b.dataset.docAcao;
@@ -281,6 +355,7 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
     if (!arqs.length) return;
     if (t.id === 'ogDocsPdf') avisar('pdfs', arqs);
     else if (t.id === 'ogDocsHolerite') avisar('holerite', arqs[0]);
+    else if (t.id === 'ogDocsEnviar') { const id = enviarPara; enviarPara = null; enviarArquivos(id, arqs); }
   });
 
   return {
@@ -294,6 +369,7 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
       return r;
     },
     abrir,
+    enviarArquivos,
     get resumo() { return r; },
   };
 }

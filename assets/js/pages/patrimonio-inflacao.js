@@ -722,7 +722,9 @@ export function montarPatrimonioVsInflacao(raiz, { patrimonio, ctx = null, doc =
     try {
       const da = dadosAnalise(est.r, b);
       const periodoAnalise = !est.r.cortadoDe && typeof est.periodo === 'string' && ['12m', '3a', 'tudo'].includes(est.periodo) ? est.periodo : { inicio: est.r.dataDe, fim: est.r.dataAte };
-      const an = analisarSerie({ serie: da.serie, indices: da.indices, periodo: periodoAnalise, nome: 'O patrimônio líquido (sem aportes)', componentes: da.componentes, indiceReferencia: 'IPCA' });
+      // 03/10/2026 (base de critérios de rentabilidade): classe 'patrimonio' -
+      // a régua é o poder de compra (IPCA), com prazo mínimo pra concluir
+      const an = analisarSerie({ serie: da.serie, indices: da.indices, periodo: periodoAnalise, nome: 'O patrimônio líquido (sem aportes)', componentes: da.componentes, indiceReferencia: 'IPCA', classe: 'patrimonio' });
       renderAnalise(D, $('.pi-analise'), an);
     } catch (e) { $('.pi-analise').innerHTML = ''; }
     const metaAporte = est.ctx && num(est.ctx.aporteMeta) ? est.ctx.aporteMeta : (est.patrimonio && est.patrimonio.metas && num(est.patrimonio.metas.aporteMeta) ? est.patrimonio.metas.aporteMeta : null);

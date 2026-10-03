@@ -13,12 +13,19 @@
  * carregarMetasParaCard já injeta assets/css/metas.css na página (o card usa
  * as classes .mt-*). Sem meta de renda passiva, `rendaPassiva` vem null - a
  * tela decide se mostra um convite ("Criar meta" -> urlMetas()).
+ *
+ * 03/10/2026 (Tiago: "'Metas da Carteira', presente na tela 'Acompanhamento
+ * de Ativos', precisa estar linkada às metas presentes em 'Metas e
+ * Objetivos'; clicando nela, sou jogado pra tela de detalhe da meta"): cada
+ * card de lá acha a sua meta por TIPO (metaPrincipalDoTipo - não existe campo
+ * de origem ligando a meta à planilha) e, sem meta, leva pro assistente já
+ * aberto e preenchido (urlNovaMeta -> metas.html#nova=<tipo>).
  */
 
 import { getMetas } from './api-client.js';
 import { formatBRL } from './format.js';
 import { resolveSiteRootUrl } from './shell.js';
-import { calcularMeta, aparenciaMeta, rotuloMes, STATUS_META } from './pages/metas-calc.js';
+import { calcularMeta, aparenciaMeta, rotuloMes, STATUS_META, TIPOS_META, explicarStatus } from './pages/metas-calc.js';
 
 /** Ícones (traço 1.8, viewBox 24) - um por tipo/categoria de meta. */
 const ICONES = {
@@ -85,14 +92,63 @@ export function pct(fracao, casas = 0) {
   return `${(fracao * 100).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
 }
 
-export function statusPillHtml(status) {
+export function statusPillHtml(status, meta = null) {
   const s = STATUS_META[status] || STATUS_META['sem-prazo'];
-  return `<span class="mt-status ${s.classe}">${s.rotulo}</span>`;
+  // 03/10/2026: a explicação do status vai no title (hover) - a tela de Metas usa statusComDicaHtml (toque/teclado)
+  const exp = meta ? explicarStatus(status, meta) : (s.explicacao || '');
+  return `<span class="mt-status ${s.classe}"${exp ? ` title="${escHtml(exp)}"` : ''}>${s.rotulo}</span>`;
+}
+
+/**
+ * 03/10/2026 (Tiago: "me explique as coisas com toast aqui e em qualquer
+ * outro lugar"): botão "i" acessível - a página liga com ligarDicasMetas
+ * (pages/metas.js): toque/clique/Enter abre a explicação num balão; Esc fecha.
+ */
+export function infoHtml(texto, { rotulo = 'O que é isso?' } = {}) {
+  if (!texto) return '';
+  return `<button type="button" class="mt-info" data-dica="${escHtml(texto)}" aria-label="${escHtml(rotulo)}" aria-expanded="false"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg></button>`;
+}
+
+/** Status + o "i" com a explicação (o texto da renda passiva é próprio). */
+export function statusComDicaHtml(status, meta = {}) {
+  const s = STATUS_META[status] || STATUS_META['sem-prazo'];
+  return `<span class="mt-status-dica">${statusPillHtml(status, meta)}${infoHtml(explicarStatus(status, meta), { rotulo: `O que significa "${s.rotulo}"?` })}</span>`;
 }
 
 /** Endereço do detalhe de uma meta (funciona de qualquer pasta do site). */
 export function urlMetas(id = '', { raizSite = resolveSiteRootUrl() } = {}) {
   return new URL(`metas.html${id ? `#meta=${encodeURIComponent(id)}` : ''}`, raizSite).href;
+}
+
+/**
+ * 03/10/2026: card de "Metas da carteira" (Acompanhamento de Ativos) -> tipo
+ * de meta em Metas e Objetivos. Patrimônio (patrimônio desejado da planilha,
+ * o cálculo FIRE) é a meta de aposentadoria.
+ */
+export const TIPO_META_DA_CARTEIRA = Object.freeze({ rendaPassiva: 'rendaPassiva', patrimonio: 'aposentadoria', rendaEmergencial: 'reservaEmergencia' });
+
+/**
+ * A meta "principal" de um tipo: a marcada "mostrar em Carteiras", senão a 1ª
+ * (ativas antes de pausadas; arquivada nunca).
+ */
+export function metaPrincipalDoTipo(metas, tipo) {
+  const doTipo = (metas || []).filter((m) => m && m.tipo === tipo && m.status !== 'arquivada');
+  const ativas = doTipo.filter((m) => m.status !== 'pausada');
+  return ativas.find((m) => m.exibirNaCarteira) || ativas[0] || doTipo.find((m) => m.exibirNaCarteira) || doTipo[0] || null;
+}
+
+/** 'rendaPassiva' <-> 'renda-passiva' (o que vai no endereço metas.html#nova=). */
+export function slugTipoMeta(tipo) {
+  return String(tipo || '').replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+}
+export function tipoMetaDoSlug(slug) {
+  const t = String(slug || '').trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  return Object.prototype.hasOwnProperty.call(TIPOS_META, t) ? t : null;
+}
+
+/** Endereço que abre o assistente de Nova meta já no tipo, com os números da planilha. */
+export function urlNovaMeta(tipo, { raizSite = resolveSiteRootUrl() } = {}) {
+  return new URL(`metas.html#nova=${encodeURIComponent(slugTipoMeta(tipo))}`, raizSite).href;
 }
 
 /** Põe assets/css/metas.css na página uma vez só (telas que não carregam a folha). */
@@ -111,6 +167,7 @@ export function contextoMetas(resposta) {
   return {
     ativos: resposta.ativos || [], cambio: resposta.cambio || {}, referencias: resposta.referencias || {},
     proventos12m: resposta.proventos12m || {}, hoje: resposta.hoje,
+    historico: resposta.historicoResumo || {}, // 03/10/2026: aporte real (Metas.gs, cache do metasHistorico)
   };
 }
 
@@ -123,10 +180,15 @@ export async function carregarMetasParaCard(token, { getMetasImpl = getMetas, do
   garantirEstiloMetas(doc);
   const resposta = await getMetasImpl(token);
   if (!resposta || !resposta.ok) return { ok: false, erro: resposta ? resposta.erro : 'sem resposta', metas: [], rendaPassiva: null };
+  const metas = metasComCalculo(resposta);
+  return { ok: true, metas, rendaPassiva: metaPrincipalDoTipo(metas, 'rendaPassiva'), resposta };
+}
+
+/** As metas ativas da resposta do GET metas, cada uma com `calc`. */
+export function metasComCalculo(resposta) {
+  if (!resposta || !resposta.ok) return [];
   const ctx = contextoMetas(resposta);
-  const metas = (resposta.metas || []).map((m) => ({ ...m, calc: calcularMeta(m, ctx) }));
-  const rps = metas.filter((m) => m.tipo === 'rendaPassiva');
-  return { ok: true, metas, rendaPassiva: rps.find((m) => m.exibirNaCarteira) || rps[0] || null, resposta };
+  return (resposta.metas || []).map((m) => ({ ...m, calc: calcularMeta(m, ctx) }));
 }
 
 /**
@@ -144,7 +206,7 @@ export function cardMetaRendaPassiva(meta, { raizSite } = {}) {
   <header class="mt-card-rp-cab">
     ${seloMetaHtml(meta, { tamanho: 32 })}
     <div class="mt-card-rp-tit"><span class="mt-eyebrow">Meta de renda passiva</span><strong>${escHtml(meta.nome)}</strong></div>
-    ${statusPillHtml(c.status)}
+    ${statusPillHtml(c.status, meta)}
   </header>
   <div class="mt-card-rp-numeros">
     <div><span class="mt-rot">Renda média (12 meses)</span><span class="mt-num">${valorGrandeHtml(r.atual)}<small>/mês</small></span></div>

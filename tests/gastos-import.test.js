@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   valorBR, limparDescricao, parcelaDe, identificarDocumentoGasto, lerFaturaNubank, lerFaturaOurocard, lerExtratoNubank,
-  lerExtratoBradesco, lerCsvGastos, lerOfxGastos, lerDocumentoGasto, mesesDoDocumento, mesmoNome, tipoMovimentoConta,
+  lerExtratoBradesco, lerCsvGastos, lerOfxGastos, lerDocumentoGasto, mesesDoDocumento, mesmoNome, tipoMovimentoConta, linhasDeItens,
 } from '../assets/js/pages/gastos-import.js';
 
 const FATURA_NU = [
@@ -200,4 +200,182 @@ test('auxiliares: valor BR, limpeza de descrição, parcela, mesmo nome, tipo de
   assert.equal(tipoMovimentoConta('PAGTO CARTAO CREDITO', 'saida'), 'pagamento_fatura');
   assert.ok(lerDocumentoGasto(['qualquer coisa']).erro);
   assert.equal(identificarDocumentoGasto(['nada aqui'], { origem: 'cartao', banco: 'OuroCard' }), 'ourocard', 'a pasta do Drive ajuda');
+});
+
+// ---------------------------------------------------------------------------
+// 03/10/2026: formatos reais que falhavam (linhas INVENTADAS no mesmo formato)
+// ---------------------------------------------------------------------------
+
+// Nubank até 2023: sem "R$", pagamento POSITIVO ("Pagamento em ..."), parcela "- 2/3"
+const FATURA_NU_ANTIGA = [
+  'Olá, Fulano!', 'Esta é a sua fatura de', 'abril, no valor de', 'R$ 300,00', 'Data do vencimento: 11 ABR 2023',
+  'FULANO DE TAL', 'FATURA  11 ABR 2023  EMISSÃO E ENVIO  04 ABR 2023',
+  'RESUMO DA FATURA ATUAL  VALORES EM R$', 'Fatura anterior  100,00', 'Pagamentos recebidos  250,00', 'Total de compras, 04 MAR a 04 ABR  450,00', 'Total a pagar  R$ 300,00',
+  '3 de 5', 'FULANO DE TAL', 'FATURA  11 ABR 2023  EMISSÃO E ENVIO  04 ABR 2023',
+  'TRANSAÇÕES  DE 04 MAR A 04 ABR  VALORES EM R$',
+  '04 MAR  Loja Inventada - 2/3  150,00',
+  '04 MAR  Pagamento em 04 MAR  100,00',
+  '15 MAR  Pagamento em 15 MAR  150,00',
+  '28 MAR  Mercado Exemplo  200,00',
+  '4 de 5', 'FULANO DE TAL', 'FATURA  11 ABR 2023  EMISSÃO E ENVIO  04 ABR 2023', 'TRANSAÇÕES  DE 04 MAR A 04 ABR  VALORES EM R$',
+  '02 ABR  Streaming Teste  100,00',
+  '5 de 5',
+];
+
+test('Nubank cartão (formato até 2023): sem "R$", pagamento positivo vira crédito, parcela "- 2/3", soma confere', () => {
+  assert.equal(identificarDocumentoGasto(FATURA_NU_ANTIGA), 'nubank-cartao');
+  const f = lerFaturaNubank(FATURA_NU_ANTIGA);
+  assert.deepEqual([f.mes, f.vencimento, f.total], ['2023-04', '2023-04-11', 300]);
+  assert.equal(f.lancamentos.length, 5, JSON.stringify(f.avisos));
+  const pags = f.lancamentos.filter((l) => l.tipo === 'pagamento_fatura');
+  assert.deepEqual(pags.map((l) => l.valor), [-100, -150]);
+  assert.equal(f.lancamentos[0].parcela, '2/3');
+  assert.equal(f.lancamentos[0].data, '2023-03-04');
+  assert.equal(f.conferencia.ok, true, JSON.stringify(f.conferencia));
+});
+
+// Nubank atual: "−R$", "•••• 1234", data numa linha e o resto na de baixo,
+// compra em dólar com a descrição ACIMA da linha "data  valor", subtotal por
+// titular, IOF de compras internacionais no resumo e a seção "Pagamentos".
+const FATURA_NU_ATUAL = [
+  'Olá, Fulano. Esta é a sua fatura de setembro, no valor de R$ 1.000,00', 'Data de vencimento: 11 SET 2026',
+  'Parcelar em 6 meses', 'Total a pagar  R$ 1.500,00  R$ 1.600,00',
+  'FULANO DE TAL', 'FATURA 11 SET 2026 EMISSÃO E ENVIO 04 SET 2026',
+  'RESUMO DA FATURA ATUAL', 'Fatura anterior  R$ 500,00', 'Pagamento recebido  −R$ 500,00',
+  'Total de compras de todos os cartões, 04 AGO a 04 SET  R$ 1.110,00', 'IOF de compras internacionais  -R$ 0,50', 'Outros lançamentos  −R$ 109,55',
+  'Total a pagar  R$ 999,95', '4 de 8',
+  'FULANO DE TAL', 'FATURA 11 SET 2026 EMISSÃO E ENVIO 04 SET 2026',
+  'TRANSAÇÕES DE 04 AGO A 04 SET', 'Fulano De Tal  R$ 1.000,00',
+  '04 AGO', '•••• 1111 Loja Inventada - Parcela 3/4  R$ 100,00',
+  '04 AGO  Ajuste a crédito  −R$ 10,00',
+  '05 AGO', 'Mercado Exemplo - NuPay  R$ 200,00',
+  '•••• 1111 Site Gringo',
+  '11 AGO  R$ 527,00',
+  'USD 100.00  Conversão: USD 1 = R$ 5,27',
+  '11 AGO  IOF de "Site Gringo"  R$ 18,45',
+  '11 AGO  Crédito de "Site Gringo"  −R$ 117,95',
+  '20 AGO  •••• 2222 Restaurante Teste  R$ 282,95',
+  '5 de 8', 'FULANO DE TAL', 'FATURA 11 SET 2026 EMISSÃO E ENVIO 04 SET 2026', 'TRANSAÇÕES DE 04 AGO A 04 SET',
+  '03 SET  IOF de volta de Site Gringo  −R$ 0,50',
+  'Pagamentos  -R$ 500,00', '05 AGO  Pagamento em 05 AGO  −R$ 500,00',
+  'Em cumprimento à regulação do Banco Central, as suas operações de crédito...',
+];
+
+test('Nubank cartão (formato atual): menos tipográfico, final do cartão fora, data em linha separada, dólar, subtotal do titular ignorado, soma confere', () => {
+  const f = lerFaturaNubank(FATURA_NU_ATUAL);
+  assert.equal(f.total, 999.95, 'o "Total a pagar" do resumo, não o da simulação de parcelamento');
+  assert.equal(f.lancamentos.length, 9, JSON.stringify(f.lancamentos.map((l) => l.descricao)));
+  const por = (re) => f.lancamentos.find((l) => re.test(l.descricao));
+  assert.equal(por(/Loja Inventada/).descricao, 'Loja Inventada - Parcela 3/4', 'sem o "•••• 1111"');
+  assert.equal(por(/Loja Inventada/).parcela, '3/4');
+  assert.equal(por(/Ajuste/).valor, -10);
+  assert.equal(por(/Mercado/).data, '2026-08-05');
+  const gringo = por(/^Site Gringo$/);
+  assert.deepEqual([gringo.valor, gringo.moeda, gringo.valorOriginal, gringo.data], [527, 'USD', 100, '2026-08-11']);
+  assert.equal(por(/^Pagamento em/).valor, -500);
+  assert.ok(!f.lancamentos.some((l) => /Fulano/i.test(l.descricao)), 'subtotal do titular não é lançamento');
+  assert.equal(f.conferencia.ok, true, JSON.stringify(f.conferencia));
+});
+
+/**
+ * Itens "do pdf.js" (com posição) de uma fatura no layout do BB, INVENTADA:
+ * cada letra é um item separado (a fonte que o pdf.js quebra), a caixa
+ * "Vencimento:" tem a data EMBAIXO, e o "Detalhamento da Fatura" tem 2
+ * painéis lado a lado (as linhas da esquerda e da direita na mesma altura).
+ */
+function faturaBbItens() {
+  const L = 3; // largura de cada letra
+  const itens1 = []; const itens2 = []; const itens3 = [];
+  const txt = (lista, x, y, s) => { [...s].forEach((ch, k) => lista.push({ s: ch, x: x + k * L, y, w: L })); };
+  const dir = (lista, x, y, s) => txt(lista, x - s.length * L, y, s); // alinhado à direita
+  // página 1
+  txt(itens1, 300, 780, 'Cartão: Smiles Visa / N° 0000 **** **** 0000');
+  txt(itens1, 320, 755, 'Vencimento:'); txt(itens1, 440, 756, 'Melhor data de compra: 23/01/2026');
+  txt(itens1, 340, 738, '05/01/2026'); txt(itens1, 440, 744, 'Sua próxima fatura fechará no dia:');
+  txt(itens1, 480, 730, '22/01/2026');
+  txt(itens1, 310, 712, 'R$'); txt(itens1, 340, 712, 'Valor Total:');
+  dir(itens1, 400, 695, '262,00');
+  txt(itens1, 40, 640, 'Resumo em Real');
+  txt(itens1, 40, 625, 'Saldo anterior'); dir(itens1, 185, 625, '300,00');
+  txt(itens1, 40, 615, 'Pagamentos/Créditos'); txt(itens1, 150, 615, '-'); dir(itens1, 185, 615, '300,00');
+  txt(itens1, 40, 605, 'Compras/Débitos'); dir(itens1, 185, 605, '262,00');
+  txt(itens1, 40, 585, 'Valor Total - R$'); dir(itens1, 185, 585, '262,00');
+  txt(itens1, 250, 285, 'Data de Vencimento'); txt(itens1, 40, 277, '0000000000'); txt(itens1, 250, 277, '05/01/2026');
+  // página 2: 2 painéis (x 20 e x 400)
+  const lin = (lista, x0, y, d, desc, cidade, pais, moeda, valor) => {
+    txt(lista, x0, y, d); txt(lista, x0 + 25, y, desc); if (cidade) txt(lista, x0 + 160, y, cidade);
+    if (pais) txt(lista, x0 + 260, y, pais); txt(lista, x0 + 280, y, moeda); dir(lista, x0 + 360, y, valor);
+  };
+  [20, 400].forEach((x0) => { txt(itens2, x0, 760, 'Detalhamento da Fatura'); txt(itens2, x0, 748, 'Data'); txt(itens2, x0 + 25, 748, 'Transações'); txt(itens2, x0 + 280, 748, 'Moeda'); });
+  txt(itens2, 45, 736, '01- FULANO DE TAL'); txt(itens2, 150, 736, 'Cartao N. 0000');
+  txt(itens2, 45, 727, 'Pagamentos');
+  lin(itens2, 20, 718, '26/11', 'PGTO. CASH AG. 1234 000099999 200', '', '10', 'R$', '300,00 -');
+  txt(itens2, 45, 709, 'Restaurantes');
+  lin(itens2, 20, 700, '23/11', 'RESTAURANTE INVENTADO', 'CIDADE A', 'BR', 'R$', '100,00');
+  lin(itens2, 20, 691, '08/12', 'ifood  *ifood', 'Vila Teste', 'BR', 'R$', '40,00');
+  // painel da direita, nas MESMAS alturas
+  txt(itens2, 425, 736, 'Compras/Pgto Contas Parc');
+  lin(itens2, 400, 727, '27/03', 'LOJA TESTE', 'PARC 09/12 CIDADE B', 'BR', 'R$', '70,00');
+  txt(itens2, 425, 718, 'Anuidades');
+  lin(itens2, 400, 709, '20/12', 'ANUIDADE DIFERENCIADA TIT-PARC 02/12', '', 'BR', 'R$', '52,00');
+  txt(itens2, 580, 700, 'Subtotal'); txt(itens2, 680, 700, 'R$'); dir(itens2, 760, 700, '262,00');
+  txt(itens2, 680, 691, 'US$'); dir(itens2, 760, 691, '0,00');
+  // página 3: parcelamentos da PRÓXIMA fatura (não entram)
+  [20, 400].forEach((x0) => txt(itens3, x0, 760, 'Detalhamento da Fatura'));
+  txt(itens3, 45, 740, 'Parcelamentos Próxima Fatura');
+  lin(itens3, 20, 731, '27/03', 'LOJA TESTE PARC 10/12', 'CIDADE B', '', 'R$', '70,00');
+  txt(itens3, 120, 722, 'Total parcelado para próxima fatura'); txt(itens3, 300, 722, 'R$'); dir(itens3, 380, 722, '70,00');
+  return [{ itens: itens1 }, { itens: itens2 }, { itens: itens3 }];
+}
+
+test('posição do pdf.js: letras soltas viram palavras e os 2 painéis do BB viram linhas separadas', () => {
+  const pags = faturaBbItens();
+  const simples = linhasDeItens(pags);
+  assert.ok(simples.includes('Vencimento:  Melhor data de compra: 23/01/2026'), simples.slice(0, 6).join(' | '));
+  // sem separar os painéis, um lançamento gruda no outro
+  assert.ok(simples.some((l) => /^23\/11 .*100,00\s+08\/12|^26\/11 .*300,00 -\s+20\/12/.test(l)) || simples.some((l) => /RESTAURANTE INVENTADO.*Subtotal/.test(l)));
+  const col = linhasDeItens(pags, { colunas: true });
+  assert.ok(col.some((l) => /^23\/11  RESTAURANTE INVENTADO  CIDADE A  BR  R\$  100,00$/.test(l)), col.join('\n'));
+  assert.ok(col.indexOf('Anuidades') > col.findIndex((l) => /^08\/12/.test(l)), 'o painel da direita vem depois do da esquerda');
+  // duas cópias do mesmo texto no mesmo lugar ("negrito" desenhado 2x) contam uma vez
+  assert.deepEqual(linhasDeItens([{ itens: [{ s: 'Total', x: 10, y: 5, w: 15 }, { s: 'Total', x: 10.2, y: 5, w: 15 }] }]), ['Total']);
+});
+
+test('OuroCard (layout real do BB, inventado): vencimento embaixo do rótulo, painéis lado a lado, menos depois do valor, próxima fatura fora, soma confere', () => {
+  const f = lerDocumentoGasto({ paginas: faturaBbItens() }, { banco: 'OuroCard', origem: 'cartao', nome: '01-2026.pdf' });
+  assert.equal(f.fonte, 'ourocard');
+  assert.deepEqual([f.vencimento, f.mes, f.total], ['2026-01-05', '2026-01', 262]);
+  assert.deepEqual(f.avisos, []);
+  assert.equal(f.lancamentos.length, 5, f.lancamentos.map((l) => l.descricao).join(' | '));
+  const por = (re) => f.lancamentos.find((l) => re.test(l.descricao));
+  const pg = por(/PGTO/);
+  assert.deepEqual([pg.tipo, pg.valor, pg.data], ['pagamento_fatura', -300, '2025-11-26']);
+  assert.doesNotMatch(pg.descricao, /1234|000099999/, 'agência e número saem');
+  assert.equal(por(/RESTAURANTE/).descricao, 'RESTAURANTE INVENTADO', 'cidade e país fora');
+  assert.equal(por(/ifood/).descricao, 'ifood *ifood');
+  const parc = por(/LOJA TESTE/);
+  assert.deepEqual([parc.descricao, parc.parcela, parc.data], ['LOJA TESTE PARC 09/12', '9/12', '2025-03-27']);
+  assert.equal(por(/ANUIDADE/).tipo, 'anuidade');
+  assert.ok(!f.lancamentos.some((l) => /10\/12/.test(l.descricao)), 'parcela da próxima fatura não entra');
+  assert.equal(f.conferencia.ok, true, JSON.stringify(f.conferencia));
+  // só texto juntado pela altura (como antes): o vencimento letra a letra não era achado
+  const antes = lerFaturaOurocard(faturaBbItens().flatMap((p) => {
+    const g = {}; p.itens.forEach((it) => { (g[it.y] = g[it.y] || []).push(it); });
+    return Object.keys(g).sort((a, b) => b - a).map((y) => g[y].sort((a, b) => a.x - b.x).map((i) => i.s).join('  '));
+  }));
+  assert.deepEqual(antes.avisos, ['Não achei a data de vencimento da fatura.']);
+  // PDF sem texto (imagem)
+  assert.match(lerDocumentoGasto({ paginas: [{ itens: [] }] }).erro, /não tem texto/);
+  // sem vencimento nenhum, o nome do arquivo (mm-aaaa) salva o mês - com aviso
+  const semVenc = lerFaturaOurocard(['OUROCARD', '23/11  RESTAURANTE INVENTADO  CIDADE A  BR  R$  100,00'], { nome: '12-2025.pdf' });
+  assert.equal(semVenc.mes, '2025-12');
+  assert.match(semVenc.avisos[0], /nome do arquivo/);
+});
+
+test('valores: menos tipográfico e menos depois do valor (BB)', () => {
+  assert.equal(valorBR('−R$ 105,29'), -105.29);
+  assert.equal(valorBR('200,00 -'), -200);
+  assert.equal(valorBR('6.556,55-'), -6556.55);
+  assert.equal(limparDescricao('•••• 7777 Loja Teste'), 'Loja Teste');
+  assert.equal(parcelaDe('Loja Teste - 2/3'), '2/3');
 });

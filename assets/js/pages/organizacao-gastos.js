@@ -25,6 +25,18 @@
  * OuroCard), a seção pede a senha na hora e oferece "lembrar neste navegador"
  * (localStorage). A senha nunca vai pra planilha nem pro Apps Script. Só os
  * lançamentos limpos (gastos-import.js) são gravados, arquivo por arquivo.
+ *
+ * 03/10/2026 (Tiago: faturas antigas do Nubank e TODAS as OuroCard falhando;
+ * "se eu for reimportar o que faltou, não reimportar o que já deu sucesso"):
+ *  - o PDF é lido COM a posição de cada pedaço de texto
+ *    (extrairPaginasPdfComSenha) - a fatura do BB tem 2 painéis lado a lado
+ *    e uma fonte que o pdf.js quebra letra a letra;
+ *  - o que falha fica registrado como "com problema" (Gastos.gs, Situação
+ *    = erro, sem lançamento) e o que entra com soma que não bate como
+ *    "aviso": "Importar novos" pula esses; "Tentar de novo só os que
+ *    falharam" pega só eles. Reimportar substitui os lançamentos do arquivo.
+ *  - outros painéis (Documentos) mandam arquivos do computador pra cá com
+ *    o evento 'organizacao:gastos-arquivos' (detail.arquivos).
  */
 import {
   getGastos, getArquivosGastos, getArquivoGastos, salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos,
@@ -36,7 +48,11 @@ import { juntarAcentos } from './patrimonio-import.js';
 import { lerDocumentoGasto, lerCsvGastos, lerOfxGastos, mesesDoDocumento } from './gastos-import.js';
 import {
   CATEGORIAS_GASTO, NOME_CATEGORIA, NOME_FONTE, PERIODOS, resumoGastos, prepararRegras, categorizar, chavesDedup, chaveDescricao, somarMeses, mesDe,
+  arquivosNovosDrive, arquivosFalhosDrive,
 } from './gastos-calc.js';
+
+/** Evento que outros painéis da página disparam no document pra mandar arquivos do computador pra cá. */
+export const EVENTO_ARQUIVOS_GASTOS = 'organizacao:gastos-arquivos';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -97,6 +113,22 @@ export async function extrairLinhasPdfComSenha(pdfjsLib, bytes, senha) {
   }
   try { await pdf.destroy(); } catch (e) { /* ok */ }
   return linhas;
+}
+/**
+ * 03/10/2026: PDF -> páginas com os itens do pdf.js e a POSIÇÃO de cada um
+ * ({ s, x, y, w }) - gastos-import.js!linhasDeItens junta em linhas olhando
+ * o espaço entre os pedaços e separa os painéis lado a lado da fatura do BB.
+ */
+export async function extrairPaginasPdfComSenha(pdfjsLib, bytes, senha) {
+  const pdf = await pdfjsLib.getDocument({ data: bytes.slice(), password: senha || undefined }).promise;
+  const paginas = [];
+  for (let n = 1; n <= pdf.numPages; n += 1) {
+    const pagina = await pdf.getPage(n);
+    const { items } = await pagina.getTextContent();
+    paginas.push({ itens: items.filter((it) => String(it.str || '').trim()).map((it) => ({ s: String(it.str), x: it.transform[4], y: it.transform[5], w: Number(it.width) || 0 })) });
+  }
+  try { await pdf.destroy(); } catch (e) { /* ok */ }
+  return paginas;
 }
 const ehErroSenha = (e) => !!e && (e.name === 'PasswordException' || /password/i.test(String(e.message || '')));
 
@@ -306,12 +338,16 @@ export function htmlDocumentos(r, { drive = null, hoje = new Date() } = {}) {
     return `<tr><td><b>${esc(f.nome)}</b><span class="gs-fonte">${esc(mesAno(f.primeiro))} a ${esc(mesAno(f.ultimo))} · ${f.meses.length} meses</span></td>
       <td class="gs-cels" aria-label="Últimos 18 meses">${celulas}</td><td class="gs-faltam ${f.faltam.length ? 'warn' : 'good'}">${esc(faltam)}</td></tr>`;
   }).join('');
-  const novos = drive && drive.arquivos ? drive.arquivos.filter((a) => !a.importado || a.alterado) : [];
-  const problemas = (r.arquivos || []).filter((a) => a.conferencia && a.conferencia.ok === false);
+  const lista = drive && drive.arquivos ? drive.arquivos : [];
+  const novos = arquivosNovosDrive(lista);
+  const falhos = arquivosFalhosDrive(lista);
+  // 03/10/2026: o que não entrou (erro) e o que entrou com a soma errada (aviso)
+  const problemas = (r.arquivos || []).filter((a) => a.situacao === 'erro' || a.situacao === 'aviso' || (a.conferencia && a.conferencia.ok === false) || a.problema);
+  const motivo = (a) => (a.situacao === 'erro' ? (a.problema || 'não entrou') : a.conferencia && a.conferencia.ok === false ? `soma não bate - diferença ${brl(a.conferencia.diferenca)}` : a.problema);
   return `${cob.fontes.length ? `<div class="gs-tab-wrap"><table class="gs-tab gs-docs"><thead><tr><th>Documento</th><th>${esc(mesAno(meses[0]))} → ${esc(mesAno(fim))}</th><th>Situação</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="gs-fraco">Nenhum documento importado ainda.</p>'}
-    <p class="gs-nota"><span><i class="gs-cel ok"></i>importado</span> <span><i class="gs-cel falta"></i>falta</span> · fatura = mês do vencimento; extrato = meses do período.${drive && drive.configurado === false ? ' <b>Não achei a pasta Documentos/Transações no Drive</b> - rode <code>configurarPastasGastosDireto()</code> uma vez no editor do Apps Script.' : ''}${drive && drive.arquivos ? ` · ${drive.arquivos.length} arquivos no Drive, ${novos.length} novos/alterados.` : ''}</p>
-    ${problemas.length ? `<div class="gs-problemas"><p class="gs-sub-t">Soma não bateu com o total do documento</p><ul>${problemas.map((a) => `<li><span>${esc(a.caminho ? `${a.caminho}/` : '')}${esc(a.nome)} <span class="gs-fraco">(diferença ${esc(brl(a.conferencia.diferenca))})</span></span><button type="button" class="gs-mini" data-acao="remover-arq" data-id="${esc(a.id)}">remover</button></li>`).join('')}</ul></div>` : ''}
-    <div class="gs-acoes"><button type="button" class="btn" data-acao="drive">${novos.length ? `Importar ${novos.length} novo${novos.length > 1 ? 's' : ''} do Drive` : 'Procurar novos no Drive'}</button><button type="button" class="btn" data-acao="arquivo">Importar do computador</button></div>`;
+    <p class="gs-nota"><span><i class="gs-cel ok"></i>importado</span> <span><i class="gs-cel falta"></i>falta</span> · fatura = mês do vencimento; extrato = meses do período.${drive && drive.configurado === false ? ' <b>Não achei a pasta Documentos/Transações no Drive</b> - rode <code>configurarPastasGastosDireto()</code> uma vez no editor do Apps Script.' : ''}${drive && drive.arquivos ? ` · ${lista.length} arquivos no Drive: ${novos.length} ${novos.length === 1 ? 'novo' : 'novos'}${falhos.length ? `, ${falhos.length} com problema` : ''}.` : ''}</p>
+    ${problemas.length ? `<div class="gs-problemas"><p class="gs-sub-t">Com problema (${problemas.length})</p><ul>${problemas.map((a) => `<li><span>${esc(a.caminho ? `${a.caminho}/` : '')}${esc(a.nome)} <span class="gs-fraco">(${esc(motivo(a))})</span></span><button type="button" class="gs-mini" data-acao="remover-arq" data-id="${esc(a.id)}">remover</button></li>`).join('')}</ul></div>` : ''}
+    <div class="gs-acoes"><button type="button" class="btn" data-acao="${novos.length ? 'importar-novos' : 'drive'}">${novos.length ? `Importar ${novos.length} novo${novos.length > 1 ? 's' : ''} do Drive` : 'Procurar novos no Drive'}</button>${falhos.length ? `<button type="button" class="btn" data-acao="importar-falhos">${falhos.length === 1 ? 'Tentar de novo o que falhou' : `Tentar de novo só os ${falhos.length} que falharam`}</button>` : ''}<button type="button" class="btn" data-acao="arquivo">Importar do computador</button></div>`;
 }
 
 /** Painel de importação: banner de novos, progresso, pedido de senha, resultado. */
@@ -320,20 +356,26 @@ export function htmlPainel(est) {
   const d = est.drive;
   if (d && d.erro && !est.importacao) partes.push(`<div class="gs-painel gs-aviso-bad"><span>${esc(d.erro)}</span><button type="button" class="gs-mini" data-acao="fechar-drive">fechar</button></div>`);
   if (d && d.arquivos && !est.importacao && !est.dispensado) {
-    const novos = d.arquivos.filter((a) => !a.importado || a.alterado);
-    if (novos.length) {
+    const novos = arquivosNovosDrive(d.arquivos);
+    const falhos = arquivosFalhosDrive(d.arquivos);
+    if (novos.length || falhos.length) {
       const porBanco = {};
       novos.forEach((a) => { const k = a.banco || a.caminho; porBanco[k] = (porBanco[k] || 0) + 1; });
-      partes.push(`<div class="gs-painel gs-novos"><div><b>${novos.length} arquivo${novos.length > 1 ? 's' : ''} novo${novos.length > 1 ? 's' : ''} no Drive</b><span class="gs-fraco"> · ${esc(Object.entries(porBanco).map(([k, n]) => `${k} ${n}`).join(' · '))}</span></div>
-        <div class="gs-acoes"><button type="button" class="btn btn-primary" data-acao="importar-novos">Importar agora</button><button type="button" class="gs-mini" data-acao="dispensar">depois</button></div></div>`);
+      const titulo = novos.length
+        ? `<b>${novos.length} arquivo${novos.length > 1 ? 's' : ''} novo${novos.length > 1 ? 's' : ''} no Drive</b><span class="gs-fraco"> · ${esc(Object.entries(porBanco).map(([k, n]) => `${k} ${n}`).join(' · '))}${falhos.length ? ` · ${falhos.length} com problema` : ''}</span>`
+        : `<b>${falhos.length} arquivo${falhos.length > 1 ? 's' : ''} do Drive com problema</b><span class="gs-fraco"> · os que já entraram não são lidos de novo</span>`;
+      partes.push(`<div class="gs-painel gs-novos"><div>${titulo}</div>
+        <div class="gs-acoes">${novos.length ? '<button type="button" class="btn btn-primary" data-acao="importar-novos">Importar agora</button>' : ''}${falhos.length ? `<button type="button" class="btn${novos.length ? '' : ' btn-primary'}" data-acao="importar-falhos">Tentar de novo só os que falharam</button>` : ''}<button type="button" class="gs-mini" data-acao="dispensar">depois</button></div></div>`);
     }
   }
   const imp = est.importacao;
   if (imp) {
-    const ok = imp.log.filter((x) => x.status === 'ok').length;
+    const ok = imp.log.filter((x) => x.status === 'ok' || x.status === 'aviso').length;
+    const falhasDrive = imp.fim ? imp.log.filter((x) => x.drive && (x.status === 'erro' || x.status === 'aviso')).length : 0;
     partes.push(`<div class="gs-painel gs-imp"><div class="gs-imp-cab"><b>${imp.fim ? `Importação concluída: ${ok} de ${imp.total} arquivo${imp.total > 1 ? 's' : ''}` : `Importando ${Math.min(imp.log.length + 1, imp.total)} de ${imp.total}…`}</b>${imp.atual && !imp.fim ? `<span class="gs-fraco">${esc(imp.atual)}</span>` : ''}${imp.fim ? '<button type="button" class="gs-mini" data-acao="fechar-imp">fechar</button>' : ''}</div>
       <div class="gs-prog" aria-hidden="true"><i style="width:${((imp.log.length / Math.max(1, imp.total)) * 100).toFixed(1)}%"></i></div>
-      ${imp.log.length ? `<ul class="gs-log">${imp.log.map((x) => `<li class="${x.status}"><span class="gs-log-i" aria-hidden="true">${x.status === 'ok' ? '✓' : x.status === 'aviso' ? '!' : x.status === 'pulado' ? '–' : '✕'}</span><span class="gs-log-n">${esc(x.nome)}</span><span class="gs-log-m">${esc(x.msg)}</span></li>`).join('')}</ul>` : ''}</div>`);
+      ${imp.log.length ? `<ul class="gs-log">${imp.log.map((x) => `<li class="${x.status}"><span class="gs-log-i" aria-hidden="true">${x.status === 'ok' ? '✓' : x.status === 'aviso' ? '!' : x.status === 'pulado' ? '–' : '✕'}</span><span class="gs-log-n">${esc(x.nome)}</span><span class="gs-log-m">${esc(x.msg)}</span></li>`).join('')}</ul>` : ''}
+      ${falhasDrive ? `<div class="gs-acoes gs-imp-acoes"><button type="button" class="btn" data-acao="importar-falhos">${falhasDrive === 1 ? 'Tentar de novo o que falhou' : `Tentar de novo só os ${falhasDrive} que falharam`}</button><span class="gs-fraco">os que entraram não são lidos de novo</span></div>` : ''}</div>`);
   }
   if (est.senha) {
     partes.push(`<form class="gs-painel gs-senha" data-form="senha"><div><b>${esc(est.senha.nome)}</b> está protegido por senha.${est.senha.incorreta ? ' <span class="bad">Senha incorreta - tente de novo.</span>' : ''}</div>
@@ -362,7 +404,7 @@ export function htmlLancamentos(lista, filtro, total) {
 export function montarSecaoGastos(raiz, opcoes = {}) {
   const {
     token = '', despesas = null, hoje = new Date(), doc = raiz.ownerDocument || globalThis.document,
-    carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdfComSenha,
+    carregarPdf = carregarPdfJs, lerPdf = extrairPaginasPdfComSenha,
     storage = (() => { try { return globalThis.localStorage || null; } catch (e) { return null; } })(),
   } = opcoes;
   const api = opcoes.api || {
@@ -531,13 +573,18 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     }
   }
 
-  /** Um arquivo (bytes + metadados) -> documento lido. */
+  /**
+   * Um arquivo (bytes + metadados) -> documento lido. 03/10/2026: o leitor
+   * de PDF devolve as páginas com posição (extrairPaginasPdfComSenha); um
+   * leitor injetado que devolva linhas de texto continua valendo.
+   */
   async function lerUmArquivo({ nome, bytes, banco, origem }) {
     const ext = String(nome).split('.').pop().toLowerCase();
     if (ext === 'csv') return lerCsvGastos(new TextDecoder('utf-8').decode(bytes), { nome });
     if (ext === 'ofx') return lerOfxGastos(new TextDecoder('latin1').decode(bytes));
-    const linhas = juntarAcentos(await abrirPdf(bytes, nome));
-    return lerDocumentoGasto(linhas, { banco, origem });
+    const lido = await abrirPdf(bytes, nome);
+    const comPosicao = Array.isArray(lido) && lido.length && lido[0] && typeof lido[0] === 'object' && Array.isArray(lido[0].itens);
+    return lerDocumentoGasto(comPosicao ? { paginas: lido } : juntarAcentos(lido), { banco, origem, nome });
   }
 
   function lancamentosParaSalvar(docLido) {
@@ -556,9 +603,11 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
       est.importacao.atual = nome;
       desenharPainel();
       let status = 'ok'; let msg = '';
+      const doDrive = !it.bytes; // do computador não dá pra "tentar de novo" sozinho
+      let modificado = it.modificado || '';
+      let fonte = '';
       try {
         let bytes = it.bytes;
-        let modificado = it.modificado || '';
         if (!bytes) {
           const r = await api.getArquivoGastos(it.id);
           if (!r || !r.ok || !r.base64) throw new Error((r && r.erro) || 'o arquivo não veio do Drive');
@@ -566,22 +615,31 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
           modificado = r.modificado || modificado;
         }
         const lido = await lerUmArquivo({ nome: it.nome, bytes, banco: it.banco, origem: it.origem });
+        fonte = lido.fonte || '';
         if (lido.erro || !(lido.lancamentos || []).length) throw new Error(lido.erro || (lido.avisos || []).join(' ') || 'nenhum lançamento encontrado');
         const lancs = lancamentosParaSalvar(lido);
+        const c = lido.conferencia;
+        const problema = c && c.ok === false ? `soma não bate: li ${brl(c.lido)}, o documento diz ${brl(c.esperado)} (diferença ${brl(c.diferenca)})` : '';
         const meta = {
           id: it.id, nome: it.nome, caminho: it.caminho || '', fonte: lido.fonte, modificado,
           meses: mesesDoDocumento(lido), total: lido.total, conferencia: lido.conferencia, entradas: lido.entradas,
+          situacao: problema ? 'aviso' : 'ok', problema,
         };
         const s = await api.salvarImportacaoGastos(meta, lancs);
-        if (!s || !s.ok) throw new Error(`não salvou: ${(s && s.erro) || 'sem resposta'}`);
+        if (!s || !s.ok) throw Object.assign(new Error(`não salvou: ${(s && s.erro) || 'sem resposta'}`), { naoSalvou: true });
         const meses = meta.meses.length > 1 ? `${mesAno(meta.meses[0])}–${mesAno(meta.meses[meta.meses.length - 1])}` : mesAno(meta.meses[0]);
         msg = `${NOME_FONTE[lido.fonte] || lido.fonte} ${meses} · ${s.gravados} lançamentos${s.pulados ? ` (${s.pulados} já estavam)` : ''}`;
-        if (lido.conferencia && lido.conferencia.ok === false) { status = 'aviso'; msg += ` · soma não bate (diferença ${brl(lido.conferencia.diferenca)})`; } else if (lido.conferencia && lido.conferencia.ok) msg += ' · soma confere';
+        if (problema) { status = 'aviso'; msg += ` · ${problema}`; } else if (c && c.ok) msg += ' · soma confere';
+        if ((lido.avisos || []).length) msg += ` · ${lido.avisos.join(' ')}`;
       } catch (e) {
         status = e && e.pulado ? 'pulado' : 'erro';
         msg = String((e && e.message) || e);
+        // 03/10/2026: a falha fica registrada (sem lançamento) - "Importar novos" não insiste nela
+        if (status === 'erro' && doDrive && !e.naoSalvou) {
+          try { await api.salvarImportacaoGastos({ id: it.id, nome: it.nome, caminho: it.caminho || '', fonte, modificado, situacao: 'erro', problema: msg }, []); } catch (e2) { /* fica como novo */ }
+        }
       }
-      est.importacao.log.push({ nome, status, msg });
+      est.importacao.log.push({ nome, status, msg, drive: doDrive, id: it.id });
       desenharPainel();
     }
     est.importacao.fim = true;
@@ -589,14 +647,15 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     await carregar({ comDrive: true });
   }
 
+  /** `importar`: false | true/'novos' (nunca tentados ou mudados no Drive) | 'falhos' (só os que deram erro/aviso). */
   async function procurarDrive({ importar = false } = {}) {
     let r;
     try { r = await api.getArquivosGastos(); } catch (e) { r = { ok: false, erro: String(e) }; }
     if (!r || !r.ok) est.drive = { erro: `Não deu pra listar o Drive: ${(r && r.erro) || 'erro'}` };
     else est.drive = { configurado: r.configurado !== false, arquivos: r.arquivos || [] };
     if (importar && est.drive.arquivos) {
-      const novos = est.drive.arquivos.filter((a) => !a.importado || a.alterado);
-      if (novos.length) { await importarLista(novos); return; }
+      const lista = importar === 'falhos' ? arquivosFalhosDrive(est.drive.arquivos) : arquivosNovosDrive(est.drive.arquivos);
+      if (lista.length) { await importarLista(lista); return; }
     }
     if (dados) desenhar(); else desenharPainel();
   }
@@ -660,7 +719,8 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
         if (est.periodo !== 'mes' && est.periodo !== 'ano' && est.periodo !== 'tudo') { /* mantém a janela, ancorada no mês */ }
         desenhar();
       } else if (acao === 'drive') await procurarDrive({ importar: !!(est.drive && est.drive.arquivos) });
-      else if (acao === 'importar-novos') await procurarDrive({ importar: true });
+      else if (acao === 'importar-novos') await procurarDrive({ importar: 'novos' });
+      else if (acao === 'importar-falhos') { est.importacao = null; await procurarDrive({ importar: 'falhos' }); }
       else if (acao === 'arquivo') raiz.querySelector('#gsArquivo').click();
       else if (acao === 'dispensar') { est.dispensado = true; desenharPainel(); }
       else if (acao === 'fechar-imp') { est.importacao = null; desenharPainel(); }
@@ -724,11 +784,24 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
 
   raiz.innerHTML = '<div class="carteiras-loading" aria-hidden="true"><span class="skel" style="height:150px;border-radius:14px"></span><span class="skel" style="height:300px;border-radius:14px"></span></div>';
   const pronto = carregar({ comDrive: true });
+  // 03/10/2026: painel Documentos ("Enviar arquivo" de faturas/extratos) manda os arquivos pra cá
+  doc.addEventListener(EVENTO_ARQUIVOS_GASTOS, (ev) => {
+    const arqs = ev && ev.detail && ev.detail.arquivos;
+    if (!arqs || !arqs.length) return;
+    ev.detail.recebido = true;
+    (async () => {
+      await pronto;
+      const p = raiz.querySelector('#gsPainel');
+      if (p && p.scrollIntoView) { try { p.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* ok */ } }
+      await lerArquivos([...arqs]);
+    })();
+  });
   return {
     pronto,
     recarregar: () => carregar({ comDrive: true }),
     atualizarDespesas(d) { desp = d; if (dados) desenhar(); },
-    importarNovos: () => procurarDrive({ importar: true }),
+    importarNovos: () => procurarDrive({ importar: 'novos' }),
+    importarFalhos: () => procurarDrive({ importar: 'falhos' }),
     lerArquivos,
     get dados() { return dados; },
     get resumo() { return resumo; },

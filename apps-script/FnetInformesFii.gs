@@ -123,14 +123,25 @@ function listarInformesFnet_(cnpj, quantos) {
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (resp.getResponseCode() !== 200) throw new Error('FNet HTTP ' + resp.getResponseCode());
   var json = JSON.parse(resp.getContentText());
+  // 03/10/2026 (conferido ao vivo no FNet): o aviso de provento vem como
+  // categoriaDocumento "Aviso aos Cotistas - Estruturado" + tipoDocumento
+  // "Rendimentos e Amortizações". O filtro antigo testava SÓ o tipo quando
+  // ele existia (tipoDocumento || categoriaDocumento) - o aviso de provento
+  // passava e virava "informe". Agora testa a categoria E o tipo.
+  // E "assuntos" vem null: o título caía no nome do fundo (descricaoFundo)
+  // em todos os documentos - agora usa o tipo (ex.: "Relatório Gerencial").
   return (json.data || [])
-    .filter(function (d) { return !/aviso.*cotista/i.test(String(d.tipoDocumento || d.categoriaDocumento || '')); })
+    .filter(function (d) {
+      var cat = String(d.categoriaDocumento || ''), tipo = String(d.tipoDocumento || '');
+      return !/aviso.*cotista/i.test(cat + ' | ' + tipo) && !/rendimentos?\s+e\s+amortiza/i.test(tipo);
+    })
     .slice(0, quantos)
     .map(function (d) {
+      var cat = String(d.categoriaDocumento || '').trim(), tipo = String(d.tipoDocumento || '').trim();
       return {
         id: String(d.id),
-        tipo: String(d.categoriaDocumento || d.tipoDocumento || '').trim(),
-        assunto: String(d.assuntos || d.descricaoFundo || '').trim(),
+        tipo: cat || tipo,
+        assunto: String(d.assuntos || tipo || cat || '').trim(),
         data: chaveDeCelulaProvento_(d.dataEntrega || d.dataReferencia) // FnetProventos.gs (aceita string dd/mm/aaaa e aaaa-mm-dd)
       };
     });

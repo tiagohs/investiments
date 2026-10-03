@@ -140,8 +140,8 @@ import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, format
 // meses, card de Análise, IPCA na Visão geral de Carteiras): os 2 módulos
 // compartilhados (sem dependência de página) e o comparativo da Início.
 import { ligarFiltroPeriodo, recortarPorIntervalo, ehPeriodoPersonalizado } from '../periodo-personalizado.js';
-import { analisarSerie, renderAnalise } from '../analise-grafico.js';
-import { calcularComparativo, htmlComparativo } from './inicio-comparativo.js';
+import { analisarSerie, renderAnalise, proventosAReceberDe } from '../analise-grafico.js';
+import { calcularComparativo, htmlComparativo, ajusteMarcacaoDoCampo } from './inicio-comparativo.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
@@ -789,6 +789,21 @@ export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDe
   }
   // 23/09/2026: N dias de variação precisam de N+1 pontos (o 1º é a base
   // - mesmo motivo do 'mes', acima).
+  // 03/10/2026 (achado no card de Análise do ativo): o histórico do ATIVO
+  // só tem dias de pregão - 366 pontos ali eram ~17 meses, e o "12 meses"
+  // do gráfico mostrava 17. O corte agora é pela DATA (a base é o último
+  // ponto até "último dia − N"); na série da Início, que tem todo dia
+  // corrido, dá exatamente os mesmos N+1 pontos de antes.
+  const ultimaData = historico[historico.length - 1].data;
+  if (typeof ultimaData === 'string' && /^\d{4}-\d{2}-\d{2}/.test(ultimaData)) {
+    const [a, m, d] = ultimaData.slice(0, 10).split('-').map(Number);
+    const corte = new Date(Date.UTC(a, m - 1, d - dias)).toISOString().slice(0, 10);
+    let base = -1;
+    for (let i = historico.length - 1; i >= 0; i -= 1) {
+      if (typeof historico[i].data === 'string' && historico[i].data <= corte) { base = i; break; }
+    }
+    return historico.slice(Math.max(0, base));
+  }
   return historico.slice(-(dias + 1));
 }
 
@@ -1285,7 +1300,7 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
  * também o hover/touch (ver ligarInteracaoGrafico_, logo acima) depois de
  * montar o SVG.
  */
-export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio', benchmarksExtra = null, analiseContainer = null, nomeAnalise = null, formatarMoeda = formatBRL } = {}) {
+export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio', benchmarksExtra = null, analiseContainer = null, nomeAnalise = null, formatarMoeda = formatBRL, analiseExtra = null } = {}) {
   // 20/09/2026: campoPrincipal precisa existir ANTES de filtrar - "Desde o
   // início" (periodoId:'tudo') corta pro início desta visão específica
   // (ver comentário de filtrarHistoricoPorPeriodo) - sem isso, o gráfico
@@ -1421,7 +1436,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   // números desenhados (série do portfólio e dos índices já normalizadas),
   // então o texto nunca diverge da legenda. Ver analise-grafico.js.
   if (analiseContainer) {
-    renderAnalise(doc, analiseContainer, montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda }));
+    renderAnalise(doc, analiseContainer, montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda, analiseExtra }));
   }
 }
 
@@ -1442,8 +1457,14 @@ const COMPONENTES_ANALISE_POR_VISAO = {
 };
 
 /** Monta as entradas de analisarSerie a partir do que o gráfico já calculou. */
-function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda }) {
-  const serie = janela.map((p, i) => ({ data: p.data, valor: p[campoPrincipal], retorno: seriePrincipal[i], fluxo: p[campoFluxoPrincipal], pregao: p.pregao }));
+function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda, analiseExtra = null }) {
+  // 03/10/2026: `ajuste` = ajuste de marcação da Renda Fixa embutido no fluxo
+  // do último ponto (valor da planilha x projeção do histórico - Home.gs e
+  // ativo-calc.js): o card diz que é ajuste, não aporte/resgate
+  const serie = janela.map((p, i) => ({
+    data: p.data, valor: p[campoPrincipal], retorno: seriePrincipal[i], fluxo: p[campoFluxoPrincipal], pregao: p.pregao,
+    ajuste: typeof p.ajusteMarcacao === 'number' ? p.ajusteMarcacao : ajusteMarcacaoDoCampo(p, campoPrincipal),
+  }));
   const indices = {};
   seriesBenchmark.forEach((b) => {
     indices[b.label] = janela.map((p, i) => ({ data: p.data, retorno: b.valores[i] })).filter((x) => x.retorno != null);
@@ -1468,18 +1489,58 @@ function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, series
   }
   let componentes = null;
   const defs = COMPONENTES_ANALISE_POR_VISAO[visaoId];
+  const fatia = fimIdx >= 0 ? historico.slice(Math.max(0, inicioComp - 1), fimIdx + 1) : janela;
   if (defs && fimIdx >= 0) {
-    const fatia = historico.slice(Math.max(0, inicioComp - 1), fimIdx + 1);
     componentes = {};
     defs.forEach(([rotulo, campo, campoFluxo]) => {
       componentes[rotulo] = fatia.map((p) => ({ data: p.data, valor: p[campo], fluxo: p[campoFluxo] }));
     });
   }
+  // 03/10/2026 (Tiago: "Nas análises dos gráficos e métricas dos ativos,
+  // considere essas fontes [...] Tenha um largo banco de dados de
+  // critérios"): a classe escolhe o benchmark CERTO, as faixas e o prazo
+  // mínimo (assets/js/criterios/base-rentabilidade.js); as referências são
+  // índices que não estão desenhados mas entram na conta (IPCA pra
+  // rentabilidade real, CDI pro Sharpe, IFIX/S&P 500 pro benchmark composto,
+  // câmbio pro S&P 500 em R$).
+  const referencias = {};
+  REFERENCIAS_ANALISE.forEach(([rotulo, campo]) => {
+    const l = fatia.filter((p) => typeof p[campo] === 'number' && Number.isFinite(p[campo]) && p[campo] > 0).map((p) => ({ data: p.data, valor: p[campo] }));
+    if (l.length >= 2) referencias[rotulo] = l;
+  });
+  const cambio = fatia.filter((p) => typeof p.cambioUsd === 'number' && p.cambioUsd > 0).map((p) => ({ data: p.data, valor: p.cambioUsd }));
   return analisarSerie({
     serie, indices, periodo: periodoId, contexto, componentes, formatarMoeda,
     nome: nomeAnalise || NOME_ANALISE_POR_VISAO[visaoId] || 'A carteira',
+    classe: CLASSE_ANALISE_POR_VISAO[visaoId] || null,
+    referencias,
+    cambio: cambio.length >= 2 ? cambio : null,
+    moeda: /Usd$/.test(visaoId) ? 'USD' : 'BRL',
+    benchmarkComponentes: BENCHMARK_COMPONENTES_POR_VISAO[visaoId] || null,
+    ...(analiseExtra && typeof analiseExtra === 'object' ? analiseExtra : {}),
   });
 }
+
+/** 03/10/2026: classe de cada visão pro card de Análise (benchmark certo, faixas e prazo - ver analise-grafico.js). */
+const CLASSE_ANALISE_POR_VISAO = {
+  total: 'carteira', longoPrazo: 'carteira', nacional: 'carteira', rendaEmergencial: 'reserva', internacional: 'eua',
+  carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'eua', carteiraAcoesEuaUsd: 'eua',
+  carteiraRendaFixaTotal: 'rf', carteiraRendaFixaLongoPrazo: 'rf', carteiraRendaFixaEmergencial: 'reserva',
+  ativoAcoes: 'ativo-acao', ativoFiis: 'ativo-fii', ativoAcoesEua: 'ativo-eua', ativoAcoesEuaUsd: 'ativo-eua', ativoRendaFixa: 'ativo-rf',
+};
+
+/** 03/10/2026: índices do histórico que entram na conta da Análise mesmo sem estar desenhados ([rótulo, campo]). */
+const REFERENCIAS_ANALISE = [
+  ['CDI', 'indiceCdi'], ['IPCA', 'indiceIpca'], ['Ibovespa', 'ibovespa'], ['IFIX', 'ifix'], ['S&P 500', 'sp500'],
+  ['S&P 500 com dividendos (IVVB11)', 'ivvb11'], // HistoricoInicio.gs, depois de rodarBackfillIvvb11Direto()
+];
+
+/** 03/10/2026: carteira com várias classes - benchmark composto pelos pesos de cada dia (cada classe no seu índice). */
+const BENCHMARK_COMPONENTES_TOTAL_ = { 'Ações': 'Ibovespa', FIIs: 'IFIX', 'Ações EUA': ['S&P 500 com dividendos (IVVB11)', 'S&P 500 em R$'], 'Renda Fixa': 'CDI' };
+const BENCHMARK_COMPONENTES_POR_VISAO = {
+  total: BENCHMARK_COMPONENTES_TOTAL_, longoPrazo: BENCHMARK_COMPONENTES_TOTAL_,
+  nacional: { 'Ações': 'Ibovespa', FIIs: 'IFIX', 'Renda Fixa': 'CDI' },
+};
 
 const LABEL_POR_VISAO_RENTABILIDADE = {
   total: 'Patrimônio total',
@@ -1836,6 +1897,7 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
           benchmarksExtra: painel.benchmarksExtra || null,
           analiseContainer: slotAnalise_(doc, painel),
           nomeAnalise: painel.nomeAnalise || null,
+          analiseExtra: painel.analiseExtra || null, // 03/10/2026: opções extras do card de Análise (rf, proventos a receber...)
           formatarMoeda: moeda,
         });
       }
@@ -2689,6 +2751,11 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
         legendaContainer: doc.getElementById(`rentabLegenda${sufixo}`),
         comparativo: true,
         analise: true,
+        // 03/10/2026 (base de critérios de rentabilidade): proventos que já
+        // passaram da data-com e não foram pagos - a cota já caiu, o dinheiro
+        // ainda não entrou (só nas visões com renda variável brasileira).
+        analiseExtra: visaoId === 'rendaEmergencial' || visaoId === 'internacional' ? null
+          : { proventosAReceber: proventosAReceberDe(resposta.proventosAnunciados, { classes: ['acoes', 'fiis'] }) },
         // 03/10/2026 (revisão do pedido D, "Patrimônio total: incluir o índice
         // IPCA"): a mesma linha do IPCA da Visão geral de Carteiras também no
         // Patrimônio total da Início (as outras visões ficam como estavam).

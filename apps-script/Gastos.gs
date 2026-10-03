@@ -18,13 +18,20 @@
  *   'aux_gastos'           Mês | Data | Origem | Fonte | Descrição | Categoria | Valor | Tipo | Parcela | Arquivo | Chave
  *       Valor + = saída/gasto, − = estorno/crédito. Mês = competência (na
  *       fatura, o mês do vencimento). Chave = deduplicação entre arquivos.
- *   'aux_gastos-arquivos'  ID | Nome | Caminho | Fonte | Modificado | Importado em | Meses | Lançamentos | Total | Conferência | Entradas
+ *   'aux_gastos-arquivos'  ID | Nome | Caminho | Fonte | Modificado | Importado em | Meses | Lançamentos | Total | Conferência | Entradas | Situação | Problema
+ *       03/10/2026 (Tiago: "se eu for reimportar o que faltou, não reimportar
+ *       o que já deu sucesso"): Situação = ok | aviso (entrou, mas a soma não
+ *       bate) | erro (não entrou - nenhum lançamento gravado; fica registrado
+ *       só pra tela oferecer "Tentar de novo só os que falharam"). Só ok/aviso
+ *       contam como importado; reimportar o mesmo arquivo SUBSTITUI os
+ *       lançamentos dele (nunca duplica).
  *   'aux_gastos-regras'    Padrão | Categoria | Criada em   (recategorização do Tiago)
  *
  * GET  action=gastos                     lançamentos + arquivos importados + regras
  * GET  action=gastosArquivos             PDFs/CSV/OFX das 2 pastas (marca novos e alterados)
  * GET  action=gastosArquivo&id=          um arquivo (base64) - só das 2 pastas
  * POST action=salvarImportacaoGastos     arquivo (JSON), lancamentos (JSON) - substitui os do arquivo
+ *                                        (arquivo.situacao 'erro' + arquivo.problema: só registra a falha)
  * POST action=salvarRegraGastos          padrao, categoria (vazia apaga)
  * POST action=excluirArquivoGastos       id - tira o arquivo e os lançamentos dele
  *
@@ -37,7 +44,8 @@ var GASTOS_ABA_ = 'aux_gastos';
 var GASTOS_ABA_ARQUIVOS_ = 'aux_gastos-arquivos';
 var GASTOS_ABA_REGRAS_ = 'aux_gastos-regras';
 var GASTOS_CAB_ = ['Mês', 'Data', 'Origem', 'Fonte', 'Descrição', 'Categoria', 'Valor', 'Tipo', 'Parcela', 'Arquivo', 'Chave'];
-var GASTOS_CAB_ARQ_ = ['ID', 'Nome', 'Caminho', 'Fonte', 'Modificado', 'Importado em', 'Meses', 'Lançamentos', 'Total', 'Conferência', 'Entradas'];
+var GASTOS_CAB_ARQ_ = ['ID', 'Nome', 'Caminho', 'Fonte', 'Modificado', 'Importado em', 'Meses', 'Lançamentos', 'Total', 'Conferência', 'Entradas', 'Situação', 'Problema'];
+var GASTOS_SITUACOES_ = ['ok', 'aviso', 'erro'];
 var GASTOS_CAB_REGRAS_ = ['Padrão', 'Categoria', 'Criada em'];
 var GASTOS_CATEGORIAS_ = ['mercado', 'restaurantes', 'transporte', 'combustivel', 'saude', 'assinaturas', 'compras', 'educacao', 'moradia', 'viagem', 'lazer', 'tarifas', 'transferencias', 'outros', 'investimentos', 'ignorar'];
 var GASTOS_TIPOS_ = ['compra', 'estorno', 'pagamento_fatura', 'iof', 'anuidade', 'encargo', 'tarifa', 'boleto', 'debito_automatico', 'saque', 'transferencia', 'transferencia_propria', 'investimento', 'resgate', 'receita', 'outro'];
@@ -129,6 +137,7 @@ function linhasAbaGastos_(ss, nome, nCols) {
 /** Reescreve a aba inteira (cabeçalho + linhas) - texto puro nas colunas de data. */
 function reescreverAbaGastos_(ss, nome, cab, linhas, colunasTexto) {
   var aba = garantirAbaGastos_(ss, nome, cab);
+  aba.getRange(1, 1, 1, cab.length).setValues([cab]); // 03/10/2026: colunas novas (Situação/Problema) ganham cabeçalho
   var antes = Math.max(aba.getLastRow(), 1);
   if (antes > 1) aba.getRange(2, 1, antes - 1, cab.length).clearContent();
   if (!linhas.length) return;
@@ -171,12 +180,14 @@ function lerArquivosImportadosGastos_(ss) {
   return linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim(); }).map(function (l) {
     var conf = null;
     try { conf = l[9] ? JSON.parse(String(l[9])) : null; } catch (eJ) { conf = null; }
+    var sit = GASTOS_SITUACOES_.indexOf(String(l[11] || '')) >= 0 ? String(l[11]) : (conf && conf.ok === false ? 'aviso' : 'ok');
     return {
       id: String(l[0]), nome: String(l[1] || ''), caminho: String(l[2] || ''), fonte: String(l[3] || ''),
       modificado: textoIsoGastos_(l[4]), importadoEm: textoIsoGastos_(l[5]),
       meses: String(l[6] || '').split(/[,;\s]+/).filter(function (m) { return /^\d{4}-\d{2}$/.test(m); }),
       lancamentos: Number(l[7]) || 0, total: l[8] === '' ? null : Number(l[8]), conferencia: conf,
-      entradas: l[10] === '' || l[10] === undefined ? null : Number(l[10])
+      entradas: l[10] === '' || l[10] === undefined ? null : Number(l[10]),
+      situacao: sit, problema: String(l[12] || '')
     };
   });
 }
@@ -226,6 +237,7 @@ function salvarImportacaoGastos_(ss, arquivo, lancamentos, agora) {
   arquivo = arquivo || {};
   var id = String(arquivo.id || '').slice(0, 200);
   if (!id) return { ok: false, etapa: 'gastos', erro: 'arquivo sem id' };
+  if (arquivo.situacao === 'erro') return registrarFalhaGastos_(ss, id, arquivo, agora);
   if (!Array.isArray(lancamentos)) return { ok: false, etapa: 'gastos', erro: 'lançamentos inválidos' };
   if (lancamentos.length > GASTOS_MAX_POR_ARQUIVO_) return { ok: false, etapa: 'gastos', erro: 'lançamentos demais num arquivo (' + lancamentos.length + ')' };
   var novos = [];
@@ -255,15 +267,48 @@ function salvarImportacaoGastos_(ss, arquivo, lancamentos, agora) {
     ok: !!arquivo.conferencia.ok, diferenca: Number(arquivo.conferencia.diferenca) || 0, regra: textoGastos_(arquivo.conferencia.regra, 120)
   }) : '';
   var regs = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim() && String(l[0]) !== id; });
+  var situacao = arquivo.situacao === 'aviso' || (arquivo.conferencia && arquivo.conferencia.ok === false) ? 'aviso' : 'ok';
   regs.push([
     id, textoGastos_(arquivo.nome, 120), textoGastos_(arquivo.caminho, 160), textoGastos_(arquivo.fonte, 30),
     String(arquivo.modificado || '').slice(0, 40), agora.toISOString(), meses.join(','), linhasNovas.length,
     isFinite(Number(arquivo.total)) && arquivo.total !== null && arquivo.total !== '' ? Math.round(Number(arquivo.total) * 100) / 100 : '',
-    conf, isFinite(Number(arquivo.entradas)) && arquivo.entradas !== null && arquivo.entradas !== '' ? Math.round(Number(arquivo.entradas) * 100) / 100 : ''
+    conf, isFinite(Number(arquivo.entradas)) && arquivo.entradas !== null && arquivo.entradas !== '' ? Math.round(Number(arquivo.entradas) * 100) / 100 : '',
+    situacao, situacao === 'aviso' ? textoGastos_(arquivo.problema, 160) : ''
   ]);
   reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
   if (SpreadsheetApp.flush) SpreadsheetApp.flush();
   return { ok: true, id: id, gravados: linhasNovas.length, pulados: pulados, descartados: lancamentos.length - novos.length };
+}
+
+/**
+ * 03/10/2026: arquivo que NÃO entrou (não reconheceu, sem transação, senha
+ * pulada...). Nada de lançamento muda. Se ele já tinha entrado antes (e
+ * mudou no Drive), o registro bom fica e só ganha o "Problema" - a tela
+ * oferece tentar de novo; senão vira um registro "erro" (sem meses, sem
+ * lançamentos), que NÃO conta como importado.
+ */
+function registrarFalhaGastos_(ss, id, arquivo, agora) {
+  var problema = textoGastos_(arquivo.problema || 'não deu pra ler', 160);
+  var regs = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim(); });
+  var ant = null;
+  regs.forEach(function (l) { if (String(l[0]) === id) ant = l; });
+  var bom = ant && String(ant[11] || '') !== 'erro';
+  var linhas = regs.map(function (l) {
+    var x = l.slice(0, GASTOS_CAB_ARQ_.length);
+    while (x.length < GASTOS_CAB_ARQ_.length) x.push('');
+    x[4] = String(x[4] && typeof x[4].getTime === 'function' ? x[4].toISOString() : x[4] || '');
+    x[5] = textoIsoGastos_(x[5]);
+    if (String(l[0]) === id && bom) x[12] = problema;
+    return x;
+  }).filter(function (x) { return bom || String(x[0]) !== id; });
+  if (!bom) {
+    linhas.push([
+      id, textoGastos_(arquivo.nome, 120), textoGastos_(arquivo.caminho, 160), textoGastos_(arquivo.fonte, 30),
+      String(arquivo.modificado || '').slice(0, 40), agora.toISOString(), '', 0, '', '', '', 'erro', problema
+    ]);
+  }
+  reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, linhas, [5, 6, 7]);
+  return { ok: true, id: id, gravados: 0, pulados: 0, descartados: 0, falha: true, mantido: !!bom };
 }
 
 function excluirArquivoGastos_(ss, id) {
@@ -396,9 +441,11 @@ function listarArquivosGastos_(ss) {
       if (!ehArquivoGastos_(nome, f.getMimeType())) continue;
       var mod = f.getLastUpdated().toISOString();
       var imp = importados[f.getId()] || null;
+      // 03/10/2026: registro "erro" (não entrou) não conta como importado
       arquivos.push({
         id: f.getId(), nome: nome, caminho: caminho, origem: origem, banco: banco, tamanho: f.getSize(), modificado: mod,
-        importado: !!imp, alterado: !!imp && !!imp.modificado && imp.modificado !== mod
+        importado: !!imp && imp.situacao !== 'erro', alterado: !!imp && imp.situacao !== 'erro' && !!imp.modificado && imp.modificado !== mod,
+        situacao: imp ? imp.situacao : '', problema: imp ? imp.problema : ''
       });
     }
     if (nivel >= 3) return;
@@ -412,7 +459,8 @@ function listarArquivosGastos_(ss) {
   if (pastas.cartao) { var pc = DriveApp.getFolderById(pastas.cartao); olhar(pc, nomePastaGastos_(pc.getName()), 'cartao', '', 0); }
   if (pastas.extratos) { var px = DriveApp.getFolderById(pastas.extratos); olhar(px, nomePastaGastos_(px.getName()), 'conta', '', 0); }
   arquivos.sort(function (a, b) { var x = a.caminho + '/' + a.nome; var y = b.caminho + '/' + b.nome; return x < y ? -1 : (x > y ? 1 : 0); });
-  return { ok: true, configurado: true, arquivos: arquivos, novos: arquivos.filter(function (a) { return !a.importado || a.alterado; }).length };
+  var falhos = arquivos.filter(function (a) { return a.situacao === 'erro' || a.situacao === 'aviso' || (a.alterado && a.problema); }).length;
+  return { ok: true, configurado: true, arquivos: arquivos, novos: arquivos.filter(function (a) { return (!a.importado && a.situacao !== 'erro') || (a.alterado && !a.problema && a.situacao !== 'aviso'); }).length, falhos: falhos };
 }
 
 /** Um arquivo das pastas de gastos em base64 - recusa o que estiver fora delas. */

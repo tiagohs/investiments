@@ -34,7 +34,8 @@ import {
   itensDoCarrinho, totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo,
   finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
 } from './aportes-calc.js';
-import { momentoHtml } from './momento-aporte.js';
+import { momentoHtml, carregarMetasMomento } from './momento-aporte.js';
+import { getToken } from '../auth.js';
 import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
 import { celulaMapa } from './aportes-mapa-calc.js';
 
@@ -232,7 +233,7 @@ function stepperHtml(classe, ativo, qtd, moeda) {
 
 // 26/09/2026: "momento de aporte" embaixo de cada ativo - HTML compartilhado com o Radar (momento-aporte.js)
 function prateleiraRvHtml(estado, dados, classe) {
-  const lista = filtrarPrateleira(dados.classes[classe] || [], estado, { classe, metas: dados.metas, hoje: dados.hoje });
+  const lista = filtrarPrateleira(dados.classes[classe] || [], estado, { classe, metas: dados.metas, hoje: dados.hoje, cambio: dados.cambio });
   const nRanking = totalRanking(dados.classes[classe]);
   if (!lista.length) return `<p class="tx-vazio">${(dados.classes[classe] || []).length ? 'Nenhum ativo com esse filtro.' : 'Nenhum ativo dessa classe na carteira.'}</p>`;
   const linhas = lista.map((a) => {
@@ -251,7 +252,7 @@ function prateleiraRvHtml(estado, dados, classe) {
         <td data-rot="Na classe" class="tx-mono">${formatNumeroBR((a.peso || 0) * 100, 1)}%</td>
         <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}</td>
         <td data-rot="Subtotal" class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? `${dinheiro(subtotalUsd, a.moeda)}${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(subtotalUsd * dados.cambio) : ''}` : '<span class="tx-fraco">—</span>'}</td>
-      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking }), 8)}`;
+      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking, ...opcoesMomento(estado, dados, qtd ? qtd * (a.precoAtual || 0) : null) }), 8)}`;
   }).join('');
   return `
     <div class="tx-tabela-wrap">
@@ -260,6 +261,31 @@ function prateleiraRvHtml(estado, dados, classe) {
         <tbody>${linhas}</tbody>
       </table>
     </div>`;
+}
+
+/**
+ * 03/10/2026: metas de Metas e Objetivos no momento ("faltam R$ 800 pra meta;
+ * investir R$ 800 aqui completa") - o valor sugerido é o que está no
+ * carrinho (senão o "R$ a investir" do Radar). Metas buscadas 1x por tela.
+ */
+function opcoesMomento(estado, dados, valorNoCarrinho) {
+  return { metasObjetivos: estado.metasObjetivos || null, cambio: dados.cambio || null, valorSugerido: valorNoCarrinho > 0 ? valorNoCarrinho : null };
+}
+
+function garantirMetasMomento(ctx) {
+  const { estado } = ctx;
+  if (estado.metasPedidas) return;
+  estado.metasPedidas = true;
+  const carregar = ctx.carregarMetas || ((aoChegar) => {
+    const token = getToken();
+    return token ? carregarMetasMomento(token, { aoChegar }) : Promise.resolve(null);
+  });
+  Promise.resolve(carregar((metas) => {
+    estado.metasObjetivos = metas;
+    const atual = ctx.el && ctx.el._txCtx ? ctx.el._txCtx : ctx;
+    const lista = atual.el && atual.el.querySelector('#txPrateleiraLista');
+    if (lista) lista.innerHTML = atual.estado.classeAtiva === 'rendaFixa' ? prateleiraRfHtml(atual.estado, atual.dados) : prateleiraRvHtml(atual.estado, atual.dados, atual.estado.classeAtiva);
+  })).catch(() => { /* sem metas: o momento fica sem esse sinal */ });
 }
 
 function momentoLinhaHtml(m, colunas) {
@@ -280,7 +306,7 @@ function prateleiraRfHtml(estado, dados) {
         <td data-rot="Último aporte">${u && u.valor > 0 ? `<span class="tx-ultimo"><b>${formatBRL(u.valor)}</b><small>${dma(u.data)}${u.origem === 'aporte' ? ' · aporte' : ''}</small></span>` : '<span class="tx-fraco">—</span>'}</td>
         <td data-rot="Vencimento" class="tx-mono">${a.vencimento ? dma(a.vencimento) : '—'}</td>
         <td data-rot="Aplicar" class="tx-td-qtd">${inputHtml(`class="tx-valor-rf" data-rf="${esc(k)}" data-titulo="${esc(a.titulo)}" data-inst="${esc(a.instituicao)}"`, it ? dinheiroCampo(it.valor) : '', { rotulo: `Valor a aplicar em ${a.titulo}`, prefixo: 'R$' })}</td>
-      </tr>${momentoLinhaHtml(momentoAporte(a, 'rendaFixa', dados.metas, dados.hoje), 5)}`;
+      </tr>${momentoLinhaHtml(momentoAporte(a, 'rendaFixa', dados.metas, dados.hoje, opcoesMomento(estado, dados, it ? it.valor : null)), 5)}`;
   }).join('');
   return `
     <div class="tx-tabela-wrap">
@@ -299,7 +325,7 @@ function prateleiraRfHtml(estado, dados) {
     </form>`;
 }
 
-export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, metas = null, hoje = '' } = {}) {
+export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, metas = null, hoje = '', cambio = null } = {}) {
   const busca = String(estado.busca || '').trim().toLowerCase();
   let out = lista.filter((a) => !busca || `${a.ticker || a.titulo} ${a.nome || ''} ${a.instituicao || ''}`.toLowerCase().includes(busca));
   if (estado.soComprar && estado.classeAtiva !== 'rendaFixa') out = out.filter((a) => statusVies(a.vies).classe === 'good');
@@ -311,7 +337,7 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
     out = [...out].sort((a, b) => folga(a) - folga(b));
   } else if (ordem === 'momento') {
     const n = totalRanking(lista);
-    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n }).pontos]));
+    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n, metasObjetivos: estado.metasObjetivos || null, cambio }).pontos]));
     out = [...out].sort((a, b) => pontos.get(b) - pontos.get(a));
   } else if (ordem === 'ultimo') {
     const d = (a) => (a.ultimoPago && a.ultimoPago.data) || '';
@@ -574,6 +600,7 @@ export function renderAportes(ctx) {
   el._txCtx = ctx;
   if (!el._txAportesLigado) { el._txAportesLigado = true; ligarAportes(el); }
   aposDesenharMapa(ctx);
+  garantirMetasMomento(ctx);
 }
 
 function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {

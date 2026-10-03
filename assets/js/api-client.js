@@ -672,6 +672,20 @@ export async function excluirMeta(token, id, { restaurar = false } = {}) {
   return request('POST', 'excluirMeta', token, { id: id || '', restaurar: restaurar ? '1' : '' });
 }
 
+/**
+ * 03/10/2026: histórico mês a mês das metas (Metas.gs!montarHistoricoMetas_) -
+ * `{ ok, hoje, metas: { <id>: { meses: [{ mes, valor, fluxo }], renda?: [{ mes, valor }], aporteMedio, ... } } }`.
+ * `id` opcional (sem id = todas as ativas).
+ */
+export async function getMetasHistorico(token, id = '') {
+  return request('GET', 'metasHistorico', token, id ? { id } : {});
+}
+
+/** 03/10/2026: apaga de verdade uma meta JÁ ARQUIVADA (a linha sai da aba aux_metas). */
+export async function excluirMetaDefinitivamente(token, id) {
+  return request('POST', 'excluirMetaDefinitivo', token, { id: id || '' });
+}
+
 /** 02/10/2026: Organização Financeira - Gastos (Gastos.gs): lançamentos, arquivos importados e regras. */
 export async function getGastos(token) {
   return request('GET', 'gastos', token);

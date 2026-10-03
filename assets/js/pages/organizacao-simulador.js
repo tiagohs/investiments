@@ -1,6 +1,12 @@
 /**
  * organizacao-simulador.js - 02/10/2026: seção "Amortizar ou investir?" da
- * Organização Financeira (vai pra aba "Gastos e Despesas").
+ * Organização Financeira. 03/10/2026: mora na aba "Simulações"
+ * (organizacao-simulacoes.js põe o herói em cima) - Tiago: "Eu senti que
+ * Gastos e Despesas ficou muito grande.. jogue tudo que tem a parte de
+ * simulações ... pra uma nova aba". Também de 03/10: o valor padrão é o
+ * MÍNIMO que tira 2 parcelas por mês da dívida-alvo (valorParaMatarParcelas;
+ * se o Tiago digitou outro valor, vale o dele e a tela mostra o mínimo) e a
+ * seção "Quanto amortizar pra matar 2, 3 e 4 parcelas por mês".
  *
  * Tiago: "A área de Simulação me parece muito confusa.. o que eu gostaria de
  * simular, e ter um resultado bem claro ... se eu amortizar hoje um valor
@@ -16,7 +22,7 @@
  * tipos de investimento lado a lado; tabela ano a ano (recolhível);
  * estratégias do vídeo; referências. Contas em simulador-dividas-calc.js.
  *
- * Uso: montarSimuladorDividas(raiz, { ctx, doc, hoje }) - ctx é o contexto
+ * Uso: montarSimuladorDividas(raiz, { ctx, doc, hoje, aoMudar }) - ctx é o contexto
  * da aba Patrimônio (contextoPatrimonio). Campos usados: ctx.d (hoje, cdi,
  * ipca?, trMensal?, metas.salarioLiquido/reservaMeta, investimentos.reserva,
  * despesas.totalComFolga), ctx.cfg (financiamento, fies, fgts, carreira),
@@ -27,6 +33,7 @@ import { lerValorBR } from './organizacao-calc.js';
 import { mil, brl0, mesAno } from './patrimonio-graficos.js';
 import {
   simular, parametrosPadrao, veredito, PERFIS, ESTRATEGIAS_VIDEO, REFERENCIAS, PADROES, premissas,
+  minimoParaMatar, opcoesMatarParcelas, parcelasQueOValorMata, trNoMes,
 } from './simulador-dividas-calc.js';
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -37,6 +44,8 @@ const f1 = (v) => v.toFixed(1);
 const CHAVE = 'simuladorDividas:v1';
 const NOME_DIV = { financiamento: 'Apê', fies: 'FIES' };
 const NOME_DIV_LONGO = { financiamento: 'o apê', fies: 'o FIES' };
+const NOME_DIV_DE = { financiamento: 'do apê', fies: 'do FIES' };
+const parcelasTxt = (k) => `${formatNumeroBR(k, Number.isInteger(k) ? 0 : 1)} ${Math.abs(k - 1) < 0.05 ? 'parcela' : 'parcelas'}`;
 
 export const SERIES = [
   { id: 'base', nome: 'Só as parcelas', cor: 'var(--sd-base)', tracejado: true },
@@ -157,6 +166,7 @@ export function htmlFormulario(p, pr) {
       <label class="pt-ctl" for="sdPerfil"><span class="pt-ctl-row">Ou investir em</span><select id="sdPerfil" class="sd-select">${Object.entries(PERFIS).map(([id, x]) => `<option value="${id}"${p.perfil === id ? ' selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></label>
       <label class="pt-ctl" for="sdHorizonte"><span class="pt-ctl-row">Por</span><select id="sdHorizonte" class="sd-select">${[5, 10, 15, 20, 25, 30].map((a) => `<option value="${a}"${p.horizonteAnos === a ? ' selected' : ''}>${a} anos</option>`).join('')}</select></label>
     </div>
+    <p class="sd-valor-nota" id="sdValorNota">${htmlValorNota(p)}</p>
     <details class="sd-prem"${p._premAberta ? ' open' : ''}><summary>Premissas: taxas e opções <span class="pt-hint">CDI ${esc(pct(pr.cdi, 2))} → ${esc(pct(pr.cdiLongo, 1))} em ${esc(pr.anosTransicao)} anos · IPCA ${esc(pct(pr.ipca, 1))} · TR ${esc(pct(pr.trMensal, 3))}/mês</span></summary>
       <div class="pt-campos sd-campos">
         ${campoPct('sdCdi', 'CDI hoje (a.a.)', pr.cdi)}
@@ -175,6 +185,61 @@ export function htmlFormulario(p, pr) {
         <button type="button" class="pt-mini" data-sd-acao="padrao">voltar ao padrão</button>
       </div>
     </details>`;
+}
+
+/**
+ * 03/10/2026: a frase embaixo do valor - quantas parcelas ele tira por mês e
+ * qual é o mínimo pra tirar 2 (o padrão). p.valorManual: o Tiago digitou.
+ */
+export function htmlValorNota(p) {
+  const min = minimoParaMatar(p, 2, p.alvo);
+  if (!min) return '';
+  const div = p.dividas[min.id];
+  const anual = p.frequencia === 'anual';
+  const explica = div.sistema === 'SAC'
+    ? `2 × a amortização de ${brl0(min.porParcela)}${div.tr ? ', já com a TR' : ''}`
+    : `o principal das 2 últimas parcelas, a valor de hoje`;
+  const modo = p.modo === 'parcela' ? ' (no modo <b>Prazo</b>; reduzindo a parcela, o prazo fica e a parcela cai)' : '';
+  if (!p.valorManual) {
+    return anual
+      ? `<b>${esc(brl0(p.valor))} em dezembro</b> = 12 × o mínimo mensal (${esc(brl0(min.valor))}, que tira <b>2 parcelas</b> do fim do contrato ${esc(NOME_DIV_DE[min.id])} a cada mês)${modo}. <a class="pt-link" href="#sdParcelas">E pra tirar 3 ou 4? ›</a>`
+      : `<b>${esc(brl0(p.valor))} por mês</b> tira <b>2 parcelas</b> do fim do contrato ${esc(NOME_DIV_DE[min.id])} a cada mês - o mínimo pra isso (${esc(explica)})${modo}. <a class="pt-link" href="#sdParcelas">E pra tirar 3 ou 4? ›</a>`;
+  }
+  const pr = premissas(p.taxas);
+  const mensal = anual ? p.valor / 12 : p.valor;
+  const k = parcelasQueOValorMata(div, mensal, { trMensal: trNoMes(1, pr) });
+  return `Você escolheu <b>${esc(brl0(p.valor))}${anual ? ' por ano' : ' por mês'}</b>${k > 0 ? `: ${anual ? 'na média, ' : ''}tira ~${esc(parcelasTxt(Math.round(k * 10) / 10))} ${esc(NOME_DIV_DE[min.id])} por mês` : ''}. O mínimo pra tirar 2 por mês é <b>${esc(brl0(anual ? min.valor * 12 : min.valor))}${anual ? ' por ano' : ''}</b> (${esc(explica)})${modo}. <button type="button" class="pt-mini" data-sd-acao="minimo">usar o mínimo</button>`;
+}
+
+/**
+ * 03/10/2026: "Quanto amortizar pra matar 2, 3 e 4 parcelas por mês" - um
+ * card por dívida, uma linha por opção, com o botão que põe no formulário.
+ */
+export function htmlMatarParcelas(opcoes, p) {
+  if (!opcoes || !opcoes.length) return '';
+  const pr = premissas(p.taxas);
+  const alvoAtual = p.alvo === 'cara' ? (minimoParaMatar(p, 2, 'cara') || {}).id : p.alvo;
+  const perfil = PERFIS[p.perfil] || PERFIS.cdi100;
+  return opcoes.map((o) => {
+    const l0 = o.linhas[0];
+    const linhas = o.linhas.map((l) => {
+      const atual = p.frequencia === 'mensal' && p.modo === 'prazo' && alvoAtual === o.id && Math.round(p.valor) === Math.round(l.valor);
+      const ganha = l.melhor;
+      const dif = Math.abs(l.vantagemInvestir);
+      return `<li class="sd-matar-li${atual ? ' atual' : ''}">
+        <span class="sd-matar-k"><b>${esc(l.k)}</b><small>${l.k === 1 ? 'parcela' : 'parcelas'}/mês</small></span>
+        <span class="sd-matar-c sd-matar-v"><small>Amortizar</small><b>${esc(brl0(l.valor))}</b><em>por mês</em></span>
+        <span class="sd-matar-c"><small>Quita em</small><b>${esc(mesAno(l.quitaMes))}</b><em>${l.mesesAdiantados > 0 ? `${esc(mesesTxt(l.mesesAdiantados))} antes` : 'igual'}</em></span>
+        <span class="sd-matar-c"><small>Juros + seguro</small><b>−${esc(mil(l.custoEconomizado))}</b><em>no contrato</em></span>
+        <span class="sd-matar-c sd-matar-pat"><small>Patrimônio em ${esc(l.anoHorizonte)}</small><b class="${ganha === 'amortizar' ? 'amort' : 'inv'}">${esc(ganha === 'amortizar' ? 'amortizar' : 'investir')} +${esc(mil(dif))}</b><em>${esc(mil(l.patrimonioAmortizar))} × ${esc(mil(l.patrimonioInvestir))}</em></span>
+        <span class="sd-matar-acao">${atual ? '<span class="pt-pill good">simulando</span>' : `<button type="button" class="pt-mini" data-sd-matar="${esc(o.id)}:${esc(l.valor)}">simular este</button>`}</span>
+      </li>`;
+    }).join('');
+    return `<div class="pt-card pt-pad sd-matar-card" data-sd-divida="${esc(o.id)}">
+      <div class="pt-card-cab"><h3>${esc(o.id === 'financiamento' ? 'Apê' : 'FIES')} <small>${esc(o.sistema)}</small></h3><span class="pt-hint">hoje quita em ${esc(mesAno(l0 && l0.baseMes))} · custa ${esc(pct(o.custo))} a.a. hoje${o.abaixoInflacao ? ` - <b>menos que a inflação</b> (${esc(pct(pr.ipca))}): antecipar não compensa` : ''}</span></div>
+      <ul class="sd-matar-lista">${linhas}</ul>
+    </div>`;
+  }).join('') + `<p class="pt-nota sd-matar-nota">"Matar" uma parcela = tirar uma do fim do contrato (modo Prazo). No SAC é uma amortização (${p.dividas.financiamento && p.dividas.financiamento.tr ? 'corrigida pela TR todo mês - o mesmo valor tira um pouco menos com o tempo' : 'constante'}); na Price, o valor de hoje das últimas parcelas (cresce devagar mês a mês). A coluna "Patrimônio em ${esc((opcoes[0].linhas[0] || {}).anoHorizonte || '')}" compara o patrimônio líquido amortizando × investindo o mesmo valor em ${esc(perfil.nome)} por ${esc(p.horizonteAnos)} anos.</p>`;
 }
 
 function linhaQuitacao(sim, id, cenario = 'amortizar') {
@@ -291,7 +356,31 @@ function garantirCss(doc) {
   } catch (e) { /* sem CSS automático */ }
 }
 
-const ESCOLHAS = ['valor', 'frequencia', 'alvo', 'modo', 'perfil', 'horizonteAnos', 'reinvestirDiferenca', 'reinvestirProventos', 'taxas', 'usarFgts'];
+const ESCOLHAS = ['valor', 'valorManual', 'frequencia', 'alvo', 'modo', 'perfil', 'horizonteAnos', 'reinvestirDiferenca', 'reinvestirProventos', 'taxas', 'usarFgts'];
+
+/**
+ * O valor padrão do momento: o mínimo que tira 2 parcelas por mês da
+ * dívida-alvo (× 12 no "fim do ano"); sem dívida pra amortizar, a regra
+ * antiga (10% do salário).
+ */
+export function valorPadraoAtual(p) {
+  const min = minimoParaMatar(p, 2, p.alvo);
+  const base = min ? min.valor : (num(p.valorSalario) ? p.valorSalario : 1000);
+  return p.frequencia === 'anual' ? base * 12 : base;
+}
+
+/**
+ * A escolha salva no navegador vale como "o Tiago digitou"? Salvas antes de
+ * 03/10/2026 não têm a marca: aí só conta se não for o padrão antigo (10% do
+ * salário, ou 12 × isso no anual) - que era gravado junto com qualquer clique.
+ */
+export function valorSalvoEhManual(salvo, padrao) {
+  if (!salvo || !num(salvo.valor)) return false;
+  if (typeof salvo.valorManual === 'boolean') return salvo.valorManual;
+  const antigo = padrao && num(padrao.valorSalario) ? padrao.valorSalario : null;
+  if (antigo == null) return true;
+  return !(Math.round(salvo.valor) === Math.round(antigo) || Math.round(salvo.valor) === Math.round(antigo * 12));
+}
 
 /**
  * Monta a seção em `raiz`. Opções: ctx (contexto do patrimônio), doc,
@@ -299,7 +388,7 @@ const ESCOLHAS = ['valor', 'frequencia', 'alvo', 'modo', 'perfil', 'horizonteAno
  * guarda só as escolhas da tela neste navegador).
  * Devolve { atualizar(novoCtx), get simulacao(), get params() }.
  */
-export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocument, hoje = null, storage = undefined } = {}) {
+export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocument, hoje = null, storage = undefined, aoMudar = null } = {}) {
   const win = doc && doc.defaultView;
   let store = storage;
   if (store === undefined) { try { store = win && win.localStorage; } catch (e) { store = null; } }
@@ -308,6 +397,8 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
   let padrao = null;
   let p = null;
   let sim = null;
+  let opcoes = null; // "matar 2, 3, 4 parcelas" (guardado enquanto as premissas não mudam)
+  let chaveOpcoes = '';
   const dicas = {};
 
   const lerSalvo = () => { try { const t = store && store.getItem(CHAVE); return t ? JSON.parse(t) : {}; } catch (e) { return {}; } };
@@ -325,9 +416,13 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
     const s = lerSalvo();
     p = { ...padrao, taxas: { ...padrao.taxas } };
     ESCOLHAS.forEach((k) => {
+      if (k === 'valor' || k === 'valorManual') return;
       if (k === 'usarFgts') { if (p.fgts && typeof s.usarFgts === 'boolean') p.fgts = { ...p.fgts, usar: s.usarFgts }; } else if (k === 'taxas' && s.taxas) p.taxas = { ...p.taxas, ...s.taxas }; else if (s[k] !== undefined) p[k] = s[k];
     });
     if (p.alvo !== 'cara' && !p.dividas[p.alvo]) p.alvo = 'cara';
+    // 03/10/2026: o valor salvo só vale se foi o Tiago que escolheu; senão, o mínimo pra 2 parcelas
+    p.valorManual = valorSalvoEhManual(s, padrao);
+    p.valor = p.valorManual ? s.valor : valorPadraoAtual(p);
   }
 
   function esqueleto() {
@@ -339,6 +434,10 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
           <div class="sd-cards" id="sdCards" aria-live="polite"></div>
           <div class="pt-tiles sd-faixa" id="sdFaixa"></div>
           <div class="pt-card pt-pad sd-ver" id="sdVer"></div>
+        </section>
+        <section class="pt-sec" id="sdSecParcelas">
+          <div class="pt-sec-cab"><h2>Quanto amortizar pra matar 2, 3 ou 4 parcelas por mês</h2><span class="pt-hint">todo mês, reduzindo o prazo · em cada dívida · "simular este" põe o valor lá em cima</span></div>
+          <div class="sd-duas sd-matar" id="sdParcelas"></div>
         </section>
         <section class="pt-sec">
           <div class="pt-sec-cab"><h2>Ano a ano</h2><span class="pt-hint">patrimônio líquido no fim de cada ano, em cada caminho</span></div>
@@ -402,14 +501,20 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
     raiz.querySelector('#sdFaixa').innerHTML = htmlFaixa(sim);
     raiz.querySelector('#sdVer').innerHTML = htmlVeredito(veredito(sim));
     const semDiv = !sim.temDivida;
-    raiz.querySelectorAll('.sd .pt-sec').forEach((sec, k) => { if (k === 1 || k === 2) sec.hidden = semDiv; });
+    raiz.querySelectorAll('.sd .pt-sec').forEach((sec, k) => { if (k === 1 || k === 2 || k === 3) sec.hidden = semDiv; });
+    const nota = raiz.querySelector('#sdValorNota');
+    if (nota) nota.innerHTML = htmlValorNota(p);
     if (!semDiv) {
+      const chave = JSON.stringify([p.perfil, p.horizonteAnos, p.taxas, p.reinvestirDiferenca, p.reinvestirProventos, p.fgts && p.fgts.usar, p.patrimonioBase, p.hoje]);
+      if (!opcoes || chave !== chaveOpcoes) { opcoes = opcoesMatarParcelas(p); chaveOpcoes = chave; }
+      raiz.querySelector('#sdParcelas').innerHTML = htmlMatarParcelas(opcoes, p);
       graficos();
       raiz.querySelector('#sdTabela').innerHTML = htmlTabela(sim);
       raiz.querySelector('#sdPerfis').innerHTML = htmlPerfis(sim);
     }
     raiz.querySelector('#sdVideo').innerHTML = htmlEstrategias(sim);
     raiz.querySelector('#sdRefs').innerHTML = htmlReferencias();
+    if (typeof aoMudar === 'function') { try { aoMudar(sim, p, { opcoes, minimo: minimoParaMatar(p, 2, p.alvo) }); } catch (e) { /* o herói é extra */ } }
   }
 
   function formulario() { raiz.querySelector('#sdForm').innerHTML = htmlFormulario(p, premissas(p.taxas)); }
@@ -422,9 +527,31 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
 
   function mudar(fn, { form = false } = {}) {
     fn();
+    if (!p.valorManual) p.valor = valorPadraoAtual(p);
     salvar();
     if (form) { p._premAberta = !!raiz.querySelector('.sd-prem[open]'); formulario(); }
     resultado();
+  }
+
+  /** Valor digitado: igual ao mínimo de agora = volta a ser o padrão (acompanha a dívida e as taxas). */
+  function definirValor(v) {
+    p.valor = v;
+    p.valorManual = Math.round(v) !== Math.round(valorPadraoAtual(p));
+  }
+
+  /** Põe uma escolha no formulário (o "simular este" e quem estiver de fora - o herói). */
+  function aplicar(o, { rolar = false } = {}) {
+    mudar(() => {
+      ['alvo', 'frequencia', 'modo', 'perfil', 'horizonteAnos'].forEach((k) => { if (o[k] !== undefined) p[k] = o[k]; });
+      if (num(o.valor)) definirValor(o.valor);
+    }, { form: true });
+    if (rolar) {
+      const f = raiz.querySelector('#sdForm');
+      if (f) {
+        f.classList.remove('sd-piscar'); void f.offsetWidth; f.classList.add('sd-piscar'); // eslint-disable-line no-void
+        if (f.scrollIntoView) try { f.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
+      }
+    }
   }
 
   const TAXAS = { sdCdi: 'cdi', sdCdiLongo: 'cdiLongo', sdIpca: 'ipca', sdTr: 'trMensal', sdReal: 'taxaRealIpca', sdDy: 'dyFii', sdValFii: 'valorizacaoFii' };
@@ -437,8 +564,8 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
       if (grupo) {
         mudar(() => {
           const v = b.dataset.v;
-          if (grupo === 'frequencia' && v !== p.frequencia) {
-            // mantém o mesmo total no ano ao trocar
+          if (grupo === 'frequencia' && v !== p.frequencia && p.valorManual) {
+            // mantém o mesmo total no ano ao trocar (o padrão se recalcula sozinho)
             p.valor = v === 'anual' ? Math.round(p.valor * 12) : Math.round(p.valor / 12);
           }
           p[grupo] = v;
@@ -446,6 +573,8 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
         return;
       }
       if (b.dataset.sdPerfil) { mudar(() => { p.perfil = b.dataset.sdPerfil; }, { form: true }); return; }
+      if (b.dataset.sdMatar) { const [id, v] = b.dataset.sdMatar.split(':'); aplicar({ alvo: id, valor: Number(v), frequencia: 'mensal', modo: 'prazo' }, { rolar: true }); return; }
+      if (b.dataset.sdAcao === 'minimo') { mudar(() => { p.valorManual = false; }, { form: true }); return; }
       if (b.dataset.sdAcao === 'padrao') {
         try { if (store) store.removeItem(CHAVE); } catch (e) { /* ok */ }
         iniciar();
@@ -455,7 +584,7 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
     });
     raiz.addEventListener('change', (ev) => {
       const t = ev.target;
-      if (t.id === 'sdValor') { const v = lerValorBR(t.value); mudar(() => { p.valor = num(v) && v >= 0 ? v : 0; }); t.value = formatNumeroBR(p.valor, 0); } else if (t.id === 'sdPerfil') mudar(() => { p.perfil = t.value; });
+      if (t.id === 'sdValor') { const v = lerValorBR(t.value); mudar(() => { definirValor(num(v) && v >= 0 ? v : 0); }); t.value = formatNumeroBR(p.valor, 0); } else if (t.id === 'sdPerfil') mudar(() => { p.perfil = t.value; });
       else if (t.id === 'sdHorizonte') mudar(() => { p.horizonteAnos = Number(t.value) || 10; });
       else if (t.id === 'sdReinvDif') mudar(() => { p.reinvestirDiferenca = t.checked; });
       else if (t.id === 'sdReinvProv') mudar(() => { p.reinvestirProventos = t.checked; });
@@ -475,7 +604,7 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
     raiz.addEventListener('input', (ev) => {
       if (ev.target.id !== 'sdValor') return;
       clearTimeout(timer);
-      timer = setTimeout(() => { const v = lerValorBR(ev.target.value); if (num(v) && v >= 0) mudar(() => { p.valor = v; }); }, 450);
+      timer = setTimeout(() => { const v = lerValorBR(ev.target.value); if (num(v) && v >= 0) mudar(() => { definirValor(v); }); }, 450);
     });
     // balões dos gráficos
     const mostrar = (alvo) => {
@@ -512,9 +641,11 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
   desenhar();
 
   return {
-    atualizar(novoCtx) { contexto = novoCtx; iniciar(); desenhar(); },
+    atualizar(novoCtx) { contexto = novoCtx; opcoes = null; iniciar(); desenhar(); },
+    aplicar,
     get simulacao() { return sim; },
     get params() { return p; },
+    get opcoes() { return opcoes; },
   };
 }
 

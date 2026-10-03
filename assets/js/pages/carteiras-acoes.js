@@ -10,6 +10,7 @@ import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
 import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
 import { botaoInfoHtml,
   proventosDoHistorico_,
   renderResumoClasseCarteiras,
@@ -198,6 +199,7 @@ function desenhar(doc, dados) {
         evolucaoLegendaContainer: doc.getElementById('acoesEvolucaoLegenda'),
         corToken: '--acoes',
         analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+        analiseExtra: { proventosAReceber: proventosAReceberDe(dados.proventosAnunciados, { classes: ['acoes'] }) }, // 03/10/2026
         comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
       }],
     });

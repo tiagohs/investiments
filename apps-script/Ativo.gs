@@ -176,6 +176,15 @@ function montarTelaAtivo_(ref) {
   if (!base || !base.ok) return base;
   base.ativo = atual.ativo;
   base.hoje = chaveDiaISOInicio_(new Date());
+  // 03/10/2026 (Tiago: "largo banco de critérios"): fundamentos (Fundamentos.gs),
+  // lidos da aba aux_fundamentos que a agenda diária enche - fora do cache do
+  // ativo (sempre o mais novo) e sem chamar a internet. Sem dado: o campo não vem.
+  if (base.tipo === 'rv' && typeof lerFundamentosDoAtivo_ === 'function') {
+    try {
+      var fundamentos = lerFundamentosDoAtivo_(ss, ticker, base.classe, base.serie);
+      if (fundamentos) base.fundamentos = fundamentos;
+    } catch (eFund) { /* sem fundamentos: a análise usa só a planilha */ }
+  }
   return base;
 }
 

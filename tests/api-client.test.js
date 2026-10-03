@@ -443,6 +443,23 @@ test('Metas: getMetas (GET), salvarMeta (POST com a meta em JSON) e excluirMeta 
   assert.equal(vistos[3].params.get('restaurar'), '1');
 });
 
+// 03/10/2026: Metas v2 - histórico mês a mês e exclusão definitiva (Metas.gs).
+import { getMetasHistorico, excluirMetaDefinitivamente } from '../assets/js/api-client.js';
+
+test('Metas v2: getMetasHistorico (GET, id opcional) e excluirMetaDefinitivamente (POST)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getMetasHistorico('tk');
+  await getMetasHistorico('tk', 'm9');
+  await excluirMetaDefinitivamente('tk', 'm9');
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action'), v.params.get('id')]), [
+    ['GET', 'metasHistorico', null], ['GET', 'metasHistorico', 'm9'], ['POST', 'excluirMetaDefinitivo', 'm9'],
+  ]);
+});
+
 // 02/10/2026: Organização Financeira - Gastos (Gastos.gs).
 import { getGastos, getArquivosGastos, getArquivoGastos, salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos } from '../assets/js/api-client.js';
 

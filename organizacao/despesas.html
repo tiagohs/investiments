@@ -44,7 +44,7 @@
       </div>
       <div id="refreshControlOrganizacao" class="refresh-control"></div>
     </div>
-    <!-- 03/10/2026: painel Documentos (organizacao-documentos.js), vale pras 3 abas -->
+    <!-- 03/10/2026: painel Documentos (organizacao-documentos.js), vale pras 4 abas -->
     <section id="ogDocumentos" aria-label="Documentos"></section>
     <!-- 03/10/2026: abas renomeadas e reorganizadas (Tiago). Endereços antigos
          continuam: #patrimonio, #despesas, #salario (= Renda); novos: #gastos, #renda. -->
@@ -52,6 +52,8 @@
       <button type="button" role="tab" class="og-aba active" data-aba="patrimonio" aria-selected="true" aria-controls="painelPatrimonio" id="abaPatrimonio">Patrimônio</button>
       <button type="button" role="tab" class="og-aba" data-aba="despesas" aria-selected="false" aria-controls="painelDespesas" id="abaDespesas" tabindex="-1"><span class="og-aba-longo">Gastos e Despesas</span><span class="og-aba-curto" aria-hidden="true">Gastos</span></button>
       <button type="button" role="tab" class="og-aba" data-aba="renda" aria-selected="false" aria-controls="painelRenda" id="abaRenda" tabindex="-1"><span class="og-aba-longo">Renda e Orçamentos</span><span class="og-aba-curto" aria-hidden="true">Renda</span></button>
+      <!-- 03/10/2026: 4ª aba (Tiago: "Gastos e Despesas ficou muito grande.. jogue tudo que tem a parte de simulações ... pra uma nova aba"); #simulador continua levando pra cá -->
+      <button type="button" role="tab" class="og-aba" data-aba="simulacoes" aria-selected="false" aria-controls="painelSimulacoes" id="abaSimulacoes" tabindex="-1"><span class="og-aba-longo">Simulações</span><span class="og-aba-curto" aria-hidden="true">Simular</span></button>
     </div>
     <div id="painelPatrimonio" role="tabpanel" aria-labelledby="abaPatrimonio"><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
     <div id="painelDespesas" role="tabpanel" aria-labelledby="abaDespesas" hidden>
@@ -63,7 +65,7 @@
       <div class="carteiras-erro" id="organizacaoErro" hidden></div>
       <div id="organizacaoConteudo" hidden></div>
       <div id="gastosConteudo" class="og-gastos"></div>
-      <div id="simulador" class="og-simulador"></div>
+      <p class="og-link-sim"><a href="#simulacoes" class="pt-link">Simular amortizar × investir → Simulações</a></p>
     </div>
     <div id="painelRenda" role="tabpanel" aria-labelledby="abaRenda" hidden>
       <div class="pt-conteudo og-renda">
@@ -72,6 +74,12 @@
         <div id="salarioConteudo" class="sl-conteudo"></div>
         <div id="rendaInvestimento"></div>
         <div id="rendaContas"></div>
+      </div>
+    </div>
+    <div id="painelSimulacoes" role="tabpanel" aria-labelledby="abaSimulacoes" hidden>
+      <div class="pt-conteudo og-simulacoes">
+        <div id="simulacoesHero" aria-live="polite"></div>
+        <div id="simulador" class="og-simulador"></div>
       </div>
     </div>
   </main>

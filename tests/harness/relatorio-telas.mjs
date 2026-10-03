@@ -376,6 +376,17 @@ export async function coletarDadosTelas({ fixturesPath = FIXTURES_PATH } = {}) {
     patrimonio: p, cambio: home.cambio,
     diag: { correcoesPreco: r.diagnosticoRv.correcoesPreco || [] },
     gorila: ref?.gorila || null,
+    // 03/10/2026: o "desde o início" do app NO DIA do print do Gorila - a
+    // comparação com o número de hoje misturava datas (com o Controle 15, de
+    // 03/10, dava 78,63% x 74,72% do print de 23/09: +3,9 p.p. que eram só
+    // os 10 dias de mercado entre um e outro, não erro de conta).
+    gorilaApp: (() => {
+      if (!ref?.gorila?.data) return null;
+      const ate = s.filter((x) => x.data <= ref.gorila.data);
+      if (ate.length < 2 || ate[ate.length - 1].data !== ref.gorila.data) return null;
+      const o = twr(ate, janela(ate, 'tudo', 'patrimonio'), 'patrimonio', 'fluxoCaixaPatrimonio');
+      return o ? { data: ref.gorila.data, pct: r2(o.pct) } : null;
+    })(),
     qualidade: verificarQualidadeDados(r),
   };
   dados.checagens = checar(dados, s, p, u);
@@ -829,9 +840,12 @@ function checar(D, s, p, u) {
     for (const v of TODAS) for (const per of PERIODOS) { const o = D.visoes[v][per]; if (o && (o.pct < -60 || o.pct > 300)) e3.push(`${N[v]}/${NOMES_PERIODO[per]}: ${o.pct}%`); }
     add('Plausibilidade', 'nenhuma rentabilidade absurda (entre −60% e +300% em qualquer visão e período)', e3);
     if (D.gorila) {
-      const dif = D.visoes.total.tudo.pct - D.gorila.rentabilidadeDesdeInicioPct;
-      add('Plausibilidade', `"desde o início" perto do Gorila (${String(D.gorila.rentabilidadeDesdeInicioPct).replace('.', ',')}% em ${dbr(D.gorila.data)}): diferença de até 3 p.p. (metodologias diferentes: é ordem de grandeza)`,
-        Math.abs(dif) <= 3 ? [] : [`app ${D.visoes.total.tudo.pct}% x Gorila ${D.gorila.rentabilidadeDesdeInicioPct}%`],
+      // 03/10/2026: compara no MESMO dia do print (D.gorilaApp); sem esse dia
+      // na série, cai no número de hoje (como antes)
+      const app = D.gorilaApp ? D.gorilaApp.pct : D.visoes.total.tudo.pct;
+      const dif = app - D.gorila.rentabilidadeDesdeInicioPct;
+      add('Plausibilidade', `"desde o início" perto do Gorila (${String(D.gorila.rentabilidadeDesdeInicioPct).replace('.', ',')}% em ${dbr(D.gorila.data)}), no mesmo dia: diferença de até 3 p.p. (metodologias diferentes: é ordem de grandeza)`,
+        Math.abs(dif) <= 3 ? [] : [`app ${app}% x Gorila ${D.gorila.rentabilidadeDesdeInicioPct}% (${D.gorilaApp ? `app em ${dbr(D.gorilaApp.data)}` : 'app hoje'})`],
         `diferença: ${dif.toFixed(2).replace('.', ',')} p.p.`);
     }
   }

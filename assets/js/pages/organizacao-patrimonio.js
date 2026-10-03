@@ -22,7 +22,7 @@
  * dívidas para Gastos e Despesas; só deixe aqui simulações que façam sentido
  * relacionadas ao tema patrimônio" e "Carreira e FGTS (que estão em
  * Patrimônio) ... pra Renda e Orçamentos"): o simulador amortizar × investir
- * agora é organizacao-simulador.js (aba Gastos e Despesas) e Carreira/FGTS
+ * agora é organizacao-simulador.js (aba Simulações desde 03/10/2026) e Carreira/FGTS
  * são desenhados por montarCarreiraFgts (aba Renda e Orçamentos). Ficam aqui
  * as simulações de patrimônio: projeção da aposentadoria e Coast FI.
  * Contas em patrimonio-calc.js; gráficos em patrimonio-graficos.js.
@@ -187,7 +187,7 @@ export function dicasAcelerar(ctx) {
     if (r && r.taxaEmpate) {
       dicas.push({
         id: 'amortizar', titulo: 'Financiamento: amortizar ou investir?', destaque: false,
-        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule em Gastos e Despesas ›</a>`,
+        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule na aba Simulações ›</a>`,
       });
     }
   }
@@ -795,7 +795,7 @@ export function analiseHistorico(linhas, d, ctx = null) {
   if (ipca.length >= 2) indices.IPCA = ipca;
   return {
     serie, indices, periodo: { inicio: serie[0].data, fim: serie[serie.length - 1].data },
-    analise: analisarSerie({ serie, indices, periodo: { inicio: serie[0].data, fim: serie[serie.length - 1].data }, nome: 'O patrimônio líquido (sem contar o dinheiro novo)', indiceReferencia: indices.IPCA ? 'IPCA' : null }),
+    analise: analisarSerie({ serie, indices, periodo: { inicio: serie[0].data, fim: serie[serie.length - 1].data }, nome: 'O patrimônio líquido (sem contar o dinheiro novo)', indiceReferencia: indices.IPCA ? 'IPCA' : null, classe: 'patrimonio' }),
   };
 }
 

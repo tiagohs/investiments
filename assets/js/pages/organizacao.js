@@ -19,14 +19,18 @@
  *  - Patrimônio (#patrimonio, a 1ª): organizacao-patrimonio.js - sem o
  *    simulador de dívidas e sem Carreira/FGTS; + Patrimônio vs. inflação.
  *  - Gastos e Despesas (#despesas, #gastos): as despesas essenciais "para a
- *    renda de emergência" (esta tela), os gastos reais das faturas/extratos
- *    (organizacao-gastos.js) e o simulador amortizar × investir
- *    (organizacao-simulador.js, #simulador).
+ *    renda de emergência" (esta tela) e os gastos reais das faturas/extratos
+ *    (organizacao-gastos.js), com um link pra Simulações.
  *  - Renda e Orçamentos (#renda, #salario): a seção Renda
  *    (organizacao-renda.js: salário pelo IR e crescimento, quanto investe do
  *    salário, contas do IR), Carreira e FGTS (montarCarreiraFgts) e o
  *    orçamento do salário (organizacao-salario.js).
- *  - Documentos (organizacao-documentos.js): painel no topo, pras 3 abas.
+ *  - Simulações (#simulacoes, #simulador; 03/10/2026 - Tiago: "Eu senti que
+ *    Gastos e Despesas ficou muito grande.. jogue tudo que tem a parte de
+ *    simulações ... pra uma nova aba"): herói (ritmo, primeiro milhão, viés
+ *    amortizar × investir, quitação) + o simulador inteiro
+ *    (organizacao-simulacoes.js + organizacao-simulador.js).
+ *  - Documentos (organizacao-documentos.js): painel no topo, pras 4 abas.
  * As respostas do getPatrimonio, getSalario e getGastos são carregadas UMA
  * vez e compartilhadas (criarCarregador) entre as abas e o painel; cada
  * pedaço só se monta quando a aba dele abre.
@@ -45,7 +49,7 @@ import {
 import { montarAbaSalario } from './organizacao-salario.js';
 import { montarAbaPatrimonio, montarCarreiraFgts, contextoPatrimonio } from './organizacao-patrimonio.js';
 import { montarSecaoGastos } from './organizacao-gastos.js';
-import { montarSimuladorDividas } from './organizacao-simulador.js';
+import { montarAbaSimulacoes } from './organizacao-simulacoes.js';
 import { montarSecaoRenda } from './organizacao-renda.js';
 import { montarPainelDocumentos } from './organizacao-documentos.js';
 
@@ -337,9 +341,9 @@ function primeiraDepoisRecarrega(c) {
   return () => { if (primeira) { primeira = false; return c.obter(); } return c.recarregar(); };
 }
 
-/** Hash do endereço -> aba. #salario (antigo) = Renda; #gastos = Gastos e Despesas. */
+/** Hash do endereço -> aba. #salario (antigo) = Renda; #gastos = Gastos e Despesas; #simulador = Simulações (rola até o simulador). */
 export const ABA_DO_HASH = {
-  patrimonio: 'patrimonio', despesas: 'despesas', gastos: 'despesas', simulador: 'despesas', renda: 'renda', salario: 'renda',
+  patrimonio: 'patrimonio', despesas: 'despesas', gastos: 'despesas', simulador: 'simulacoes', simulacoes: 'simulacoes', renda: 'renda', salario: 'renda',
 };
 
 export async function montarPaginaOrganizacao(token, {
@@ -644,7 +648,7 @@ export async function montarPaginaOrganizacao(token, {
   }
 
   // -------------------------------------------------------------------------
-  // Abas (03/10/2026: Patrimônio | Gastos e Despesas | Renda e Orçamentos)
+  // Abas (03/10/2026: Patrimônio | Gastos e Despesas | Renda e Orçamentos | Simulações)
   // 26/09/2026: 2 abas, só carregadas quando abrem; 27/09/2026: 3ª (Patrimônio).
   // -------------------------------------------------------------------------
   const abasEl = doc.getElementById('ogAbas');
@@ -652,11 +656,13 @@ export async function montarPaginaOrganizacao(token, {
     patrimonio: doc.getElementById('painelPatrimonio'),
     despesas: doc.getElementById('painelDespesas'),
     renda: doc.getElementById('painelRenda') || doc.getElementById('painelSalario'),
+    simulacoes: doc.getElementById('painelSimulacoes'),
   };
   const el = {
     patrimonio: doc.getElementById('patrimonioConteudo'),
     gastos: doc.getElementById('gastosConteudo'),
     simulador: doc.getElementById('simulador'),
+    simHero: doc.getElementById('simulacoesHero'),
     rendaTopo: doc.getElementById('rendaTopo'),
     carreira: doc.getElementById('carreiraFgts'),
     salario: doc.getElementById('salarioConteudo'),
@@ -689,18 +695,19 @@ export async function montarPaginaOrganizacao(token, {
   };
 
   // peças (montadas quando a aba abre)
-  let patrimonio = null; let salario = null; let simulador = null; let carreira = null;
+  let patrimonio = null; let salario = null; let simulador = null; let simulacoes = null; let carreira = null;
   const renda = { topo: null, inv: null, contas: null };
   let rendaMontada = false;
+  let rolarDepois = null; // id pra rolar quando a aba Simulações terminar de montar
   let abaAtual = null;
-  const pendente = { patrimonio: false, despesas: false, renda: false };
+  const pendente = { patrimonio: false, despesas: false, renda: false, simulacoes: false };
   const visivel = (aba) => abaAtual === aba;
 
   function rolarAte(alvo) {
     if (alvo && alvo.scrollIntoView) try { alvo.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
   }
 
-  // --- Gastos e Despesas: gastos reais + simulador ---------------------------
+  // --- Gastos e Despesas: gastos reais ----------------------------------------
   function montarDespesasExtras() {
     if (!gastos && el.gastos) {
       try {
@@ -710,11 +717,17 @@ export async function montarPaginaOrganizacao(token, {
         });
       } catch (e) { el.gastos.innerHTML = `<div class="carteiras-erro">Não deu pra montar os gastos: ${esc(e.message || e)}</div>`; }
     }
-    if (el.simulador && !simulador) {
-      if (!pat.iniciado) pat.obter();
-      if (pat.valor) desenharSimulador();
-      else if (pat.valor === null) el.simulador.innerHTML = '<div class="carteiras-erro">O simulador precisa do patrimônio (financiamento e FIES), que não carregou agora. Tente "Atualizar dados".</div>';
-      else if (!el.simulador.querySelector('.skel')) el.simulador.innerHTML = '<section class="pt-sec"><div class="pt-sec-cab"><h2>Amortizar ou investir?</h2><span class="pt-hint">carregando o financiamento e o FIES…</span></div><span class="skel" style="height:220px;border-radius:16px"></span></section>';
+  }
+
+  // --- Simulações: herói + simulador amortizar × investir --------------------
+  function montarSimulacoes() {
+    if (!el.simulador || simulacoes) return;
+    if (!pat.iniciado) pat.obter();
+    if (pat.valor) desenharSimulador();
+    else if (pat.valor === null) { if (el.simHero) el.simHero.innerHTML = ''; el.simulador.innerHTML = '<div class="carteiras-erro">O simulador precisa do patrimônio (financiamento e FIES), que não carregou agora. Tente "Atualizar dados".</div>'; }
+    else if (!el.simulador.querySelector('.skel')) {
+      if (el.simHero) el.simHero.innerHTML = '<div class="sm-hero sm-hero-skel"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>';
+      el.simulador.innerHTML = '<section class="pt-sec"><div class="pt-sec-cab"><h2>Amortizar ou investir?</h2><span class="pt-hint">carregando o financiamento e o FIES…</span></div><span class="skel" style="height:220px;border-radius:16px"></span></section>';
     }
   }
   function desenharSimulador() {
@@ -722,8 +735,13 @@ export async function montarPaginaOrganizacao(token, {
     const ctx = contextoPat();
     if (!ctx) return;
     try {
-      if (!simulador) simulador = montarSimuladorDividas(el.simulador, { ctx, doc, hoje: hojeIso(), ...simuladorOpcoes });
-      else simulador.atualizar(ctx);
+      if (!simulacoes) {
+        simulacoes = montarAbaSimulacoes({ hero: el.simHero, simulador: el.simulador }, { ctx, doc, hoje: hojeIso(), ...simuladorOpcoes });
+        simulador = simulacoes.simulador;
+        // #simulador antes de os dados chegarem: o herói empurrou o simulador pra baixo - rola de novo
+        if (rolarDepois && visivel('simulacoes')) { const alvo = doc.getElementById(rolarDepois); if (alvo) setTimeout(() => rolarAte(alvo), 0); }
+        rolarDepois = null;
+      } else simulacoes.atualizar(ctx);
     } catch (e) { el.simulador.innerHTML = `<div class="carteiras-erro">Não deu pra montar o simulador: ${esc(e.message || e)}</div>`; }
   }
 
@@ -796,7 +814,7 @@ export async function montarPaginaOrganizacao(token, {
   // --- quando as respostas compartilhadas mudam -------------------------------
   pat.inscrever(() => {
     atualizarDocumentos();
-    if (visivel('despesas')) { if (pat.valor) desenharSimulador(); else if (!simulador) montarDespesasExtras(); } else pendente.despesas = true;
+    if (visivel('simulacoes')) { if (pat.valor) desenharSimulador(); else if (!simulacoes) montarSimulacoes(); } else pendente.simulacoes = true;
     if (visivel('renda')) { if (salario || rendaMontada) montarRenda(); } else pendente.renda = true;
   });
   sal.inscrever(() => {
@@ -849,13 +867,15 @@ export async function montarPaginaOrganizacao(token, {
     Object.entries(paineis).forEach(([k, p]) => { if (p) p.hidden = k !== aba; });
     if (abasEl) abasEl.querySelectorAll('[data-aba]').forEach((b) => { const a = b.dataset.aba === aba; b.classList.toggle('active', a); b.setAttribute('aria-selected', String(a)); b.tabIndex = a ? 0 : -1; });
     if (aba === 'patrimonio') montarPatrimonio();
-    if (aba === 'despesas') { montarDespesasExtras(); if (pendente.despesas && simulador && pat.valor) desenharSimulador(); pendente.despesas = false; }
+    if (aba === 'despesas') { montarDespesasExtras(); pendente.despesas = false; }
+    if (aba === 'simulacoes') { montarSimulacoes(); if (pendente.simulacoes && simulacoes && pat.valor) desenharSimulador(); pendente.simulacoes = false; }
     if (aba === 'renda') { montarRenda(); pendente.renda = false; }
     if (win && win.history && typeof win.history.replaceState === 'function' && win.location) {
       const hash = aba === 'patrimonio' ? '' : `#${aba}`;
       try { if ((win.location.hash || '') !== hash) win.history.replaceState(null, '', `${win.location.pathname}${win.location.search}${hash}`); } catch (e) { /* ok */ }
     }
     if (rolarPara) { const alvo = doc.getElementById(rolarPara); if (alvo) setTimeout(() => rolarAte(alvo), 0); }
+    if (aba === 'simulacoes' && !simulacoes && rolarPara && rolarPara !== 'ogAbas') rolarDepois = rolarPara;
     return aba;
   }
   /** "#salario" -> renda; "#simulador" ou o id de qualquer coisa dentro de uma aba -> essa aba (e rola até lá). */
@@ -880,7 +900,8 @@ export async function montarPaginaOrganizacao(token, {
   if (win && typeof win.addEventListener === 'function') {
     win.addEventListener('hashchange', () => {
       const r = abaDoHash(String(win.location.hash || '').replace('#', ''));
-      if (r) mostrarAba(r.aba, { rolarPara: r.rolar });
+      // 03/10/2026: veio de um link no meio da página (ex.: "→ Simulações"): sobe até as abas
+      if (r) mostrarAba(r.aba, { rolarPara: r.rolar || (r.aba !== abaAtual ? 'ogAbas' : null) });
     });
   }
   const inicial = abaDoHash(win && win.location ? String(win.location.hash || '').replace('#', '') : '');
@@ -909,7 +930,7 @@ export async function montarPaginaOrganizacao(token, {
   else await carregar();
   return {
     get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, get patrimonio() { return patrimonio; },
-    get gastos() { return gastos; }, get simulador() { return simulador; }, get renda() { return renda; }, get carreira() { return carreira; },
+    get gastos() { return gastos; }, get simulador() { return simulador; }, get simulacoes() { return simulacoes; }, get renda() { return renda; }, get carreira() { return carreira; },
     get documentos() { return painelDocs; }, get abaAtual() { return abaAtual; },
     carregadores: { patrimonio: pat, salario: sal, gastos: gas, gastosDrive: gasDrive },
     mostrarAba, acaoDocumento,

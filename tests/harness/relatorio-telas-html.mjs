@@ -270,7 +270,7 @@ sup{color:var(--muted)}
     o.push('</table></div>');
   }
   if (D.gorila) {
-    o.push(`<p class="nota">Referência externa (Gorila, ${dbr(D.gorila.data)}): ${pct(D.gorila.rentabilidadeDesdeInicioPct)} desde o início contra ${pct(D.visoes.total.tudo.pct)} aqui; Valor aplicado ${brl(D.gorila.valorInvestido)} contra ${brl(D.aplicado.total)} aqui.</p>`);
+    o.push(`<p class="nota">Referência externa (Gorila, ${dbr(D.gorila.data)}): ${pct(D.gorila.rentabilidadeDesdeInicioPct)} desde o início contra ${pct(D.gorilaApp ? D.gorilaApp.pct : D.visoes.total.tudo.pct)} aqui${D.gorilaApp ? ' no mesmo dia' : ''} (hoje: ${pct(D.visoes.total.tudo.pct)}); Valor aplicado ${brl(D.gorila.valorInvestido)} contra ${brl(D.aplicado.total)} aqui.</p>`);
   }
 
   o.push(`<h2>Como este relatório é gerado</h2><p class="nota"><code>tests/harness/relatorio-telas.mjs</code> monta as telas com o código atual e <code>tests/harness/fixtures.json</code>, e <code>relatorio-telas.test.js</code> vira um teste por checagem. Roda em todo <code>npm test</code>, em <code>npm run verificar</code> (que também roda antes de cada commit) e em <code>npm run vigiar</code> (a cada arquivo salvo). Pra trocar a planilha base: <code>python3 tests/harness/extrair-fixtures.py "…/Investimentos - Controle NN.xlsx"</code>. A pasta <code>tests/harness/relatorio/</code> não vai pro git, porque tem dado financeiro real.</p>`);

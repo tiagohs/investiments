@@ -317,3 +317,267 @@ body.mt-dialogo-aberto{ overflow:hidden; }
   .mt-itens li .mt-x{ grid-column:3; grid-row:1; }
 }
 @media (prefers-reduced-motion: reduce){ .mt-card, .mt-barra > span{ transition:none; } }
+
+/* =====================================================================
+   03/10/2026 - Metas v2 (Tiago: "nos heros, seja mais criativo, traga mais
+   cores (verde/vermelho pra positivo ou negativo, ícones, etc.) sem poluir";
+   gráficos com hover, explicações em toque, detalhes dos investimentos)
+   ===================================================================== */
+.mt-bom{ color:var(--good-ink); }
+.mt-btn-perigo{ color:var(--bad-ink); border-color:color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.mt-btn-perigo:hover{ background:var(--bad-soft); }
+.mt-nota-arq{ margin:0; }
+
+/* botão "i" e o balão de explicação */
+.mt-info{ all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+  margin-left:4px; border-radius:50%; color:var(--ink-faint); vertical-align:-3px; flex:none; position:relative; }
+.mt-info::after{ content:''; position:absolute; inset:-8px; } /* alvo de toque maior */
+.mt-info:hover, .mt-info[aria-expanded="true"]{ color:var(--acoes); background:var(--acoes-soft); }
+.mt-info:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
+.mt-dica-balao{ position:absolute; z-index:90; background:var(--surface); color:var(--ink); border:1px solid var(--border); border-radius:12px;
+  box-shadow:var(--shadow-lg); padding:11px 30px 11px 13px; font-size:12.5px; line-height:1.5; animation:mtDica .14s ease-out; }
+.mt-dica-balao p{ margin:0; white-space:pre-line; }
+.mt-dica-fechar{ all:unset; cursor:pointer; position:absolute; top:6px; right:8px; width:20px; height:20px; text-align:center; line-height:20px; color:var(--ink-faint); font-size:16px; border-radius:50%; }
+.mt-dica-fechar:hover{ background:var(--surface-3); color:var(--ink); }
+@keyframes mtDica{ from{ opacity:0; transform:translateY(-3px); } to{ opacity:1; transform:none; } }
+.mt-status-dica{ display:inline-flex; align-items:center; flex:none; }
+.mt-filtros-status{ display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+
+/* resumo do topo com cor */
+.mt-rot svg{ vertical-align:-3px; margin-right:5px; color:var(--ink-faint); }
+.mt-tile-cor{ border-top:3px solid var(--good); }
+.mt-tile-cor.ruim{ border-top-color:var(--warn); }
+.mt-sub b.mt-bom{ color:var(--good-ink); }
+.mt-sub b.mt-ruim{ color:var(--bad-ink); }
+
+/* herói v2 */
+.mt-heroi-v2{ position:relative; overflow:hidden; gap:14px;
+  background:linear-gradient(135deg, var(--mt-cor-soft) 0%, var(--surface) 46%); }
+.mt-heroi-corpo{ display:flex; align-items:center; gap:20px; min-width:0; }
+.mt-anel{ position:relative; flex:none; }
+.mt-anel svg{ width:100%; height:100%; display:block; }
+.mt-anel-fundo{ fill:none; stroke:var(--surface-3); stroke-width:9; }
+.mt-anel-valor{ fill:none; stroke:var(--mt-cor, var(--acoes)); stroke-width:9; stroke-linecap:round; transition:stroke-dasharray .4s ease; }
+.mt-anel-bruto{ fill:none; stroke:var(--ink-faint); stroke-width:2.5; stroke-linecap:round; opacity:.65; }
+.mt-anel.bom .mt-anel-valor{ stroke:var(--good); }
+.mt-anel.ruim .mt-anel-valor{ stroke:var(--bad); }
+.mt-anel-txt{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+.mt-anel-txt b{ font-family:var(--mono); font-size:21px; font-weight:600; letter-spacing:-.02em; color:var(--ink); line-height:1; }
+.mt-anel-txt small{ font-size:10px; color:var(--ink-faint); font-weight:600; margin-top:3px; text-transform:uppercase; letter-spacing:.05em; }
+.mt-heroi-numeros{ flex:1 1 auto; min-width:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; }
+.mt-hnum{ display:flex; flex-direction:column; gap:3px; min-width:0; background:color-mix(in srgb, var(--surface) 82%, transparent); border:1px solid var(--border);
+  border-radius:12px; padding:10px 12px; border-left:3px solid var(--border); }
+.mt-hnum.bom{ border-left-color:var(--good); }
+.mt-hnum.ruim{ border-left-color:var(--bad); }
+.mt-hnum-rot{ display:flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; color:var(--ink-muted); }
+.mt-hnum-rot > svg{ color:var(--mt-cor, var(--acoes)); flex:none; }
+.mt-hnum.bom .mt-hnum-rot > svg{ color:var(--good); }
+.mt-hnum.ruim .mt-hnum-rot > svg{ color:var(--bad); }
+.mt-hnum-val{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:21px; font-weight:600; letter-spacing:-.02em; color:var(--ink); line-height:1.15; overflow-wrap:anywhere; }
+.mt-hnum-val small{ font-family:var(--body-f); font-size:11px; color:var(--ink-faint); margin-left:2px; letter-spacing:0; }
+.mt-hnum-sub{ font-size:11px; color:var(--ink-faint); line-height:1.45; }
+.mt-hnum-sub b{ font-family:var(--mono); font-weight:600; color:var(--ink-muted); }
+.mt-chip-delta{ display:inline-block; font-family:var(--mono); font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:100px; white-space:nowrap; }
+.mt-chip-delta.bom{ background:var(--good-soft); color:var(--good-ink); }
+.mt-chip-delta.ruim{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-heroi-ritmo{ margin:0; display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.5; color:var(--ink-muted);
+  background:var(--surface-3); border-radius:10px; padding:9px 12px; }
+.mt-heroi-ritmo > svg{ flex:none; margin-top:2px; color:var(--ink-faint); }
+.mt-heroi-ritmo.bom{ background:var(--good-soft); color:var(--good-ink); }
+.mt-heroi-ritmo.bom > svg{ color:var(--good); }
+.mt-heroi-ritmo.ruim{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-heroi-ritmo.ruim > svg{ color:var(--bad); }
+.mt-heroi-ritmo b{ font-family:var(--mono); }
+.mt-heroi-ritmo em{ font-style:normal; opacity:.8; font-size:12px; }
+.mt-heroi-ritmo .mt-bom, .mt-heroi-ritmo .mt-ruim{ font-weight:700; }
+.mt-heroi-legenda{ margin:-6px 0 0; font-size:11px; color:var(--ink-faint); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.mt-heroi-legenda i{ display:inline-block; width:12px; height:4px; border-radius:2px; margin-left:4px; }
+.mt-heroi-legenda i.liq{ background:var(--mt-cor); height:6px; }
+.mt-heroi-legenda i.bru{ background:var(--ink-faint); }
+
+/* blocos: cabeçalho com controles */
+.mt-bloco h3{ display:flex; align-items:center; gap:2px; }
+.mt-bloco-ctrl{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.mt-bloco .filter-tabs{ margin:0; }
+.mt-tabs-periodo .filter-tab, .mt-modo .filter-tab{ font-size:11.5px; padding:4px 10px; }
+.mt-analise{ margin-top:10px; }
+.mt-analise[hidden]{ display:none; }
+.mt-grafico-caixa{ position:relative; }
+.mt-grafico:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; border-radius:6px; }
+.mt-legenda{ margin:4px 0 6px; }
+.mt-legenda i.hist{ background:var(--fiis); }
+.mt-legenda i.aporte{ background:var(--acoes); height:8px; width:8px; border-radius:2px; }
+.mt-legenda i.rend{ background:var(--good); height:8px; width:8px; border-radius:2px; }
+.mt-legenda i.renda{ background:var(--fiis); height:8px; width:8px; border-radius:2px; }
+.mt-legenda i.media{ background:var(--usa); }
+.mt-legenda i.marco{ width:8px; height:8px; border-radius:50%; background:var(--usa); }
+.mt-g-grade.zero{ stroke:var(--ink-faint); opacity:.5; }
+.mt-g-area.hist{ fill:var(--fiis); opacity:.1; }
+.mt-g-ritmo.hist{ stroke:var(--fiis); }
+.mt-g-ponto.hist{ fill:var(--fiis); }
+.mt-g-prazo{ stroke:var(--bad); stroke-width:1.2; stroke-dasharray:3 3; opacity:.7; }
+.mt-g-rot-prazo{ fill:var(--bad-ink); font-size:10px; font-weight:700; font-family:var(--mono); }
+.mt-g-marco circle{ fill:var(--usa); stroke:var(--surface); stroke-width:2; }
+.mt-g-marco text{ fill:var(--usa); font-size:10px; font-weight:700; font-family:var(--mono); paint-order:stroke; stroke:var(--surface); stroke-width:3px; }
+.mt-g-bar-aporte{ fill:var(--acoes); }
+.mt-g-bar-aporte.neg, .mt-g-bar-rend.neg{ fill:var(--bad); }
+.mt-g-bar-rend{ fill:var(--good); }
+.mt-g-bar-renda{ fill:var(--fiis); }
+.mt-g-bar-renda.parcial{ fill:var(--fiis); opacity:.4; }
+.mt-g-media{ fill:none; stroke:var(--usa); stroke-width:2; stroke-linejoin:round; }
+.mt-g-cruz{ stroke:var(--ink-muted); stroke-width:1; stroke-dasharray:2 3; pointer-events:none; }
+.mt-g-hit{ cursor:crosshair; }
+.mt-tt{ position:absolute; top:6px; z-index:3; min-width:150px; max-width:240px; background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  box-shadow:var(--shadow-lg); padding:8px 10px; pointer-events:none; font-size:11.5px; }
+.mt-tt[hidden]{ display:none; }
+.mt-tt-data{ font-size:10.5px; color:var(--ink-faint); margin-bottom:5px; font-weight:600; }
+.mt-tt-item{ display:flex; align-items:center; gap:6px; color:var(--ink-muted); padding:1.5px 0; }
+.mt-tt-item i{ width:8px; height:8px; border-radius:2px; flex:none; }
+.mt-tt-item i.hist, .mt-tt-item i.renda{ background:var(--fiis); }
+.mt-tt-item i.aporte, .mt-tt-item i.ritmo{ background:var(--acoes); }
+.mt-tt-item i.rend{ background:var(--good); }
+.mt-tt-item i.necessaria{ background:var(--rf); }
+.mt-tt-item i.media{ background:var(--usa); }
+.mt-tt-item b{ margin-left:auto; padding-left:10px; font-family:var(--mono); font-weight:600; color:var(--ink); }
+.mt-tt-item b.mt-ruim{ color:var(--bad-ink); }
+.mt-tt-item b.mt-bom{ color:var(--good-ink); }
+.mt-tt-marco{ margin-top:4px; font-weight:700; color:var(--usa); }
+
+/* velocidade */
+.mt-vels{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.mt-vel{ display:flex; flex-direction:column; gap:2px; border:1px solid var(--border); border-radius:12px; padding:10px 11px; min-width:0; }
+.mt-vel.base{ background:var(--surface-3); }
+.mt-vel-tit{ font-size:11px; font-weight:700; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; }
+.mt-vel-data{ font-family:var(--mono); font-size:18px; color:var(--ink); }
+.mt-vel-dur{ font-size:11px; color:var(--ink-faint); }
+.mt-vel-ap{ font-size:11.5px; color:var(--ink-muted); margin-top:4px; display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.mt-vel-ap b{ font-family:var(--mono); color:var(--ink); }
+.mt-dicas-acel{ list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:7px; font-size:12.5px; color:var(--ink-muted); line-height:1.45; }
+.mt-dicas-acel li{ display:flex; gap:8px; align-items:flex-start; }
+.mt-dica-ico{ flex:none; width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-3); color:var(--ink-faint); }
+.mt-dica-ico.bom{ background:var(--good-soft); color:var(--good-ink); }
+
+/* tabelas (marcos, destinos) */
+.mt-tabela-rolagem{ overflow-x:auto; }
+.mt-tabela{ width:100%; border-collapse:collapse; font-size:12.5px; }
+.mt-tabela th, .mt-tabela td{ text-align:left; padding:7px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.mt-tabela thead th{ font-size:11px; color:var(--ink-faint); font-weight:700; }
+.mt-tabela tbody th{ font-weight:600; color:var(--ink); }
+.mt-tabela tbody th svg{ color:var(--usa); vertical-align:-2px; }
+.mt-tabela td b{ font-family:var(--mono); }
+.mt-tabela tr.alvo th, .mt-tabela tr.alvo td{ background:var(--usa-soft); }
+.mt-cenarios{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.mt-cen{ display:flex; flex-direction:column; gap:2px; border:1px solid var(--border); border-radius:12px; padding:10px 12px; font-size:11.5px; color:var(--ink-muted); }
+.mt-cen-tit{ font-weight:700; color:var(--ink); font-size:12px; }
+.mt-cen > b{ font-family:var(--mono); font-size:17px; color:var(--ink); }
+.mt-cen b{ font-family:var(--mono); }
+.mt-partes.passos li.sub{ background:var(--surface-3); border-radius:6px; padding-left:6px; padding-right:6px; }
+
+/* viagem */
+.mt-moedas, .mt-fixos{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.mt-moedas li{ display:flex; flex-direction:column; gap:5px; }
+.mt-moeda-cab{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; font-size:12px; color:var(--ink-muted); }
+.mt-moeda-cab b{ font-family:var(--mono); color:var(--ink); }
+.mt-moeda-num{ display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--ink-muted); }
+.mt-moeda-num b{ font-family:var(--mono); }
+.mt-fixos li{ display:flex; justify-content:space-between; gap:10px; align-items:baseline; font-size:12.5px; padding-bottom:7px; border-bottom:1px solid var(--border); }
+.mt-fixos li.pago .mt-v-nome{ color:var(--ink-faint); }
+.mt-fixos li.pago b{ color:var(--good-ink); }
+
+/* onde está o dinheiro */
+.mt-v-ir{ display:block; }
+.mt-v-hist{ display:block; }
+.mt-v-grupo{ display:block !important; padding:0 !important; }
+.mt-v-grupo details > summary{ list-style:none; display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:7px 0; cursor:pointer; }
+.mt-v-grupo details > summary::-webkit-details-marker{ display:none; }
+.mt-v-grupo details > summary .mt-v-nome strong::after{ content:' ▸'; color:var(--ink-faint); font-size:10px; }
+.mt-v-grupo details[open] > summary .mt-v-nome strong::after{ content:' ▾'; }
+.mt-v-grupo details ul{ list-style:none; margin:0 0 6px; padding:0 0 0 10px; border-left:2px solid var(--border); }
+.mt-v-grupo details ul li{ display:flex; justify-content:space-between; gap:10px; padding:5px 0; font-size:12px; border-bottom:1px dashed var(--border); }
+.mt-v-saldo strong svg{ vertical-align:-2px; color:var(--mt-cor, var(--acoes)); }
+.mt-saldo-form{ display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; align-items:center; }
+.mt-saldo-form .mt-entrada{ max-width:170px; }
+.mt-saldo-form .mt-entrada input{ font-family:var(--mono); font-size:13px; color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:0 9px 9px 0; padding:6px 8px; width:100%; }
+.mt-vinculos li.liquido{ border-top:none; color:var(--good-ink); }
+.mt-vinculos li.nota{ font-size:11px; border-bottom:none; }
+.mt-add-saldo{ margin-top:8px; display:inline-block; }
+
+/* avaliação + sugestões */
+.mt-av-resumo{ margin:0 0 8px; font-size:12.5px; font-weight:600; border-radius:10px; padding:8px 10px; }
+.mt-av-resumo.neutro{ background:var(--surface-3); color:var(--ink-muted); }
+.mt-av-resumo.bom{ background:var(--good-soft); color:var(--good-ink); }
+.mt-av-resumo.atencao{ background:var(--warn-soft); color:var(--warn-ink); }
+.mt-av-resumo.ruim{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-avs{ list-style:none; margin:0 0 8px; padding:0; display:flex; flex-direction:column; gap:8px; font-size:12px; color:var(--ink-muted); line-height:1.45; }
+.mt-av{ display:flex; gap:8px; align-items:flex-start; }
+.mt-av b{ color:var(--ink); }
+.mt-av-selo{ flex:none; width:20px; height:20px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; margin-top:1px; }
+.mt-av.bom .mt-av-selo{ background:var(--good-soft); color:var(--good-ink); }
+.mt-av.atencao .mt-av-selo{ background:var(--warn-soft); color:var(--warn-ink); }
+.mt-av.ruim .mt-av-selo{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-av-rot{ font-style:normal; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+.mt-av.bom .mt-av-rot{ color:var(--good-ink); }
+.mt-av.atencao .mt-av-rot{ color:var(--warn-ink); }
+.mt-av.ruim .mt-av-rot{ color:var(--bad-ink); }
+.mt-sug-inv summary{ cursor:pointer; font-size:12.5px; font-weight:700; color:var(--ink-muted); }
+.mt-sug-inv ul{ margin:8px 0 0; padding-left:18px; font-size:12px; color:var(--ink-muted); line-height:1.5; display:flex; flex-direction:column; gap:4px; }
+.mt-sug-inv ul b{ color:var(--ink); }
+.mt-fontes{ margin:8px 0 0; font-size:11px; color:var(--ink-faint); line-height:1.6; }
+.mt-fontes a{ color:var(--acoes); }
+
+/* assistente: conta da aposentadoria, destinos, fixos, saldos */
+.mt-conta{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; font-size:12.5px; }
+.mt-conta li{ display:flex; justify-content:space-between; gap:10px; padding:6px 8px; border-radius:8px; }
+.mt-conta li.sub{ background:var(--surface-3); font-weight:600; }
+.mt-conta li.destaque{ background:var(--usa-soft); color:var(--usa); font-weight:700; }
+.mt-conta li.total{ background:var(--good-soft); color:var(--good-ink); font-weight:700; font-size:13.5px; }
+.mt-conta b{ white-space:nowrap; }
+.mt-nota.largo{ grid-column:1 / -1; margin:0; }
+.mt-dests, .mt-fixos-ed, .mt-saldos-ed{ list-style:none; margin:0 0 8px; padding:0; display:flex; flex-direction:column; gap:10px; }
+.mt-dest{ border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; gap:8px; }
+.mt-dest-cab{ display:grid; grid-template-columns:auto minmax(0,1.2fr) minmax(0,1fr) auto auto; gap:6px; align-items:center; }
+.mt-dest-num{ width:22px; height:22px; border-radius:50%; background:var(--acoes-soft); color:var(--acoes); font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+.mt-dest-campos{ display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:6px; }
+.mt-dest-total{ margin:0; font-size:11.5px; font-weight:600; color:var(--ink-muted); font-family:var(--mono); text-align:right; }
+.mt-dest input, .mt-dest select, .mt-fixo-ed input, .mt-fixo-ed select, .mt-saldos-ed input, .mt-saldos-ed select{ font-family:var(--body-f); font-size:12.5px; color:var(--ink);
+  background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 7px; min-width:0; width:100%; box-sizing:border-box; }
+.mt-dest-cab select{ width:auto; }
+.mt-dest-campos input{ font-family:var(--mono); }
+.mt-fixo-ed{ display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1.1fr) 70px 120px 74px auto auto; gap:6px; align-items:end; }
+.mt-mini{ display:flex; flex-direction:column; gap:2px; font-size:10px; color:var(--ink-faint); font-weight:600; }
+.mt-check-txt{ display:flex; align-items:center; gap:4px; font-size:11.5px; color:var(--ink-muted); padding-bottom:6px; }
+.mt-check-txt input{ width:auto; }
+.mt-saldos-ed li{ display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) 140px 80px auto; gap:6px; align-items:end; }
+.mt-fixo-ed .mt-entrada select, .mt-saldos-ed .mt-entrada select{ width:auto; flex:none; border-radius:8px 0 0 8px; border-right:none; background:var(--surface-3); padding:6px 4px; }
+.mt-fixo-ed .mt-entrada input, .mt-saldos-ed .mt-entrada input{ flex:1 1 auto; border-radius:0 8px 8px 0; font-family:var(--mono); }
+.mt-saldo-brl{ font-size:11px; color:var(--ink-faint); text-align:right; }
+.mt-resumo-viagem{ list-style:none; margin:8px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:8px; }
+.mt-resumo-viagem li{ display:flex; flex-direction:column; background:var(--surface-3); border-radius:10px; padding:7px 10px; font-size:11px; color:var(--ink-faint); }
+.mt-resumo-viagem b{ font-family:var(--mono); font-size:14px; color:var(--ink); }
+.mt-grupo em.mt-fraco{ text-transform:none; letter-spacing:0; font-style:normal; }
+
+@media (max-width:760px){
+  .mt-heroi-corpo{ flex-direction:column; align-items:stretch; }
+  .mt-anel{ align-self:center; }
+  .mt-dest-campos{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .mt-fixo-ed{ grid-template-columns:minmax(0,1fr) minmax(0,1fr) 70px; }
+}
+@media (max-width:560px){
+  .mt-heroi-numeros{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .mt-hnum-val{ font-size:17px; }
+  .mt-hnum{ padding:8px 10px; }
+  .mt-vels{ grid-template-columns:minmax(0,1fr); }
+  .mt-vel{ flex-direction:row; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+  .mt-cenarios{ grid-template-columns:minmax(0,1fr); }
+  .mt-bloco-cab{ flex-direction:column; align-items:flex-start; }
+  .mt-dest-cab{ grid-template-columns:auto minmax(0,1fr) auto; }
+  .mt-dest-cab input[data-dest-campo="pais"]{ grid-column:2 / 3; }
+  .mt-dest-campos{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mt-fixo-ed{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .mt-fixo-ed input[data-fixo-campo="nome"]{ grid-column:1 / -1; }
+  .mt-saldos-ed li{ grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; }
+  .mt-saldos-ed li input[data-saldo-campo="instituicao"]{ grid-column:1 / 3; }
+  .mt-saldos-ed li .mt-entrada{ grid-column:1 / -1; }
+  .mt-tabela th, .mt-tabela td{ padding:6px 5px; font-size:11.5px; }
+}
+@media (prefers-reduced-motion: reduce){ .mt-anel-valor{ transition:none; } .mt-dica-balao{ animation:none; } }

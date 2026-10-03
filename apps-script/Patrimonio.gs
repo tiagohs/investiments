@@ -610,35 +610,91 @@ function configurarPastaIrDireto(idOpcional) {
   Logger.log('Pasta do IR configurada: ' + pasta.getName() + ' - ' + r.arquivos.length + ' declaração(ões): ' + r.arquivos.map(function (a) { return a.pasta + '/' + a.nome; }).join(', '));
 }
 
+/** Distância de edição (Levenshtein) - pra tolerar erro de digitação no nome do arquivo. */
+function distanciaNomeIr_(a, b) {
+  var ant = [];
+  for (var j = 0; j <= b.length; j++) ant.push(j);
+  for (var i = 1; i <= a.length; i++) {
+    var cur = [i];
+    for (var k = 1; k <= b.length; k++) cur.push(Math.min(ant[k] + 1, cur[k - 1] + 1, ant[k - 1] + (a[i - 1] === b[k - 1] ? 0 : 1)));
+    ant = cur;
+  }
+  return ant[b.length];
+}
+
+/**
+ * 03/10/2026 (Tiago: o painel Documentos dizia "IR atrasado - falta a de
+ * 2026" com ela na pasta IR/2026, num arquivo "Cópia da Delcaração.pdf" -
+ * com erro de digitação; ao lado, "Comprovante.pdf", o .DEC/.REC do
+ * programa da Receita e uma subpasta "Documentos"): nota de um nome de PDF
+ * como "cópia da declaração" (0 = não é). Sem acento, aceita cópia/decl/
+ * delc/irpf/dirpf e palavras a até 3 letras de "declaracao"; recibo e
+ * comprovante ficam de fora. Quem confirma é o CONTEÚDO: o navegador só
+ * aceita o PDF em que o leitor do IR reconhece a declaração (e tenta a
+ * próxima alternativa da mesma pasta se não for).
+ */
+function notaNomeIr_(nome) {
+  var n = semAcentoPatrimonio_(nome).replace(/\.pdf$/, '');
+  if (/comprovante|recibo|\brec\b|darf|boleto|extrato|informe|carne/.test(n)) return 0;
+  var nota = 0;
+  if (/copia/.test(n)) nota += 2;
+  if (/dirpf|irpf/.test(n)) nota += 2;
+  if (/declara|delcara|decl|delc/.test(n)) nota += 3;
+  else if (n.split(/[^a-z]+/).some(function (p) { return p.length >= 7 && distanciaNomeIr_(p, 'declaracao') <= 3; })) nota += 3;
+  return nota;
+}
+
+/** Nome de arquivo pra tela: o CPF (que a Receita põe no nome) vira •••. */
+function nomeSeguroIr_(nome) {
+  return String(nome || '').replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '•••');
+}
+
+/**
+ * PDFs de declaração na pasta do IR: UM por pasta de ano (o de melhor nome,
+ * direto na pasta do ano antes das subpastas) em `arquivos`, e os outros
+ * candidatos da mesma pasta em `alternativas` (o navegador tenta se o
+ * primeiro não for a declaração). `pasta` é sempre a pasta do ANO, mesmo
+ * pro PDF de uma subpasta ("IR/2026/Documentos/...").
+ * Não lê o .DEC do programa da Receita: é texto de largura fixa num leiaute
+ * que muda todo ano (e traz o CPF) - a "Cópia da Declaração" em PDF tem
+ * tudo que o site usa.
+ */
 function listarArquivosIrPatrimonio_() {
   var id = PropertiesService.getScriptProperties().getProperty(PROP_PASTA_IR);
-  if (!id) return { ok: true, configurado: false, arquivos: [] };
+  if (!id) return { ok: true, configurado: false, arquivos: [], alternativas: [] };
   var raiz = DriveApp.getFolderById(id);
-  var arquivos = [];
-  var olhar = function (pasta, nomePasta, nivel) {
+  var porPasta = {};
+  var olhar = function (pasta, nomeAno, nivel) {
     var fs = pasta.getFiles();
     while (fs.hasNext()) {
       var f = fs.next();
       var nome = f.getName();
       var ehPdf = /pdf$/i.test(f.getMimeType()) || /\.pdf$/i.test(nome);
-      if (ehPdf && /declara/i.test(semAcentoPatrimonio_(nome))) {
-        arquivos.push({ id: f.getId(), nome: nome, pasta: nomePasta, tamanho: f.getSize(), modificado: f.getLastUpdated().toISOString() });
-      }
+      var nota = ehPdf ? notaNomeIr_(nome) : 0;
+      if (!nota) continue;
+      (porPasta[nomeAno] = porPasta[nomeAno] || []).push({
+        id: f.getId(), nome: nomeSeguroIr_(nome), pasta: nomeAno, tamanho: f.getSize(), modificado: f.getLastUpdated().toISOString(),
+        nota: nota + (nivel <= 1 ? 1 : 0)
+      });
     }
-    if (nivel >= 2) return;
+    if (nivel >= 3) return;
     var subs = pasta.getFolders();
-    while (subs.hasNext()) { var s = subs.next(); olhar(s, s.getName(), nivel + 1); }
+    while (subs.hasNext()) { var s = subs.next(); olhar(s, nivel === 0 ? s.getName() : nomeAno, nivel + 1); }
   };
   olhar(raiz, raiz.getName(), 0);
-  arquivos.sort(function (a, b) { return a.pasta < b.pasta ? -1 : (a.pasta > b.pasta ? 1 : 0); });
-  return { ok: true, configurado: true, arquivos: arquivos };
+  var arquivos = []; var alternativas = [];
+  Object.keys(porPasta).sort().forEach(function (p) {
+    var cs = porPasta[p].sort(function (a, b) { return b.nota - a.nota || b.tamanho - a.tamanho; });
+    cs.forEach(function (c, i) { delete c.nota; (i === 0 ? arquivos : alternativas).push(c); });
+  });
+  return { ok: true, configurado: true, arquivos: arquivos, alternativas: alternativas };
 }
 
 /** Um PDF da pasta do IR em base64 - recusa qualquer arquivo que não esteja na lista. */
 function arquivoIrPatrimonio_(id) {
   var lista = listarArquivosIrPatrimonio_();
   if (!lista.configurado) return { ok: false, etapa: 'patrimonio', erro: 'pasta do IR não configurada (rode configurarPastaIrDireto no editor)' };
-  var achado = lista.arquivos.filter(function (a) { return a.id === id; })[0];
+  var achado = lista.arquivos.concat(lista.alternativas || []).filter(function (a) { return a.id === id; })[0];
   if (!achado) return { ok: false, etapa: 'patrimonio', erro: 'arquivo fora da pasta do IR' };
   if (achado.tamanho > 8 * 1024 * 1024) return { ok: false, etapa: 'patrimonio', erro: 'PDF grande demais (' + Math.round(achado.tamanho / 1024) + ' KB)' };
   var bytes = DriveApp.getFileById(id).getBlob().getBytes();

@@ -32,8 +32,12 @@ import { logoAtivoHtml, logoRendaFixaHtml, renderTabelaAtivosCarteiras, botaoInf
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
   resumoPosicao, percentualNaCarteira, informesIrDoAtivo, declaracaoIrDoAtivo, ordenarTeses, cambioMaisRecente,
-  comCamposUsdAtivo, historicoAtivoTemCambioUsd,
+  comCamposUsdAtivo, historicoAtivoTemCambioUsd, entradaMotorDoAtivo,
 } from './ativo-calc.js';
+// 03/10/2026: análise por critérios (base Suno e outras fontes) + metas de Metas e Objetivos
+import { avaliarAtivo, GRUPOS } from '../criterios/motor.js';
+import { getMetas } from '../api-client.js';
+import { metasComCalculo } from '../metas-card.js';
 import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
 
@@ -87,7 +91,7 @@ function carregarEstaticosPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetc
 // ---------------------------------------------------------------------------
 
 /** Tudo que as seções precisam, calculado 1x a partir da resposta. */
-export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
+export function montarContexto(resposta, { sobre = null, ir = null, metas = null } = {}) {
   const classe = resposta.classe || (resposta.tipo === 'rf' ? 'rendaFixa' : 'acoes');
   const cfg = CLASSES_ATIVO[classe] || CLASSES_ATIVO.acoes;
   const emDolar = resposta.moeda === 'USD';
@@ -95,7 +99,11 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
   const posicao = resumoPosicao(resposta, historico);
   const cambio = emDolar ? cambioMaisRecente(resposta) : null;
   const aplicadoBrl = posicao.aplicadoHistorico ?? (emDolar ? null : posicao.aplicado);
+  const faixa = faixaDePreco(resposta);
+  const percentualCarteira = percentualNaCarteira(historico);
   return {
+    // 03/10/2026: análise por critérios (criterios/motor.js); refeita quando as metas chegam
+    avaliacao: avaliacaoDoAtivo(resposta, { faixa, percentualCarteira, metas }),
     resposta,
     classe,
     cfg,
@@ -108,10 +116,10 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
     historico,
     posicao,
     proventos: resumoProventosAtivo(resposta, { aplicadoHoje: aplicadoBrl }),
-    faixa: faixaDePreco(resposta),
+    faixa,
     mensal: historicoMensal(historico, { campoIndice: cfg.indice.campo }),
     extrato: montarExtrato(resposta),
-    percentualCarteira: percentualNaCarteira(historico),
+    percentualCarteira,
     sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
     ir: informesIrDoAtivo(ir, { ticker: resposta.ticker, classe, instituicao: resposta.ativo && resposta.ativo.instituicao }),
     declaracaoIr: declaracaoIrDoAtivo(ir, {
@@ -124,6 +132,16 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
     canal: canalDoAtivo({ ticker: resposta.ticker, classe, ativo: resposta.ativo || null, ehRf: resposta.tipo === 'rf' }),
     chaveIntradia: chaveIntradiaAtivo({ ticker: resposta.ticker, classe, ehRf: resposta.tipo === 'rf' }),
   };
+}
+
+/** 03/10/2026: a análise do motor de critérios - nunca derruba a página (erro = sem análise). */
+export function avaliacaoDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null } = {}) {
+  try {
+    return avaliarAtivo(entradaMotorDoAtivo(resposta, { faixa, percentualCarteira, metas }));
+  } catch (erro) {
+    if (typeof console !== 'undefined') console.error('análise do ativo', erro);
+    return null;
+  }
 }
 
 /**
@@ -469,7 +487,7 @@ export function faixaHtml(ctx) {
           ${temTeto && f.posicoes.teto < 0.97 ? marcador('at-faixa-teto', f.posicoes.teto, 'teto', `Seu preço-teto: ${ctx.fmt(f.teto)}`) : ''}
           ${f.posicoes.min > 0.03 ? marcador('at-faixa-min', f.posicoes.min, 'mín', `${rotuloMin}: ${ctx.fmt(f.min)}`) : ''}
           ${marcador('at-faixa-max', f.posicoes.max, '', `${rotuloMax}: ${ctx.fmt(f.max)}`)}
-          <span class="at-faixa-atual info-alvo" style="left:${pct(f.posicoes.atual ?? 0.5)}" data-tooltip="Cotação de hoje: ${esc(ctx.fmt(f.atual))}"><span class="at-faixa-atual-rotulo">${ctx.fmt(f.atual)}</span></span>
+          <span class="at-faixa-atual info-alvo${(f.posicoes.atual ?? 0.5) > 0.88 ? ' no-fim' : ((f.posicoes.atual ?? 0.5) < 0.12 ? ' no-inicio' : '')}" style="left:${pct(f.posicoes.atual ?? 0.5)}" data-tooltip="Cotação de hoje: ${esc(ctx.fmt(f.atual))}"><span class="at-faixa-atual-rotulo">${ctx.fmt(f.atual)}</span></span>
         </div>
         <div class="at-faixa-escala">
           <span><small>${rotuloMin}</small><b>${ctx.fmt(f.min)}</b></span>
@@ -515,6 +533,33 @@ function indicadorHtml(label, valor, { ajuda = '', sub = '', texto = false, conc
 
 const pctTxt = (v, casas = 1) => `${formatNumeroBR(v, casas)}%`;
 const destaque = (texto, bom) => `<b class="${bom ? 'good' : 'bad'}">${texto}</b>`;
+
+const ROTULO_TOM = { bom: 'bom', neutro: 'neutro', atencao: 'atenção', ruim: 'ruim' };
+/** Indicador da tela -> critério(s) do motor (o primeiro que tiver leitura). */
+const CRITERIO_DO_INDICADOR = {
+  dy: ['dy_12m', 'fii_dy_12m'], pvp: ['pvp', 'fii_pvp'], pl: ['pl'], liquidez: ['fii_liquidez_diaria'],
+  caixa: ['fii_pct_caixa'], patrimonio: ['fii_patrimonio_liquido'], teto: ['preco_vs_teto_planilha', 'fii_preco_teto_dy'],
+};
+const NOME_AVISO = { pvp: /^P\/VP/, pl: /^P\/L/, dy: /^DY/ };
+
+function tomHtml(tom) {
+  return `<span class="at-tom tom-${tom}">${ROTULO_TOM[tom] || tom}</span>`;
+}
+
+/** { dy: html, pvp: html, ... } com a frase do motor (ou o aviso de dado ignorado). */
+export function conclusoesDoMotor(ctx) {
+  const av = ctx.avaliacao;
+  const out = {};
+  if (!av || !av.pontos) return out;
+  Object.entries(CRITERIO_DO_INDICADOR).forEach(([k, ids]) => {
+    const p = av.pontos.find((x) => ids.includes(x.criterioId));
+    // preço-teto: a frase da tela já diz o mesmo - só o selo do tom
+    if (p) { out[k] = k === 'teto' ? tomHtml(p.tom) : `${tomHtml(p.tom)}${esc(p.texto)}`; return; }
+    const aviso = NOME_AVISO[k] && (av.avisos || []).find((t) => NOME_AVISO[k].test(t));
+    if (aviso) out[k] = `<span class="at-tom tom-atencao">dado</span>${esc(aviso)}`;
+  });
+  return out;
+}
 
 export function conclusoesIndicadores(ctx) {
   const a = ctx.ativo || {};
@@ -575,6 +620,16 @@ export function conclusoesIndicadores(ctx) {
     out.teto = `A cotação está ${destaque(`${pctTxt(Math.abs(m) * 100)} ${m >= 0 ? 'abaixo' : 'acima'}`, m >= 0)} do seu preço-teto${m >= 0 ? ' (margem de segurança).' : '.'}`;
   }
 
+  // 03/10/2026: a leitura do motor de critérios entra na frente de cada
+  // conclusão (faixa do setor/segmento + porquê); a conta acima continua
+  // depois, como complemento. Valor absurdo (erro de dado) vira o aviso.
+  const motor = conclusoesDoMotor(ctx);
+  // o que a frase do motor já disse sai do complemento (sem repetir o número)
+  if (motor.liquidez && liq != null && liq > 0) out.liquidez = saldo ? `A sua posição equivale a ${pctTxt((saldo / liq) * 100, saldo / liq < 0.01 ? 2 : 1)} de um dia de negociação.` : '';
+  if (motor.caixa) delete out.caixa;
+  if (motor.dy && dy != null && dy <= 0) delete out.dy;
+  Object.entries(motor).forEach(([k, html]) => { out[k] = out[k] ? `${html} ${out[k]}` : html; });
+
   if (ctx.ehRf && a.vencimento && ctx.resposta && ctx.resposta.hoje) {
     const p = String(a.vencimento).split('/').map(Number);
     const [ano, mes] = p.length === 3 ? [p[2], p[1]] : [p[1], p[0]];
@@ -629,6 +684,129 @@ export function indicadoresHtml(ctx) {
       <div class="at-card-titulo"><h2 id="at-ind-titulo">${titulo}</h2></div>
       <div class="at-ind-grade">${itens.join('')}</div>
     </section>`;
+}
+
+// ---------------------------------------------------------------------------
+// 03/10/2026 (Tiago: "Nas análises dos gráficos e métricas dos ativos,
+// considere essas fontes... Tenha um largo banco de dados de critérios,
+// para no site ser dinâmico as decisões e análises (confio na Suno,
+// principalmente)" + "inclua também nas análises quando investir no ativo
+// vai ajudar a chegar à meta... se o preço atual está abaixo do preço médio,
+// é um ponto positivo"): card "Análise do ativo" - nota 0-100, veredito, os
+// pontos que mais pesam e, recolhido, todos os critérios por grupo com a
+// faixa e a fonte; os dados que faltam ficam discretos no fim.
+// ---------------------------------------------------------------------------
+
+const PONTOS_VISIVEIS = 5;
+const ICONE_TOM = {
+  bom: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  ruim: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  atencao: '<path d="M12 5v9"/><path d="M12 18.5v.5"/>',
+  neutro: '<path d="M6 12h12"/>',
+};
+const iconeTom = (tom) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONE_TOM[tom] || ICONE_TOM.neutro}</svg>`;
+
+function anelNotaHtml(nota) {
+  const r = 22;
+  const c = 2 * Math.PI * r;
+  const p = typeof nota === 'number' ? Math.max(0, Math.min(100, nota)) / 100 : 0;
+  return `<svg class="at-an-anel" viewBox="0 0 54 54" aria-hidden="true"><circle cx="27" cy="27" r="${r}" class="at-an-anel-trilho"/>`
+    + `${typeof nota === 'number' ? `<circle cx="27" cy="27" r="${r}" class="at-an-anel-valor" stroke-dasharray="${(c * p).toFixed(2)} ${c.toFixed(2)}" transform="rotate(-90 27 27)"/>` : ''}</svg>`;
+}
+
+/** Rótulo curto da fonte ("Suno", "vídeo Prof. Baroni", "Itaú BBA"); o título inteiro fica no title. */
+export function rotuloFonte(f) {
+  const t = String((f && f.titulo) || '');
+  const antes = t.split(':')[0].trim();
+  if (/youtube\.com|youtu\.be/.test(String(f && f.url))) {
+    const canal = /\(([^,()]+),\s*\d/.exec(t);
+    return `vídeo ${canal ? canal[1].trim() : (antes.length <= 40 ? antes : '')}`.trim();
+  }
+  if (antes && antes.length <= 30) return antes;
+  try { return new URL(f.url).hostname.replace(/^www\./, ''); } catch (_) { return 'fonte'; }
+}
+
+function fonteLinkHtml(f) {
+  const url = f && urlSegura(f.url);
+  return url ? `<a href="${url}" target="_blank" rel="noopener" title="${esc(f.titulo)}">${esc(rotuloFonte(f))}</a>` : '';
+}
+
+function pontoHtml(p) {
+  return `<li class="at-an-ponto tom-${p.tom}"><span class="at-an-ico" title="${ROTULO_TOM[p.tom] || ''}">${iconeTom(p.tom)}</span><span class="at-an-txt">${esc(p.texto)}</span></li>`;
+}
+
+function criterioHtml(p) {
+  const meta = [
+    p.faixa ? `bom: ${esc(p.faixa)}${p.regua ? ` (${esc(p.regua)})` : ''}` : '',
+    p.derivado ? 'calculado' : '',
+    p.informativo && p.grupo !== 'carteira' ? 'fora da nota' : '',
+    (p.fontes || []).slice(0, 2).map(fonteLinkHtml).filter(Boolean).join(' · '),
+  ].filter(Boolean).join(' · ');
+  return `<li class="at-an-crit">
+          <div class="at-an-crit-linha"><span class="at-an-crit-nome">${esc(p.nome)}</span>${p.valorTexto ? `<span class="at-an-crit-valor">${esc(p.valorTexto)}</span>` : ''}<span class="at-tom tom-${p.tom}">${ROTULO_TOM[p.tom] || p.tom}</span></div>
+          <p class="at-an-crit-texto">${esc(p.texto)}</p>${p.porQue ? `
+          <p class="at-an-crit-porque">${esc(p.porQue)}</p>` : ''}${meta ? `
+          <p class="at-an-crit-meta">${meta}</p>` : ''}
+        </li>`;
+}
+
+function nivelDaNota(nota) {
+  if (typeof nota !== 'number') return 'na';
+  return nota >= 75 ? 'bom' : (nota >= 55 ? 'ok' : (nota >= 35 ? 'misto' : 'ruim'));
+}
+
+export function analiseHtml(ctx) {
+  const av = ctx.avaliacao;
+  if (!av) return '';
+  const pontos = av.pontos || [];
+  if (ctx.ehRf && !pontos.length) return '';
+  const temNota = typeof av.nota === 'number';
+  // até 2 pontos da sua carteira (metas antes; preço médio só quando a favor) + os critérios que mais pesam
+  const daCarteira = pontos.filter((p) => p.grupo === 'carteira' && (p.metaId || p.tom === 'bom'))
+    .sort((x, y) => (y.metaId ? 1 : 0) - (x.metaId ? 1 : 0)).slice(0, 2);
+  const visiveis = [...pontos.filter((p) => p.grupo !== 'carteira' && p.tom !== 'neutro').slice(0, PONTOS_VISIVEIS - (daCarteira.length ? 1 : 0)), ...daCarteira];
+  const grupos = Object.entries(av.notaPorGrupo || {});
+  const porGrupo = {};
+  pontos.forEach((p) => { (porGrupo[p.grupo] || (porGrupo[p.grupo] = [])).push(p); });
+  const ordemGrupos = Object.keys(GRUPOS).filter((g) => porGrupo[g]);
+  const todos = ordemGrupos.map((g) => `
+        <div class="at-an-grupo-bloco">
+          <h3>${esc(GRUPOS[g])}${av.notaPorGrupo[g] && typeof av.notaPorGrupo[g].nota === 'number' ? `<span class="at-an-grupo-nota nivel-${nivelDaNota(av.notaPorGrupo[g].nota)}">${av.notaPorGrupo[g].nota}</span>` : ''}</h3>
+          <ul class="at-an-crits">${porGrupo[g].map(criterioHtml).join('')}</ul>
+        </div>`).join('');
+  const faltam = (av.dadosFaltantes || []).filter((d) => d.peso >= 2);
+  const topo = ctx.ehRf ? '' : `
+      <div class="at-an-topo nivel-${temNota ? nivelDaNota(av.nota) : 'na'}">
+        <div class="at-an-nota" role="img" aria-label="${temNota ? `Nota ${av.nota} de 100` : 'Sem nota: poucos dados'}">${anelNotaHtml(av.nota)}<span class="at-an-nota-num">${temNota ? `<b>${av.nota}</b><small>/100</small>` : '<b>—</b>'}</span></div>
+        <div class="at-an-veredito"><strong>${esc(av.veredito.rotulo)}</strong><span>${esc(av.veredito.texto)}${av.regua ? ` Régua de ${esc(av.regua)}.` : ''}</span></div>
+      </div>${grupos.length > 1 ? `
+      <div class="at-an-grupos">${grupos.map(([g, x]) => `<span class="at-an-chip nivel-${nivelDaNota(x.nota)}" title="${x.n} critério${x.n === 1 ? '' : 's'}">${esc(x.nome)} <b>${x.nota}</b></span>`).join('')}</div>` : ''}`;
+  return `
+    <section class="at-card at-analise" id="at-analise" aria-labelledby="at-analise-titulo">
+      <div class="at-card-titulo"><h2 id="at-analise-titulo">${ctx.ehRf ? 'Análise do título' : 'Análise do ativo'}</h2><span class="hint">${ctx.ehRf ? 'suas metas' : `${av.cobertura.avaliados} critérios`}</span></div>${topo}
+      ${visiveis.length ? `<ul class="at-an-pontos">${visiveis.map(pontoHtml).join('')}</ul>` : ''}${av.avisos && av.avisos.length ? `
+      <p class="at-an-aviso">${av.avisos.map(esc).join(' ')}</p>` : ''}${ctx.ehRf ? '' : `
+      <details class="at-an-todos">
+        <summary>Ver todos os critérios (${pontos.length})</summary>${todos}
+      </details>`}${faltam.length ? `
+      <details class="at-an-faltam">
+        <summary>Dados que faltam (${faltam.length})</summary>
+        <p>${faltam.map((d) => esc(d.nome)).join(' · ')}. Chegam com a fonte de fundamentos; sem eles a nota usa só o que a planilha tem.</p>
+      </details>` : ''}
+      <p class="hint at-fonte">${ctx.ehRf ? 'Conta com as suas metas de Metas e Objetivos (vínculo pelo título, pela marca Renda Emergencial/longo prazo ou pela classe).' : 'Leitura automática de critérios públicos (Suno, Barsi, Bazin, Graham, Baroni e outros) com os seus dados.'} Não é recomendação.</p>
+    </section>`;
+}
+
+/** Redesenha só o card da análise (quando as metas chegam). */
+function trocarAnalise(raiz, ctx) {
+  const atual = raiz && raiz.querySelector('#at-analise');
+  const html = analiseHtml(ctx);
+  if (atual) {
+    if (html) atual.outerHTML = html; else atual.remove();
+    return;
+  }
+  const ind = raiz && raiz.querySelector('#at-indicadores');
+  if (ind && html) ind.insertAdjacentHTML('afterend', html);
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +912,17 @@ function ligarGraficos(doc, ctx) {
         analise: true,
         analiseContainer: doc.getElementById('atRentabAnalise'),
         nomeAnalise: ctx.ehRf ? 'O título' : ctx.ticker,
+        // 03/10/2026 (base de critérios de rentabilidade): título de renda
+        // fixa -> indexador/vencimento/taxa contratada (régua IPCA + taxa,
+        // duration na marcação a mercado; reserva -> régua da reserva);
+        // renda variável -> proventos que já passaram da data-com e ainda
+        // não foram pagos (a cota já caiu, o dinheiro ainda não entrou).
+        analiseExtra: ctx.ehRf
+          ? {
+            rf: ctx.ativo ? { indexador: ctx.ativo.indexador || '', vencimento: ctx.ativo.vencimento || '', taxa: (ctx.ativo.rentabilidadeContratada && ctx.ativo.rentabilidadeContratada.texto) || '', nome: ctx.ativo.nomePersonalizado || ctx.ticker || '' } : null,
+            ...(ctx.ativo && ctx.ativo.tipoCarteira === 'emergencial' ? { classe: 'reserva' } : {}),
+          }
+          : { proventosAReceber: emDolar ? null : ((ctx.resposta && ctx.resposta.aReceber) || null) },
         comparativo: true,
       }],
     });
@@ -1573,10 +1762,12 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
   const ehFii = ctx.classe === 'fiis';
   const lateral = ctx.ehRf ? `
       ${linksRelevantesHtml(ctx)}
-      ${indicadoresHtml(ctx)}` : `
+      ${indicadoresHtml(ctx)}
+      ${analiseHtml(ctx)}` : `
       ${linksRelevantesHtml(ctx)}
       ${faixaHtml(ctx)}
       ${indicadoresHtml(ctx)}
+      ${analiseHtml(ctx)}
       ${ehFii ? informesFundoCardHtml_(ctx) : ''}`;
   // 02/10/2026: o canal oficial (canais-youtube.js) fica no topo da seção de
   // vídeos; renda fixa só tem a seção quando é do Tesouro (canal Tesouro Direto)
@@ -1718,6 +1909,7 @@ export async function montarPaginaAtivo(token, {
   carregarEstaticosImpl = carregarEstaticosPadrao,
   getVideosImpl = undefined,
   getIntradiaImpl = getIntradia,
+  getMetasImpl = getMetas,
   agora = () => new Date(),
 } = {}) {
   const loadingEl = doc.getElementById('ativoLoading');
@@ -1733,7 +1925,7 @@ export async function montarPaginaAtivo(token, {
   }
 
   estadoTabelasAtivo.clear(); // página nova: filtros/ordem das tabelas voltam ao padrão
-  const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false, intradia: undefined, intradiaPedidoEm: 0 };
+  const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false, intradia: undefined, intradiaPedidoEm: 0, metas: null, metasPedidas: false };
   const estaticosPromise = carregarEstaticosImpl();
 
   const preencherExtras = () => {
@@ -1782,15 +1974,42 @@ export async function montarPaginaAtivo(token, {
     });
   };
 
+  // 03/10/2026: metas de Metas e Objetivos (pros pontos "investir aqui
+  // completa a meta" da Análise) - 1 busca por tela, o cache 'metas' (o mesmo
+  // da tela Metas) aparece na hora; falhou = análise sem os pontos de meta.
+  const aplicarMetas = () => {
+    if (!estado.ctx || !estado.metas) return;
+    estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas });
+    trocarAnalise(conteudoEl, estado.ctx);
+  };
+  const pedirMetas = () => {
+    if (estado.metasPedidas || !getMetasImpl) return;
+    estado.metasPedidas = true;
+    (async () => {
+      try {
+        const emCache = await lerCacheDados('metas');
+        if (emCache && emCache.dados && emCache.dados.ok && !estado.metas) { estado.metas = metasComCalculo(emCache.dados); aplicarMetas(); }
+      } catch (_) { /* sem cache */ }
+      let r = null;
+      try { r = await getMetasImpl(token); } catch (_) { r = null; }
+      if (r && r.ok) {
+        gravarCacheDados('metas', r);
+        estado.metas = metasComCalculo(r);
+        aplicarMetas();
+      }
+    })();
+  };
+
   const desenharResposta = async (resposta) => {
     const estaticos = await estaticosPromise;
-    estado.ctx = montarContexto(resposta, estaticos || {});
+    estado.ctx = montarContexto(resposta, { ...(estaticos || {}), metas: estado.metas });
     loadingEl.hidden = true;
     erroEl.hidden = true;
     conteudoEl.hidden = false;
     desenhar(doc, conteudoEl, estado.ctx);
     aplicarIntradia();
     pedirIntradia();
+    pedirMetas();
     // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece.
     // 02/10/2026: + o canal oficial do ativo (canais-youtube.js); renda fixa só com canal (Tesouro).
     if (!estado.ctx.ehRf || estado.ctx.canal) {

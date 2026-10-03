@@ -449,3 +449,7 @@ a.hint:hover{ color:var(--acoes); }
 .sl-pags-mais summary{ cursor:pointer; font-size:12px; font-weight:700; color:var(--acoes); padding:8px 0 2px; }
 @media (max-width:1100px) and (min-width:761px){ .og-doc{ grid-template-columns:24px minmax(0,1fr) 220px 136px; } }
 .og-lista-tit h2{ line-height:1.25; }
+
+/* 03/10/2026: o simulador foi pra aba Simulações - em Gastos e Despesas fica só o link */
+.og-link-sim{ margin:4px 0 0; text-align:right; }
+.og-link-sim .pt-link{ font-size:12.5px; }

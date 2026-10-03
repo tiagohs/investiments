@@ -20,6 +20,9 @@
  *  - lerExtratoBradesco     extrato Bradesco Celular (Histórico/Docto/Saldo)
  *  - lerCsvGastos/lerOfxGastos  CSV do Nubank (cartão e conta) e OFX genérico
  *  - identificarDocumentoGasto / lerDocumentoGasto  qual leitor usar
+ *  - linhasDeItens          03/10/2026: itens do pdf.js COM posição (x, y,
+ *                           largura) -> linhas; separa os 2 painéis lado a
+ *                           lado do "Detalhamento da Fatura" do BB
  *
  * Lançamento: { data 'aaaa-mm-dd', mes 'aaaa-mm' (competência: na fatura é o
  * mês do vencimento - parcelas e compras entram no mês em que são pagas; no
@@ -38,14 +41,20 @@ const MESES_ABREV = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SE
 const MESES_EXT = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
 const p2 = (n) => String(n).padStart(2, '0');
 
-/** "R$ 1.234,56", "-R$ 88,30", "- 1.259,00", "+7,00", "US$ 9,50" -> número (sinal incluído). */
+/**
+ * "R$ 1.234,56", "-R$ 88,30", "- 1.259,00", "+7,00", "US$ 9,50" -> número (sinal incluído).
+ * 03/10/2026: também o menos tipográfico do Nubank ("−R$ 300,00") e o menos
+ * DEPOIS do valor do Banco do Brasil ("200,00 -").
+ */
 export function valorBR(s) {
   if (s == null) return null;
-  const t = String(s).replace(/\s+/g, '');
+  let t = String(s).replace(/[\u2212\u2013\u2014]/g, '-').replace(/\s+/g, '');
+  let negFim = false;
+  if (/\d-$/.test(t)) { negFim = true; t = t.slice(0, -1); }
   const m = t.match(/^([+-]?)(?:R\$|US\$|USD|BRL)?([+-]?)(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})$/i);
   if (!m) return null;
   const n = Number(`${m[3].replace(/\./g, '')}.${m[4]}`);
-  return (m[1] === '-' || m[2] === '-') ? -n : n;
+  return (negFim || m[1] === '-' || m[2] === '-') ? -n : n;
 }
 
 /**
@@ -55,11 +64,12 @@ export function valorBR(s) {
  */
 export function limparDescricao(s, max = 80) {
   let t = String(s == null ? '' : s);
-  t = t.replace(/[•*]{2,}[\d.\-•*]*/g, ' ');
+  t = t.replace(/[•*]{2,}\s?[\d.\-•*]*/g, ' '); // "•••• 1234" (final do cartão do Nubank) sai inteiro
   t = t.replace(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-?\d{0,2}/g, ' ');
   t = t.replace(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g, ' ');
   t = t.replace(/\b(?:Ag[eê]ncia|AG\.?)\s*:\s*[\d-]*|\bAg[eê]ncia\s+\d[\d-]*/gi, ' ');
   t = t.replace(/\bConta\s*:\s*[\d.\-xX]*|\bConta\s+\d[\d.\-]*/gi, ' ');
+  t = t.replace(/\bAG\.?\s+\d{3,5}(?:-\w)?\b/g, ' '); // "PGTO. CASH AG. 1234 ..." (BB)
   t = t.replace(/\(\d{3,4}\)/g, ' ');
   t = t.replace(/\b(?:final|cart[aã]o)\s*\d{4}\b/gi, ' ');
   t = t.replace(/\d{6,}/g, ' ');
@@ -79,14 +89,15 @@ export function mesesEntre(inicio, fim) {
   for (let m = mesDeIso(inicio); m <= mesDeIso(fim) && out.length < 240; m = somarMes(m, 1)) out.push(m);
   return out;
 }
-const normLinhas = (linhas) => (Array.isArray(linhas) ? linhas : String(linhas || '').split(/\r?\n/)).map((l) => String(l == null ? '' : l).replace(/ /g, ' ').trim()).filter(Boolean);
+const normLinhas = (linhas) => (Array.isArray(linhas) ? linhas : String(linhas || '').split(/\r?\n/)).map((l) => String(l == null ? '' : l).replace(/[\u00a0\u2007\u202f]/g, ' ').replace(/[\u2212\u2013]/g, '-').trim()).filter(Boolean);
 const plano = (L) => semAcento(L.join('\n')).toUpperCase();
 
-/** Parcela "Parcela 2/5", "PARC 03/10", "PARC.03 DE 10" -> '2/5'. */
+/** Parcela "Parcela 2/5", "PARC 03/10", "PARC.03 DE 10", "Loja - 2/5" -> '2/5'. */
 export function parcelaDe(desc) {
   const s = semAcento(desc).toUpperCase();
   let m = s.match(/\bPARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:\/|DE)\s*(\d{1,2})\b/);
   if (!m) m = s.match(/\s(\d{2})\/(\d{2})\s*$/);
+  if (!m) m = s.match(/\s-\s(\d{1,2})\/(\d{1,2})\s*$/); // Nubank antigo: "Loja - 2/3"
   if (!m) return '';
   const n = Number(m[1]); const de = Number(m[2]);
   return n >= 1 && de >= 2 && n <= de && de <= 72 ? `${n}/${de}` : '';
@@ -128,62 +139,217 @@ export function identificarDocumentoGasto(linhas, dica = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// PDF com posição (pdf.js) -> linhas
+// ---------------------------------------------------------------------------
+
+const compacto = (s) => semAcento(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/**
+ * 03/10/2026: junta os itens de UMA linha (mesma altura), da esquerda pra
+ * direita, olhando o espaço entre eles: colados (fonte que o pdf.js quebra
+ * letra a letra, ou a letra acentuada solta) -> sem espaço; espaço de uma
+ * letra -> 1 espaço; mais que isso (outra coluna) -> 2 espaços, que é o que
+ * os leitores entendem como "outra coluna". Sem largura, 2 espaços (como
+ * holerite.js/extrairLinhasPdf).
+ */
+function juntarItensLinha(itens) {
+  let s = '';
+  let ant = null;
+  itens.forEach((it) => {
+    const txt = String(it.s).trim();
+    if (!txt) return;
+    if (ant && txt === ant.txt && Math.abs(it.x - ant.x) < 1) return; // "negrito" desenhado 2 vezes
+    if (!ant) s = txt;
+    else if (!(ant.w > 0)) s += `  ${txt}`;
+    else {
+      const gap = it.x - (ant.x + ant.w);
+      const letra = Math.max(1, ant.w / Math.max(1, ant.txt.length));
+      s += gap < letra * 0.3 ? txt : gap < letra * 1.6 ? ` ${txt}` : `  ${txt}`;
+    }
+    ant = { txt, x: it.x, w: Number(it.w) || 0 };
+  });
+  return s;
+}
+
+function agruparPorAltura(itens, tol = 2.5) {
+  const grupos = [];
+  itens.forEach((it) => {
+    let g = grupos.find((gr) => Math.abs(gr.y - it.y) <= tol);
+    if (!g) { g = { y: it.y, itens: [] }; grupos.push(g); }
+    g.itens.push(it);
+  });
+  grupos.sort((a, b) => b.y - a.y);
+  grupos.forEach((g) => g.itens.sort((a, b) => a.x - b.x));
+  return grupos;
+}
+
+/**
+ * Fatura do BB: o "Detalhamento da Fatura" vem em DOIS painéis lado a lado
+ * (Data | Transações | País | Moeda | Valor duas vezes na mesma altura).
+ * Juntando só pela altura, um lançamento da esquerda gruda no da direita.
+ * Devolve onde começa o 2º painel ({ x, y }) ou null.
+ */
+function corteDePaineis(grupos) {
+  for (const g of grupos) {
+    let txt = '';
+    const xs = [];
+    g.itens.forEach((it) => {
+      const c = compacto(it.s);
+      for (let k = 0; k < c.length; k += 1) { txt += c[k]; xs.push(it.x + (Number(it.w) || 0) * (k / Math.max(1, c.length))); }
+    });
+    for (const rot of ['DETALHAMENTODAFATURA', 'DATATRANSACOES']) {
+      const i1 = txt.indexOf(rot);
+      const i2 = i1 >= 0 ? txt.indexOf(rot, i1 + rot.length) : -1;
+      if (i2 > 0) return { x: xs[i2] - 3, y: g.y };
+    }
+  }
+  return null;
+}
+
+/**
+ * 03/10/2026: páginas do pdf.js com posição -> linhas de texto.
+ * `paginas`: [{ itens: [{ s, x, y, w }] }] (organizacao-gastos.js!extrairPaginasPdfComSenha).
+ * `colunas`: separa os painéis lado a lado (fatura do BB): primeiro o que
+ * está acima deles, depois o painel da esquerda inteiro, depois o da direita.
+ */
+export function linhasDeItens(paginas, { colunas = false } = {}) {
+  const out = [];
+  (paginas || []).forEach((p) => {
+    const itens = ((p && p.itens) || [])
+      .filter((it) => it && String(it.s == null ? '' : it.s).trim())
+      .map((it) => ({ s: String(it.s), x: Number(it.x) || 0, y: Number(it.y) || 0, w: Number(it.w) || 0 }));
+    const grupos = agruparPorAltura(itens);
+    const corte = colunas ? corteDePaineis(grupos) : null;
+    if (!corte) { grupos.forEach((g) => out.push(juntarItensLinha(g.itens))); return; }
+    const acima = itens.filter((it) => it.y > corte.y + 2.5);
+    const abaixo = itens.filter((it) => it.y <= corte.y + 2.5);
+    [acima, abaixo.filter((it) => it.x < corte.x), abaixo.filter((it) => it.x >= corte.x)]
+      .forEach((parte) => agruparPorAltura(parte).forEach((g) => out.push(juntarItensLinha(g.itens))));
+  });
+  return out.filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
 // Cartão - Nubank
 // ---------------------------------------------------------------------------
 
 function anoDaCompra(mesCompra, mesVenc, anoVenc) { return mesCompra > mesVenc ? anoVenc - 1 : anoVenc; }
 
+/** "312.38" (USD do Nubank, ponto decimal) ou "25,00" -> número. */
+function numeroUsd(s) {
+  const t = String(s || '').trim();
+  if (/,\d{2}$/.test(t)) return Math.abs(valorBR(t));
+  const n = Number(t.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Fatura do cartão Nubank. 03/10/2026 (Tiago: as de 2023 davam "Não achei
+ * nenhuma transação" e a de 09/2026 "soma não bate"), os 2 formatos:
+ *  - antigo (até 2023): "04 MAR  Loja - 2/3  144,00" (sem "R$"; o pagamento
+ *    vem POSITIVO - "Pagamento em 04 MAR  88,30" - e é crédito);
+ *  - atual: "04 AGO  •••• 1234 Loja - Parcela 3/4  R$ 28,62", crédito com o
+ *    menos tipográfico ("−R$ 105,29"), a data às vezes numa linha e a
+ *    descrição/valor na de baixo (ou acima, nas compras em dólar, que ainda
+ *    têm a linha "USD 12.34 Conversão: USD 1 = R$ 5,27"), subtotal por
+ *    titular ("Fulano R$ 1.000,00") e a seção "Pagamentos" no fim.
+ * Conferência: fatura anterior + transações = total a pagar (ou pagamentos +
+ * compras + IOF + outros lançamentos do resumo).
+ */
 export function lerFaturaNubank(linhas) {
   const L = normLinhas(linhas);
   const out = { tipoDoc: 'fatura', fonte: 'nubank-cartao', origem: 'cartao', mes: '', vencimento: '', total: null, lancamentos: [], conferencia: null, avisos: [] };
   const T = L.map((l) => semAcento(l).toUpperCase());
   const tudo = T.join('\n');
   const reAbr = `(${MESES_ABREV.join('|')})`;
-  let mv = tudo.match(new RegExp(`DATA DE VENCIMENTO:?\\s*(\\d{2})\\s+${reAbr}\\s+(\\d{4})`));
+  let mv = tudo.match(new RegExp(`DATA (?:DE|DO) VENCIMENTO:?\\s*(\\d{2})\\s+${reAbr}\\s+(\\d{4})`));
   if (!mv) mv = tudo.match(new RegExp(`\\bFATURA\\s+(\\d{2})\\s+${reAbr}\\s+(\\d{4})`));
   if (!mv) { out.avisos.push('Não achei a data de vencimento da fatura.'); return out; }
   const anoV = Number(mv[3]); const mesV = MESES_ABREV.indexOf(mv[2]) + 1;
   out.vencimento = iso(anoV, mesV, Number(mv[1]));
   out.mes = `${anoV}-${p2(mesV)}`;
-  const resumo = (re) => { const m = tudo.match(re); return m ? valorBR(m[1]) : null; };
-  const anterior = resumo(new RegExp(`FATURA ANTERIOR\\s+(-?R\\$\\s?${NUM})`));
-  const pagRec = resumo(new RegExp(`PAGAMENTOS? RECEBIDOS?\\s+(-?R\\$\\s?${NUM})`));
-  const compras = resumo(new RegExp(`TOTAL DE COMPRAS[^\\n]*?\\s(-?R\\$\\s?${NUM})`));
-  const outros = resumo(new RegExp(`OUTROS LANCAMENTOS\\s+(-?R\\$\\s?${NUM})`));
-  out.total = resumo(new RegExp(`TOTAL A PAGAR\\s+(-?R\\$\\s?${NUM})`));
+  // resumo: só a partir de "RESUMO DA FATURA" (a pág. 2 das faturas novas simula parcelamentos com outro "Total a pagar")
+  const iRes = tudo.search(/RESUMO DA FATURA/);
+  const res = iRes >= 0 ? tudo.slice(iRes) : tudo;
+  const V = `((?:-\\s?)?(?:R\\$\\s?)?-?\\s?${NUM})`;
+  const resumo = (re) => { const m = res.match(re); return m ? valorBR(m[1]) : null; };
+  const anterior = resumo(new RegExp(`FATURA ANTERIOR\\s+${V}`));
+  const pagRec = resumo(new RegExp(`PAGAMENTOS? RECEBIDOS?\\s+${V}`));
+  const compras = resumo(new RegExp(`TOTAL DE COMPRAS[^\\n]*?\\s${V}`));
+  const iofInt = resumo(new RegExp(`IOF DE COMPRAS INTERNACIONAIS\\s+${V}`));
+  const outros = resumo(new RegExp(`OUTROS LANCAMENTOS\\s+${V}`));
+  out.total = resumo(new RegExp(`TOTAL A PAGAR\\s+${V}`));
+  if (out.total == null) { const m = tudo.match(new RegExp(`NO VALOR DE\\s+(R\\$\\s?${NUM})`)); if (m) out.total = valorBR(m[1]); }
 
-  const reLinha = new RegExp(`^(\\d{2})\\s+${reAbr}\\s+(.+?)\\s+(-?\\s?R\\$\\s?-?${NUM})$`);
-  const reUsd = new RegExp(`\\b(?:USD|US\\$)\\s?(${NUM})`);
+  // cabeçalho repetido em cada página: "FULANO DE TAL" + "FATURA 11 ABR 2023 EMISSÃO E ENVIO ..."
+  const reCabFatura = /^FATURA\s+\d{2}\s+[A-Z]{3}\s+\d{4}/;
+  const nomes = new Set();
+  T.forEach((u, i) => { if (reCabFatura.test(u) && i > 0) nomes.add(T[i - 1]); });
+  const ehCabecalho = (u) => nomes.has(u) || reCabFatura.test(u) || /^\d+\s+DE\s+\d+$/.test(u) || /^VALORES EM R\$/.test(u);
+
+  const reData = new RegExp(`^(\\d{2})\\s+${reAbr}(?:\\s+(.*))?$`);
+  const reValor = new RegExp(`^(.*?)\\s*((?:-\\s?)?(?:R\\$\\s?)?-?\\s?${NUM})$`);
+  const reUsd = /\b(?:USD|US\$)\s?(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\b/;
+  const reCredito = /^(PAGAMENTO\b|ESTORNO|CREDITO DE|AJUSTE A CREDITO|DESCONTO|REEMBOLSO|IOF DE VOLTA|DEPOSITO DE CONFIANCA)/;
+  const emitir = (p, desc) => {
+    let valor = valorBR(p.valor);
+    if (valor == null) return;
+    const descricao = limparDescricao(String(desc || '').replace(/\s{2,}/g, ' ')) || 'Lançamento sem descrição';
+    // formato antigo: sem "R$" e sem sinal - pagamento/crédito vem positivo
+    if (valor > 0 && !/-|R\$/.test(p.valor) && reCredito.test(semAcento(descricao).toUpperCase())) valor = -valor;
+    const lanc = {
+      data: iso(anoDaCompra(p.mesC, mesV, anoV), p.mesC, p.dia), mes: out.mes, descricao, valor, tipo: tipoLancamentoCartao(descricao, valor),
+      parcela: parcelaDe(descricao), moeda: p.usd != null ? 'USD' : 'BRL', valorOriginal: p.usd != null ? p.usd : null,
+    };
+    out.lancamentos.push(lanc);
+  };
   let dentro = false;
+  let pend = null; // { dia, mesC, desc, valor, usd, orfa }
+  let orfa = ''; // descrição sem data nem valor (fica ACIMA da linha "data  valor" nas compras em dólar)
+  const fechar = () => {
+    if (!pend) return;
+    if (pend.valor != null) emitir(pend, pend.desc || pend.orfa);
+    else if (pend.desc) out.avisos.push(`Linha sem valor: ${limparDescricao(pend.desc)}`);
+    pend = null;
+  };
+  const absorver = (texto) => {
+    const m = texto.match(reValor);
+    if (m) { const d = m[1].trim(); if (d) pend.desc = pend.desc ? `${pend.desc} ${d}` : d; pend.valor = m[2]; } else pend.desc = pend.desc ? `${pend.desc} ${texto}` : texto;
+    if (pend.valor != null && (pend.desc || pend.orfa)) { emitir(pend, pend.desc || pend.orfa); pend = null; }
+  };
   L.forEach((l, i) => {
     const u = T[i];
-    if (/^TRANSACOES\b/.test(u)) { dentro = true; return; }
-    if (!dentro) return;
-    const m = u.match(reLinha);
-    if (!m) {
-      // "USD 9,50" logo abaixo de uma compra internacional
-      const us = u.match(reUsd);
-      const ult = out.lancamentos[out.lancamentos.length - 1];
-      if (us && ult && !ult.valorOriginal) { ult.moeda = 'USD'; ult.valorOriginal = valorBR(us[1]); }
+    if (/^TRANSACOES\b/.test(u)) { fechar(); dentro = true; return; }
+    if (!dentro || ehCabecalho(u)) return;
+    const us = u.match(reUsd);
+    if (us && (/^(?:USD|US\$)/.test(u) || /CONVERSAO/.test(u))) {
+      const v = numeroUsd(us[1]);
+      if (pend) pend.usd = v;
+      else { const ult = out.lancamentos[out.lancamentos.length - 1]; if (ult && ult.valorOriginal == null) { ult.moeda = 'USD'; ult.valorOriginal = v; } }
       return;
     }
-    const mesC = MESES_ABREV.indexOf(m[2]) + 1;
-    const ano = anoDaCompra(mesC, mesV, anoV);
-    const original = l.match(new RegExp(`^\\d{2}\\s+\\S+\\s+(.+?)\\s+-?\\s?R\\$`));
-    const bruto = (original ? original[1] : m[3]).replace(/\s{2,}.*$/, (x) => x); // descrição como veio
-    const valor = valorBR(m[4]);
-    const desc = limparDescricao(bruto.replace(/\s{2,}/g, ' '));
-    out.lancamentos.push({ data: iso(ano, mesC, Number(m[1])), mes: out.mes, descricao: desc, valor, tipo: tipoLancamentoCartao(desc, valor), parcela: parcelaDe(desc), moeda: 'BRL', valorOriginal: null });
+    const md = u.match(reData);
+    if (md) {
+      fechar();
+      pend = { dia: Number(md[1]), mesC: MESES_ABREV.indexOf(md[2]) + 1, desc: '', valor: null, usd: null, orfa };
+      orfa = '';
+      const resto = md[3] ? l.replace(/^\d{2}\s+\S+\s*/, '') : '';
+      if (resto) absorver(resto);
+      return;
+    }
+    if (pend) { absorver(l); return; }
+    orfa = reValor.test(l) ? '' : l; // subtotal do titular e "Pagamentos -R$ ..." têm valor: não são descrição
   });
+  fechar();
   if (!out.lancamentos.length) out.avisos.push('Não achei nenhuma transação na fatura.');
-  // conferência: as linhas (pagamentos incluídos) somam pagamentos + compras + outros lançamentos do resumo
   const soma = r2(out.lancamentos.reduce((s, x) => s + x.valor, 0));
-  if (compras != null) {
-    const esperado = r2((pagRec || 0) + compras + (outros || 0));
-    out.conferencia = { ok: Math.abs(soma - esperado) <= 0.05, esperado, lido: soma, diferenca: r2(soma - esperado), regra: 'transações = pagamentos + compras + outros lançamentos' };
-  } else if (out.total != null && anterior != null) {
-    const esperado = r2(out.total - anterior);
-    out.conferencia = { ok: Math.abs(soma - esperado) <= 0.05, esperado, lido: soma, diferenca: r2(soma - esperado), regra: 'fatura anterior + transações = total a pagar' };
+  const cands = [];
+  if (out.total != null && anterior != null) cands.push({ esperado: r2(out.total - anterior), regra: 'fatura anterior + transações = total a pagar' });
+  if (compras != null) cands.push({ esperado: r2(-Math.abs(pagRec || 0) + compras + (iofInt || 0) + (outros || 0)), regra: 'transações = pagamentos + compras + IOF + outros lançamentos' });
+  if (cands.length) {
+    const bom = cands.find((c) => Math.abs(soma - c.esperado) <= 0.05 + 1e-9);
+    const c = bom || cands[0];
+    out.conferencia = { ok: !!bom, esperado: c.esperado, lido: soma, diferenca: r2(soma - c.esperado), regra: c.regra };
   }
   return out;
 }
@@ -193,69 +359,155 @@ export function lerFaturaNubank(linhas) {
 // ---------------------------------------------------------------------------
 
 /**
- * 02/10/2026: leitor genérico das faturas OuroCard. Cada lançamento é uma
- * linha "dd/mm  descrição  [cidade]  [país]  valor R$  [valor US$]"; a
- * descrição é o 1º bloco depois da data (o pdf.js separa as colunas com 2
- * espaços), cidade/país ficam de fora. Saldo anterior, totais e subtotais
- * não são lançamento. A conferência usa o "Total da fatura" (e o saldo
- * anterior, se a fatura mostrar) - a tela avisa quando a soma não bate.
+ * Ano de uma compra da fatura do BB: a data é a da COMPRA (a parcela 9/12 de
+ * uma compra de março aparece com "27/03" na fatura de janeiro) - se a
+ * parcela diz que a compra tem mais de 1 ano, volta os anos que faltam.
  */
-export function lerFaturaOurocard(linhas) {
-  const L = normLinhas(linhas);
+function anoComParcela(mesC, mesV, anoV, parcela) {
+  let ano = anoDaCompra(mesC, mesV, anoV);
+  const n = Number(String(parcela || '').split('/')[0]) || 0;
+  while (n > 1 && (anoV * 12 + mesV) - (ano * 12 + mesC) < n - 2 && ano > anoV - 7) ano -= 1;
+  return ano;
+}
+
+const RE_DATA_CHEIA = /^(\d{2})[/.](\d{2})[/.](\d{4}|\d{2})$/;
+
+/** Vencimento da fatura do BB por "votos": o rótulo e a data podem vir na mesma linha, na coluna ao lado ou na linha de baixo (caixa "Vencimento:", boleto). */
+function vencimentoOurocard(T) {
+  const votos = new Map();
+  const votar = (m, peso) => {
+    if (!m) return;
+    const a = Number(m[3].length === 2 ? `20${m[3]}` : m[3]); const mm = Number(m[2]); const d = Number(m[1]);
+    if (mm < 1 || mm > 12 || d < 1 || d > 31 || a < 2000) return;
+    const k = iso(a, mm, d);
+    votos.set(k, (votos.get(k) || 0) + peso);
+  };
+  T.forEach((u, i) => {
+    if (!/VENCIMENTO/.test(u)) return;
+    const m1 = u.match(/VENCIMENTO\s*:?\s*(?:EM\s+)?(\d{2})[/.](\d{2})[/.](\d{4}|\d{2})\b/);
+    if (m1) { votar(m1, 2); return; }
+    const segs = u.split(/\s{2,}/);
+    const k = segs.findIndex((s) => /VENCIMENTO/.test(s));
+    const prox = segs[k + 1];
+    if (prox && RE_DATA_CHEIA.test(prox)) { votar(prox.match(RE_DATA_CHEIA), 2); return; }
+    const abaixo = T[i + 1] ? T[i + 1].split(/\s{2,}/).filter((s) => RE_DATA_CHEIA.test(s)) : [];
+    if (abaixo.length === 1) votar(abaixo[0].match(RE_DATA_CHEIA), 1);
+  });
+  let melhor = null;
+  votos.forEach((n, k) => { if (!melhor || n > melhor.n) melhor = { k, n }; });
+  return melhor ? melhor.k : null;
+}
+
+/**
+ * 02/10/2026: leitor das faturas OuroCard. 03/10/2026 (Tiago: TODAS davam
+ * "Não achei a data de vencimento"), pelo layout real (Smiles/OuroCard):
+ *  - pág. 1: caixa "Vencimento:" com a data EMBAIXO, "Valor Total:", o
+ *    "Resumo em Real" (Saldo anterior, Pagamentos/Créditos "- 7.016,55",
+ *    Compras/Débitos, Valor Total - R$) e o boleto ("Data de Vencimento");
+ *  - "Detalhamento da Fatura" em 2 painéis lado a lado (linhasDeItens com
+ *    colunas separa), colunas Data | Transações | País | Moeda | Valor, com
+ *    os subtítulos do próprio BB (Pagamentos, Restaurantes, Compras
+ *    diversas...), crédito com o menos DEPOIS do valor ("200,00 -") e
+ *    Subtotal/Total em R$ e US$;
+ *  - "Parcelamentos Próxima Fatura" (até "Total parcelado para próxima
+ *    fatura"): NÃO são desta fatura - ficam de fora.
+ * Continua aceitando o formato genérico "dd/mm  descrição  ...  valor".
+ * `nome` (opcional): nome do arquivo ("12-2023.pdf") - só se o vencimento
+ * não aparecer em lugar nenhum.
+ */
+export function lerFaturaOurocard(linhas, { nome = '' } = {}) {
+  // 2 lançamentos na mesma linha (painéis juntados pela altura) -> 2 linhas
+  const L = [];
+  normLinhas(linhas).forEach((l) => l.split(new RegExp(`(?<=${NUM}(?:\\s?-)?)\\s{2,}(?=\\d{2}[/.]\\d{2}\\s)`)).forEach((x) => { if (x.trim()) L.push(x.trim()); }));
   const out = { tipoDoc: 'fatura', fonte: 'ourocard', origem: 'cartao', mes: '', vencimento: '', total: null, lancamentos: [], conferencia: null, avisos: [] };
   const T = L.map((l) => semAcento(l).toUpperCase());
   const tudo = T.join('\n');
-  const mv = tudo.match(/VENCIMENTO[^\d\n]{0,30}(\d{2})[/.](\d{2})[/.](\d{2,4})/) || tudo.match(/VENCIMENTO[^\n]*\n[^\d\n]{0,30}(\d{2})[/.](\d{2})[/.](\d{2,4})/);
-  if (!mv) { out.avisos.push('Não achei a data de vencimento da fatura.'); return out; }
-  const anoV = Number(mv[3].length === 2 ? `20${mv[3]}` : mv[3]); const mesV = Number(mv[2]);
-  out.vencimento = iso(anoV, mesV, Number(mv[1]));
+  const venc = vencimentoOurocard(T);
+  let anoV; let mesV;
+  if (venc) {
+    out.vencimento = venc;
+    anoV = Number(venc.slice(0, 4)); mesV = Number(venc.slice(5, 7));
+  } else {
+    const mn = String(nome || '').match(/(?:^|\D)(\d{2})[-_. ](\d{4})(?:\D|$)/);
+    if (!mn || Number(mn[1]) < 1 || Number(mn[1]) > 12) { out.avisos.push(L.length < 5 ? 'Não achei texto nesta fatura (o PDF parece imagem).' : 'Não achei a data de vencimento da fatura.'); return out; }
+    anoV = Number(mn[2]); mesV = Number(mn[1]);
+    out.avisos.push(`Vencimento pelo nome do arquivo (${mn[1]}/${mn[2]}) - não achei no PDF.`);
+  }
   out.mes = `${anoV}-${p2(mesV)}`;
-  const achar = (re) => { const m = tudo.match(re); return m ? valorBR(m[1]) : null; };
-  const V = `(-?\\s?(?:R\\$\\s?)?-?\\s?${NUM})`;
-  out.total = achar(new RegExp(`(?:TOTAL\\s+(?:DESTA|DA)\\s+FATURA|VALOR\\s+TOTAL\\s+(?:DESTA|DA)\\s+FATURA|SALDO\\s+DESTA\\s+FATURA|TOTAL\\s+A\\s+PAGAR)[^\\d\\n-]{0,40}${V}`));
+  const achar = (...res) => { for (const re of res) { const m = tudo.match(re); if (m) return valorBR(m[1]); } return null; };
+  const V = `((?:-\\s?)?(?:R\\$\\s?)?-?\\s?${NUM}(?:\\s?-)?)`;
+  out.total = achar(
+    new RegExp(`VALOR\\s+TOTAL\\s*-\\s*R\\$\\s+${V}`),
+    new RegExp(`(?:TOTAL\\s+(?:DESTA|DA)\\s+FATURA|VALOR\\s+TOTAL\\s+(?:DESTA|DA)\\s+FATURA|SALDO\\s+DESTA\\s+FATURA|TOTAL\\s+A\\s+PAGAR)[^\\d\\n-]{0,40}${V}`),
+    new RegExp(`VALOR\\s+TOTAL\\s*:?\\s*(?:R\\$)?\\s+${V}`),
+    new RegExp(`VALOR\\s+TOTAL\\s*:?\\s*\\n(?:R\\$\\s*)?(${NUM})`),
+  );
   const anterior = achar(new RegExp(`SALDO\\s+(?:DA\\s+)?(?:FATURA\\s+)?ANTERIOR[^\\d\\n-]{0,30}${V}`));
+  const comprasDeb = achar(new RegExp(`COMPRAS\\s*\\/\\s*DEBITOS\\s+${V}`));
   const cotacao = (() => { const m = tudo.match(/COTACAO[^\d\n]{0,40}(\d+,\d{2,4})/); return m ? Number(m[1].replace(',', '.')) : null; })();
 
-  const reDinheiro = new RegExp(`^(-\\s?)?(R\\$|US\\$)?\\s?(-\\s?)?${NUM}$`);
-  const ignorar = /SALDO\s+(?:DA\s+)?(?:FATURA\s+)?ANTERIOR|^TOTAL|SUBTOTAL|TOTAL\s+(?:DA|DESTA)\s+FATURA|LIMITE|VENCIMENTO|PAGAMENTO\s+MINIMO|ENCARGOS\s+(?:FINANCEIROS\s+)?(?:MAXIMOS|PARA O PROXIMO)/;
+  const reDinheiro = new RegExp(`^(-\\s?)?(R\\$|US\\$)?\\s?(-\\s?)?${NUM}(\\s?-)?$`);
+  const reMoeda = new RegExp(`^(.*?)\\s+(?:([A-Z]{2}|\\d{1,3})\\s+)?(R\\$|US\\$)\\s*((?:-\\s?)?${NUM}(?:\\s?-)?)$`);
+  const ignorar = /SALDO\s+(?:DA\s+)?(?:FATURA\s+)?ANTERIOR|^TOTAL|SUBTOTAL|TOTAL\s+(?:DA|DESTA)\s+FATURA|LIMITE|VENCIMENTO|PAGAMENTO\s+MINIMO|ENCARGOS\s+(?:FINANCEIROS\s+)?(?:MAXIMOS|PARA O PROXIMO)|FECHARA|MELHOR DATA|PROCESSAMENTO|DOCUMENTO/;
+  let proxima = false;
   L.forEach((l, i) => {
     const u = T[i];
+    if (/PARCELAMENTOS?\s+(?:DA\s+)?PROXIMA\s+FATURA/.test(u)) { proxima = true; return; }
+    if (/TOTAL\s+PARCELADO/.test(u)) { proxima = false; return; }
+    if (proxima) return;
     const md = u.match(/^(\d{2})[/.](\d{2})(?:[/.](\d{2,4}))?\s+(.+)$/);
     if (!md || ignorar.test(md[4])) return;
-    // colunas pelo pdf.js (2+ espaços); sem isso, separa o(s) valor(es) do fim por regex
-    const resto = l.replace(/^\d{2}[/.]\d{2}(?:[/.]\d{2,4})?\s+/, '');
-    let partes = resto.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
-    const valores = [];
-    while (partes.length > 1 && reDinheiro.test(semAcento(partes[partes.length - 1]).toUpperCase())) valores.unshift(partes.pop());
-    if (!valores.length) {
-      const m = resto.match(new RegExp(`^(.*?)\\s+((?:-\\s?)?(?:R\\$\\s?)?-?\\s?${NUM})(?:\\s+((?:-\\s?)?(?:US\\$\\s?)?-?\\s?${NUM}))?$`));
-      if (!m) return;
-      partes = [m[1]];
-      valores.push(m[2]); if (m[3]) valores.push(m[3]);
-    }
     const dia = Number(md[1]); const mesC = Number(md[2]);
     if (dia < 1 || dia > 31 || mesC < 1 || mesC > 12) return;
+    const resto = l.replace(/^\d{2}[/.]\d{2}(?:[/.]\d{2,4})?\s+/, '');
+    let partes; let v0; let v1 = null; let moedaCol = null;
+    const mm = resto.match(reMoeda);
+    if (mm && /[A-Za-z]/.test(mm[1]) && !new RegExp(`${NUM}\\s*-?$`).test(mm[1])) {
+      // colunas do BB: descrição (+ cidade) | país | moeda | valor
+      partes = mm[1].split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
+      moedaCol = mm[3].toUpperCase();
+      v0 = mm[4];
+      const parc = partes.slice(1).join(' ').match(/PARC\.?\s*\d{1,2}\s*\/\s*\d{1,2}/i);
+      partes = [(partes.length >= 3 ? partes.slice(0, -1).join(' ') : partes[0]) + (parc && !/PARC/i.test(partes[0]) ? ` ${parc[0]}` : '')];
+    } else {
+      // genérico: colunas pelo pdf.js (2+ espaços); sem isso, o(s) valor(es) do fim por regex
+      partes = resto.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
+      const valores = [];
+      while (partes.length > 1 && reDinheiro.test(semAcento(partes[partes.length - 1]).toUpperCase())) valores.unshift(partes.pop());
+      if (!valores.length) {
+        const m = resto.match(new RegExp(`^(.*?)\\s+((?:-\\s?)?(?:R\\$\\s?)?-?\\s?${NUM}(?:\\s?-)?)(?:\\s+((?:-\\s?)?(?:US\\$\\s?)?-?\\s?${NUM}))?$`));
+        if (!m) return;
+        partes = [m[1]];
+        valores.push(m[2]); if (m[3]) valores.push(m[3]);
+      }
+      [v0, v1] = valores;
+    }
     let valor = null; let moeda = 'BRL'; let valorOriginal = null;
-    const v0 = valores[0]; const v1 = valores[1];
-    if (/US\$/i.test(v0) && !v1) { moeda = 'USD'; valorOriginal = valorBR(v0); valor = cotacao ? r2(valorOriginal * cotacao) : null; } else {
+    if (moedaCol === 'US$' || (!moedaCol && /US\$/i.test(v0) && !v1)) { moeda = 'USD'; valorOriginal = valorBR(v0); valor = cotacao && valorOriginal != null ? r2(valorOriginal * cotacao) : null; } else {
       valor = valorBR(v0);
       if (v1) { const us = valorBR(v1); if (us) { moeda = 'USD'; valorOriginal = us; } }
     }
-    if (valor == null) { out.avisos.push(`Lançamento em dólar sem valor em reais: ${limparDescricao(partes[0])}`); return; }
     const desc = limparDescricao(partes[0].replace(/\s+(?:BR|BRA)$/i, ''));
     if (!desc) return;
-    const ano = md[3] ? Number(md[3].length === 2 ? `20${md[3]}` : md[3]) : anoDaCompra(mesC, mesV, anoV);
-    out.lancamentos.push({ data: iso(ano, mesC, dia), mes: out.mes, descricao: desc, valor, tipo: tipoLancamentoCartao(desc, valor), parcela: parcelaDe(desc), moeda, valorOriginal });
+    if (valor == null) { out.avisos.push(`Lançamento em dólar sem valor em reais: ${desc}`); return; }
+    let tipo = tipoLancamentoCartao(desc, valor);
+    if (tipo === 'pagamento_fatura' && valor > 0) { valor = -valor; tipo = tipoLancamentoCartao(desc, valor); }
+    const parcela = parcelaDe(desc);
+    const ano = md[3] ? Number(md[3].length === 2 ? `20${md[3]}` : md[3]) : anoComParcela(mesC, mesV, anoV, parcela);
+    out.lancamentos.push({ data: iso(ano, mesC, dia), mes: out.mes, descricao: desc, valor, tipo, parcela, moeda, valorOriginal });
   });
-  if (!out.lancamentos.length) out.avisos.push('Não reconheci os lançamentos desta fatura OuroCard - me mande um exemplo do formato.');
+  if (!out.lancamentos.length) out.avisos.push('Não reconheci os lançamentos desta fatura OuroCard.');
   const soma = r2(out.lancamentos.reduce((s, x) => s + x.valor, 0));
   const somaSemPag = r2(out.lancamentos.filter((x) => x.tipo !== 'pagamento_fatura').reduce((s, x) => s + x.valor, 0));
+  const cands = [];
+  if (out.total != null && anterior != null) cands.push({ esperado: r2(out.total - anterior), lido: soma, regra: 'saldo anterior + lançamentos = total da fatura' });
+  if (comprasDeb != null) cands.push({ esperado: Math.abs(comprasDeb), lido: somaSemPag, regra: 'compras e débitos (sem os pagamentos) = "Compras/Débitos" do resumo' });
   if (out.total != null) {
-    const cands = [];
-    if (anterior != null) cands.push({ esperado: r2(out.total - anterior), lido: soma, regra: 'saldo anterior + lançamentos = total da fatura' });
     cands.push({ esperado: out.total, lido: somaSemPag, regra: 'compras e encargos − estornos = total da fatura' });
     cands.push({ esperado: out.total, lido: soma, regra: 'lançamentos = total da fatura' });
-    const bom = cands.find((c) => Math.abs(c.lido - c.esperado) <= 0.05);
+  }
+  if (cands.length && out.lancamentos.length) {
+    const bom = cands.find((c) => Math.abs(c.lido - c.esperado) <= 0.05 + 1e-9);
     const c = bom || cands[0];
     out.conferencia = { ok: !!bom, esperado: c.esperado, lido: c.lido, diferenca: r2(c.lido - c.esperado), regra: c.regra };
   }
@@ -545,14 +797,31 @@ export function lerOfxGastos(texto) {
 // Entrada única
 // ---------------------------------------------------------------------------
 
-/** Linhas de PDF -> documento lido (ou { erro }). */
-export function lerDocumentoGasto(linhas, dica = {}) {
+/**
+ * Linhas de PDF -> documento lido (ou { erro }).
+ * 03/10/2026: `entrada` pode ser as linhas (como antes) ou { paginas } com
+ * os itens do pdf.js COM posição (extrairPaginasPdfComSenha) - aí a fatura
+ * do BB é lida painel por painel. `dica`: { banco, origem, nome }.
+ */
+export function lerDocumentoGasto(entrada, dica = {}) {
+  const paginas = entrada && !Array.isArray(entrada) && Array.isArray(entrada.paginas) ? entrada.paginas : null;
+  const linhas = paginas ? linhasDeItens(paginas) : entrada;
+  if (paginas && normLinhas(linhas).join('').replace(/[^A-Za-z]/g, '').length < 30) {
+    return { erro: 'Este PDF não tem texto que dê pra ler (parece imagem/escaneado). Baixe de novo pelo app ou site do banco.', lancamentos: [], avisos: [] };
+  }
   const tipo = identificarDocumentoGasto(linhas, dica);
-  if (tipo === 'nubank-cartao') return lerFaturaNubank(linhas);
-  if (tipo === 'nubank-conta') return lerExtratoNubank(linhas);
-  if (tipo === 'bradesco') return lerExtratoBradesco(linhas);
-  if (tipo === 'ourocard') return lerFaturaOurocard(linhas);
-  return { erro: 'Não reconheci este documento (fatura ou extrato).', lancamentos: [], avisos: [] };
+  let r;
+  if (tipo === 'nubank-cartao') r = lerFaturaNubank(linhas);
+  else if (tipo === 'nubank-conta') r = lerExtratoNubank(linhas);
+  else if (tipo === 'bradesco') r = lerExtratoBradesco(linhas);
+  else if (tipo === 'ourocard') r = lerFaturaOurocard(paginas ? linhasDeItens(paginas, { colunas: true }) : linhas, { nome: dica.nome });
+  else return { erro: 'Não reconheci este documento (fatura ou extrato).', lancamentos: [], avisos: [] };
+  // 03/10/2026: só a PASTA dizia o banco e nada foi lido - provavelmente não é fatura/extrato
+  if (!r.lancamentos.length && !identificarDocumentoGasto(linhas)) {
+    const nome = { 'nubank-cartao': 'fatura do Nubank', 'nubank-conta': 'extrato do Nubank', bradesco: 'extrato do Bradesco', ourocard: 'fatura OuroCard' }[tipo];
+    r.erro = `Não parece uma ${nome} (está na pasta dele, mas o texto não bate): ${(r.avisos || []).join(' ') || 'nenhum lançamento'}`;
+  }
+  return r;
 }
 
 /** Meses que o documento cobre (fatura: o do vencimento; extrato: o período). */

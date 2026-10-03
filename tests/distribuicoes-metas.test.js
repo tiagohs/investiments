@@ -27,7 +27,10 @@ import {
   chaveIntradiaRadar,
   urlGoogleFinance,
   preencherIntradiaRadar,
+  vinculoMetaObjetivos,
+  aplicarMetasObjetivos,
 } from '../assets/js/pages/distribuicoes-metas.js';
+import { metasComCalculo } from '../assets/js/metas-card.js';
 
 function makeDom(bodyHtml) {
   const dom = new JSDOM(`<!doctype html><html><body>${bodyHtml}</body></html>`);
@@ -2302,4 +2305,122 @@ test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos d
   await esperar();
   assert.deepEqual(pedidos.map((p) => p.chaves), [['acoes:WIZC3', 'acoes:VAMO3'], ['fiis:PMLL11']]);
   assert.equal(radar.querySelectorAll('svg.intradia-svg').length, 2, 'redesenhado do que já estava guardado');
+});
+
+// --- 03/10/2026: Metas da carteira -> Metas e Objetivos ---------------------------------
+// (Tiago: "'Metas da Carteira' [...] precisa estar linkada às metas presentes em 'Metas e
+// Objetivos'; clicando nela, sou jogado pra tela de detalhe da meta"). Dados inventados.
+
+const RAIZ_TESTE = 'https://exemplo.test/';
+const RESPOSTA_METAS_TESTE = {
+  ok: true, hoje: '2026-10-03', arquivadas: [],
+  ativos: [{ id: 'ZZZZ11', ref: 'ZZZZ11', nome: 'ZZZZ11', classe: 'fiis', valorBRL: 20000 }],
+  cambio: {}, referencias: { reserva: { custoDeVida: 1000, meses: 6, sobra: 0 } }, proventos12m: { porTicker: { ZZZZ11: 1800 } },
+  metas: [
+    { id: 'rpA', tipo: 'rendaPassiva', nome: 'Renda secundária', especificos: { rendaMensal: 900, dyAnual: 0.1 }, vinculos: [], status: 'ativa' },
+    { id: 'rpB', tipo: 'rendaPassiva', nome: 'Renda principal', especificos: { rendaMensal: 300, dyAnual: 0.1 }, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], exibirNaCarteira: true, status: 'ativa' },
+    { id: 'apo1', tipo: 'aposentadoria', nome: 'Aposentar cedo', valorAlvo: 80000, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], status: 'ativa' },
+  ],
+};
+
+test('vinculoMetaObjetivos(): carregando / indisponível / existe (a marcada "mostrar em Carteiras") / criar (#nova=)', () => {
+  const metas = metasComCalculo(RESPOSTA_METAS_TESTE);
+  assert.deepEqual(vinculoMetaObjetivos('rendaPassiva', null, { raizSite: RAIZ_TESTE }), { estado: 'carregando', href: `${RAIZ_TESTE}metas.html` });
+  assert.equal(vinculoMetaObjetivos('rendaPassiva', { ok: false }, { raizSite: RAIZ_TESTE }).estado, 'indisponivel');
+  const rp = vinculoMetaObjetivos('rendaPassiva', { ok: true, metas }, { raizSite: RAIZ_TESTE });
+  assert.equal(rp.estado, 'existe');
+  assert.equal(rp.meta.id, 'rpB');
+  assert.equal(rp.href, `${RAIZ_TESTE}metas.html#meta=rpB`);
+  assert.equal(vinculoMetaObjetivos('patrimonio', { ok: true, metas }, { raizSite: RAIZ_TESTE }).href, `${RAIZ_TESTE}metas.html#meta=apo1`);
+  const re = vinculoMetaObjetivos('rendaEmergencial', { ok: true, metas }, { raizSite: RAIZ_TESTE });
+  assert.deepEqual(re, { estado: 'criar', href: `${RAIZ_TESTE}metas.html#nova=reserva-emergencia` });
+});
+
+test('renderMetasCarteira() com as metas de Metas e Objetivos: rodapé-link com o progresso de lá, ou "Criar em Metas e Objetivos"', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderMetasCarteira(doc, container, METAS_EXEMPLO, { metasObjetivos: { ok: true, metas: metasComCalculo(RESPOSTA_METAS_TESTE) }, raizSite: RAIZ_TESTE });
+  const cards = [...container.querySelectorAll('.goal-card')];
+  assert.deepEqual(cards.map((c) => c.dataset.metaCarteira), ['rendaPassiva', 'patrimonio', 'rendaEmergencial']);
+  assert.ok(cards.every((c) => c.classList.contains('goal-card-clicavel')));
+  const [rp, pat, re] = cards.map((c) => c.querySelector('a.goal-meta'));
+  assert.equal(rp.getAttribute('href'), `${RAIZ_TESTE}metas.html#meta=rpB`);
+  assert.equal(rp.dataset.estado, 'existe');
+  assert.match(rp.textContent, /Renda principal/);
+  assert.match(rp.textContent, /50%/, 'proventos 12m 1.800 / 12 = 150 de 300/mês');
+  assert.match(rp.textContent, /R\$\s150\/mês de R\$\s300\/mês/);
+  assert.equal(rp.querySelector('.mt-barra').getAttribute('aria-valuenow'), '50');
+  assert.match(pat.textContent, /Aposentar cedo/);
+  assert.match(pat.textContent, /25%/, '20.000 de 80.000');
+  assert.equal(re.dataset.estado, 'criar');
+  assert.equal(re.getAttribute('href'), `${RAIZ_TESTE}metas.html#nova=reserva-emergencia`);
+  assert.match(re.textContent, /Criar em Metas e Objetivos/);
+  // o link "Custo de vida" (Organização) continua antes do rodapé
+  assert.ok(cards[2].querySelector('.goal-link'));
+  assert.equal(cards[2].lastElementChild, re);
+});
+
+test('renderMetasCarteira(): sem as metas ainda, o rodapé fica "carregando" e leva pra lista; aplicarMetasObjetivos atualiza no lugar', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  renderMetasCarteira(doc, container, METAS_EXEMPLO, { raizSite: RAIZ_TESTE });
+  const link = container.querySelector('.goal-card a.goal-meta');
+  assert.equal(link.dataset.estado, 'carregando');
+  assert.equal(link.getAttribute('aria-busy'), 'true');
+  assert.equal(link.getAttribute('href'), `${RAIZ_TESTE}metas.html`);
+  aplicarMetasObjetivos(container, { ok: true, metas: [] }, { raizSite: RAIZ_TESTE });
+  assert.equal(link.dataset.estado, 'criar');
+  assert.equal(link.getAttribute('href'), `${RAIZ_TESTE}metas.html#nova=renda-passiva`);
+  assert.equal(link.hasAttribute('aria-busy'), false);
+  aplicarMetasObjetivos(container, { ok: false }, { raizSite: RAIZ_TESTE });
+  assert.match(link.textContent, /Ver em Metas e Objetivos/);
+});
+
+test('renderMetasCarteira(): clicar no card leva pro link da meta; Editar, o formulário e o "i" não navegam', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const w = doc.defaultView;
+  const container = doc.getElementById('c');
+  renderMetasCarteira(doc, container, METAS_EXEMPLO, { metasObjetivos: { ok: true, metas: metasComCalculo(RESPOSTA_METAS_TESTE) }, raizSite: RAIZ_TESTE });
+  const navegou = [];
+  container.querySelectorAll('a.goal-meta').forEach((a) => a.addEventListener('click', (ev) => { ev.preventDefault(); navegou.push(a.getAttribute('href')); }));
+  const card = container.querySelector('.goal-card[data-meta-carteira="patrimonio"]');
+  const clicar = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+  clicar(card.querySelector('.goal-donut-wrap'));
+  assert.deepEqual(navegou, [`${RAIZ_TESTE}metas.html#meta=apo1`]);
+  clicar(card.querySelector('.goal-editar-btn'));
+  clicar(card.querySelector('.goal-edit-form input'));
+  clicar(card.querySelector('.goal-stats .info-alvo'));
+  assert.equal(navegou.length, 1, 'só o 1º clique navegou');
+  assert.equal(card.querySelector('.goal-edit-form').hidden, false, 'Editar continua abrindo o formulário');
+  clicar(card.querySelector('a.goal-meta strong'));
+  assert.equal(navegou.length, 2, 'clique no próprio rodapé = link normal (sem clique duplicado)');
+});
+
+test('montarPaginaDistribuicoesMetas(): busca as metas de Metas e Objetivos em paralelo, sem segurar a página', async () => {
+  const doc = makePaginaDom();
+  let liberarMetas;
+  const pedidosMetas = [];
+  const getMetasImpl = (token) => { pedidosMetas.push(token); return new Promise((r) => { liberarMetas = () => r(JSON.parse(JSON.stringify(RESPOSTA_METAS_TESTE))); }); };
+  const getDistribuicoesMetasImpl = async () => ({ ok: true, metas: METAS_EXEMPLO });
+  const pagina = await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, getMetasImpl, getIntradiaImpl: null, raizSite: RAIZ_TESTE });
+  const grid = doc.getElementById('metasCarteiraGrid');
+  assert.equal(grid.querySelectorAll('.goal-card').length, 3, 'cards desenhados antes das metas chegarem');
+  assert.deepEqual(pedidosMetas, ['token-fake']);
+  assert.ok([...grid.querySelectorAll('a.goal-meta')].every((a) => a.dataset.estado === 'carregando'));
+  liberarMetas();
+  await pagina.metasProntas;
+  const estados = [...grid.querySelectorAll('a.goal-meta')].map((a) => a.dataset.estado);
+  assert.deepEqual(estados, ['existe', 'existe', 'criar']);
+  assert.equal(grid.querySelector('a.goal-meta').getAttribute('href'), `${RAIZ_TESTE}metas.html#meta=rpB`);
+});
+
+test('montarPaginaDistribuicoesMetas(): falha nas metas não quebra a página - rodapé vira "Ver em Metas e Objetivos"', async () => {
+  const doc = makePaginaDom();
+  const getMetasImpl = async () => { throw new Error('rede caiu'); };
+  const getDistribuicoesMetasImpl = async () => ({ ok: true, metas: METAS_EXEMPLO });
+  const pagina = await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, getMetasImpl, getIntradiaImpl: null, raizSite: RAIZ_TESTE });
+  await pagina.metasProntas;
+  const links = [...doc.getElementById('metasCarteiraGrid').querySelectorAll('a.goal-meta')];
+  assert.equal(links.length, 3);
+  assert.ok(links.every((a) => a.dataset.estado === 'indisponivel' && a.getAttribute('href') === `${RAIZ_TESTE}metas.html`));
 });

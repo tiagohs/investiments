@@ -46,6 +46,7 @@ import { formatBRL, formatDateBR, formatNumeroBR, formatPercentFromFraction, for
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { proventosMesE12Meses, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
 import {
   renderDistribuicao,
   renderInfoRentabilidade,
@@ -551,6 +552,7 @@ function desenhar(doc, { carteiras: carteirasApi, home }) {
         chartContainer: doc.getElementById('vgRentabChart'),
         legendaContainer: doc.getElementById('vgRentabLegenda'),
         analise: true, // 02/10/2026: card de Análise (pedido C)
+        analiseExtra: { proventosAReceber: proventosAReceberDe(home.proventosAnunciados) }, // 03/10/2026: data-ex (proventos a receber)
         // 02/10/2026 (pedido D - "Em Carteiras home, no Patrimônio total,
         // incluir o índice IPCA"): mesma curva base 100 do CDI (indiceIpca,
         // HistoricoInicio.gs - IPCA mensal de aux_historico-indices).

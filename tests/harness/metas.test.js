@@ -215,3 +215,152 @@ test('Metas (planilha real): GET action=metas pelo Router, POST salvarMeta/exclu
   assert.ok(r.arquivadas.some((m) => m.id === s.id));
   t.diagnostic(`${r.ativos.length} ativos · avisos: ${JSON.stringify(r.avisos || {})}`);
 });
+
+// ---------------------------------------------------------------------------
+// 03/10/2026: Metas v2 - exclusão definitiva, saldo em conta, IR/IOF, histórico
+// ---------------------------------------------------------------------------
+
+test('excluirMetaDefinitivo_: só meta arquivada; apaga a linha e as de baixo sobem', () => {
+  const sb = sandbox();
+  const ss = criarFalsa();
+  const agora = new sb.Date('2026-10-03T12:00:00Z');
+  const a = sb.salvarMeta_(ss, JSON.stringify({ tipo: 'aposentadoria', nome: 'Teste 1' }), agora).id;
+  const b = sb.salvarMeta_(ss, JSON.stringify({ tipo: 'aposentadoria', nome: 'Teste 2' }), agora).id;
+  sb.salvarMeta_(ss, JSON.stringify({ tipo: 'carro', nome: 'Carro' }), agora);
+  assert.match(sb.excluirMetaDefinitivo_(ss, a).erro, /arquive/, 'ativa não apaga');
+  sb.arquivarMeta_(ss, a, false, agora);
+  const r = semRealm(sb.excluirMetaDefinitivo_(ss, a));
+  assert.equal(r.ok, true);
+  assert.deepEqual(semRealm(sb.lerMetas_(ss)).map((m) => m.nome), ['Teste 2', 'Carro']);
+  assert.deepEqual(r.arquivadas, []);
+  assert.equal(ss.abas.get('aux_metas').getLastRow(), 3, 'a linha saiu (cabeçalho + 2)');
+  assert.equal(sb.excluirMetaDefinitivo_(ss, a).ok, false, 'não existe mais');
+  // a função de 1x do editor: apaga todas as arquivadas
+  sb.arquivarMeta_(ss, b, false, agora);
+  sb.SpreadsheetApp.getActiveSpreadsheet = () => ss;
+  sb.excluirMetasArquivadasDefinitivamente();
+  assert.deepEqual(semRealm(sb.lerMetas_(ss)).map((m) => m.nome), ['Carro']);
+});
+
+test('saldo em conta: normaliza, guarda o histórico de cada atualização e entra no progresso pelo câmbio', () => {
+  const sb = sandbox();
+  const ss = criarFalsa();
+  const meta = { tipo: 'viagemInternacional', nome: 'Viagem', moeda: 'EUR', vinculos: [{ tipo: 'saldo', id: 's1', instituicao: 'Conta X', moeda: 'eur', saldo: 100, atualizadoEm: '2026-08-01' }, { tipo: 'saldo', instituicao: '' }] };
+  let r = semRealm(sb.salvarMeta_(ss, JSON.stringify(meta), new sb.Date('2026-08-01T12:00:00Z')));
+  assert.equal(r.meta.vinculos.length, 1, 'saldo sem instituição sai');
+  assert.deepEqual(r.meta.vinculos[0].historico, [{ data: '2026-08-01', saldo: 100 }]);
+  const id = r.id;
+  // nova atualização: o histórico gravado manda (o navegador não reescreve o passado)
+  r = semRealm(sb.salvarMeta_(ss, JSON.stringify({ ...meta, id, vinculos: [{ ...meta.vinculos[0], saldo: 250, atualizadoEm: '2026-09-15', historico: [] }] }), new sb.Date('2026-09-15T12:00:00Z')));
+  assert.deepEqual(r.meta.vinculos[0].historico, [{ data: '2026-08-01', saldo: 100 }, { data: '2026-09-15', saldo: 250 }]);
+  // mesmo saldo: não duplica
+  r = semRealm(sb.salvarMeta_(ss, JSON.stringify({ ...meta, id, vinculos: [{ ...meta.vinculos[0], saldo: 250 }] }), new sb.Date('2026-09-20T12:00:00Z')));
+  assert.equal(r.meta.vinculos[0].historico.length, 2);
+  const tela = semRealm(sb.montarTelaMetas_(ss, new sb.Date('2026-10-03T12:00:00Z'), { ativos: [], referencias: {}, proventos: { recebidos: [], hoje: '2026-10-03' }, buscarCambio: () => ({ EUR: 6, USD: 5 }), historicoResumo: null }));
+  assert.equal(tela.metas[0].progresso.valorVinculado, 1500, '€ 250 x 6');
+  assert.equal(tela.metas[0].progresso.valorVinculado, resolverVinculos(tela.metas[0].vinculos, [], tela.cambio).total, 'mesma regra do navegador');
+});
+
+test('normalização v2: viagem por destinos e itens fixos; aposentadoria com a conta editável', () => {
+  const sb = sandbox();
+  const ss = criarFalsa();
+  const agora = new sb.Date('2026-10-03T12:00:00Z');
+  let r = semRealm(sb.salvarMeta_(ss, JSON.stringify({
+    tipo: 'viagemInternacional', nome: 'V', especificos: {
+      margem: 0.1, destinos: [{ cidade: 'Cidade A', pais: 'País A', moeda: 'gbp', dias: 3, gastos: { alimentacao: 50, lixo: 9 }, extras: 20 }, { cidade: '', pais: '' }],
+      fixos: [{ nome: 'Passagem', valor: 3000, parcelas: 10, inicio: '2026-08-15', parte: 0.5 }, { nome: '' }],
+    },
+  }), agora));
+  const e = r.meta.especificos;
+  assert.equal(e.destinos.length, 1);
+  assert.deepEqual([e.destinos[0].moeda, e.destinos[0].dias, e.destinos[0].gastos.alimentacao, e.destinos[0].gastos.lixo, e.destinos[0].extras], ['GBP', 3, 50, undefined, 20]);
+  assert.deepEqual([e.fixos.length, e.fixos[0].inicio, e.fixos[0].parte, e.fixos[0].moeda], [1, '2026-08', 0.5, 'BRL']);
+  assert.throws(() => sb.salvarMeta_(ss, JSON.stringify({ tipo: 'viagemInternacional', nome: 'V', especificos: { fixos: [{ nome: 'x', parte: 2 }] } }), agora), /sua parte/);
+  r = semRealm(sb.salvarMeta_(ss, JSON.stringify({ tipo: 'aposentadoria', nome: 'A', dataAlvo: '2050-12', especificos: { modoAlvo: 'calculado', extra: 1000, reinvestimento: 0.2, taxaRetirada: 0.06, anoNascimento: 1990, usarDespesasPlanilha: false, despesaMensal: 5000 } }), agora));
+  assert.deepEqual(r.meta.especificos, { rendaDesejada: null, taxaRetirada: 0.06, modoAlvo: 'calculado', usarDespesasPlanilha: false, despesaMensal: 5000, extra: 1000, reinvestimento: 0.2, anoNascimento: 1990 });
+  assert.equal(r.meta.dataAlvo, '2050-12', 'o prazo da aposentadoria é gravado');
+});
+
+test('IR + IOF se resgatasse hoje: IOF nos primeiros 30 dias, IR sobre o rendimento menos o IOF, na proporção do ativo', () => {
+  const sb = sandbox();
+  assert.equal(sb.aliquotaIofMetas_(1), 0.96);
+  assert.equal(sb.aliquotaIofMetas_(10), 0.66);
+  assert.equal(sb.aliquotaIofMetas_(30), 0);
+  const pos = { isento: false, precisao: 'por-lote', impostoSeResgatasseHoje: 0, valorLiquidoSeResgatasseHoje: 2000,
+    detalhes: [{ diasCorridos: 400, rendimento: 100, aliquota: 0.175 }, { diasCorridos: 10, rendimento: 10, aliquota: 0.225 }] };
+  const r = semRealm(sb.irResgateDoAtivo_(pos, 1000));
+  // lote 1: IR 17,50; lote 2: IOF 6,60 e IR (10 - 6,60) x 22,5% = 0,765 -> metade (o ativo é metade da posição)
+  assert.deepEqual(r, { ir: 9.13, iof: 3.3, liquido: 987.57, isento: false, precisao: 'por-lote' });
+  assert.deepEqual(semRealm(sb.irResgateDoAtivo_({ isento: true, detalhes: [], valorLiquidoSeResgatasseHoje: 500, impostoSeResgatasseHoje: 0 }, 500)), { ir: 0, iof: 0, liquido: 500, isento: true, precisao: null });
+});
+
+test('montarHistoricoMetas_: valor e aporte mês a mês por classe, ativo (RV/RF) e saldo; aporte médio de 12 meses; renda mensal', () => {
+  const sb = sandbox();
+  sb.normalizarInstituicaoRF_ = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const ss = criarFalsa();
+  const agora = new sb.Date('2026-10-03T12:00:00Z');
+  const D = (iso) => new sb.Date(`${iso}T15:00:00Z`);
+  const id = sb.salvarMeta_(ss, JSON.stringify({
+    tipo: 'rendaPassiva', nome: 'RP', vinculos: [
+      { tipo: 'classe', classe: 'fiis', modo: 'fracao', fracao: 0.5 },
+      { tipo: 'ativo', id: 'AAAA3' },
+      { tipo: 'ativo', id: 'rf:Tesouro Z 2030|Banco Q@longo-prazo', modo: 'valor', valor: 150 },
+      { tipo: 'saldo', id: 's', instituicao: 'Conta X', moeda: 'EUR', saldo: 20, atualizadoEm: '2026-09-10', historico: [{ data: '2026-08-05', saldo: 10 }, { data: '2026-09-10', saldo: 20 }] },
+    ],
+  }), agora).id;
+  const serieInicio = [
+    { data: '2026-07-31', fiis: 1000, fluxoAplicadoFiis: 0, indiceCdi: 100 },
+    { data: '2026-08-10', fiis: 1300, fluxoAplicadoFiis: 300, indiceCdi: 100.5 },
+    { data: '2026-08-31', fiis: 1320, fluxoAplicadoFiis: 0, indiceCdi: 101 },
+    { data: '2026-09-30', fiis: 1500, fluxoAplicadoFiis: 200, indiceCdi: 102 },
+    { data: '2026-10-02', fiis: 1510, fluxoAplicadoFiis: 0, indiceCdi: 102.1 },
+  ];
+  const linhasPatrimonio = [[D('2026-08-28'), 'AAAA3', 'BR', 10, 10, 100, '', 100], [D('2026-09-29'), 'AAAA3', 'BR', 20, 10, 200, '', 200], [D('2026-10-02'), 'AAAA3', 'BR', 20, 11, 220, '', 220], [D('2026-09-29'), 'ZZZZ3', 'BR', 1, 1, 1, '', 1]];
+  const linhasRf = [[D('2026-08-31'), 'Tesouro Z 2030', 'Banco Q', 'IPCA', 'Renda Fixa', 100], [D('2026-09-30'), 'Tesouro Z 2030', 'Banco Q', 'IPCA', 'Renda Fixa', 300], [D('2026-09-30'), 'Tesouro Z 2030', 'Banco Q', 'IPCA', 'Renda Emergencial', 999], [D('2026-10-02'), 'Tesouro Z 2030', 'Banco Q', 'IPCA', 'Renda Fixa', 310]];
+  const transacoes = { br: [['AAAA3', D('2026-08-20'), 'Compra', 10, 10, 0, '', 100], ['AAAA3', D('2026-09-20'), 'Compra', 10, 10, 0, '', 100]], usa: [], rf: [['Tesouro Z 2030', D('2026-09-02'), 'Compra', 'Debit', 'Banco Q', 1, 200, 200]] };
+  const proventos = { recebidos: [{ ticker: 'FFFF11', classe: 'fiis', data: '2026-08-15', valor: 10 }, { ticker: 'AAAA3', classe: 'acoes', data: '2026-09-15', valor: 4 }, { ticker: 'BBBB3', classe: 'acoes', data: '2026-09-15', valor: 99 }, { ticker: 'FFFF11', classe: 'fiis', data: '2026-09-15', valor: 12 }] };
+  const r = semRealm(sb.montarHistoricoMetas_(ss, agora, { serieInicio, linhasPatrimonio, linhasRf, transacoes, proventos, cambio: { EUR: 6 }, semCache: true }));
+  const h = r.metas[id];
+  assert.deepEqual(h.meses.map((x) => x.mes), ['2026-07', '2026-08', '2026-09', '2026-10']);
+  // ago: FIIs 1320/2 + AAAA3 100 + RF min(100,150) + € 10 x 6
+  assert.deepEqual(h.meses.map((x) => x.valor), [500, 660 + 100 + 100 + 60, 750 + 200 + 150 + 120, 755 + 220 + 150 + 120]);
+  // fluxo de set: FIIs 200/2 + compra AAAA3 100 + RF 200 x (150/300) + saldo +60
+  assert.deepEqual(h.meses.map((x) => x.fluxo), [0, 150 + 100 + 0 + 60, 100 + 100 + 100 + 60, 0]);
+  assert.equal(h.aporteMedio, Math.round(((310 + 360) / 3) * 100) / 100, 'média dos meses fechados (jul, ago, set)');
+  assert.equal(h.aporte3m, h.aporteMedio);
+  assert.deepEqual(h.renda, [{ mes: '2026-08', valor: 5 }, { mes: '2026-09', valor: 10 }, { mes: '2026-10', valor: 0 }], 'metade dos FIIs + AAAA3 (BBBB3 não é vinculado)');
+  assert.deepEqual(r.indices.map((x) => x.mes), ['2026-07', '2026-08', '2026-09', '2026-10']);
+});
+
+test('Metas v2 (planilha real): GET metasHistorico pelo Router, resumo vai junto no GET metas, exclusão definitiva', (t) => {
+  if (!fs.existsSync(FIXTURES)) { t.skip('sem fixtures.json'); return; }
+  const raw = JSON.parse(fs.readFileSync(FIXTURES, 'utf8'));
+  const sb = { console: { ...console, log() {} } };
+  vm.createContext(sb);
+  montarSandboxComFixtures_(raw, sb);
+  if (!sb.SpreadsheetApp.flush) sb.SpreadsheetApp.flush = () => {};
+  for (const f of fs.readdirSync(path.join(ROOT, 'apps-script')).filter((x) => x.endsWith('.gs')).sort()) {
+    new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
+  }
+  sb.verificarToken = () => ({ ok: true });
+  const get = (p) => JSON.parse(sb.doGet({ parameter: { token: 'x', ...p } }).getContent());
+  const post = (p) => JSON.parse(sb.doPost({ parameter: { token: 'x', ...p } }).getContent());
+  const s = post({ action: 'salvarMeta', meta: JSON.stringify({ tipo: 'reservaEmergencia', nome: 'Teste v2', vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }] }) });
+  assert.equal(s.ok, true, s.erro);
+  const h = get({ action: 'metasHistorico' });
+  assert.equal(h.ok, true, h.erro);
+  const hm = h.metas[s.id];
+  assert.ok(hm.meses.length >= 6, 'meses de histórico');
+  assert.ok(hm.meses.every((x) => typeof x.valor === 'number' && typeof x.fluxo === 'number'));
+  const m = get({ action: 'metas' });
+  assert.equal(m.historicoResumo[s.id].aporteMedio, hm.aporteMedio, 'resumo em cache no GET metas');
+  const ultimo = hm.meses[hm.meses.length - 1].valor;
+  const hoje = m.ativos.filter((a) => a.classe === 'rf' && a.marca === 'emergencial').reduce((x, a) => x + a.valorBRL, 0);
+  assert.ok(Math.abs(ultimo - hoje) / hoje < 0.03, `histórico termina perto do valor de hoje (${ultimo} x ${hoje})`);
+  assert.ok(m.ativos.filter((a) => a.classe === 'rf').every((a) => a.irResgate && a.irResgate.liquido <= a.valorBRL + 0.01), 'todo título com IR se resgatasse hoje');
+  assert.equal(post({ action: 'excluirMetaDefinitivo', id: s.id }).ok, false, 'ativa não apaga');
+  assert.equal(post({ action: 'excluirMeta', id: s.id }).ok, true);
+  assert.equal(post({ action: 'excluirMetaDefinitivo', id: s.id }).ok, true);
+  const depois = get({ action: 'metas' });
+  assert.ok(!depois.metas.concat(depois.arquivadas).some((x) => x.id === s.id), 'sumiu de vez');
+});

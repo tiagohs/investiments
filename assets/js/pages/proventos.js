@@ -16,7 +16,7 @@ import { getProventos, importarProventosB3 } from '../api-client.js';
 import { formatBRL, formatBRLCompacto, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado } from '../periodo-personalizado.js'; // 02/10/2026: "Escolher período"
-import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise embaixo do Histórico mensal
+import { renderAnalise, analisarRendaPassiva, complementarAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise embaixo do Histórico mensal
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { logoAtivoHtml } from './carteiras-classe-comum.js';
 import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026
@@ -368,7 +368,11 @@ export function analiseHistoricoProventos(dados, estado, hist, r) {
   const porMes = proventosPorMes(filtrarClasse(dados.recebidos, estado.classe), dados.hoje);
   // a média é a MESMA do cartão "Média mensal" (meses fechados do período)
   const mesesFechados = r.mediaInicio && r.mediaFim ? mesesEntre(r.mediaInicio, r.mediaFim) : null;
-  return analisarProventosMensais({ porMes, meses: hist.meses, mesAtual: dados.hoje.slice(0, 7), aReceberMes: r.aReceberEsteMes || 0, mesesFechados });
+  const base = analisarProventosMensais({ porMes, meses: hist.meses, mesAtual: dados.hoje.slice(0, 7), aReceberMes: r.aReceberEsteMes || 0, mesesFechados });
+  // 03/10/2026 (base de critérios de rentabilidade - Baroni/Suno: "somar
+  // tudo que recebeu por ano"): renda dos 12 meses fechados x os 12
+  // anteriores (só com 24 meses de histórico).
+  return complementarAnalise(base, analisarRendaPassiva({ porMes, mesAtual: dados.hoje.slice(0, 7) }));
 }
 
 function renderConsolidado(doc, el, dados, estado, redesenhar, filtrosEl) {

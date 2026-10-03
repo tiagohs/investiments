@@ -79,6 +79,26 @@ test('FNet (informes de fundo): descarta "Aviso aos Cotistas" (já mostrado em P
   assert.throws(() => sb.listarInformesFnet_('11222333000144', 2), /FNet HTTP 500/);
 });
 
+// 03/10/2026: formato conferido ao vivo no FNet (campos inventados no
+// conteúdo, mas no MESMO formato): o aviso de provento vem com a categoria
+// "Aviso aos Cotistas - Estruturado" E o tipo "Rendimentos e Amortizações" -
+// o filtro antigo testava só o tipo e deixava o aviso passar como informe.
+test('FNet (informes de fundo): aviso de provento com categoria E tipo preenchidos (formato real) é descartado; título usa o tipo quando "assuntos" vem null', () => {
+  const sb = sandbox();
+  const dataFake = [
+    { id: 601, categoriaDocumento: 'Aviso aos Cotistas - Estruturado', tipoDocumento: 'Rendimentos e Amortizações', assuntos: null, descricaoFundo: 'FUNDO FICTICIO FII', dataEntrega: '30/09/2026 17:39' },
+    { id: 602, categoriaDocumento: 'Relatórios', tipoDocumento: 'Relatório Gerencial', assuntos: null, descricaoFundo: 'FUNDO FICTICIO FII', dataEntrega: '23/09/2026 21:35' },
+    { id: 603, categoriaDocumento: 'Fato Relevante', tipoDocumento: '', assuntos: null, descricaoFundo: 'FUNDO FICTICIO FII', dataEntrega: '17/09/2026 18:30' },
+    { id: 604, categoriaDocumento: 'Informes Periódicos', tipoDocumento: 'Informe Mensal Estruturado ', assuntos: null, dataEntrega: '15/09/2026 10:40' },
+  ];
+  sb.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ data: dataFake }) }) };
+  const itens = plain(sb.listarInformesFnet_('11222333000144', 8));
+  assert.deepEqual(itens.map((i) => i.id), ['602', '603', '604'], 'o aviso de provento (601) fica de fora');
+  assert.deepEqual(itens[0], { id: '602', tipo: 'Relatórios', assunto: 'Relatório Gerencial', data: '2026-09-23' });
+  assert.equal(itens[1].assunto, 'Fato Relevante', 'sem tipo: o título é a categoria (não o nome do fundo)');
+  assert.equal(itens[2].assunto, 'Informe Mensal Estruturado');
+});
+
 // ---------------------------------------------------------------------------
 // gravarInformesFii_ + lerInformesFundoFii_: roundtrip pela aba
 // aux_informes-fii (planilha falsa mínima, sem fixtures.json)

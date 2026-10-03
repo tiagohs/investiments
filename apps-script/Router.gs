@@ -78,6 +78,9 @@ function doGet(e) {
   if (action === 'tesesAtivo') { // 25/09/2026: teses no Google Drive (Ativo.gs)
     return handleTesesAtivo(e, auth);
   }
+  if (action === 'fundamentos') { // 03/10/2026: fundamentos já guardados de um ticker (Fundamentos.gs)
+    return handleFundamentos(e, auth);
+  }
   if (action === 'videos') { // 25/09/2026: vídeos do YouTube por ativo/carteira (Videos.gs)
     return handleVideos(e, auth);
   }
@@ -98,6 +101,9 @@ function doGet(e) {
   }
   if (action === 'metas') { // 02/10/2026: tela Metas e Objetivos (Metas.gs)
     return handleMetas(e, auth);
+  }
+  if (action === 'metasHistorico') { // 03/10/2026: histórico mês a mês das metas (Metas.gs)
+    return handleMetasHistorico(e, auth);
   }
   if (action === 'patrimonioIrArquivos') { // declarações do IR na pasta do Drive
     return handleIrArquivosPatrimonio(e, auth);
@@ -174,6 +180,9 @@ function doPost(e) {
   if (action === 'excluirMeta') { // arquiva (não apaga)
     return handleExcluirMeta(e);
   }
+  if (action === 'excluirMetaDefinitivo') { // 03/10/2026: apaga a linha de uma meta ARQUIVADA (Metas.gs)
+    return handleExcluirMetaDefinitivo(e);
+  }
   if (action === 'salvarImportacaoGastos') { // 02/10/2026: Organização Financeira - Gastos (Gastos.gs)
     return handleSalvarImportacaoGastos(e);
   }
@@ -203,6 +212,9 @@ function doPost(e) {
   }
   if (action === 'sincronizarInformesFnet') { // 25/09/2026: botão "Informes dos FIIs" (FnetInformesFii.gs)
     return handleSincronizarInformesFnet(e);
+  }
+  if (action === 'atualizarFundamentos') { // 03/10/2026: busca os fundamentos agora (Fundamentos.gs)
+    return handleAtualizarFundamentos(e);
   }
   if (action === 'limparCacheHistorico') {
     return handleLimparCacheHistorico(e);

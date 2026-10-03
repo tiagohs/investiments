@@ -88,6 +88,37 @@
 .goal-link{ display:inline-block; margin-top:10px; font-size:11.5px; font-weight:600; color:var(--acoes); text-decoration:none; }
 .goal-link:hover{ text-decoration:underline; }
 
+/* 03/10/2026 (Tiago: "'Metas da Carteira' [...] precisa estar linkada às metas
+   presentes em 'Metas e Objetivos'"): o card inteiro leva pro detalhe da meta
+   correspondente; o rodapé (.goal-meta) mostra o progresso de LÁ. Selo, pílula
+   de status e barra são os mesmos da tela Metas (.mt-selo/.mt-status/.mt-barra,
+   de assets/css/metas.css - a página injeta a folha, ver garantirEstiloMetas). */
+.goal-card-clicavel{ cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease; }
+.goal-card-clicavel:hover{ border-color:color-mix(in srgb, var(--acoes) 45%, var(--border)); }
+.goal-card-clicavel :is(.goal-edit-form, .goal-stats .info-alvo){ cursor:auto; }
+.goal-card-clicavel > :not(.goal-meta):nth-last-child(2){ margin-bottom:14px; }
+.goal-meta{ margin-top:auto; display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:11px;
+      background:var(--surface-2); border:1px solid var(--border); color:var(--ink); text-decoration:none; min-width:0;
+      transition:border-color .15s ease, background .15s ease; }
+.goal-meta:hover, .goal-card-clicavel:hover .goal-meta{ border-color:var(--mt-cor, var(--acoes)); }
+.goal-meta:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.goal-meta-cab{ display:flex; align-items:center; gap:9px; min-width:0; }
+.goal-meta-tit{ display:flex; flex-direction:column; min-width:0; flex:1 1 auto; line-height:1.25; }
+.goal-meta-tit strong{ font-size:12.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.goal-meta-eyebrow{ font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); font-weight:600; }
+.goal-meta-fraco{ font-size:11px; color:var(--ink-muted); }
+.goal-meta-sub{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-muted); min-width:0; }
+.goal-meta-valores{ font-family:var(--mono); font-size:11px; min-width:0; }
+.goal-meta-valores b{ color:var(--ink); font-weight:600; }
+.goal-meta-ir{ display:inline-flex; align-items:center; gap:2px; flex:none; font-size:11.5px; font-weight:700; color:var(--mt-cor, var(--acoes)); }
+.goal-meta .mt-barra{ height:6px; }
+.goal-meta-mais{ display:inline-flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; border-radius:50%;
+      background:var(--acoes-soft); color:var(--acoes); font-size:17px; font-weight:600; line-height:1; }
+.goal-meta-criar{ background:transparent; border-style:dashed; }
+.goal-meta-criar strong{ color:var(--acoes); white-space:normal; }
+.goal-meta-carregando{ pointer-events:none; }
+.goal-meta-skel{ display:block; height:12px; width:60%; margin-top:4px; border-radius:6px; }
+
 /* ---- Badge "atingida" (Renda Emergencial) — mesmas cores good/warn do
    .status-ico/.toast já usados no resto do app. ---- */
 .goal-badge{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }

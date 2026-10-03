@@ -202,3 +202,180 @@ test('padrões e sugestões usam a planilha (meses da reserva, meta de renda pas
   assert.ok(!sug.some((s) => s.meta.tipo === 'rendaPassiva'));
   assert.equal(aparenciaMeta({ tipo: 'acumulo', categoria: 'pets' }).rotulo, 'Pets');
 });
+
+// ---------------------------------------------------------------------------
+// 03/10/2026: Metas v2 (dados inventados)
+// ---------------------------------------------------------------------------
+import {
+  contaAposentadoria, calcularViagem, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor, avaliarVinculos,
+  analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal, explicarStatus, STATUS_META, EXPLICACOES,
+  chaveSugestaoInvestimento, SUGESTOES_INVESTIMENTO, metaDaPlanilha,
+} from '../assets/js/pages/metas-calc.js';
+
+const ATIVOS_IR = [
+  { id: 'rf:Tesouro Selic 2030|Banco Y@emergencial', ref: 'rf:Tesouro Selic 2030|Banco Y', nome: 'Tesouro Selic 2030', classe: 'rf', marca: 'emergencial', indexador: 'SELIC', vencimento: '03/2030', valorBRL: 10000, irResgate: { ir: 150, iof: 0 } },
+  { id: 'rf:CDB K|Banco Y@emergencial', ref: 'rf:CDB K|Banco Y', nome: 'CDB K', classe: 'rf', marca: 'emergencial', indexador: 'CDI', valorBRL: 3500, irResgate: { ir: 40, iof: 10 } },
+];
+
+test('reserva: status pelo LÍQUIDO (IR/IOF se resgatasse hoje); ideal só no bruto; atualLiquidoBRL e faltaLiquida', () => {
+  const base = { id: 'r1', tipo: 'reservaEmergencia', nome: 'R', especificos: { meses: 6, margem: 0, usarDespesasPlanilha: false, despesaMensal: 2200 }, vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }] };
+  const ctx = { ...CTX, ativos: ATIVOS_IR };
+  let c = calcularMeta(base, ctx); // alvo 13.200; bruto 13.500; líquido 13.300
+  assert.deepEqual([c.alvoBRL, c.atualBRL, c.atualLiquidoBRL, c.liquido.impostoBRL, c.liquido.ir, c.liquido.iof], [13200, 13500, 13300, 200, 190, 10]);
+  assert.equal(c.status, 'saldo-ideal');
+  assert.equal(c.faltaLiquida, 0);
+  c = calcularMeta({ ...base, especificos: { ...base.especificos, despesaMensal: 2240 } }, ctx); // alvo 13.440: bruto passa, líquido não
+  assert.equal(c.status, 'ideal-bruto');
+  assert.equal(c.faltaLiquida, 140);
+  assert.equal(c.falta, 140, 'a falta da reserva é pelo líquido');
+  assert.ok(perto(c.percentual, 13300 / 13440), 'progresso pelo líquido');
+  assert.ok(perto(c.percentualBruto, 1));
+  c = calcularMeta({ ...base, especificos: { ...base.especificos, despesaMensal: 3000 } }, ctx);
+  assert.equal(c.status, 'abaixo');
+  assert.equal(c.faltaLiquida, 18000 - 13300);
+  assert.ok(STATUS_META['ideal-bruto'].explicacao.length > 20);
+});
+
+test('saldo em conta: moeda x câmbio do dia entra no "já tenho"; sem câmbio avisa', () => {
+  const meta = { id: 'v', tipo: 'acumulo', nome: 'x', valorAlvo: 10000, dataAlvo: '2027-10', vinculos: [{ tipo: 'saldo', id: 's1', instituicao: 'Conta X', moeda: 'EUR', saldo: 500 }, { tipo: 'saldo', id: 's2', instituicao: 'Conta Z', moeda: 'GBP', saldo: 10 }] };
+  const c = calcularMeta(meta, CTX);
+  assert.equal(c.atualBRL, 3000, '€ 500 x 6; GBP sem câmbio não soma');
+  assert.match(c.avisos.join(' '), /GBP/);
+  assert.equal(c.vinculos[0].valorBRL, 3000);
+  assert.equal(c.atualLiquidoBRL, 3000, 'saldo em conta não paga IR');
+});
+
+test('aporte real do histórico (ctx.historico) vale quando não há aporte informado; informado tem prioridade', () => {
+  const meta = { id: 'a1', tipo: 'acumulo', nome: 'x', valorAlvo: 12000, dataAlvo: '2027-10', rendimentoAnual: 0 };
+  const ctx = { ...CTX, historico: { a1: { aporteMedio: 1000, aporte3m: 1200, mesesBase: 12 } } };
+  let c = calcularMeta(meta, ctx);
+  assert.deepEqual([c.aporteAtual, c.aporteOrigem, c.aporteReal, c.status, c.dataEstimada], [1000, 'historico', 1000, 'no-ritmo', '2027-10']);
+  c = calcularMeta({ ...meta, aporteMensal: 500 }, ctx);
+  assert.deepEqual([c.aporteAtual, c.aporteOrigem, c.status], [500, 'informado', 'atrasada']);
+  c = calcularMeta(meta, { ...CTX, historico: { a1: { aporteMedio: -300 } } });
+  assert.deepEqual([c.aporteAtual, c.aporteOrigem, c.aporteReal], [0, 'historico', -300], 'resgate líquido: aporte 0, mas o real fica visível');
+});
+
+test('aposentadoria: conta da planilha (despesas + extra + % reinvestimento = renda ideal; montante = renda x 12 / taxa), editável', () => {
+  const ref = { reserva: { custoDeVida: 5000 }, patrimonio: { extra: 1000, reinvestimento: 0.2, rendimento: 0.06, desejado: 1440000 } };
+  const meta = { id: 'p', tipo: 'aposentadoria', nome: 'A', dataAlvo: '2050-12', rendimentoAnual: 0.06, especificos: { modoAlvo: 'calculado', usarDespesasPlanilha: true } };
+  const ct = contaAposentadoria(meta, ref);
+  assert.deepEqual([ct.despesa, ct.extra, ct.base, ct.reinvestimento, ct.renda, ct.montante], [5000, 1000, 6000, 1200, 7200, 1440000]);
+  const c = calcularMeta(meta, { ...CTX, referencias: ref });
+  assert.equal(c.alvoBRL, 1440000);
+  assert.deepEqual(c.partes.map((p) => p.chave), ['despesa', 'extra', 'base', 'reinvestimento', 'renda', 'taxa']);
+  // tudo editável: extra, %, taxa, despesa própria
+  const ed = contaAposentadoria({ ...meta, especificos: { modoAlvo: 'calculado', usarDespesasPlanilha: false, despesaMensal: 4000, extra: 2000, reinvestimento: 0.25, taxaRetirada: 0.05 } }, ref);
+  assert.deepEqual([ed.base, ed.renda, ed.montante], [6000, 7500, 1800000]);
+  // sem casas no meio do caminho (a planilha não arredonda)
+  assert.equal(contaAposentadoria({ especificos: { modoAlvo: 'calculado', extra: 1000.004, reinvestimento: 0.25, taxaRetirada: 0.06 } }, { reserva: { custoDeVida: 3000.003 } }).montante, 1000001.75);
+  // meta antiga com o alvo = patrimônio desejado da planilha vira "calculado"; outro valor = montante digitado
+  assert.equal(contaAposentadoria({ valorAlvo: 1440000, especificos: {} }, ref).modo, 'calculado');
+  assert.equal(contaAposentadoria({ valorAlvo: 999, especificos: {} }, ref).modo, 'montante');
+  const nova = metaDaPlanilha('aposentadoria', { referencias: ref, hoje: '2026-10-02' });
+  assert.equal(calcularMeta(nova, { ...CTX, referencias: ref }).alvoBRL, 1440000, 'a sugestão chega no mesmo montante da planilha, pela conta');
+  assert.ok(nova.dataAlvo, 'tem prazo (editável)');
+});
+
+test('marcos de milhão até o alvo (ano e idade) e "se a renda fosse 10%/20% menor"', () => {
+  const meta = { id: 'p', tipo: 'aposentadoria', nome: 'A', dataAlvo: '2050-12', rendimentoAnual: 0, aporteMensal: 10000, especificos: { modoAlvo: 'montante' }, valorAlvo: 3500000 };
+  const c = calcularMeta(meta, { ...CTX, ativos: [], referencias: {} });
+  const m = marcosProjecao(c, { hoje: '2026-10-02', anoNascimento: 1990 });
+  assert.deepEqual(m.map((x) => x.rotulo), ['1º milhão', '2º milhão', '3º milhão', 'Alvo']);
+  assert.deepEqual(m.map((x) => x.meses), [100, 200, 300, 350], 'R$ 10 mil/mês sem rendimento');
+  assert.equal(m[0].mes, '2035-02');
+  assert.equal(m[0].idade, 2035 - 1990);
+  const peq = marcosProjecao(calcularMeta({ ...meta, valorAlvo: 100000 }, { ...CTX, ativos: [] }), { hoje: '2026-10-02' });
+  assert.deepEqual(peq.map((x) => x.rotulo), ['25% do alvo', '50% do alvo', '75% do alvo', 'Alvo'], 'alvo pequeno: quartos');
+  const cen = cenariosRendaMenor(c, { hoje: '2026-10-02' });
+  assert.deepEqual(cen.map((x) => [x.reducao, x.montante, x.economia]), [[0.1, 3150000, 350000], [0.2, 2800000, 700000]]);
+  assert.equal(cen[0].mesesAMenos, 35);
+});
+
+test('velocidade: no ritmo, 75% e 50% do tempo com o aporte que fecha em cada prazo; dicas com números', () => {
+  const meta = { id: 'q', tipo: 'acumulo', nome: 'x', valorAlvo: 24000, aporteMensal: 1000, rendimentoAnual: 0 };
+  const c = calcularMeta(meta, CTX);
+  const v = velocidadeMeta(c, { hoje: '2026-10-02' });
+  assert.equal(v.origem, 'ritmo');
+  assert.deepEqual(v.cenarios.map((x) => [x.fracao, x.meses, x.aporte]), [[1, 24, 1000], [0.75, 18, 1333.33], [0.5, 12, 2000]]);
+  assert.equal(v.cenarios[2].data, '2027-10');
+  assert.equal(v.cenarios[2].aMais, 1000);
+  const dicas = dicasAcelerar(c, meta, { hoje: '2026-10-02' });
+  assert.ok(dicas.some((d) => d.id === 'aporte' && /R\$ 100 a mais/.test(d.texto) && d.mesesAMenos === 2), 'R$ 100 a mais: 22 em vez de 24 meses');
+  assert.ok(dicas.some((d) => d.id === 'unico' && d.mesesAMenos === 1));
+  // sem ritmo: a base é o prazo
+  const semRitmo = calcularMeta({ ...meta, aporteMensal: 0, dataAlvo: '2028-10' }, CTX);
+  assert.equal(velocidadeMeta(semRitmo, { hoje: '2026-10-02' }).origem, 'prazo');
+  assert.equal(velocidadeMeta(calcularMeta({ ...meta, valorInicial: 30000 }, CTX)).chegou, true);
+});
+
+test('viagem por destinos: dias x gasto diário por moeda + margem, saldo na moeda abate, itens fixos parcelados com a sua parte', () => {
+  const meta = {
+    id: 'vg', tipo: 'viagemInternacional', nome: 'V', moeda: 'EUR', dataAlvo: '2027-06', rendimentoAnual: 0,
+    especificos: {
+      margem: 0.1,
+      destinos: [
+        { id: 'a', cidade: 'Cidade A', pais: 'País A', moeda: 'EUR', dias: 4, gastos: { alimentacao: 50, transporte: 10, passeios: 20, compras: 20 }, extras: 100 },
+        { id: 'b', cidade: 'Cidade B', pais: 'País B', moeda: 'EUR', dias: 2, gastos: { alimentacao: 50 } },
+        { id: 'c', cidade: 'Cidade C', pais: 'País C', moeda: 'USD', dias: 3, gastos: { alimentacao: 100 } },
+      ],
+      fixos: [
+        { id: 'f1', nome: 'Passagem', valor: 4000, moeda: 'BRL', parcelas: 10, inicio: '2026-08', parte: 1 },
+        { id: 'f2', nome: 'Hotel', valor: 3000, moeda: 'BRL', parcelas: 6, inicio: '2026-10', parte: 0.5 },
+        { id: 'f3', nome: 'Ingresso', valor: 20, moeda: 'EUR', parcelas: 1, pago: true },
+      ],
+    },
+    vinculos: [{ tipo: 'saldo', id: 'w', instituicao: 'Conta X', moeda: 'EUR', saldo: 200 }],
+  };
+  const v = calcularViagem(meta, { cambio: CAMBIO, hoje: '2026-10-02' });
+  assert.deepEqual(v.destinos.map((d) => [d.diaria, d.totalMoeda]), [[100, 500], [50, 100], [100, 300]]);
+  assert.deepEqual([v.porMoeda.EUR.total, v.porMoeda.EUR.comMargem, v.porMoeda.EUR.guardado, v.porMoeda.EUR.falta, v.porMoeda.EUR.faltaBRL], [600, 660, 200, 460, 2760]);
+  assert.deepEqual([v.porMoeda.USD.comMargem, v.porMoeda.USD.comMargemBRL], [330, 1650]);
+  assert.equal(v.gastoBRL, 660 * 6 + 1650);
+  assert.deepEqual(v.fixos.map((f) => [f.totalBRL, f.pagas, f.pagoBRL]), [[4000, 3, 1200], [1500, 1, 250], [120, 1, 120]]);
+  assert.equal(v.parcelaMensal, 400 + 250);
+  const c = calcularMeta(meta, CTX);
+  assert.equal(c.alvoBRL, 5610);
+  assert.equal(c.atualBRL, 1200, '€ 200 no saldo');
+  assert.equal(c.total, 5610 + 5620);
+  assert.equal(c.ja, 1200 + 1570);
+  assert.ok(perto(c.aporteNecessarioTotal, (5610 - 1200) / 8 + 650), 'gasto lá em 8 meses + parcelas correndo');
+});
+
+test('avaliação dos vínculos (liquidez x prazo, risco x horizonte, moeda) e a sugestão certa por tipo', () => {
+  const ativos = [
+    ...ATIVOS_IR,
+    { id: 'rf:Tesouro IPCA+ 2045|B@longo-prazo', nome: 'Tesouro IPCA+ 2045', classe: 'rf', marca: 'longo-prazo', indexador: 'IPCA', vencimento: '05/2045', valorBRL: 1000 },
+    { id: 'FFFF11', ref: 'FFFF11', nome: 'FFFF11', classe: 'fiis', valorBRL: 2000 },
+  ];
+  const reserva = { id: 'r', tipo: 'reservaEmergencia', nome: 'R', especificos: { meses: 6 }, vinculos: [{ tipo: 'ativo', id: ativos[0].id }, { tipo: 'ativo', id: ativos[2].id }, { tipo: 'ativo', id: 'FFFF11' }] };
+  const av = avaliarVinculos(reserva, calcularMeta(reserva, { ...CTX, ativos }));
+  const por = Object.fromEntries(av.itens.map((x) => [x.nome, x.veredito]));
+  assert.deepEqual(por, { 'Tesouro Selic 2030': 'bom', 'Tesouro IPCA+ 2045': 'ruim', FFFF11: 'ruim' });
+  assert.equal(av.resumo.ruim, 2);
+  const apos = { id: 'a', tipo: 'aposentadoria', nome: 'A', dataAlvo: '2050-01', especificos: { modoAlvo: 'montante' }, valorAlvo: 1e6, vinculos: [{ tipo: 'ativo', id: ativos[2].id }, { tipo: 'ativo', id: 'FFFF11' }] };
+  assert.ok(avaliarVinculos(apos, calcularMeta(apos, { ...CTX, ativos })).itens.every((x) => x.veredito === 'bom'));
+  const viagem = { id: 'v', tipo: 'viagemInternacional', nome: 'V', moeda: 'EUR', valorAlvo: 1000, dataAlvo: '2027-06', vinculos: [{ tipo: 'saldo', id: 's', instituicao: 'Conta X', moeda: 'EUR', saldo: 100 }, { tipo: 'saldo', id: 't', instituicao: 'Conta Y', moeda: 'USD', saldo: 100 }] };
+  const avV = avaliarVinculos(viagem, calcularMeta(viagem, CTX));
+  assert.deepEqual(avV.itens.map((x) => x.veredito).sort(), ['atencao', 'bom']);
+  assert.equal(chaveSugestaoInvestimento(reserva, null), 'reserva');
+  assert.equal(chaveSugestaoInvestimento(viagem, calcularMeta(viagem, CTX)), 'viagemExterior');
+  assert.ok(Object.values(SUGESTOES_INVESTIMENTO).every((s) => s.fontes.length >= 2 && s.fontes.every((f) => /^https:\/\//.test(f.url))), 'toda sugestão cita fontes');
+});
+
+test('análises: histórico (aportes x rendimento x CDI), projeção (ritmo x prazo) e renda mensal; explicações', () => {
+  const meses = [{ mes: '2026-06', valor: 1000, fluxo: 0 }, { mes: '2026-07', valor: 1600, fluxo: 500 }, { mes: '2026-08', valor: 2210, fluxo: 500 }, { mes: '2026-09', valor: 2800, fluxo: 500 }];
+  const a = analisarHistoricoMeta({ meses, indices: [{ mes: '2026-06', cdi: 100 }, { mes: '2026-09', cdi: 103 }] });
+  assert.match(a.pontos[0].texto, /R\$ 1\.500 vieram de aportes/);
+  assert.ok(a.pontos.some((p) => p.tipo === 'rendimento' && /CDI/.test(p.texto)));
+  assert.ok(a.resumo.length > 5);
+  const c = calcularMeta({ id: 'x', tipo: 'acumulo', nome: 'x', valorAlvo: 12000, dataAlvo: '2027-10', aporteMensal: 500, rendimentoAnual: 0 }, CTX);
+  const p = analisarProjecaoMeta(c, { pontos: [{ mes: '2026-10', ritmo: 0 }, { mes: '2026-11', ritmo: 500 }], hoje: '2026-10-02' });
+  assert.ok(p.pontos.some((x) => x.tipo === 'ritmo' && /depois do prazo/.test(x.texto)));
+  assert.equal(p.tom, 'atencao');
+  const renda = Array.from({ length: 26 }, (_, i) => ({ mes: `20${24 + Math.floor((i + 8) / 12)}-${String(((i + 8) % 12) + 1).padStart(2, '0')}`, valor: 100 + i * 5 }));
+  const r = analisarRendaMensal(renda, { renda: { alvo: 500 } }, { hoje: '2026-10-02' });
+  assert.ok(r.pontos.some((x) => x.tipo === 'crescimento' && x.tom === 'bom'));
+  assert.match(explicarStatus('atrasada', { tipo: 'rendaPassiva' }), /patrimônio que gera a renda/);
+  assert.ok(EXPLICACOES.liquido && EXPLICACOES.aporteReal);
+});

@@ -144,11 +144,14 @@ test('"Ler de novo do Drive": lê cada PDF da pasta, troca os anos e salva a cha
     `Bens e direitos em 31/12/${a - 1} 1,00 Bens e direitos em 31/12/${a} 2,00 Dívidas e ônus reais em 31/12/${a - 1} 0,00 Dívidas e ônus reais em 31/12/${a} 0,00`,
   ];
   const api = {
-    getArquivosIr: async () => ({ ok: true, configurado: true, arquivos: [{ id: 'a', pasta: '2026', nome: 'copia.pdf' }, { id: 'b', pasta: '2025', nome: 'quebrado.pdf' }] }),
-    getArquivoIr: async (id) => ({ ok: true, base64: Buffer.from(id).toString('base64') }),
+    // 03/10/2026: a pasta 2025 tem o PDF de melhor nome quebrado e uma alternativa que é a declaração;
+    // a 2024 só tem um PDF que não é declaração (conta como erro)
+    getArquivosIr: async () => ({ ok: true, configurado: true, arquivos: [{ id: 'a', pasta: '2026', nome: 'copia.pdf' }, { id: 'b', pasta: '2025', nome: 'quebrado.pdf' }, { id: 'd', pasta: '2024', nome: 'Cópia da Delcaração.pdf' }], alternativas: [{ id: 'c', pasta: '2025', nome: 'outra.pdf' }] }),
+    getArquivoIr: async (id) => { pedidos.push(id); return { ok: true, base64: Buffer.from(id).toString('base64') }; },
     salvarPatrimonio: async (chave, valor) => { salvos.push({ chave, valor }); return { ok: true, config: { ...patrimonio().config, ir: valor }, atualizado: {} }; },
   };
-  const lerPdf = async (lib, bytes) => (String.fromCharCode(...bytes) === 'a' ? linhasIr(2025) : ['um PDF qualquer']);
+  const pedidos = [];
+  const lerPdf = async (lib, bytes) => ({ a: linhasIr(2025), c: linhasIr(2024) }[String.fromCharCode(...bytes)] || ['um PDF qualquer']);
   const { raiz, secao } = await montar({ patrimonio: patrimonio({ comNovos: false }), api, lerPdf, carregarPdf: async () => ({}), aoAtualizarPatrimonio: (r) => atualizacoes.push(r) });
   await secao.lerIrDoDrive();
   assert.equal(salvos.length, 1);
@@ -160,7 +163,8 @@ test('"Ler de novo do Drive": lê cada PDF da pasta, troca os anos e salva a cha
   assert.equal(a25.contasBancarias[0].bancoNome, 'Inter');
   assert.equal(a25.nascimento, undefined);
   assert.equal(atualizacoes.length, 1);
-  assert.match(raiz.querySelector('.rd-lendo').textContent, /1 declaração lida e salva · 1 com erro/);
+  assert.deepEqual(pedidos, ['a', 'b', 'c', 'd'], 'tenta a alternativa da mesma pasta quando o 1º PDF não é a declaração');
+  assert.match(raiz.querySelector('.rd-lendo').textContent, /2 declarações lidas e salvas · 1 com erro/);
   assert.match(raiz.querySelector('#rdContas').textContent, /Inter/);
 });
 

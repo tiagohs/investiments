@@ -53,14 +53,14 @@ const UtilitiesFalso = (DateSb) => ({
 
 // --- sandbox --------------------------------------------------------------
 /**
- * jobs: { ativos, rendaFixaIndices, snapshotResumo, proventosFnet, informesFnet }
+ * jobs: { ativos, rendaFixaIndices, snapshotResumo, proventosFnet, informesFnet, fundamentos }
  * cada um uma função (n = nº da chamada, args) => retorno (ou lança).
  */
 function montar(agoraIso, jobs = {}) {
   const props = {};
   const gatilhos = [];
   let uid = 0;
-  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [] };
+  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [] };
   const registro = [];
   const emails = [];
   const relogio = { ms: Date.parse(agoraIso) };
@@ -89,6 +89,7 @@ function montar(agoraIso, jobs = {}) {
     snapshotResumo: () => ({ mudou: true }),
     proventosFnet: () => ({ status: 'Sucesso', detalhe: 'ok' }),
     informesFnet: () => ({ status: 'Sucesso', detalhe: 'ok' }),
+    fundamentos: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 03/10/2026 (Fundamentos.gs)
   };
   const job = (id) => (...args) => { chamadas[id].push(args); return (jobs[id] || padrao[id])(chamadas[id].length, ...args); };
 
@@ -102,6 +103,7 @@ function montar(agoraIso, jobs = {}) {
     gravarSnapshotResumoHoje_: job('snapshotResumo'),
     atualizarProventosAnunciadosFii_: job('proventosFnet'),
     atualizarInformesFiiFnet_: job('informesFnet'),
+    atualizarFundamentos_: job('fundamentos'),
     gravarRegistroControle_: (...a) => registro.push(a),
     notificarFalhaSincronizacao_: (...a) => emails.push(a),
   };
@@ -169,14 +171,14 @@ test('Agenda: domingo não agenda nada', () => {
 test('Agenda: dia normal roda tudo na ordem, principal às 10:01, e não sobra one-shot', () => {
   const a = montar('2026-10-02T11:40:00Z');
   const ordem = [];
-  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_' };
+  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_', fundamentos: 'atualizarFundamentos_' };
   for (const [id, fn] of Object.entries(nomes)) {
     const orig = a.sb[fn];
     a.sb[fn] = (...x) => { ordem.push([id, a.relogio.ms]); return orig(...x); };
   }
   a.sb.despertadorAgendaDiaria();
   a.rodarFila();
-  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet']);
+  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet', 'fundamentos']);
   assert.equal(ordem[0][1], utc('2026-10-02T13:01:00Z'), 'ativos começa exatamente às 10:01 SP');
   assert.equal(ordem[1][1], utc('2026-10-02T13:02:00Z'), 'RF + índices logo depois (+1 min)');
   assert.deepEqual(plain(a.chamadas.ativos[0]), ['Automático', null]);
@@ -403,4 +405,34 @@ test('Agenda: estado cabe no limite das Propriedades mesmo com erros longos', ()
   a.rodarFila();
   assert.ok(a.props.AGENDA_DIARIA_ESTADO.length < 9000);
   assert.equal(a.estado().situacao, 'falhou');
+});
+
+// 03/10/2026: etapa secundária "Fundamentos" (Fundamentos.gs)
+test('Agenda: Fundamentos é a última secundária; acabou o tempo -> nova tentativa em 10 min continua de onde parou', () => {
+  const a = montar('2026-10-02T11:40:00Z', {
+    fundamentos: (n) => (n === 1
+      ? { status: 'Atenção', detalhe: 'ficou pra próxima (tempo): XXXX3|fundamentus', porTempo: true }
+      : { status: 'Atenção', detalhe: 'falharam: YYYY|yahoo (HTTP 429)', porTempo: false }),
+  });
+  a.sb.despertadorAgendaDiaria();
+  a.rodarFila();
+  assert.equal(a.chamadas.fundamentos.length, 2, 'repetiu só porque sobrou ticker; fonte fora do ar ("Atenção") não repete');
+  assert.deepEqual(plain(a.chamadas.fundamentos[0]), ['Automático']);
+  const e = a.estado();
+  assert.equal(e.situacao, 'concluida');
+  assert.equal(e.etapas.fundamentos.status, 'ok');
+  assert.match(e.etapas.fundamentos.detalhe, /HTTP 429/);
+});
+
+test('Agenda: estado de hoje gravado pela versão sem a etapa Fundamentos não quebra a fila', () => {
+  const a = montar('2026-10-02T11:40:00Z');
+  a.sb.despertadorAgendaDiaria();
+  const velho = a.estado();
+  delete velho.etapas.fundamentos; // como a versão anterior gravava
+  a.props.AGENDA_DIARIA_ESTADO = JSON.stringify(velho);
+  a.rodarFila();
+  const e = a.estado();
+  assert.equal(e.situacao, 'concluida');
+  assert.equal(e.etapas.fundamentos.status, 'ok');
+  assert.equal(a.chamadas.fundamentos.length, 1);
 });

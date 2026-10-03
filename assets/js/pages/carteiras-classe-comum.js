@@ -979,6 +979,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         analise: !!p.analise,
         analiseContainer: p.analiseContainer || null,
         nomeAnalise: p.nomeAnalise || null,
+        analiseExtra: p.analiseExtra || null, // 03/10/2026: rf/proventos a receber pro card de Análise (analise-grafico.js)
         benchmarksExtra: p.benchmarksExtra || null,
       })),
   });

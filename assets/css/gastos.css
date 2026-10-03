@@ -208,3 +208,18 @@
   .gs-cels .gs-cel:nth-child(-n+10){ display:none; }
   .gs-filtros{ width:100%; }
 }
+
+/* 03/10/2026: importação - "Tentar de novo só os que falharam" embaixo do log */
+.gs-imp-acoes{ font-size:12px; }
+.gs-problemas li > span{ min-width:0; overflow-wrap:anywhere; }
+
+/* 03/10/2026: painel Documentos (organizacao-documentos.js) - "Enviar arquivo"
+   ao lado da ação principal de cada documento (o painel mora em organizacao.css;
+   aqui só o que o botão novo precisa). */
+.og-doc-a{ flex-wrap:wrap; gap:6px; }
+@media (min-width:761px){ .og-doc-a{ flex-direction:column; align-items:flex-end; } }
+.og-docs-msg{ margin:8px 0 0; color:var(--warn-ink); }
+@media (max-width:560px){
+  .gs-log li{ grid-template-columns:16px minmax(0,1fr); }
+  .gs-log-m{ grid-column:2; }
+}

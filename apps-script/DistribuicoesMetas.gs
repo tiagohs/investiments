@@ -411,6 +411,15 @@ function montarRadarOportunidades_() {
   enriquecerRadarComCarteira_(nacionais.itens, mapaAcoes);
   enriquecerRadarComCarteira_(internacionais.itens, mapaAcoesUsa);
   enriquecerRadarComCarteira_(fiis.itens, mapaFiis);
+  // 03/10/2026: resumo dos fundamentos por item (Fundamentos.gs - só lê a aba
+  // aux_fundamentos, 1 leitura pros 3 blocos) pro motor de critérios do Radar
+  if (typeof anexarFundamentosAoRadar_ === 'function') {
+    try {
+      anexarFundamentosAoRadar_(ss, [
+        { classe: 'acoes', itens: nacionais.itens }, { classe: 'acoesEua', itens: internacionais.itens }, { classe: 'fiis', itens: fiis.itens }
+      ]);
+    } catch (eFund) { /* sem fundamentos: o Radar segue só com a planilha */ }
+  }
 
   function total_(linhaTotal, colCarteiraAtual, colNovaCarteira, colValorInvestir) {
     return {

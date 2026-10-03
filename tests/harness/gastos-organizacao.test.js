@@ -148,3 +148,44 @@ test('Gastos.gs: sem a pasta no Drive avisa (não configurado) em vez de quebrar
   assert.deepEqual(plain(sb.listarArquivosGastos_(ss)), { ok: true, configurado: false, arquivos: [], novos: 0 });
   assert.equal(plain(sb.arquivoGastos_('x')).ok, false);
 });
+
+// 03/10/2026 (Tiago: "se eu for reimportar o que faltou, não reimportar o que
+// já deu sucesso"): falha registrada não conta como importado e não apaga o
+// que já tinha entrado; aviso (soma que não bate) fica "com problema".
+test('Gastos.gs: falha fica registrada (sem lançamento, não conta como importado), aviso marcado, sucesso depois substitui', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss);
+  sb.SpreadsheetApp.flush = () => {};
+  const d = driveFalso();
+  sb.DriveApp = d.DriveApp;
+  const agora = new sb.Date(2025, 10, 2);
+  // f1 entra ok; f2 falha; f3 entra com a soma errada
+  sb.salvarImportacaoGastos_(ss, { id: d.f1.id, nome: '09-2025.pdf', fonte: 'ourocard', modificado: '2025-10-01T10:00:00.000Z', meses: ['2025-09'], situacao: 'ok' }, [lanc({ chaveDedup: 'k1' })], agora);
+  let r = plain(sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', caminho: 'Cartão de Crédito/OuroCard/2025', modificado: '2025-11-01T10:00:00.000Z', situacao: 'erro', problema: 'Não achei a data de vencimento da fatura.' }, [lanc({ chaveDedup: 'zz' })], agora));
+  assert.deepEqual([r.ok, r.gravados, r.falha], [true, 0, true]);
+  sb.salvarImportacaoGastos_(ss, { id: d.f3.id, nome: '03-2025.pdf', fonte: 'nubank-conta', modificado: '2025-04-01T10:00:00.000Z', meses: ['2025-03'], conferencia: { ok: false, diferenca: 3, regra: 'x' }, situacao: 'aviso', problema: 'soma não bate' }, [lanc({ chaveDedup: 'k3', origem: 'conta' })], agora);
+  let g = plain(sb.lerGastos_(ss));
+  assert.equal(g.lancamentos.length, 2, 'a falha não grava lançamento');
+  assert.deepEqual(g.arquivos.map((a) => [a.nome, a.situacao, a.lancamentos]).sort(), [['03-2025.pdf', 'aviso', 1], ['09-2025.pdf', 'ok', 1], ['10-2025.pdf', 'erro', 0]]);
+  assert.match(g.arquivos.find((a) => a.situacao === 'erro').problema, /vencimento/);
+  let l = plain(sb.listarArquivosGastos_(ss));
+  const por = Object.fromEntries(l.arquivos.map((a) => [a.nome, a]));
+  assert.deepEqual([por['09-2025.pdf'].importado, por['10-2025.pdf'].importado, por['10-2025.pdf'].situacao, por['03-2025.pdf'].situacao], [true, false, 'erro', 'aviso']);
+  assert.deepEqual([l.novos, l.falhos], [0, 2], 'nada novo; 2 pra tentar de novo');
+  // f1 muda no Drive e a releitura falha: o que já tinha entrado fica
+  d.f1.mod = '2025-12-01T10:00:00.000Z';
+  sb.salvarImportacaoGastos_(ss, { id: d.f1.id, nome: '09-2025.pdf', modificado: '2025-12-01T10:00:00.000Z', situacao: 'erro', problema: 'quebrou' }, [], agora);
+  g = plain(sb.lerGastos_(ss));
+  assert.equal(g.lancamentos.filter((x) => x[9] === d.f1.id).length, 1, 'lançamentos do arquivo bom ficam');
+  l = plain(sb.listarArquivosGastos_(ss));
+  const f1 = l.arquivos.find((a) => a.id === d.f1.id);
+  assert.deepEqual([f1.importado, f1.alterado, f1.problema], [true, true, 'quebrou']);
+  assert.equal(l.falhos, 3);
+  // tentar de novo com sucesso: substitui (sem duplicar) e limpa o problema
+  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
+  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
+  g = plain(sb.lerGastos_(ss));
+  assert.equal(g.lancamentos.filter((x) => x[9] === d.f2.id).length, 2, 'reimportar não duplica');
+  const a2 = g.arquivos.find((a) => a.id === d.f2.id);
+  assert.deepEqual([a2.situacao, a2.problema], ['ok', '']);
+});

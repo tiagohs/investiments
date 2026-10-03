@@ -159,3 +159,70 @@ test('Gastos: chip "Escolher período" no filtro; intervalo personalizado recort
   assert.match(txt(el.querySelector('#gsHero')), /R\$ 720/);
   assert.ok(el.querySelector('.gs-nav-mes'));
 });
+
+// 03/10/2026 (Tiago: "se eu for reimportar o que faltou, não reimportar o que
+// já deu sucesso"): falha fica marcada; "Tentar de novo só os que falharam"
+// lê só ela; "Importar novos" não insiste nela; nada duplica.
+test('Gastos: falha fica "com problema", "Tentar de novo só os que falharam" relê só ela, sem duplicar', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="g"></div></body></html>', { url: 'https://exemplo.test/organizacao/despesas.html', pretendToBeVisual: true });
+  const doc = dom.window.document;
+  const w = dom.window;
+  const { montarSecaoGastos, EVENTO_ARQUIVOS_GASTOS } = await import('../assets/js/pages/organizacao-gastos.js');
+  const sv = { lancs: [], arqs: {}, lidos: [] };
+  const drive = [
+    { id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', modificado: 'm1' },
+    { id: 'd2', nome: '04-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', modificado: 'm2' },
+  ];
+  let d2Conserta = false;
+  const api = {
+    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(sv.lancs)), arquivos: Object.values(sv.arqs), regras: [] }),
+    getArquivosGastos: async () => ({ ok: true, configurado: true, arquivos: drive.map((a) => { const r = sv.arqs[a.id]; return { ...a, importado: !!r && r.situacao !== 'erro', alterado: false, situacao: r ? r.situacao : '', problema: r ? r.problema : '' }; }) }),
+    getArquivoGastos: async (id) => ({ ok: true, id, base64: Buffer.from(id).toString('base64'), modificado: drive.find((a) => a.id === id).modificado }),
+    salvarImportacaoGastos: async (arquivo, lancs) => {
+      sv.lancs = sv.lancs.filter((l) => l.arquivo !== arquivo.id);
+      if (arquivo.situacao !== 'erro') sv.lancs.push(...lancs.map((l) => ({ ...l, arquivo: arquivo.id })));
+      sv.arqs[arquivo.id] = { id: arquivo.id, nome: arquivo.nome, caminho: arquivo.caminho, fonte: arquivo.fonte, meses: arquivo.meses || [], conferencia: arquivo.conferencia, situacao: arquivo.situacao, problema: arquivo.problema };
+      return { ok: true, gravados: arquivo.situacao === 'erro' ? 0 : lancs.length, pulados: 0 };
+    },
+    salvarRegraGastos: async () => ({ ok: true, regras: [] }), excluirArquivoGastos: async () => ({ ok: true }),
+  };
+  const secao = montarSecaoGastos(doc.getElementById('g'), {
+    api, hoje: '2025-05-05', storage: memoria(), carregarPdf: async () => ({}),
+    lerPdf: async (_lib, bytes) => {
+      const id = Buffer.from(bytes).toString();
+      sv.lidos.push(id);
+      if (id === 'd2' && !d2Conserta) return ['um pdf que não é fatura'];
+      return id === 'd2' ? FATURA.map((l) => l.replace('10 MAR 2025', '10 ABR 2025')) : FATURA;
+    },
+  });
+  await secao.pronto;
+  const el = doc.getElementById('g');
+  await ate(() => el.querySelector('[data-acao="importar-novos"]'));
+  clique(w, el.querySelector('[data-acao="importar-novos"]'));
+  await ate(() => /Importação concluída/.test(txt(el.querySelector('#gsPainel'))));
+  assert.deepEqual(sv.lidos, ['d1', 'd2']);
+  assert.match(txt(el.querySelector('.gs-log')), /04-2025\.pdf.*Não achei a data de vencimento/);
+  assert.equal(sv.arqs.d2.situacao, 'erro', 'a falha fica registrada');
+  assert.equal(sv.lancs.filter((l) => l.arquivo === 'd2').length, 0);
+  await ate(() => el.querySelector('#gsPainel [data-acao="importar-falhos"]'));
+  assert.match(txt(el.querySelector('#gsPainel')), /Tentar de novo o que falhou/);
+  assert.match(txt(el.querySelector('#gsDocs')), /Com problema \(1\).*04-2025\.pdf.*Não achei a data/);
+  // "Importar novos" não relê nada (d1 entrou, d2 está "com problema")
+  await secao.importarNovos();
+  assert.deepEqual(sv.lidos, ['d1', 'd2']);
+  // tentar de novo: só o d2
+  d2Conserta = true;
+  clique(w, el.querySelector('#gsPainel [data-acao="importar-falhos"]'));
+  await ate(() => /Importação concluída: 1 de 1/.test(txt(el.querySelector('#gsPainel'))));
+  assert.deepEqual(sv.lidos, ['d1', 'd2', 'd2']);
+  assert.equal(sv.arqs.d2.situacao, 'ok');
+  assert.equal(sv.lancs.filter((l) => l.arquivo === 'd1').length, 2, 'o que já tinha entrado não duplicou');
+  assert.equal(sv.lancs.filter((l) => l.arquivo === 'd2').length, 2);
+  // arquivos mandados por outro painel (evento no document) entram pelo mesmo leitor
+  const ev = new w.CustomEvent(EVENTO_ARQUIVOS_GASTOS, { detail: { arquivos: [{ name: 'fatura.pdf', size: 2, conteudo: new Uint8Array(Buffer.from('d1')) }] } });
+  doc.dispatchEvent(ev);
+  assert.equal(ev.detail.recebido, true);
+  await ate(() => sv.lidos.length === 4);
+  await ate(() => /fatura\.pdf/.test(txt(el.querySelector('.gs-log'))));
+  assert.ok(sv.arqs['upload:fatura.pdf:2'], 'gravado como upload');
+});

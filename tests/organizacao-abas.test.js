@@ -5,8 +5,10 @@
 // documentos preciso enviar mensalmente ou de vez em quando, e o que dá pra
 // ser automatizado"): a página inteira (organizacao/despesas.html) montada
 // num DOM de verdade - abas Patrimônio | Gastos e Despesas | Renda e
-// Orçamentos, endereços antigos, peças movidas, respostas compartilhadas e o
-// painel Documentos. Tudo inventado (o repositório é público).
+// Orçamentos | Simulações (03/10/2026: "jogue tudo que tem a parte de
+// simulações ... pra uma nova aba, 'Simulações'"), endereços antigos, peças
+// movidas, respostas compartilhadas e o painel Documentos. Tudo inventado (o
+// repositório é público).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -98,26 +100,27 @@ async function montar(hash = '', extra = {}) {
   return { dom, w, doc, pagina, chamadas };
 }
 
-test('Abas: Patrimônio | Gastos e Despesas | Renda e Orçamentos - Patrimônio abre primeiro; títulos novos', async () => {
+test('Abas: Patrimônio | Gastos e Despesas | Renda e Orçamentos | Simulações - Patrimônio abre primeiro; títulos novos', async () => {
   const { doc, pagina } = await montar();
   const abas = [...doc.querySelectorAll('#ogAbas [data-aba]')];
-  assert.deepEqual(abas.map((b) => b.dataset.aba), ['patrimonio', 'despesas', 'renda']);
-  assert.deepEqual(abas.map((b) => txt(b.querySelector('.og-aba-longo') || b)), ['Patrimônio', 'Gastos e Despesas', 'Renda e Orçamentos']);
+  assert.deepEqual(abas.map((b) => b.dataset.aba), ['patrimonio', 'despesas', 'renda', 'simulacoes']);
+  assert.deepEqual(abas.map((b) => txt(b.querySelector('.og-aba-longo') || b)), ['Patrimônio', 'Gastos e Despesas', 'Renda e Orçamentos', 'Simulações']);
+  assert.equal(txt(abas[3].querySelector('.og-aba-curto')), 'Simular', 'rótulo curto no celular');
   assert.equal(pagina.abaAtual, 'patrimonio');
   assert.equal(doc.getElementById('painelPatrimonio').hidden, false);
   assert.equal(doc.getElementById('painelDespesas').hidden, true);
   assert.match(txt(doc.getElementById('ptHero')), /Patrimônio líquido hoje/);
 });
 
-test('Endereços antigos continuam: #salario abre Renda e Orçamentos, #despesas e #gastos abrem Gastos e Despesas, #simulador também', async () => {
-  for (const [hash, aba] of [['#salario', 'renda'], ['#renda', 'renda'], ['#despesas', 'despesas'], ['#gastos', 'despesas'], ['#simulador', 'despesas'], ['#patrimonio', 'patrimonio']]) {
+test('Endereços antigos continuam: #salario abre Renda e Orçamentos, #despesas e #gastos abrem Gastos e Despesas, #simulador abre Simulações', async () => {
+  for (const [hash, aba] of [['#salario', 'renda'], ['#renda', 'renda'], ['#despesas', 'despesas'], ['#gastos', 'despesas'], ['#simulador', 'simulacoes'], ['#simulacoes', 'simulacoes'], ['#patrimonio', 'patrimonio']]) {
     const { pagina, w } = await montar(hash);
     assert.equal(pagina.abaAtual, aba, hash);
     assert.equal(w.location.hash, aba === 'patrimonio' ? '' : `#${aba}`, `${hash} vira o endereço novo`);
   }
 });
 
-test('Gastos e Despesas: despesas essenciais "para a renda de emergência" + link pra Metas, gastos reais e o simulador novo (com o patrimônio compartilhado)', async () => {
+test('Gastos e Despesas: despesas essenciais "para a renda de emergência" + link pra Metas, gastos reais e só um link pro simulador (que foi pra Simulações)', async () => {
   const { doc, w, pagina, chamadas } = await montar('#despesas');
   await esperar(30);
   const lista = doc.querySelector('.og-lista-cab');
@@ -126,11 +129,20 @@ test('Gastos e Despesas: despesas essenciais "para a renda de emergência" + lin
   assert.ok([...doc.querySelectorAll('#organizacaoConteudo a')].some((a) => a.getAttribute('href') === '../metas.html' && /Reserva de emergência/.test(a.textContent)));
   assert.ok(pagina.gastos, 'seção de gastos montada');
   assert.ok(doc.querySelector('#gastosConteudo .gs-conteudo'));
-  assert.ok(pagina.simulador, 'simulador montado quando o patrimônio chegou');
-  assert.match(txt(doc.getElementById('simulador')), /Amortizar ou investir\?/);
-  // ordem: despesas -> gastos -> simulador
-  const filhos = [...doc.getElementById('painelDespesas').children].map((x) => x.id);
-  assert.ok(filhos.indexOf('organizacaoConteudo') < filhos.indexOf('gastosConteudo') && filhos.indexOf('gastosConteudo') < filhos.indexOf('simulador'));
+  // 03/10/2026: o simulador saiu daqui
+  const painel = doc.getElementById('painelDespesas');
+  assert.equal(painel.querySelector('#simulador, .sd'), null);
+  assert.equal(pagina.simulador, null, 'o simulador só monta quando a aba Simulações abre');
+  const filhos = [...painel.children].map((x) => x.id || x.className);
+  assert.ok(filhos.indexOf('organizacaoConteudo') < filhos.indexOf('gastosConteudo') && filhos.indexOf('gastosConteudo') < filhos.indexOf('og-link-sim'), 'despesas -> gastos -> link');
+  const link = painel.querySelector('.og-link-sim a');
+  assert.equal(link.getAttribute('href'), '#simulacoes');
+  assert.match(txt(link), /Simular amortizar × investir → Simulações/);
+  // o link (hash) leva pra aba Simulações
+  w.location.hash = '#simulacoes';
+  await esperar(30);
+  assert.equal(pagina.abaAtual, 'simulacoes');
+  assert.ok(pagina.simulador, 'simulador montado com o patrimônio compartilhado');
   // uma resposta só pras abas e o painel Documentos
   clique(w, doc.querySelector('[data-aba="patrimonio"]'));
   clique(w, doc.querySelector('[data-aba="renda"]'));
@@ -201,4 +213,37 @@ test('documentosOrganizacao: faturas por meses importados, opcionais, carregando
   const r = documentosOrganizacao({ patrimonio: undefined, salario: undefined, gastos: undefined, gastosDrive: undefined, hoje: '2025-09-15' });
   assert.ok(r.resumo.carregando >= 5, 'enquanto as respostas não chegam: "verificando…"');
   assert.ok(r.manual.length && r.auto.length);
+});
+
+test('Simulações: herói (ritmo, primeiro milhão, viés, quitação) em cima e o simulador inteiro embaixo, com o valor padrão = mínimo pra 2 parcelas', async () => {
+  const { doc, w, pagina, chamadas } = await montar('#simulacoes');
+  await esperar(30);
+  assert.equal(pagina.abaAtual, 'simulacoes');
+  assert.equal(doc.getElementById('painelSimulacoes').hidden, false);
+  const ids = [...doc.querySelectorAll('#painelSimulacoes .og-simulacoes > div')].map((x) => x.id);
+  assert.deepEqual(ids, ['simulacoesHero', 'simulador'], 'herói em cima, detalhe embaixo');
+  const tiles = [...doc.querySelectorAll('#simulacoesHero .sm-tile')];
+  assert.equal(tiles.length, 4);
+  assert.match(txt(tiles[0]), /Ritmo atual/);
+  assert.match(txt(tiles[0]), /Aporte médio/);
+  assert.match(txt(tiles[1]), /Primeiro R\$ 1 milhão/);
+  assert.match(txt(tiles[1]), /amortizando o apê/);
+  assert.match(txt(tiles[2]), /Viés: investir ou amortizar/);
+  assert.match(txt(tiles[3]), /Quitação das dívidas/);
+  assert.match(txt(tiles[3]), /Apê/);
+  // o detalhe que estava em Gastos e Despesas
+  const sim = doc.getElementById('simulador');
+  for (const t of [/Amortizar ou investir\?/, /Quanto amortizar pra matar 2, 3 ou 4 parcelas por mês/, /Ano a ano/, /Onde investir faz diferença/, /Estratégias do vídeo/, /Referências/]) assert.match(txt(sim), t);
+  const p = pagina.simulador.params;
+  assert.equal(p.valorManual, false);
+  assert.equal(p.valor, p.valorMinimo.valor);
+  assert.match(txt(doc.getElementById('sdValorNota')), /tira 2 parcelas do fim do contrato do apê/);
+  // o herói acompanha o formulário
+  const antes = txt(tiles[2]);
+  const inp = doc.getElementById('sdValor');
+  inp.value = '300';
+  inp.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.match(txt(doc.querySelector('#simulacoesHero .sm-vies')), /R\$ 300\/mês/);
+  assert.notEqual(txt(doc.querySelector('#simulacoesHero .sm-vies')), antes);
+  assert.equal(chamadas.patrimonio, 1);
 });

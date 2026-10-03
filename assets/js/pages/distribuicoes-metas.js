@@ -133,6 +133,21 @@
  * botão de AÇÃO (já tem aria-label igual), não uma tooltip escondendo
  * dado; tocar nele já dispara "Editar" direto, sem precisar de um passo
  * a mais pra revelar nada.
+ *
+ * 03/10/2026 (Tiago: "'Metas da Carteira', presente na tela 'Acompanhamento
+ * de Ativos', precisa estar linkada às metas presentes em 'Metas e
+ * Objetivos'; clicando nela, sou jogado pra tela de detalhe da meta"): cada
+ * card ganha um rodapé-link (rodapeMetaObjetivosHtml) com a meta
+ * correspondente de Metas e Objetivos - Renda Passiva -> meta de renda
+ * passiva, Patrimônio -> aposentadoria, Renda Emergencial -> reserva de
+ * emergência (metas-card!TIPO_META_DA_CARTEIRA; com mais de uma do tipo, a
+ * marcada "mostrar em Carteiras", senão a 1ª) - com o progresso, o status e o
+ * alvo de LÁ (mesma conta da tela Metas, pra os números baterem entre as
+ * telas). O card inteiro é clicável (menos os botões/campos/ícones "i"). Sem
+ * meta do tipo, o rodapé vira "Criar em Metas e Objetivos" e leva pro
+ * assistente já preenchido com os números da planilha (metas.html#nova=).
+ * As metas vêm de action=metas buscada EM PARALELO (cache primeiro), sem
+ * segurar o resto da página; enquanto não chegam, o rodapé fica "carregando".
  */
 
 import {
@@ -144,6 +159,7 @@ import {
   salvarRadarItem as salvarRadarItemApi,
   salvarSplitInterno as salvarSplitInternoApi,
   getIntradia,
+  getMetas,
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
@@ -153,6 +169,12 @@ import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
 import { momentoHtml, momentoDoRadar, metasDaDistribuicao } from './momento-aporte.js';
 // 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
 import { svgIntradia, rotuloDiaIntradia } from './inicio-intradia.js';
+// 03/10/2026: Metas da carteira -> Metas e Objetivos (ver rodapeMetaObjetivosHtml).
+import {
+  TIPO_META_DA_CARTEIRA, metaPrincipalDoTipo, metasComCalculo, urlMetas, urlNovaMeta, seloMetaHtml, statusPillHtml,
+  formatMoeda, pct, escHtml, garantirEstiloMetas,
+} from '../metas-card.js';
+import { aparenciaMeta } from './metas-calc.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -1572,8 +1594,8 @@ function encerrarIntradiaPendente_(raiz) {
  * 02/10/2026: embaixo do # + Ativo (antes uma célula vazia) entra o gráfico
  * do dia; o momento fica à direita dele. No celular os dois empilham.
  */
-function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas, itensDoBloco) {
-  const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas, itensDoBloco));
+function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas, itensDoBloco, opcoesMomento = {}) {
+  const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas, itensDoBloco, opcoesMomento));
   const grafico = criarCelulaIntradiaRadar_(doc, item, chaveTabela);
   if (!html && !grafico) return null;
   const tr = doc.createElement('tr');
@@ -1607,7 +1629,7 @@ function compararRadar_(a, b, campo) {
  * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
  * pra sobreviver a troca de aba sem perder o estado.
  */
-function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null, itensDoBloco = null }) {
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null, itensDoBloco = null, opcoesMomento = {} }) {
   const colunas = colunasRadarPara_(chaveTabela);
   const wrap = doc.createElement('div');
   wrap.className = 'radar-table-wrap';
@@ -1659,7 +1681,7 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
   }
   for (const item of ordenados) {
     tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
-    const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1, itensDoBloco || itens);
+    const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1, itensDoBloco || itens, opcoesMomento);
     if (momento) tbody.appendChild(momento);
   }
   table.appendChild(tbody);
@@ -1690,10 +1712,17 @@ const TABELAS_RADAR = [
  * (renderSplitInterno) que fica ACIMA desta tabela, já que ele mostra
  * conteúdo diferente conforme a aba do Radar ativa.
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null } = {}) {
-  if (!container) return;
+/**
+ * 03/10/2026: `obterMetasObjetivos()` = metas de Metas e Objetivos (lista com
+ * `calc`, ou null enquanto não chegam) pros sinais "investir aqui completa a
+ * meta" do momento; devolve { atualizarMomentos() } pra página redesenhar
+ * quando elas chegarem (sem perder aba, ordem e filtro).
+ */
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null } = {}) {
+  if (!container) return null;
   container.innerHTML = '';
-  if (!radar) return;
+  if (!radar) return null;
+  const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null });
 
   wirePointerTooltipRadar_(doc, container);
 
@@ -1766,6 +1795,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       ordenacao,
       cotacaoDolar: radar.cotacaoDolar,
       metas,
+      opcoesMomento: opcoesMomento(),
       itensDoBloco: bloco.itens, // ranking "X de N" conta o bloco todo, mesmo com filtro de tipo de FII
       onOrdenar: (campo) => {
         ordenacao = ordenacao.campo === campo
@@ -1776,7 +1806,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     }));
     const nota = doc.createElement('p');
     nota.className = 'radar-momento-nota';
-    nota.textContent = 'Embaixo de cada ativo, o gráfico do dia (toque pra abrir no Google Finance) e a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
+    nota.textContent = 'Embaixo de cada ativo, o gráfico do dia (toque pra abrir no Google Finance) e a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L, suas metas de Metas e Objetivos e a análise de fundamentos (critérios Suno e outros). Não é recomendação de compra.';
     tableContainer.appendChild(nota);
     pedirIntradia();
   }
@@ -1799,7 +1829,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     btn.className = 'filter-tab radar-visao';
     btn.dataset.tabela = chave;
     btn.setAttribute('role', 'tab');
-    btn.innerHTML = abaNumeroRadarHtml_(rotulo, chave, radar[chave], metas, radar.cotacaoDolar);
+    btn.innerHTML = abaNumeroRadarHtml_(rotulo, chave, radar[chave], metas, radar.cotacaoDolar, opcoesMomento());
     btn.addEventListener('click', () => {
       if (abaAtiva === chave) return;
       abaAtiva = chave;
@@ -1820,6 +1850,15 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
   container.appendChild(card);
   desenhar();
   if (onTrocarAba) onTrocarAba(abaAtiva);
+  return {
+    atualizarMomentos() {
+      tabsEl.querySelectorAll('.filter-tab[data-tabela]').forEach((b) => {
+        const t = TABELAS_RADAR.find((x) => x.chave === b.dataset.tabela);
+        if (t) b.innerHTML = abaNumeroRadarHtml_(t.rotulo, t.chave, radar[t.chave], metas, radar.cotacaoDolar, opcoesMomento());
+      });
+      desenhar();
+    },
+  };
 }
 
 /**
@@ -1829,13 +1868,13 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
  * quantos ativos e quantos estão em "bom momento" (a mesma leitura de cada
  * linha - momento-aporte.js).
  */
-function abaNumeroRadarHtml_(rotulo, chave, bloco, metas, cotacaoDolar) {
+function abaNumeroRadarHtml_(rotulo, chave, bloco, metas, cotacaoDolar, opcoesMomento = {}) {
   const itens = (bloco && bloco.itens) || [];
   const totalBloco = bloco && bloco.total && typeof bloco.total.carteiraAtual === 'number' ? bloco.total.carteiraAtual : null;
   const soma = totalBloco != null ? totalBloco : itens.reduce((a, i) => a + (typeof i.carteiraAtual === 'number' ? i.carteiraAtual : 0), 0);
   let bons = 0;
   for (const item of itens) {
-    try { if (momentoDoRadar(item, chave, metas, itens).nivel === 'bom') bons += 1; } catch (e) { /* sem leitura: não conta */ }
+    try { if (momentoDoRadar(item, chave, metas, itens, opcoesMomento).nivel === 'bom') bons += 1; } catch (e) { /* sem leitura: não conta */ }
   }
   const valor = itens.length ? valorComDecHtml_(formatarPrecoRadar_(soma, chave)) : '—';
   const emReais = chave === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && itens.length
@@ -1855,7 +1894,93 @@ function textoMediaRendaPassiva_(meses) {
   return `Soma dos proventos de todas as carteiras (Ações, FIIs e Ações EUA em reais) nos últimos 12 meses fechados${periodo}, dividida por 12 - o mês atual ainda não entra. É a mesma "Média mensal" da tela Proventos em 12 meses.`;
 }
 
-export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiva, onSalvarPatrimonio, onSalvarRendaEmergencial } = {}) {
+const SETA_META = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+/**
+ * 03/10/2026: vínculo de um card de Metas da carteira ('rendaPassiva' |
+ * 'patrimonio' | 'rendaEmergencial') com Metas e Objetivos.
+ * `metasObjetivos`: null/undefined = ainda carregando; { ok: false } = não
+ * carregou; { ok: true, metas } = metas ativas com `calc` (metas-card!
+ * metasComCalculo). Devolve { estado: 'carregando'|'indisponivel'|'existe'|
+ * 'criar', href, meta? }.
+ */
+export function vinculoMetaObjetivos(chave, metasObjetivos, { raizSite } = {}) {
+  const opc = raizSite ? { raizSite } : undefined;
+  const tipo = TIPO_META_DA_CARTEIRA[chave];
+  if (!metasObjetivos) return { estado: 'carregando', href: urlMetas('', opc) };
+  if (!metasObjetivos.ok || !tipo) return { estado: 'indisponivel', href: urlMetas('', opc) };
+  const meta = metaPrincipalDoTipo(metasObjetivos.metas, tipo);
+  if (meta) return { estado: 'existe', href: urlMetas(meta.id, opc), meta };
+  return { estado: 'criar', href: urlNovaMeta(tipo, opc) };
+}
+
+/** Miolo do rodapé-link de um card (o <a> em si é criado em renderMetasCarteira). */
+export function rodapeMetaObjetivosHtml(vinculo) {
+  if (!vinculo || vinculo.estado === 'carregando') {
+    return '<span class="goal-meta-cab"><span class="goal-meta-tit"><span class="goal-meta-eyebrow">Metas e Objetivos</span><span class="skel goal-meta-skel"></span></span></span>';
+  }
+  if (vinculo.estado === 'criar') {
+    return `<span class="goal-meta-cab"><span class="goal-meta-mais" aria-hidden="true">+</span><span class="goal-meta-tit"><strong>Criar em Metas e Objetivos</strong><span class="goal-meta-fraco">já com os números da planilha · prazo, aporte e projeção</span></span><span class="goal-meta-ir">${SETA_META}</span></span>`;
+  }
+  if (vinculo.estado !== 'existe' || !vinculo.meta || !vinculo.meta.calc) {
+    return `<span class="goal-meta-cab"><span class="goal-meta-tit"><strong>Ver em Metas e Objetivos</strong></span><span class="goal-meta-ir">${SETA_META}</span></span>`;
+  }
+  const { meta } = vinculo;
+  const c = meta.calc;
+  const p = Math.max(0, Math.min(1, c.percentual || 0));
+  const valores = c.renda
+    ? `${formatMoeda(c.renda.atual, 'BRL', { casas: 0 })}/mês de ${formatMoeda(c.renda.alvo, 'BRL', { casas: 0 })}/mês`
+    : `${formatMoeda(c.atualBRL, 'BRL', { casas: 0 })} de ${c.alvoBRL != null ? formatMoeda(c.alvoBRL, 'BRL', { casas: 0 }) : '—'}`;
+  return `<span class="goal-meta-cab">${seloMetaHtml(meta, { tamanho: 28 })}<span class="goal-meta-tit"><span class="goal-meta-eyebrow">Em Metas e Objetivos</span><strong>${escHtml(meta.nome)}</strong></span>${statusPillHtml(c.status)}</span>
+<span class="mt-barra ${p >= 1 ? 'good' : ''}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="width:${(p * 100).toFixed(1)}%"></span></span>
+<span class="goal-meta-sub"><span class="goal-meta-valores"><b>${pct(c.percentual)}</b> · ${valores}</span><span class="goal-meta-ir">Ver meta${SETA_META}</span></span>`;
+}
+
+/**
+ * Preenche (ou atualiza, quando as metas chegam) o rodapé-link de cada card
+ * de Metas da carteira já desenhado no container.
+ */
+export function aplicarMetasObjetivos(container, metasObjetivos, { raizSite } = {}) {
+  if (!container) return;
+  container.querySelectorAll('.goal-card[data-meta-carteira]').forEach((card) => {
+    const link = card.querySelector('a.goal-meta');
+    if (!link) return;
+    const v = vinculoMetaObjetivos(card.dataset.metaCarteira, metasObjetivos, { raizSite });
+    link.href = v.href;
+    link.dataset.estado = v.estado;
+    link.className = `goal-meta goal-meta-${v.estado}`;
+    if (v.estado === 'existe') {
+      const ap = aparenciaMeta(v.meta);
+      link.style.setProperty('--mt-cor', `var(--${ap.cor})`);
+      link.style.setProperty('--mt-cor-soft', `var(--${ap.cor}-soft)`);
+      link.setAttribute('aria-label', `Ver a meta "${v.meta.nome}" em Metas e Objetivos`);
+    } else {
+      link.removeAttribute('style');
+      if (v.estado === 'criar') link.setAttribute('aria-label', 'Criar essa meta em Metas e Objetivos');
+      else link.removeAttribute('aria-label');
+    }
+    if (v.estado === 'carregando') link.setAttribute('aria-busy', 'true'); else link.removeAttribute('aria-busy');
+    link.innerHTML = rodapeMetaObjetivosHtml(v);
+  });
+}
+
+/** Card inteiro clicável -> o rodapé-link (menos botões, campos, links e os ícones "i"). */
+function tornarCardMetaClicavel_(doc, card) {
+  card.classList.add('goal-card-clicavel');
+  card.addEventListener('click', (ev) => {
+    if (ev.defaultPrevented || ev.button > 0) return;
+    if (ev.target.closest && ev.target.closest('a, button, input, select, textarea, label, form, .info-alvo')) return;
+    const janela = doc.defaultView;
+    const selecao = janela && janela.getSelection ? String(janela.getSelection() || '') : '';
+    if (selecao) return; // selecionando texto, não navega
+    const link = card.querySelector('a.goal-meta');
+    if (!link || !link.href) return;
+    if ((ev.ctrlKey || ev.metaKey) && janela && janela.open) { janela.open(link.href, '_blank', 'noopener'); return; }
+    link.click();
+  });
+}
+
+export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiva, onSalvarPatrimonio, onSalvarRendaEmergencial, metasObjetivos = null, raizSite } = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!metas) return;
@@ -1920,6 +2045,18 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       card.appendChild(link);
     }
   }
+
+  // 03/10/2026: rodapé-link pra Metas e Objetivos em cada card (na ordem em que foram desenhados).
+  const chaves = ['rendaPassiva', 'patrimonio', 'rendaEmergencial'].filter((k) => metas[k]);
+  [...container.children].forEach((card, i) => {
+    if (!chaves[i]) return;
+    card.dataset.metaCarteira = chaves[i];
+    const link = doc.createElement('a');
+    link.className = 'goal-meta';
+    card.appendChild(link);
+    tornarCardMetaClicavel_(doc, card);
+  });
+  aplicarMetasObjetivos(container, metasObjetivos, { raizSite });
 }
 
 /**
@@ -1959,6 +2096,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarRadarItemImpl = salvarRadarItemApi,
   salvarSplitInternoImpl = salvarSplitInternoApi,
   getIntradiaImpl = getIntradia,
+  getMetasImpl = getMetas,
+  raizSite,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
@@ -1989,6 +2128,42 @@ export async function montarPaginaDistribuicoesMetas(token, {
     return out;
   }
 
+  // 03/10/2026: metas de Metas e Objetivos (rodapé dos cards de Metas da
+  // carteira) - buscadas em paralelo à distribuicoesMetas, nunca na frente
+  // dela; o cache 'metas' (o mesmo da tela Metas) aparece na hora.
+  garantirEstiloMetas(doc);
+  let metasObjetivos = null;
+  let radarApi = null; // 03/10/2026: pra redesenhar os momentos do Radar quando as metas chegam
+  let buscandoMetas = null;
+  let leuCacheMetas = false;
+  function carregarMetasObjetivos() {
+    if (buscandoMetas) return buscandoMetas;
+    buscandoMetas = (async () => {
+      if (!leuCacheMetas) {
+        leuCacheMetas = true;
+        try {
+          const emCache = await lerCacheDados('metas');
+          if (emCache && emCache.dados && emCache.dados.ok && !metasObjetivos) {
+            metasObjetivos = { ok: true, metas: metasComCalculo(emCache.dados) };
+            aplicarMetasObjetivos(container, metasObjetivos, { raizSite });
+            if (radarApi) radarApi.atualizarMomentos();
+          }
+        } catch (e) { /* sem cache */ }
+      }
+      let r = null;
+      try { r = getMetasImpl ? await getMetasImpl(token) : null; } catch (e) { r = null; }
+      if (r && r.ok) {
+        gravarCacheDados('metas', r);
+        metasObjetivos = { ok: true, metas: metasComCalculo(r) };
+      } else if (!metasObjetivos) {
+        metasObjetivos = { ok: false };
+      }
+      aplicarMetasObjetivos(container, metasObjetivos, { raizSite });
+      if (radarApi && metasObjetivos.ok) radarApi.atualizarMomentos();
+    })().finally(() => { buscandoMetas = null; });
+    return buscandoMetas;
+  }
+
   function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
@@ -2012,8 +2187,9 @@ export async function montarPaginaDistribuicoesMetas(token, {
       },
     });
 
-    renderRadarOportunidades(doc, radarContainer, resposta.radar, {
+    radarApi = renderRadarOportunidades(doc, radarContainer, resposta.radar, {
       metas: metasDaDistribuicao(resposta),
+      obterMetasObjetivos: () => (metasObjetivos && metasObjetivos.ok ? metasObjetivos.metas : null),
       slotDistrib: splitInternoContainer,
       buscarIntradia: buscarIntradiaRadar,
       onSalvarItem: async (tabela, item) => {
@@ -2036,6 +2212,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
     });
 
     renderMetasCarteira(doc, container, resposta.metas, {
+      metasObjetivos,
+      raizSite,
       onSalvarRendaPassiva: async (valor) => {
         const r = await salvarMetaRendaPassivaImpl(token, valor);
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
@@ -2071,5 +2249,11 @@ export async function montarPaginaDistribuicoesMetas(token, {
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
-  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
+  // 03/10/2026: "Atualizar dados" (e o timer de 5 min) também atualiza as metas - em paralelo, sem esperar.
+  let metasProntas = null;
+  await mountRefreshControl(doc, refreshControlEl, () => {
+    metasProntas = carregarMetasObjetivos();
+    return carregarERedesenhar();
+  }).atualizar();
+  return { metasProntas: metasProntas || Promise.resolve() };
 }

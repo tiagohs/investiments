@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   novaDivida, nperPrice, custoEfetivo, aliquotaIr, novaCarteira, premissas, cdiNoMes, trNoMes, taxaPercentualCdi,
   extraNoMes, ordemAlvo, simular, parametrosPadrao, dividasDoContexto, veredito, ESTRATEGIAS_VIDEO, REFERENCIAS,
+  valorParaMatarParcelas, parcelasQueOValorMata, minimoParaMatar, opcoesMatarParcelas, projetarMarco, valorNaLinha, proximoMilhao,
 } from '../assets/js/pages/simulador-dividas-calc.js';
 
 const perto = (a, b, tol = 0.01) => assert.ok(Math.abs(a - b) <= tol, `${a} != ${b} (±${tol})`);
@@ -201,7 +202,14 @@ test('parâmetros padrão a partir do contexto do patrimônio (dados inventados)
     b: { liquido: 123456 },
   };
   const p = parametrosPadrao(ctx);
-  assert.equal(p.valor, 800); // 10% do líquido, redondo
+  // 03/10/2026: o padrão é o mínimo que tira 2 parcelas por mês do apê (a mais cara):
+  // 2 × a amortização (R$ 1.000) corrigida pela TR do mês que vem, arredondado pra cima de 10 em 10
+  const tr1 = trNoMes(1, premissas(p.taxas));
+  perto(p.valorMinimo.exato, 2 * 1000 * (1 + tr1));
+  assert.equal(p.valorMinimo.id, 'financiamento');
+  assert.equal(p.valor, Math.ceil((2000 * (1 + tr1)) / 10) * 10);
+  assert.equal(p.valor, 2010);
+  assert.equal(p.valorSalario, 800); // a regra antiga (10% do líquido) continua guardada
   assert.equal(p.patrimonioBase, 123456);
   assert.equal(p.taxas.cdi, 0.11);
   perto(p.dividas.financiamento.saldo, 208000); // 2 meses de amortização depois do extrato
@@ -210,7 +218,8 @@ test('parâmetros padrão a partir do contexto do patrimônio (dados inventados)
   assert.equal(p.dividas.fies.sistema, 'Price');
   assert.ok(p.dividas.fies.saldo < 30000);
   assert.equal(p.alvo, 'cara');
-  assert.equal(parametrosPadrao({ d: { hoje: '2025-03-10' } }).valor, 1000);
+  assert.equal(parametrosPadrao({ d: { hoje: '2025-03-10' } }).valor, 1000); // sem dívida: a regra antiga
+  assert.equal(parametrosPadrao({ ...ctx, cfg: { fies: ctx.cfg.fies } }).valor, 800, 'só o FIES (mais barato que a inflação): nada pra amortizar no "a mais cara"');
   assert.deepEqual(Object.keys(dividasDoContexto({}, '2025-03-10')), []);
   const v = veredito(simular(p));
   assert.ok(v.titulo && v.texto.length > 40);
@@ -222,4 +231,110 @@ test('estratégias do vídeo e referências com link', () => {
   assert.ok(ESTRATEGIAS_VIDEO.length >= 6);
   ESTRATEGIAS_VIDEO.forEach((e) => assert.ok(e.titulo && e.video && e.conta && /^\d\d:\d\d$/.test(e.min)));
   REFERENCIAS.forEach((r) => assert.match(r.url, /^https:\/\//));
+});
+
+// ---------------------------------------------------------------------------
+// 03/10/2026: "matar parcelas" (Tiago: "O valor de amortização mensal default
+// é sempre o mínimo para matar ao menos duas parcelas, se eu amortizar")
+// ---------------------------------------------------------------------------
+
+test('matar parcelas no SAC: k × a amortização (com a TR do mês) e o prazo cai exatamente k', () => {
+  const d = { id: 'f', sistema: 'SAC', saldo: 120000, taxaMensal: 0.01, amortizacao: 1000 };
+  const m2 = valorParaMatarParcelas(d, 2);
+  assert.equal(m2.exato, 2000);
+  assert.equal(m2.valor, 2000);
+  assert.equal(m2.restantes, 119); // a parcela do mês sai antes
+  assert.equal(valorParaMatarParcelas(d, 4).exato, 4000);
+  // com TR: a amortização é corrigida antes -> 2 × 1000 × 1,002 = 2.004 -> R$ 2.010 (pra cima, de 10 em 10)
+  const comTr = { ...d, tr: true };
+  const t = valorParaMatarParcelas(comTr, 2, { trMensal: 0.002 });
+  perto(t.exato, 2004);
+  assert.equal(t.valor, 2010);
+  assert.equal(valorParaMatarParcelas(comTr, 2, { trMensal: 0.002, passo: 0 }).valor, 2004);
+  // confere no motor do simulador: depois da parcela normal, o extra tira 2 do fim
+  const div = novaDivida(comTr);
+  div.mes(1, 0.002);
+  assert.equal(div.restante(), 119);
+  div.extra(1, t.exato, 'prazo');
+  assert.equal(div.restante(), 117);
+  // o contrário
+  perto(parcelasQueOValorMata(d, 1500), 1.5, 1e-9);
+  perto(parcelasQueOValorMata(comTr, 3006, { trMensal: 0.002 }), 3, 1e-9);
+});
+
+test('matar parcelas na Price (FIES): o valor presente das k últimas parcelas', () => {
+  const s = 100000; const i = 0.01; const n = 120;
+  const P = (s * i) / (1 - (1 + i) ** -n);
+  const d = { id: 'fies', sistema: 'Price', saldo: s, taxaMensal: i, parcela: P };
+  const m2 = valorParaMatarParcelas(d, 2, { passo: 0 });
+  assert.equal(m2.restantes, 119);
+  // as 2 últimas das 119 que faltam: P/(1+i)^118 + P/(1+i)^119
+  perto(m2.exato, P / (1 + i) ** 118 + P / (1 + i) ** 119, 0.02); // em centavos, pra cima
+  const m3 = valorParaMatarParcelas(d, 3, { passo: 0 });
+  perto(m3.exato, P / (1 + i) ** 117 + P / (1 + i) ** 118 + P / (1 + i) ** 119, 0.02);
+  // no motor: tira 2; R$ 1 a menos só tira 1
+  const a = novaDivida(d); a.mes(1); a.extra(1, m2.exato, 'prazo');
+  assert.equal(a.restante(), 117);
+  const b = novaDivida(d); b.mes(1); b.extra(1, m2.exato - 1, 'prazo');
+  assert.equal(b.restante(), 118);
+  perto(parcelasQueOValorMata(d, m2.exato), 2, 1e-3);
+  // sem juros: k parcelas
+  assert.equal(valorParaMatarParcelas({ ...d, taxaMensal: 0, parcela: 500, saldo: 5000 }, 2, { passo: 0 }).exato, 1000);
+  // pedir mais do que falta = quitar
+  const fim = valorParaMatarParcelas({ id: 'x', sistema: 'SAC', saldo: 3000, taxaMensal: 0.01, amortizacao: 1000 }, 4);
+  assert.equal(fim.k, 2);
+  assert.equal(fim.exato, 2000);
+  assert.equal(valorParaMatarParcelas(null, 2), null);
+  assert.equal(valorParaMatarParcelas({ ...d, saldo: 0 }, 2), null);
+});
+
+test('mínimo da dívida-alvo e as opções 2, 3, 4 parcelas (simulação leve) pra cada dívida', () => {
+  const p = { ...PARAMS, taxas: FIXAS };
+  const min = minimoParaMatar(p, 2, 'cara');
+  assert.equal(min.id, 'financiamento');
+  assert.equal(min.exato, 2 * DIVIDAS.financiamento.amortizacao);
+  assert.equal(minimoParaMatar(p, 2, 'fies').id, 'fies');
+  const ops = opcoesMatarParcelas(p);
+  assert.deepEqual(ops.map((o) => o.id), ['financiamento', 'fies']);
+  ops.forEach((o) => {
+    assert.deepEqual(o.linhas.map((l) => l.k), [2, 3, 4]);
+    for (let k = 1; k < 3; k += 1) {
+      assert.ok(o.linhas[k].valor > o.linhas[k - 1].valor, 'mais parcelas, mais caro');
+      assert.ok(o.linhas[k].mesesAdiantados >= o.linhas[k - 1].mesesAdiantados, 'e quita antes');
+    }
+    o.linhas.forEach((l) => { assert.ok(l.quitaMes < l.baseMes); assert.ok(l.custoEconomizado > 0); assert.ok(['amortizar', 'investir'].includes(l.melhor)); });
+  });
+  // a linha "2 parcelas" do apê é o mesmo que simular com o mínimo
+  const s = simular({ ...p, alvo: 'financiamento', valor: ops[0].linhas[0].valor });
+  perto(ops[0].linhas[0].patrimonioAmortizar, s.resumo.patrimonio.amortizar, 0.01);
+  // leve: sem virada, sem os outros perfis, sem a outra frequência
+  const leve = simular(p, { leve: true });
+  assert.equal(leve.resumo.virada, null);
+  assert.equal(leve.resumo.perfis.length, 1);
+  assert.equal(leve.resumo.frequencias, null);
+  perto(leve.resumo.patrimonio.amortizar, simular(p).resumo.patrimonio.amortizar, 0.01);
+});
+
+test('primeiro milhão: projeção do patrimônio líquido (contas fechadas) e o próximo milhão', () => {
+  assert.equal(proximoMilhao(342000), 1e6);
+  assert.equal(proximoMilhao(1000000), 2e6);
+  assert.equal(proximoMilhao(null), 1e6);
+  // sem rendimento, sem inflação, sem dívida: 500 mil + 1.000/mês -> 500 meses
+  const a = projetarMarco({ liquido: 500000, investido: 100000, aporte: 1000, rendimentoReal: 0, ipca: 0, alvo: 1e6 });
+  assert.equal(a.meses, 500);
+  assert.equal(projetarMarco({ liquido: 1.2e6, alvo: 1e6 }).meses, 0);
+  // a dívida que cai (e o FGTS que sobe) somam no patrimônio, ponto a ponto entre as linhas anuais
+  const base = [{ t: 0, totalDividas: 120000, fgts: 10000, patrimonio: 0 }, { t: 12, totalDividas: 108000, fgts: 13000, patrimonio: 15000 }, { t: 24, totalDividas: 96000, fgts: 16000, patrimonio: 30000 }];
+  assert.equal(valorNaLinha(base, 'totalDividas', 6), 114000);
+  assert.equal(valorNaLinha(base, 'totalDividas', 99), 96000);
+  const b = projetarMarco({ liquido: 900000, investido: 0, aporte: 0, rendimentoReal: 0, ipca: 0, base, alvo: 1e6 });
+  perto(b.serie(12), 900000 + 15000);
+  assert.equal(b.meses, null, 'só a dívida não chega lá');
+  // inflação: a dívida em reais encolhe em dinheiro de hoje
+  const c = projetarMarco({ liquido: 900000, investido: 0, aporte: 0, rendimentoReal: 0, ipca: 0.1, base, alvo: 1e6 });
+  perto(c.serie(12), 900000 + 120000 - 10000 - (108000 - 13000) / 1.1);
+  // um cenário do simulador soma o que ele tem a mais que o base
+  const cen = base.map((l) => ({ ...l, patrimonio: l.patrimonio + l.t * 1000 }));
+  const d = projetarMarco({ liquido: 900000, investido: 0, aporte: 0, rendimentoReal: 0, ipca: 0, base, cenario: cen, alvo: 1e6 });
+  perto(d.serie(12) - b.serie(12), 12000);
 });

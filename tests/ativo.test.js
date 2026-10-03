@@ -71,7 +71,7 @@ const ESTATICOS = {
 };
 
 // 02/10/2026: gráfico do dia (Intradia.gs) - série inventada; por padrão "sem dado"
-async function montar({ resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS, hash = '', intradia = (chaves) => ({ ok: true, resultado: Object.fromEntries(chaves.map((c) => [c, null])) }) } = {}) {
+async function montar({ metas = { ok: false }, resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS, hash = '', intradia = (chaves) => ({ ok: true, resultado: Object.fromEntries(chaves.map((c) => [c, null])) }) } = {}) {
   const { dom, doc, w } = montarDom(ref, hash);
   const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
   const chamadas = { ativo: [], noticias: [], teses: [], intradia: [] };
@@ -81,6 +81,7 @@ async function montar({ resposta = respostaAcao(), noticias = { ok: true, notici
     getNoticiasImpl: async (t, p) => { chamadas.noticias.push(p); return noticias; },
     getTesesImpl: async (t, tk) => { chamadas.teses.push(tk); return teses; },
     getIntradiaImpl: async (t, chaves) => { chamadas.intradia.push(chaves); return intradia(chaves); },
+    getMetasImpl: async () => metas,
     carregarEstaticosImpl: async () => estaticos,
     agora: () => new Date('2026-03-10T15:00:00Z'),
   });
@@ -438,6 +439,7 @@ test('ativo: vídeos - seção na visão geral; busca com ticker + apelidos só 
     getTesesImpl: async () => ({ ok: true, configurado: false }),
     getVideosImpl: async (t, p) => { pedidos.push(p); return { ok: true, configurado: true, videos: [{ id: 'abcdefghijk', canal: 'Canal X', titulo: 'TEST3 <b>vale?</b>', publicado: '2026-03-09T12:00:00Z' }] }; },
     getIntradiaImpl: async () => ({ ok: true, resultado: {} }),
+    getMetasImpl: async () => ({ ok: false }),
     carregarEstaticosImpl: async () => estaticos,
     agora: () => new Date('2026-03-10T15:00:00Z'),
   });
@@ -532,6 +534,7 @@ test('ativo: canal oficial - bloco no topo dos vídeos (nova aba) e a busca de v
     getNoticiasImpl: async () => ({ ok: true, noticias: [] }),
     getTesesImpl: async () => ({ ok: true, configurado: false }),
     getIntradiaImpl: async () => ({ ok: true, resultado: {} }),
+    getMetasImpl: async () => ({ ok: false }),
     getVideosImpl: async (t, p) => {
       pedidos.push(p);
       return { ok: true, configurado: false, canalOficial: { id: 'UCMDd2zfFdlupOwg_KyqpQWQ', nome: 'Vale' }, videos: [
@@ -620,4 +623,64 @@ test('ativo: textos e link apontam pra "Acompanhamento de Ativos" (menu renomead
   assert.ok(link);
   assert.equal(link.textContent, 'Acompanhamento de Ativos');
   assert.match(link.getAttribute('href'), /distribuicoes-metas\.html$/);
+});
+
+// ---- 03/10/2026: "Análise do ativo" (criterios/motor.js) + metas de Metas e Objetivos ----
+
+test('ativo: card "Análise do ativo" - nota, veredito, até 5 pontos, todos os critérios por grupo (faixa e fonte) e o selo do motor nas conclusões', async () => {
+  const resposta = respostaAcao();
+  resposta.referencias = { cdi12m: 10 };
+  const { doc } = await montar({ resposta });
+  const card = doc.getElementById('at-analise');
+  assert.ok(card, 'card na lateral');
+  assert.equal(card.previousElementSibling && card.previousElementSibling.id, 'at-indicadores', 'logo depois dos indicadores');
+  assert.match(txt(card.querySelector('.at-card-titulo')), /Análise do ativo \d+ critérios/);
+  const nota = Number(card.querySelector('.at-an-nota-num b').textContent);
+  assert.ok(nota >= 0 && nota <= 100);
+  assert.match(card.querySelector('.at-an-nota').getAttribute('aria-label'), new RegExp(`Nota ${nota} de 100`));
+  assert.ok(card.querySelector('.at-an-veredito strong').textContent.length > 3);
+  const pontos = card.querySelectorAll('.at-an-pontos > .at-an-ponto');
+  assert.ok(pontos.length >= 3 && pontos.length <= 6, `${pontos.length} pontos visíveis`);
+  const todos = card.querySelector('details.at-an-todos');
+  assert.ok(!todos.open, 'todos os critérios ficam recolhidos');
+  assert.match(txt(todos.querySelector('summary')), /Ver todos os critérios \(\d+\)/);
+  assert.ok(todos.querySelectorAll('.at-an-grupo-bloco h3').length >= 2, 'agrupado');
+  const pl = [...todos.querySelectorAll('.at-an-crit')].find((li) => /^P\/L$/.test(li.querySelector('.at-an-crit-nome').textContent));
+  assert.match(txt(pl), /7,5x/);
+  assert.match(txt(pl), /bom: 3x a 10x/);
+  assert.ok([...pl.querySelectorAll('.at-an-crit-meta a')].every((a) => /^https:/.test(a.getAttribute('href')) && a.target === '_blank'));
+  assert.ok(card.querySelector('details.at-an-faltam'), 'dados que faltam, discreto');
+  assert.match(txt(card), /Não é recomendação/);
+  // conclusões dos indicadores: selo + frase do motor, e a conta de antes como complemento
+  const ind = doc.getElementById('at-indicadores');
+  const conclPl = [...ind.querySelectorAll('.at-ind')].find((x) => /P\/L/.test(x.querySelector('.at-ind-label').textContent)).querySelector('.at-ind-conclusao');
+  assert.ok(conclPl.querySelector('.at-tom.tom-bom'));
+  assert.match(txt(conclPl), /^bom P\/L de 7,5x/);
+  assert.match(txt(conclPl), /7,5 anos do lucro atual/);
+  // preço abaixo do PM? (13,5 > 11): neutro, fica nos critérios da carteira
+  assert.match(txt(todos), /acima do seu preço médio R\$ 11,00/);
+});
+
+test('ativo: análise com metas - renda fixa marcada Renda Emergencial mostra "investir R$ X aqui completa a meta"; sem metas, sem card', async () => {
+  const rf = {
+    ok: true, hoje: '2026-01-10', tipo: 'rf', ticker: 'Tesouro Teste 2030', classe: 'rendaFixa', moeda: 'BRL',
+    ativo: { nomePersonalizado: 'Tesouro Teste 2030', tipoInvestimento: 'Tesouro Selic', indexador: 'SELIC', instituicao: 'CORRETORA X', tipoCarteira: 'emergencial',
+      quantidade: 1.5, vencimento: '03/2030', totalInvestido: 200, totalAtualizado: 210, rentabilidadeContratada: { texto: 'SELIC + 0,1%' } },
+    serie: [{ data: '2026-01-02', valor: 200 }, { data: '2026-01-09', valor: 209 }],
+    transacoes: [], proventos: [], aReceber: [], pagosNaoLancados: [], indices: [{ data: '2026-01-01', cdi: 100, ipca: 50, patrimonio: 1000 }],
+  };
+  const metas = {
+    ok: true, hoje: '2026-01-10',
+    metas: [{ id: 'm1', tipo: 'reservaEmergencia', nome: 'Reserva', status: 'ativa', moeda: 'BRL', especificos: { meses: 3, despesaMensal: 100, usarDespesasPlanilha: false, margem: 0 },
+      vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }] }],
+    ativos: [{ id: 'rf:Tesouro Teste 2030|CORRETORA X@emergencial', ref: 'rf:Tesouro Teste 2030|CORRETORA X', classe: 'rf', marca: 'emergencial', valorBRL: 210 }],
+  };
+  const sem = await montar({ resposta: structuredClone(rf), ref: 'rf:Tesouro Teste 2030|CORRETORA X' });
+  assert.equal(sem.doc.getElementById('at-analise'), null, 'renda fixa sem meta: sem card');
+  const { doc } = await montar({ resposta: rf, ref: 'rf:Tesouro Teste 2030|CORRETORA X', metas });
+  await new Promise((r) => setTimeout(r, 30));
+  const card = doc.getElementById('at-analise');
+  assert.ok(card, 'as metas chegam e o card aparece');
+  assert.match(txt(card), /Análise do título/);
+  assert.match(txt(card), /Faltam R\$ 90,00 pra meta "Reserva"; investir R\$ 90,00 aqui completa a meta\./);
 });

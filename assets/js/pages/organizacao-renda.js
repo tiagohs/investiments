@@ -42,7 +42,7 @@ import { getArquivosIrPatrimonio, getArquivoIrPatrimonio, salvarPatrimonio } fro
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { ligarFiltroPeriodo } from '../periodo-personalizado.js';
 import { carregarPdfJs, extrairLinhasPdf } from './holerite.js';
-import { lerDeclaracaoIr } from './patrimonio-import.js';
+import { lerDeclaracaoIr, identificarDocumento } from './patrimonio-import.js';
 import { mil, brl0, mesAno } from './patrimonio-graficos.js';
 import {
   IPCA_MENSAL, URL_IPCA_BCB, mesclarIpca, ultimoMesIpca, serieRendaAnual, recortarAnos, linhaInflacao, cagrSalario, salarioAtual,
@@ -540,19 +540,33 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
       if (!lista.configurado) throw new Error('a pasta do IR ainda não foi configurada (rode configurarPastaIrDireto no Apps Script)');
       const arquivos = lista.arquivos || [];
       if (!arquivos.length) throw new Error('nenhuma declaração na pasta');
+      // 03/10/2026 (Tiago: a de 2026 se chama "Cópia da Delcaração.pdf" e o
+      // site dizia que faltava): o Apps Script manda o PDF de melhor nome de
+      // cada pasta de ano + as alternativas; quem confirma é o CONTEÚDO - o
+      // leitor do IR tem que reconhecer a declaração, senão tenta a próxima.
+      const alternativas = lista.alternativas || [];
+      const grupos = arquivos.map((a) => [a, ...alternativas.filter((x) => x.pasta === a.pasta)]);
       const lib = await carregarPdf(doc);
       const lidas = [];
       let erros = 0;
-      for (let k = 0; k < arquivos.length; k += 1) {
-        est.lendo = `Lendo ${k + 1} de ${arquivos.length}: ${arquivos[k].pasta || ''}/${arquivos[k].nome || ''}`;
-        desenhar();
-        try {
-          const a = await api.getArquivoIr(arquivos[k].id);
-          if (!a || !a.ok || !a.base64) throw new Error('não veio');
-          const linhas = await lerPdf(lib, base64ParaBytes(a.base64));
-          const { nascimento, ...dados } = lerDeclaracaoIr(linhas);
-          lidas.push(dados);
-        } catch (e) { erros += 1; }
+      for (let k = 0; k < grupos.length; k += 1) {
+        let achou = false;
+        for (const arq of grupos[k]) {
+          est.lendo = `Lendo ${k + 1} de ${grupos.length}: ${arq.pasta || ''}/${arq.nome || ''}`;
+          desenhar();
+          try {
+            const a = await api.getArquivoIr(arq.id);
+            if (!a || !a.ok || !a.base64) throw new Error('não veio');
+            const linhas = await lerPdf(lib, base64ParaBytes(a.base64));
+            if (identificarDocumento(linhas) !== 'ir') continue;
+            const { nascimento, ...dados } = lerDeclaracaoIr(linhas);
+            if (!dados || !dados.ano) continue;
+            lidas.push(dados);
+            achou = true;
+            break;
+          } catch (e) { /* tenta a próxima da mesma pasta */ }
+        }
+        if (!achou) erros += 1;
       }
       if (!lidas.length) throw new Error('nenhuma declaração pôde ser lida');
       const cfg = (est.patrimonio && est.patrimonio.config) || {};

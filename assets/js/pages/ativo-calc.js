@@ -620,3 +620,46 @@ export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [],
 export function ordenarTeses(teses) {
   return [...(teses || [])].sort((a, b) => ((b.data || '') < (a.data || '') ? -1 : 1)).map((t, i) => ({ ...t, maisRecente: i === 0 }));
 }
+
+// ---------------------------------------------------------------------------
+// 03/10/2026 (Tiago: "Nas análises dos gráficos e métricas dos ativos,
+// considere essas fontes... Tenha um largo banco de dados de critérios"):
+// a resposta de action=ativo (+ metas de Metas e Objetivos, quando chegam)
+// vira a entrada do motor de critérios (assets/js/criterios/motor.js).
+// `fundamentos` (contrato, opcional) é repassado como veio.
+// ---------------------------------------------------------------------------
+
+/** Entrada de criterios/motor!avaliarAtivo a partir da resposta do ativo. */
+export function entradaMotorDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null } = {}) {
+  const r = resposta || {};
+  const a = r.ativo || {};
+  const ehRf = r.tipo === 'rf';
+  const classe = r.classe || (ehRf ? 'rendaFixa' : 'acoes');
+  const f = faixa || (ehRf ? null : faixaDePreco(r));
+  const faixaConfiavel = f && (f.fonte === 'planilha' || (f.fonte === 'serie' && !f.parcial));
+  const refRf = ehRf ? `rf:${String(a.nomePersonalizado || r.ticker || '').replace(/\s+/g, ' ').trim()}|${String(a.instituicao || '').trim()}` : '';
+  return {
+    classe,
+    ticker: r.ticker,
+    ref: refRf,
+    marca: ehRf ? (a.tipoCarteira === 'emergencial' ? 'emergencial' : 'longo-prazo') : '',
+    nome: a.nome || '',
+    setor: ehRf ? '' : (a.grupo || ''),
+    segmento: classe === 'fiis' ? (a.grupo || a.segmento || '') : '',
+    moeda: r.moeda === 'USD' ? 'USD' : 'BRL',
+    hoje: r.hoje,
+    indicadores: ehRf ? {} : {
+      precoAtual: a.precoAtual, precoTeto: a.precoTeto, precoMedio: a.precoMedio,
+      dy: a.dyPercentual, dyValor: a.dyValor, pvp: a.pvp, pl: a.pl,
+      liquidez: a.liquidezDiaria, caixa: a.percentualEmCaixa, patrimonio: a.patrimonio,
+      min52: faixaConfiavel ? f.min : null, max52: faixaConfiavel ? f.max : null,
+      proventos: r.proventos || [],
+    },
+    fundamentos: r.fundamentos || null,
+    historicoPreco: ehRf ? [] : (r.serie || []).map((p) => ({ data: p.data, preco: p.preco })),
+    indices: r.indices || [],
+    referencias: r.referencias || {},
+    carteira: ehRf ? {} : { quantidade: a.quantidade, precoMedio: a.precoMedio, peso: percentualCarteira },
+    metas,
+  };
+}

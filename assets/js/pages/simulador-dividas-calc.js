@@ -39,6 +39,7 @@
  */
 import {
   mesDe, somarMeses, saldoFinanciamento, extrasFinanciamento, saldoFies, mesesRestantesFies, saqueAniversario, salarioEm, saldoFgtsEm,
+  projetarAposentadoria,
 } from './patrimonio-calc.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -222,6 +223,9 @@ export function novaDivida(d) {
     st,
     get saldo() { return s; },
     get ativa() { return s > EPS; },
+    /** SAC: a amortização do mês (já com a TR que entrou); Price: a parcela sem seguro. */
+    get amortizacao() { return A; },
+    get parcela() { return P; },
     restante,
     /** Parcela regular do mês t. trM: TR do mês (só se d.tr). */
     mes(t, trM = 0) {
@@ -419,7 +423,7 @@ function mesesTotais(p, pr) {
  *   reserva?: { atual, meta }
  * }
  */
-export function simular(params) {
+export function simular(params, { leve = false } = {}) {
   const p = {
     frequencia: 'mensal', alvo: 'cara', modo: 'prazo', reinvestirDiferenca: true, perfil: 'cdi100', reinvestirProventos: true,
     horizonteAnos: 10, fracMisto: 0.5, patrimonioBase: 0, valor: 0, dividas: {}, ...params,
@@ -469,8 +473,10 @@ export function simular(params) {
     return c.liquido(H * 12) ** (1 / H) - 1;
   };
   // ponto de virada: taxa líquida (sem IR) em que investir empata com amortizar no horizonte
+  // 03/10/2026: `leve` (as linhas "matar 2, 3, 4 parcelas" rodam 6 simulações):
+  // sem ponto de virada, sem os outros perfis e sem a outra frequência
   const virada = (() => {
-    if (!temDivida || !ordem.length || !(p.valor > 0)) return null;
+    if (leve || !temDivida || !ordem.length || !(p.valor > 0)) return null;
     const dif = (r) => {
       const a = roda({ fracAmortizar: 1, perfil: 'fixa', taxaFixa: r });
       const b = roda({ fracAmortizar: 0, perfil: 'fixa', taxaFixa: r });
@@ -483,14 +489,14 @@ export function simular(params) {
     return { taxa: (lo + hi) / 2 };
   })();
   // os quatro perfis lado a lado (cenário "investir")
-  const perfis = Object.keys(PERFIS).map((id) => {
+  const perfis = (leve ? [p.perfil] : Object.keys(PERFIS)).map((id) => {
     const c = id === p.perfil ? cen.investir : roda({ fracAmortizar: 0, perfil: id });
     const l = noAno(c, H);
     return { id, ...PERFIS[id], patrimonio: l.patrimonio, investidoLiquido: l.investidoLiquido, investidoBruto: l.investidoBruto, renda: l.renda, rendaReal: l.rendaReal, retornoLiquido: retornoLiquido(id) };
   });
   // o vídeo: todo mês x uma vez por ano (mesmo total no ano)
   const outraFreq = p.frequencia === 'anual' ? 'mensal' : 'anual';
-  const outra = p.valor > 0 && temDivida ? rodarCenario(p, pr, { meses: M, basePagamentos: bp, perfil: p.perfil, valor: p.frequencia === 'anual' ? p.valor / 12 : p.valor * 12, fracAmortizar: 1, freq: outraFreq }) : null;
+  const outra = !leve && p.valor > 0 && temDivida ? rodarCenario(p, pr, { meses: M, basePagamentos: bp, perfil: p.perfil, valor: p.frequencia === 'anual' ? p.valor / 12 : p.valor * 12, fracAmortizar: 1, freq: outraFreq }) : null;
   const frequencias = outra ? {
     atual: p.frequencia, outra: outraFreq,
     economiaAtual: r2(custo(base) - custo(cen.amortizar)),
@@ -532,6 +538,159 @@ export function simular(params) {
   };
   return { params: p, premissas: pr, meses: M, anos, cenarios: cen, resumo, temDivida };
 }
+
+// ---------------------------------------------------------------------------
+// "Matar parcelas": quanto amortizar por mês pra tirar k parcelas do fim
+// ---------------------------------------------------------------------------
+
+const NOMES_DIVIDA_CURTO = { financiamento: 'Apê', fies: 'FIES' };
+
+/**
+ * 03/10/2026 (Tiago: "O valor de amortização mensal default é sempre o mínimo
+ * para matar ao menos duas parcelas, se eu amortizar"): quanto pagar a mais
+ * no mês que vem, no modo "reduzir prazo", pro contrato perder `k` parcelas
+ * do fim.
+ *  - SAC: cada parcela a menos é uma amortização constante -> k × A, com A já
+ *    corrigida pela TR do mês (a Caixa corrige o saldo E a amortização pela TR).
+ *  - Price (FIES): o principal das k últimas parcelas = o valor presente
+ *    delas hoje: P × [(1+i)^−(n−k) − (1+i)^−n] / i, n = parcelas que faltam
+ *    depois da do mês.
+ * Conta igual ao simulador: a parcela normal do mês sai antes do extra.
+ * divida: formato do simulador (dividasDoContexto); trMensal: a TR do mês que
+ * vem (trNoMes(1, premissas)). Devolve { k, exato, valor (arredondado pra
+ * cima de `passo` em `passo` reais), porParcela, restantes, saldo, sistema }
+ * ou null. Pedir k >= o que falta = quitar (valor = saldo).
+ */
+export function valorParaMatarParcelas(divida, k = 2, { trMensal = 0, passo = 10 } = {}) {
+  if (!divida || !(divida.saldo > EPS) || !(k > 0)) return null;
+  const d = novaDivida({ id: divida.id, ...divida });
+  d.mes(1, divida.tr ? trMensal : 0);
+  if (!d.ativa) return null;
+  const n = d.restante();
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const s = d.saldo;
+  const i = divida.taxaMensal || 0;
+  const kk = Math.min(k, n);
+  let exato;
+  if (kk >= n) exato = s;
+  else if (divida.sistema === 'SAC') exato = kk * d.amortizacao;
+  else exato = i > 0 ? (d.parcela * ((1 + i) ** -(n - kk) - (1 + i) ** -n)) / i : kk * d.parcela;
+  exato = Math.min(Math.ceil(exato * 100 - 1e-6) / 100, s);
+  // confere no próprio motor (arredondamento de ponto flutuante na fronteira): sobe de centavo em centavo
+  const tira = (v) => { const x = novaDivida({ id: divida.id, ...divida }); x.mes(1, divida.tr ? trMensal : 0); x.extra(1, v, 'prazo'); return n - x.restante(); };
+  for (let k2 = 0; k2 < 5 && exato < s && tira(exato) < kk; k2 += 1) exato = r2(exato + 0.01);
+  exato = r2(exato);
+  const valor = passo > 0 ? Math.min(Math.ceil(exato / passo - 1e-9) * passo, Math.ceil(s)) : exato;
+  return { k: kk, exato, valor, porParcela: r2(exato / kk), restantes: n, saldo: r2(s), sistema: divida.sistema };
+}
+
+/**
+ * O contrário: quantas parcelas (com fração) um extra de `valor` tira do fim
+ * no mês que vem. SAC: valor ÷ A; Price: n(saldo) − n(saldo − valor), com o n
+ * contínuo da Price.
+ */
+export function parcelasQueOValorMata(divida, valor, { trMensal = 0 } = {}) {
+  if (!divida || !(divida.saldo > EPS) || !(valor > 0)) return 0;
+  const d = novaDivida({ id: divida.id, ...divida });
+  d.mes(1, divida.tr ? trMensal : 0);
+  if (!d.ativa) return 0;
+  const s = d.saldo;
+  if (valor >= s - EPS) return d.restante();
+  if (divida.sistema === 'SAC') return valor / d.amortizacao;
+  const i = divida.taxaMensal || 0;
+  const P = d.parcela;
+  if (!(i > 0)) return valor / P;
+  const nf = (x) => -Math.log(1 - (x * i) / P) / Math.log(1 + i);
+  return nf(s) - nf(s - valor);
+}
+
+/** A dívida que o extra paga primeiro (a escolhida, ou a mais cara) e o mínimo pra matar k parcelas nela. */
+export function minimoParaMatar(params, k = 2, alvo = params && params.alvo) {
+  if (!params || !params.dividas) return null;
+  const pr = premissas(params.taxas);
+  const id = ordemAlvo(params.dividas, alvo || 'cara', pr.trMensal, pr.ipca)[0];
+  if (!id) return null;
+  const m = valorParaMatarParcelas(params.dividas[id], k, { trMensal: trNoMes(1, pr) });
+  return m ? { id, nome: NOMES_DIVIDA_CURTO[id], ...m } : null;
+}
+
+/**
+ * "Quanto amortizar pra matar 2, 3 e 4 parcelas por mês", pra cada dívida:
+ * o valor mensal, a nova quitação, os juros (+ seguro) economizados e o
+ * patrimônio no horizonte amortizando x investindo o mesmo valor (as outras
+ * escolhas - perfil, horizonte, taxas, FGTS - vêm de `params`).
+ */
+export function opcoesMatarParcelas(params, { ks = [2, 3, 4] } = {}) {
+  const pr = premissas(params.taxas);
+  const tr1 = trNoMes(1, pr);
+  return ORDEM_DIVIDAS.filter((id) => params.dividas && params.dividas[id] && params.dividas[id].saldo > EPS).map((id) => {
+    const divida = params.dividas[id];
+    const custo = custoEfetivo(divida, pr.trMensal);
+    const linhas = [];
+    ks.forEach((k) => {
+      const m = valorParaMatarParcelas(divida, k, { trMensal: tr1 });
+      if (!m || linhas.some((l) => l.k === m.k)) return;
+      const sim = simular({ ...params, alvo: id, valor: m.valor, frequencia: 'mensal', modo: 'prazo' }, { leve: true });
+      const q = sim.resumo.quitacao[id] || {};
+      const r = sim.resumo;
+      linhas.push({
+        ...m, pedido: k,
+        baseMes: q.baseMes, quitaMes: q.amortizarMes, mesesAdiantados: q.mesesAdiantados,
+        custoEconomizado: r.custoEconomizado,
+        patrimonioAmortizar: r.patrimonio.amortizar, patrimonioInvestir: r.patrimonio.investir,
+        vantagemInvestir: r.vantagemInvestir, melhor: r.melhor, anoHorizonte: r.anoHorizonte,
+      });
+    });
+    return { id, nome: NOMES_DIVIDA_CURTO[id], sistema: divida.sistema, custo, abaixoInflacao: num(custo) && custo < pr.ipca, linhas };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Ritmo e "quando chego ao primeiro milhão" (o herói da aba Simulações)
+// ---------------------------------------------------------------------------
+
+/** Valor de uma série anual do simulador ([{ t, ...}], t em meses) no mês m (reta entre os pontos; depois do fim, o último). */
+export function valorNaLinha(linhas, campo, m) {
+  if (!linhas || !linhas.length) return 0;
+  const v = (l) => (num(l[campo]) ? l[campo] : 0);
+  if (m <= linhas[0].t) return v(linhas[0]);
+  for (let k = 1; k < linhas.length; k += 1) {
+    const a = linhas[k - 1]; const b = linhas[k];
+    if (m <= b.t) return v(a) + ((v(b) - v(a)) * (m - a.t)) / ((b.t - a.t) || 1);
+  }
+  return v(linhas[linhas.length - 1]);
+}
+
+/**
+ * 03/10/2026 (Tiago: "Ritmo atual e quando chego ao primeiro milhão"):
+ * patrimônio líquido mês a mês, em dinheiro de hoje (como a aba Patrimônio):
+ *   apê e outros bens (parados em valor real)
+ *   + investimentos (projetarAposentadoria: o aporte do ritmo, o rendimento
+ *     real e as parcelas que viram aporte quando as dívidas acabam)
+ *   − (dívidas − FGTS) do cenário "só as parcelas" do simulador, descontada
+ *     a inflação (a dívida em reais encolhe em dinheiro de hoje)
+ *   + o que um cenário do simulador soma a mais (amortizar ou investir o
+ *     extra), também descontado.
+ * entradas: { liquido, investido, aporte, rendimentoReal, ipca, liberacoes,
+ * base (linhas do cenário base), cenario (linhas, opcional), alvo, maxMeses }.
+ * Devolve { meses (a partir de hoje; 0 = já tem; null = não chega), serie(m) }.
+ */
+export function projetarMarco({ liquido = 0, investido = 0, aporte = 0, rendimentoReal = 0.05, ipca = 0, liberacoes = [], base = null, cenario = null, alvo = 1e6, maxMeses = 600 } = {}) {
+  const proj = projetarAposentadoria({ inicial: investido, aporte, rendimentoReal, liberacoes, maxMeses });
+  const passivo = (m) => (base ? valorNaLinha(base, 'totalDividas', m) - valorNaLinha(base, 'fgts', m) : 0);
+  const fixo = liquido - investido + passivo(0);
+  const serie = (m) => {
+    const defl = (1 + ipca) ** (m / 12);
+    const extra = cenario && base ? valorNaLinha(cenario, 'patrimonio', m) - valorNaLinha(base, 'patrimonio', m) : 0;
+    return fixo + proj.pontos[Math.min(m, proj.pontos.length - 1)].v - passivo(m) / defl + extra / defl;
+  };
+  let meses = null;
+  for (let m = 0; m <= maxMeses; m += 1) { if (serie(m) >= alvo) { meses = m; break; } }
+  return { meses, serie };
+}
+
+/** O próximo milhão redondo acima de `v` (R$ 1 mi, 2 mi...). */
+export const proximoMilhao = (v) => Math.max(1, Math.floor((num(v) ? v : 0) / 1e6) + 1) * 1e6;
 
 // ---------------------------------------------------------------------------
 // Cenário padrão a partir do contexto do patrimônio
@@ -579,7 +738,12 @@ const arred = (v, passo) => Math.round(v / passo) * passo;
  *  (totalComFolga), ctx.cfg (financiamento, fies, fgts, carreira),
  *  ctx.b.liquido (patrimônio líquido de hoje) e ctx.fgts (resumoFgts:
  *  saldo, proximaAmortizacao, aniversario).
- * Sem o salário: R$ 1.000/mês. Com: 10% do salário líquido, redondo.
+ * Valor padrão (03/10/2026, Tiago: "O valor de amortização mensal default é
+ * sempre o mínimo para matar ao menos duas parcelas"): o mínimo que tira 2
+ * parcelas por mês da dívida que o simulador escolhe (a mais cara), no modo
+ * prazo - valorParaMatarParcelas. Sem dívida pra amortizar, a regra antiga:
+ * 10% do salário líquido, redondo (sem o salário: R$ 1.000/mês) - que segue
+ * em `valorSalario` (pra reconhecer uma escolha antiga salva no navegador).
  */
 export function parametrosPadrao(ctx, hoje = null) {
   const d = (ctx && ctx.d) || {};
@@ -607,10 +771,13 @@ export function parametrosPadrao(ctx, hoje = null) {
   if (num(d.trMensal)) taxas.trMensal = d.trMensal;
   const inv = d.investimentos || {};
   const b = (ctx && ctx.b) || {};
+  const dividas = dividasDoContexto(cfg, h);
+  const minimo = minimoParaMatar({ dividas, taxas }, 2, 'cara');
   return {
     hoje: h, patrimonioBase: num(b.liquido) ? b.liquido : 0,
-    dividas: dividasDoContexto(cfg, h), fgts,
-    valor, frequencia: 'mensal', alvo: 'cara', modo: 'prazo', reinvestirDiferenca: true,
+    dividas, fgts,
+    valor: minimo ? minimo.valor : valor, valorSalario: valor, valorMinimo: minimo,
+    frequencia: 'mensal', alvo: 'cara', modo: 'prazo', reinvestirDiferenca: true,
     perfil: 'cdi100', reinvestirProventos: true, horizonteAnos: 10, fracMisto: 0.5, taxas,
     reserva: { atual: num(inv.reserva) ? inv.reserva : null, meta: num(metas.reservaMeta) ? metas.reservaMeta : null, custoMensal: d.despesas && num(d.despesas.totalComFolga) ? d.despesas.totalComFolga : null },
     salarioLiquido: sal,
@@ -696,7 +863,7 @@ export function veredito(sim) {
 export const ESTRATEGIAS_VIDEO = [
   { min: '02:34', t: 154, titulo: 'A TR corrige o saldo todo mês', video: 'Com a Selic alta a TR voltou (~0,17% ao mês, ~2% ao ano); quase todo financiamento (Caixa, MCMV...) é corrigido por ela. Com a Selic abaixo de ~8,5% ela fica perto de zero.', conta: 'O saldo e a amortização do apê são corrigidos pela TR todo mês; a TR acompanha o CDI quando ele cai.' },
   { min: '07:30', t: 450, titulo: 'Amortize mais do que a TR soma', video: 'Uma amortização pequena só "empata" com a correção da TR; o saldo só cai de verdade quando você paga acima dela.', conta: 'O simulador mostra quanto a TR soma por mês ao saldo hoje e quanto a parcela abate.' },
-  { min: '08:36', t: 516, titulo: 'Uma referência de valor: ~3 parcelas por ano', video: 'Como valor "legal" de amortização extra o vídeo sugere juntar algo como 3 parcelas por ano.', conta: 'O valor padrão é 10% do seu salário líquido; troque à vontade.' },
+  { min: '08:36', t: 516, titulo: 'Uma referência de valor: ~3 parcelas por ano', video: 'Como valor "legal" de amortização extra o vídeo sugere juntar algo como 3 parcelas por ano.', conta: 'O valor padrão é o mínimo que tira 2 parcelas por mês do fim do contrato (a seção "matar 2, 3 ou 4 parcelas" mostra os outros); troque à vontade.' },
   { min: '09:12', t: 552, titulo: 'Reduzir o prazo, não a parcela', video: 'Amortizar no prazo é o que mais economiza e quita mais rápido.', conta: 'Modo "reduzir prazo" é o padrão; "reduzir parcela" recalcula a parcela e (opção) investe a diferença.' },
   { min: '10:09', t: 609, titulo: 'Todo mês ou uma vez por ano', video: 'Todo mês economiza mais juros, mas a diferença é pequena no contrato inteiro: escolha pelo seu caixa.', conta: 'Você escolhe mensal ou anual (dezembro); o simulador calcula a outra opção e mostra a diferença.' },
   { min: '10:09', t: 609, titulo: 'Conheça a regra do banco', video: 'Por lei o banco tem que aceitar a amortização antecipada, mas cada banco tem seu valor mínimo.', conta: 'Sem limite mínimo na conta - confira no app/agência da Caixa.' },

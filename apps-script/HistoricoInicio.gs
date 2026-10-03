@@ -232,6 +232,12 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
   var porDiaIfix = {};             // chave -> valor do IFIX (19/09/2026, gráfico de FIIs em Carteiras)
   var porDiaSp500 = {};            // chave -> valor do S&P 500 (19/09/2026, gráfico de Ações EUA em Carteiras)
+  // 03/10/2026 (base de critérios de rentabilidade): IVVB11 = S&P 500 COM
+  // dividendos (reinvestidos, líquidos) e já em reais - o benchmark justo da
+  // carteira de Ações EUA (o .INX acima é só preço, em dólar: favorece a
+  // carteira em ~1,2-1,5 p.p. ao ano). Só entra na série depois de
+  // rodarBackfillIvvb11Direto() (BackfillIndices.gs); até lá o campo não vai.
+  var porDiaIvvb11 = {};
   // Câmbio USD/BRL por dia (só existe pra classe USA) - montado na MESMA
   // passada que lê aux_historico-patrimonio logo abaixo, reaproveitado
   // por calcularFluxoCaixaDiario_ (FluxoCaixaInicio.gs) pra converter as
@@ -404,6 +410,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       } else if (nomeIndice === 'S&P 500') {
         var chaveSp500 = chaveDiaISOInicio_(data);
         porDiaSp500[chaveSp500] = isNaN(valor) ? null : valor;
+      } else if (nomeIndice === 'IVVB11') {
+        if (!isNaN(valor) && valor > 0) porDiaIvvb11[chaveDiaISOInicio_(data)] = valor; // 03/10/2026, ver acima
       }
     });
   }
@@ -621,6 +629,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var ultimoRendaEmergencialConhecido_ = 0;
   var ultimoIfix = null;
   var ultimoSp500 = null;
+  var ultimoIvvb11 = null; // 03/10/2026
+  var temIvvb11_ = Object.keys(porDiaIvvb11).length > 0;
 
   // 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em
   // dólar"): câmbio USD->BRL de cada dia na série (`cambioUsd`) - o MESMO
@@ -707,6 +717,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     if (chaveAtual in porDiaIbovespa) ultimoIbovespa = porDiaIbovespa[chaveAtual];
     if (chaveAtual in porDiaIfix) ultimoIfix = porDiaIfix[chaveAtual];
     if (chaveAtual in porDiaSp500) ultimoSp500 = porDiaSp500[chaveAtual];
+    if (chaveAtual in porDiaIvvb11) ultimoIvvb11 = porDiaIvvb11[chaveAtual]; // 03/10/2026
 
     // Renda Fixa: já vem calculada dia a dia (todo santo dia, sem lacuna),
     // então usa o valor do próprio dia direto, sem forward-fill.
@@ -820,6 +831,8 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     if (provAcoesHoje) pontoHoje.proventosAcoes = arredondar2Inicio_(provAcoesHoje);
     if (provFiisHoje) pontoHoje.proventosFiis = arredondar2Inicio_(provFiisHoje);
     if (provUsaHoje) pontoHoje.proventosAcoesEua = arredondar2Inicio_(provUsaHoje);
+    // 03/10/2026: S&P 500 com dividendos em R$ (IVVB11), só com backfill rodado
+    if (temIvvb11_ && ultimoIvvb11 != null) pontoHoje.ivvb11 = ultimoIvvb11;
 
     dataAtual.setDate(dataAtual.getDate() + 1);
   }

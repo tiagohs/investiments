@@ -81,7 +81,13 @@ var CELULA_RASCUNHO_GOOGLEFINANCE = 'AZ1';
 var DIAS_POR_PEDACO_INDICE = 180;
 var DATA_INICIO_HISTORICO_INDICES = new Date(2020, 11, 22); // mesmo início do restante do histórico (aux_historico-renda-fixa começa 22/12/2020)
 var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11, IPCA: 433 }; // nome persistido -> código da série SGS/BCB (IPCA: variação mensal, série 433 — mesma que buscarIpcaAcumulado12Meses_ já usa pro "hoje")
-var TICKERS_INDICES_GOOGLEFINANCE = { Ibovespa: 'INDEXBVMF:IBOV', IFIX: 'INDEXBVMF:IFIX', 'S&P 500': 'INDEXSP:.INX' }; // nome persistido -> ticker GOOGLEFINANCE (confirmado com Tiago via planilha real, 19/09/2026: Auxiliar_app!B9 e B15)
+var TICKERS_INDICES_GOOGLEFINANCE = { Ibovespa: 'INDEXBVMF:IBOV', IFIX: 'INDEXBVMF:IFIX', 'S&P 500': 'INDEXSP:.INX', IVVB11: 'BVMF:IVVB11' }; // nome persistido -> ticker GOOGLEFINANCE (confirmado com Tiago via planilha real, 19/09/2026: Auxiliar_app!B9 e B15)
+// 03/10/2026 (base de critérios de rentabilidade): IVVB11 = ETF do S&P 500
+// que REINVESTE os dividendos e já está em reais - benchmark justo da
+// carteira de Ações EUA (o INDEXSP:.INX é só preço e em dólar). Igual a
+// IFIX/S&P 500: o gatilho diário só mantém em dia depois do backfill
+// inicial (rodarBackfillIvvb11Direto(), 1x); antes disso fica "sem backfill
+// ainda" no detalhe, sem derrubar nada.
 
 /**
  * Roda fn() até funcionar, tentando de novo em caso de erro. Usado pelos
@@ -223,6 +229,11 @@ function executarBackfillIndices_() {
 /** Roda direto no editor, pra popular IFIX do zero (rodar 1x). */
 function rodarBackfillIfixDireto() {
   Logger.log(JSON.stringify(executarBackfillIndiceGoogleFinance_('IFIX', TICKERS_INDICES_GOOGLEFINANCE.IFIX), null, 2));
+}
+
+/** 03/10/2026: popula o IVVB11 (S&P 500 com dividendos, em R$) do zero - rodar 1x no editor. */
+function rodarBackfillIvvb11Direto() {
+  Logger.log(JSON.stringify(executarBackfillIndiceGoogleFinance_('IVVB11', TICKERS_INDICES_GOOGLEFINANCE.IVVB11), null, 2));
 }
 
 /** Roda direto no editor, pra popular S&P 500 do zero (rodar 1x). */

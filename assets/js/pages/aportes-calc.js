@@ -10,6 +10,9 @@
 // itens: [{ classe, ativo, instituicao, moeda, qtdPlanejada, precoPlanejado,
 // valorPlanejado, qtdFinal, precoFinal, valorFinal }] }.
 
+// 03/10/2026: motor de critérios (nota/eliminatórios), preço x preço médio e metas de Metas e Objetivos
+import { avaliarAtivo, sinalPrecoMedio, sinaisDeMetas } from '../criterios/motor.js';
+
 export const CLASSES_APORTE = [
   { id: 'acoes', nome: 'Ações', curto: 'Ações', cor: '--acoes' },
   { id: 'fiis', nome: 'FIIs', curto: 'FIIs', cor: '--fiis' },
@@ -238,7 +241,59 @@ function sinalMetaClasse(sinais, meta, nome, peso = 0.5) {
   else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da fatia desejada (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, -peso);
 }
 
-function momentoRendaVariavel(a, classe, metas, totalRanking) {
+// ---------------------------------------------------------------------------
+// 03/10/2026 (Tiago: "inclua também nas análises quando investir no ativo vai
+// ajudar a chegar à meta... Além disso, se o preço atual da ação está abaixo
+// do preço médio, é um ponto positivo pra investir; se não, pode ser um
+// ponto neutro"): sinais de meta (criterios/motor!sinaisDeMetas), preço x
+// preço médio (sinalPrecoMedio) e 2-3 sinais do motor de critérios - a nota
+// (só com 5+ critérios), os eliminatórios e o ponto mais forte/fraco que o
+// momento ainda não mostra.
+// ---------------------------------------------------------------------------
+
+/** Item da prateleira/Radar -> entrada do motor (sem carteira/metas: o momento cuida deles). */
+export function entradaMotorDoAporte(a, classe) {
+  const r = (a && a.radar) || {};
+  const pick = (x, y) => (x != null ? x : y);
+  return {
+    classe, ticker: a.ticker, nome: a.nome || '', moeda: a.moeda === 'USD' ? 'USD' : 'BRL',
+    setor: a.setor || '', segmento: a.segmento || r.segmento || '', tipoFii: r.tipo || a.tipo || '',
+    indicadores: {
+      precoAtual: a.precoAtual, precoTeto: a.precoTeto, precoMedio: a.precoMedio,
+      pvp: pick(a.pvp, r.pvp), pl: pick(a.pl, r.pl), dy: pick(a.dy, r.dy), dyValor: a.dyValor,
+      liquidez: a.liquidezDiaria, caixa: a.percentualEmCaixa, patrimonio: a.patrimonio,
+    },
+    fundamentos: a.fundamentos || null,
+    referencias: a.referencias || {},
+  };
+}
+
+/** Critérios que o momento já mostra do jeito dele (teto, P/VP, desconto P/L). */
+const JA_NO_MOMENTO = new Set(['pvp', 'fii_pvp', 'pl', 'preco_vs_teto_planilha', 'fii_preco_teto_dy', 'earnings_yield', 'combo_retorno_implicito', 'preco_teto_bazin', 'combo_teto_composto', 'preco_justo_graham']);
+const semPonto = (t) => String(t || '').replace(/\.\s*$/, '');
+
+function sinaisDoMotor(sinais, a, classe) {
+  let av = null;
+  try { av = avaliarAtivo(entradaMotorDoAporte(a, classe)); } catch (e) { av = null; }
+  if (!av) return { eliminatorio: false };
+  av.eliminatoriosAcionados.slice(0, 2).forEach((x) => sinal(sinais, 'ruim', `Alerta: ${semPonto(x.texto)}`, -1.5));
+  if (typeof av.nota === 'number' && av.cobertura.avaliados >= 5) {
+    const tom = av.nota >= 70 ? 'bom' : (av.nota <= 40 ? 'ruim' : 'neutro');
+    sinal(sinais, tom, `Fundamentos: nota ${av.nota}/100, ${av.veredito.rotulo.toLowerCase()} (${av.cobertura.avaliados} critérios)`, tom === 'bom' ? 1 : (tom === 'ruim' ? -1 : 0));
+  }
+  const extra = av.pontos.find((p) => !JA_NO_MOMENTO.has(p.criterioId) && p.grupo !== 'carteira' && !p.informativo && !p.eliminatorio
+    && (p.tom === 'bom' || p.tom === 'ruim') && p.peso >= 2);
+  if (extra) sinal(sinais, extra.tom, semPonto(extra.texto), extra.tom === 'bom' ? 0.5 : -0.5);
+  return { eliminatorio: av.eliminatoriosAcionados.length > 0, avaliacao: av };
+}
+
+function sinaisMeta(sinais, alvo, opcoes) {
+  const lista = sinaisDeMetas({ ...alvo, metas: opcoes.metasObjetivos, valorSugerido: opcoes.valorSugerido, cambio: opcoes.cambio });
+  lista.forEach((x) => sinal(sinais, x.tom, x.texto, x.peso));
+  return lista;
+}
+
+function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
   const sinais = [];
   const preco = a.precoAtual;
   let acimaDoTeto = false;
@@ -259,11 +314,8 @@ function momentoRendaVariavel(a, classe, metas, totalRanking) {
     } else if (at - d >= 0.01) sinal(sinais, 'ruim', `Acima do % desejado no Radar (${pctTxt(at)} de ${pctTxt(d)})`, -1.5);
     else sinal(sinais, 'neutro', `No % desejado do Radar (${pctTxt(at)} de ${pctTxt(d)})`, 0);
   }
-  if (preco > 0 && a.precoMedio > 0 && a.quantidade > 0) {
-    const v = preco / a.precoMedio - 1;
-    if (v <= -0.03) sinal(sinais, 'bom', `${pctTxt(-v)} abaixo do seu preço médio (baixa o PM)`, 1);
-    else if (v >= 0.2) sinal(sinais, 'ruim', `${pctTxt(v)} acima do seu preço médio (sobe o PM)`, -0.5);
-  }
+  const pm = sinalPrecoMedio({ precoAtual: preco, precoMedio: a.precoMedio, quantidade: a.quantidade, moeda: a.moeda });
+  if (pm) sinal(sinais, pm.tom, pm.texto, pm.peso);
   const u = a.ultimoPago;
   if (preco > 0 && u && u.preco > 0) {
     const v = preco / u.preco - 1;
@@ -284,6 +336,11 @@ function momentoRendaVariavel(a, classe, metas, totalRanking) {
   }
   if (typeof a.variacaoDia === 'number' && a.variacaoDia <= -0.02) sinal(sinais, 'bom', `Caindo ${pctTxt(-a.variacaoDia)} hoje`, 0.5);
   if (metas) sinalMetaClasse(sinais, metas[classe], NOME_META_CLASSE[classe]);
+  const r0 = a.radar || {};
+  sinaisMeta(sinais, { classe, ticker: a.ticker, moeda: a.moeda, dy: a.dy != null ? a.dy : r0.dy }, {
+    ...opcoes, valorSugerido: opcoes.valorSugerido != null ? opcoes.valorSugerido : (r0.valorInvestir > 0 ? r0.valorInvestir : null),
+  });
+  const motor = sinaisDoMotor(sinais, a, classe);
   // Ranking (26/09/2026, Tiago: "o ranking é uma forma da Suno dizer que é um
   // bom momento de investir naquele ativo, por questões externas, não só
   // fundamentalistas... pode influenciar pra algo 'bom momento' para 'neutro',
@@ -299,7 +356,7 @@ function momentoRendaVariavel(a, classe, metas, totalRanking) {
   }
   const pontos = sinais.reduce((s, x) => s + x.peso, 0);
   let nivel = acimaDoTeto || pontos <= -1 ? 'esperar' : (pontos >= 3 ? 'bom' : 'neutro');
-  if (nivel === 'bom' && entreOsUltimos) nivel = 'neutro';
+  if (nivel === 'bom' && (entreOsUltimos || motor.eliminatorio)) nivel = 'neutro';
   return fechar(sinais, nivel);
 }
 
@@ -318,7 +375,10 @@ function textoTaxa(indice, taxa) {
   return `${t} a.a.`;
 }
 
-function momentoRendaFixa(t, metas, hoje) {
+/** Marca da Renda Fixa em Metas e Objetivos ('emergencial' | 'longo-prazo') pela categoria da planilha. */
+export const marcaRf = (t) => (/emergencial|reserva/i.test(String((t && (t.categoria || t.tipoCarteira)) || '')) ? 'emergencial' : 'longo-prazo');
+
+function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
   const sinais = [];
   const indice = /selic/i.test(t.titulo) || t.indexador === 'SELIC' ? 'SELIC' : (/ipca/i.test(t.titulo) || t.indexador === 'IPCA' ? 'IPCA' : (/prefixado/i.test(t.titulo) ? 'PRE' : (t.indexador || '')));
   const hojeT = t.taxaHoje && typeof t.taxaHoje.taxa === 'number' ? t.taxaHoje.taxa : null;
@@ -336,7 +396,11 @@ function momentoRendaFixa(t, metas, hoje) {
   const emergencial = /emergencial/i.test(t.categoria || '');
   const meta = metas ? (emergencial ? metas.rfEmergencial : metas.rfLongoPrazo) : null;
   const nome = emergencial ? 'Reserva de emergência' : 'Renda Fixa de longo prazo';
-  if (meta && typeof meta.desejado === 'number' && typeof meta.atual === 'number' && meta.desejado > 0) {
+  // 03/10/2026: metas de Metas e Objetivos (vínculo pela marca Renda Emergencial/longo prazo, pelo título ou pela classe)
+  const titulo = String(t.titulo || '').replace(/\s+/g, ' ').trim();
+  const metasObj = sinaisMeta(sinais, { classe: 'rendaFixa', ticker: titulo, ref: `rf:${titulo}|${String(t.instituicao || '').trim()}`, marca: marcaRf(t), moeda: 'BRL' }, opcoes);
+  // a meta de Metas e Objetivos substitui a linha de "% da reserva" da planilha (mesma informação, mais exata)
+  if (!metasObj.length && meta && typeof meta.desejado === 'number' && typeof meta.atual === 'number' && meta.desejado > 0) {
     const dif = meta.atual - meta.desejado;
     if (dif <= -0.01) sinal(sinais, 'bom', `${nome} abaixo da meta (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})${meta.valorInvestir > 0 ? `: faltam ${reais(meta.valorInvestir)}` : ''}`, 1.5);
     else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da meta (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, -1.5);
@@ -353,7 +417,14 @@ function momentoRendaFixa(t, metas, hoje) {
 
 /** a = item de dados.classes[classe] (Aportes.gs!ativosParaAporte_ + enriquecerMomentoAporte_); metas = dados.metas. */
 /** opcoes.totalRanking = quantos ativos tem o bloco do Radar dessa classe (pra "ranking X de N"). */
-export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0 } = {}) {
+/**
+ * 03/10/2026: opcoes.metasObjetivos = metas de Metas e Objetivos com `calc`
+ * (metas-card!metasComCalculo; null = sem sinal de meta), opcoes.valorSugerido
+ * = quanto se pensa aportar (moeda do ativo; padrão: o "R$ a investir" do
+ * Radar), opcoes.cambio = dólar (ativos EUA).
+ */
+export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0, metasObjetivos = null, valorSugerido = null, cambio = null } = {}) {
   if (!a) return fechar([], 'neutro');
-  return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje) : momentoRendaVariavel(a, classe, metas, total);
+  const opcoes = { metasObjetivos, valorSugerido, cambio };
+  return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje, opcoes) : momentoRendaVariavel(a, classe, metas, total, opcoes);
 }
