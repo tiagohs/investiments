@@ -183,18 +183,75 @@ test('Aba Patrimônio: declarações do IR direto do Drive - lista, lê e salva 
   assert.equal(ir.valor.anos[0].bens, 30000);
 });
 
-test('Aba Patrimônio: simulador amortizar ou investir responde a valor e modo', async () => {
-  const { el, w } = await montar();
-  assert.match(txt(el.querySelector('#ptSim')), /Amortizando/);
-  const v = el.querySelector('#ptSimValor');
-  v.value = '0';
-  v.dispatchEvent(new w.Event('change', { bubbles: true }));
-  assert.match(txt(el.querySelector('#ptSim')), /Coloque um valor a mais/);
-  const m = el.querySelector('#ptSimMensal');
-  m.value = '500';
-  m.dispatchEvent(new w.Event('change', { bubbles: true }));
-  clique(w, el.querySelector('[data-sim="modo"] [data-v="parcela"]'));
-  assert.match(txt(el.querySelector('#ptSim')), /Economiza/);
+test('Aba Patrimônio (03/10/2026): sem simulador de dívidas nem Carreira/FGTS; com Patrimônio vs. inflação logo depois do histórico e link pra Metas', async () => {
+  const { el } = await montar();
+  assert.equal(el.querySelector('#ptSim'), null, 'o simulador foi pra Gastos e Despesas');
+  assert.equal(el.querySelector('#ptCarreira'), null, 'Carreira foi pra Renda e Orçamentos');
+  assert.equal(el.querySelector('#ptFgts'), null, 'FGTS foi pra Renda e Orçamentos');
+  const secoes = [...el.children].map((x) => x.id).filter(Boolean);
+  assert.ok(secoes.indexOf('ptInflacao') === secoes.indexOf('ptSecHist') + 1, 'inflação logo depois do histórico');
+  assert.match(txt(el.querySelector('#ptInflacao')), /Patrimônio vs\. inflação/);
+  assert.ok(el.querySelector('a[href="../metas.html"]'), 'link pra Metas e Objetivos');
+  assert.match(el.querySelector('#ptDicas [data-dica="amortizar"]').innerHTML, /href="#simulador"/, 'a dica leva pro simulador novo');
+});
+
+test('Aba Patrimônio: filtro de período no histórico (gráfico + tabela) e no "de onde veio o crescimento"', async () => {
+  const { el, w, aba } = await montar();
+  const tabs = el.querySelector('#ptFiltroHist');
+  assert.ok(tabs.querySelector('.fp-chip'), '"Escolher período" no filtro do histórico');
+  const todas = el.querySelectorAll('#ptTHist tbody tr').length;
+  assert.equal(todas, aba.contexto.hist.length, 'Tudo');
+  clique(w, el.querySelector('#ptFiltroOrigem [data-periodo="6m"]'));
+  assert.match(txt(el.querySelector('#ptOrigemHint')), /últimos 6 meses/);
+  assert.match(txt(el.querySelector('#ptOrigem')), /De dez\/2024 a set\/2025/);
+  clique(w, el.querySelector('#ptFiltroOrigem [data-periodo="tudo"]'));
+  assert.match(txt(el.querySelector('#ptOrigem')), /De dez\/2023 a set\/2025/);
+});
+
+test('recortarHistorico / analiseHistorico / origemCrescimento com período', async () => {
+  const { recortarHistorico, analiseHistorico } = await import('../assets/js/pages/organizacao-patrimonio.js');
+  const { origemCrescimento } = await import('../assets/js/pages/patrimonio-calc.js');
+  const hist = [2018, 2020, 2022, 2024].map((ano, k) => ({ ano, liquido: 1000 * (k + 1) })).concat([{ ano: 2025, hoje: true, liquido: 6000 }]);
+  assert.deepEqual(recortarHistorico(hist, '5a', '2025-09-15').map((l) => l.ano), [2020, 2022, 2024, 2025]);
+  assert.deepEqual(recortarHistorico(hist, { inicio: '2021-01-01', fim: '2024-12-31' }, '2025-09-15').map((l) => l.ano), [2022, 2024]);
+  assert.equal(recortarHistorico(hist, 'tudo', '2025-09-15').length, 5);
+  const d = JSON.parse(JSON.stringify(RESPOSTA));
+  const o = origemCrescimento(d, { inicio: '2024-10-01', fim: '2025-08-31' });
+  assert.equal(o.de, '2024-09', 'base = último mês ANTES do período');
+  assert.equal(o.ate, '2025-08');
+  assert.equal(origemCrescimento(d, '12m').de, '2024-09');
+  assert.equal(origemCrescimento(d, 'tudo').de, '2023-12');
+  // análise: com CDI/IPCA no historicoMensal e patrimônio líquido positivo
+  d.historicoMensal.forEach((p, k) => { p.indiceCdi = 100 + k * 3; p.indiceIpca = 100 + k; });
+  const linhas = [{ ano: 2024, liquido: 50000 }, { ano: 2025, hoje: true, liquido: 70000 }];
+  const a = analiseHistorico(linhas, d);
+  assert.ok(a && a.analise.pontos.length, 'tem análise');
+  assert.ok(a.indices.CDI && a.indices.IPCA);
+  assert.equal(a.serie[1].data, '2025-09-15');
+  assert.equal(analiseHistorico([{ ano: 2024, liquido: -10 }, { ano: 2025, hoje: true, liquido: 70000 }], d), null, 'base negativa: sem análise');
+});
+
+test('htmlFontes: o texto de privacidade diz que banco, agência e conta do IR ficam na planilha', async () => {
+  const { htmlFontes, contextoPatrimonio } = await import('../assets/js/pages/organizacao-patrimonio.js');
+  const html = htmlFontes(contextoPatrimonio(JSON.parse(JSON.stringify(RESPOSTA))));
+  assert.match(html, /banco, a agência e a conta/);
+  assert.match(html, /aux_patrimonio/);
+  assert.match(html, /Nada de CPF, PIS, endereço ou número de contrato/);
+  assert.doesNotMatch(html, /nada de CPF, PIS, conta/);
+});
+
+test('montarCarreiraFgts: desenha Carreira e FGTS em outro lugar (aba Renda) e o "importar" vai pra quem montou', async () => {
+  const dom = new JSDOM('<!doctype html><html><body><div id="c"></div></body></html>', { pretendToBeVisual: true });
+  const doc = dom.window.document;
+  const { montarCarreiraFgts, contextoPatrimonio } = await import('../assets/js/pages/organizacao-patrimonio.js');
+  const acoes = [];
+  const cf = montarCarreiraFgts(doc.getElementById('c'), { doc, aoAcao: (a) => acoes.push(a) });
+  assert.ok(doc.querySelector('#ptCarreira .skel'), 'esqueleto até o patrimônio chegar');
+  cf.atualizar(contextoPatrimonio(JSON.parse(JSON.stringify(RESPOSTA))));
+  assert.match(txt(doc.getElementById('c')), /Carreira e FGTS/);
+  assert.match(txt(doc.getElementById('ptFgts')), /Importe os extratos do app FGTS/);
+  clique(dom.window, doc.querySelector('#ptFgts [data-acao="importar"]'));
+  assert.deepEqual(acoes, ['importar']);
 });
 
 test('Aba Patrimônio: erro ao carregar vira aviso', async () => {

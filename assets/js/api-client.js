@@ -467,11 +467,14 @@ export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' }
  * `termos` (tela do ativo): ticker e apelidos; `carteira` (página de uma
  * carteira): acoes, fiis, acoesEua ou rendaFixa.
  */
-export async function getVideos(token, { termos = [], ticker = '', carteira = '', apelidos = null } = {}) {
+export async function getVideos(token, { termos = [], ticker = '', carteira = '', apelidos = null, canal = '', canalModo = '' } = {}) {
   const params = {};
   if (termos.length) params.termos = termos.join('|');
   if (ticker) params.ticker = ticker;
   if (carteira) params.carteira = carteira;
+  // 02/10/2026: canal oficial do ativo (canais-youtube.js) - ID UC... ou link; canalModo=citam pra canal de gestora
+  if (canal) params.canal = canal;
+  if (canalModo) params.canalModo = canalModo;
   // 26/09/2026: página da carteira manda os apelidos de cada ativo ("PETR4:Petrobras;AXIA3:Axia Energia,Eletrobras")
   if (apelidos && typeof apelidos === 'object') {
     const txt = Object.entries(apelidos).filter(([, l]) => Array.isArray(l) && l.length)
@@ -648,4 +651,55 @@ export async function getArquivosIrPatrimonio(token) {
 /** Um PDF da pasta do IR, em base64 (o Apps Script só entrega arquivos daquela pasta). */
 export async function getArquivoIrPatrimonio(token, id) {
   return request('GET', 'patrimonioIrArquivo', token, { id: id || '' });
+}
+
+/**
+ * 02/10/2026: tela Metas e Objetivos (Metas.gs). `{ ok, metas, arquivadas,
+ * ativos, cambio, referencias, proventos12m, hoje, avisos? }` - a conta de
+ * cada meta é feita no navegador (pages/metas-calc.js).
+ */
+export async function getMetas(token) {
+  return request('GET', 'metas', token);
+}
+
+/** Cria (meta sem id) ou substitui (com id) uma meta - o objeto inteiro vai em JSON. */
+export async function salvarMeta(token, meta) {
+  return request('POST', 'salvarMeta', token, { meta: JSON.stringify(meta || {}) });
+}
+
+/** "Excluir" = arquivar (a linha fica na aba aux_metas). `restaurar` desarquiva. */
+export async function excluirMeta(token, id, { restaurar = false } = {}) {
+  return request('POST', 'excluirMeta', token, { id: id || '', restaurar: restaurar ? '1' : '' });
+}
+
+/** 02/10/2026: Organização Financeira - Gastos (Gastos.gs): lançamentos, arquivos importados e regras. */
+export async function getGastos(token) {
+  return request('GET', 'gastos', token);
+}
+
+/** Faturas/extratos em Documentos/Transações no Drive (marca novos e alterados). */
+export async function getArquivosGastos(token) {
+  return request('GET', 'gastosArquivos', token);
+}
+
+/** Um arquivo das pastas de gastos, em base64 (lido no navegador - gastos-import.js). */
+export async function getArquivoGastos(token, id) {
+  return request('GET', 'gastosArquivo', token, { id: id || '' });
+}
+
+/**
+ * Grava os lançamentos (já limpos) de um arquivo - substitui os que vieram
+ * dele antes. A senha do PDF nunca vai junto: o PDF é aberto no navegador.
+ */
+export async function salvarImportacaoGastos(token, arquivo, lancamentos) {
+  return request('POST', 'salvarImportacaoGastos', token, { arquivo: JSON.stringify(arquivo || {}), lancamentos: JSON.stringify(lancamentos || []) });
+}
+
+/** Regra de categoria ("contém o padrão" -> categoria); categoria vazia apaga. */
+export async function salvarRegraGastos(token, padrao, categoria) {
+  return request('POST', 'salvarRegraGastos', token, { padrao: padrao || '', categoria: categoria || '' });
+}
+
+export async function excluirArquivoGastos(token, id) {
+  return request('POST', 'excluirArquivoGastos', token, { id: id || '' });
 }

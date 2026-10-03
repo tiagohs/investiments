@@ -3,7 +3,8 @@
  *
  * Um ativo por tela - ações, FIIs, ações EUA ou um título de renda fixa -
  * com o foco no que o Tiago tem nele: posição e resultado, cotação x
- * preço-teto (o teto e o viés que ele edita em Distribuições e Metas),
+ * preço-teto (o teto e o viés que ele edita em Acompanhamento de Ativos -
+ * 02/10/2026: o menu "Distribuições e Metas" foi renomeado; o arquivo continua distribuicoes-metas.html),
  * rentabilidade x CDI e o índice da bolsa, valor aplicado x saldo, histórico
  * mês a mês, proventos (recebidos e a receber), extrato, e o conteúdo de
  * apoio: tese da Suno (Google Drive privado dele), notícias (Google
@@ -16,7 +17,7 @@
  * conta própria (uma falha não derruba o resto).
  */
 
-import { getAtivo, getNoticiasAtivo, getTesesAtivo } from '../api-client.js';
+import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia } from '../api-client.js';
 import {
   formatBRL, formatBRLCompacto, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints,
   formatDateBR, formatRelativeTime,
@@ -25,12 +26,16 @@ import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { refDaUrl } from '../link-ativo.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js';
+import { canalDoAtivo, familiaTesouro, parametrosCanalVideos } from '../canais-youtube.js';
+import { chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
 import { logoAtivoHtml, logoRendaFixaHtml, renderTabelaAtivosCarteiras, botaoInfoHtml, statusVies, wirePointerTooltipCarteiras_, wireGraficosClasseCarteiras } from './carteiras-classe-comum.js';
 import {
   CLASSES_ATIVO, montarHistoricoAtivo, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
   resumoPosicao, percentualNaCarteira, informesIrDoAtivo, declaracaoIrDoAtivo, ordenarTeses, cambioMaisRecente,
   comCamposUsdAtivo, historicoAtivoTemCambioUsd,
 } from './ativo-calc.js';
+import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
+import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
 
 const VERSAO_CACHE = 'v1';
 const chaveCache = (ref) => `ativo_${VERSAO_CACHE}:${ref}`;
@@ -115,7 +120,19 @@ export function montarContexto(resposta, { sobre = null, ir = null } = {}) {
       sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
     }),
     informesFundo: resposta.informesFundo || null,
+    // 02/10/2026: canal oficial no YouTube (canais-youtube.js) e chave do gráfico do dia (Intradia.gs)
+    canal: canalDoAtivo({ ticker: resposta.ticker, classe, ativo: resposta.ativo || null, ehRf: resposta.tipo === 'rf' }),
+    chaveIntradia: chaveIntradiaAtivo({ ticker: resposta.ticker, classe, ehRf: resposta.tipo === 'rf' }),
   };
+}
+
+/**
+ * 02/10/2026: chave do gráfico do dia (a mesma da Início: 'acoes:PETR4',
+ * 'fiis:BTLG11', 'usa:CHTR'). Renda fixa não tem pregão: null.
+ */
+export function chaveIntradiaAtivo({ ticker = '', classe = '', ehRf = false } = {}) {
+  if (ehRf) return null;
+  return chaveIntradiaDoAtivo({ ticker, classe: classe === 'acoesEua' ? 'usa' : classe });
 }
 
 /** Valor na moeda do ativo + "i" com o equivalente em reais (ações EUA). */
@@ -276,12 +293,50 @@ function cabecalhoHtml(ctx) {
           <div class="at-chips">${chips}</div>
         </div>
       </div>
+      ${graficoDiaHtml(ctx)}
       <div class="at-cotacao">
         <span class="at-cotacao-label">Cotação</span>
         <span class="at-cotacao-valor">${valorComBrl(ctx, a.precoAtual)}</span>
         ${variacao}
       </div>
     </header>`;
+}
+
+// ---------------------------------------------------------------------------
+// 02/10/2026 (Tiago: "Tela de ativos: gráfico de variação diária igual da
+// home; do lado do hero no desktop, embaixo no mobile. Clicando no gráfico
+// abre o Google Finance"): o mesmo desenho dos favoritos da Início
+// (inicio-intradia.js: linha do pregão + fechamento anterior pontilhado,
+// verde/vermelho), série do Intradia.gs. Chega depois da página (esqueleto
+// discreto enquanto isso); sem série, fica só o aviso e o link.
+// ---------------------------------------------------------------------------
+
+export function graficoDiaHtml(ctx) {
+  if (!ctx.chaveIntradia) return '';
+  const url = googleFinanceUrl(ctx);
+  const tag = url ? 'a' : 'div';
+  const link = url ? ` href="${esc(url)}" target="_blank" rel="noopener" title="Abrir ${esc(ctx.ticker)} no Google Finance (nova aba)"` : '';
+  return `
+      <${tag} class="at-dia carregando"${link} aria-label="Variação do dia de ${esc(ctx.ticker)}${url ? ' - abrir no Google Finance' : ''}">
+        <span class="at-dia-grafico intradia-slot" data-intradia="${esc(ctx.chaveIntradia)}"><span class="skel at-dia-skel"></span></span>
+        <span class="at-dia-rodape"><span class="at-dia-rotulo">Variação do dia</span>${url ? '<span class="at-dia-gf">Google Finance ↗</span>' : ''}</span>
+      </${tag}>`;
+}
+
+/** "yyyy-mm-dd" de hoje em Brasília (o rótulo "pregão 01/10" só aparece quando a série não é de hoje). */
+function hojeIsoBrasilia(agora) {
+  try { return agora.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }); } catch (_) { return agora.toISOString().slice(0, 10); }
+}
+
+/** Preenche o gráfico do dia com a série (null = sem dado: tira o esqueleto e avisa, sem alarde). */
+export function preencherGraficoDia(raiz, chave, serie, { agora = new Date() } = {}) {
+  const caixa = raiz && raiz.querySelector('.at-dia');
+  if (!caixa || !chave) return;
+  preencherIntradia(caixa, { [chave]: serie || null }, { hojeISO: hojeIsoBrasilia(agora) });
+  const slot = caixa.querySelector('.at-dia-grafico');
+  caixa.classList.remove('carregando');
+  caixa.classList.toggle('sem-dado', !serie);
+  if (!serie && slot) slot.innerHTML = '<span class="at-dia-vazio">Gráfico do dia indisponível agora</span>';
 }
 
 // 25/09/2026 (Tiago: "quero reorganizar essa tela do ativo, tem muita coisa
@@ -375,6 +430,14 @@ export function resumoHtml(ctx) {
 // Cotação x preço-teto (a barra do "print 2": mínimo de 52 semanas -> teto)
 // ---------------------------------------------------------------------------
 
+/** 02/10/2026: link pra tela onde o Tiago edita teto/viés (menu renomeado pra
+ * "Acompanhamento de Ativos"; o arquivo continua distribuicoes-metas.html). */
+function linkAcompanhamentoHtml_() {
+  let href = 'distribuicoes-metas.html';
+  try { href = new URL('distribuicoes-metas.html', resolveSiteRootUrl()).href; } catch (_) { /* sem raiz: relativo */ }
+  return `<a class="at-link-acomp" href="${esc(href)}">Acompanhamento de Ativos</a>`;
+}
+
 export function faixaHtml(ctx) {
   const f = ctx.faixa;
   if (!f) return '';
@@ -390,7 +453,7 @@ export function faixaHtml(ctx) {
     const abaixo = f.margemTeto >= 0;
     frase = `A cotação está <b class="${abaixo ? 'good' : 'bad'}">${formatPercentFromFraction(Math.abs(f.margemTeto), 1).replace('+', '')} ${abaixo ? 'abaixo' : 'acima'}</b> do seu preço-teto${abaixo ? ' (margem de segurança).' : '.'}`;
   } else {
-    frase = 'Sem preço-teto definido - você pode definir em Distribuições e Metas.';
+    frase = `Sem preço-teto definido - você pode definir em ${linkAcompanhamentoHtml_()}.`;
   }
   const fonteTexto = f.fonte === 'planilha'
     ? 'Mínimo e máximo de 52 semanas da aba "Carteira FIIs".'
@@ -419,7 +482,7 @@ export function faixaHtml(ctx) {
         <div><dt>Seu preço médio</dt><dd>${ctx.fmt(f.precoMedio)}</dd></div>
         <div><dt>Acima do mínimo</dt><dd>${formatPercentFromFraction(f.distanciaMinimo, 1)}</dd></div>
       </dl>
-      <p class="hint at-fonte">${fonteTexto} O preço-teto e o viés vêm de Distribuições e Metas.</p>
+      <p class="hint at-fonte">${fonteTexto} O preço-teto e o viés vêm de ${linkAcompanhamentoHtml_()}.</p>
     </section>`;
 }
 
@@ -431,8 +494,8 @@ const AJUDA = {
   dy: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pela cotação atual.',
   pl: 'Preço/Lucro: cotação dividida pelo lucro por ação dos últimos 12 meses - quantos anos de lucro pagam o preço.',
   pvp: 'Preço/Valor Patrimonial: cotação dividida pelo patrimônio por ação/cota. Abaixo de 1, o mercado paga menos que o valor contábil.',
-  descontoPvp: 'Com desconto quando o P/VP é menor que 1; caro quando é maior ou igual a 1 (Distribuições e Metas).',
-  descontoPl: 'Com desconto quando o retorno do lucro (1 ÷ P/L) fica acima da taxa de renda fixa atual (Distribuições e Metas).',
+  descontoPvp: 'Com desconto quando o P/VP é menor que 1; caro quando é maior ou igual a 1 (Acompanhamento de Ativos).',
+  descontoPl: 'Com desconto quando o retorno do lucro (1 ÷ P/L) fica acima da taxa de renda fixa atual (Acompanhamento de Ativos).',
   liquidez: 'Volume médio negociado por dia na bolsa.',
   caixa: 'Parte do patrimônio do fundo que está em caixa, ainda não aplicada em imóveis ou papéis.',
   patrimonio: 'Patrimônio líquido do fundo.',
@@ -601,6 +664,7 @@ function graficosHtml(ctx) {
         <div class="rentab-card-info" id="atRentabInfo"></div>
         <div id="atRentabChart"></div>
         <div class="chart-legend2" id="atRentabLegenda"></div>
+        <div class="ag-slot" id="atRentabAnalise" hidden></div>
       </div>
       <div class="area-header" style="margin-top:22px"><h2>${titulo2}</h2></div>
       <div class="cg-chart-card">
@@ -645,6 +709,11 @@ function ligarGraficos(doc, ctx) {
     wireGraficosClasseCarteiras(doc, {
       historico: historicoComUsd,
       periodoTabsContainer: tabs,
+      // 02/10/2026 (Tiago: "Adicionar em todos os filtros dos gráficos a opção
+      // 'Escolher período'"): o chip do calendário vale pros 2 gráficos;
+      // a chave é uma só pra todos os ativos (o período escolhido acompanha
+      // quem pula de um ativo pro outro).
+      periodoPersonalizado: { chave: 'ativo' },
       paineis: [{
         visaoId: emDolar ? 'ativoAcoesEuaUsd' : ctx.cfg.visao,
         moeda: emDolar ? 'USD' : 'BRL',
@@ -659,6 +728,13 @@ function ligarGraficos(doc, ctx) {
         labelInfoEvolucao: ctx.ehRf ? 'Saldo bruto' : `Saldo em ${ctx.ticker}${emDolar ? '' : (ctx.emDolar ? ' (em reais)' : '')}`,
         labelValor: ctx.ehRf ? 'Saldo bruto' : 'Saldo',
         corToken: ctx.cfg.token,
+        // 02/10/2026 (pedido C): card de Análise embaixo da Rentabilidade
+        // (o ativo vs o índice da bolsa e o CDI) e o "Ontem era" + 3 meses
+        // no bloco do saldo (pedido B).
+        analise: true,
+        analiseContainer: doc.getElementById('atRentabAnalise'),
+        nomeAnalise: ctx.ehRf ? 'O título' : ctx.ticker,
+        comparativo: true,
       }],
     });
   }
@@ -972,6 +1048,7 @@ export function proventosHtml(ctx) {
         </div>
         <div class="at-sub-titulo">Por mês · últimos 24 meses</div>
         <div id="atBarrasProventos" class="at-barras-wrap">${barrasProventosSvg(ctx)}</div>
+        <div class="ag-slot at-prov-analise" id="atProvAnalise" hidden></div>
         ${porAno}
         ${aReceber}
         <p class="hint at-fonte">Cada pagamento está no extrato abaixo.</p>
@@ -1501,12 +1578,19 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
       ${faixaHtml(ctx)}
       ${indicadoresHtml(ctx)}
       ${ehFii ? informesFundoCardHtml_(ctx) : ''}`;
+  // 02/10/2026: o canal oficial (canais-youtube.js) fica no topo da seção de
+  // vídeos; renda fixa só tem a seção quando é do Tesouro (canal Tesouro Direto)
+  const videos = secaoVideosHtml('at-videos', {
+    hint: ctx.canal ? 'do canal oficial e dos seus canais do YouTube que citam o ativo' : 'dos seus canais do YouTube que citam o ativo',
+    canal: ctx.canal,
+  });
   const principal = ctx.ehRf ? `
-      ${graficosHtml(ctx)}` : `
+      ${graficosHtml(ctx)}
+      ${ctx.canal ? videos : ''}` : `
       ${graficosHtml(ctx)}
       ${proventosHtml(ctx)}
       ${noticiasCardHtml_()}
-      ${secaoVideosHtml('at-videos', { hint: 'dos seus canais do YouTube que citam o ativo' })}
+      ${videos}
       ${ehFii ? '' : teseCardHtml_(ctx)}`;
   const painel = (id, conteudo) => `
       <section class="at-aba" id="at-aba-${id}" role="tabpanel" aria-labelledby="at-tab-${id}"${id === aba ? '' : ' hidden'}>${conteudo}
@@ -1566,10 +1650,32 @@ function ligarAbas(doc, raiz, { aoMostrar = () => {} } = {}) {
   return mostrar;
 }
 
+/**
+ * 02/10/2026 (pedido C, "card de análise embaixo dos gráficos"): análise dos
+ * proventos do ativo - janela dos 12 últimos meses fechados do gráfico (a
+ * régua da média de 12 meses) + o mês de hoje, comparada com os 12 anteriores, o
+ * último mês fechado, regularidade e pico (proventos-calc!analisarProventosMensais).
+ */
+export function analiseProventosAtivo(ctx) {
+  const r = ctx.resposta || {};
+  if (ctx.ehRf || !r.hoje) return null;
+  const mesAtual = r.hoje.slice(0, 7);
+  const porMes = proventosPorMes(r.proventos || [], r.hoje, { campoData: 'dataPagamento' });
+  const meses = [];
+  // os 12 meses FECHADOS (a régua da média de 12 meses) + o mês de hoje, parcial
+  for (let k = 12; k >= 0; k -= 1) meses.push(somarMesesProv(mesAtual, -k));
+  const aReceberMes = (ctx.proventos.aReceber || [])
+    .filter((p) => String(p.dataPagamento || '').slice(0, 7) === mesAtual)
+    .reduce((s, p) => s + (Number.isFinite(p.valor) ? p.valor : 0), 0);
+  return analisarProventosMensais({ porMes, meses, mesAtual, aReceberMes });
+}
+
 /** Redesenha as barras de proventos na largura real do cartão (1 unidade = 1px, texto sem distorcer). */
 function ligarBarras(doc, ctx) {
   const wrap = doc.getElementById('atBarrasProventos');
   if (!wrap) return;
+  const slotAnalise = doc.getElementById('atProvAnalise');
+  if (slotAnalise) renderAnalise(doc, slotAnalise, analiseProventosAtivo(ctx), { titulo: 'Análise' });
   const redesenhar = () => {
     const w = wrap.clientWidth;
     if (w > 40) wrap.innerHTML = barrasProventosSvg(ctx, Math.round(w));
@@ -1611,6 +1717,7 @@ export async function montarPaginaAtivo(token, {
   getTesesImpl = getTesesAtivo,
   carregarEstaticosImpl = carregarEstaticosPadrao,
   getVideosImpl = undefined,
+  getIntradiaImpl = getIntradia,
   agora = () => new Date(),
 } = {}) {
   const loadingEl = doc.getElementById('ativoLoading');
@@ -1626,7 +1733,7 @@ export async function montarPaginaAtivo(token, {
   }
 
   estadoTabelasAtivo.clear(); // página nova: filtros/ordem das tabelas voltam ao padrão
-  const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false };
+  const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false, intradia: undefined, intradiaPedidoEm: 0 };
   const estaticosPromise = carregarEstaticosImpl();
 
   const preencherExtras = () => {
@@ -1654,6 +1761,27 @@ export async function montarPaginaAtivo(token, {
     }
   };
 
+  // 02/10/2026: gráfico do dia - 1 busca por abertura (e de novo no
+  // "Atualizar dados", se já passou 1 min); a página redesenha por cima do
+  // cache, então a série fica guardada e é reaplicada a cada desenho.
+  const aplicarIntradia = () => {
+    if (!estado.ctx || !estado.ctx.chaveIntradia || estado.intradia === undefined) return;
+    preencherGraficoDia(conteudoEl, estado.ctx.chaveIntradia, estado.intradia, { agora: agora() });
+  };
+  const pedirIntradia = () => {
+    const chave = estado.ctx && estado.ctx.chaveIntradia;
+    if (!chave || !getIntradiaImpl) return;
+    const t = agora().getTime();
+    if (estado.intradiaPedidoEm && t - estado.intradiaPedidoEm < 60000) return;
+    estado.intradiaPedidoEm = t;
+    Promise.resolve(getIntradiaImpl(token, [chave])).catch(() => null).then((r) => {
+      const serie = r && r.ok && r.resultado ? r.resultado[chave] || null : null;
+      // falha numa atualização não apaga o gráfico que já estava na tela
+      if (serie || estado.intradia === undefined) estado.intradia = serie;
+      aplicarIntradia();
+    });
+  };
+
   const desenharResposta = async (resposta) => {
     const estaticos = await estaticosPromise;
     estado.ctx = montarContexto(resposta, estaticos || {});
@@ -1661,11 +1789,18 @@ export async function montarPaginaAtivo(token, {
     erroEl.hidden = true;
     conteudoEl.hidden = false;
     desenhar(doc, conteudoEl, estado.ctx);
-    // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece
-    if (!estado.ctx.ehRf) {
+    aplicarIntradia();
+    pedirIntradia();
+    // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece.
+    // 02/10/2026: + o canal oficial do ativo (canais-youtube.js); renda fixa só com canal (Tesouro).
+    if (!estado.ctx.ehRf || estado.ctx.canal) {
       if (!estado.videos) {
-        const termos = [estado.ctx.ticker, ...((estado.ctx.sobre && estado.ctx.sobre.apelidos) || [])];
-        estado.videos = criarCarregadorVideos(token, { termos, ticker: estado.ctx.ticker }, { ...(getVideosImpl ? { getVideosImpl } : {}), agora });
+        const ctx = estado.ctx;
+        const params = ctx.ehRf
+          ? { termos: [ctx.ticker, familiaTesouro(ctx.ticker) || familiaTesouro(ctx.ativo && ctx.ativo.tipoInvestimento), 'Tesouro Direto'].filter(Boolean), ticker: ctx.ticker }
+          : { termos: [ctx.ticker, ...((ctx.sobre && ctx.sobre.apelidos) || [])], ticker: ctx.ticker };
+        Object.assign(params, parametrosCanalVideos(ctx.canal));
+        estado.videos = criarCarregadorVideos(token, params, { ...(getVideosImpl ? { getVideosImpl } : {}), agora });
       }
       estado.videos(doc.getElementById('at-videos'));
     }

@@ -36,7 +36,8 @@ test('renderProventosAnunciados(): resumo do mês, a receber (com "a definir" e 
   }, { hoje: HOJE });
   assert.equal(secao.hidden, false);
   const txt = () => secao.textContent.replace(/\s+/g, ' ');
-  assert.match(txt(), /Recebido em setembro R\$\s*8,00/);
+  // 02/10/2026: o pago não lançado de setembro conta no recebido (presumido)
+  assert.match(txt(), /Recebido em setembro R\$\s*13,00/);
   assert.match(txt(), /A receber em setembro R\$\s*9,00/);
   assert.match(txt(), /Depois R\$\s*12,00/);
   assert.match(txt(), /ABCD11 paga 25\/09 · data com 18\/09 · Rendimento/);
@@ -49,6 +50,7 @@ test('renderProventosAnunciados(): resumo do mês, a receber (com "a definir" e 
   secao.querySelector('.prov-mais').dispatchEvent(new dom.window.Event('click'));
   assert.match(txt(), /R0AA11 pago 10\/09/);
   assert.match(txt(), /IJKL11 pago 10\/09 · ainda não lançado/);
+  assert.ok(secao.querySelector('.prov-conf[title*="presumido"]'), 'ícone de pago presumido');
 
   renderProventosAnunciados(doc, secao, { aReceber: [], recebidosNoMes: [], pagosNaoLancados: [] }, { hoje: HOJE });
   assert.equal(secao.hidden, true);

@@ -332,6 +332,7 @@ function desenhar(doc, dados) {
     wireGraficosClasseCarteiras(doc, {
       historico: historicoComUsd,
       periodoTabsContainer: doc.getElementById('acoesEuaPeriodoTabs'),
+      periodoPersonalizado: { chave: 'carteiras.acoesEua' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
       paineis: [{
         visaoId: emDolar ? 'carteiraAcoesEuaUsd' : 'carteiraAcoesEua',
         moeda: emDolar ? 'USD' : 'BRL',
@@ -345,6 +346,8 @@ function desenhar(doc, dados) {
         evolucaoChartContainer: doc.getElementById('acoesEuaEvolucaoChart'),
         evolucaoLegendaContainer: doc.getElementById('acoesEuaEvolucaoLegenda'),
         corToken: '--usa',
+        analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+        comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
       }],
     });
   };

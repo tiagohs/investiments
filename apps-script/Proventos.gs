@@ -56,6 +56,17 @@ function montarTelaProventos_() {
   };
   var r2 = function (n) { return Math.round(n * 100) / 100; };
   var anunciados = montarProventosAnunciados_(null, { mapaCambioUsd: mapas.mapaCambioUsd });
+  // 02/10/2026: situação de cada recebido da aba Proventos (R$) perante o
+  // extrato da B3 - 'presumido' | 'confirmado' | 'divergente' | 'nao_confirmado';
+  // sem o campo = anterior à conferência (CONFERENCIA_PROVENTOS_DESDE)
+  var statusPlanilha = anunciados.statusPlanilha || {};
+  recebidos.forEach(function (p) {
+    if (p.moeda === 'USD') return;
+    var s = statusPlanilha[p.ticker + '|' + p.data + '|' + normalizarTipoProvento_(p.tipo)];
+    if (!s) return;
+    p.conferencia = s.situacao;
+    if (s.dataB3) { p.dataB3 = s.dataB3; p.valorB3 = s.valorB3; }
+  });
 
   return {
     ok: true,
@@ -64,6 +75,7 @@ function montarTelaProventos_() {
     aReceber: anunciados.aReceber,
     pagosNaoLancados: anunciados.pagosNaoLancados,
     atualizadoB3: anunciados.atualizadoB3,
+    conferencia: anunciados.conferencia,
     ativos: ativosParaProventos_(ss),
     aplicado: { acoes: r2(somaMapa(fluxo.acoesAplicado)), fiis: r2(somaMapa(fluxo.fiisAplicado)), acoesEua: r2(somaMapa(fluxo.usaAplicado)) },
     aportes12m: { acoes: r2(somaMapa(fluxo.acoesAplicado, limite12m)), fiis: r2(somaMapa(fluxo.fiisAplicado, limite12m)), acoesEua: r2(somaMapa(fluxo.usaAplicado, limite12m)) }
@@ -85,8 +97,9 @@ function chaveCacheTelaProventos_(ss) {
   var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
   var versao = '0';
   try { versao = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_PROVENTOS) || '0'; } catch (e) { /* sem versão: só as contagens */ }
-  return 'proventos_tela_v1_' + chaveDiaISOInicio_(new Date()) + '_' + contarLinhasFluxoCaixa_(ss) + '_' +
-    [ABA_B3_PROVENTOS_A_RECEBER, 'aux_proventos-anunciados', 'aux_historico-patrimonio', 'Auxiliar_ativos'].map(linhas).join('_') + '_' + versao;
+  // v2 (02/10/2026): resposta ganhou a conferência com o extrato da B3
+  return 'proventos_tela_v2_' + chaveDiaISOInicio_(new Date()) + '_' + contarLinhasFluxoCaixa_(ss) + '_' +
+    [ABA_B3_PROVENTOS_A_RECEBER, 'aux_proventos-anunciados', 'aux_historico-patrimonio', 'Auxiliar_ativos', ABA_CONFERENCIA_PROVENTOS].map(linhas).join('_') + '_' + versao;
 }
 
 /** Faz a próxima leitura da tela Proventos (e da meta de Renda Passiva) recalcular. */
@@ -213,11 +226,24 @@ function montarProventosAnunciados_(historico, opcoes) {
   var chaveDe = function (ticker, dia, tipo) { return ticker + '|' + dia + '|' + normalizarTipoProvento_(tipo); };
   // já está na sua aba Proventos? mesmo ticker e dia de pagamento, e mesmo tipo OU mesmo valor
   // (±2%: o nome do tipo na sua aba pode não ser o mesmo da B3 - ex. "Rendimento" x "Dividendo")
-  var planilhaPorDia = {};
-  planilha.forEach(function (p) { (planilhaPorDia[p.ticker + '|' + p.dataPagamento] = planilhaPorDia[p.ticker + '|' + p.dataPagamento] || []).push(p); });
+  var planilhaPorDia = {}, planilhaPorTicker = {};
+  planilha.forEach(function (p) {
+    (planilhaPorDia[p.ticker + '|' + p.dataPagamento] = planilhaPorDia[p.ticker + '|' + p.dataPagamento] || []).push(p);
+    (planilhaPorTicker[p.ticker] = planilhaPorTicker[p.ticker] || []).push(p);
+  });
+  var valorPerto = function (a, b) { return Math.abs(a - b) <= Math.max(0.02, Math.abs(b) * 0.02); };
   var foiLancado = function (ticker, dia, tipo, valor) {
-    return (planilhaPorDia[ticker + '|' + dia] || []).some(function (p) {
-      return normalizarTipoProvento_(p.tipo) === normalizarTipoProvento_(tipo) || Math.abs(p.liquido - valor) <= Math.max(0.02, Math.abs(valor) * 0.02);
+    if ((planilhaPorDia[ticker + '|' + dia] || []).some(function (p) {
+      return normalizarTipoProvento_(p.tipo) === normalizarTipoProvento_(tipo) || valorPerto(p.liquido, valor);
+    })) return true;
+    // 02/10/2026: lançado com a data do extrato da B3, que às vezes cai uns
+    // dias antes/depois da anunciada - mesmo tipo e mesmo valor até
+    // CONFERENCIA_PROVENTOS_DIAS de distância também é "já lançado" (senão
+    // contava 2 vezes agora que pago presumido entra nos totais)
+    if (!dia) return false;
+    return (planilhaPorTicker[ticker] || []).some(function (p) {
+      return p.dataPagamento && Math.abs(diasEntreChavesProvento_(p.dataPagamento, dia)) <= CONFERENCIA_PROVENTOS_DIAS &&
+        normalizarTipoProvento_(p.tipo) === normalizarTipoProvento_(tipo) && valorPerto(p.liquido, valor);
     });
   };
 
@@ -274,11 +300,26 @@ function montarProventosAnunciados_(historico, opcoes) {
     });
   }
 
+  // 02/10/2026 (Tiago: "se a data de pagamento já passou, deduz que está
+  // pago"): pagamento até HOJE (inclusive, fuso do projeto =
+  // America/Sao_Paulo) já é pago; antes o do próprio dia ainda ficava "a
+  // receber". Os pagos que não estão na aba Proventos (B3/FNet) vão em
+  // pagosNaoLancados com conferencia 'presumido' - a tela Proventos e a
+  // Início contam como recebido - desde CONFERENCIA_PROVENTOS_DESDE (ou nos
+  // últimos 60 dias, como antes).
   var aReceber = [], pagosNaoLancados = [];
   ordem.forEach(function (k) {
     var p = itens[k];
-    if (!p.dataPagamento || p.dataPagamento > hoje || (p.dataPagamento === hoje && !p.jaLancado)) aReceber.push(p);
-    else if (p.fonte !== 'Planilha' && !p.jaLancado && p.dataPagamento >= limitePassado) pagosNaoLancados.push(p);
+    if (!p.dataPagamento || p.dataPagamento > hoje) aReceber.push(p);
+    else if (p.fonte !== 'Planilha' && !p.jaLancado && (p.dataPagamento >= limitePassado || p.dataPagamento >= CONFERENCIA_PROVENTOS_DESDE)) pagosNaoLancados.push(p);
+  });
+
+  // conferência com o extrato da B3 (ver "Conferência" mais abaixo)
+  var conferencia = conferirProventosComExtratoB3_(ss, planilha, pagosNaoLancados, hoje);
+  pagosNaoLancados.forEach(function (p, i) {
+    var s = conferencia.porId['N' + i];
+    p.conferencia = s ? s.situacao : 'presumido';
+    if (s && s.dataB3) { p.dataB3 = s.dataB3; p.valorB3 = s.valorB3; }
   });
 
   // recebidos neste mês (aba Proventos/Proventos - USA)
@@ -287,8 +328,11 @@ function montarProventosAnunciados_(historico, opcoes) {
     if (p.dataPagamento > hoje || p.dataPagamento.slice(0, 7) !== mesAtual || p.tipo === 'Juros') return;
     var cambio = p.moeda === 'USD' ? cambioDoDia(p.dataPagamento) : 1;
     if (!cambio) return;
-    recebidosNoMes.push({ ticker: p.ticker, classe: classeDe(p.ticker, p.moeda), tipo: normalizarTipoProvento_(p.tipo), dataCom: p.dataCom, dataPagamento: p.dataPagamento,
-      quantidade: p.quantidade, valorPorCota: p.valorPorCota, moeda: p.moeda, valor: r2(p.liquido * cambio), fonte: 'Planilha', jaLancado: true });
+    var item = { ticker: p.ticker, classe: classeDe(p.ticker, p.moeda), tipo: normalizarTipoProvento_(p.tipo), dataCom: p.dataCom, dataPagamento: p.dataPagamento,
+      quantidade: p.quantidade, valorPorCota: p.valorPorCota, moeda: p.moeda, valor: r2(p.liquido * cambio), fonte: 'Planilha', jaLancado: true };
+    var s = p.moeda === 'BRL' ? conferencia.statusPlanilha[chaveDe(p.ticker, p.dataPagamento, p.tipo)] : null;
+    if (s) { item.conferencia = s.situacao; if (s.dataB3) { item.dataB3 = s.dataB3; item.valorB3 = s.valorB3; } }
+    recebidosNoMes.push(item);
   });
 
   var porPagamento = function (a, b) {
@@ -299,7 +343,9 @@ function montarProventosAnunciados_(historico, opcoes) {
     aReceber: aReceber.sort(porPagamento),
     pagosNaoLancados: pagosNaoLancados.sort(porPagamento),
     recebidosNoMes: recebidosNoMes.sort(porPagamento),
-    atualizadoB3: b3.atualizadoEm || null
+    atualizadoB3: b3.atualizadoEm || null,
+    conferencia: conferencia.resumo,
+    statusPlanilha: conferencia.statusPlanilha // a tela Proventos usa e tira (montarTelaProventos_)
   };
 }
 
@@ -493,4 +539,348 @@ function importarProventosB3_(linhasJson) {
   invalidarCacheProventos_();
   var soma = lido.itens.reduce(function (s, p) { return s + p.valor; }, 0);
   return { ok: true, importados: lido.itens.length, total: Math.round(soma * 100) / 100 };
+}
+
+// ---------------------------------------------------------------------------
+// Conferência com o extrato da B3 (02/10/2026)
+// ---------------------------------------------------------------------------
+//
+// Tiago: "Proventos: se a data de pagamento já passou, deduz que está pago.
+// Eu mando no final do mês [o arquivo da B3] e você faz o check final."
+//
+// 1) Pago presumido: todo provento com pagamento até hoje conta como
+//    recebido. Os em R$ a partir de CONFERENCIA_PROVENTOS_DESDE (lançados na
+//    aba Proventos ou só anunciados pela B3/FNet) ficam 'presumido' até a
+//    conferência - a tela mostra um ícone discreto.
+// 2) Check final: quando o extrato da B3 (Movimentação ou Proventos
+//    recebidos) passa pela tela Transações > Lançamentos, as linhas de
+//    provento dele ficam guardadas em aux_proventos-conferencia
+//    (registrarExtratoB3Proventos_, chamado por Lancamentos.gs - já na
+//    conferência, antes de gravar, pra valer mesmo quando tudo já estava
+//    lançado). A situação de cada provento é recalculada a cada leitura
+//    (conciliarProventosB3_), sem tocar na aba Proventos:
+//     - 'confirmado': o extrato tem o mesmo ativo, pagamento a até
+//       CONFERENCIA_PROVENTOS_DIAS dias e valor dentro da tolerância
+//       (arredondamento: 2% ou R$ 0,05; JCP: também o valor com 15% de IR);
+//     - 'divergente': achou no extrato (mesmo ativo/tipo, data perto), mas o
+//       valor não bate - conta como recebido, a tela mostra os 2 valores;
+//     - 'nao_confirmado': o mês já foi conferido e o extrato não tem - pode
+//       ter atrasado ou não ter sido pago. Lançado na aba Proventos continua
+//       contando (a aba é a fonte - apague a linha se não veio); só
+//       anunciado (B3/FNet) sai dos totais (o extrato vira linha nova na aba
+//       e contaria 2 vezes);
+//     - linha do extrato que não bate com nada: "extra" - é o que a
+//       importação propõe como novo, como sempre.
+//
+// aux_proventos-conferencia (criada sozinha; pode apagar e reimportar):
+//   Linha | Ticker / mês | Tipo | Data pagamento | Valor líquido | Quantidade | Arquivo | Registrado em
+//   - 'B3': uma linha de provento do extrato (a mesma linha 2x = 2 contas);
+//   - 'Mês conferido': mês ('yyyy-MM') coberto pelo extrato e o último dia
+//     conferido (mês que já acabou quando o extrato chegou = mês inteiro; o
+//     mês corrente = até a última data do extrato).
+// Mandar o mesmo extrato de novo não duplica nada.
+
+var ABA_CONFERENCIA_PROVENTOS = 'aux_proventos-conferencia';
+var CABECALHO_CONFERENCIA_PROVENTOS = ['Linha', 'Ticker / mês', 'Tipo', 'Data pagamento', 'Valor líquido', 'Quantidade', 'Arquivo', 'Registrado em'];
+var LINHA_CONFERENCIA_B3 = 'B3';
+var LINHA_CONFERENCIA_MES = 'Mês conferido';
+// Proventos em R$ pagos a partir desse dia ficam "presumidos" até a
+// conferência; os anteriores já estavam na planilha antes da conferência
+// existir (sem ícone). O extrato de um mês anterior também é conferido.
+var CONFERENCIA_PROVENTOS_DESDE = '2026-10-01';
+var CONFERENCIA_PROVENTOS_DIAS = 5;
+var CONFERENCIA_PROVENTOS_TOLERANCIA = 0.02;
+var CONFERENCIA_PROVENTOS_TOLERANCIA_MIN = 0.05;
+var CONFERENCIA_PROVENTOS_IR_JCP = 0.15;
+
+/** Dias de a até b ('yyyy-MM-dd'), calendário puro. */
+function diasEntreChavesProvento_(a, b) {
+  var ms = function (k) { return Date.UTC(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, Number(k.slice(8, 10))); };
+  return Math.round((ms(b) - ms(a)) / 86400000);
+}
+
+/** Último dia do mês 'yyyy-MM' -> 'yyyy-MM-dd'. */
+function ultimoDiaMesProvento_(anoMes) {
+  var a = Number(anoMes.slice(0, 4)), m = Number(anoMes.slice(5, 7));
+  var d = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return anoMes + '-' + ('0' + d).slice(-2);
+}
+
+/** { linhas: [{ ticker, tipo, data, valor, quantidade, arquivo }], periodos: [{ mes, inicio, fim, conferidoEm }] } */
+function lerConferenciaB3Proventos_(ss) {
+  var out = { linhas: [], periodos: [] };
+  var aba = ss.getSheetByName(ABA_CONFERENCIA_PROVENTOS);
+  if (!aba || aba.getLastRow() < 2) return out;
+  aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_CONFERENCIA_PROVENTOS.length).getValues().forEach(function (l) {
+    var tipoLinha = String(l[0] || '').trim();
+    if (tipoLinha === LINHA_CONFERENCIA_B3) {
+      var ticker = String(l[1] || '').trim().toUpperCase();
+      var data = chaveDeCelulaProvento_(l[3]);
+      var valor = Number(l[4]);
+      if (!ticker || !data || !isFinite(valor)) return;
+      out.linhas.push({ ticker: ticker, tipo: normalizarTipoProvento_(l[2]), data: data, valor: Math.round(valor * 100) / 100,
+        quantidade: Number(l[5]) || 0, arquivo: String(l[6] || ''), registradoEm: l[7] || '' });
+    } else if (tipoLinha === LINHA_CONFERENCIA_MES) {
+      var mes = String(l[1] || '').trim();
+      var fim = chaveDeCelulaProvento_(l[3]);
+      if (!/^\d{4}-\d{2}$/.test(mes) || !fim) return;
+      out.periodos.push({ mes: mes, inicio: mes + '-01', fim: fim, conferidoEm: l[7] instanceof Date ? chaveDiaISOInicio_(l[7]) : chaveDeCelulaProvento_(l[7]) });
+    }
+  });
+  out.periodos.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
+  return out;
+}
+
+/**
+ * Concilia o que o site sabe (conhecidos) com as linhas do extrato da B3.
+ * Função pura (testada em tests/harness/proventos-conferencia.test.js).
+ *  conhecidos: [{ id, ticker, tipo, data, valor, fonte }] - pagos até hoje;
+ *  extrato: [{ ticker, tipo, data, valor }];
+ *  periodos: [{ mes, inicio, fim }] já conferidos.
+ * Mesmo ativo + dia + tipo é somado dos 2 lados antes (2 contas, 2 linhas
+ * de JCP no mesmo dia). Os pares saem do mais parecido pro menos: valor
+ * que bate, mesmo tipo, menos dias de diferença, menor diferença de valor.
+ * Devolve { porId: { id: { situacao, dataB3, valorB3, previsto, diferenca, ir } }, extras: [grupo do extrato sem par] }.
+ */
+function conciliarProventosB3_(conhecidos, extrato, periodos, opcoes) {
+  var o = opcoes || {};
+  var dias = o.dias != null ? o.dias : CONFERENCIA_PROVENTOS_DIAS;
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
+  var agrupar = function (lista, comFonte) {
+    var grupos = {}, ordem = [];
+    (lista || []).forEach(function (p, i) {
+      if (!p || !p.ticker || !p.data) return;
+      var tipo = normalizarTipoProvento_(p.tipo);
+      var k = p.ticker + '|' + p.data + '|' + tipo + (comFonte ? '|' + (p.fonte || '') : '');
+      var g = grupos[k];
+      if (!g) { g = grupos[k] = { ticker: p.ticker, data: p.data, tipo: tipo, valor: 0, ids: [], fonte: p.fonte || '' }; ordem.push(k); }
+      g.valor = r2(g.valor + (Number(p.valor) || 0));
+      g.ids.push(p.id != null ? p.id : i);
+    });
+    return ordem.map(function (k) { return grupos[k]; });
+  };
+  var K = agrupar(conhecidos, true);
+  var E = agrupar(extrato, false);
+  var avaliar = function (k, e) {
+    var tol = Math.max(CONFERENCIA_PROVENTOS_TOLERANCIA_MIN, Math.abs(k.valor) * CONFERENCIA_PROVENTOS_TOLERANCIA);
+    if (Math.abs(e.valor - k.valor) <= tol) return 'ok';
+    if (k.tipo === 'JCP' || e.tipo === 'JCP') {
+      var liq = 1 - CONFERENCIA_PROVENTOS_IR_JCP;
+      if (Math.abs(e.valor - k.valor * liq) <= tol || Math.abs(k.valor - e.valor * liq) <= tol) return 'ir';
+    }
+    return 'diverge';
+  };
+  var pares = [];
+  K.forEach(function (k, ik) {
+    E.forEach(function (e, ie) {
+      if (e.ticker !== k.ticker) return;
+      var dd = Math.abs(diasEntreChavesProvento_(k.data, e.data));
+      if (dd > dias) return;
+      var av = avaliar(k, e);
+      var mesmoTipo = k.tipo === e.tipo;
+      if (!mesmoTipo && av === 'diverge') return; // tipo diferente só com o valor batendo
+      pares.push({ ik: ik, ie: ie, av: av, s: [av === 'diverge' ? 1 : 0, mesmoTipo ? 0 : 1, dd, Math.abs(e.valor - k.valor)] });
+    });
+  });
+  pares.sort(function (a, b) {
+    for (var i = 0; i < a.s.length; i++) if (a.s[i] !== b.s[i]) return a.s[i] - b.s[i];
+    return a.ik - b.ik || a.ie - b.ie;
+  });
+  var usadoK = {}, usadoE = {}, porId = {};
+  pares.forEach(function (p) {
+    if (usadoK[p.ik] || usadoE[p.ie]) return;
+    usadoK[p.ik] = usadoE[p.ie] = true;
+    var k = K[p.ik], e = E[p.ie];
+    k.ids.forEach(function (id) {
+      porId[id] = { situacao: p.av === 'diverge' ? 'divergente' : 'confirmado', dataB3: e.data, valorB3: e.valor, previsto: k.valor,
+        diferenca: r2(e.valor - k.valor), ir: p.av === 'ir' };
+    });
+  });
+  var noPeriodo = function (data) { return (periodos || []).some(function (pr) { return data >= pr.inicio && data <= pr.fim; }); };
+  K.forEach(function (k, ik) {
+    if (usadoK[ik] || !noPeriodo(k.data)) return;
+    k.ids.forEach(function (id) { porId[id] = { situacao: 'nao_confirmado' }; });
+  });
+  var extras = E.filter(function (e, ie) { return !usadoE[ie]; });
+  return { porId: porId, extras: extras };
+}
+
+/**
+ * Situação de tudo o que foi pago até hoje, pra montarProventosAnunciados_.
+ * planilha = lerLinhasAbaProventos_; presumidos = pagos não lançados (B3/FNet).
+ * Devolve { porId ('N' + índice em presumidos), statusPlanilha (ticker|dia|tipo -> { situacao, dataB3, valorB3 }), resumo }.
+ */
+function conferirProventosComExtratoB3_(ss, planilha, presumidos, hoje) {
+  var conf = { linhas: [], periodos: [] };
+  try { conf = lerConferenciaB3Proventos_(ss); } catch (e) { console.log('conferência B3: ' + e); }
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
+  // linhas da aba que entram: desde a conferência ou desde o 1º mês conferido (com folga de dias)
+  var inicio = CONFERENCIA_PROVENTOS_DESDE;
+  conf.periodos.forEach(function (p) { if (p.inicio < inicio) inicio = p.inicio; });
+  var minimo = inicio;
+  try { minimo = chaveDiaISOInicio_(new Date(Date.UTC(Number(inicio.slice(0, 4)), Number(inicio.slice(5, 7)) - 1, Number(inicio.slice(8, 10)) - CONFERENCIA_PROVENTOS_DIAS, 12))); } catch (e) { /* fica o início */ }
+  var conhecidos = [];
+  (planilha || []).forEach(function (p, i) {
+    if (p.moeda !== 'BRL' || p.tipo === 'Juros' || !p.dataPagamento || p.dataPagamento > hoje || p.dataPagamento < minimo) return;
+    conhecidos.push({ id: 'P' + i, ticker: p.ticker, tipo: p.tipo, data: p.dataPagamento, valor: p.liquido, fonte: 'Planilha' });
+  });
+  (presumidos || []).forEach(function (p, i) {
+    conhecidos.push({ id: 'N' + i, ticker: p.ticker, tipo: p.tipo, data: p.dataPagamento, valor: p.valor, fonte: p.fonte });
+  });
+  var c = conciliarProventosB3_(conhecidos, conf.linhas, conf.periodos);
+
+  var statusPlanilha = {};
+  conhecidos.forEach(function (k) {
+    if (k.fonte !== 'Planilha') return;
+    var s = c.porId[k.id];
+    if (!s && k.data < CONFERENCIA_PROVENTOS_DESDE) return; // anterior à conferência e fora dos meses conferidos
+    var chave = k.ticker + '|' + k.data + '|' + normalizarTipoProvento_(k.tipo);
+    var item = { situacao: s ? s.situacao : 'presumido' };
+    if (s && s.dataB3) { item.dataB3 = s.dataB3; item.valorB3 = s.valorB3; }
+    statusPlanilha[chave] = item;
+  });
+
+  // resumo pra tela: por mês conferido + listas do que pede atenção
+  var periodos = conf.periodos.map(function (p) {
+    return { mes: p.mes, inicio: p.inicio, fim: p.fim, conferidoEm: p.conferidoEm || '', confirmados: 0, divergentes: 0, naoConfirmados: 0, extras: 0 };
+  });
+  var periodoDe = function (data) { return periodos.filter(function (p) { return data >= p.inicio && data <= p.fim; })[0] || null; };
+  var divergencias = [], naoConfirmados = [];
+  var presumidos2 = { quantidade: 0, total: 0 };
+  conhecidos.forEach(function (k) {
+    var s = c.porId[k.id];
+    if (!s) {
+      if (k.fonte !== 'Planilha' || k.data >= CONFERENCIA_PROVENTOS_DESDE) { presumidos2.quantidade += 1; presumidos2.total = r2(presumidos2.total + (Number(k.valor) || 0)); }
+      return;
+    }
+    if (s.situacao === 'nao_confirmado') {
+      var pn = periodoDe(k.data);
+      if (pn) pn.naoConfirmados += 1;
+      naoConfirmados.push({ ticker: k.ticker, tipo: normalizarTipoProvento_(k.tipo), data: k.data, valor: r2(Number(k.valor) || 0), fonte: k.fonte });
+      return;
+    }
+    var pc = periodoDe(s.dataB3) || periodoDe(k.data);
+    if (pc) { if (s.situacao === 'divergente') pc.divergentes += 1; else pc.confirmados += 1; }
+    if (s.situacao === 'divergente') {
+      divergencias.push({ ticker: k.ticker, tipo: normalizarTipoProvento_(k.tipo), data: k.data, valor: r2(Number(k.valor) || 0), dataB3: s.dataB3, valorB3: s.valorB3, diferenca: s.diferenca, fonte: k.fonte });
+    }
+  });
+  var extras = c.extras.map(function (e) {
+    var pe = periodoDe(e.data);
+    if (pe) pe.extras += 1;
+    return { ticker: e.ticker, tipo: e.tipo, data: e.data, valor: e.valor };
+  });
+  var porData = function (a, b) { return a.data < b.data ? -1 : (a.data > b.data ? 1 : (a.ticker < b.ticker ? -1 : 1)); };
+  return {
+    porId: c.porId,
+    statusPlanilha: statusPlanilha,
+    resumo: {
+      desde: CONFERENCIA_PROVENTOS_DESDE,
+      periodos: periodos,
+      presumidos: presumidos2,
+      divergencias: divergencias.sort(porData),
+      naoConfirmados: naoConfirmados.sort(porData),
+      extras: extras.sort(porData)
+    }
+  };
+}
+
+/**
+ * Guarda as linhas de provento do extrato da B3 em aux_proventos-conferencia
+ * e marca os meses como conferidos. itens = os da importação de Lançamentos
+ * (destino 'proventos', vindos de arquivo: { ticker, tipo, dataPagamento,
+ * valor, qtd, arquivo }). A mesma linha em 2 arquivos do mesmo lote (Movimentação
+ * + Proventos recebidos) conta 1 vez; mandar o mesmo extrato de novo (ou um
+ * pedaço dele) não acrescenta nada.
+ * Devolve o resumo da conferência dos meses desse extrato:
+ * { ok, meses, confirmados, divergentes, naoConfirmados, extras, divergencias, naoConfirmadosLista, extrasLista }.
+ */
+function registrarExtratoB3Proventos_(itens, opcoes) {
+  var o = opcoes || {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var hoje = chaveDiaISOInicio_(new Date());
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
+  var linhas = (itens || []).filter(function (it) {
+    return it && it.destino === 'proventos' && it.arquivo && it.ticker && /^\d{4}-\d{2}-\d{2}$/.test(String(it.dataPagamento || '')) && Number(it.valor) > 0 && String(it.dataPagamento) <= hoje;
+  }).map(function (it) {
+    return { ticker: String(it.ticker).trim().toUpperCase(), tipo: normalizarTipoProvento_(it.tipo), data: String(it.dataPagamento), valor: r2(Number(it.valor)),
+      quantidade: Number(it.qtd) || 0, arquivo: String(it.arquivo || '').slice(0, 120) };
+  });
+  if (!linhas.length) return null;
+  var chave = function (l) { return l.ticker + '|' + l.data + '|' + l.tipo + '|' + l.valor.toFixed(2); };
+
+  var trava = null;
+  if (!o.semTrava) { try { trava = LockService.getScriptLock(); trava.waitLock(20000); } catch (e) { trava = null; } } // semTrava: quem chama já segura
+  try {
+    var atual = lerConferenciaB3Proventos_(ss);
+    // quantas vezes cada linha aparece: maior contagem entre os arquivos do lote
+    var porArquivo = {};
+    linhas.forEach(function (l) {
+      var m = porArquivo[l.arquivo] = porArquivo[l.arquivo] || {};
+      m[chave(l)] = (m[chave(l)] || 0) + 1;
+    });
+    var noLote = {}, exemplo = {};
+    Object.keys(porArquivo).forEach(function (a) {
+      Object.keys(porArquivo[a]).forEach(function (k) { noLote[k] = Math.max(noLote[k] || 0, porArquivo[a][k]); });
+    });
+    linhas.forEach(function (l) { if (!exemplo[chave(l)]) exemplo[chave(l)] = l; });
+    var jaTem = {};
+    atual.linhas.forEach(function (l) { jaTem[chave(l)] = (jaTem[chave(l)] || 0) + 1; });
+    var novas = [];
+    Object.keys(noLote).forEach(function (k) {
+      for (var n = jaTem[k] || 0; n < noLote[k]; n++) novas.push(exemplo[k]);
+    });
+
+    // meses cobertos: mês que já acabou = inteiro; o mês de hoje = até a última data do extrato
+    var mesHoje = hoje.slice(0, 7);
+    var meses = {};
+    linhas.forEach(function (l) {
+      var mes = l.data.slice(0, 7);
+      var fim = mes < mesHoje ? ultimoDiaMesProvento_(mes) : l.data;
+      if (!meses[mes] || fim > meses[mes]) meses[mes] = fim;
+    });
+    var periodos = {};
+    atual.periodos.forEach(function (p) { periodos[p.mes] = { fim: p.fim, conferidoEm: p.conferidoEm }; });
+    Object.keys(meses).forEach(function (m) {
+      var antes = periodos[m];
+      periodos[m] = { fim: antes && antes.fim > meses[m] ? antes.fim : meses[m], conferidoEm: hoje };
+    });
+
+    var agora = new Date();
+    var nomesArquivos = Object.keys(porArquivo).join(', ').slice(0, 200);
+    var matriz = [CABECALHO_CONFERENCIA_PROVENTOS];
+    atual.linhas.concat(novas).sort(function (a, b) { return a.data < b.data ? -1 : (a.data > b.data ? 1 : (a.ticker < b.ticker ? -1 : 1)); })
+      .forEach(function (l) {
+        matriz.push([LINHA_CONFERENCIA_B3, l.ticker, l.tipo, dataDeChaveProvento_(l.data), l.valor, l.quantidade || '', l.arquivo, l.registradoEm || agora]);
+      });
+    Object.keys(periodos).sort().forEach(function (m) {
+      var p = periodos[m];
+      matriz.push([LINHA_CONFERENCIA_MES, m, '', dataDeChaveProvento_(p.fim), '', '', meses[m] ? nomesArquivos : '', meses[m] ? agora : dataDeChaveProvento_(p.conferidoEm)]);
+    });
+    var aba = ss.getSheetByName(ABA_CONFERENCIA_PROVENTOS) || ss.insertSheet(ABA_CONFERENCIA_PROVENTOS);
+    aba.clearContents();
+    aba.getRange(1, 1, matriz.length, CABECALHO_CONFERENCIA_PROVENTOS.length).setValues(matriz);
+  } finally {
+    if (trava) { try { trava.releaseLock(); } catch (e) { /* nada */ } }
+  }
+  invalidarCacheProventos_();
+
+  // resumo dos meses desse extrato
+  var res = montarProventosAnunciados_(null, { mapaCambioUsd: o.mapaCambioUsd || {} }).conferencia;
+  var doLote = function (data) { return !!meses[String(data || '').slice(0, 7)]; };
+  var listaMeses = Object.keys(meses).sort();
+  var periodosLote = res.periodos.filter(function (p) { return meses[p.mes]; });
+  var soma = function (campo) { return periodosLote.reduce(function (s, p) { return s + p[campo]; }, 0); };
+  return {
+    ok: true,
+    meses: listaMeses,
+    linhasNovas: novas.length,
+    confirmados: soma('confirmados'),
+    divergentes: soma('divergentes'),
+    naoConfirmados: soma('naoConfirmados'),
+    extras: soma('extras'),
+    divergencias: res.divergencias.filter(function (d) { return doLote(d.dataB3) || doLote(d.data); }),
+    naoConfirmadosLista: res.naoConfirmados.filter(function (d) { return doLote(d.data); }),
+    extrasLista: res.extras.filter(function (d) { return doLote(d.data); })
+  };
 }

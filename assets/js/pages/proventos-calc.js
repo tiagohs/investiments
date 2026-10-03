@@ -64,6 +64,9 @@ export function filtrarClasse(itens, classe) {
  * (12 barras); "Desde o início" = do mês do 1º provento recebido.
  */
 export function mesesDoPeriodo(periodoId, hoje, primeiraData = null) {
+  // 02/10/2026 ("Escolher período"): intervalo { inicio, fim } = os meses que
+  // TOCAM o intervalo (gráfico mensal), nunca passando do mês de hoje.
+  if (ehIntervalo(periodoId)) return mesesDoIntervalo(periodoId, hoje);
   const fim = hoje.slice(0, 7);
   let inicio;
   if (periodoId === 'ano') inicio = `${hoje.slice(0, 4)}-01`;
@@ -73,6 +76,23 @@ export function mesesDoPeriodo(periodoId, hoje, primeiraData = null) {
     inicio = somarMeses(fim, -(n - 1));
   }
   if (inicio > fim) inicio = fim;
+  const meses = [];
+  for (let m = inicio; m <= fim; m = somarMeses(m, 1)) meses.push(m);
+  return meses;
+}
+
+/** 02/10/2026: período personalizado do calendário ({ inicio, fim } em yyyy-MM-dd). */
+export function ehIntervalo(p) {
+  return !!p && typeof p === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(String(p.inicio)) && /^\d{4}-\d{2}-\d{2}$/.test(String(p.fim));
+}
+
+/** Meses ('yyyy-MM') que tocam o intervalo, cortados no mês de hoje. */
+export function mesesDoIntervalo(p, hoje) {
+  const a = p.inicio <= p.fim ? p.inicio : p.fim;
+  const b = p.inicio <= p.fim ? p.fim : p.inicio;
+  const mesHoje = hoje.slice(0, 7);
+  const fim = b.slice(0, 7) < mesHoje ? b.slice(0, 7) : mesHoje;
+  const inicio = a.slice(0, 7) < fim ? a.slice(0, 7) : fim;
   const meses = [];
   for (let m = inicio; m <= fim; m = somarMeses(m, 1)) meses.push(m);
   return meses;
@@ -106,6 +126,13 @@ function somaPorClasse(obj, classe) {
  */
 export function mesesFechadosDoPeriodo(periodoId, hoje, primeiraData = null) {
   const mesHoje = hoje.slice(0, 7);
+  // 02/10/2026: no intervalo personalizado, os meses dele que já fecharam
+  // (só o mês de hoje, se o intervalo for só ele)
+  if (ehIntervalo(periodoId)) {
+    const meses = mesesDoIntervalo(periodoId, hoje);
+    const fechados = meses.filter((m) => m < mesHoje);
+    return fechados.length ? fechados : meses;
+  }
   const fim = somarMeses(mesHoje, -1);
   let inicio;
   if (periodoId === 'ano') inicio = `${hoje.slice(0, 4)}-01`;
@@ -139,7 +166,7 @@ export function resumoConsolidado(dados, { classe = 'todas', periodoId = '12m' }
   const primeira = primeiraDataRecebida(rec);
   const meses = mesesDoPeriodo(periodoId, hoje, primeira);
   const meses12 = mesesDoPeriodo('12m', hoje);
-  const naJanela = (lista) => rec.filter((p) => p.data.slice(0, 7) >= lista[0] && p.data <= hoje);
+  const naJanela = (lista) => rec.filter((p) => p.data.slice(0, 7) >= lista[0] && p.data.slice(0, 7) <= lista[lista.length - 1] && p.data <= hoje);
   const renda = soma(naJanela(meses));
   const renda12m = soma(naJanela(meses12));
   const m = mediaMensal(rec, mesesFechadosDoPeriodo(periodoId, hoje, primeira));
@@ -215,7 +242,13 @@ export function historicoMensal(dados, { classe = 'todas', periodoId = '12m', ag
   // grupos sem nenhum valor no período saem da legenda (a cor dos outros não muda)
   const gruposVisiveis = grupos.filter((g) => valores[g.id].some((v) => v !== 0));
   const totais = meses.map((_, i) => r2(gruposVisiveis.reduce((s, g) => s + valores[g.id][i], 0)));
-  return { meses, grupos: gruposVisiveis, valores, totais };
+  // 02/10/2026: quanto de cada mês é pago PRESUMIDO (falta o extrato da B3) - só pro tooltip
+  const presumidos = meses.map(() => 0);
+  rec.forEach((p) => {
+    const i = idxMes[p.data.slice(0, 7)];
+    if (i !== undefined && p.data <= dados.hoje && p.conferencia === 'presumido') presumidos[i] += p.valor;
+  });
+  return { meses, grupos: gruposVisiveis, valores, totais, presumidos: presumidos.map(r2) };
 }
 
 /**
@@ -234,7 +267,7 @@ export function rankingPorAtivo(dados, { classe = 'todas', periodoId = '12m' } =
     if (p.data > hoje) return;
     const x = porTicker[p.ticker] || (porTicker[p.ticker] = { ticker: p.ticker, classe: p.classe, total: 0, totalDesdeInicio: 0, renda12mMoeda: 0, pagamentos: 0 });
     x.totalDesdeInicio += p.valor;
-    if (p.data.slice(0, 7) >= meses[0]) { x.total += p.valor; x.pagamentos += 1; }
+    if (p.data.slice(0, 7) >= meses[0] && p.data.slice(0, 7) <= meses[meses.length - 1]) { x.total += p.valor; x.pagamentos += 1; }
     if (p.data.slice(0, 7) >= inicio12) x.renda12mMoeda += p.moeda === 'USD' ? (p.liquido || 0) : p.valor;
   });
   const lista = Object.values(porTicker).filter((x) => x.total > 0);
@@ -280,6 +313,129 @@ export function receitaFutura(dados, { classe = 'todas' } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Pago presumido e conferência com o extrato da B3 (02/10/2026)
+// ---------------------------------------------------------------------------
+// Tiago: "Proventos: se a data de pagamento já passou, deduz que está pago.
+// Eu mando no final do mês [o arquivo da B3] e você faz o check final."
+// O servidor (Proventos.gs) já separa pelo dia de hoje e marca a
+// `conferencia` de cada um; aqui o dia é reconferido no fuso de São Paulo
+// (a resposta pode ter vindo do cache de ontem) e os pagos que não estão na
+// aba Proventos entram nos recebidos - contam nos totais e gráficos.
+
+const FMT_DIA_SP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** Dia de hoje em São Paulo ('yyyy-MM-dd'), seja qual for o fuso do aparelho. */
+export function hojeSaoPaulo(agora = new Date()) {
+  return FMT_DIA_SP.format(agora);
+}
+
+/** Pagamento até hoje (inclusive) = 'pago'; depois = 'aReceber'; sem data = 'semData'. */
+export function statusPorData(dataPagamento, hoje) {
+  if (!dataPagamento) return 'semData';
+  return dataPagamento <= hoje ? 'pago' : 'aReceber';
+}
+
+/** Rótulo e explicação de cada situação da conferência (ícone/tooltip). */
+export const CONFERENCIA = {
+  presumido: { rotulo: 'Pago presumido', dica: 'Pago presumido pela data de pagamento: falta conferir com o extrato da B3.' },
+  confirmado: { rotulo: 'Conferido com a B3', dica: 'Conferido com o extrato da B3.' },
+  divergente: { rotulo: 'Valor diferente na B3', dica: 'Está no extrato da B3, mas com outro valor.' },
+  nao_confirmado: { rotulo: 'Não confirmado', dica: 'O extrato da B3 do mês não trouxe esse provento: pode ter atrasado ou não ter sido pago.' },
+};
+
+const ICONE_CONFERENCIA = {
+  // relógio (presumido), check (conferido), alerta (valor diferente / não confirmado)
+  presumido: ['--ink-faint', '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'],
+  confirmado: ['--good-ink', '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.7 2.7L16 9.8"/>'],
+  divergente: ['--warn-ink', '<path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.3"/>'],
+  nao_confirmado: ['--warn-ink', '<path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.3"/>'],
+};
+const escAttr = (t) => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const brl2 = (v) => `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Texto do tooltip da situação (com os valores da B3 quando diverge). */
+export function dicaConferencia(p) {
+  const c = CONFERENCIA[p && p.conferencia];
+  if (!c) return '';
+  if (p.conferencia === 'divergente' && p.valorB3 != null) {
+    return `${c.dica} B3: ${brl2(p.valorB3)}${p.dataB3 ? ` em ${p.dataB3.slice(8, 10)}/${p.dataB3.slice(5, 7)}` : ''} · previsto ${brl2(p.valor)}.`;
+  }
+  return c.dica;
+}
+
+/** Ícone discreto (14px, cor pelos tokens) com tooltip; '' quando não há situação (anteriores à conferência). */
+export function iconeConferenciaHtml(p, { classe = 'pv-conf' } = {}) {
+  const ic = ICONE_CONFERENCIA[p && p.conferencia];
+  if (!ic) return '';
+  const dica = escAttr(dicaConferencia(p));
+  return `<span class="${classe}" title="${dica}" aria-label="${dica}" role="img" style="display:inline-flex;vertical-align:-2px;margin-left:5px;color:var(${ic[0]})"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic[1]}</svg></span>`;
+}
+
+/**
+ * Resposta da tela -> mesma resposta com o dia de hoje aplicado:
+ * - hoje = o maior entre o do servidor e `hojeLocal` (São Paulo);
+ * - a receber com pagamento até hoje vira pago presumido;
+ * - pagos não lançados (B3/FNet) entram em `recebidos` (com fonte e
+ *   conferencia), menos os 'nao_confirmado', que vão pra `naoConfirmados`
+ *   (só na Agenda - o extrato do mês não trouxe).
+ * Pode chamar de novo: a 2ª vez não muda nada.
+ */
+export function normalizarPorData(dados, hojeLocal = hojeSaoPaulo()) {
+  if (!dados || dados.porData) return dados;
+  const hoje = hojeLocal && hojeLocal > (dados.hoje || '') ? hojeLocal : dados.hoje;
+  const aReceber = [];
+  const passados = [];
+  (dados.aReceber || []).forEach((p) => {
+    if (statusPorData(p.dataPagamento, hoje) === 'pago') passados.push({ ...p, conferencia: 'presumido' });
+    else aReceber.push(p);
+  });
+  const pagos = [...(dados.pagosNaoLancados || []).map((p) => ({ ...p, conferencia: p.conferencia || 'presumido' })), ...passados];
+  const comoRecebido = (p) => ({
+    data: p.dataPagamento, dataCom: p.dataCom || '', ticker: p.ticker, classe: p.classe, tipo: p.tipo, quantidade: p.quantidade,
+    valorPorCota: p.valorPorCota, liquido: p.valor, moeda: 'BRL', cambio: null, valor: p.valor, fonte: p.fonte || 'Planilha',
+    conferencia: p.conferencia, dataB3: p.dataB3 || '', valorB3: p.valorB3 == null ? null : p.valorB3,
+  });
+  return {
+    ...dados,
+    hoje,
+    recebidos: [...(dados.recebidos || []), ...pagos.filter((p) => p.conferencia !== 'nao_confirmado').map(comoRecebido)],
+    aReceber,
+    pagosNaoLancados: [],
+    naoConfirmados: [...(dados.naoConfirmados || []), ...pagos.filter((p) => p.conferencia === 'nao_confirmado')],
+    porData: true,
+  };
+}
+
+/**
+ * Resumo da conferência pra faixa da tela (dados já normalizados):
+ * presumidos (quantos e quanto, contando nos totais), divergentes e não
+ * confirmados (da classe escolhida), o último mês conferido e as linhas do
+ * extrato que ainda não estão na planilha.
+ */
+export function resumoConferencia(dados, { classe = 'todas' } = {}) {
+  const rec = filtrarClasse(dados.recebidos, classe);
+  const presumidos = rec.filter((p) => p.conferencia === 'presumido');
+  const conf = dados.conferencia || {};
+  const periodos = (conf.periodos || []).slice().sort((a, b) => (a.mes < b.mes ? -1 : 1));
+  const naoConfirmados = [
+    ...rec.filter((p) => p.conferencia === 'nao_confirmado').map((p) => ({ ticker: p.ticker, classe: p.classe, tipo: p.tipo, dataPagamento: p.data, valor: p.valor, contando: true })),
+    ...filtrarClasse(dados.naoConfirmados, classe).map((p) => ({ ticker: p.ticker, classe: p.classe, tipo: p.tipo, dataPagamento: p.dataPagamento, valor: p.valor, contando: false })),
+  ].sort((a, b) => (a.dataPagamento < b.dataPagamento ? -1 : 1));
+  const divergentes = rec.filter((p) => p.conferencia === 'divergente')
+    .map((p) => ({ ticker: p.ticker, classe: p.classe, tipo: p.tipo, dataPagamento: p.data, valor: p.valor, dataB3: p.dataB3, valorB3: p.valorB3, diferenca: p.valorB3 == null ? null : r2(p.valorB3 - p.valor) }))
+    .sort((a, b) => (a.dataPagamento < b.dataPagamento ? -1 : 1));
+  return {
+    presumidos: { quantidade: presumidos.length, total: soma(presumidos) },
+    confirmados: rec.filter((p) => p.conferencia === 'confirmado').length,
+    divergentes,
+    naoConfirmados,
+    ultimoPeriodo: periodos.length ? periodos[periodos.length - 1] : null,
+    periodos,
+    extras: classe === 'todas' ? (conf.extras || []) : [],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Agenda
 // ---------------------------------------------------------------------------
 
@@ -293,10 +449,15 @@ export function itensAgenda(dados, { classe = 'todas' } = {}) {
   const out = [];
   filtrarClasse(dados.recebidos, classe).forEach((p) => {
     out.push({ ticker: p.ticker, classe: p.classe, tipo: p.tipo, dataCom: p.dataCom || '', dataPagamento: p.data, quantidade: p.quantidade, valorPorCota: p.valorPorCota,
-      moeda: p.moeda || 'BRL', liquido: p.liquido, cambio: p.cambio || null, valor: p.valor, status: 'pago', fonte: 'Planilha' });
+      moeda: p.moeda || 'BRL', liquido: p.liquido, cambio: p.cambio || null, valor: p.valor, status: 'pago', fonte: p.fonte || 'Planilha',
+      conferencia: p.conferencia || null, dataB3: p.dataB3 || '', valorB3: p.valorB3 == null ? null : p.valorB3 });
   });
   filtrarClasse(dados.pagosNaoLancados, classe).forEach((p) => {
     out.push({ ...p, moeda: 'BRL', status: 'naoLancado' });
+  });
+  // 02/10/2026: anunciados que o extrato da B3 do mês não trouxe (normalizarPorData)
+  filtrarClasse(dados.naoConfirmados, classe).forEach((p) => {
+    out.push({ ...p, moeda: 'BRL', status: 'naoConfirmado' });
   });
   filtrarClasse(dados.aReceber, classe).forEach((p) => {
     out.push({ ...p, moeda: p.moeda || 'BRL', status: p.dataPagamento ? 'aReceber' : 'semData' });
@@ -308,7 +469,7 @@ export function itensAgenda(dados, { classe = 'todas' } = {}) {
   });
 }
 
-export const STATUS_REALIZADO = ['pago', 'naoLancado'];
+export const STATUS_REALIZADO = ['pago', 'naoLancado', 'naoConfirmado'];
 export const STATUS_A_REALIZAR = ['aReceber', 'semData'];
 
 function passaStatus(p, status) {
@@ -395,4 +556,143 @@ export function previaExportacaoB3(linhas) {
     itens.push({ ticker, evento: cEvento === -1 ? '' : String(l[cEvento] || ''), pagamento: cPag === -1 ? '' : String(l[cPag] || ''), valor });
   }
   return { ok: itens.length > 0, itens, total: r2(itens.reduce((s, p) => s + p.valor, 0)) };
+}
+
+// ---------------------------------------------------------------------------
+// Análise dos proventos mensais (02/10/2026)
+// ---------------------------------------------------------------------------
+// Tiago: "embaixo do gráfico um card de análise como o das tabelas". O motor
+// de assets/js/analise-grafico.js compara séries de CRESCIMENTO com índices;
+// pra renda mês a mês a régua é outra (média e o período anterior), então os
+// pontos saem daqui, no mesmo formato ({ tom, resumo, pontos }) - quem desenha
+// é o mesmo renderAnalise (mesmo visual).
+
+const pctTxt0 = (fracao) => `${Math.abs(fracao * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`;
+const vezesTxt = (x) => `${x.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`;
+
+/** Soma dos recebidos por mês ('yyyy-MM' -> R$), só o que já foi pago até `hoje`. */
+export function proventosPorMes(recebidos, hoje = null, { campoData = 'data' } = {}) {
+  const porMes = {};
+  (recebidos || []).forEach((p) => {
+    const d = p && p[campoData];
+    if (typeof d !== 'string' || (hoje && d > hoje) || !Number.isFinite(p.valor)) return;
+    const m = d.slice(0, 7);
+    porMes[m] = (porMes[m] || 0) + p.valor;
+  });
+  Object.keys(porMes).forEach((m) => { porMes[m] = r2(porMes[m]); });
+  return porMes;
+}
+
+const maiuscula = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const rotuloJanela = (meses) => (meses.length === 1 ? rotuloMes(meses[0]) : `${rotuloMes(meses[0])} a ${rotuloMes(meses[meses.length - 1])}`);
+
+/**
+ * Pontos de análise de uma janela de meses (a do gráfico):
+ *  - comparacao: média dos meses FECHADOS da janela x a média da janela
+ *    anterior de mesmo tamanho (quando o histórico cobre ela inteira);
+ *  - ultimoMes: o último mês fechado x a média dos 12 meses antes dele;
+ *  - regularidade: em quantos meses fechados entrou algum provento;
+ *  - pico: um mês que vale 2× a média ou mais (puxa a média pra cima);
+ *  - mesAtual: o que já entrou neste mês + o que está anunciado pra ele.
+ * `porMes` = proventosPorMes (histórico inteiro); `meses` = janela em ordem;
+ * `mesesFechados` = régua da média (padrão: os meses fechados da janela).
+ * Sem nada recebido na janela: { pontos: [] } (a tela não mostra o card).
+ */
+export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aReceberMes = 0, mesesFechados = null } = {}) {
+  const vazio = { tom: 'neutro', resumo: '', pontos: [] };
+  if (!meses.length || !mesAtual) return vazio;
+  const val = (m) => porMes[m] || 0;
+  const totalJanela = meses.reduce((s, m) => s + val(m), 0);
+  if (!(totalJanela > 0)) return vazio;
+  const comDado = Object.keys(porMes).filter((m) => porMes[m] > 0).sort();
+  const primeiroMes = comDado[0];
+  // `mesesFechados` (opcional): a régua de média da tela (ex.: mesesFechadosDoPeriodo,
+  // a mesma do cartão "Média mensal") - sem ela, os meses fechados da janela
+  const fechadosTodos = (Array.isArray(mesesFechados) && mesesFechados.length ? mesesFechados : meses).filter((m) => m < mesAtual);
+  // meses antes do 1º provento não contam na média (a posição nem existia)
+  const fechados = fechadosTodos.filter((m) => m >= primeiroMes);
+  const pontos = [];
+
+  // 1) média da janela x janela anterior
+  let comparacao = null;
+  if (fechados.length) {
+    const media = fechados.reduce((s, m) => s + val(m), 0) / fechados.length;
+    const n = fechados.length;
+    const antes = [];
+    for (let k = n; k >= 1; k -= 1) antes.push(somarMeses(fechados[0], -k));
+    const temAnterior = n >= 2 && primeiroMes <= antes[0];
+    if (temAnterior) {
+      const mediaAnt = antes.reduce((s, m) => s + val(m), 0) / n;
+      const varia = mediaAnt > 0 ? media / mediaAnt - 1 : null;
+      if (varia == null) {
+        comparacao = { tipo: 'comparacao', tom: 'bom', peso: 60, texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — no período anterior de mesmo tamanho não tinha entrado nada.`, resumo: `média de ${brl2(media)}/mês` };
+      } else {
+        const tom = varia >= 0.05 ? 'bom' : (varia <= -0.05 ? 'atencao' : 'neutro');
+        const comp = Math.abs(varia) < 0.005 ? 'igual à' : `${pctTxt0(varia)} ${varia > 0 ? 'acima da' : 'abaixo da'}`;
+        comparacao = {
+          tipo: 'comparacao', tom, peso: 60,
+          texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — ${comp} média dos ${n} meses anteriores (${brl2(mediaAnt)}/mês).`,
+          resumo: `média de ${brl2(media)}/mês, ${Math.abs(varia) < 0.005 ? 'estável' : `${varia > 0 ? '+' : '−'}${pctTxt0(varia)}`} vs os ${n} meses antes`,
+        };
+      }
+    } else {
+      comparacao = { tipo: 'comparacao', tom: 'neutro', peso: 60, texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (${n} ${n === 1 ? 'mês fechado' : 'meses fechados'}).`, resumo: `média de ${brl2(media)}/mês` };
+    }
+    pontos.push(comparacao);
+
+    // 2) último mês fechado x média dos 12 anteriores
+    const ultimo = fechados[fechados.length - 1];
+    const ant12 = [];
+    for (let k = 12; k >= 1; k -= 1) { const m = somarMeses(ultimo, -k); if (m >= primeiroMes) ant12.push(m); }
+    if (ant12.length >= 3) {
+      const media12 = ant12.reduce((s, m) => s + val(m), 0) / ant12.length;
+      if (media12 > 0) {
+        const v = val(ultimo);
+        const varia = v / media12 - 1;
+        const rot = ant12.length === 12 ? 'dos 12 meses anteriores' : `dos ${ant12.length} meses anteriores`;
+        const tom = varia >= 0.15 ? 'bom' : (varia <= -0.15 ? 'atencao' : 'neutro');
+        const texto = v > 0
+          ? `Em ${rotuloMes(ultimo)} entraram ${brl2(v)} — ${Math.abs(varia) < 0.005 ? 'igual à' : `${pctTxt0(varia)} ${varia > 0 ? 'acima da' : 'abaixo da'}`} média ${rot} (${brl2(media12)}/mês).`
+          : `Em ${rotuloMes(ultimo)} não entrou nenhum provento (média ${rot}: ${brl2(media12)}/mês).`;
+        pontos.push({ tipo: 'ultimoMes', tom, peso: Math.abs(varia) >= 0.15 ? 58 : 40, texto, resumo: `${rotuloMes(ultimo)} ${varia >= 0 ? 'acima' : 'abaixo'} da média` });
+      }
+    }
+
+    // 3) regularidade
+    if (fechados.length >= 4) {
+      const pagos = fechados.filter((m) => val(m) > 0).length;
+      pontos.push(pagos === fechados.length
+        ? { tipo: 'regularidade', tom: 'bom', peso: 38, texto: `Entrou provento em todos os ${fechados.length} meses fechados do período — renda regular.`, resumo: 'todo mês' }
+        : { tipo: 'regularidade', tom: 'neutro', peso: 36, texto: `Entrou provento em ${pagos} dos ${fechados.length} meses fechados do período${pagos <= fechados.length / 2 ? ' — os pagamentos se concentram em poucos meses' : ''}.`, resumo: `${pagos} de ${fechados.length} meses` });
+    }
+
+    // 4) pico
+    if (fechados.length >= 4 && media > 0) {
+      const maior = fechados.reduce((a, m) => (val(m) > val(a) ? m : a), fechados[0]);
+      const x = val(maior) / media;
+      if (x >= 2) {
+        const semEle = (fechados.reduce((s, m) => s + val(m), 0) - val(maior)) / (fechados.length - 1);
+        pontos.push({ tipo: 'pico', tom: 'neutro', peso: 50, texto: `${maiuscula(rotuloMes(maior))} foi fora da curva: ${brl2(val(maior))} (${vezesTxt(x)} a média). Sem ele, a média seria ${brl2(semEle)}/mês.`, resumo: `pico em ${rotuloMes(maior)}` });
+      }
+    }
+  }
+
+  // 5) mês de hoje (parcial)
+  if (meses.includes(mesAtual) && (val(mesAtual) > 0 || aReceberMes > 0)) {
+    const ja = val(mesAtual);
+    pontos.push({
+      tipo: 'mesAtual', tom: 'neutro', peso: fechados.length ? 34 : 70,
+      texto: `Neste mês (${rotuloMes(mesAtual)}), até agora: ${brl2(ja)} recebidos${aReceberMes > 0 ? ` + ${brl2(aReceberMes)} anunciados a receber` : ''}.`,
+      resumo: `${brl2(ja)} neste mês`,
+    });
+  }
+
+  if (!pontos.length) return vazio;
+  const lista = [...pontos].sort((a, b) => (a === comparacao ? -1 : b === comparacao ? 1 : b.peso - a.peso)).slice(0, 4);
+  const principal = lista[0];
+  const alerta = lista.find((p) => p !== principal && p.tom === 'atencao');
+  const resumo = alerta ? `${principal.resumo} · ${alerta.resumo}` : principal.resumo;
+  // comparação a favor + um alerta pontual (ex.: o último mês fraco) = neutro, não "atenção"
+  const tom = alerta ? (principal.tom === 'bom' ? 'neutro' : 'atencao') : principal.tom;
+  return { tom, resumo: maiuscula(resumo), pontos: lista };
 }

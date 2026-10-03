@@ -5,7 +5,13 @@
 // de fetch/token reais.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
+
+// 02/10/2026: a página agora também busca o gráfico do dia (getIntradia, por
+// padrão o api-client de verdade) - nos testes que não injetam getIntradiaImpl,
+// nada pode sair pra rede: o fetch falha na hora e a tela cai no estado vazio.
+globalThis.fetch = async () => { throw new Error('sem rede nos testes'); };
 import {
   formatPercentualMeta,
   criarAnelProgresso,
@@ -18,6 +24,9 @@ import {
   renderObjetivosCarteira,
   renderRadarOportunidades,
   renderSplitInterno,
+  chaveIntradiaRadar,
+  urlGoogleFinance,
+  preencherIntradiaRadar,
 } from '../assets/js/pages/distribuicoes-metas.js';
 
 function makeDom(bodyHtml) {
@@ -2076,8 +2085,11 @@ test('renderRadarOportunidades(): cada ativo ganha, logo abaixo, o "momento de a
   const linhas = [...container.querySelectorAll('.radar-table tbody tr')];
   assert.deepEqual(linhas.map((tr) => tr.className), ['radar-linha', 'radar-momento-tr', 'radar-linha', 'radar-momento-tr']);
   const momentoWiz = linhas[1];
-  assert.equal(momentoWiz.children.length, 2, 'célula vazia embaixo do # e o momento embaixo do resto');
-  assert.equal(momentoWiz.children[1].colSpan, linhas[0].children.length - 1);
+  // 02/10/2026: embaixo do # + Ativo agora vai o gráfico do dia (antes, uma célula vazia embaixo do #)
+  assert.equal(momentoWiz.children.length, 2, 'gráfico do dia embaixo do # + Ativo e o momento embaixo do resto');
+  assert.equal(momentoWiz.children[0].colSpan, 2);
+  assert.ok(momentoWiz.children[0].querySelector('.radar-intradia'));
+  assert.equal(momentoWiz.children[1].colSpan, linhas[0].children.length - 2);
   const texto = momentoWiz.textContent.replace(/\s+/g, ' ');
   assert.match(texto, /Bom momento/);
   assert.match(texto, /Abaixo do preço-teto \(R\$ 10,00\): margem de 27,9%/);
@@ -2118,4 +2130,176 @@ test('renderRadarOportunidades(): o momento considera o ranking dentro do bloco 
   const soPapel = [...container.querySelectorAll('.radar-momento-tr')];
   assert.equal(soPapel.length, 1);
   assert.match(soPapel[0].textContent, /Ranking 8 de 8/, 'o filtro não muda o "de N"');
+});
+
+
+// ---- 02/10/2026: "Acompanhamento de Ativos" (novo nome do menu), estilo "Minha carteira" e gráfico do dia no Radar ----
+
+const SERIE_FALSA = (sobe = true) => ({
+  dia: '2026-10-01', inicio: 0, fim: 25200, fechamentoAnterior: 10,
+  t: [0, 60, 120, 180, 240], v: sobe ? [10, 10.1, 10.05, 10.2, 10.3] : [10, 9.9, 9.95, 9.8, 9.7],
+});
+const esperar = () => new Promise((r) => setTimeout(r, 0));
+
+test('menu e título: "Acompanhamento de Ativos" no shell.html, no <title> e na rota (arquivo e data-section continuam os antigos)', async () => {
+  const shell = readFileSync(new URL('../assets/partials/shell.html', import.meta.url), 'utf8');
+  const dom = new JSDOM(shell);
+  const tpl = dom.window.document.getElementById('shell-header-template');
+  const link = tpl.content.querySelector('a.nav-link[data-section="distribuicoes"]');
+  assert.equal(link.getAttribute('href'), 'distribuicoes-metas.html');
+  assert.equal(link.querySelector('.nav-label').textContent.trim(), 'Acompanhamento de Ativos');
+  assert.equal(link.getAttribute('title'), 'Acompanhamento de Ativos');
+  const html = readFileSync(new URL('../distribuicoes-metas.html', import.meta.url), 'utf8');
+  assert.match(html, /<title>Acompanhamento de Ativos<\/title>/);
+  const { ROUTES } = await import('../assets/js/router.js');
+  const rota = ROUTES.find((r) => r.key === 'distribuicoes');
+  assert.equal(rota.title, 'Acompanhamento de Ativos');
+  assert.equal(rota.href, 'distribuicoes-metas.html');
+});
+
+test('chaveIntradiaRadar()/urlGoogleFinance(): classe por tabela do Radar; Google Finance com :BVMF só na B3', () => {
+  assert.equal(chaveIntradiaRadar('petr4', 'acoesNacionais'), 'acoes:PETR4');
+  assert.equal(chaveIntradiaRadar('BTLG11', 'fiis'), 'fiis:BTLG11');
+  assert.equal(chaveIntradiaRadar('VNOM', 'acoesInternacionais'), 'usa:VNOM');
+  assert.equal(chaveIntradiaRadar('X"Y', 'acoesNacionais'), null);
+  assert.equal(chaveIntradiaRadar('PETR4', 'outra'), null);
+  assert.equal(urlGoogleFinance('PETR4', 'acoesNacionais'), 'https://www.google.com/finance/quote/PETR4:BVMF');
+  assert.equal(urlGoogleFinance('BTLG11', 'fiis'), 'https://www.google.com/finance/quote/BTLG11:BVMF');
+  assert.equal(urlGoogleFinance('vnom', 'acoesInternacionais'), 'https://www.google.com/finance/quote/VNOM');
+});
+
+test('renderRadarOportunidades(): gráfico do dia embaixo do # + Ativo, link pro Google Finance, desenhado com a série que chegou', async () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const pedidos = [];
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, {
+    buscarIntradia: async (chaves) => { pedidos.push(chaves); return { 'acoes:WIZC3': SERIE_FALSA(true), 'acoes:VAMO3': null }; },
+  });
+  const links = [...container.querySelectorAll('.radar-momento-tr .radar-intradia')];
+  assert.equal(links.length, 2);
+  assert.equal(links[0].getAttribute('href'), 'https://www.google.com/finance/quote/WIZC3:BVMF');
+  assert.equal(links[0].getAttribute('target'), '_blank');
+  assert.match(links[0].getAttribute('rel'), /noopener/);
+  assert.ok(links[0].querySelector('.radar-intradia-slot.carregando'), 'nasce carregando');
+  await esperar();
+  assert.deepEqual(pedidos, [['acoes:WIZC3', 'acoes:VAMO3']]);
+  const wiz = links[0].querySelector('.radar-intradia-slot');
+  assert.ok(wiz.querySelector('svg.intradia-svg.sobe'));
+  assert.equal(wiz.classList.contains('carregando'), false);
+  assert.equal(links[0].querySelector('.radar-intradia-rotulo').textContent, 'Pregão 01/10');
+  const vamo = links[1].querySelector('.radar-intradia-slot');
+  assert.equal(vamo.classList.contains('sem-dado'), true);
+  assert.equal(vamo.querySelector('svg'), null);
+  assert.match(vamo.textContent, /sem gráfico do dia/);
+
+  // trocar de aba troca os gráficos (pede os ativos da aba nova; EUA sem :BVMF)
+  container.querySelector('[data-tabela="acoesInternacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esperar();
+  assert.deepEqual(pedidos[1], ['usa:GPRK']);
+  assert.equal(container.querySelector('.radar-intradia').getAttribute('href'), 'https://www.google.com/finance/quote/GPRK');
+});
+
+test('renderRadarOportunidades(): sem buscarIntradia (ou se a busca falha), o gráfico cai no estado vazio em vez de ficar carregando', async () => {
+  const doc = makeDom('<div id="c"></div><div id="d"></div>');
+  renderRadarOportunidades(doc, doc.getElementById('c'), RADAR_EXEMPLO);
+  assert.equal(doc.querySelectorAll('#c .radar-intradia-slot.carregando').length, 0);
+  assert.equal(doc.querySelectorAll('#c .radar-intradia-slot.sem-dado').length, 2);
+  renderRadarOportunidades(doc, doc.getElementById('d'), RADAR_EXEMPLO, { buscarIntradia: async () => { throw new Error('caiu'); } });
+  await esperar();
+  assert.equal(doc.querySelectorAll('#d .radar-intradia-slot.carregando').length, 0);
+  assert.equal(doc.querySelectorAll('#d .radar-intradia-slot.sem-dado').length, 2);
+});
+
+test('preencherIntradiaRadar(): pregão de hoje vira "Hoje"; série que cai pinta de vermelho (.desce)', () => {
+  const doc = makeDom('<a><span class="radar-intradia-cab"><span class="radar-intradia-rotulo">Variação do dia</span></span><span class="radar-intradia-slot carregando" data-intradia="acoes:X1"></span></a>');
+  preencherIntradiaRadar(doc.body, { 'acoes:X1': SERIE_FALSA(false) }, { hojeISO: '2026-10-01' });
+  assert.ok(doc.querySelector('svg.intradia-svg.desce'));
+  assert.equal(doc.querySelector('.radar-intradia-rotulo').textContent, 'Hoje');
+});
+
+test('renderRadarOportunidades(): as abas viram "abas-número" (classe, quanto tem nela, nº de ativos e quantos em bom momento) - continuam .filter-tab', async () => {
+  const { metasDaDistribuicao } = await import('../assets/js/pages/momento-aporte.js');
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const metas = metasDaDistribuicao({ objetivos: OBJETIVOS_EXEMPLO, splitsInternos: SPLITS_INTERNOS_EXEMPLO });
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { metas });
+  assert.ok(container.querySelector('.radar-card > .radar-visoes'));
+  const abas = container.querySelectorAll('.filter-tab.radar-visao');
+  assert.equal(abas.length, 3);
+  assert.equal(abas[0].getAttribute('aria-selected'), 'true');
+  assert.equal(abas[0].querySelector('.rc-rotulo').textContent, 'Ações Nacionais');
+  assert.match(abas[0].querySelector('.rc-valor').textContent, /2\.508,00/);
+  assert.ok(abas[0].querySelector('.rc-valor .dec'), 'centavos menores, igual à Início');
+  assert.match(abas[0].querySelector('.radar-visao-sub').textContent, /2 ativos/);
+  assert.match(abas[0].querySelector('.radar-visao-sub').textContent, /\d+ em bom momento/);
+  assert.match(abas[1].querySelector('.rc-valor').textContent, /\$557\.70/, 'Ações Internacionais em dólar, igual à tabela');
+});
+
+test('renderRadarOportunidades(): slotDistrib entra dentro do cartão do Radar, entre as abas e a tabela', () => {
+  const doc = makeDom('<div id="split"></div><div id="c"></div>');
+  const slot = doc.getElementById('split');
+  const container = doc.getElementById('c');
+  renderRadarOportunidades(doc, container, RADAR_EXEMPLO, { slotDistrib: slot });
+  const filhos = [...container.querySelector('.radar-card').children];
+  assert.deepEqual(filhos.map((el) => el.id || el.className.split(' ')[0]), ['filter-tabs', 'split', 'radar-tabela-area']);
+  assert.ok(slot.classList.contains('radar-distrib'));
+});
+
+test('criarBlocoObjetivo() no estilo "Minha carteira": abas-número (total e quanto falta) e barras atual x meta com a cor de cada tipo', () => {
+  const doc = makeDom('');
+  const bloco = criarBlocoObjetivo(doc, {
+    titulo: 'Ações, FIIs e Renda Fixa',
+    tipos: OBJETIVOS_EXEMPLO.alocacaoGeral.tipos,
+    total: OBJETIVOS_EXEMPLO.alocacaoGeral.total,
+  });
+  const tiles = bloco.querySelectorAll('.obj-total > .obj-tile');
+  assert.equal(tiles.length, 2);
+  assert.ok(tiles[0].querySelector('.obj-bloco-titulo'));
+  assert.match(tiles[0].querySelector('.obj-total-v').textContent, /88\.402,95/);
+  assert.ok(tiles[0].querySelector('.obj-total-v .dec'));
+  assert.match(tiles[1].querySelector('.obj-total-investir').textContent, /7\.596,45/);
+  const atual = bloco.querySelectorAll('.obj-comp-atual .rc-seg');
+  const meta = bloco.querySelectorAll('.obj-comp-meta .rc-seg');
+  assert.equal(atual.length, 3);
+  assert.equal(meta.length, 3);
+  assert.match(atual[0].getAttribute('style'), /--acoes/);
+  const somaLarguras = [...meta].reduce((a, el) => a + parseFloat(el.style.width), 0);
+  assert.ok(Math.abs(somaLarguras - 100) < 0.1);
+  // nada faltando: a 2ª aba-número diz "na meta"
+  const ok = criarBlocoObjetivo(doc, { titulo: 'X', tipos: [{ tipo: 'A', percentualDesejado: 1, percentualAtual: 1, carteiraAtual: 10, valorInvestir: 0 }], total: { carteiraAtual: 10, valorInvestir: 0 } });
+  assert.match(ok.querySelector('.obj-tile-ok').textContent, /na meta/);
+});
+
+test('splits internos ganham cor própria (Dividendos/Internacionais/Tijolo/Papel/Híbrido) em vez do cinza', () => {
+  const doc = makeDom('');
+  const cor = (tipo) => criarLinhaObjetivo(doc, { tipo, percentualDesejado: 0.5, percentualAtual: 0.5, carteiraAtual: 1, valorInvestir: 0 }).querySelector('.obj-dot').getAttribute('style');
+  assert.match(cor('Dividendos'), /--acoes/);
+  assert.match(cor('Ações Internacionais'), /--usa/);
+  assert.match(cor('Tijolo'), /--fii-tijolo/);
+  assert.match(cor('Papel'), /--fii-papel/);
+  assert.match(cor('Híbrido'), /--fii-hibrido/);
+  assert.match(cor('Outro qualquer'), /--na/);
+});
+
+test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos da aba na tela, guarda 5 min (voltar pra aba não busca de novo) e põe a distribuição desejada dentro do cartão do Radar', async () => {
+  const doc = makePaginaDom();
+  const getDistribuicoesMetasImpl = async () => ({ ok: true, metas: METAS_EXEMPLO, radar: RADAR_EXEMPLO, splitsInternos: SPLITS_INTERNOS_EXEMPLO, linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO });
+  const pedidos = [];
+  const getIntradiaImpl = async (token, chaves) => {
+    pedidos.push({ token, chaves });
+    return { ok: true, resultado: Object.fromEntries(chaves.map((c) => [c, SERIE_FALSA(true)])) };
+  };
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, getIntradiaImpl });
+  await esperar();
+  assert.deepEqual(pedidos, [{ token: 'token-fake', chaves: ['acoes:WIZC3', 'acoes:VAMO3'] }]);
+  const radar = doc.getElementById('radarOportunidadesGrid');
+  assert.equal(radar.querySelectorAll('svg.intradia-svg').length, 2);
+  assert.ok(radar.querySelector('.radar-card #splitInternoGrid .obj-bloco'), 'split interno dentro do cartão do Radar');
+
+  radar.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esperar();
+  radar.querySelector('[data-tabela="acoesNacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  await esperar();
+  assert.deepEqual(pedidos.map((p) => p.chaves), [['acoes:WIZC3', 'acoes:VAMO3'], ['fiis:PMLL11']]);
+  assert.equal(radar.querySelectorAll('svg.intradia-svg').length, 2, 'redesenhado do que já estava guardado');
 });

@@ -1,11 +1,16 @@
 /**
  * organizacao-salario.js - 26/09/2026: aba "Salário e investimentos" da
  * Organização Financeira (organizacao/despesas.html#salario).
+ * 03/10/2026: virou a seção "Orçamento do salário" da aba "Renda e
+ * Orçamentos" (#renda; #salario continua abrindo ela). O "Investido mês a
+ * mês" saiu daqui: a aba tem um só gadget de "quanto do salário você investe
+ * por mês" - o da seção Renda (organizacao-renda.js), que mostra em % do
+ * líquido e em R$, com filtro de período ("Escolher período"), "só longo
+ * prazo" e "descontar proventos" (Tiago: "se a aba salário já tiver 'quanto
+ * invisto por mês', mantenha um só, o melhor").
  *
  *  - Base das contas: salário líquido (DM!N11) e a meta de investimento em %
  *    ou em R$ (DM!Q11) - editáveis aqui, o resto do site acompanha.
- *  - Investido mês a mês contra a meta (com/sem proventos, tudo/só longo
- *    prazo, 6/12/24 meses), média e taxa de poupança.
  *  - Holerite: importar o PDF (holerite.js lê no navegador), conferir e
  *    salvar na aba 'Salário'; do bruto ao líquido, alíquota efetiva, FGTS.
  *  - Orçamento do salário, projeção até o Patrimônio desejado e extras do
@@ -16,7 +21,7 @@ import { getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamento
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { carregarPdfJs, extrairLinhasPdf, lerHolerite, TIPOS_PAGAMENTO } from './holerite.js';
 import {
-  JANELAS, metaMensal, mediaInvestida, mesesAteAlvo, trajetoria, ultimoHolerite, orcamentoSalario, extrasDoAno, historicoSalario,
+  metaMensal, mediaInvestida, mesesAteAlvo, trajetoria, ultimoHolerite, orcamentoSalario, extrasDoAno,
 } from './salario-calc.js';
 import { lerValorBR } from './organizacao-calc.js';
 
@@ -32,37 +37,27 @@ const brlK = (v) => {
   if (Math.abs(v) >= 1e6) return `R$ ${formatNumeroBR(v / 1e6, 2)} mi`;
   return Math.abs(v) >= 1000 ? `R$ ${formatNumeroBR(v / 1000, 1)} mil` : brl(v);
 };
-const anos = (meses) => (meses == null ? null : meses / 12);
 const anosTxt = (m) => { if (m == null) return 'não chega'; if (m === 0) return 'já chegou'; const a = m / 12; return a < 1 ? `${m} ${m === 1 ? 'mês' : 'meses'}` : `${formatNumeroBR(a, 1)} anos`; };
 
-function lerLocal(chave) { try { return globalThis.localStorage ? globalThis.localStorage.getItem(chave) : null; } catch (e) { return null; } }
-function gravarLocal(chave, v) { try { if (globalThis.localStorage) globalThis.localStorage.setItem(chave, v); } catch (e) { /* ok */ } }
 
 // ---------------------------------------------------------------------------
 // Blocos
 // ---------------------------------------------------------------------------
 
-export function htmlHeroSalario(d, med, { editando }) {
+export function htmlHeroSalario(d, { editando }) {
   const meta = metaMensal(d.base);
   const hol = ultimoHolerite(d.pagamentos);
   const difHol = hol && num(hol.liquido) && num(d.base.liquido) ? d.base.liquido - hol.liquido : null;
-  const estado = num(med.pctDaMeta) ? (med.pctDaMeta >= 1 ? 'good' : 'warn') : 'na';
   return `
     <article class="og-tile">
-      <span class="og-rotulo">Salário líquido <button type="button" class="tx-link" data-acao="editar-base">${editando ? 'Fechar' : 'Editar'}</button></span>
+      <span class="og-rotulo">Salário líquido (base das contas) <button type="button" class="tx-link" data-acao="editar-base">${editando ? 'Fechar' : 'Editar'}</button></span>
       <span class="og-grande">${dec(brl(d.base.liquido))}<small>/mês</small></span>
-      <span class="og-sub">${hol ? `holerite de ${esc(rotuloMes(hol.mes))}: <b>${esc(brl(hol.liquido))}</b>${num(difHol) && Math.abs(difHol) >= 0.01 ? ` · base ${difHol > 0 ? 'acima' : 'abaixo'} em ${esc(brl(Math.abs(difHol)))}` : ' · igual à base'}` : 'base das contas da Distribuição e Metas'}</span>
+      <span class="og-sub">${hol ? `holerite de ${esc(rotuloMes(hol.mes))}: <b>${esc(brl(hol.liquido))}</b>${num(difHol) && Math.abs(difHol) >= 0.01 ? ` · base ${difHol > 0 ? 'acima' : 'abaixo'} em ${esc(brl(Math.abs(difHol)))}` : ' · igual à base'}` : 'base das contas da planilha (aba Distribuição e Metas)'}</span>
     </article>
     <article class="og-tile">
       <span class="og-rotulo">Meta de investimento <span class="status-pill na">${esc(pct(d.base.percentualInvestir, 0))} do líquido</span></span>
       <span class="og-grande">${dec(brl(meta))}<small>/mês</small></span>
-      <span class="og-sub">${esc(brl(num(meta) ? meta * 12 : null))} por ano</span>
-    </article>
-    <article class="og-tile">
-      <span class="og-rotulo">Você investe em média ${num(med.pctDaMeta) ? `<span class="status-pill ${estado}">${esc(pct(med.pctDaMeta, 0))} da meta</span>` : ''}</span>
-      <span class="og-grande">${dec(brl(med.media))}<small>/mês</small></span>
-      <div class="og-progresso ${estado === 'good' ? 'good' : ''}" aria-hidden="true"><span style="width:${(Math.min(1, Math.max(0, med.pctDaMeta || 0)) * 100).toFixed(2)}%"></span></div>
-      <span class="og-sub">últimos ${med.n} meses fechados · ${esc(pct(med.taxaPoupanca, 0))} do líquido${num(med.diferencaMeta) ? ` · ${med.diferencaMeta >= 0 ? 'acima' : 'abaixo'} da meta em <b>${esc(brl(Math.abs(med.diferencaMeta)))}</b>` : ''}</span>
+      <span class="og-sub">${esc(brl(num(meta) ? meta * 12 : null))} por ano · quanto você investe de fato está em <a class="tx-link" href="#rdSecInv">Quanto do salário você investe</a></span>
     </article>`;
 }
 
@@ -71,7 +66,7 @@ export function htmlFormBase(d) {
   const meta = metaMensal(d.base);
   return `
     <form class="og-card sl-base-form" id="slBaseForm" novalidate>
-      <div class="sl-form-cab"><h2>Base das contas</h2><span class="hint">grava na Distribuição e Metas (salário líquido e % pra investir) - o resto do site acompanha</span></div>
+      <div class="sl-form-cab"><h2>Base das contas</h2><span class="hint">grava na planilha, aba Distribuição e Metas (salário líquido e % pra investir) - o resto do site acompanha</span></div>
       <div class="sl-campos">
         <label class="sl-campo"><span>Salário líquido</span><span class="sl-input"><i>R$</i><input id="slLiquido" inputmode="decimal" value="${esc(formatNumeroBR(d.base.liquido))}"></span>
           ${hol && num(hol.liquido) && Math.abs(hol.liquido - d.base.liquido) >= 0.01 ? `<button type="button" class="og-sug" data-acao="usar-holerite" data-valor="${hol.liquido}">usar o do holerite de ${esc(rotuloMes(hol.mes))} (${esc(brl(hol.liquido))})</button>` : ''}
@@ -85,67 +80,6 @@ export function htmlFormBase(d) {
         <button type="button" class="btn btn-ghost og-btn-sm" data-acao="editar-base">Cancelar</button>
         <button type="submit" class="btn btn-primary og-btn-sm">Salvar</button></div>
     </form>`;
-}
-
-export function htmlGraficoMensal(med, meta, { descontarProventos, largura = 720 }) {
-  const ms = med.meses;
-  if (!ms.length) return '<p class="og-nota fraca">Sem histórico de aportes ainda.</p>';
-  // desenhado na largura real do espaço (texto sem esticar); altura fixa
-  const W = Math.max(300, Math.round(largura)); const H = W < 560 ? 190 : 220; const mg = { t: 18, r: 6, b: 24, l: 6 };
-  const vals = ms.map((m) => m.valor);
-  const max = Math.max(...vals, num(meta) ? meta : 0, num(med.media) ? med.media : 0, 1);
-  const min = Math.min(...vals, 0);
-  const y = (v) => mg.t + (1 - (v - min) / (max - min)) * (H - mg.t - mg.b);
-  const slot = (W - mg.l - mg.r) / ms.length;
-  const bw = Math.max(4, Math.min(34, slot * 0.62));
-  const y0 = y(0);
-  const barras = ms.map((m, i) => {
-    const cx = mg.l + slot * i + slot / 2;
-    const x = (cx - bw / 2).toFixed(1);
-    const bolso = descontarProventos ? m.valor : m.valor - m.proventos;
-    const partes = [];
-    const titulo = `${rotuloMes(m.mes)}: ${brl(m.valor)}${descontarProventos ? ' do bolso' : ` (${brl(m.proventos)} de proventos)`}${num(meta) ? ` · ${m.valor >= meta ? 'na meta' : `faltaram ${brl(meta - m.valor)}`}` : ''}`;
-    if (m.valor < 0) {
-      partes.push(`<rect class="sl-bar neg" x="${x}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(m.valor) - y0).toFixed(1)}" rx="3"/>`);
-    } else if (descontarProventos || m.proventos <= 0 || bolso <= 0) {
-      partes.push(`<rect class="sl-bar ${num(meta) && m.valor >= meta ? 'ok' : ''}" x="${x}" y="${y(m.valor).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y(m.valor)).toFixed(1)}" rx="3"/>`);
-    } else {
-      partes.push(`<rect class="sl-bar ${num(meta) && m.valor >= meta ? 'ok' : ''}" x="${x}" y="${y(bolso).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y0 - y(bolso)).toFixed(1)}" rx="0"/>`);
-      partes.push(`<rect class="sl-bar prov" x="${x}" y="${y(m.valor).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, y(bolso) - y(m.valor) - 1.5).toFixed(1)}" rx="3"/>`);
-    }
-    const cabe = slot >= 34 || i % Math.ceil(34 / slot) === (ms.length - 1) % Math.ceil(34 / slot);
-    const rotulo = cabe ? `<text class="sl-eixo" x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(rotuloMes(m.mes))}</text>` : '';
-    return `<g><title>${esc(titulo)}</title><rect class="sl-hit" x="${(cx - slot / 2).toFixed(1)}" y="0" width="${slot.toFixed(1)}" height="${H - mg.b}"/>${partes.join('')}</g>${rotulo}`;
-  }).join('');
-  // meta: rótulo à esquerda; média: à direita (não se atropelam quando estão perto)
-  const linha = (v, cls, rot, lado) => (num(v) ? `<line class="${cls}" x1="${mg.l}" x2="${W - mg.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="${cls}-rot" x="${lado === 'esq' ? mg.l + 2 : W - mg.r - 2}" y="${(y(v) - 5).toFixed(1)}" text-anchor="${lado === 'esq' ? 'start' : 'end'}">${esc(rot)}</text>` : '');
-  return `
-    <svg class="sl-grafico" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Investido por mês nos últimos ${ms.length} meses, média ${brl(med.media)}, meta ${brl(meta)}`)}">
-      <line class="sl-zero" x1="${mg.l}" x2="${W - mg.r}" y1="${y0.toFixed(1)}" y2="${y0.toFixed(1)}"/>
-      ${barras}
-      ${linha(meta, 'sl-meta', `meta ${brlK(meta)}`, 'esq')}
-      ${linha(med.media, 'sl-media', `média ${brlK(med.media)}`, 'dir')}
-    </svg>
-    <div class="sl-legenda">
-      <span><i class="k-bolso"></i>${descontarProventos ? 'do bolso (sem proventos)' : 'do bolso'}</span>
-      ${descontarProventos ? '' : '<span><i class="k-prov"></i>reinvestido de proventos</span>'}
-      <span><i class="k-ok"></i>mês na meta</span>
-      <span><i class="k-meta"></i>meta</span><span><i class="k-media"></i>média</span>
-    </div>`;
-}
-
-export function htmlStatsMensal(med, meta, d) {
-  const itens = [
-    ['Média', `${brl(med.media)}/mês`],
-    ['Meses na meta', num(med.acima) ? `${med.acima} de ${med.n}` : '—'],
-    ['Taxa de poupança', `${pct(med.taxaPoupanca, 1)} do líquido`],
-    ['Maior mês', med.maior ? `${brl(med.maior.valor)} (${rotuloMes(med.maior.mes)})` : '—'],
-    ['Este mês até agora', med.mesAtual ? brl(med.mesAtual.valor) : '—'],
-  ];
-  const resgates = med.meses.filter((m) => m.reserva < -1);
-  return `<dl class="sl-stats">${itens.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
-    ${resgates.length ? `<p class="og-nota fraca">Resgate da reserva em ${resgates.map((m) => `${rotuloMes(m.mes)} (${brl(-m.reserva)})`).join(', ')} - use "Só longo prazo" pra ver sem ele.</p>` : ''}
-    ${num(med.diferencaMeta) && med.diferencaMeta < 0 && num(meta) && d.base.liquido ? `<p class="og-nota">Pra chegar na meta faltam <b>${esc(brl(-med.diferencaMeta))}/mês</b> na média - ou uma meta de <b>${esc(pct(med.media / d.base.liquido, 0))}</b> seria a sua realidade hoje.</p>` : ''}`;
 }
 
 export function htmlHolerite(d, { form }) {
@@ -179,12 +113,16 @@ export function htmlHolerite(d, { form }) {
 function htmlPagamentos(d) {
   const ps = d.pagamentos || [];
   if (!ps.length) return '';
-  return `<h3 class="sl-sub">Pagamentos salvos</h3><ul class="sl-pags">${ps.map((p) => `
+  const li = (p) => `
     <li data-mes="${esc(p.mes)}" data-tipo="${esc(p.tipo)}">
       <span class="sl-pag-mes">${esc(rotuloMes(p.mes))}</span><span class="sl-pag-tipo">${esc(p.tipo)}${p.status === 'Previsto' ? ' <span class="status-pill warn">previsto</span>' : ''}</span>
       <b>${esc(brl(p.liquido))}</b>
       <span class="og-acoes"><button type="button" class="tx-link" data-acao="editar-pagamento">editar</button><button type="button" class="og-remover" data-acao="excluir-pagamento" aria-label="Excluir ${esc(p.tipo)} de ${esc(rotuloMes(p.mes))}" title="Excluir">×</button></span>
-    </li>`).join('')}</ul>`;
+    </li>`;
+  // 03/10/2026: só os 6 mais recentes à vista; o resto num "ver todos" (a lista crescia um holerite por mês)
+  const VISIVEIS = 6;
+  return `<h3 class="sl-sub">Pagamentos salvos</h3><ul class="sl-pags">${ps.slice(0, VISIVEIS).map(li).join('')}</ul>
+    ${ps.length > VISIVEIS ? `<details class="sl-pags-mais"><summary>ver todos (${ps.length})</summary><ul class="sl-pags">${ps.slice(VISIVEIS).map(li).join('')}</ul></details>` : ''}`;
 }
 
 const CAMPOS_PAG = [
@@ -231,7 +169,7 @@ export function htmlOrcamento(d) {
     const l = o.liquido;
     const itens = [['ess', l.essenciais, 'Despesas essenciais'], ['inv', l.aporte, 'Meta de investimento'], ['liv', Math.max(0, l.livre), l.livre >= 0 ? 'Livre' : 'Falta']];
     html += `<h3 class="sl-sub">Do líquido (${esc(brl(l.total))})</h3>${barra(itens, l.total)}${leg(itens, l.total)}
-      <p class="og-nota fraca">Despesas pelo gasto real (aba Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(brl(-l.livre))}.</b>` : `Sobram ${esc(brl(l.livre))} livres por mês.`}</p>
+      <p class="og-nota fraca">Despesas pelo gasto real (Gastos e Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(brl(-l.livre))}.</b>` : `Sobram ${esc(brl(l.livre))} livres por mês.`}</p>
       ${d.despesas && d.despesas.erroFormula ? `<p class="og-nota bad">O total da aba Despesas Essenciais está com erro na planilha (${esc(d.despesas.erroFormula)}); aqui entrou a soma das despesas. Salvar as despesas de novo em Organização (ou rodar repararFormulasDespesas) conserta a planilha.</p>` : ''}`;
   }
   return html;
@@ -239,7 +177,7 @@ export function htmlOrcamento(d) {
 
 export function htmlProjecao(d, med) {
   const p = d.patrimonio || {};
-  if (!num(p.atual) || !num(p.desejado)) return '<div class="lateral-cab"><h2>Projeção</h2></div><p class="og-nota fraca">Sem patrimônio desejado na Distribuição e Metas.</p>';
+  if (!num(p.atual) || !num(p.desejado)) return '<div class="lateral-cab"><h2>Projeção</h2></div><p class="og-nota fraca">Sem patrimônio desejado na planilha (aba Distribuição e Metas).</p>';
   const meta = metaMensal(d.base);
   const ritmo = med.media;
   const mRitmo = mesesAteAlvo({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: ritmo });
@@ -267,7 +205,7 @@ export function htmlProjecao(d, med) {
       <path class="sl-traj-meta" d="${caminho(tM)}"/><path class="sl-traj-ritmo" d="${caminho(tR)}"/>
       <text class="og-hist-rot" x="${mg.l}" y="${H - 4}">hoje</text><text class="og-hist-rot" x="${W - mg.r}" y="${H - 4}" text-anchor="end">+${maxAno} anos</text>
     </svg>
-    <p class="og-nota fraca">Parte de ${esc(brl(p.atual))} hoje, rendendo ${esc(pct(p.rendimento, 1))} ao ano (Distribuição e Metas)${ganho != null && ganho > 0 ? `. Bater a meta te adianta <b>${esc(anosTxt(ganho))}</b>.` : '.'} O FGTS não entra na conta.</p>`;
+    <p class="og-nota fraca">Parte de ${esc(brl(p.atual))} hoje, rendendo ${esc(pct(p.rendimento, 1))} ao ano (aba Distribuição e Metas da planilha)${ganho != null && ganho > 0 ? `. Bater a meta te adianta <b>${esc(anosTxt(ganho))}</b>.` : '.'} O FGTS não entra na conta.</p>`;
 }
 
 export function htmlExtras(d) {
@@ -302,81 +240,63 @@ function lerForm(form) {
   return o;
 }
 
+/**
+ * 03/10/2026: `getSalarioImpl` pode ser o carregador compartilhado da página
+ * (a mesma resposta serve a seção Renda e o painel de Documentos) e
+ * `aoMudarDados(dados)` avisa a página quando a resposta muda (salvou base,
+ * holerite, extra, excluiu pagamento).
+ */
 export function montarAbaSalario({
   doc, el, token, getSalarioImpl = getSalario, salvarBaseImpl = salvarSalarioBase, salvarPagamentoImpl = salvarPagamentoSalario,
   excluirPagamentoImpl = excluirPagamentoSalario, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf,
   confirmar = (msg) => (doc.defaultView && doc.defaultView.confirm ? doc.defaultView.confirm(msg) : true),
+  aoMudarDados = null,
 }) {
   let dados = null;
-  const est = {
-    janela: JANELAS.includes(Number(lerLocal('salario.janela'))) ? Number(lerLocal('salario.janela')) : 12,
-    base: lerLocal('salario.base') === 'longoPrazo' ? 'longoPrazo' : 'total',
-    descontar: lerLocal('salario.descontar') === '1',
-    editandoBase: false,
-    form: null,
-  };
+  const est = { editandoBase: false, form: null };
+  const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados); } catch (e) { /* ok */ } } };
 
-  const med = () => mediaInvestida(dados.mensal, { janela: est.janela, base: est.base, descontarProventos: est.descontar, meta: metaMensal(dados.base), liquido: dados.base.liquido });
+  // "No seu ritmo" da projeção: média dos últimos 12 meses fechados (tudo, com proventos)
+  const med = () => mediaInvestida(dados.mensal, { janela: 12, base: 'total', descontarProventos: false, meta: metaMensal(dados.base), liquido: dados.base.liquido });
 
   function esqueleto() {
     el.innerHTML = `
-      <section class="og-hero" id="slHero"></section>
-      <div id="slBase"></div>
-      <section class="og-card sl-mensal">
-        <div class="og-lista-cab sl-mensal-cab">
-          <div><h2>Investido mês a mês</h2><span class="hint">compras menos vendas de cada mês, contra a sua meta</span></div>
-          <div class="og-lista-ferr">
-            <div class="filter-tabs" role="group" aria-label="O que conta" id="slBaseTabs"><button type="button" class="filter-tab" data-base="total">Tudo</button><button type="button" class="filter-tab" data-base="longoPrazo">Só longo prazo</button></div>
-            <div class="filter-tabs" role="group" aria-label="Proventos" id="slProvTabs"><button type="button" class="filter-tab" data-desc="0">Com proventos</button><button type="button" class="filter-tab" data-desc="1">Do bolso</button></div>
-            <div class="filter-tabs" role="group" aria-label="Período" id="slJanTabs">${JANELAS.map((j) => `<button type="button" class="filter-tab" data-jan="${j}">${j}m</button>`).join('')}</div>
+      <section class="pt-sec sl-sec" id="slSecOrcamento">
+        <div class="pt-sec-cab"><h2>Orçamento do salário</h2><span class="pt-hint">a base das contas do site (aba Distribuição e Metas da planilha), o holerite e pra onde vai o líquido</span></div>
+        <section class="og-hero sl-hero" id="slHero"></section>
+        <div id="slBase"></div>
+        <div class="og-colunas">
+          <div class="sl-principal">
+            <section class="og-card" id="slHolerite"></section>
+            <section class="og-card" id="slExtras"></section>
           </div>
+          <aside class="og-lateral">
+            <section class="og-card" id="slOrcamento"></section>
+            <section class="og-card" id="slProjecao"></section>
+          </aside>
         </div>
-        <div class="sl-grafico-box" id="slGrafico"></div>
-        <div id="slStats"></div>
-      </section>
-      <div class="og-colunas">
-        <div class="sl-principal">
-          <section class="og-card" id="slHolerite"></section>
-          <section class="og-card" id="slExtras"></section>
-        </div>
-        <aside class="og-lateral">
-          <section class="og-card" id="slOrcamento"></section>
-          <section class="og-card" id="slProjecao"></section>
-        </aside>
-      </div>`;
+        <p class="og-nota bad" id="slAvisos" hidden></p>
+      </section>`;
     ligar();
   }
 
-  function marcarTabs() {
-    const marca = (sel, attr, v) => el.querySelectorAll(`${sel} [${attr}]`).forEach((b) => { const a = b.getAttribute(attr) === String(v); b.classList.toggle('active', a); b.setAttribute('aria-pressed', String(a)); });
-    marca('#slBaseTabs', 'data-base', est.base);
-    marca('#slProvTabs', 'data-desc', est.descontar ? '1' : '0');
-    marca('#slJanTabs', 'data-jan', est.janela);
-  }
-
-  function desenharMensal() {
-    const m = med();
-    const meta = metaMensal(dados.base);
-    el.querySelector('#slHero').innerHTML = htmlHeroSalario(dados, m, { editando: est.editandoBase });
-    const box = el.querySelector('#slGrafico');
-    box.innerHTML = htmlGraficoMensal(m, meta, { descontarProventos: est.descontar, largura: box.clientWidth || 720 });
-    el.querySelector('#slStats').innerHTML = htmlStatsMensal(m, meta, dados);
-    el.querySelector('#slProjecao').innerHTML = htmlProjecao(dados, m);
-    marcarTabs();
+  function desenharTopo() {
+    el.querySelector('#slHero').innerHTML = htmlHeroSalario(dados, { editando: est.editandoBase });
+    el.querySelector('#slProjecao').innerHTML = htmlProjecao(dados, med());
   }
 
   function desenhar() {
     if (!el.querySelector('#slHero')) esqueleto();
-    desenharMensal();
+    desenharTopo();
     el.querySelector('#slBase').innerHTML = est.editandoBase ? htmlFormBase(dados) : '';
     if (est.editandoBase) previaBase();
     el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form });
     el.querySelector('#slExtras').innerHTML = htmlExtras(dados);
     el.querySelector('#slOrcamento').innerHTML = htmlOrcamento(dados);
-    if (dados.avisos) {
-      const av = Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ');
-      el.querySelector('#slStats').insertAdjacentHTML('beforeend', `<p class="og-nota bad">Parte dos dados não veio: ${esc(av)}</p>`);
-    }
+    const av = el.querySelector('#slAvisos');
+    av.hidden = !dados.avisos;
+    av.textContent = dados.avisos ? `Parte dos dados não veio: ${Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ')}` : '';
+    avisar();
   }
 
   function previaBase() {
@@ -476,11 +396,8 @@ export function montarAbaSalario({
 
   function ligar() {
     el.addEventListener('click', async (ev) => {
-      const b = ev.target.closest('[data-acao], [data-base], [data-desc], [data-jan]');
+      const b = ev.target.closest('[data-acao]');
       if (!b || !el.contains(b)) return;
-      if (b.dataset.base) { est.base = b.dataset.base; gravarLocal('salario.base', est.base); desenharMensal(); return; }
-      if (b.dataset.desc) { est.descontar = b.dataset.desc === '1'; gravarLocal('salario.descontar', est.descontar ? '1' : '0'); desenharMensal(); return; }
-      if (b.dataset.jan) { est.janela = Number(b.dataset.jan); gravarLocal('salario.janela', String(est.janela)); desenharMensal(); return; }
       const acao = b.dataset.acao;
       if (acao === 'editar-base') { est.editandoBase = !est.editandoBase; desenhar(); if (est.editandoBase) el.querySelector('#slLiquido')?.focus(); }
       else if (acao === 'usar-holerite') {
@@ -559,18 +476,17 @@ export function montarAbaSalario({
     });
   }
 
-  const win = doc.defaultView;
-  if (win && typeof win.addEventListener === 'function') {
-    let larguraAntes = 0;
-    win.addEventListener('resize', () => {
-      const box = el.querySelector('#slGrafico');
-      if (!dados || !box || !box.clientWidth || Math.abs(box.clientWidth - larguraAntes) < 8) return;
-      larguraAntes = box.clientWidth;
-      desenharMensal();
-    });
-  }
-
   el.innerHTML = '<div class="carteiras-loading"><div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div><span class="skel" style="height:260px;border-radius:14px"></span></div>';
   const pronto = carregar();
-  return { pronto, recarregar: carregar, get dados() { return dados; } };
+  /** Rola até o card do holerite (o painel Documentos usa). */
+  function rolarAteHolerite() {
+    const alvo = el.querySelector('#slHolerite');
+    if (alvo && alvo.scrollIntoView) try { alvo.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
+  }
+  return {
+    pronto, recarregar: carregar, get dados() { return dados; },
+    /** Lê um PDF de holerite (o mesmo fluxo do botão "Importar holerite"). */
+    importarArquivo: async (arquivo) => { await pronto; if (dados) { rolarAteHolerite(); await importarArquivo(arquivo); } },
+    rolarAteHolerite,
+  };
 }

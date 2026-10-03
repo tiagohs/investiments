@@ -177,30 +177,29 @@ const txt = (el) => {
 const clique = (w, el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 const esperar = () => new Promise((r) => setTimeout(r, 0));
 
-test('Aba Salário: topo (líquido, meta, média vs meta), gráfico mês a mês, holerite, orçamento, projeção e extras', async () => {
+test('Aba Salário (03/10/2026, "Orçamento do salário" da aba Renda e Orçamentos): base, meta, holerite, orçamento, projeção e extras - sem o "Investido mês a mês" (um gadget só, o da seção Renda)', async () => {
   const { el } = await montarAba();
   const hero = el.querySelector('#slHero');
   assert.match(txt(hero), /R\$ 10\.000,00\/mês/);
   assert.match(txt(hero), /R\$ 2\.000,00\/mês/);
-  assert.match(txt(hero), /Você investe em média .*R\$ 0,00\/mês/);
+  assert.equal(hero.querySelectorAll('.og-tile').length, 2, 'base e meta (o "investe em média" está na seção Renda)');
   assert.match(txt(hero), /holerite de fev\/26: R\$ 7\.450,00 · base acima em R\$ 2\.550,00/);
-  assert.equal(el.querySelectorAll('#slGrafico .sl-bar.neg').length, 1, 'mês com resgate aparece pra baixo');
-  assert.match(txt(el.querySelector('#slStats')), /Meses na meta 1 de 3/);
-  assert.match(txt(el.querySelector('#slStats')), /Resgate da reserva em mar\/26/);
+  assert.equal(el.querySelector('#slGrafico'), null);
+  assert.equal(el.querySelector('#slJanTabs'), null);
+  assert.match(txt(el.querySelector('.pt-sec-cab')), /Orçamento do salário/);
   assert.match(txt(el.querySelector('#slHolerite')), /= Líquido R\$ 7\.450,00/);
   assert.match(txt(el.querySelector('#slOrcamento')), /Livre R\$ 3\.000,00/);
   assert.match(txt(el.querySelector('#slProjecao')), /No seu ritmo/);
   assert.equal(el.querySelectorAll('#slExtras form.sl-extra').length, 5);
 });
 
-test('Aba Salário: alternar "Só longo prazo" / "Do bolso" / janela recalcula a média e lembra a escolha', async () => {
-  const { el, w } = await montarAba();
-  clique(w, el.querySelector('#slBaseTabs [data-base="longoPrazo"]'));
-  clique(w, el.querySelector('#slProvTabs [data-desc="1"]'));
-  assert.match(txt(el.querySelector('#slHero')), /R\$ 1\.250,00\/mês/);
-  assert.equal(w.localStorage.getItem('salario.base'), 'longoPrazo');
-  clique(w, el.querySelector('#slJanTabs [data-jan="6"]'));
-  assert.equal(el.querySelector('#slJanTabs [data-jan="6"]').getAttribute('aria-pressed'), 'true');
+test('Aba Salário: muitos pagamentos - só os 6 mais recentes à vista, o resto em "ver todos"; avisa a página quando os dados mudam', async () => {
+  const pags = Array.from({ length: 9 }, (_, k) => ({ ...PAGS[0], mes: `2025-${String(k + 1).padStart(2, '0')}` }));
+  const avisos = [];
+  const { el } = await montarAba({ getSalarioImpl: async () => ({ ...JSON.parse(JSON.stringify(RESPOSTA)), pagamentos: pags }), aoMudarDados: (d) => avisos.push(d) });
+  assert.equal(el.querySelectorAll('#slHolerite > .sl-pags li').length, 6);
+  assert.match(txt(el.querySelector('.sl-pags-mais summary')), /ver todos \(9\)/);
+  assert.ok(avisos.length >= 1 && avisos[0].pagamentos.length === 9);
 });
 
 test('Aba Salário: editar a base - % e R$ andam juntos; salvar grava líquido e fração', async () => {

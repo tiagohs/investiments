@@ -55,6 +55,8 @@ import {
   renderInfoEvolucao,
 } from './inicio.js';
 import { renderBenchmarksClasseCarteiras } from './carteiras-classe-comum.js';
+import { calcularComparativo } from './inicio-comparativo.js'; // 02/10/2026: "Ontem era" + meses (pedido B)
+import { carregarMetasParaCard, cardMetaRendaPassiva, urlMetas } from '../metas-card.js'; // 02/10/2026: meta de renda passiva
 
 const CHAVE_CACHE_VISAO_GERAL = 'carteiras_visao_geral_v2';
 
@@ -216,7 +218,7 @@ function comHistoricoInvestidoAcumulado_(historico) {
 // as classes .rentab-hitarea/.rentab-hover*/.rentab-tooltip* já
 // definidas em inicio.css em vez de duplicar CSS novo).
 // ============================================================================
-function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaContainer) {
+function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaContainer, { ontemValor = null } = {}) {
   // 20/09/2026: passa 'patrimonio' como campo de corte de "Desde o início"
   // (ver filtrarHistoricoPorPeriodo, inicio.js) só por consistência com as
   // 4 subpáginas de Carteiras - na prática nunca corta nada aqui, porque
@@ -225,7 +227,16 @@ function renderEvolucaoPatrimonio(doc, container, historico, periodoId, legendaC
   const valoresPatrimonio = janela.map((item) => (typeof item.patrimonio === 'number' && Number.isFinite(item.patrimonio) ? item.patrimonio : null));
   const valoresInvestido = janela.map((item) => (typeof item.investidoAcumulado === 'number' && Number.isFinite(item.investidoAcumulado) ? item.investidoAcumulado : null));
   // 23/09/2026 #8: valor + variação no período em cima do gráfico (mesmas 2 linhas)
-  renderInfoEvolucao(doc, doc.getElementById('vgInfoEvolucao'), { label: 'Patrimônio total', valores: valoresPatrimonio, investidos: valoresInvestido });
+  // 02/10/2026 (pedido B): "Ontem era" + os 3 meses anteriores sob o valor;
+  // o "ontem" de hoje é o mesmo da Início (resposta.ontem.total, já com o
+  // ajuste de marcação da Renda Fixa).
+  const ultimoDia = historico.length ? historico[historico.length - 1].data : null;
+  const fimJanela = janela.length ? janela[janela.length - 1].data : null;
+  renderInfoEvolucao(doc, doc.getElementById('vgInfoEvolucao'), {
+    label: 'Patrimônio total', valores: valoresPatrimonio, investidos: valoresInvestido,
+    comparativo: calcularComparativo(historico, 'patrimonio', periodoId, { janela, ontemValor }),
+    dataFim: fimJanela && ultimoDia && fimJanela < ultimoDia ? fimJanela : null,
+  });
   const validos = valoresPatrimonio.filter((v) => v != null);
   if (validos.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
@@ -531,50 +542,79 @@ function desenhar(doc, { carteiras: carteirasApi, home }) {
       historico: home.historico,
       periodoTabsContainer,
       periodoInicial: periodoAtivo,
+      periodoPersonalizado: { chave: 'carteiras.visaoGeral' }, // 02/10/2026: "Escolher período" (pedido A)
+      ontem: home.ontem || null,
       paineis: [{
         visaoId: 'total',
         infoContainer: doc.getElementById('vgInfoRentabilidade'),
         camposProventos: ['proventosAcoes', 'proventosFiis', 'proventosAcoesEua'], // 24/09/2026: todas as carteiras
         chartContainer: doc.getElementById('vgRentabChart'),
         legendaContainer: doc.getElementById('vgRentabLegenda'),
+        analise: true, // 02/10/2026: card de Análise (pedido C)
+        // 02/10/2026 (pedido D - "Em Carteiras home, no Patrimônio total,
+        // incluir o índice IPCA"): mesma curva base 100 do CDI (indiceIpca,
+        // HistoricoInicio.gs - IPCA mensal de aux_historico-indices).
+        benchmarksExtra: [{ campo: 'indiceIpca', label: 'IPCA', cor: '--rf', dash: '3 3' }],
       }],
     });
 
+    const filtro = periodoTabsContainer._filtroPeriodo;
+    const periodoAgora = () => (filtro ? filtro.periodo : (periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || 'mes'));
     const historicoComInvestido = comHistoricoInvestidoAcumulado_(home.historico);
     const evolucaoContainer = doc.getElementById('vgEvolucaoChart');
     const evolucaoLegendaContainer = doc.getElementById('vgEvolucaoLegenda');
-    renderEvolucaoPatrimonio(doc, evolucaoContainer, historicoComInvestido, periodoAtivo, evolucaoLegendaContainer);
+    // Guarda o histórico/"ontem" MAIS RECENTES fora do closure dos ouvintes
+    // (ligados só na 1ª chamada) - o refresh automático (mountRefreshControl)
+    // troca de período usando o dado novo, não o da 1ª carga.
+    periodoTabsContainer._evolucaoHistorico = historicoComInvestido;
+    periodoTabsContainer._evolucaoOntem = home.ontem && typeof home.ontem.total === 'number' ? home.ontem.total : null;
+    const desenharEvolucao = (periodo) => renderEvolucaoPatrimonio(doc, evolucaoContainer, periodoTabsContainer._evolucaoHistorico, periodo, evolucaoLegendaContainer, { ontemValor: periodoTabsContainer._evolucaoOntem });
+    desenharEvolucao(periodoAgora());
 
     // Idempotente (mesmo cuidado de wireGraficoRentabilidade!estado, ver
     // inicio.js) - desenhar() roda 1x com o cache e outra com o dado
     // fresco (stale-while-revalidate), então sem essa guarda os
-    // listeners abaixo dobrariam a cada mount().
+    // ouvintes abaixo dobrariam a cada mount(). 02/10/2026: ouve o
+    // controlador de período (presets + período personalizado).
     if (!periodoTabsContainer._evolucaoWired) {
       periodoTabsContainer._evolucaoWired = true;
-      periodoTabsContainer.querySelectorAll('.filter-tab').forEach((botao) => {
-        botao.addEventListener('click', () => renderEvolucaoPatrimonio(doc, evolucaoContainer, periodoTabsContainer._evolucaoHistorico, botao.dataset.periodo, evolucaoLegendaContainer));
-      });
+      if (filtro) filtro.inscrever((periodo) => desenharEvolucao(periodo));
       const janela = doc.defaultView;
       if (janela) {
         let timer = null;
         janela.addEventListener('resize', () => {
           if (timer) janela.clearTimeout(timer);
-          timer = janela.setTimeout(() => {
-            const periodoAgora = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || 'mes';
-            renderEvolucaoPatrimonio(doc, evolucaoContainer, periodoTabsContainer._evolucaoHistorico, periodoAgora, evolucaoLegendaContainer);
-          }, 150);
+          timer = janela.setTimeout(() => desenharEvolucao(periodoAgora()), 150);
         });
       }
     }
-    // Guarda o histórico MAIS RECENTE (já com investidoAcumulado) fora do
-    // closure dos listeners acima (registrados só na 1ª chamada) - assim
-    // o refresh automático de 5 em 5 min (mountRefreshControl) troca de
-    // período usando o dado novo, não o da 1ª carga.
-    periodoTabsContainer._evolucaoHistorico = historicoComInvestido;
   }
 }
 
-export async function montarPaginaCarteirasVisaoGeral(token, { doc = document, getCarteirasHomeImpl = getCarteirasHome, getHomeImpl = getHome } = {}) {
+/**
+ * 02/10/2026 (Tiago: "algumas metas aparecem em outras telas, ex. meta de
+ * renda passiva em Carteiras com link pro detalhe da meta"): o card da meta
+ * (metas-card.js) logo acima dos proventos do mês. Sem meta de renda
+ * passiva, só um link discreto pra criar; erro/sem resposta, nada.
+ */
+export function renderMetaRendaPassiva(doc, el, resultado) {
+  if (!el) return;
+  // falha numa atualização não apaga o card que já estava na tela
+  if (!resultado || !resultado.ok) { if (!el.innerHTML.trim()) el.hidden = true; return; }
+  const card = resultado.rendaPassiva ? cardMetaRendaPassiva(resultado.rendaPassiva) : '';
+  let urlTodas = 'metas.html';
+  try { urlTodas = urlMetas(); } catch (e) { /* sem raiz do site: relativo */ }
+  el.innerHTML = card
+    ? `<div class="area-header" style="margin-top:22px">
+        <h2>Renda passiva</h2>
+        <a class="hint cc-proventos-link" href="${urlTodas}">todas as metas →</a>
+      </div>
+      <div class="cg-cards-grid vg-meta-renda-card">${card}</div>`
+    : `<p class="hint vg-meta-renda-convite" style="margin:18px 2px 0"><a class="cc-proventos-link" href="${urlTodas}">Criar meta de renda passiva →</a></p>`;
+  el.hidden = false;
+}
+
+export async function montarPaginaCarteirasVisaoGeral(token, { doc = document, getCarteirasHomeImpl = getCarteirasHome, getHomeImpl = getHome, carregarMetasImpl = carregarMetasParaCard } = {}) {
   const loadingEl = doc.getElementById('vgLoading');
   const erroEl = doc.getElementById('vgErro');
   const conteudoEl = doc.getElementById('vgConteudo');
@@ -590,7 +630,18 @@ export async function montarPaginaCarteirasVisaoGeral(token, { doc = document, g
     conteudoEl.hidden = false;
   }
 
+  // 02/10/2026: meta de renda passiva - busca em paralelo, sem segurar o
+  // resto da página (o lugar dela é estático no HTML, desenhar() não apaga)
+  const carregarMeta = () => {
+    if (!carregarMetasImpl || !doc.getElementById('vgMetaRenda')) return Promise.resolve();
+    return Promise.resolve()
+      .then(() => carregarMetasImpl(token, { doc }))
+      .catch(() => null)
+      .then((r) => renderMetaRendaPassiva(doc, doc.getElementById('vgMetaRenda'), r));
+  };
+
   async function carregarERedesenhar() {
+    carregarMeta();
     const [respCarteiras, respHome] = await Promise.all([getCarteirasHomeImpl(token), getHomeImpl(token)]);
 
     loadingEl.hidden = true;

@@ -190,3 +190,38 @@ test('lerIndicesPatrimonio_: busca e grava; dentro de 15 dias usa a aba; se a bu
   sb.lerIndicesPatrimonio_(ss, 'Outra Cidade', new Date('2026-04-11T12:00:00Z'), buscar);
   assert.equal(buscas, 2, 'mudou a cidade: busca de novo');
 });
+
+// 03/10/2026 (Patrimônio vs. inflação - patrimonio-inflacao.js): CDI e IPCA
+// do fim de cada mês junto do histórico mensal.
+test('historicoMensalPatrimonio_: CDI e IPCA (base 100) do último dia de cada mês', () => {
+  const sb = sandbox();
+  const r = semRealm(sb.historicoMensalPatrimonio_([
+    { data: '2026-01-02', patrimonio: 100, indiceCdi: 100.05, indiceIpca: 100.01 },
+    { data: '2026-01-30', patrimonio: 160, indiceCdi: 101, indiceIpca: 100.4 },
+    { data: '2026-02-03', patrimonio: 170, indiceCdi: 101.2, indiceIpca: 100.45 },
+    { data: '2026-03-01', patrimonio: 175 },
+  ]));
+  assert.deepEqual(r.map((m) => [m.mes, m.indiceCdi, m.indiceIpca]), [['2026-01', 101, 100.4], ['2026-02', 101.2, 100.45], ['2026-03', undefined, undefined]]);
+});
+
+test('Patrimônio (planilha real): CDI e IPCA em todos os meses do histórico, iguais aos da série da Início', (t) => {
+  if (!fs.existsSync(FIXTURES)) { t.skip('sem fixtures.json'); return; }
+  const raw = JSON.parse(fs.readFileSync(FIXTURES, 'utf8'));
+  const sb = { console: { ...console, log() {} } };
+  vm.createContext(sb);
+  montarSandboxComFixtures_(raw, sb);
+  for (const f of fs.readdirSync(path.join(ROOT, 'apps-script')).filter((x) => x.endsWith('.gs')).sort()) {
+    new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
+  }
+  const r = semRealm(sb.montarTelaPatrimonio_(sb.SpreadsheetApp.getActiveSpreadsheet(), new sb.Date(), { buscarIndices: INDICES_FALSOS }));
+  const serie = semRealm(sb.montarSerieHistoricoInicio_());
+  const fimDoMes = {};
+  serie.forEach((p) => { fimDoMes[p.data.slice(0, 7)] = p; });
+  const erros = [];
+  r.historicoMensal.forEach((m) => {
+    if (typeof m.indiceCdi !== 'number' || typeof m.indiceIpca !== 'number') erros.push(`${m.mes}: sem índice`);
+    else if (m.indiceCdi !== fimDoMes[m.mes].indiceCdi || m.indiceIpca !== fimDoMes[m.mes].indiceIpca) erros.push(`${m.mes}: diferente da série`);
+  });
+  assert.ok(r.historicoMensal.length > 12);
+  assert.deepEqual(erros, []);
+});

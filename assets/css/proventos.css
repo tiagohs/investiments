@@ -226,3 +226,42 @@
   .pv-meses, .pv-meses.com-sem-data{ grid-template-columns:repeat(7, minmax(0,1fr)); gap:5px; }
   .pv-mes{ padding:5px 2px; font-size:11.5px; }
 }
+
+/* 02/10/2026: pago presumido / conferência com o extrato da B3 - uma linha
+   discreta abaixo dos cartões (ícones vêm com a cor inline, ver
+   proventos-calc.js!iconeConferenciaHtml) */
+.pv-conf-faixa{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 18px; margin:-4px 2px 14px; font-size:12px; color:var(--ink-muted); }
+.pv-conf-item{ display:inline-flex; align-items:center; gap:2px; min-width:0; }
+.pv-conf-item > .pv-conf{ margin:0 4px 0 0 !important; }
+.pv-conf-faixa b{ font-family:var(--mono); color:var(--ink); font-weight:600; }
+.pv-conf-det{ flex-basis:100%; }
+.pv-conf-det summary{ cursor:pointer; color:var(--warn-ink); font-weight:600; width:max-content; }
+.pv-conf-det ul{ list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.pv-conf-det li{ display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; }
+.pv-conf-det li > .pv-conf{ margin:0 !important; }
+.pv-tooltip-presumido{ color:var(--ink-muted); font-size:11px; }
+.pv-tooltip-presumido .pv-conf{ margin:0 4px 0 0 !important; }
+.pv-agenda .pv-ag-sit{ white-space:nowrap; }
+
+/* 02/10/2026 ("Escolher período"): os botões de período também são
+   .filter-tab (o que periodo-personalizado.js procura) - aqui eles continuam
+   com a cara do controle segmentado; o chip do calendário fica ao lado, com
+   o mesmo formato de pílula. */
+.pv-periodo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; min-width:0; }
+.pv-seg .pv-seg-btn.filter-tab{ border:none; background:none; color:var(--ink-muted); font-family:inherit; border-radius:100px; }
+.pv-seg .pv-seg-btn.filter-tab.active,
+:root[data-theme="dark"] .pv-seg .pv-seg-btn.filter-tab.active,
+:root:not([data-theme="light"]) .pv-seg .pv-seg-btn.filter-tab.active{ background:var(--pv-seg-ativo); color:var(--ink); box-shadow:var(--shadow); }
+.pv-periodo .filter-tab.fp-chip{ padding:9px 13px; background:var(--surface-3); border-color:transparent; white-space:nowrap; }
+.pv-periodo .filter-tab.fp-chip:hover{ color:var(--ink); }
+.pv-periodo .filter-tab.fp-chip.active{ background:var(--acoes); border-color:var(--acoes); color:#fff; }
+:root[data-theme="dark"] .pv-periodo .filter-tab.fp-chip.active,
+:root:not([data-theme="light"]) .pv-periodo .filter-tab.fp-chip.active{ color:#071522; }
+.pv-hist-analise .ag{ margin-top:14px; }
+@media (max-width:560px){
+  .pv-periodo{ flex-wrap:nowrap; flex:1; gap:6px; }
+  .pv-periodo .pv-seg{ flex:1; }
+  /* no celular o chip vazio vira só o ícone; com intervalo, mostra o intervalo */
+  .pv-periodo .filter-tab.fp-chip{ padding:8px 10px; }
+  .pv-periodo .filter-tab.fp-chip:not(.active) .fp-chip-txt{ display:none; }
+}

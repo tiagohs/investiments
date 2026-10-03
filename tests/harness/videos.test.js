@@ -170,3 +170,142 @@ test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras d
   assert.equal(registro.length, 1, 'falha vai pro Registro de Controle');
   assert.match(registro[0][2], /quebrado/);
 });
+
+// ---------------------------------------------------------------------------
+// 02/10/2026: canal OFICIAL do ativo (assets/js/canais-youtube.js) na busca da
+// tela do ativo - feed RSS do canal, sem repetir, marcado "oficial", por data.
+// ---------------------------------------------------------------------------
+
+const AGORA_CANAL = new Date('2026-10-02T12:00:00Z');
+const isoDias = (dias) => new Date(AGORA_CANAL.getTime() - dias * 86400000).toISOString();
+const CANAL_OFICIAL = 'UCoficialoficialoficial1';
+
+function cacheFalso() {
+  const dados = {};
+  const puts = [];
+  return { dados, puts, get: (k) => dados[k] ?? null, put: (k, v, ttl) => { dados[k] = v; puts.push([k, ttl]); } };
+}
+
+test('Vídeos (canal oficial): só aceita canal do YouTube (ID, @nome, link youtube.com) - nunca busca outro endereço', () => {
+  const { sb } = sandbox();
+  assert.equal(sb.entradaCanalOficialValida_(CANAL_OFICIAL), CANAL_OFICIAL);
+  assert.equal(sb.entradaCanalOficialValida_('@canal.teste'), '@canal.teste', 'handle com ponto (ex.: @wizco.) vale');
+  assert.equal(sb.entradaCanalOficialValida_('https://www.youtube.com/user/canalteste'), 'https://www.youtube.com/user/canalteste');
+  assert.equal(sb.entradaCanalOficialValida_('https://www.youtube.com/@canalteste'), 'https://www.youtube.com/@canalteste');
+  for (const ruim of ['https://exemplo.test/@canal', 'http://www.youtube.com/@canal', 'https://www.youtube.com.exemplo.test/@x', 'UCcurto', '', 'javascript:alert(1)']) {
+    assert.equal(sb.entradaCanalOficialValida_(ruim), null, ruim);
+  }
+  assert.throws(() => sb.videosCanalOficial_('https://exemplo.test/x'), /canal inválido/);
+});
+
+test('Vídeos (canal oficial): lê o feed pelo channel_id, guarda 3h no cache e resolve @nome 1x (propriedades do script)', () => {
+  const urls = [];
+  const fetch = (url) => {
+    urls.push(url);
+    if (/youtube\.com\/@canaloficial$/.test(url)) return { getResponseCode: () => 200, getContentText: () => `<link rel="canonical" href="https://www.youtube.com/channel/${CANAL_OFICIAL}">` };
+    if (url === `https://www.youtube.com/feeds/videos.xml?channel_id=${CANAL_OFICIAL}`) {
+      return { getResponseCode: () => 200, getContentText: () => feed('Empresa &amp; Cia', [{ id: 'oficial0001', titulo: 'Resultados do trimestre', data: isoDias(2), desc: 'x'.repeat(900) }]) };
+    }
+    return { getResponseCode: () => 404, getContentText: () => '' };
+  };
+  const { sb, props } = sandbox({ fetch });
+  const cache = cacheFalso();
+  sb.CacheService = { getScriptCache: () => cache };
+  const r = plain(sb.videosCanalOficial_('@canaloficial'));
+  assert.equal(r.id, CANAL_OFICIAL);
+  assert.equal(r.nome, 'Empresa & Cia');
+  assert.deepEqual(r.videos.map((v) => v.id), ['oficial0001']);
+  assert.equal(r.videos[0].descricao.length, 300, 'descrição curta no cache');
+  assert.ok(Object.values(props).includes(CANAL_OFICIAL), 'ID guardado nas propriedades');
+  assert.deepEqual(cache.puts, [[`yt_feed_v1_${CANAL_OFICIAL}`, 3 * 60 * 60]]);
+  // 2ª vez: nada de rede (ID nas propriedades, feed no cache)
+  const antes = urls.length;
+  assert.deepEqual(plain(sb.videosCanalOficial_('@canaloficial')), r);
+  assert.equal(urls.length, antes);
+  // pelo ID direto: não precisa resolver nada
+  const { sb: sb2 } = sandbox({ fetch });
+  const urls2 = [];
+  sb2.videosCanalOficial_(CANAL_OFICIAL, { fetch: (u, p) => { urls2.push(u); return fetch(u, p); } });
+  assert.deepEqual(urls2, [`https://www.youtube.com/feeds/videos.xml?channel_id=${CANAL_OFICIAL}`]);
+});
+
+/** Planilha com 1 canal cadastrado e vídeos que citam (ou não) o TEST3. */
+function cenarioCanalOficial() {
+  return planilhaFalsa({
+    'aux_videos-canais': [['Canal', 'Carteiras', 'Obs'], ['UCmeucanalmeucanalmeuca', '', '']],
+    aux_videos: [['ID'],
+      ['meu00000001', 'Meu Canal', 'TEST3 vale a pena?', new Date(isoDias(1)), '', '', new Date()],
+      ['meu00000002', 'Meu Canal', 'Carteira com TEST3 e OUTR4', new Date(isoDias(10)), '', '', new Date()],
+      ['meu00000003', 'Meu Canal', 'Sem relação', new Date(isoDias(3)), '', '', new Date()],
+      ['dupl0000001', 'Empresa Teste', 'Teleconferência TEST3', new Date(isoDias(5)), '', '', new Date()],
+    ],
+    'aux_videos-termos': [['h'], ['todos', '', 'patrocinado', '']],
+  });
+}
+const feedOficial = (entradas) => (url) => (url.includes(`channel_id=${CANAL_OFICIAL}`)
+  ? { getResponseCode: () => 200, getContentText: () => feed('Empresa Teste', entradas) }
+  : { getResponseCode: () => 404, getContentText: () => '' });
+
+test('Vídeos (canal oficial): canal da empresa - todos os vídeos dele entram, marcados, misturados por data com os seus, sem repetir', () => {
+  const ss = cenarioCanalOficial();
+  const { sb } = sandbox({ ss });
+  const fetch = feedOficial([
+    { id: 'ofic0000001', titulo: 'Visita à fábrica', data: isoDias(0.5) },
+    { id: 'dupl0000001', titulo: 'Teleconferência TEST3', data: isoDias(5) },
+    { id: 'ofic0000002', titulo: 'Conteúdo patrocinado', data: isoDias(6) },
+    { id: 'ofic0000003', titulo: 'Vídeo de 2 anos atrás', data: isoDias(800) },
+  ]);
+  const r = plain(sb.montarRespostaVideos_({ termos: 'TEST3', ticker: 'TEST3', canal: CANAL_OFICIAL }, { fetch, agora: AGORA_CANAL }));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.canalOficial, { id: CANAL_OFICIAL, nome: 'Empresa Teste', recentes: 4 });
+  assert.deepEqual(r.videos.map((v) => [v.id, !!v.oficial]), [
+    ['ofic0000001', true],
+    ['meu00000001', false],
+    ['dupl0000001', true], // veio dos seus canais E do oficial: 1 vez só, marcado
+    ['meu00000002', false],
+  ], 'por data; "patrocinado" (descartar de todos) e o vídeo de mais de 1 ano ficam de fora');
+  // sem canal: igual antes (nada de rede, sem marca)
+  const semCanal = plain(sb.montarRespostaVideos_({ termos: 'TEST3', ticker: 'TEST3' }, { fetch: () => { throw new Error('não devia buscar'); } }));
+  assert.deepEqual(semCanal.videos.map((v) => v.id), ['meu00000001', 'dupl0000001', 'meu00000002']);
+  assert.ok(semCanal.videos.every((v) => !v.oficial));
+  assert.equal(semCanal.canalOficial, undefined);
+  // página de carteira nunca usa o canal
+  sb.classesDaCarteiraParaProventos_ = () => ({ TEST3: 'acoes' });
+  const carteira = plain(sb.montarRespostaVideos_({ carteira: 'acoes', canal: CANAL_OFICIAL }, { fetch: () => { throw new Error('não devia buscar'); } }));
+  assert.equal(carteira.canalOficial, undefined);
+});
+
+test('Vídeos (canal oficial): canal de gestora (canalModo=citam) - só os que citam o ativo; feed fora do ar não derruba a busca', () => {
+  const ss = cenarioCanalOficial();
+  const { sb } = sandbox({ ss });
+  const fetch = feedOficial([
+    { id: 'gest0000001', titulo: 'Relatório gerencial TEST3', data: isoDias(1.5) },
+    { id: 'gest0000002', titulo: 'Panorama do mercado', data: isoDias(2) },
+    { id: 'gest0000003', titulo: 'Live mensal', data: isoDias(4), desc: 'hoje falamos do Teste Fundo' },
+  ]);
+  const r = plain(sb.montarRespostaVideos_({ termos: 'TEST3|Teste Fundo', ticker: 'TEST3', canal: CANAL_OFICIAL, canalModo: 'citam' }, { fetch, agora: AGORA_CANAL }));
+  assert.deepEqual(r.videos.filter((v) => v.oficial).map((v) => v.id), ['gest0000001', 'gest0000003', 'dupl0000001']);
+  assert.ok(!r.videos.some((v) => v.id === 'gest0000002'), 'o que não cita o ativo fica de fora');
+  const fora = plain(sb.montarRespostaVideos_({ termos: 'TEST3', ticker: 'TEST3', canal: CANAL_OFICIAL }, { fetch: () => ({ getResponseCode: () => 500, getContentText: () => '' }) }));
+  assert.equal(fora.ok, true);
+  assert.match(fora.erroCanalOficial, /HTTP 500/);
+  assert.deepEqual(fora.videos.map((v) => v.id), ['meu00000001', 'dupl0000001', 'meu00000002']);
+});
+
+test('Vídeos (canal oficial): o oficial sempre aparece (até 6 quando há outros pra completar) e completa quando faltam os seus', () => {
+  const { sb } = sandbox();
+  const v = (pref, n, idade) => Array.from({ length: n }, (_, i) => ({ id: `${pref}${String(i).padStart(11 - pref.length, '0')}`, canal: pref, titulo: 'x', publicado: isoDias(idade + i), ativos: ['TEST3'], motivo: 'ativo' }));
+  const meus = v('meu', 20, 0); // todos mais novos que os do oficial
+  const canal = { id: CANAL_OFICIAL, nome: 'Oficial', videos: v('ofi', 15, 30) };
+  const r = plain(sb.mesclarVideosCanalOficial_(meus, canal, { agora: AGORA_CANAL }));
+  assert.equal(r.length, 12);
+  assert.equal(r.filter((x) => x.oficial).length, 6, 'mesmo mais velhos, 6 do oficial entram');
+  assert.deepEqual(r.map((x) => x.publicado), [...r.map((x) => x.publicado)].sort().reverse(), 'ordenado por data');
+  const poucos = plain(sb.mesclarVideosCanalOficial_(meus.slice(0, 2), canal, { agora: AGORA_CANAL }));
+  assert.deepEqual([poucos.length, poucos.filter((x) => x.oficial).length], [12, 10]);
+  const semOficial = plain(sb.mesclarVideosCanalOficial_(meus, { id: CANAL_OFICIAL, nome: 'Oficial', videos: [] }, { agora: AGORA_CANAL }));
+  assert.equal(semOficial.length, 12);
+  // canal oficial também cadastrado em aux_videos-canais: os vídeos dele que vieram de lá ganham a marca (pelo nome do canal)
+  const marcados = plain(sb.mesclarVideosCanalOficial_([{ id: 'antigo00001', canal: 'Ofícial', titulo: 'TEST3', publicado: isoDias(200), ativos: [], motivo: 'ativo' }], canal, { agora: AGORA_CANAL }));
+  assert.equal(marcados.find((x) => x.id === 'antigo00001').oficial, true);
+});

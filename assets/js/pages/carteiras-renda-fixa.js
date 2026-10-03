@@ -258,6 +258,7 @@ function desenhar(doc, dados) {
     wireGraficosClasseCarteiras(doc, {
       historico: dados.historico,
       periodoTabsContainer: doc.getElementById('rendaFixaPeriodoTabs'),
+      periodoPersonalizado: { chave: 'carteiras.rendaFixa' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
       paineis: [
         {
           visaoId: 'carteiraRendaFixaTotal',
@@ -270,6 +271,8 @@ function desenhar(doc, dados) {
           evolucaoChartContainer: doc.getElementById('rfEvolucaoTotalChart'),
           evolucaoLegendaContainer: doc.getElementById('rfEvolucaoTotalLegenda'),
           corToken: '--rf',
+          analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+          comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
         },
         {
           visaoId: 'carteiraRendaFixaLongoPrazo',
@@ -282,6 +285,8 @@ function desenhar(doc, dados) {
           evolucaoChartContainer: doc.getElementById('rfEvolucaoLongoChart'),
           evolucaoLegendaContainer: doc.getElementById('rfEvolucaoLongoLegenda'),
           corToken: '--rf',
+          analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+          comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
           labelValor: 'Longo prazo',
           comInvestido: false,
         },
@@ -296,6 +301,8 @@ function desenhar(doc, dados) {
           evolucaoChartContainer: doc.getElementById('rfEvolucaoEmergChart'),
           evolucaoLegendaContainer: doc.getElementById('rfEvolucaoEmergLegenda'),
           corToken: '--rf',
+          analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+          comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
           labelValor: 'Reserva de emergência',
           comInvestido: false,
         },

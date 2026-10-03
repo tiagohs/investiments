@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { videosHtml, criarCarregadorVideos, secaoVideosHtml, carregarApelidosPadrao } from '../assets/js/videos.js';
+import { videosHtml, criarCarregadorVideos, secaoVideosHtml, carregarApelidosPadrao, canalOficialHtml } from '../assets/js/videos.js';
 
 const agora = new Date('2026-09-26T12:00:00Z');
 const v = (id, extra) => ({ id: id.padEnd(11, 'x'), canal: 'Canal', titulo: `Vídeo ${id}`, publicado: '2026-09-25T12:00:00Z', ...extra });
@@ -55,4 +55,24 @@ test('Vídeos: carregarApelidosPadrao lê ativos-sobre.json 1x e filtra pela car
   assert.deepEqual(await carregarApelidosPadrao('acoes', fetchImpl), { TEST3: ['Teste'] });
   assert.deepEqual(await carregarApelidosPadrao('fiis', fetchImpl), { FUND11: ['Fundo'] });
   assert.equal(chamadas, 1);
+});
+
+// 02/10/2026: canal oficial do ativo (canais-youtube.js) na seção Vídeos
+test('Vídeos (canal oficial): bloco no topo da seção só com link do YouTube; etiqueta nos vídeos do oficial; vazio cita o canal', () => {
+  const canal = { nome: 'Empresa <Teste>', handle: '@empresa.teste', url: 'https://www.youtube.com/@empresa.teste' };
+  const dom = new JSDOM(`<body>${secaoVideosHtml('sec', { canal })}</body>`);
+  const a = dom.window.document.querySelector('#sec .vd-topo a.vd-canal-oficial');
+  assert.equal(a.getAttribute('href'), 'https://www.youtube.com/@empresa.teste');
+  assert.equal(a.getAttribute('target'), '_blank');
+  assert.equal(a.querySelector('.vd-canal-nome').textContent.trim(), 'Empresa <Teste> @empresa.teste', 'texto escapado');
+  assert.equal(canalOficialHtml({ ...canal, url: 'javascript:alert(1)' }), '');
+  assert.equal(canalOficialHtml({ ...canal, url: 'https://exemplo.test/@x' }), '');
+  assert.equal(canalOficialHtml(null), '');
+  assert.doesNotMatch(secaoVideosHtml('s2'), /vd-canal-oficial/, 'carteira/ativo sem canal: igual antes');
+
+  const html = videosHtml({ ok: true, configurado: true, videos: [v('of1', { oficial: true }), v('m1')] }, agora);
+  const d = new JSDOM(`<div>${html}</div>`).window.document;
+  assert.deepEqual([...d.querySelectorAll('.vd-card')].map((c) => !!c.querySelector('.vd-oficial')), [true, false]);
+  assert.match(videosHtml({ ok: true, configurado: true, canalOficial: { nome: 'X' }, videos: [] }, agora), /nem do canal oficial/);
+  assert.match(videosHtml({ ok: true, configurado: false, videos: [] }, agora), /Nenhum canal cadastrado/);
 });

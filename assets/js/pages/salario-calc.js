@@ -14,7 +14,6 @@
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 
-export const JANELAS = [6, 12, 24];
 
 /** Valor investido no mês conforme as escolhas da tela. */
 export function valorDoMes(m, { base = 'total', descontarProventos = false } = {}) {

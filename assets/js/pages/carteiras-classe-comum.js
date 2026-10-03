@@ -23,6 +23,7 @@ import {
   COR_PRINCIPAL_POR_VISAO,
   renderInfoEvolucao,
 } from './inicio.js';
+import { calcularComparativo } from './inicio-comparativo.js'; // 02/10/2026: "Ontem era" + meses (pedido B)
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
 
@@ -790,7 +791,7 @@ export function proventosDoHistorico_(historico, campoProventos, campoCaixa, cam
   return aplicado - caixa;
 }
 
-export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', infoContainer = null, labelInfo = 'Patrimônio', moeda = 'BRL' } = {}) {
+export function renderEvolucaoClasseCarteiras(doc, container, historico, { campoValor, campoInvestido = 'investidoAcumulado', comInvestido = true, periodoId = '12m', legendaContainer = null, corToken = '--acoes', labelValor = 'Portfólio', labelInvestido = 'Valor aplicado', infoContainer = null, labelInfo = 'Patrimônio', moeda = 'BRL', comparativo = false } = {}) {
   // 24/09/2026: Ações EUA pode ser vista em dólar (moeda:'USD') - eixo,
   // tooltip e o bloco de valor em cima mudam de moeda juntos.
   const formatarMoeda = moeda === 'USD' ? formatUSD : formatBRL;
@@ -806,7 +807,15 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
     : null;
   // 23/09/2026 #8: valor + variação no período em cima do gráfico, das
   // MESMAS duas linhas desenhadas abaixo (ver inicio.js!renderInfoEvolucao).
-  renderInfoEvolucao(doc, infoContainer, { label: labelInfo, valores: valoresPrincipal, investidos: valoresInvestido, formatarMoeda });
+  // 02/10/2026: "Ontem era" + meses (pedido B) e, num período personalizado
+  // que termina antes de hoje, a data do valor mostrado.
+  const ultimoDia = historico && historico.length ? historico[historico.length - 1].data : null;
+  const fimJanela = janela.length ? janela[janela.length - 1].data : null;
+  renderInfoEvolucao(doc, infoContainer, {
+    label: labelInfo, valores: valoresPrincipal, investidos: valoresInvestido, formatarMoeda,
+    comparativo: comparativo ? calcularComparativo(historico, campoValor, periodoId, { janela }) : null,
+    dataFim: fimJanela && ultimoDia && fimJanela < ultimoDia ? fimJanela : null,
+  });
   const validos = valoresPrincipal.filter((v) => v != null);
   if (validos.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
@@ -944,11 +953,17 @@ export function renderEvolucaoClasseCarteiras(doc, container, historico, { campo
  * `_evolucaoClasseDesenhar`) e redesenham no período atual, sem religar
  * nada.
  */
-export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes' } = {}) { // 25/09/2026: padrão Mês atual em todas as telas
+export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes', periodoPersonalizado = null } = {}) { // 25/09/2026: padrão Mês atual em todas as telas
+  // 02/10/2026: `periodoPersonalizado` ({ chave }) liga o chip "Escolher
+  // período" (periodo-personalizado.js) - o MESMO controlador manda nos 2
+  // lados (Rentabilidade e Evolução). Por painel, opcionais: `analise:true`
+  // (card de Análise embaixo do gráfico de Rentabilidade), `comparativo:true`
+  // ("Ontem era" + meses no bloco da Evolução) e `benchmarksExtra`.
   wireGraficoRentabilidade(doc, {
     historico,
     periodoTabsContainer,
     periodoInicial,
+    periodoPersonalizado,
     paineis: paineis
       .filter((p) => p.rentabChartContainer)
       .map((p) => ({
@@ -961,6 +976,10 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         formatarMoeda: p.moeda === 'USD' ? formatUSD : formatBRL,
         camposProventos: p.camposProventos || null, // 24/09/2026
         labelPrincipal: p.labelRentabilidade || undefined, // 25/09/2026: tela do ativo ("BBAS3" no lugar de "Portfólio")
+        analise: !!p.analise,
+        analiseContainer: p.analiseContainer || null,
+        nomeAnalise: p.nomeAnalise || null,
+        benchmarksExtra: p.benchmarksExtra || null,
       })),
   });
 
@@ -972,7 +991,7 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
       // 21/09/2026 (pedido do Tiago): CAMPO_FLUXO_APLICADO_POR_VISAO, NAO
       // CAMPO_FLUXO_POR_VISAO - "Valor aplicado" nunca cai so por causa de
       // provento recebido (esse campo continua so pro TWR da Rentabilidade).
-      const historicoAcumulado = comHistoricoAcumuladoClasse_(historico, CAMPO_FLUXO_APLICADO_POR_VISAO[p.visaoId]);
+      const historicoAcumulado = comHistoricoAcumuladoClasse_(periodoTabsContainer._evolucaoClasseHistorico, CAMPO_FLUXO_APLICADO_POR_VISAO[p.visaoId]);
       renderEvolucaoClasseCarteiras(doc, p.evolucaoChartContainer, historicoAcumulado, {
         campoValor: CAMPO_PRINCIPAL_POR_VISAO[p.visaoId],
         periodoId,
@@ -984,40 +1003,35 @@ export function wireGraficosClasseCarteiras(doc, { historico, periodoTabsContain
         infoContainer: p.evolucaoInfoContainer || null,
         labelInfo: p.labelInfoEvolucao || 'Patrimônio',
         moeda: p.moeda || 'BRL',
+        comparativo: !!p.comparativo,
       });
     });
   }
 
-  // Guardados fora do closure dos listeners (registrados só na 1ª
-  // chamada, ver guarda `_evolucaoClasseWired` abaixo) - assim um
-  // refresh automático (dado novo) sempre redesenha com o histórico MAIS
-  // RECENTE, mesmo que o usuário troque de período bem depois da 1ª
-  // carga (mesma técnica de `periodoTabsContainer._evolucaoHistorico` em
-  // carteiras-visao-geral.js).
+  // Guardados fora do closure dos ouvintes (ligados só na 1ª chamada, ver
+  // guarda `_evolucaoClasseWired` abaixo) - assim um refresh automático
+  // (dado novo) ou a troca R$/US$ sempre redesenha com o histórico/painéis
+  // MAIS RECENTES (mesma técnica de `_evolucaoHistorico` em carteiras-visao-geral.js).
   periodoTabsContainer._evolucaoClasseHistorico = historico;
   periodoTabsContainer._evolucaoClasseDesenhar = desenharEvolucao_;
 
-  const periodoAtual = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || periodoInicial;
-  desenharEvolucao_(periodoAtual);
+  const filtro = periodoTabsContainer._filtroPeriodo;
+  const periodoAgora = () => (filtro ? filtro.periodo : (periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || periodoInicial));
+  desenharEvolucao_(periodoAgora());
 
   if (periodoTabsContainer._evolucaoClasseWired) return;
   periodoTabsContainer._evolucaoClasseWired = true;
 
-  periodoTabsContainer.querySelectorAll('.filter-tab').forEach((botao) => {
-    botao.addEventListener('click', () => {
-      periodoTabsContainer._evolucaoClasseDesenhar(botao.dataset.periodo);
-    });
-  });
+  // 02/10/2026: ouve o controlador de período (presets E período
+  // personalizado), não mais o clique em cada botão.
+  if (filtro) filtro.inscrever((periodo) => periodoTabsContainer._evolucaoClasseDesenhar(periodo));
 
   const janela = doc.defaultView;
   if (janela && typeof janela.addEventListener === 'function') {
     let timerResize = null;
     janela.addEventListener('resize', () => {
       if (timerResize) janela.clearTimeout(timerResize);
-      timerResize = janela.setTimeout(() => {
-        const periodoAgora = periodoTabsContainer.querySelector('.filter-tab.active')?.dataset.periodo || periodoInicial;
-        periodoTabsContainer._evolucaoClasseDesenhar(periodoAgora);
-      }, 150);
+      timerResize = janela.setTimeout(() => periodoTabsContainer._evolucaoClasseDesenhar(periodoAgora()), 150);
     });
   }
 }

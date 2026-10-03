@@ -216,7 +216,9 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     // não duplicado no hero - e continua sendo preenchido de verdade.
     assert.notEqual(doc.getElementById('vgInfoRentabilidade').textContent.trim(), '');
     assert.ok(doc.getElementById('vgRentabChart').querySelector('svg'));
-    assert.equal(doc.querySelectorAll('#vgRentabLegenda .li').length, 3); // Portfólio + Ibovespa + CDI
+    // 02/10/2026 (pedido D): + IPCA no Patrimônio total de Carteiras
+    assert.equal(doc.querySelectorAll('#vgRentabLegenda .li').length, 4); // Portfólio + Ibovespa + CDI + IPCA
+    assert.match(doc.getElementById('vgRentabLegenda').textContent, /IPCA/);
   });
 });
 
@@ -410,4 +412,69 @@ test('montarPaginaCarteirasVisaoGeral(): clicar em "Atualizar dados" busca as 2 
     assert.equal(chamadasCarteiras, 2);
     assert.equal(chamadasHome, 2);
   });
+});
+
+// 02/10/2026: card da meta de renda passiva (metas-card.js) na Visão geral,
+// carregado em paralelo; sem meta, só o convite discreto; erro, nada.
+const RESPOSTA_METAS = {
+  ok: true, hoje: '2026-10-02', arquivadas: [],
+  ativos: [{ id: 'AAAA11', ref: 'AAAA11', nome: 'AAAA11', classe: 'fiis', valorBRL: 10000 }],
+  cambio: {}, referencias: { rendaPassiva: { media12m: 100 } },
+  proventos12m: { porTicker: { AAAA11: 1200 } },
+  metas: [{ id: 'm9', tipo: 'rendaPassiva', nome: 'Renda Inventada', dataAlvo: '2036-10', especificos: { rendaMensal: 500, dyAnual: 0.1 }, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], exibirNaCarteira: true, status: 'ativa' }],
+};
+
+async function montarComMeta(respostaMetas) {
+  const { carregarMetasParaCard } = await import('../assets/js/metas-card.js');
+  const doc = makeDom();
+  doc.getElementById('vgCardsGrid').insertAdjacentHTML('afterend', '<div id="vgMetaRenda" hidden></div>');
+  let liberar;
+  const segurar = new Promise((r) => { liberar = r; });
+  const chamadas = [];
+  await withFakeSessionStorage(() => montarPaginaCarteirasVisaoGeral('token-fake', {
+    doc,
+    getCarteirasHomeImpl: async () => ({ ok: true, carteiras: CARTEIRAS_HOME_EXEMPLO }),
+    getHomeImpl: async () => HOME_EXEMPLO,
+    carregarMetasImpl: (token, opcoes) => {
+      chamadas.push(token);
+      return carregarMetasParaCard(token, { ...opcoes, getMetasImpl: async () => { await segurar; return typeof respostaMetas === 'function' ? respostaMetas() : JSON.parse(JSON.stringify(respostaMetas)); } });
+    },
+  }));
+  return { doc, chamadas, liberar };
+}
+const esperar = () => new Promise((r) => setTimeout(r, 0));
+
+test('montarPaginaCarteirasVisaoGeral(): card da meta de renda passiva chega em paralelo (não segura a página) e leva pro detalhe da meta', async () => {
+  const { doc, chamadas, liberar } = await montarComMeta(RESPOSTA_METAS);
+  // a página já desenhou com as metas ainda pendentes
+  assert.equal(doc.getElementById('vgConteudo').hidden, false);
+  assert.ok(doc.querySelector('#vgCardsGrid .cg-card, #vgCardsGrid > *'));
+  assert.equal(doc.getElementById('vgMetaRenda').hidden, true);
+  assert.deepEqual(chamadas, ['token-fake'], 'mesmo token da página');
+  liberar();
+  await esperar(); await esperar();
+  const slot = doc.getElementById('vgMetaRenda');
+  assert.equal(slot.hidden, false);
+  assert.match(slot.textContent, /Renda passiva/);
+  assert.match(slot.textContent, /Renda Inventada/);
+  const link = slot.querySelector('a.mt-card-rp-link');
+  assert.match(link.getAttribute('href'), /metas\.html#meta=m9$/);
+});
+
+test('montarPaginaCarteirasVisaoGeral(): sem meta de renda passiva só um convite discreto; erro no GET de metas não mostra nada', async () => {
+  const semMeta = await montarComMeta({ ...RESPOSTA_METAS, metas: [] });
+  semMeta.liberar();
+  await esperar(); await esperar();
+  const slot = semMeta.doc.getElementById('vgMetaRenda');
+  assert.equal(slot.hidden, false);
+  assert.equal(slot.querySelector('.mt-card-rp'), null);
+  const convite = slot.querySelector('a');
+  assert.match(convite.textContent, /Criar meta de renda passiva/);
+  assert.match(convite.getAttribute('href'), /metas\.html$/);
+
+  const erro = await montarComMeta({ ok: false, erro: 'Ação desconhecida: metas' });
+  erro.liberar();
+  await esperar(); await esperar();
+  assert.equal(erro.doc.getElementById('vgMetaRenda').hidden, true);
+  assert.equal(erro.doc.getElementById('vgMetaRenda').innerHTML, '');
 });

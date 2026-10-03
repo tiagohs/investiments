@@ -290,8 +290,8 @@ export function saldoFgtsEm(fgts, mes) {
 
 /**
  * Saque-aniversário (Lei 8.036/90, anexo): alíquota sobre o saldo total do
- * FGTS + parcela adicional fixa, pela faixa do saldo. Ex.: R$ 13.570,53 ->
- * 15% + R$ 1.150 = R$ 3.185,58; acima de R$ 15.000 -> 10% + R$ 1.900.
+ * FGTS + parcela adicional fixa, pela faixa do saldo. Ex.: R$ 12.000,00 ->
+ * 15% + R$ 1.150 = R$ 2.950,00; acima de R$ 15.000 -> 10% + R$ 1.900.
  */
 export const FAIXAS_SAQUE_ANIVERSARIO = [
   { ate: 500, aliquota: 0.5, adicional: 0 },
@@ -619,15 +619,36 @@ export function liberacoesDividas(d, meta) {
  * Quebra a variação do patrimônio líquido dos últimos `meses` em: aportes
  * (compras − vendas), rendimento dos investimentos (o resto da variação),
  * dívidas abatidas (financiamento + FIES), valorização do apê e FGTS.
+ *
+ * 03/10/2026 (Tiago: "inclua filtro nos gráficos e tabelas ... o mais
+ * dinâmico possível"): `meses` também aceita o período do filtro - '6m',
+ * '12m', '24m', '3a', 'tudo' ou { inicio, fim } (ISO, "Escolher período").
+ * A base é o último mês ANTES do período (o "0" da variação); sem mês antes,
+ * o 1º mês do período. Devolve null se não houver 2 meses pra comparar.
  */
 export function origemCrescimento(d, meses = 12) {
   const cfg = d.config || {};
   const hist = (d.historicoMensal || []).filter((p) => num(p.patrimonio));
   if (hist.length < 2) return null;
-  const fim = hist[hist.length - 1];
-  const iniMes = somarMeses(fim.mes, -meses);
-  const ini = [...hist].reverse().find((p) => p.mes <= iniMes);
-  if (!ini) return null;
+  let fim = hist[hist.length - 1];
+  let ini;
+  if (meses && typeof meses === 'object') {
+    const a = mesDe(meses.inicio);
+    const b = mesDe(meses.fim) || fim.mes;
+    const dentro = hist.filter((p) => p.mes <= b);
+    if (!dentro.length) return null;
+    fim = dentro[dentro.length - 1];
+    ini = [...dentro].reverse().find((p) => p.mes < a) || dentro.find((p) => p.mes >= a);
+    if (!ini || ini.mes >= fim.mes) return null;
+  } else {
+    const n = meses === 'tudo' ? null : (typeof meses === 'string' ? ({ '6m': 6, '12m': 12, '24m': 24, '3a': 36, '5a': 60 })[meses] || 12 : meses);
+    if (n == null) ini = hist[0];
+    else {
+      const iniMes = somarMeses(fim.mes, -n);
+      ini = [...hist].reverse().find((p) => p.mes <= iniMes);
+    }
+    if (!ini) return null;
+  }
   const periodo = hist.filter((p) => p.mes > ini.mes && p.mes <= fim.mes);
   const aportes = r2(soma(periodo, (p) => p.aporte));
   const varInv = r2(fim.patrimonio - ini.patrimonio);

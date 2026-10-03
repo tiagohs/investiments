@@ -13,6 +13,11 @@
  * As declarações do IR podem ser lidas direto da pasta do Drive
  * (Documentos/IR/<ano>/Cópia da Declaração.pdf): o Apps Script entrega o PDF
  * pro navegador da sessão logada, que lê e devolve só os totais.
+ * 02/10/2026 (aba Renda e Orçamentos): a pedido do Tiago ("inclua aqui
+ * informações sobre as minhas contas: Bancos, com Agência e Conta") a chave
+ * 'ir' passa a guardar também banco/agência/conta das contas declaradas,
+ * o salário por fonte pagadora (só a raiz do CNPJ da empresa) e o detalhe
+ * dos rendimentos isentos/exclusivos - continua sem CPF nem endereço.
  *
  * Onde mora cada coisa:
  *   'aux_patrimonio'          Chave | Valor (JSON) | Atualizado em
@@ -157,6 +162,11 @@ function dataPat_(v) { var m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})/)
 function boolPat_(v, padrao) { return v === true || v === false ? v : padrao; }
 function listaPat_(v, max, fn) { return Array.isArray(v) ? v.slice(0, max).map(fn).filter(function (x) { return x !== null; }) : []; }
 var DINHEIRO_MAX_ = 1e9;
+/** 02/10/2026: um item de rendimento isento/exclusivo da declaração ({ codigo, nome, tipo, valor }). */
+function itemRendimentoIrPat_(it) {
+  if (!it || typeof it !== 'object' || !isFinite(Number(it.valor))) return null;
+  return { codigo: String(it.codigo || '').replace(/\D/g, '').slice(0, 2), nome: txtPat_(it.nome, 90), tipo: txtPat_(it.tipo, 20), valor: numPat_(it.valor, -DINHEIRO_MAX_, DINHEIRO_MAX_, 'rendimento') };
+}
 
 function normalizarPatrimonio_(chave, v) {
   if (v === null || typeof v !== 'object') throw new Error('valor inválido pra ' + chave);
@@ -240,7 +250,34 @@ function normalizarPatrimonio_(chave, v) {
           bens: n(a.bens, 'bens'), bensAnterior: n(a.bensAnterior, 'bensAnterior'), dividas: n(a.dividas, 'dividas'), dividasAnterior: n(a.dividasAnterior, 'dividasAnterior'),
           grupos: grupos, conferido: boolPat_(a.conferido, false),
           tributaveis: n(a.tributaveis, 'tributaveis'), isentos: n(a.isentos, 'isentos'), exclusivos: n(a.exclusivos, 'exclusivos'),
-          impostoDevido: n(a.impostoDevido, 'impostoDevido'), impostoPago: n(a.impostoPago, 'impostoPago'), restituir: n(a.restituir, 'restituir'), pagar: n(a.pagar, 'pagar')
+          impostoDevido: n(a.impostoDevido, 'impostoDevido'), impostoPago: n(a.impostoPago, 'impostoPago'), restituir: n(a.restituir, 'restituir'), pagar: n(a.pagar, 'pagar'),
+          // 02/10/2026 (aba Renda e Orçamentos): salário por fonte pagadora,
+          // contas (banco/agência/conta - pedido do Tiago, só nesta planilha
+          // privada) e o detalhe dos isentos/exclusivos. Ausente = declaração
+          // importada antes disso (a tela pede pra reimportar).
+          recebidosPj: n(a.recebidosPj, 'recebidosPj'),
+          rendimentosPj: a.rendimentosPj === undefined ? undefined : listaPat_(a.rendimentosPj, 20, function (r) {
+            if (!r || typeof r !== 'object') return null;
+            return {
+              fonte: txtPat_(r.fonte, 80), cnpjRaiz: /^\d{2}\.\d{3}\.\d{3}$/.test(String(r.cnpjRaiz || '')) ? String(r.cnpjRaiz) : null,
+              anual: n(r.anual, 'rendimentosPj'), inss: n(r.inss, 'rendimentosPj'), irrf: n(r.irrf, 'rendimentosPj'),
+              decimoTerceiro: n(r.decimoTerceiro, 'rendimentosPj'), irrf13: n(r.irrf13, 'rendimentosPj')
+            };
+          }),
+          contasBancarias: a.contasBancarias === undefined ? undefined : listaPat_(a.contasBancarias, 30, function (c) {
+            if (!c || typeof c !== 'object') return null;
+            var ag = String(c.agencia || '').replace(/[^0-9Xx-]/g, '').slice(0, 12);
+            var ct = String(c.conta || '').replace(/[^0-9Xx.-]/g, '').slice(0, 20);
+            return {
+              banco: /^\d{3}$/.test(String(c.banco || '')) ? String(c.banco) : null, bancoNome: txtPat_(c.bancoNome, 40),
+              agencia: ag || null, conta: ct || null,
+              tipo: ['corrente', 'poupanca', 'pagamento', 'aplicacao'].indexOf(c.tipo) >= 0 ? c.tipo : 'corrente',
+              grupo: txtPat_(c.grupo, 4), descricao: txtPat_(c.descricao, 60),
+              saldoAnterior: n(c.saldoAnterior, 'contasBancarias'), saldoAtual: n(c.saldoAtual, 'contasBancarias')
+            };
+          }),
+          isentosItens: a.isentosItens === undefined ? undefined : listaPat_(a.isentosItens, 40, itemRendimentoIrPat_),
+          exclusivosItens: a.exclusivosItens === undefined ? undefined : listaPat_(a.exclusivosItens, 40, itemRendimentoIrPat_)
         };
       }).sort(function (a, b) { return a.ano - b.ano; })
     };
@@ -290,6 +327,12 @@ function historicoMensalPatrimonio_(serie) {
     o.aporte += Number(p.fluxoCaixaPatrimonio) || 0;
     o.aporteLongoPrazo += Number(p.fluxoCaixaLongoPrazo) || 0;
     o.aporteReserva += Number(p.fluxoCaixaRendaEmergencial) || 0;
+    // 03/10/2026 (Tiago: "Patrimônio vs. Inflação (Rentabilidade Real)"):
+    // CDI e IPCA do fim de cada mês (índices base 100 da série da Início,
+    // que vêm de aux_historico-indices) - o front tira a variação do mês
+    // dividindo um mês pelo anterior (patrimonio-inflacao.js).
+    if (typeof p.indiceCdi === 'number') o.indiceCdi = p.indiceCdi;
+    if (typeof p.indiceIpca === 'number') o.indiceIpca = p.indiceIpca;
   });
   ordem.sort();
   return ordem.map(function (m) {

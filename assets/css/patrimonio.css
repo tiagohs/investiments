@@ -285,3 +285,108 @@
   .pt-fontes{ grid-template-columns:minmax(0,1fr); }
   .pt-pad{ padding:14px; }
 }
+
+/* ==========================================================================
+ * 03/10/2026: Patrimônio vs. inflação (rentabilidade real) -
+ * patrimonio-inflacao.js. Tiago: "gráfico de linhas sobrepostas comparando o
+ * crescimento do patrimônio líquido contra os principais indexadores (CDI e
+ * IPCA) ... e um senso final". Só classes .pi-*; cores das linhas = as do CDI
+ * (--ink-faint) e do IPCA (--usa) nos gráficos da Início/Carteiras.
+ * ========================================================================== */
+.pi-raiz{ min-width:0; }
+.pi-card{ padding:16px 18px 14px; display:flex; flex-direction:column; gap:14px; }
+.pi-corpo{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+.pi-corpo[hidden], .pi-vazio[hidden], .pi-veredito[hidden]{ display:none; }
+.pi-topo{ display:flex; justify-content:space-between; align-items:center; gap:10px 16px; flex-wrap:wrap; }
+.pi-vistas{ display:inline-flex; padding:3px; gap:2px; border-radius:100px; background:var(--surface-3); border:1px solid var(--border); }
+.pi-vista{ font:700 11.5px var(--body-f); color:var(--ink-muted); background:transparent; border:none; border-radius:100px; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+.pi-vista small{ font-weight:500; color:var(--ink-faint); margin-left:2px; }
+.pi-vista.active{ background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+.pi-vista.active small{ color:var(--ink-muted); }
+.pi-vista:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+
+.pi-tiles{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; }
+.pi-tile{ background:var(--surface-3); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+.pi-tile-v{ font:600 18px var(--mono); font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+.pi-tile small{ font-size:11px; color:var(--ink-muted); line-height:1.4; }
+.pi-tile.dest{ background:var(--acoes-soft); }
+.pi-tile.pi-bom .pi-tile-v{ color:var(--good-ink); }
+.pi-tile.pi-atencao .pi-tile-v{ color:var(--bad-ink); }
+
+.pi-leg{ gap:6px 18px; }
+.pi-leg span{ white-space:nowrap; }
+.pi-leg-m{ display:inline-block; width:16px; height:2.5px; border-radius:2px; margin-right:6px; vertical-align:3px; }
+.pi-leg-m.tracejado{ height:0; border-radius:0; border-top:2px dashed; background:none; }
+.pi-grafico{ position:relative; min-width:0; }
+.pi-svg{ outline:none; touch-action:pan-y; }
+.pi-svg:focus-visible{ outline:2px solid var(--acoes); outline-offset:4px; border-radius:6px; }
+.pi-linha{ fill:none; stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+.pi-linha-pl{ stroke-width:2.5; }
+.pi-base{ stroke:var(--ink-faint); stroke-width:1; }
+.pi-tick{ stroke:var(--ink-faint); stroke-width:1; }
+.pi-rot-fim{ fill:var(--ink-muted); font:600 10.5px var(--body-f); paint-order:stroke; stroke:var(--surface); stroke-width:3px; }
+.pi-rot-fim.forte{ fill:var(--ink); }
+.pi-ponto-fim{ fill:var(--acoes); stroke:var(--surface); stroke-width:2; }
+.pi-guia{ stroke:var(--ink-faint); stroke-width:1; stroke-dasharray:3 3; }
+.pi-realce-pt{ stroke:var(--surface); stroke-width:2; }
+.pi-realce[hidden], .pi-realce-pt[hidden]{ display:none; }
+.pi-tt{ min-width:220px; }
+.pi-tt-m{ display:inline-block; width:12px; height:2.5px; margin-right:6px; vertical-align:3px; border-radius:1px; }
+.pi-metodo{ margin:0; font-size:11.5px; }
+.pi-metodo-n{ color:var(--ink-faint); }
+
+.pi-veredito{ padding:18px 20px; border-left:4px solid var(--warn); }
+.pi-veredito.pi-tom-bom{ border-left-color:var(--good); }
+.pi-ver-cab{ display:flex; align-items:center; gap:6px 12px; flex-wrap:wrap; }
+.pi-selo{ display:inline-flex; align-items:center; gap:6px; font:700 10.5px var(--body-f); text-transform:uppercase; letter-spacing:.06em; padding:3px 10px; border-radius:100px; background:var(--warn-soft); color:var(--warn-ink); }
+.pi-selo i{ width:7px; height:7px; border-radius:50%; background:currentColor; }
+.pi-tom-bom .pi-selo{ background:var(--good-soft); color:var(--good-ink); }
+.pi-veredito .pi-ver-titulo{ font-family:var(--display); font-weight:600; font-size:21px; line-height:1.25; margin:10px 0 6px; max-width:52ch; }
+.pi-ver-sub{ margin:0; font-size:13px; line-height:1.6; color:var(--ink-muted); max-width:95ch; }
+.pi-ver-grade{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px 28px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); }
+.pi-ver-col{ min-width:0; }
+.pi-ver-col h4{ margin:0 0 8px; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); }
+.pi-ver-col h4 ~ h4{ margin-top:16px; }
+.pi-ver-p{ margin:0 0 12px; font-size:13px; line-height:1.55; }
+.pi-ver-col .pt-barras li{ grid-template-columns:minmax(110px,170px) minmax(0,1fr) 92px; font-size:12px; }
+.pi-acoes{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.pi-acoes li{ display:grid; grid-template-columns:20px minmax(0,1fr); gap:8px; font-size:13px; line-height:1.55; color:var(--ink-muted); }
+.pi-acoes li b{ color:var(--ink); font-weight:600; }
+.pi-acao-ico{ width:20px; height:20px; border-radius:50%; display:grid; place-items:center; font:700 11px var(--body-f); margin-top:1px; }
+.pi-acoes li.pi-bom .pi-acao-ico{ background:var(--good-soft); color:var(--good-ink); }
+.pi-acoes li.pi-atencao .pi-acao-ico{ background:var(--warn-soft); color:var(--warn-ink); }
+
+@media (max-width:900px){
+  .pi-tiles{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .pi-ver-grade{ grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:560px){
+  .pi-card{ padding:14px; }
+  .pi-topo{ align-items:stretch; }
+  .pi-vistas{ width:100%; }
+  .pi-vista{ flex:1; padding:6px 8px; }
+  .pi-vista small{ display:none; }
+  .pi-tile-v{ font-size:16px; }
+  .pi-leg span{ white-space:normal; }
+  .pi-veredito{ padding:16px 14px; }
+  .pi-veredito .pi-ver-titulo{ font-size:18px; }
+  .pi-ver-col .pt-barras li{ grid-template-columns:minmax(0,1fr) 92px; }
+}
+
+/* ---- 03/10/2026: filtros de período, card de análise e links (reorganização) ---- */
+.pt-graf-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px 14px; flex-wrap:wrap; padding:14px 18px 0; }
+.pt-card-cab.pt-card-cab-filtro{ align-items:center; }
+.pt-card-cab-filtro .pt-filtro{ margin-left:auto; }
+.pt-filtro .filter-tab{ font-size:11.5px; }
+.pt-analise{ padding:4px 18px 10px; }
+.pt-analise[hidden]{ display:none; }
+.pt-link{ font-size:11.5px; font-weight:700; color:var(--acoes); text-decoration:none; }
+.pt-link:hover{ text-decoration:underline; }
+.pt-sec-cab .pt-sec-link{ margin-left:auto; }
+.pt-inflacao:empty{ display:none; }
+@media (max-width:560px){
+  .pt-graf-cab{ padding:12px 14px 0; }
+  .pt-analise{ padding:4px 12px 10px; }
+  .pt-card-cab-filtro .pt-filtro{ margin-left:0; }
+  .pt-sec-cab .pt-sec-link{ margin-left:0; }
+}

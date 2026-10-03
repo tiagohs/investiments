@@ -32,6 +32,11 @@
  *
  * Primeira vez: rode configurarVideosDireto() (cria as abas), preencha os
  * canais, rode rodarVideosDireto() e instalarGatilhoVideos().
+ *
+ * 02/10/2026: canal OFICIAL do ativo (empresa/gestora/Tesouro Direto - lista
+ * em assets/js/canais-youtube.js): na tela do ativo, os vídeos recentes dele
+ * entram junto, marcados "Canal oficial" (ver mesclarVideosCanalOficial_).
+ * Não precisa cadastrar nada na planilha.
  */
 
 var ABA_VIDEOS_CANAIS = 'aux_videos-canais';
@@ -376,20 +381,155 @@ function opcoesFiltroVideos_(ss, p) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// 02/10/2026 (Tiago: "Canais do YouTube por ativo mostrados na página; a
+// busca de vídeos tem que considerar os canais"): canal OFICIAL do ativo.
+// A lista ticker -> canal é pública e fica no site (assets/js/canais-youtube.js);
+// a tela do ativo manda canal=<ID UC...> (ou o link/@nome, se o ID não
+// estiver lá) e, pra canal de gestora/corretora que fala de muita coisa,
+// canalModo=citam. Aqui: lê o feed RSS do canal (mesmo esquema sem chave de
+// API do resto deste arquivo; 3h no CacheService), junta com os vídeos dos
+// seus canais (aux_videos) que citam o ativo, sem repetir, marcando
+// "oficial", e ordena tudo por data. Ativo sem canal: nada muda.
+// ---------------------------------------------------------------------------
+
+var VIDEOS_FEED_CACHE_TTL = 3 * 60 * 60;
+var VIDEOS_FEED_CACHE_PREFIXO = 'yt_feed_v1_';
+// no máximo metade da lista é do canal oficial quando há vídeos dos seus
+// canais pra completar (canal de empresa que posta muito não esconde o resto)
+var VIDEOS_MAX_OFICIAIS = 6;
+
+/** Só aceita o que é canal do YouTube: ID UC..., @nome ou link youtube.com (o servidor nunca busca outro endereço). */
+function entradaCanalOficialValida_(texto) {
+  var e = String(texto || '').trim();
+  if (/^UC[\w-]{22}$/.test(e)) return e;
+  if (/^@[\w.\-]{2,60}$/.test(e)) return e;
+  if (/^https:\/\/(www\.|m\.)?youtube\.com\/(@[\w.\-]{2,60}|channel\/UC[\w-]{22}|c\/[\w.\-]{1,80}|user\/[\w.\-]{1,80}|[\w.\-]{1,80})\/?$/i.test(e)) return e;
+  return null;
+}
+
+/**
+ * Vídeos recentes do canal oficial: { id (UC...), nome, videos: [...] }.
+ * opcoes.fetch (testes) substitui o UrlFetchApp.fetch; opcoes.semCache ignora o cache.
+ */
+function videosCanalOficial_(entrada, opcoes) {
+  var o = opcoes || {};
+  var valida = entradaCanalOficialValida_(entrada);
+  if (!valida) throw new Error('canal inválido: ' + String(entrada).slice(0, 80));
+  var id = /^UC[\w-]{22}$/.test(valida) ? valida : resolverCanalYoutube_(valida); // resolvido 1x e guardado nas propriedades do script
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e1) { cache = null; }
+  if (cache && !o.semCache) {
+    try {
+      var guardado = cache.get(VIDEOS_FEED_CACHE_PREFIXO + id);
+      if (guardado) return JSON.parse(guardado);
+    } catch (e2) { /* refaz */ }
+  }
+  var buscar = o.fetch || function (url, params) { return UrlFetchApp.fetch(url, params); };
+  var resp = buscar('https://www.youtube.com/feeds/videos.xml?channel_id=' + id, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (resp.getResponseCode() !== 200) throw new Error('feed do canal oficial HTTP ' + resp.getResponseCode());
+  var xml = resp.getContentText();
+  var titulo = String(xml || '').split('<entry>')[0].match(/<title>([\s\S]*?)<\/title>/);
+  var saida = {
+    id: id,
+    nome: titulo ? titulo[1].replace(/&amp;/g, '&').trim() : '',
+    videos: extrairVideosDoFeed_(xml).map(function (v) { return { id: v.id, canal: v.canal, titulo: v.titulo, publicado: v.publicado, descricao: String(v.descricao || '').slice(0, 300) }; })
+  };
+  if (cache) { try { cache.put(VIDEOS_FEED_CACHE_PREFIXO + id, JSON.stringify(saida), VIDEOS_FEED_CACHE_TTL); } catch (e3) { /* só otimização */ } }
+  return saida;
+}
+
+/**
+ * Junta os vídeos dos seus canais que citam o ativo (já filtrados) com os do
+ * canal oficial. opcoes: { soQueCitam, alvos, descartar, max, maxOficiais }.
+ *  - canal oficial: todos os vídeos (canal da empresa) ou, com soQueCitam,
+ *    só os que citam o ativo (mesma regra de filtrarVideos_); os termos de
+ *    "descartar" valem igual;
+ *  - vídeo que já veio dos seus canais e também é do oficial (mesmo id, ou
+ *    o canal oficial cadastrado em aux_videos-canais) aparece 1 vez só,
+ *    marcado oficial;
+ *  - o oficial sempre entra: até maxOficiais quando há vídeos dos seus
+ *    canais pra completar (mais, se faltar); tudo junto ordenado por data
+ *    (mais novo primeiro), até max.
+ */
+function mesclarVideosCanalOficial_(filtrados, canal, opcoes) {
+  var o = opcoes || {};
+  var max = o.max || VIDEOS_MAX_RESPOSTA;
+  var maxOficiais = o.maxOficiais || VIDEOS_MAX_OFICIAIS;
+  var nomeCanal = semAcentoVideo_(canal && canal.nome).toLowerCase();
+  var oficiais;
+  // mesmo prazo da aba aux_videos (1 ano): canal que quase não posta não traz vídeo velho
+  var limite = new Date((o.agora ? o.agora.getTime() : Date.now()) - VIDEOS_DIAS_GUARDAR * 86400000).toISOString();
+  var lista = ((canal && canal.videos) || []).filter(function (v) { return String(v.publicado || '') >= limite; });
+  if (o.soQueCitam) {
+    oficiais = filtrarVideos_(lista, { alvos: o.alvos, descartar: o.descartar, max: 1000 });
+  } else {
+    var termosDescartar = (o.descartar || []).slice();
+    (o.alvos || []).forEach(function (a) { termosDescartar = termosDescartar.concat(a.descartar || []); });
+    var descartar = termosDescartar.map(regexTermoVideo_).filter(Boolean);
+    oficiais = lista.filter(function (v) {
+      var t = semAcentoVideo_(v.titulo), d = semAcentoVideo_(v.descricao);
+      return !descartar.some(function (r) { return r.test(t) || r.test(d); });
+    }).map(function (v) { return { id: v.id, canal: v.canal, titulo: v.titulo, publicado: v.publicado, ativos: [], motivo: 'ativo' }; });
+  }
+  var porId = {};
+  var outros = [];
+  (filtrados || []).forEach(function (v) {
+    if (porId[v.id]) return;
+    var copia = {};
+    Object.keys(v).forEach(function (k) { copia[k] = v[k]; });
+    if (nomeCanal && semAcentoVideo_(v.canal).toLowerCase() === nomeCanal) copia.oficial = true;
+    porId[v.id] = copia;
+    outros.push(copia);
+  });
+  var soOficiais = [];
+  oficiais.forEach(function (v) {
+    if (porId[v.id]) { porId[v.id].oficial = true; return; }
+    var copia = { id: v.id, canal: v.canal || (canal && canal.nome) || '', titulo: v.titulo, publicado: v.publicado, ativos: v.ativos || [], motivo: 'ativo', oficial: true };
+    porId[v.id] = copia;
+    soOficiais.push(copia);
+  });
+  var maisNovo = function (a, b) { return a.publicado < b.publicado ? 1 : (a.publicado > b.publicado ? -1 : 0); };
+  soOficiais.sort(maisNovo);
+  outros.sort(maisNovo);
+  // o oficial sempre aparece (até maxOficiais, mais se faltar vídeo dos seus canais); o resto da lista é dos seus canais
+  var nOficiais = Math.min(soOficiais.length, Math.max(maxOficiais, max - outros.length));
+  var nOutros = Math.min(outros.length, max - nOficiais);
+  return soOficiais.slice(0, nOficiais).concat(outros.slice(0, nOutros)).sort(maisNovo);
+}
+
 function handleVideos(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var p = (e && e.parameter) || {};
-    var configurado = lerCanaisVideos_(ss).length > 0;
-    var videos = lerVideos_(ss);
-    var opcoes = opcoesFiltroVideos_(ss, p);
-    return jsonOut({
-      ok: true, configurado: configurado, totalGuardados: videos.length,
-      carteira: opcoes.carteira || null,
-      videos: filtrarVideos_(videos, opcoes)
-    });
+    return jsonOut(montarRespostaVideos_((e && e.parameter) || {}));
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'videos', erro: String(erro) });
   }
+}
+
+/** Resposta de action=videos (separada do handler pros testes). opcoes: fetch (ver videosCanalOficial_), agora (Date). */
+function montarRespostaVideos_(p, opcoes) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var configurado = lerCanaisVideos_(ss).length > 0;
+  var videos = lerVideos_(ss);
+  var filtro = opcoesFiltroVideos_(ss, p);
+  var resposta = {
+    ok: true, configurado: configurado, totalGuardados: videos.length,
+    carteira: filtro.carteira || null,
+    videos: filtrarVideos_(videos, filtro)
+  };
+  if (!filtro.carteira && p.canal) {
+    try {
+      var canal = videosCanalOficial_(p.canal, opcoes);
+      resposta.canalOficial = { id: canal.id, nome: canal.nome, recentes: canal.videos.length };
+      // pede mais dos seus canais (o corte final é depois de juntar com o oficial)
+      var maisFiltrados = filtrarVideos_(videos, { alvos: filtro.alvos, descartar: filtro.descartar, max: VIDEOS_MAX_RESPOSTA * 2 });
+      resposta.videos = mesclarVideosCanalOficial_(maisFiltrados, canal, {
+        soQueCitam: p.canalModo === 'citam', alvos: filtro.alvos, descartar: filtro.descartar, agora: opcoes && opcoes.agora
+      });
+    } catch (erroCanal) {
+      resposta.erroCanalOficial = String(erroCanal).slice(0, 200); // sem o canal, segue só com os seus canais
+    }
+  }
+  return resposta;
 }

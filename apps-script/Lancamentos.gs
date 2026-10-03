@@ -8,7 +8,9 @@
  * e manda aqui uma lista de itens já no formato de cada aba. Este arquivo:
  *  1. confere o que JÁ ESTÁ na planilha (pra mandar o mesmo extrato duas
  *     vezes sem medo) e o que não pode entrar (ativo que não existe na
- *     Carteira) - modo "simular", nada é gravado;
+ *     Carteira) - modo "simular", nada é gravado (02/10/2026: exceto as
+ *     linhas de provento dos extratos da B3, guardadas em
+ *     aux_proventos-conferencia pra conferência - ver Proventos.gs);
  *  2. grava os itens escolhidos nas colunas manuais de cada aba (as
  *     fórmulas das outras colunas já estão prontas nas linhas de baixo),
  *     põe Transações / Transações - USA / Transações Renda Fixa em ordem de
@@ -299,7 +301,17 @@ function importarLancamentos_(itens, opcoes) {
     var porUid = {};
     classes.forEach(function (c) { porUid[c.uid] = c; });
     var resultado = { itens: classes, gravados: {}, lotesRf: 0, total: 0 };
-    if (o.simular) return resultado;
+    // 02/10/2026 (Tiago: "Eu mando no final do mês [o arquivo da B3] e você
+    // faz o check final"): as linhas de provento do extrato da B3 ficam
+    // guardadas pra conferência (Proventos.gs!registrarExtratoB3Proventos_ -
+    // só na aba aux_proventos-conferencia, nunca na aba Proventos). Já na
+    // conferência (simular), que recebe o extrato INTEIRO - quando tudo já
+    // estava lançado nem há gravação. resultado.conferenciaProventos = resumo.
+    var conferirProventos = function (semTrava) {
+      if (destinos.indexOf('proventos') === -1 || typeof registrarExtratoB3Proventos_ !== 'function') return;
+      try { resultado.conferenciaProventos = registrarExtratoB3Proventos_(itens, { semTrava: semTrava }); } catch (eConf) { Logger.log('registrarExtratoB3Proventos_: ' + eConf); }
+    };
+    if (o.simular) { conferirProventos(false); return resultado; }
 
     var gravar = itens.filter(function (it) {
       var c = porUid[it.uid];
@@ -361,6 +373,7 @@ function importarLancamentos_(itens, opcoes) {
         }
       } catch (eReg) { Logger.log('gravarRegistroControle_: ' + eReg); }
     }
+    conferirProventos(true); // 02/10/2026: resumo de novo, já com o que acabou de entrar na aba Proventos
     return resultado;
   } finally {
     if (trava) trava.releaseLock();

@@ -1637,9 +1637,11 @@ test('wireGraficoAtivo() o filtro de período vem com os mesmos 6 presets da Ren
   grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
-  const pills = Array.from(doc.body.querySelectorAll('.ativo-grafico-periodo .filter-tab'));
+  const pills = Array.from(doc.body.querySelectorAll('.ativo-grafico-periodo .filter-tab[data-periodo]'));
   assert.deepEqual(pills.map((p) => p.dataset.periodo), ['mes', '30d', '6m', '12m', '3a', 'tudo']);
   assert.equal(pills.find((p) => p.dataset.periodo === 'mes').classList.contains('active'), true);
+  // 02/10/2026: + o chip "Escolher período" no fim (periodo-personalizado.js)
+  assert.ok(doc.body.querySelector('.ativo-grafico-periodo .filter-tab.fp-chip:last-child'));
 });
 
 test('wireGraficoAtivo() trocar de período redesenha o gráfico sem nova busca de rede', async () => {
@@ -1864,6 +1866,10 @@ test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e a 
   assert.ok(doc.getElementById('rentabChartNacional').querySelector('svg'), 'painel de Rentabilidade Nacional precisa desenhar de cara, igual aos outros 3');
   assert.match(doc.getElementById('rentabInfoNacional').textContent, /Patrimônio Nacional/);
   assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.rc-visao').length, 4);
+  // 03/10/2026 (revisão do pedido "Patrimônio total: incluir o índice IPCA"):
+  // a linha do IPCA entra só no Patrimônio total
+  assert.match(doc.getElementById('rentabLegendaTotal').textContent, /IPCA/);
+  assert.doesNotMatch(doc.getElementById('rentabLegendaNacional').textContent, /IPCA/);
 });
 
 test('montarPaginaInicio() shows the error state (and keeps the content hidden) when the back-end rejects the call', async () => {

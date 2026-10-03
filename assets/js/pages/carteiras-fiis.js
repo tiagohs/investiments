@@ -242,6 +242,7 @@ function desenhar(doc, dados) {
     wireGraficosClasseCarteiras(doc, {
       historico: dados.historico,
       periodoTabsContainer: doc.getElementById('fiisPeriodoTabs'),
+      periodoPersonalizado: { chave: 'carteiras.fiis' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
       paineis: [{
         visaoId: 'carteiraFiis',
         camposProventos: ['proventosFiis'], // 24/09/2026: proventos recebidos no período
@@ -253,6 +254,8 @@ function desenhar(doc, dados) {
         evolucaoChartContainer: doc.getElementById('fiisEvolucaoChart'),
         evolucaoLegendaContainer: doc.getElementById('fiisEvolucaoLegenda'),
         corToken: '--fiis',
+        analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+        comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
       }],
     });
   } else {

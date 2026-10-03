@@ -128,6 +128,186 @@ function bensPorGrupo(t, layoutNovo) {
   return grupos;
 }
 
+// ---------------------------------------------------------------------------
+// 02/10/2026: renda e contas pela declaração (aba "Renda e Orçamentos").
+// Tiago: "com as infos do meu IR, dá pra saber quanto eu ganhei mensalmente e
+// conforme os anos" e "inclua aqui informações sobre as minhas contas: Bancos,
+// com Agência e Conta". Agência e conta vão SÓ pra planilha privada dele
+// (aux_patrimonio, chave 'ir'), nunca pro repositório; da fonte pagadora fica
+// só a raiz do CNPJ (o da empresa, que é público) - nada de CPF.
+// ---------------------------------------------------------------------------
+
+/** Código COMPE do banco → nome curto (o que aparece no cartão da conta). */
+export const BANCOS = {
+  '001': 'Banco do Brasil', '003': 'Banco da Amazônia', '004': 'Banco do Nordeste', '021': 'Banestes', '033': 'Santander', '037': 'Banpará',
+  '041': 'Banrisul', '047': 'Banese', '069': 'Crefisa', '070': 'BRB', '077': 'Inter', '085': 'Ailos', '102': 'XP', '104': 'Caixa',
+  '121': 'Agibank', '133': 'Cresol', '136': 'Unicred', '197': 'Stone', '208': 'BTG Pactual', '212': 'Banco Original', '218': 'BS2',
+  '237': 'Bradesco', '260': 'Nubank', '280': 'Will Bank', '290': 'PagBank', '318': 'BMG', '323': 'Mercado Pago', '336': 'C6 Bank',
+  '341': 'Itaú', '348': 'XP', '364': 'Efí', '380': 'PicPay', '389': 'Mercantil', '403': 'Cora', '413': 'BV', '422': 'Safra',
+  '461': 'Asaas', '536': 'Neon', '623': 'Pan', '633': 'Rendimento', '655': 'BV', '707': 'Daycoval', '735': 'Neon', '746': 'Modal',
+  '748': 'Sicredi', '756': 'Sicoob',
+};
+export const nomeBanco = (codigo) => {
+  const c = String(codigo == null ? '' : codigo).replace(/\D/g, '').padStart(3, '0');
+  return BANCOS[c] || (c !== '000' ? `Banco ${c}` : 'Banco');
+};
+
+const RE_BANCO_CONTA = /BANCO:\s*(\d{1,3})\b(.{0,60}?)AGENCIA:\s*([0-9X][0-9X-]*)(?:\s+(?:CONTA|NUMERO DA CONTA):\s*([0-9X][0-9X.-]*))?/;
+
+/** Tipo da conta pelo grupo/código do bem (layout novo) ou pelo código antigo. */
+function tipoConta(grupo, codigo, codigoAntigo, pagamento) {
+  if (pagamento) return 'pagamento';
+  if (grupo === '06' && codigo === '01') return 'corrente';
+  if (grupo === '04' && codigo === '01') return 'poupanca';
+  if (codigoAntigo === '61' || codigoAntigo === '62') return 'corrente';
+  if (codigoAntigo === '41') return 'poupanca';
+  return grupo === '06' ? 'corrente' : 'aplicacao';
+}
+
+/**
+ * Contas bancárias dos Bens e Direitos: "Banco: 001 Agência: 0001 Conta:
+ * 12345-6" vem DEPOIS do "105 - Brasil" que fecha o bem (nos dois layouts),
+ * então os dados do banco do bem k estão no começo do pedaço k+1. Entram as
+ * contas com banco/agência e os "depósitos em conta corrente" (06 01) mesmo
+ * sem eles. Saldos = situação em 31/12 do ano anterior e do ano.
+ */
+function contasDaDeclaracao(t, layoutNovo) {
+  const ini = t.search(/DECLARACAO DE BENS E DIREITOS/);
+  if (ini < 0) return [];
+  const fimRel = t.slice(ini).search(/DIVIDAS E ONUS REAIS/);
+  let sec = fimRel < 0 ? t.slice(ini) : t.slice(ini, ini + fimRel);
+  sec = sec.replace(/CONTROLE:.*?SITUACAO EM\s*31\/12\/\d{4}\s*31\/12\/\d{4}/g, ' ');
+  const cab = /SITUACAO EM\s*31\/12\/\d{4}\s*31\/12\/\d{4}/;
+  const h = sec.search(cab);
+  if (h >= 0) sec = sec.slice(h).replace(cab, ' ');
+  const pedacos = sec.split(/\b\d{3}\s-\s[A-Z][A-Z]+/);
+  const contas = [];
+  pedacos.slice(0, -1).forEach((p, k) => {
+    const par = p.match(PAR_VALORES);
+    if (!par) return;
+    const antes = p.slice(0, par.index + 1);
+    let grupo = null; let codigo = null; let codigoAntigo = null; let desc = '';
+    if (layoutNovo) {
+      const m = antes.match(/(?:^|\s)(0[1-8]|99)\s(\d{2})\s(?=\S)/);
+      if (m) { grupo = m[1]; codigo = m[2]; desc = antes.slice(m.index + m[0].length); }
+    } else {
+      const m = antes.match(/(?:^|\s)([1-9]\d)\s(?=[A-Z"])/);
+      if (m) { codigoAntigo = m[1]; grupo = GRUPO_DO_CODIGO_ANTIGO[m[1][0]]; desc = antes.slice(m.index + m[0].length); }
+    }
+    if (!grupo) return;
+    // o resto da discriminação vem depois dos valores (layout novo quebra a linha)
+    desc = `${desc} ${p.slice(par.index + par[0].length)}`;
+    const prox = pedacos[k + 1] || '';
+    const parProx = prox.match(PAR_VALORES);
+    const trecho = parProx ? prox.slice(0, parProx.index) : prox;
+    const b = trecho.match(RE_BANCO_CONTA);
+    const ehConta = (grupo === '06' && (codigo === '01' || codigoAntigo === '61' || codigoAntigo === '62')) || codigoAntigo === '61';
+    if (!b && !ehConta) return;
+    const pagamento = /CONTA PAGAMENTO\?\s*SIM/.test(trecho);
+    const descricao = desc.replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+    contas.push({
+      banco: b ? b[1].padStart(3, '0') : null,
+      bancoNome: b ? nomeBanco(b[1]) : null,
+      agencia: b ? b[3] : null,
+      conta: b && b[4] ? b[4].replace(/\.$/, '') : null,
+      tipo: tipoConta(grupo, codigo, codigoAntigo, pagamento),
+      grupo,
+      descricao,
+      saldoAnterior: numBR(par[1]),
+      saldoAtual: numBR(par[2]),
+    });
+  });
+  return contas;
+}
+
+const CNPJ_OU_CPF = /\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b|(?<!CPF:\s?)\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g;
+/** Raiz do CNPJ ("12.345.678") - CPF de fonte pagadora pessoa física não sai. */
+const raizCnpj = (doc) => (/\//.test(doc) ? doc.slice(0, 10) : null);
+
+/** Recorta a seção que começa no título `reTitulo` e vai até o próximo título "(VALORES EM REAIS)" de outra seção. */
+function secaoDeclaracao(t, reTitulo) {
+  const m = t.match(reTitulo);
+  if (!m) return null;
+  let sec = t.slice(m.index + m[0].length);
+  const fim = sec.search(/(?:RENDIMENTOS|DECLARACAO|PAGAMENTOS|DOACOES|DEPENDENTES|ALIMENTANDOS|DIVIDAS|IMPOSTO PAGO|INFORMACOES)[A-Z\s/-]{0,90}\(VALORES EM REAIS\)|\bRESUMO\b|EVOLUCAO PATRIMONIAL/);
+  if (fim >= 0) sec = sec.slice(0, fim);
+  // cabeçalho/rodapé das páginas no meio da seção
+  return sec.replace(/CONTROLE:\s*\d+.*?ANO-CALENDARIO\s+\d{4}/g, ' ').replace(/\(VALORES EM REAIS\)/g, ' ').replace(/\s+/g, ' ');
+}
+
+/**
+ * "RENDIMENTOS TRIBUTÁVEIS RECEBIDOS DE PESSOA JURÍDICA PELO TITULAR": uma
+ * linha por fonte pagadora - nome, CNPJ e os valores na ordem das colunas
+ * (rendimentos, contribuição previdenciária oficial, IRRF, 13º salário, IRRF
+ * sobre o 13º). O nome pode vir antes ou depois do CNPJ (o pdf.js junta as
+ * colunas por altura).
+ */
+function rendimentosPjDaDeclaracao(t) {
+  let sec = secaoDeclaracao(t, /RENDIMENTOS TRIBUTAVEIS RECEBIDOS DE PESSOA JURIDICA PELO TITULAR/);
+  if (!sec) return [];
+  const tot = sec.search(new RegExp(`\\bTOTAL\\s+${NUM}`));
+  if (tot >= 0) sec = sec.slice(0, tot);
+  sec = sec.replace(/(?:NOME DA FONTE PAGADORA|C(?:PF|NPJ)\/C(?:NPJ|PF) DA FONTE PAGADORA|RENDIMENTOS RECEBIDOS(?: DE PESSOA JURIDICA)?|CONTRIBUICAO PREVIDENCIARIA OFICIAL|IMPOSTO RETIDO NA FONTE|IRRF SOBRE (?:O )?13\S? SALARIO|13\S? SALARIO)/g, ' ');
+  const docs = [...sec.matchAll(CNPJ_OU_CPF)];
+  const out = [];
+  let fimAnterior = 0;
+  docs.forEach((d) => {
+    const depois = sec.slice(d.index + d[0].length);
+    const m = depois.match(new RegExp(`^\\s*(.*?)\\s*((?:${NUM}\\s+){2,4}${NUM})(?=\\s|$)`));
+    if (!m) return;
+    const valores = m[2].trim().split(/\s+/).map(numBR);
+    const nomeDepois = /[A-Z]{2}/.test(m[1]) ? m[1] : '';
+    const nomeAntes = sec.slice(fimAnterior, d.index);
+    const nome = (nomeDepois || nomeAntes).replace(/\s+/g, ' ').trim().slice(0, 80);
+    fimAnterior = d.index + d[0].length + m[0].length;
+    out.push({
+      fonte: nome || 'Fonte pagadora',
+      cnpjRaiz: raizCnpj(d[0]),
+      anual: valores[0] ?? 0,
+      inss: valores[1] ?? 0,
+      irrf: valores[2] ?? 0,
+      decimoTerceiro: valores[3] ?? 0,
+      irrf13: valores[4] ?? 0,
+    });
+  });
+  return out;
+}
+
+/** Classe de um item de rendimento isento/exclusivo pelo nome (os números dos itens mudam entre anos). */
+export function tipoRendimentoIr(nome) {
+  const s = semAcento(nome).toUpperCase();
+  if (/13\S?\s*SALARIO|DECIMO TERCEIRO/.test(s)) return 'decimoTerceiro';
+  if (/PARTICIPACAO NOS LUCROS|\bPLR\b/.test(s)) return 'plr';
+  if (/JUROS SOBRE (O )?CAPITAL PROPRIO/.test(s)) return 'jcp';
+  if (/FGTS|RESCISAO/.test(s)) return 'fgtsRescisao';
+  if (/LUCROS E DIVIDENDOS/.test(s)) return 'dividendos';
+  if (/POUPANCA|LCI|LCA|CRI\b|CRA\b|LETRAS HIPOTECARIAS/.test(s)) return 'lciLcaPoupanca';
+  if (/IMOBILIARIO|FII/.test(s)) return 'fii';
+  if (/ACOES|OURO/.test(s) && /ALIENACAO|20\.000|VENDAS|GANHOS/.test(s)) return 'acoesIsentas';
+  if (/APLICACOES FINANCEIRAS/.test(s)) return 'aplicacoes';
+  if (/GANHO/.test(s) && /CAPITAL/.test(s)) return 'ganhoCapital';
+  if (/BOLSA|ESTAGIO/.test(s)) return 'bolsa';
+  return 'outros';
+}
+
+/** Itens numerados ("09. Lucros e dividendos recebidos 279,35") de uma seção de rendimentos. */
+function itensRendimentos(t, reTitulo) {
+  const sec = secaoDeclaracao(t, reTitulo);
+  if (!sec) return [];
+  const marcas = [...sec.matchAll(/(?:^|\s)(\d{2})\\?\.\s+(?=\S)/g)];
+  const out = [];
+  marcas.forEach((mk, i) => {
+    const fim = i + 1 < marcas.length ? marcas[i + 1].index : sec.length;
+    const pedaco = sec.slice(mk.index + mk[0].length, fim);
+    const m = pedaco.match(new RegExp(`^(.+?)\\s+(-?${NUM})(?=\\s|$)`));
+    if (!m) return;
+    const total = pedaco.match(new RegExp(`\\bTOTAL\\s+(${NUM})`));
+    const nome = m[1].replace(/\s+/g, ' ').trim().slice(0, 90);
+    out.push({ codigo: mk[1], nome, tipo: tipoRendimentoIr(nome), valor: numBR(total ? total[1] : m[2]) });
+  });
+  return out;
+}
+
 export function lerDeclaracaoIr(linhas) {
   linhas = juntarAcentos(linhas);
   const t = plano(linhas);
@@ -169,6 +349,13 @@ export function lerDeclaracaoIr(linhas) {
     restituir: valor(new RegExp(`IMPOSTO A RESTITUIR\\s+(${NUM})`)) || 0,
     pagar: valor(new RegExp(`SALDO IMPOSTO A PAGAR\\s+(${NUM})`)) || 0,
     nascimento: nasc ? `${nasc[2]}-${nasc[1]}` : null,
+    // 02/10/2026 (aba Renda e Orçamentos): salário por fonte pagadora, contas
+    // bancárias e o detalhe dos rendimentos isentos/exclusivos
+    recebidosPj: valor(new RegExp(`RECEBIDOS DE PESSOA JURIDICA PELO TITULAR\\s+(${NUM})`)),
+    rendimentosPj: rendimentosPjDaDeclaracao(t),
+    contasBancarias: contasDaDeclaracao(t, exercicio >= 2023),
+    isentosItens: itensRendimentos(t, /RENDIMENTOS ISENTOS E NAO TRIBUTAVEIS\s*\(VALORES EM REAIS\)/),
+    exclusivosItens: itensRendimentos(t, /RENDIMENTOS SUJEITOS A TRIBUTACAO EXCLUSIVA\/DEFINITIVA\s*\(VALORES EM REAIS\)/),
   };
 }
 

@@ -219,3 +219,89 @@ test('pdf.js de verdade: letra acentuada vem como item separado ("Hist  ó  rico
   assert.equal(r.afastamento, '2023-06-30');
   assert.equal(r.depositos, 1700);
 });
+
+// 02/10/2026 (aba Renda e Orçamentos): salário por fonte pagadora, contas
+// bancárias e o detalhe dos isentos/exclusivos. Tudo inventado.
+const IR_RENDA = [
+  'NOME:', 'FULANO DE TAL CPF:', '000.000.000-00 IMPOSTO SOBRE A RENDA - PESSOA FÍSICA DECLARAÇÃO DE AJUSTE ANUAL',
+  'EXERCÍCIO 2025 ANO-CALENDÁRIO 2024 IDENTIFICAÇÃO DO CONTRIBUINTE',
+  'RENDIMENTOS TRIBUTÁVEIS RECEBIDOS DE PESSOA JURÍDICA PELO TITULAR (Valores em Reais)',
+  'NOME DA FONTE PAGADORA  CNPJ/CPF DA FONTE PAGADORA  RENDIMENTOS RECEBIDOS DE PESSOA JURÍDICA  CONTRIBUIÇÃO PREVIDENCIÁRIA OFICIAL  IMPOSTO RETIDO NA FONTE  13º SALÁRIO  IRRF SOBRE O 13º SALÁRIO',
+  'EMPRESA ALFA LTDA  11.111.111/0001-11  60.000,00  5.000,00  9.000,00  5.000,00  600,00',
+  'Controle: 123', 'Página 2 de 9 Data/Hora da Entrega: 01/04/2025 às 10:00:00', 'NOME:', 'FULANO DE TAL CPF:',
+  '000.000.000-00 IMPOSTO SOBRE A RENDA - PESSOA FÍSICA DECLARAÇÃO DE AJUSTE ANUAL', 'EXERCÍCIO 2025 ANO-CALENDÁRIO 2024',
+  '22.222.222/0001-22  EMPRESA BETA 2 TECNOLOGIA S.A.  40.000,00  3.500,00  6.000,00  3.000,00  350,00',
+  'TOTAL  100.000,00  8.500,00  15.000,00  8.000,00  950,00',
+  'RENDIMENTOS ISENTOS E NÃO TRIBUTÁVEIS (Valores em Reais)',
+  '04. Indenizações por rescisão de contrato de trabalho, inclusive a título de PDV, e por acidente de trabalho; e FGTS 1.234,56',
+  '09. Lucros e dividendos recebidos 300,00', '12. Rendimentos de cadernetas de poupança, letras hipotecárias, LCA e LCI 150,50',
+  'RENDIMENTOS SUJEITOS À TRIBUTAÇÃO EXCLUSIVA/DEFINITIVA (Valores em Reais)',
+  '01. 13º salário 8.000,00', '06. Rendimentos de aplicações financeiras 2.000,00', '10. Juros sobre capital próprio 45,00',
+  'DECLARAÇÃO DE BENS E DIREITOS (Valores em Reais)',
+  'GRUPO  CÓDIGO  DISCRIMINAÇÃO', 'SITUAÇÃO EM', '31/12/2023  31/12/2024',
+  '06  01  CONTA CORRENTE BANCO INVENTADO', '100,00  2.500,00', '105 - Brasil',
+  'Bem ou direito pertencente ao: Titular CPF: 000.000.000-00 CNPJ: 99.999.999/0001-99',
+  'Banco: 260 Agência: 0001 Conta: 1234567-8 Conta Pagamento? Não',
+  '04  02  TESOURO INVENTADO', '1.000,00  1.500,00', '105 - Brasil',
+  'Bem ou direito pertencente ao: Titular CPF: 000.000.000-00 CNPJ: 99.999.999/0001-99',
+  '06  01  DEP. A VISTA OUTRO BANCO', '50,00  0,00', '105 - Brasil',
+  'Bem ou direito pertencente ao: Titular CPF: 000.000.000-00 CNPJ: 99.999.999/0001-99',
+  'Banco: 999 Agência: 4321-0 Conta: 0099887-1 Conta Pagamento? Sim',
+  'TOTAL  1.150,00  4.000,00 DÍVIDAS E ÔNUS REAIS', 'Sem Informações',
+  'RESUMO', 'Recebidos de Pessoa Jurídica pelo Titular 100.000,00 Recebidos de Pessoa Jurídica pelos Dependentes 0,00',
+  'TOTAL DE RENDIMENTOS TRIBUTÁVEIS 100.000,00', 'Total do imposto devido 14.000,00', 'Total do imposto pago 15.000,00',
+  'IMPOSTO A RESTITUIR 1.000,00 SALDO IMPOSTO A PAGAR 0,00',
+  'Bens e direitos em 31/12/2023  1.150,00  Bens e direitos em 31/12/2024  4.000,00',
+  'Dívidas e ônus reais em 31/12/2023  0,00  Dívidas e ônus reais em 31/12/2024  0,00',
+];
+
+test('IR (renda): fontes pagadoras com nome antes/depois do CNPJ e quebra de página, só a raiz do CNPJ', () => {
+  const r = lerDeclaracaoIr(IR_RENDA);
+  assert.equal(r.recebidosPj, 100000);
+  assert.deepEqual(r.rendimentosPj, [
+    { fonte: 'EMPRESA ALFA LTDA', cnpjRaiz: '11.111.111', anual: 60000, inss: 5000, irrf: 9000, decimoTerceiro: 5000, irrf13: 600 },
+    { fonte: 'EMPRESA BETA 2 TECNOLOGIA S.A.', cnpjRaiz: '22.222.222', anual: 40000, inss: 3500, irrf: 6000, decimoTerceiro: 3000, irrf13: 350 },
+  ]);
+  assert.ok(!JSON.stringify(r).includes('000.000.000-00'), 'nada de CPF');
+  assert.equal(r.bens, 4000);
+  assert.equal(r.conferido, true, 'os bens por grupo continuam fechando');
+});
+
+test('IR (renda): isentos e exclusivos item a item, com o tipo pelo nome', () => {
+  const r = lerDeclaracaoIr(IR_RENDA);
+  assert.deepEqual(r.isentosItens.map((i) => [i.codigo, i.tipo, i.valor]), [['04', 'fgtsRescisao', 1234.56], ['09', 'dividendos', 300], ['12', 'lciLcaPoupanca', 150.5]]);
+  assert.deepEqual(r.exclusivosItens.map((i) => [i.codigo, i.tipo, i.valor]), [['01', 'decimoTerceiro', 8000], ['06', 'aplicacoes', 2000], ['10', 'jcp', 45]]);
+});
+
+test('IR (renda): contas bancárias com banco (código + nome), agência, conta e saldos; aplicação sem banco fica fora', async () => {
+  const { nomeBanco } = await import('../assets/js/pages/patrimonio-import.js');
+  const r = lerDeclaracaoIr(IR_RENDA);
+  assert.deepEqual(r.contasBancarias.map(({ descricao, ...c }) => c), [
+    { banco: '260', bancoNome: 'Nubank', agencia: '0001', conta: '1234567-8', tipo: 'corrente', grupo: '06', saldoAnterior: 100, saldoAtual: 2500 },
+    { banco: '999', bancoNome: 'Banco 999', agencia: '4321-0', conta: '0099887-1', tipo: 'pagamento', grupo: '06', saldoAnterior: 50, saldoAtual: 0 },
+  ]);
+  assert.equal(r.contasBancarias[0].descricao, 'CONTA CORRENTE BANCO INVENTADO');
+  assert.equal(nomeBanco('1'), 'Banco do Brasil');
+  assert.equal(nomeBanco('341'), 'Itaú');
+  assert.equal(nomeBanco('104'), 'Caixa');
+});
+
+test('IR (renda, layout antigo): banco/agência/conta na linha do país; o resumo sem as seções novas devolve listas vazias', () => {
+  const l = [
+    'IMPOSTO SOBRE A RENDA - PESSOA FÍSICA DECLARAÇÃO DE AJUSTE ANUAL', 'EXERCÍCIO 2020 ANO-CALENDÁRIO 2019',
+    'DECLARAÇÃO DE BENS E DIREITOS (Valores em Reais)', 'CÓDIGO DISCRIMINAÇÃO SITUAÇÃO EM', '31/12/2018 31/12/2019',
+    '61 BANCO DELTA 300,00 150,00', '105 - Brasil Bem ou direito pertencente ao: Titular CPF: 000.000.000-00 CNPJ: 00.000.000/0001-00',
+    'Banco: 237 Agência: 1111 Conta: 0001112-3',
+    '41 CAIXA ECONOMICA 10,00 20,00', '105 - Brasil Bem ou direito pertencente ao: Titular CNPJ: 00.000.000/0001-00', 'Banco: 104 Agência: 2222 Conta: 0002223-4',
+    '45 APLICACAO EPSILON 1.000,00 2.000,00', '105 - Brasil',
+    'TOTAL 1.310,00 2.170,00 DÍVIDAS E ÔNUS REAIS',
+    'Bens e direitos em 31/12/2018 1.310,00 Bens e direitos em 31/12/2019 2.170,00 Dívidas e ônus reais em 31/12/2018 0,00 Dívidas e ônus reais em 31/12/2019 0,00',
+  ];
+  const r = lerDeclaracaoIr(l);
+  assert.deepEqual(r.contasBancarias.map((c) => [c.banco, c.bancoNome, c.agencia, c.conta, c.tipo, c.saldoAtual]), [
+    ['237', 'Bradesco', '1111', '0001112-3', 'corrente', 150], ['104', 'Caixa', '2222', '0002223-4', 'poupanca', 20],
+  ]);
+  assert.deepEqual(r.rendimentosPj, []);
+  assert.deepEqual(r.isentosItens, []);
+  assert.equal(r.recebidosPj, null);
+});

@@ -96,11 +96,23 @@ function doGet(e) {
   if (action === 'patrimonio') { // 27/09/2026: Organização Financeira - aba Patrimônio (Patrimonio.gs)
     return handlePatrimonio(e, auth);
   }
+  if (action === 'metas') { // 02/10/2026: tela Metas e Objetivos (Metas.gs)
+    return handleMetas(e, auth);
+  }
   if (action === 'patrimonioIrArquivos') { // declarações do IR na pasta do Drive
     return handleIrArquivosPatrimonio(e, auth);
   }
   if (action === 'patrimonioIrArquivo') {
     return handleIrArquivoPatrimonio(e, auth);
+  }
+  if (action === 'gastos') { // 02/10/2026: Organização Financeira - Gastos (Gastos.gs)
+    return handleGastos(e, auth);
+  }
+  if (action === 'gastosArquivos') { // faturas/extratos em Documentos/Transações no Drive
+    return handleArquivosGastos(e, auth);
+  }
+  if (action === 'gastosArquivo') {
+    return handleArquivoGastos(e, auth);
   }
   if (action === 'intradia') { // 26/09/2026: gráfico do dia dos favoritos e dos índices (Intradia.gs)
     return handleIntradia(e);
@@ -155,6 +167,21 @@ function doPost(e) {
   }
   if (action === 'salvarPatrimonio') { // 27/09/2026: Organização Financeira - aba Patrimônio (Patrimonio.gs)
     return handleSalvarPatrimonio(e);
+  }
+  if (action === 'salvarMeta') { // 02/10/2026: tela Metas e Objetivos (Metas.gs)
+    return handleSalvarMeta(e);
+  }
+  if (action === 'excluirMeta') { // arquiva (não apaga)
+    return handleExcluirMeta(e);
+  }
+  if (action === 'salvarImportacaoGastos') { // 02/10/2026: Organização Financeira - Gastos (Gastos.gs)
+    return handleSalvarImportacaoGastos(e);
+  }
+  if (action === 'salvarRegraGastos') {
+    return handleSalvarRegraGastos(e);
+  }
+  if (action === 'excluirArquivoGastos') {
+    return handleExcluirArquivoGastos(e);
   }
   if (action === 'removerAtivo') {
     return handleRemoverAtivo(e);

@@ -13,6 +13,12 @@
  * ativo (ativos-sobre.json) e o servidor devolve primeiro os vídeos que
  * citam ativos da carteira (com o ticker marcado no cartão, link pra tela
  * do ativo) e depois os do tema da carteira.
+ *
+ * 02/10/2026 (Tiago: "Canais do YouTube por ativo mostrados na página; a
+ * busca de vídeos tem que considerar os canais"): na tela do ativo, o canal
+ * oficial (canais-youtube.js) aparece no topo da seção e vai na busca
+ * (params.canal); os vídeos dele chegam marcados `oficial` e ganham a
+ * etiqueta "Canal oficial", misturados por data com os dos seus canais.
  */
 
 import { getVideos } from './api-client.js';
@@ -23,10 +29,27 @@ import { urlAtivo } from './link-ativo.js';
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const idValido = (id) => /^[\w-]{11}$/.test(String(id || ''));
 
-export function secaoVideosHtml(id, { hint = 'dos seus canais: primeiro os que citam ativos da carteira, depois o tema' } = {}) {
+const ICONE_YOUTUBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" class="vd-yt-fundo"/><path d="M10 8.8v6.4l5.6-3.2z" class="vd-yt-play"/></svg>';
+
+/**
+ * 02/10/2026 (Tiago: "Canais do YouTube por ativo mostrados na página"):
+ * bloco "Canal oficial" (nome + @handle, abre o canal em nova aba). `canal`
+ * vem de canais-youtube.js; só link do youtube.com.
+ */
+export function canalOficialHtml(canal) {
+  if (!canal || !/^https:\/\/www\.youtube\.com\//.test(String(canal.url || ''))) return '';
+  return `
+      <a class="vd-canal-oficial" href="${esc(canal.url)}" target="_blank" rel="noopener" title="Abrir o canal no YouTube (nova aba)">
+        <span class="vd-canal-ico">${ICONE_YOUTUBE}</span>
+        <span class="vd-canal-texto"><span class="vd-canal-rotulo">Canal oficial</span><span class="vd-canal-nome">${esc(canal.nome || canal.handle)}${canal.handle && canal.nome ? ` <span class="vd-canal-handle">${esc(canal.handle)}</span>` : ''}</span></span>
+        <span class="vd-canal-seta" aria-hidden="true">↗</span>
+      </a>`;
+}
+
+export function secaoVideosHtml(id, { hint = 'dos seus canais: primeiro os que citam ativos da carteira, depois o tema', canal = null } = {}) {
   return `
     <section class="vd-secao" id="${id}" aria-labelledby="${id}Titulo">
-      <div class="vd-topo"><h2 id="${id}Titulo">Vídeos</h2><span class="hint">${esc(hint)}</span></div>
+      <div class="vd-topo"><h2 id="${id}Titulo">Vídeos</h2><span class="hint">${esc(hint)}</span>${canalOficialHtml(canal)}</div>
       <div class="vd-conteudo">${videosHtml(null)}</div>
     </section>`;
 }
@@ -34,13 +57,16 @@ export function secaoVideosHtml(id, { hint = 'dos seus canais: primeiro os que c
 export function videosHtml(resposta, agora = new Date()) {
   if (!resposta) return `<div class="vd-grade">${'<div class="vd-card"><span class="skel vd-thumb"></span><span class="skel" style="height:14px"></span><span class="skel" style="height:14px;width:60%"></span></div>'.repeat(3)}</div>`;
   if (!resposta.ok) return `<p class="hint">Não deu pra buscar os vídeos agora (${esc(resposta.erro || resposta.etapa || 'erro')}).</p>`;
-  if (!resposta.configurado) {
+  // 02/10/2026: sem canais cadastrados, mas com vídeos do canal oficial do ativo -> mostra os do oficial
+  if (!resposta.configurado && !(resposta.videos || []).some((v) => v && v.oficial)) {
     return '<p class="hint">Nenhum canal cadastrado ainda. Na planilha, rode <code>configurarVideosDireto()</code> no Apps Script, coloque os canais na aba <b>aux_videos-canais</b> (link ou @nome, e opcionalmente as carteiras) e rode <code>rodarVideosDireto()</code>.</p>';
   }
   const lista = (resposta.videos || []).filter((v) => idValido(v.id));
   const ondeAjustar = 'Dá pra acrescentar ou descartar termos na aba <b>aux_videos-termos</b> da planilha.';
   if (!lista.length) {
-    return `<p class="hint">${resposta.carteira ? 'Nenhum vídeo recente dos seus canais cita ativos desta carteira ou o tema dela.' : 'Nenhum vídeo recente dos seus canais fala deste ativo.'} ${ondeAjustar}</p>`;
+    const semVideo = resposta.carteira ? 'Nenhum vídeo recente dos seus canais cita ativos desta carteira ou o tema dela.'
+      : (resposta.canalOficial ? 'Nenhum vídeo recente dos seus canais nem do canal oficial fala deste ativo.' : 'Nenhum vídeo recente dos seus canais fala deste ativo.');
+    return `<p class="hint">${semVideo} ${ondeAjustar}</p>`;
   }
   const cartao = (v) => {
     const ativos = resposta.carteira && Array.isArray(v.ativos) ? v.ativos.filter((t) => /^[A-Z0-9.]{2,12}$/.test(t)) : [];
@@ -50,6 +76,7 @@ export function videosHtml(resposta, agora = new Date()) {
           <img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" alt="" loading="lazy">
           <span class="vd-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span>
         </button>
+        ${v.oficial ? '<span class="vd-oficial">Canal oficial</span>' : ''}
         ${ativos.length ? `<span class="vd-ativos">${ativos.map((t) => `<a class="vd-ativo" href="${esc(urlAtivo(t))}">${esc(t)}</a>`).join('')}</span>` : ''}
         <a class="vd-titulo" href="https://www.youtube.com/watch?v=${esc(v.id)}" target="_blank" rel="noopener">${esc(v.titulo)}</a>
         <span class="vd-meta">${esc(v.canal)}${v.publicado ? ` · ${formatRelativeTime(v.publicado, agora)}` : ''}</span>

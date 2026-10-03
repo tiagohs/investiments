@@ -1,5 +1,14 @@
 /**
- * distribuicoes-metas.js — página "Distribuições e Metas".
+ * distribuicoes-metas.js — página "Acompanhamento de Ativos" (até
+ * 02/10/2026 se chamava "Distribuições e Metas" no menu; o arquivo, a ação
+ * distribuicoesMetas e a aba 'Distribuição e Metas' da planilha continuam
+ * com o nome antigo).
+ *
+ * 02/10/2026 (pedidos do Tiago): "Objetivos da Carteira e Radar de
+ * oportunidades com o estilo do 'Minha Carteira' da Home" (criarBlocoObjetivo
+ * e renderRadarOportunidades viraram cartões com "abas-número" + barra de
+ * distribuição) e o gráfico de variação do dia embaixo do # + Ativo de cada
+ * linha do Radar, ao lado do "momento de aporte" (criarCelulaIntradiaRadar_).
  *
  * 14/09/2026: primeira fatia construída foi só "Metas da Carteira" (3
  * cards: Renda Passiva, Patrimônio, Renda Emergencial). Segunda fatia
@@ -134,6 +143,7 @@ import {
   salvarObjetivosCarteira as salvarObjetivosCarteiraApi,
   salvarRadarItem as salvarRadarItemApi,
   salvarSplitInterno as salvarSplitInternoApi,
+  getIntradia,
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
@@ -141,6 +151,8 @@ import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
 import { momentoHtml, momentoDoRadar, metasDaDistribuicao } from './momento-aporte.js';
+// 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
+import { svgIntradia, rotuloDiaIntradia } from './inicio-intradia.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -383,8 +395,55 @@ const CORES_TIPO_OBJETIVO = {
   'Renda Emergencial': 'var(--na)',
 };
 
+// 02/10/2026: os splits internos (Dividendos x Internacionais, Tijolo x Papel
+// x Híbrido) também ganham cor - antes caíam todos no cinza (--na), e a barra
+// única de distribuição (estilo "Minha carteira" da Início) ficava sem leitura.
+const CORES_TIPO_SPLIT = [
+  [/^dividendo/i, 'var(--acoes)'],
+  [/internacion/i, 'var(--usa)'],
+  [/^tijolo/i, 'var(--fii-tijolo)'],
+  [/^papel/i, 'var(--fii-papel)'],
+  [/^h[ií]brido/i, 'var(--fii-hibrido)'],
+];
+
 function corParaTipoObjetivo(tipo) {
-  return CORES_TIPO_OBJETIVO[tipo] || 'var(--na)';
+  if (CORES_TIPO_OBJETIVO[tipo]) return CORES_TIPO_OBJETIVO[tipo];
+  const achado = CORES_TIPO_SPLIT.find(([re]) => re.test(String(tipo || '').trim()));
+  return achado ? achado[1] : 'var(--na)';
+}
+
+/** "R$ 12.345,67" -> "R$ 12.345<span class="dec">,67</span>" (centavos menores, igual aos números do "Minha carteira" da Início). */
+function valorComDecHtml_(texto) {
+  const t = String(texto == null ? '' : texto);
+  const m = t.match(/^(.*?)([.,]\d{2})$/);
+  const escHtml = (x) => x.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return m ? `${escHtml(m[1])}<span class="dec">${escHtml(m[2])}</span>` : escHtml(t);
+}
+
+/**
+ * 02/10/2026 (Tiago: "Objetivos da Carteira ... com o estilo do 'Minha
+ * Carteira' da Home"): a barra única da Início (.rc-barra), aqui em dupla -
+ * "atual" em cima e "meta" embaixo, com as mesmas cores por tipo - pra ver de
+ * relance onde a carteira foge da distribuição desejada.
+ */
+function barrasComparativoHtml_(tipos) {
+  const lista = (tipos || []).filter((t) => t && t.tipo);
+  if (lista.length < 2) return '';
+  const barra = (campo, rotulo) => {
+    const soma = lista.reduce((a, t) => a + (typeof t[campo] === 'number' && t[campo] > 0 ? t[campo] : 0), 0);
+    if (!(soma > 0)) return '';
+    const segs = lista.map((t) => {
+      const v = typeof t[campo] === 'number' && t[campo] > 0 ? t[campo] : 0;
+      if (!v) return '';
+      const cor = t.cor || corParaTipoObjetivo(t.tipo);
+      return `<span class="rc-seg" style="width:${((v / soma) * 100).toFixed(2)}%;background:${cor}" title="${String(t.tipo).replace(/"/g, '')}: ${formatPercentualPreciso(v)}"></span>`;
+    }).join('');
+    return `<div class="obj-comp-linha obj-comp-${campo === 'percentualAtual' ? 'atual' : 'meta'}"><span class="obj-comp-rotulo">${rotulo}</span><div class="rc-barra obj-comp-barra" role="img" aria-label="${rotulo}: ${lista.map((t) => `${String(t.tipo).replace(/"/g, '')} ${formatPercentualMeta(t[campo])}`).join(', ')}">${segs}</div></div>`;
+  };
+  const atual = barra('percentualAtual', 'atual');
+  const meta = barra('percentualDesejado', 'meta');
+  if (!atual && !meta) return '';
+  return `<div class="obj-comparativo">${atual}${meta}</div>`;
 }
 
 /**
@@ -480,41 +539,74 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
   const bloco = doc.createElement('div');
   bloco.className = 'obj-bloco';
 
+  // 02/10/2026 (Tiago: estilo do "Minha carteira" da Início): o bloco virou
+  // um cartão só - em cima, "abas-número" (.obj-tile, mesmo desenho do
+  // .rc-visao: rótulo pequeno, valor grande em mono com centavos menores);
+  // embaixo, separado por um fio, a distribuição (barra atual x meta) e uma
+  // linha por tipo. Mesmos dados e mesmas funções de antes.
+  const totalEl = doc.createElement('div');
+  totalEl.className = 'obj-total';
+  const principal = doc.createElement('div');
+  principal.className = 'obj-tile obj-tile-principal';
   const h3 = doc.createElement('h3');
   h3.className = 'obj-bloco-titulo';
   h3.textContent = titulo || '';
-  bloco.appendChild(h3);
+  principal.appendChild(h3);
+  totalEl.appendChild(principal);
+
+  if (total) {
+    const faltaInvestir = typeof total.valorInvestir === 'number' && total.valorInvestir > 0.5;
+    const totalVEl = doc.createElement('span');
+    totalVEl.className = 'obj-total-v';
+    totalVEl.innerHTML = valorComDecHtml_(formatBRL(total.carteiraAtual));
+    const totalK = doc.createElement('span');
+    totalK.className = 'obj-total-k info-alvo';
+    totalK.innerHTML = 'Total investido<span class="info-icon">i</span>';
+    // 16/09/2026: title nativo -> .info-alvo (ver criarCardMeta/
+    // wirePointerTooltipInfo_ acima, mesmo motivo).
+    totalK.dataset.tooltip = 'Soma da carteira atual de todos os tipos deste bloco.';
+    principal.append(totalVEl, totalK);
+
+    const segundo = doc.createElement('div');
+    segundo.className = 'obj-tile';
+    if (faltaInvestir) {
+      const k = doc.createElement('span');
+      k.className = 'obj-total-k info-alvo';
+      k.innerHTML = 'Pra atingir a meta<span class="info-icon">i</span>';
+      k.dataset.tooltip = typeof total.novaCarteira === 'number'
+        ? `Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada. Carteira projetada após o aporte: ${formatBRL(total.novaCarteira)}.`
+        : 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.';
+      const v = doc.createElement('span');
+      v.className = 'obj-total-v obj-total-investir';
+      v.innerHTML = `+ ${valorComDecHtml_(formatBRL(total.valorInvestir))}`;
+      const sub = doc.createElement('small');
+      sub.className = 'obj-tile-sub';
+      sub.textContent = typeof total.novaCarteira === 'number' ? `carteira vai a ${formatBRL(total.novaCarteira)}` : 'aporte pra rebalancear';
+      segundo.append(k, v, sub);
+    } else {
+      segundo.classList.add('obj-tile-ok');
+      segundo.innerHTML = '<span class="obj-tile-rotulo">Pra atingir a meta</span><span class="obj-total-v obj-total-ok">✓ na meta</span><small class="obj-tile-sub">nenhum aporte pendente</small>';
+    }
+    totalEl.appendChild(segundo);
+  }
+  bloco.appendChild(totalEl);
+
+  const distrib = doc.createElement('div');
+  distrib.className = 'obj-distrib';
+  const cab = doc.createElement('div');
+  cab.className = 'obj-distrib-cab';
+  cab.innerHTML = '<span>Distribuição · <b>atual x meta</b></span>';
+  distrib.appendChild(cab);
+  const comparativo = barrasComparativoHtml_(tipos);
+  if (comparativo) distrib.insertAdjacentHTML('beforeend', comparativo);
 
   const linhas = doc.createElement('div');
   linhas.className = 'obj-linhas';
   for (const t of (tipos || [])) {
     linhas.appendChild(criarLinhaObjetivo(doc, t));
   }
-  bloco.appendChild(linhas);
-
-  if (total) {
-    const faltaInvestir = typeof total.valorInvestir === 'number' && total.valorInvestir > 0.5;
-    const totalEl = doc.createElement('div');
-    totalEl.className = 'obj-total';
-    totalEl.innerHTML = `
-      <span class="obj-total-k info-alvo">Total investido<span class="info-icon">i</span></span><span class="obj-total-v"></span>
-      ${faltaInvestir ? '<span class="obj-total-k info-alvo">Pra atingir a meta<span class="info-icon">i</span></span><span class="obj-total-v obj-total-investir"></span>' : ''}
-    `;
-    const totalKEls = totalEl.querySelectorAll('.obj-total-k');
-    const totalVEl = totalEl.querySelector('.obj-total-v');
-    totalVEl.textContent = formatBRL(total.carteiraAtual);
-    // 16/09/2026: title nativo -> .info-alvo (ver criarCardMeta/
-    // wirePointerTooltipInfo_ acima, mesmo motivo).
-    totalKEls[0].dataset.tooltip = 'Soma da carteira atual de todos os tipos deste bloco.';
-    if (faltaInvestir) {
-      const investirEl = totalEl.querySelector('.obj-total-investir');
-      investirEl.textContent = `+ ${formatBRL(total.valorInvestir)}`;
-      totalKEls[1].dataset.tooltip = typeof total.novaCarteira === 'number'
-        ? `Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada. Carteira projetada após o aporte: ${formatBRL(total.novaCarteira)}.`
-        : 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.';
-    }
-    bloco.appendChild(totalEl);
-  }
+  distrib.appendChild(linhas);
+  bloco.appendChild(distrib);
 
   // Editar % desejado — grava o BLOCO INTEIRO de uma vez (nunca uma
   // linha isolada): a soma dos % desejados de um bloco precisa fechar
@@ -602,7 +694,8 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
       }
     });
 
-    bloco.append(editarBtn, form);
+    cab.appendChild(editarBtn); // 02/10/2026: no canto do cabeçalho da distribuição (o formulário abre embaixo)
+    bloco.append(form);
   }
 
   return bloco;
@@ -1388,25 +1481,115 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
   return tr;
 }
 
+// ---- 02/10/2026 (Tiago: "No espaço vazio no fim da área de avaliação (bom/mau
+// momento), colocar o gráfico de variação diária do lado esquerdo, abaixo do
+// ranking + linha 'ativo'"): cada ativo do Radar ganha, embaixo do # e do
+// Ativo, o gráfico do dia (svgIntradia - o mesmo dos Favoritos da Início);
+// clicar abre o ativo no Google Finance. A série vem de action=intradia
+// (Intradia.gs, a mesma da Início), buscada pela página só pros ativos da aba
+// que está na tela. ----
+
+const CLASSE_INTRADIA_DA_TABELA = { acoesNacionais: 'acoes', fiis: 'fiis', acoesInternacionais: 'usa' };
+
+/** Chave de action=intradia de um ativo do Radar ('acoes:PETR4', 'fiis:BTLG11', 'usa:VNOM'). */
+export function chaveIntradiaRadar(ticker, chaveTabela) {
+  const classe = CLASSE_INTRADIA_DA_TABELA[chaveTabela];
+  const t = String(ticker || '').trim().toUpperCase();
+  // mesmo formato que Intradia.gs!simboloYahooIntradia_ aceita
+  return classe && /^[A-Z0-9.-]{1,12}$/.test(t) ? `${classe}:${t}` : null;
+}
+
+/** Página do ativo no Google Finance: B3 com ":BVMF"; EUA só o ticker (o Google acha a bolsa). */
+export function urlGoogleFinance(ticker, chaveTabela) {
+  const t = encodeURIComponent(String(ticker || '').trim().toUpperCase());
+  return chaveTabela === 'acoesInternacionais'
+    ? `https://www.google.com/finance/quote/${t}`
+    : `https://www.google.com/finance/quote/${t}:BVMF`;
+}
+
+const hojeISO_ = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+const ICONE_EXTERNO = '<svg class="radar-intradia-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>';
+
+/** Célula (embaixo do # + Ativo) com o gráfico do dia - nasce "carregando"; preencherIntradiaRadar desenha. */
+function criarCelulaIntradiaRadar_(doc, item, chaveTabela) {
+  const chave = chaveIntradiaRadar(item.ativo, chaveTabela);
+  if (!chave) return null;
+  const td = doc.createElement('td');
+  td.className = 'radar-intradia-td';
+  td.colSpan = 2;
+  const a = doc.createElement('a');
+  a.className = 'radar-intradia';
+  a.href = urlGoogleFinance(item.ativo, chaveTabela);
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  const ticker = String(item.ativo || '').trim().toUpperCase();
+  a.title = `Abrir ${ticker} no Google Finance`;
+  a.setAttribute('aria-label', `Gráfico do dia de ${ticker} - abrir no Google Finance`);
+  const temVar = typeof item.variacaoDia === 'number' && Number.isFinite(item.variacaoDia);
+  a.innerHTML = `
+    <span class="radar-intradia-cab"><span class="radar-intradia-rotulo">Variação do dia</span>${temVar ? `<b class="radar-intradia-var ${item.variacaoDia < 0 ? 'bad' : 'good'}">${formatPercentFromFraction(item.variacaoDia)}</b>` : ''}${ICONE_EXTERNO}</span>
+    <span class="radar-intradia-slot intradia-slot carregando" data-intradia="${chave}"></span>`;
+  td.appendChild(a);
+  return td;
+}
+
+/** Desenha as séries que chegaram (series = { chave: serie | null }); null = sem gráfico (estado vazio). */
+export function preencherIntradiaRadar(raiz, series, { hojeISO = '' } = {}) {
+  if (!raiz || !series) return;
+  raiz.querySelectorAll('.radar-intradia-slot[data-intradia]').forEach((slot) => {
+    const chave = slot.getAttribute('data-intradia');
+    if (!(chave in series)) return;
+    const serie = series[chave];
+    const rotulo = slot.parentNode && slot.parentNode.querySelector('.radar-intradia-rotulo');
+    const dia = serie ? rotuloDiaIntradia(serie, hojeISO) : '';
+    const svg = serie ? svgIntradia(serie, { titulo: `Variação do dia${dia && dia !== 'hoje' ? ` (pregão de ${dia})` : ''}` }) : '';
+    slot.classList.remove('carregando');
+    if (!svg) {
+      slot.classList.add('sem-dado');
+      slot.innerHTML = '<span class="radar-intradia-vazio">sem gráfico do dia agora</span>';
+      if (rotulo) rotulo.textContent = 'Variação do dia';
+      return;
+    }
+    slot.classList.remove('sem-dado');
+    slot.innerHTML = svg;
+    if (rotulo) rotulo.textContent = !dia || dia === 'hoje' ? 'Hoje' : `Pregão ${dia}`;
+  });
+}
+
+/** O que ficou "carregando" (busca falhou ou não veio a chave) vira o estado vazio. */
+function encerrarIntradiaPendente_(raiz) {
+  const pendentes = {};
+  raiz.querySelectorAll('.radar-intradia-slot.carregando[data-intradia]').forEach((slot) => { pendentes[slot.getAttribute('data-intradia')] = null; });
+  preencherIntradiaRadar(raiz, pendentes);
+}
+
 /**
  * 26/09/2026 (Tiago: "Inclua isso também na tabela de ativos da tela
  * Distribuição e Metas"): o mesmo "momento de aporte" da tela de Aportes,
- * numa linha logo abaixo de cada ativo (1ª célula vazia = embaixo da coluna
- * #, o texto começa alinhado com o Ativo). No celular ela vira o pé do card
+ * numa linha logo abaixo de cada ativo. No celular ela vira o pé do card
  * do ativo (distribuicoes-metas.css).
+ * 02/10/2026: embaixo do # + Ativo (antes uma célula vazia) entra o gráfico
+ * do dia; o momento fica à direita dele. No celular os dois empilham.
  */
 function criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, nColunas, itensDoBloco) {
   const html = momentoHtml(momentoDoRadar(item, chaveTabela, metas, itensDoBloco));
-  if (!html) return null;
+  const grafico = criarCelulaIntradiaRadar_(doc, item, chaveTabela);
+  if (!html && !grafico) return null;
   const tr = doc.createElement('tr');
   tr.className = 'radar-momento-tr';
-  const vazio = doc.createElement('td');
-  vazio.className = 'radar-momento-vazio';
   const td = doc.createElement('td');
   td.className = 'radar-momento-td';
-  td.colSpan = nColunas - 1;
   td.innerHTML = html;
-  tr.append(vazio, td);
+  if (grafico) {
+    td.colSpan = nColunas - 2;
+    tr.append(grafico, td);
+  } else {
+    const vazio = doc.createElement('td');
+    vazio.className = 'radar-momento-vazio';
+    td.colSpan = nColunas - 1;
+    tr.append(vazio, td);
+  }
   return tr;
 }
 
@@ -1507,7 +1690,7 @@ const TABELAS_RADAR = [
  * (renderSplitInterno) que fica ACIMA desta tabela, já que ele mostra
  * conteúdo diferente conforme a aba do Radar ativa.
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null } = {}) {
   if (!container) return;
   container.innerHTML = '';
   if (!radar) return;
@@ -1523,12 +1706,27 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
   // aplicado quando o Tiago volta pra aba de FIIs depois.
   let filtroTipoFii = null;
 
+  // 02/10/2026 (Tiago: "Radar de oportunidades com o estilo do 'Minha
+  // Carteira' da Home"): um cartão só (.radar-card, mesmo desenho do .rc) -
+  // as 3 abas viram "abas-número" (classe, quanto você tem nela e quantos
+  // ativos estão em bom momento), a distribuição desejada da classe
+  // (slotDistrib = #splitInternoGrid, que a página passa) logo embaixo e a
+  // tabela por último. Continuam .filter-tab/data-tabela (mesmo comportamento).
+  const card = doc.createElement('div');
+  card.className = 'radar-card';
   const tabsEl = doc.createElement('div');
-  tabsEl.className = 'filter-tabs radar-tabs';
+  tabsEl.className = 'filter-tabs radar-tabs radar-visoes';
+  tabsEl.setAttribute('role', 'tablist');
+  tabsEl.setAttribute('aria-label', 'Classes do Radar');
   const tableContainer = doc.createElement('div');
+  tableContainer.className = 'radar-tabela-area';
 
   function desenhar() {
-    tabsEl.querySelectorAll('.filter-tab').forEach((b) => b.classList.toggle('active', b.dataset.tabela === abaAtiva));
+    tabsEl.querySelectorAll('.filter-tab').forEach((b) => {
+      const ativa = b.dataset.tabela === abaAtiva;
+      b.classList.toggle('active', ativa);
+      b.setAttribute('aria-selected', String(ativa));
+    });
     tableContainer.innerHTML = '';
     const bloco = radar[abaAtiva];
     if (!bloco || !bloco.itens || bloco.itens.length === 0) {
@@ -1578,16 +1776,30 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     }));
     const nota = doc.createElement('p');
     nota.className = 'radar-momento-nota';
-    nota.textContent = 'Embaixo de cada ativo, a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
+    nota.textContent = 'Embaixo de cada ativo, o gráfico do dia (toque pra abrir no Google Finance) e a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L. Não é recomendação de compra.';
     tableContainer.appendChild(nota);
+    pedirIntradia();
+  }
+
+  // Gráfico do dia dos ativos da aba na tela (quem busca/guarda é a página).
+  function pedirIntradia() {
+    const area = tableContainer;
+    const chaves = [...new Set([...area.querySelectorAll('.radar-intradia-slot[data-intradia]')].map((el) => el.getAttribute('data-intradia')))];
+    if (!chaves.length) return;
+    if (!buscarIntradia) { encerrarIntradiaPendente_(area); return; }
+    Promise.resolve()
+      .then(() => buscarIntradia(chaves))
+      .then((series) => { preencherIntradiaRadar(area, series || {}, { hojeISO: hojeISO_() }); encerrarIntradiaPendente_(area); })
+      .catch(() => encerrarIntradiaPendente_(area));
   }
 
   for (const { chave, rotulo } of TABELAS_RADAR) {
     const btn = doc.createElement('button');
     btn.type = 'button';
-    btn.className = 'filter-tab';
+    btn.className = 'filter-tab radar-visao';
     btn.dataset.tabela = chave;
-    btn.textContent = rotulo;
+    btn.setAttribute('role', 'tab');
+    btn.innerHTML = abaNumeroRadarHtml_(rotulo, chave, radar[chave], metas, radar.cotacaoDolar);
     btn.addEventListener('click', () => {
       if (abaAtiva === chave) return;
       abaAtiva = chave;
@@ -1599,9 +1811,38 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     tabsEl.appendChild(btn);
   }
 
-  container.append(tabsEl, tableContainer);
+  card.appendChild(tabsEl);
+  if (slotDistrib) {
+    slotDistrib.classList.add('radar-distrib');
+    card.appendChild(slotDistrib);
+  }
+  card.appendChild(tableContainer);
+  container.appendChild(card);
   desenhar();
   if (onTrocarAba) onTrocarAba(abaAtiva);
+}
+
+/**
+ * 02/10/2026: conteúdo de cada aba do Radar no formato "aba-número" do
+ * "Minha carteira" da Início (.rc-rotulo/.rc-valor): a classe, quanto da
+ * carteira está nela (US$ em Ações Internacionais, igual à tabela) e, embaixo,
+ * quantos ativos e quantos estão em "bom momento" (a mesma leitura de cada
+ * linha - momento-aporte.js).
+ */
+function abaNumeroRadarHtml_(rotulo, chave, bloco, metas, cotacaoDolar) {
+  const itens = (bloco && bloco.itens) || [];
+  const totalBloco = bloco && bloco.total && typeof bloco.total.carteiraAtual === 'number' ? bloco.total.carteiraAtual : null;
+  const soma = totalBloco != null ? totalBloco : itens.reduce((a, i) => a + (typeof i.carteiraAtual === 'number' ? i.carteiraAtual : 0), 0);
+  let bons = 0;
+  for (const item of itens) {
+    try { if (momentoDoRadar(item, chave, metas, itens).nivel === 'bom') bons += 1; } catch (e) { /* sem leitura: não conta */ }
+  }
+  const valor = itens.length ? valorComDecHtml_(formatarPrecoRadar_(soma, chave)) : '—';
+  const emReais = chave === 'acoesInternacionais' && typeof cotacaoDolar === 'number' && itens.length
+    ? ` title="≈ ${formatBRL(soma * cotacaoDolar)}"` : '';
+  const qtd = `${itens.length} ${itens.length === 1 ? 'ativo' : 'ativos'}`;
+  return `<span class="rc-rotulo">${rotulo}</span><span class="rc-valor"${emReais}>${valor}</span>`
+    + `<span class="radar-visao-sub"><span>${qtd}</span>${itens.length ? `<span class="radar-visao-sep" aria-hidden="true">·</span><span class="radar-visao-bom${bons ? '' : ' zero'}"><i aria-hidden="true"></i>${bons} em bom momento</span>` : ''}</span>`;
 }
 
 /** Constrói e injeta os 3 cards de Metas da Carteira no container. */
@@ -1674,7 +1915,7 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
     if (card && typeof rendaEmergencial.mediaGastos === 'number' && Number.isFinite(rendaEmergencial.mediaGastos)) {
       const link = doc.createElement('a');
       link.className = 'goal-link';
-      link.href = 'organizacao/despesas.html';
+      link.href = 'organizacao/despesas.html#despesas'; // 03/10/2026: a 1ª aba agora é Patrimônio
       link.textContent = `Custo de vida ${formatBRL(rendaEmergencial.mediaGastos)}/mês · editar despesas ›`;
       card.appendChild(link);
     }
@@ -1717,6 +1958,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarObjetivosCarteiraImpl = salvarObjetivosCarteiraApi,
   salvarRadarItemImpl = salvarRadarItemApi,
   salvarSplitInternoImpl = salvarSplitInternoApi,
+  getIntradiaImpl = getIntradia,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
@@ -1727,13 +1969,33 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const container = doc.getElementById('metasCarteiraGrid');
   const refreshControlEl = doc.getElementById('refreshControlDistribuicoes');
 
+  // 02/10/2026: séries do gráfico do dia do Radar (action=intradia), guardadas
+  // 5 min por ativo (o Apps Script também guarda 5 min) - trocar de aba ou
+  // reordenar não busca de novo; "Atualizar dados" depois de 5 min, sim.
+  const seriesIntradia = {};
+  async function buscarIntradiaRadar(chaves) {
+    if (!getIntradiaImpl) return null;
+    const agora = Date.now();
+    const faltam = chaves.filter((c) => !(seriesIntradia[c] && agora - seriesIntradia[c].em < 5 * 60 * 1000)).slice(0, 40);
+    if (faltam.length) {
+      let r = null;
+      try { r = await getIntradiaImpl(token, faltam); } catch (e) { r = null; }
+      if (r && r.ok && r.resultado) {
+        for (const [c, serie] of Object.entries(r.resultado)) seriesIntradia[c] = { serie, em: agora };
+      }
+    }
+    const out = {};
+    chaves.forEach((c) => { if (seriesIntradia[c]) out[c] = seriesIntradia[c].serie; });
+    return out;
+  }
+
   function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
     if (!resposta.ok) {
       if (erroEl) {
         erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar Distribuições e Metas agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
+        erroEl.textContent = `Não deu pra carregar o Acompanhamento de Ativos agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
       }
       return;
     }
@@ -1752,6 +2014,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
 
     renderRadarOportunidades(doc, radarContainer, resposta.radar, {
       metas: metasDaDistribuicao(resposta),
+      slotDistrib: splitInternoContainer,
+      buscarIntradia: buscarIntradiaRadar,
       onSalvarItem: async (tabela, item) => {
         const r = await salvarRadarItemImpl(token, tabela, item);
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');

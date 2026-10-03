@@ -24,6 +24,12 @@
 <link rel="stylesheet" href="../assets/css/carteiras.css">
 <link rel="stylesheet" href="../assets/css/organizacao.css">
 <link rel="stylesheet" href="../assets/css/patrimonio.css">
+<!-- 03/10/2026: peças das abas reorganizadas (gastos reais, simulador,
+     seção Renda) e os componentes de filtro/análise dos gráficos -->
+<link rel="stylesheet" href="../assets/css/gastos.css">
+<link rel="stylesheet" href="../assets/css/simulador.css">
+<link rel="stylesheet" href="../assets/css/renda.css">
+<link rel="stylesheet" href="../assets/css/componentes-grafico.css">
 </head>
 <body data-section="organizacao">
 
@@ -34,26 +40,40 @@
     <div class="og-titulo">
       <div>
         <h1>Organização Financeira</h1>
-        <p>Despesas essenciais, salário, quanto você investe de verdade e o seu patrimônio.</p>
+        <p>Patrimônio, gastos e despesas, renda e orçamentos - e os documentos que o site precisa de você.</p>
       </div>
       <div id="refreshControlOrganizacao" class="refresh-control"></div>
     </div>
+    <!-- 03/10/2026: painel Documentos (organizacao-documentos.js), vale pras 3 abas -->
+    <section id="ogDocumentos" aria-label="Documentos"></section>
+    <!-- 03/10/2026: abas renomeadas e reorganizadas (Tiago). Endereços antigos
+         continuam: #patrimonio, #despesas, #salario (= Renda); novos: #gastos, #renda. -->
     <div class="og-abas" role="tablist" aria-label="Organização Financeira" id="ogAbas">
-      <button type="button" role="tab" class="og-aba active" data-aba="despesas" aria-selected="true" aria-controls="painelDespesas">Despesas</button>
-      <button type="button" role="tab" class="og-aba" data-aba="salario" aria-selected="false" aria-controls="painelSalario">Salário e investimentos</button>
-      <button type="button" role="tab" class="og-aba" data-aba="patrimonio" aria-selected="false" aria-controls="painelPatrimonio">Patrimônio</button>
+      <button type="button" role="tab" class="og-aba active" data-aba="patrimonio" aria-selected="true" aria-controls="painelPatrimonio" id="abaPatrimonio">Patrimônio</button>
+      <button type="button" role="tab" class="og-aba" data-aba="despesas" aria-selected="false" aria-controls="painelDespesas" id="abaDespesas" tabindex="-1"><span class="og-aba-longo">Gastos e Despesas</span><span class="og-aba-curto" aria-hidden="true">Gastos</span></button>
+      <button type="button" role="tab" class="og-aba" data-aba="renda" aria-selected="false" aria-controls="painelRenda" id="abaRenda" tabindex="-1"><span class="og-aba-longo">Renda e Orçamentos</span><span class="og-aba-curto" aria-hidden="true">Renda</span></button>
     </div>
-    <div id="painelDespesas" role="tabpanel">
-    <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
-      <div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
-      <span class="skel" style="height:110px;border-radius:14px"></span>
-      <span class="skel" style="height:420px;border-radius:14px"></span>
+    <div id="painelPatrimonio" role="tabpanel" aria-labelledby="abaPatrimonio"><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
+    <div id="painelDespesas" role="tabpanel" aria-labelledby="abaDespesas" hidden>
+      <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
+        <div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+        <span class="skel" style="height:110px;border-radius:14px"></span>
+        <span class="skel" style="height:420px;border-radius:14px"></span>
+      </div>
+      <div class="carteiras-erro" id="organizacaoErro" hidden></div>
+      <div id="organizacaoConteudo" hidden></div>
+      <div id="gastosConteudo" class="og-gastos"></div>
+      <div id="simulador" class="og-simulador"></div>
     </div>
-    <div class="carteiras-erro" id="organizacaoErro" hidden></div>
-    <div id="organizacaoConteudo" hidden></div>
+    <div id="painelRenda" role="tabpanel" aria-labelledby="abaRenda" hidden>
+      <div class="pt-conteudo og-renda">
+        <div id="rendaTopo"></div>
+        <div id="carreiraFgts"></div>
+        <div id="salarioConteudo" class="sl-conteudo"></div>
+        <div id="rendaInvestimento"></div>
+        <div id="rendaContas"></div>
+      </div>
     </div>
-    <div id="painelSalario" role="tabpanel" hidden><div id="salarioConteudo" class="sl-conteudo"></div></div>
-    <div id="painelPatrimonio" role="tabpanel" hidden><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
   </main>
 
   <div id="shell-footer"></div>

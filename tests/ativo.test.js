@@ -70,15 +70,17 @@ const ESTATICOS = {
   },
 };
 
-async function montar({ resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS, hash = '' } = {}) {
+// 02/10/2026: gráfico do dia (Intradia.gs) - série inventada; por padrão "sem dado"
+async function montar({ resposta = respostaAcao(), noticias = { ok: true, noticias: [] }, teses = { ok: true, configurado: false, teses: [], resumos: [] }, ref = 'TEST3', estaticos = ESTATICOS, hash = '', intradia = (chaves) => ({ ok: true, resultado: Object.fromEntries(chaves.map((c) => [c, null])) }) } = {}) {
   const { dom, doc, w } = montarDom(ref, hash);
   const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
-  const chamadas = { ativo: [], noticias: [], teses: [] };
+  const chamadas = { ativo: [], noticias: [], teses: [], intradia: [] };
   await montarPaginaAtivo('tk', {
     doc,
     getAtivoImpl: async (t, r) => { chamadas.ativo.push(r); return structuredClone(resposta); },
     getNoticiasImpl: async (t, p) => { chamadas.noticias.push(p); return noticias; },
     getTesesImpl: async (t, tk) => { chamadas.teses.push(tk); return teses; },
+    getIntradiaImpl: async (t, chaves) => { chamadas.intradia.push(chaves); return intradia(chaves); },
     carregarEstaticosImpl: async () => estaticos,
     agora: () => new Date('2026-03-10T15:00:00Z'),
   });
@@ -222,6 +224,10 @@ test('ativo: renda fixa - sem tese/notícias/faixa, com características e o sal
   };
   const { doc, chamadas } = await montar({ resposta: rf, ref: 'rf:Tesouro Teste 2030|CORRETORA X' });
   assert.deepEqual(chamadas.ativo, ['rf:Tesouro Teste 2030|CORRETORA X']);
+  // 02/10/2026: renda fixa não tem pregão (sem gráfico do dia); título do Tesouro ganha a seção de vídeos com o canal Tesouro Direto
+  assert.equal(doc.querySelector('.at-dia'), null);
+  assert.deepEqual(chamadas.intradia, []);
+  assert.match(doc.querySelector('#at-videos .vd-canal-oficial').getAttribute('href'), /@TesouroDiretoOficial$/);
   assert.deepEqual(chamadas.teses, []);
   assert.deepEqual(chamadas.noticias, []);
   assert.equal(doc.getElementById('at-faixa'), null);
@@ -431,6 +437,7 @@ test('ativo: vídeos - seção na visão geral; busca com ticker + apelidos só 
     getNoticiasImpl: async () => ({ ok: true, noticias: [] }),
     getTesesImpl: async () => ({ ok: true, configurado: false }),
     getVideosImpl: async (t, p) => { pedidos.push(p); return { ok: true, configurado: true, videos: [{ id: 'abcdefghijk', canal: 'Canal X', titulo: 'TEST3 <b>vale?</b>', publicado: '2026-03-09T12:00:00Z' }] }; },
+    getIntradiaImpl: async () => ({ ok: true, resultado: {} }),
     carregarEstaticosImpl: async () => estaticos,
     agora: () => new Date('2026-03-10T15:00:00Z'),
   });
@@ -447,4 +454,170 @@ test('ativo: vídeos - seção na visão geral; busca com ticker + apelidos só 
   clique(w, card.querySelector('.vd-thumb'));
   assert.match(card.querySelector('iframe.vd-player').getAttribute('src'), /youtube-nocookie\.com\/embed\/abcdefghijk/);
   dom.window.close();
+});
+
+// ---------------------------------------------------------------------------
+// 02/10/2026 (Tiago: "gráfico de variação diária igual da home; do lado do
+// hero no desktop, embaixo no mobile. Clicando no gráfico abre o Google
+// Finance" + "Canais do YouTube por ativo mostrados na página").
+// ---------------------------------------------------------------------------
+
+const SERIE_DIA = { preco: 10.2, fechamentoAnterior: 10, variacao: 0.02, dia: '2026-03-10', inicio: 0, fim: 420 * 60, t: [0, 60, 120, 180], v: [10.05, 9.9, 10.1, 10.2], moeda: 'BRL' };
+
+test('ativo: gráfico do dia ao lado do cabeçalho - pede a chave do ativo, desenha a linha do pregão (verde) e o fechamento anterior, e abre o Google Finance', async () => {
+  const { doc, chamadas } = await montar({ intradia: (chaves) => ({ ok: true, resultado: { [chaves[0]]: SERIE_DIA } }) });
+  assert.deepEqual(chamadas.intradia, [['acoes:TEST3']]);
+  const caixa = doc.querySelector('.at-cabecalho a.at-dia');
+  assert.ok(caixa, 'gráfico no cabeçalho, entre o ativo e a cotação');
+  assert.equal(caixa.nextElementSibling.className, 'at-cotacao');
+  assert.equal(caixa.getAttribute('href'), 'https://www.google.com/finance/quote/TEST3:BVMF');
+  assert.equal(caixa.getAttribute('target'), '_blank');
+  assert.equal(caixa.getAttribute('rel'), 'noopener');
+  assert.ok(!caixa.classList.contains('carregando') && !caixa.classList.contains('sem-dado'));
+  const svg = caixa.querySelector('.at-dia-grafico svg.intradia-svg');
+  assert.ok(svg.classList.contains('sobe'));
+  assert.ok(svg.querySelector('line.intradia-anterior'), 'fechamento anterior pontilhado');
+  assert.equal(caixa.querySelector('.intradia-dia'), null, 'pregão de hoje: sem rótulo de data');
+  assert.match(txt(caixa), /Variação do dia Google Finance ↗/);
+});
+
+test('ativo: gráfico do dia - esqueleto enquanto carrega, aviso discreto sem série, pregão de outro dia com a data; FII e EUA com a chave certa', async () => {
+  const { chaveIntradiaAtivo, graficoDiaHtml, preencherGraficoDia } = await import('../assets/js/pages/ativo.js');
+  assert.equal(chaveIntradiaAtivo({ ticker: 'FUND11', classe: 'fiis' }), 'fiis:FUND11');
+  assert.equal(chaveIntradiaAtivo({ ticker: 'tstu', classe: 'acoesEua' }), 'usa:TSTU');
+  assert.equal(chaveIntradiaAtivo({ ticker: 'Tesouro X', classe: 'rendaFixa', ehRf: true }), null);
+
+  const dom = new JSDOM(`<div id="r">${graficoDiaHtml({ ticker: 'TSTU', classe: 'acoesEua', chaveIntradia: 'usa:TSTU', sobre: { bolsa: 'NYSE' } })}</div>`);
+  const r = dom.window.document.getElementById('r');
+  const caixa = r.querySelector('.at-dia');
+  assert.equal(caixa.getAttribute('href'), 'https://www.google.com/finance/quote/TSTU:NYSE');
+  assert.ok(caixa.classList.contains('carregando') && caixa.querySelector('.skel'), 'esqueleto');
+  preencherGraficoDia(r, 'usa:TSTU', null, { agora: new Date('2026-03-10T15:00:00Z') });
+  assert.ok(caixa.classList.contains('sem-dado') && !caixa.classList.contains('carregando'));
+  assert.match(txt(caixa), /Gráfico do dia indisponível agora/);
+  assert.equal(caixa.getAttribute('href'), 'https://www.google.com/finance/quote/TSTU:NYSE', 'continua abrindo o Google Finance');
+  preencherGraficoDia(r, 'usa:TSTU', { ...SERIE_DIA, dia: '2026-03-09', v: [10, 9.8, 9.7, 9.6] }, { agora: new Date('2026-03-10T15:00:00Z') });
+  assert.ok(!caixa.classList.contains('sem-dado'));
+  assert.ok(caixa.querySelector('svg.intradia-svg.desce'), 'abaixo do fechamento anterior: vermelho');
+  assert.equal(caixa.querySelector('.intradia-dia').textContent, 'pregão 09/03');
+
+  // falha na busca: tira o esqueleto e avisa (sem quebrar a página)
+  const { doc } = await montar({ intradia: () => { throw new Error('rede'); } });
+  assert.ok(doc.querySelector('.at-dia.sem-dado'));
+  assert.ok(doc.getElementById('at-resumo') || doc.querySelector('.at-resumo'), 'resto da página ok');
+});
+
+test('ativo: Google Finance - ações e FIIs na BVMF; EUA na bolsa do "Sobre" (sem bolsa: busca); renda fixa não tem', async () => {
+  const { googleFinanceUrl } = await import('../assets/js/pages/ativo.js');
+  assert.equal(googleFinanceUrl({ ticker: 'test3', classe: 'acoes' }), 'https://www.google.com/finance/quote/TEST3:BVMF');
+  assert.equal(googleFinanceUrl({ ticker: 'FUND11', classe: 'fiis' }), 'https://www.google.com/finance/quote/FUND11:BVMF');
+  assert.equal(googleFinanceUrl({ ticker: 'TSTU', classe: 'acoesEua', sobre: { bolsa: 'nasdaq' } }), 'https://www.google.com/finance/quote/TSTU:NASDAQ');
+  // /finance/quote/TSTU sem a bolsa cai na página inicial do Google Finance; a busca acha o papel
+  assert.equal(googleFinanceUrl({ ticker: 'TSTU', classe: 'acoesEua', sobre: null }), 'https://www.google.com/finance?q=TSTU');
+  assert.equal(googleFinanceUrl({ ticker: 'Tesouro X', ehRf: true }), null);
+});
+
+test('ativo: canal oficial - bloco no topo dos vídeos (nova aba) e a busca de vídeos manda o canal; ativo sem canal fica igual', async () => {
+  const resposta = respostaAcao();
+  resposta.ticker = 'VALE3'; // ticker com canal na lista pública (canais-youtube.js); números inventados
+  resposta.ativo.ticker = 'VALE3';
+  const pedidos = [];
+  const { dom, doc, w } = montarDom('VALE3');
+  let observado = null;
+  w.IntersectionObserver = class { constructor(cb) { this.cb = cb; } observe(el) { observado = { cb: this.cb, el }; } disconnect() {} };
+  const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
+  await montarPaginaAtivo('tk', {
+    doc,
+    getAtivoImpl: async () => structuredClone(resposta),
+    getNoticiasImpl: async () => ({ ok: true, noticias: [] }),
+    getTesesImpl: async () => ({ ok: true, configurado: false }),
+    getIntradiaImpl: async () => ({ ok: true, resultado: {} }),
+    getVideosImpl: async (t, p) => {
+      pedidos.push(p);
+      return { ok: true, configurado: false, canalOficial: { id: 'UCMDd2zfFdlupOwg_KyqpQWQ', nome: 'Vale' }, videos: [
+        { id: 'oficial0001', canal: 'Vale', titulo: 'Novidade', publicado: '2026-03-09T12:00:00Z', oficial: true },
+        { id: 'meucanal001', canal: 'Canal X', titulo: 'VALE3 hoje', publicado: '2026-03-08T12:00:00Z' },
+      ] };
+    },
+    carregarEstaticosImpl: async () => ESTATICOS,
+    agora: () => new Date('2026-03-10T15:00:00Z'),
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  const bloco = doc.querySelector('#at-videos .vd-topo a.vd-canal-oficial');
+  assert.equal(bloco.getAttribute('href'), 'https://www.youtube.com/user/Vale');
+  assert.equal(bloco.getAttribute('target'), '_blank');
+  assert.match(txt(bloco), /Canal oficial Vale @ValenoBrasil/);
+  observado.cb([{ isIntersecting: true }]);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(pedidos, [{ termos: ['VALE3'], ticker: 'VALE3', canal: 'UCMDd2zfFdlupOwg_KyqpQWQ' }]);
+  const cards = [...doc.querySelectorAll('#at-videos .vd-card')];
+  assert.equal(cards.length, 2, 'sem canal cadastrado na planilha, mas com o oficial: mostra os vídeos');
+  assert.equal(cards[0].querySelector('.vd-oficial').textContent, 'Canal oficial');
+  assert.equal(cards[1].querySelector('.vd-oficial'), null);
+  dom.window.close();
+
+  const { doc: doc2 } = await montar();
+  assert.equal(doc2.querySelector('.vd-canal-oficial'), null, 'TEST3 não tem canal');
+});
+
+// 02/10/2026: integração - "Escolher período" nos gráficos, card de Análise
+// (rentabilidade e proventos por mês), "Ontem era" e o menu renomeado.
+test('ativo: "Escolher período" no filtro dos gráficos - chip abre o calendário; intervalo redesenha os 2 gráficos e o chip mostra o intervalo', async () => {
+  const { doc, w } = await montar();
+  const tabs = doc.getElementById('atPeriodoTabs');
+  const chip = tabs.querySelector('.filter-tab.fp-chip');
+  assert.ok(chip, 'chip no fim do filtro');
+  assert.match(chip.textContent, /Escolher período/);
+  clique(w, chip);
+  const pop = doc.querySelector('.fp-camada .fp-pop[role="dialog"]');
+  assert.ok(pop, 'calendário aberto');
+  // dias fora do histórico (antes da 1ª compra / depois de hoje) desabilitados
+  assert.equal(pop.querySelector('[data-dia="2026-03-12"]')?.getAttribute('aria-disabled'), 'true');
+  clique(w, pop.querySelector('[data-acao="cancelar"]'));
+  assert.equal(doc.querySelector('.fp-camada'), null);
+
+  const filtro = tabs._filtroPeriodo;
+  assert.ok(filtro.definir({ inicio: '2026-01-30', fim: '2026-02-27' }));
+  assert.match(chip.textContent, /30 jan–27 fev/);
+  assert.equal(chip.classList.contains('active'), true);
+  assert.equal(tabs.querySelector('[data-periodo="mes"]').classList.contains('active'), false);
+  // período que termina antes de hoje: o valor mostrado é o do fim do intervalo
+  assert.match(txt(doc.getElementById('atEvolucaoInfo')), /em 27\/02\/2026/);
+  assert.match(txt(doc.getElementById('atRentabInfo')), /em 27\/02\/2026/);
+  assert.ok(doc.querySelector('#atRentabChart svg.rentab-chart'));
+  // lembra a escolha (uma chave pra todos os ativos)
+  assert.match(w.localStorage.getItem('periodo:ativo'), /2026-01-30/);
+});
+
+test('ativo: card de Análise embaixo da Rentabilidade (ativo x índices) e dos proventos por mês; "Ontem era" no saldo', async () => {
+  const { doc } = await montar();
+  const ag = doc.querySelector('#atRentabAnalise details.ag');
+  assert.ok(ag, 'card de análise da rentabilidade');
+  assert.equal(doc.getElementById('atRentabAnalise').hidden, false);
+  assert.match(txt(ag), /TEST3 (rendeu|recuou)/);
+  assert.match(txt(ag), /Ibovespa|CDI/);
+  assert.match(txt(ag), /Não é recomendação/);
+  // "Ontem era" + meses anteriores no bloco do saldo (Mês atual)
+  assert.ok(doc.querySelector('#atEvolucaoInfo .rentab-cmp'), 'comparativo no bloco do saldo');
+  assert.match(txt(doc.getElementById('atEvolucaoInfo')), /era/);
+  // proventos: 1 pagamento inventado (fev) - média do mês fechado
+  const prov = doc.querySelector('#atProvAnalise details.ag');
+  assert.ok(prov, 'card de análise dos proventos');
+  assert.match(txt(prov), /Média de R\$\s*5,00\/mês em fev\/26/);
+  // sem nenhum provento nos últimos 12 meses: sem card
+  const semProv = respostaAcao();
+  semProv.proventos = [];
+  const { doc: doc2 } = await montar({ resposta: semProv });
+  assert.equal(doc2.getElementById('atProvAnalise').hidden, true);
+  assert.equal(doc2.querySelector('#atProvAnalise details'), null);
+});
+
+test('ativo: textos e link apontam pra "Acompanhamento de Ativos" (menu renomeado; o arquivo continua distribuicoes-metas.html)', async () => {
+  const { doc } = await montar();
+  const conteudo = doc.getElementById('ativoConteudo');
+  assert.doesNotMatch(conteudo.innerHTML, /Distribuições e Metas/);
+  const link = doc.querySelector('#at-faixa a.at-link-acomp');
+  assert.ok(link);
+  assert.equal(link.textContent, 'Acompanhamento de Ativos');
+  assert.match(link.getAttribute('href'), /distribuicoes-metas\.html$/);
 });

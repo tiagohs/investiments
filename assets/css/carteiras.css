@@ -452,3 +452,20 @@ body.na-aberto{ overflow:hidden; }
   .na-rodape .btn{ flex:1 1 auto; justify-content:center; }
 }
 @media (prefers-reduced-motion: reduce){ .na-spin{ animation-duration:2s; } }
+
+/* 02/10/2026 (conferindo os prints do celular a 390px - "mobile sem rolagem
+   lateral"): 2 lugares ainda empurravam a página pro lado -
+   a legenda do donut em 2 colunas (FIIs: "Híbrido 30,01% R$ ...") e o
+   rodapé de totais da tabela de Ações EUA (US$ + R$ + "de US$ ... (R$ ...)"
+   numa linha só). No celular a legenda vira 1 coluna e o total quebra linha. */
+@media (max-width:560px){
+  .cc-donut-card .distrib-legenda{ flex-direction:column; gap:8px; }
+  .cc-tabela tfoot td{ flex-wrap:wrap; white-space:normal; row-gap:2px; }
+  .cc-tabela tfoot td .cc-sub{ flex-basis:100%; text-align:right; }
+  .cc-tabela td .moeda-conv{ white-space:normal; }
+}
+
+/* 03/10/2026 (revisão): o convite "Criar meta de renda passiva →" da Visão
+   geral (sem meta ainda) saía com a cor/sublinhado padrão do navegador. */
+.vg-meta-renda-convite a{ color:var(--acoes); font-weight:600; text-decoration:none; }
+.vg-meta-renda-convite a:hover{ text-decoration:underline; }

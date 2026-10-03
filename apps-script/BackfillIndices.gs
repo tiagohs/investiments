@@ -520,6 +520,10 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
 
   var partes = [];
   var status = 'Sucesso';
+  // 02/10/2026 (Agenda.gs): Renda Fixa, Índices e Taxas BCB deram certo? Um
+  // "Atenção" só da Carteira Renda Fixa não conta - a agenda diária usa
+  // isso pra decidir se roda as etapas secundárias (proventos/informes FNet).
+  var essenciaisOk = true;
 
   // trava por finally (lock.releaseLock() lá embaixo, fecha só depois do
   // "return { status: status, detalhe: detalhe };") engloba TODO o corpo
@@ -532,6 +536,7 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
       partes.push('Renda Fixa: ' + resultadoRf.linhasGravadas + ' linha(s) nova(s) (' + resultadoRf.posicoes + ' posições)');
     } catch (erro) {
       status = 'Erro';
+      essenciaisOk = false;
       partes.push('Renda Fixa falhou: ' + String(erro));
     }
 
@@ -572,6 +577,7 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
           (resultadoIndices.linhasNovas === 0 ? ' (sem pregão no período)' : '')));
     } catch (erro) {
       status = (status === 'Erro') ? 'Erro' : 'Atenção';
+      essenciaisOk = false;
       partes.push('Índices falharam: ' + String(erro));
     }
 
@@ -580,6 +586,7 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
       partes.push('Taxas CDI/SELIC: ' + resultadoTaxas.linhasNovas + ' linha(s) nova(s) (' + resultadoTaxas.detalhe + ')');
     } catch (erro) {
       status = (status === 'Erro') ? 'Erro' : 'Atenção';
+      essenciaisOk = false;
       partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
     }
 
@@ -589,7 +596,7 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
     // origem === 'Automático' - seguro chamar sempre aqui, mesmo quando
     // origem é 'Manual' (clique no botão "Sincronizar agora").
     if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
-    return { status: status, detalhe: detalhe };
+    return { status: status, detalhe: detalhe, essenciaisOk: essenciaisOk };
   } finally {
     lock.releaseLock();
   }

@@ -37,6 +37,7 @@
 
 import { montarPaginaInicio } from './pages/inicio.js';
 import { montarPaginaDistribuicoesMetas } from './pages/distribuicoes-metas.js';
+import { montarPaginaMetas, TEMPLATE_METAS } from './pages/metas.js'; // 02/10/2026: Metas e Objetivos
 import { markActiveSection } from './shell.js';
 
 /**
@@ -58,10 +59,21 @@ export const ROUTES = [
   {
     key: 'distribuicoes',
     href: 'distribuicoes-metas.html',
-    title: 'Distribuições e Metas',
+    title: 'Acompanhamento de Ativos', // 02/10/2026: era "Distribuições e Metas" (Tiago renomeou o menu)
     containerId: 'page-distribuicoes',
     templateId: 'page-distribuicoes-template',
     mount: montarPaginaDistribuicoesMetas,
+  },
+  // 02/10/2026: menu "Metas e Objetivos" (pages/metas.js). O conteúdo vem de
+  // TEMPLATE_METAS (templateHtml) em vez de assets/partials/pages.html.
+  {
+    key: 'metas',
+    href: 'metas.html',
+    title: 'Metas e Objetivos',
+    containerId: 'page-metas',
+    templateId: 'page-metas-template',
+    templateHtml: TEMPLATE_METAS,
+    mount: montarPaginaMetas,
   },
 ];
 
@@ -99,7 +111,11 @@ export function parsePagesPartial(html, doc = document, routes = ROUTES) {
   container.innerHTML = html;
   const templates = {};
   routes.forEach((route) => {
-    const template = container.querySelector(`#${route.templateId}`);
+    let template = container.querySelector(`#${route.templateId}`);
+    if (!template && route.templateHtml) { // 02/10/2026: rota com o próprio HTML (ex. Metas)
+      template = doc.createElement('template');
+      template.innerHTML = route.templateHtml;
+    }
     if (!template) {
       throw new Error(`pages.html is missing #${route.templateId}`);
     }

@@ -26,6 +26,8 @@
      páginas. carteiras.css tem só o que é NOVO desta seção (sidebar
      de contexto usa .side-nav/.section-content, já em shell.css). -->
 <link rel="stylesheet" href="../assets/css/inicio.css">
+<!-- 02/10/2026: "Escolher período" e card de Análise dos gráficos (periodo-personalizado.js / analise-grafico.js) -->
+<link rel="stylesheet" href="../assets/css/componentes-grafico.css">
 <link rel="stylesheet" href="../assets/css/carteiras.css">
 </head>
 <body data-section="carteiras">
@@ -157,6 +159,10 @@
             <span class="hint">clique num item do menu ao lado pra ver o detalhe de cada uma</span>
           </div>
           <div class="cg-cards-grid" id="vgCardsGrid"></div>
+          <!-- 02/10/2026 (Tiago: "meta de renda passiva em Carteiras com link pro
+               detalhe da meta"): card de assets/js/metas-card.js, carregado em
+               paralelo (não atrasa o resto); sem meta, só um convite discreto. -->
+          <div id="vgMetaRenda" class="vg-meta-renda" hidden></div>
           <!-- 25/09/2026: proventos do mês de todas as carteiras (carteiras-proventos.js) -->
           <div id="vgProventosWrap"></div>
         </div>

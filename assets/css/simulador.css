@@ -1,0 +1,114 @@
+/**
+ * simulador.css - 02/10/2026: seção "Amortizar ou investir?" da Organização
+ * Financeira (organizacao-simulador.js). Reaproveita o visual da aba
+ * Patrimônio (patrimonio.css: .pt-card, .pt-seg, .pt-input, .pt-tt, tokens
+ * --pt-*) e só acrescenta o que é do simulador. Cores das linhas validadas no
+ * claro e no escuro (amortizar = âmbar do apê, investir = azul, metade =
+ * roxo, só as parcelas = cinza tracejado).
+ */
+:root{
+  --sd-amort:var(--pt-imo, #C98500); --sd-inv:var(--pt-inv, #2A78D6); --sd-misto:var(--pt-out, #7A6BC8); --sd-base:var(--ink-faint, #98A0AC);
+}
+
+.sd .pt-sec-cab h2{ font-size:19px; }
+.sd .pt-tiles.sd-faixa{ grid-template-columns:repeat(4, minmax(0,1fr)); }
+
+/* ---- Formulário numa linha ---- */
+.sd-form{ padding:14px 18px; display:flex; flex-direction:column; gap:10px; }
+.sd-form-linha{ display:flex; flex-wrap:wrap; gap:12px 18px; align-items:flex-start; }
+.sd-form-linha .pt-ctl{ gap:5px; }
+.sd-ctl-valor .pt-input input{ width:9ch; font-size:15px; }
+.sd-select{ font:600 12.5px var(--body-f); color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:100px; padding:5px 10px; min-height:30px; }
+.sd-select:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.sd-prem{ font-size:12.5px; border-top:1px dashed var(--border); padding-top:8px; }
+.sd-prem summary{ cursor:pointer; font-weight:600; color:var(--acoes); }
+.sd-prem summary .pt-hint{ font-weight:400; margin-left:6px; font-family:var(--mono); }
+.sd-campos{ margin-top:10px; }
+.sd-campos .pt-input{ align-self:flex-start; }
+.sd-campos .pt-input input{ width:7ch; }
+.sd-chks{ display:flex; flex-direction:column; gap:6px; margin-top:12px; align-items:flex-start; }
+.sd-chks .pt-mini{ margin:4px 0 0; }
+
+/* ---- Cards Amortizar x Investir ---- */
+.sd-cards{ display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); gap:12px; align-items:stretch; }
+.sd-vs{ align-self:center; font:600 12px var(--mono); color:var(--ink-faint); text-transform:uppercase; }
+.sd-card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow); padding:16px 18px; display:flex; flex-direction:column; gap:4px; min-width:0; border-top:4px solid var(--sd-c); }
+.sd-card.amort{ --sd-c:var(--sd-amort); }
+.sd-card.inv{ --sd-c:var(--sd-inv); }
+.sd-card.ganha{ box-shadow:0 0 0 2px color-mix(in srgb, var(--sd-c) 45%, transparent), var(--shadow); }
+.sd-card-cab{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sd-card-cab .pt-pill{ margin-left:auto; }
+.sd-marca{ width:10px; height:10px; border-radius:3px; background:var(--sd-c); flex:none; }
+.sd-num{ font-family:var(--display); font-size:36px; font-weight:600; line-height:1.1; font-variant-numeric:tabular-nums; letter-spacing:-.01em; margin-top:4px; }
+.sd-sub{ font-size:11.5px; color:var(--ink-faint); }
+.sd-stats{ list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; }
+.sd-stats li{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:0 12px; padding:8px 0; border-top:1px dashed var(--border); font-size:12.5px; align-items:baseline; }
+.sd-stats li > span{ color:var(--ink-muted); }
+.sd-stats li > b{ font:600 14px var(--mono); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap; }
+.sd-stats li > small{ grid-column:1 / -1; font-size:11px; color:var(--ink-faint); line-height:1.4; }
+
+/* ---- Veredito ---- */
+.sd-ver{ border-left:4px solid var(--acoes); }
+.sd-ver-cab{ display:flex; flex-direction:column; gap:2px; }
+.sd-ver-cab h3{ font-size:17px !important; }
+.sd-ver-txt{ margin:8px 0 0; font-size:13.5px; line-height:1.6; color:var(--ink); max-width:100ch; }
+.sd-ver-lista{ list-style:none; margin:12px 0 0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:8px; }
+.sd-ver-lista li{ font-size:12.5px; line-height:1.5; color:var(--ink-muted); padding:9px 12px; border-radius:10px; background:var(--surface-3); border-left:3px solid var(--ink-faint); }
+.sd-ver-lista li b{ color:var(--ink); }
+.sd-ver-lista li.sd-tom-good{ border-left-color:var(--good); }
+.sd-ver-lista li.sd-tom-warn{ border-left-color:var(--warn); }
+.sd-ver-lista li.sd-tom-bad{ border-left-color:var(--bad); background:var(--bad-soft); }
+.sd-ver-lista li.sd-tom-info{ border-left-color:var(--acoes); }
+
+/* ---- Gráficos ---- */
+.sd-leg{ padding:14px 18px 0; }
+.sd-leg i.sd-leg-trac{ height:0; width:14px; border-radius:0; border-top:2px dashed; background:none; vertical-align:3px; }
+.sd-linha{ fill:none; stroke-width:2.2; stroke-linejoin:round; }
+.sd-linha.trac{ stroke-dasharray:5 4; stroke-width:2; }
+.sd-ponto{ stroke:var(--surface); stroke-width:2; }
+.sd-hit.on{ fill:var(--ink); fill-opacity:.05; }
+.sd-tt-cor{ display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; }
+.sd-duas{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:start; }
+.sd-pad-cab{ padding:14px 18px 0; margin-bottom:0; }
+
+/* ---- Tabelas ---- */
+.sd-det > summary{ cursor:pointer; padding:12px 18px; font-weight:600; font-size:13px; color:var(--acoes); }
+.sd-det[open] > summary{ border-bottom:1px solid var(--border); }
+.sd-tab-wrap{ border-top:none; }
+.pt-tab th small{ display:block; font-weight:500; text-transform:none; letter-spacing:0; font-size:10px; }
+.sd-perfis tr.sel td{ background:var(--acoes-soft); }
+.sd-perfis tr.sd-ref td{ background:var(--surface-3); color:var(--ink-muted); }
+.sd-perfis td.esq{ white-space:normal; min-width:220px; }
+.sd-perfil-btn{ font:600 13px var(--body-f); color:var(--acoes); background:none; border:none; padding:0; cursor:pointer; text-align:left; }
+.sd-perfis tr.sel .sd-perfil-btn{ color:var(--ink); }
+
+/* ---- Vídeo e referências ---- */
+.sd-estrategias{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; }
+.sd-estrategias li{ display:grid; grid-template-columns:48px minmax(0,1fr); gap:10px; padding:9px 0; border-top:1px dashed var(--border); }
+.sd-estrategias li:first-child{ border-top:none; padding-top:0; }
+.sd-min{ font:600 11.5px var(--mono); color:var(--acoes); text-decoration:none; padding-top:1px; }
+.sd-min:hover{ text-decoration:underline; }
+.sd-estrategias b{ font-size:13px; }
+.sd-estrategias p{ margin:2px 0 0; font-size:12px; line-height:1.5; color:var(--ink-muted); }
+.sd-conta span{ font-weight:700; color:var(--ink); }
+.sd-tr{ margin-top:10px; padding:9px 12px; border-radius:10px; background:var(--surface-3); }
+.sd-refs{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:12.5px; line-height:1.45; }
+.sd-refs a{ color:var(--acoes); overflow-wrap:anywhere; }
+
+@media (max-width:900px){
+  .sd .pt-tiles.sd-faixa{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+  .sd-duas{ grid-template-columns:minmax(0,1fr); }
+}
+@media (max-width:560px){
+  .sd-cards{ grid-template-columns:minmax(0,1fr); }
+  .sd-vs{ justify-self:center; }
+  .sd-num{ font-size:30px; }
+  .sd-form{ padding:12px 14px; }
+  .sd-form-linha{ gap:10px 12px; }
+  .sd-form-linha > *{ min-width:0; }
+  .sd .pt-seg button{ padding:5px 9px; }
+  .sd-prem summary .pt-hint{ display:block; margin:2px 0 0; }
+  .sd-ver-lista{ grid-template-columns:minmax(0,1fr); }
+  .sd-leg{ padding:12px 14px 0; }
+  .sd-pad-cab{ padding:12px 14px 0; }
+}

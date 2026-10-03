@@ -419,3 +419,51 @@ test('Patrimônio: getPatrimonio/arquivos do IR (GET) e salvarPatrimonio (POST c
   assert.deepEqual(JSON.parse(vistos[3].params.get('valor')), { valorCompra: 100000, dataCompra: '2020-01' });
   assert.equal(vistos[4].params.get('valor'), '');
 });
+
+// 02/10/2026: tela Metas e Objetivos (Metas.gs).
+import { getMetas, salvarMeta, excluirMeta } from '../assets/js/api-client.js';
+
+test('Metas: getMetas (GET), salvarMeta (POST com a meta em JSON) e excluirMeta (POST, arquiva/restaura)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getMetas('tk');
+  await salvarMeta('tk', { tipo: 'acumulo', nome: 'Meta X', valorAlvo: 1000 });
+  await excluirMeta('tk', 'm1');
+  await excluirMeta('tk', 'm1', { restaurar: true });
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
+    ['GET', 'metas'], ['POST', 'salvarMeta'], ['POST', 'excluirMeta'], ['POST', 'excluirMeta'],
+  ]);
+  assert.equal(vistos[0].params.get('token'), 'tk');
+  assert.deepEqual(JSON.parse(vistos[1].params.get('meta')), { tipo: 'acumulo', nome: 'Meta X', valorAlvo: 1000 });
+  assert.equal(vistos[2].params.get('id'), 'm1');
+  assert.equal(vistos[2].params.get('restaurar'), '');
+  assert.equal(vistos[3].params.get('restaurar'), '1');
+});
+
+// 02/10/2026: Organização Financeira - Gastos (Gastos.gs).
+import { getGastos, getArquivosGastos, getArquivoGastos, salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos } from '../assets/js/api-client.js';
+
+test('Gastos: GET (lançamentos, arquivos do Drive, um arquivo) e POST (importação em JSON, regra, excluir arquivo)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getGastos('tk');
+  await getArquivosGastos('tk');
+  await getArquivoGastos('tk', 'f1');
+  await salvarImportacaoGastos('tk', { id: 'f1', meses: ['2025-03'] }, [{ data: '2025-03-01', valor: 10 }]);
+  await salvarRegraGastos('tk', 'LOJA X', 'compras');
+  await excluirArquivoGastos('tk', 'f1');
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
+    ['GET', 'gastos'], ['GET', 'gastosArquivos'], ['GET', 'gastosArquivo'], ['POST', 'salvarImportacaoGastos'], ['POST', 'salvarRegraGastos'], ['POST', 'excluirArquivoGastos'],
+  ]);
+  assert.equal(vistos[2].params.get('id'), 'f1');
+  assert.deepEqual(JSON.parse(vistos[3].params.get('arquivo')), { id: 'f1', meses: ['2025-03'] });
+  assert.deepEqual(JSON.parse(vistos[3].params.get('lancamentos')), [{ data: '2025-03-01', valor: 10 }]);
+  assert.equal(vistos[4].params.get('categoria'), 'compras');
+  assert.equal(vistos[5].params.get('id'), 'f1');
+});

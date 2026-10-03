@@ -136,6 +136,12 @@ import { renderProventosAnunciados } from './inicio-proventos.js';
 import { renderFaixaMercado, completarFaixaComIntradia, renderResumoCompacto, wireListaAtivos } from './inicio-painel.js';
 import { CHAVES_MERCADO, chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
+// 02/10/2026 (pedidos A-D do Tiago - "Escolher período", "Ontem era" +
+// meses, card de Análise, IPCA na Visão geral de Carteiras): os 2 módulos
+// compartilhados (sem dependência de página) e o comparativo da Início.
+import { ligarFiltroPeriodo, recortarPorIntervalo, ehPeriodoPersonalizado } from '../periodo-personalizado.js';
+import { analisarSerie, renderAnalise } from '../analise-grafico.js';
+import { calcularComparativo, htmlComparativo } from './inicio-comparativo.js';
 
 const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
 const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
@@ -736,6 +742,10 @@ const DIAS_POR_PERIODO = { '30d': 30, '6m': 182, '12m': 365, '3a': 365 * 3 };
  */
 export function filtrarHistoricoPorPeriodo(historico, periodoId = '12m', campoDesdeInicio = null) {
   if (!historico || !historico.length) return [];
+  // 02/10/2026 ("Escolher período"): período personalizado { inicio, fim } -
+  // os dias do intervalo + o fechamento do dia anterior como base do 0%
+  // (mesma ideia do 'mes' logo abaixo). Ver periodo-personalizado.js.
+  if (ehPeriodoPersonalizado(periodoId)) return recortarPorIntervalo(historico, periodoId);
   if (periodoId === 'mes') {
     const ultimaData = historico[historico.length - 1].data;
     if (typeof ultimaData !== 'string' || ultimaData.length < 7) return historico;
@@ -1275,7 +1285,7 @@ function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBench
  * também o hover/touch (ver ligarInteracaoGrafico_, logo acima) depois de
  * montar o SVG.
  */
-export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio' } = {}) {
+export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio', benchmarksExtra = null, analiseContainer = null, nomeAnalise = null, formatarMoeda = formatBRL } = {}) {
   // 20/09/2026: campoPrincipal precisa existir ANTES de filtrar - "Desde o
   // início" (periodoId:'tudo') corta pro início desta visão específica
   // (ver comentário de filtrarHistoricoPorPeriodo) - sem isso, o gráfico
@@ -1283,7 +1293,9 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   // anos de linha reta em zero antes da 1ª posição de verdade.
   const campoPrincipal = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
   const campoFluxoPrincipal = CAMPO_FLUXO_POR_VISAO[visaoId] || CAMPO_FLUXO_POR_VISAO.total;
-  const benchmarks = BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total;
+  // 02/10/2026 (pedido D - IPCA no Patrimônio total de Carteiras):
+  // benchmarksExtra acrescenta linhas a uma visão sem mexer nas outras telas.
+  const benchmarks = [...(BENCHMARKS_POR_VISAO[visaoId] || BENCHMARKS_POR_VISAO.total), ...(Array.isArray(benchmarksExtra) ? benchmarksExtra : [])];
   const corPrincipal = COR_PRINCIPAL_POR_VISAO[visaoId] || COR_PRINCIPAL_POR_VISAO.total;
 
   let janela = filtrarHistoricoPorPeriodo(historico, periodoId, campoPrincipal);
@@ -1297,6 +1309,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   if (janela.length < 2) {
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
     if (legendaContainer) legendaContainer.innerHTML = '';
+    if (analiseContainer) renderAnalise(doc, analiseContainer, null);
     return;
   }
 
@@ -1403,6 +1416,69 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
       ${liBenchmarks}
     `;
   }
+
+  // 02/10/2026 (pedido C): card "Análise" embaixo do gráfico - os MESMOS
+  // números desenhados (série do portfólio e dos índices já normalizadas),
+  // então o texto nunca diverge da legenda. Ver analise-grafico.js.
+  if (analiseContainer) {
+    renderAnalise(doc, analiseContainer, montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda }));
+  }
+}
+
+/** Sujeito das frases do card de Análise, por visão. */
+const NOME_ANALISE_POR_VISAO = {
+  total: 'O patrimônio total', longoPrazo: 'O longo prazo', nacional: 'O patrimônio nacional', rendaEmergencial: 'A renda emergencial',
+  internacional: 'A carteira internacional', carteiraAcoes: 'A carteira de ações', carteiraFiis: 'A carteira de FIIs',
+  carteiraAcoesEua: 'A carteira de ações EUA', carteiraAcoesEuaUsd: 'A carteira de ações EUA (em dólar)',
+  carteiraRendaFixaTotal: 'A renda fixa', carteiraRendaFixaLongoPrazo: 'O longo prazo da renda fixa', carteiraRendaFixaEmergencial: 'A reserva de emergência',
+};
+
+/** De onde veio o resultado (regras "movimento" e "concentração"): [rótulo, campo, campo de fluxo]. */
+const COMPONENTES_ANALISE_POR_VISAO = {
+  total: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Ações EUA', 'acoesEua', 'fluxoCaixaAcoesEua'], ['Renda Fixa', 'rendaFixaTotal', 'fluxoCaixaRendaFixaTotal']],
+  longoPrazo: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Ações EUA', 'acoesEua', 'fluxoCaixaAcoesEua'], ['Renda Fixa', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo']],
+  nacional: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Renda Fixa', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo']],
+  carteiraRendaFixaTotal: [['Longo prazo', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo'], ['Reserva de emergência', 'rendaEmergencial', 'fluxoCaixaRendaEmergencial']],
+};
+
+/** Monta as entradas de analisarSerie a partir do que o gráfico já calculou. */
+function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda }) {
+  const serie = janela.map((p, i) => ({ data: p.data, valor: p[campoPrincipal], retorno: seriePrincipal[i], fluxo: p[campoFluxoPrincipal], pregao: p.pregao }));
+  const indices = {};
+  seriesBenchmark.forEach((b) => {
+    indices[b.label] = janela.map((p, i) => ({ data: p.data, retorno: b.valores[i] })).filter((x) => x.retorno != null);
+  });
+  // contexto: ~6 meses até o fim da janela, só pra medir a oscilação típica
+  // (num "Mês atual" de 2 dias não dá pra saber se a queda foi brusca)
+  const fimIdx = historico.indexOf(janela[janela.length - 1]);
+  let contexto = null;
+  let inicioComp = historico.indexOf(janela[0]);
+  if (fimIdx > 0) {
+    const ctxJanela = historico.slice(Math.max(0, fimIdx - 180), fimIdx + 1);
+    const idxNasc = primeiroIndiceValidoInicio_(ctxJanela, campoPrincipal);
+    const ctx = idxNasc > 0 ? ctxJanela.slice(idxNasc) : ctxJanela;
+    const retCtx = normalizarSerieRentabilidade(ctx, campoPrincipal, campoFluxoPrincipal);
+    const indCtx = {};
+    seriesBenchmark.forEach((b) => {
+      const v = normalizarSerieRentabilidade(ctx, b.campo);
+      indCtx[b.label] = ctx.map((p, i) => ({ data: p.data, retorno: v[i] })).filter((x) => x.retorno != null);
+    });
+    contexto = { serie: ctx.map((p, i) => ({ data: p.data, retorno: retCtx[i], pregao: p.pregao })), indices: indCtx };
+    inicioComp = Math.min(inicioComp === -1 ? fimIdx : inicioComp, Math.max(0, fimIdx - 180));
+  }
+  let componentes = null;
+  const defs = COMPONENTES_ANALISE_POR_VISAO[visaoId];
+  if (defs && fimIdx >= 0) {
+    const fatia = historico.slice(Math.max(0, inicioComp - 1), fimIdx + 1);
+    componentes = {};
+    defs.forEach(([rotulo, campo, campoFluxo]) => {
+      componentes[rotulo] = fatia.map((p) => ({ data: p.data, valor: p[campo], fluxo: p[campoFluxo] }));
+    });
+  }
+  return analisarSerie({
+    serie, indices, periodo: periodoId, contexto, componentes, formatarMoeda,
+    nome: nomeAnalise || NOME_ANALISE_POR_VISAO[visaoId] || 'A carteira',
+  });
 }
 
 const LABEL_POR_VISAO_RENTABILIDADE = {
@@ -1463,10 +1539,16 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   // Início (nem uma entrada em VISOES pras visões carteira*) - o valor
   // atual é o último ponto da própria série (que já é o valor ao vivo de
   // hoje, ver HistoricoInicio.gs/Home.gs).
-  const valorAtual = patrimonio && VISOES[visaoId] ? resolverVisao(patrimonio, visaoId).valor : ultimoValorDoCampo_(historico, campo);
+  const valorAtualHoje = patrimonio && VISOES[visaoId] ? resolverVisao(patrimonio, visaoId).valor : ultimoValorDoCampo_(historico, campo);
   // 20/09/2026: mesmo corte de "Desde o início" por visão - ver comentário
   // de filtrarHistoricoPorPeriodo/renderGraficoRentabilidade.
   const janela = filtrarHistoricoPorPeriodo(historico, periodoId, campo);
+  // 02/10/2026: período personalizado que termina ANTES de hoje - o valor
+  // mostrado é o do fim do intervalo (o "ganho no período" é dele), não o de hoje.
+  const ultimoDia = historico && historico.length ? historico[historico.length - 1].data : null;
+  const fimJanela = janela.length ? janela[janela.length - 1].data : null;
+  const terminaAntes = !!(fimJanela && ultimoDia && fimJanela < ultimoDia);
+  const valorAtual = terminaAntes ? ultimoValorDoCampo_(janela, campo) : valorAtualHoje;
   const abertura = janela.length >= 2 && inicioEhAbertura_(historico, janela, campo, campoFluxo);
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo, { abertura }) : [];
   const percentual = ultimoValidoDe_(serieNormalizada);
@@ -1502,7 +1584,7 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
     }
   }
 
-  return { valorAtual, ganhoReais, percentual };
+  return { valorAtual, ganhoReais, percentual, dataFim: terminaAntes ? fimJanela : null };
 }
 
 /**
@@ -1521,16 +1603,20 @@ export function somarProventosNoPeriodo(historico, periodoId, campoCorte, campos
   return Math.round(soma * 100) / 100;
 }
 
-export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL, camposProventos = null } = {}) {
+export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL, camposProventos = null, comparativo = null } = {}) {
   if (!container) return;
-  const { valorAtual, ganhoReais, percentual: ultimoValido } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
+  const { valorAtual, ganhoReais, percentual: ultimoValido, dataFim } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
+  // 02/10/2026: intervalo personalizado que termina antes de hoje - o valor é o do fim dele
+  const sufixoData = dataFim ? ` <span class="rentab-card-em">em ${formatDateBR(dataFim)}</span>` : '';
   container.innerHTML = `
-    <div class="rentab-card-label">${label || LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}</div>
+    <div class="rentab-card-label">${label || LABEL_POR_VISAO_RENTABILIDADE[visaoId] || LABEL_POR_VISAO_RENTABILIDADE.total}${sufixoData}</div>
     <div class="rentab-card-value"></div>
     <div class="rentab-card-delta"></div>
   `;
   setValorComDec(container.querySelector('.rentab-card-value'), formatarMoeda(valorAtual));
+  // 02/10/2026 (pedido B): "Ontem era" + 3 meses, logo abaixo do valor (ver inicio-comparativo.js)
+  if (comparativo) container.insertAdjacentHTML('beforeend', htmlComparativo(comparativo, { formatarMoeda }));
 
   const deltaEl = container.querySelector('.rentab-card-delta');
   if (typeof ultimoValido === 'number') {
@@ -1609,7 +1695,7 @@ export function calcularResumoEvolucao(valores, investidos = null) {
 /** 23/09/2026 #8: bloco "rótulo / R$ valor / ±R$ variação no período /
  * Valor aplicado e ±R$ (±x%) acima/abaixo dele" em cima do gráfico de Evolução - mesmo visual do bloco da
  * Rentabilidade (renderInfoRentabilidade). */
-export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valores, investidos = null, formatarMoeda = formatBRL } = {}) {
+export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valores, investidos = null, formatarMoeda = formatBRL, comparativo = null, dataFim = null } = {}) {
   if (!container) return;
   const r = calcularResumoEvolucao(valores, investidos);
   container.innerHTML = `
@@ -1619,6 +1705,9 @@ export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valo
     <div class="rentab-card-sub"></div>
   `;
   container.querySelector('.rentab-card-label').textContent = label;
+  if (dataFim) container.querySelector('.rentab-card-label').insertAdjacentHTML('beforeend', ` <span class="rentab-card-em">em ${formatDateBR(dataFim)}</span>`);
+  // 02/10/2026 (pedido B): "Ontem era" + 3 meses (ver inicio-comparativo.js)
+  if (comparativo && r) container.querySelector('.rentab-card-delta').insertAdjacentHTML('afterend', htmlComparativo(comparativo, { formatarMoeda }));
   const deltaEl = container.querySelector('.rentab-card-delta');
   const subEl = container.querySelector('.rentab-card-sub');
   if (!r) {
@@ -1642,6 +1731,43 @@ export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valo
   } else {
     subEl.textContent = 'com aportes e retiradas';
   }
+}
+
+/** 02/10/2026: { min, max } (1º e último dia do histórico) - datas do
+ * calendário de "Escolher período" fora disso ficam desabilitadas. */
+export function limitesDoHistorico_(historico) {
+  if (!Array.isArray(historico) || !historico.length) return null;
+  const min = historico[0] && historico[0].data;
+  const max = historico[historico.length - 1] && historico[historico.length - 1].data;
+  return typeof min === 'string' && typeof max === 'string' ? { min, max } : null;
+}
+
+/** 02/10/2026 (pedido C): onde o card de Análise de um painel mora -
+ * `analiseContainer` explícito, ou (analise:true) um <div> criado 1x logo
+ * depois da legenda (ou do gráfico). */
+function slotAnalise_(doc, painel) {
+  if (painel.analiseContainer) return painel.analiseContainer;
+  if (!painel.analise) return null;
+  const ancora = painel.legendaContainer || painel.chartContainer;
+  if (!ancora || !ancora.parentNode) return null;
+  if (ancora._agSlot && ancora._agSlot.parentNode) return ancora._agSlot;
+  const slot = doc.createElement('div');
+  slot.className = 'ag-slot';
+  ancora.parentNode.insertBefore(slot, ancora.nextSibling);
+  ancora._agSlot = slot;
+  return slot;
+}
+
+/** 02/10/2026 (pedido B): "Ontem era" + meses do painel da Início/Carteiras -
+ * o valor de referência é o MESMO que o bloco mostra (ao vivo, hoje) e o
+ * "ontem" de hoje vem pronto do back-end quando a visão tem (resposta.ontem). */
+function comparativoDoPainel_(estado, visaoId) {
+  const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId] || CAMPO_PRINCIPAL_POR_VISAO.total;
+  const janela = filtrarHistoricoPorPeriodo(estado.historico, estado.periodoAtual, campo);
+  const chaveOntem = { total: 'total', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial' }[visaoId];
+  const valorReferencia = estado.patrimonio && VISOES[visaoId] ? resolverVisao(estado.patrimonio, visaoId).valor : null;
+  const ontemValor = chaveOntem && estado.ontem && typeof estado.ontem[chaveOntem] === 'number' ? estado.ontem[chaveOntem] : null;
+  return calcularComparativo(estado.historico, campo, estado.periodoAtual, { janela, valorReferencia, ontemValor });
 }
 
 /**
@@ -1675,37 +1801,60 @@ export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valo
  * mais recente através do objeto `estado` (nunca duma variável capturada
  * na 1ª chamada), por isso continuam corretos depois de um refresh.
  */
-export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes' } = {}) {
+export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTabsContainer, paineis = [], periodoInicial = 'mes', periodoPersonalizado = null, ontem = null } = {}) {
+  // 02/10/2026 (pedido A): o filtro de período agora é o controlador de
+  // periodo-personalizado.js (presets + chip "Escolher período" quando
+  // `periodoPersonalizado` vem - { chave } pro localStorage). Sem a opção, só
+  // os presets, exatamente como antes (ex.: telas que ainda não integraram).
+  const limites = limitesDoHistorico_(historico);
+  const chavePeriodo = typeof periodoPersonalizado === 'string' ? periodoPersonalizado : (periodoPersonalizado && periodoPersonalizado.chave) || null;
   if (periodoTabsContainer && periodoTabsContainer._graficoEstado) {
     const estado = periodoTabsContainer._graficoEstado;
     estado.patrimonio = patrimonio;
     estado.historico = historico;
     estado.paineis = paineis;
+    estado.ontem = ontem;
+    const filtro = ligarFiltroPeriodo(doc, periodoTabsContainer, { chave: chavePeriodo, comChip: !!periodoPersonalizado, periodoInicial, limites });
+    if (filtro) estado.periodoAtual = filtro.periodo;
     estado.atualizar();
     return;
   }
 
-  const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial };
+  const estado = { patrimonio, historico, paineis, periodoAtual: periodoInicial, ontem };
 
   estado.atualizar = function atualizar() {
-    estado.paineis.forEach(({ visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda, camposProventos, labelPrincipal }) => {
-      renderInfoRentabilidade(doc, infoContainer, { patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: formatarMoeda || formatBRL, camposProventos: camposProventos || null });
+    estado.paineis.forEach((painel) => {
+      const { visaoId, chartContainer, legendaContainer, infoContainer, labelInfo, formatarMoeda, camposProventos, labelPrincipal } = painel;
+      const moeda = formatarMoeda || formatBRL;
+      renderInfoRentabilidade(doc, infoContainer, {
+        patrimonio: estado.patrimonio, historico: estado.historico, visaoId, periodoId: estado.periodoAtual, label: labelInfo, formatarMoeda: moeda, camposProventos: camposProventos || null,
+        comparativo: painel.comparativo ? comparativoDoPainel_(estado, visaoId) : null,
+      });
       if (chartContainer) {
-        renderGraficoRentabilidade(doc, chartContainer, { historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer, labelPrincipal: labelPrincipal || undefined });
+        renderGraficoRentabilidade(doc, chartContainer, {
+          historico: estado.historico, visaoId, periodoId: estado.periodoAtual, legendaContainer, labelPrincipal: labelPrincipal || undefined,
+          benchmarksExtra: painel.benchmarksExtra || null,
+          analiseContainer: slotAnalise_(doc, painel),
+          nomeAnalise: painel.nomeAnalise || null,
+          formatarMoeda: moeda,
+        });
       }
     });
   };
 
   if (periodoTabsContainer) {
     periodoTabsContainer._graficoEstado = estado;
-    const botoesPeriodo = Array.from(periodoTabsContainer.querySelectorAll('.filter-tab'));
-    botoesPeriodo.forEach((botao) => {
-      botao.addEventListener('click', () => {
-        botoesPeriodo.forEach((b) => b.classList.toggle('active', b === botao));
-        estado.periodoAtual = botao.dataset.periodo;
+    const filtro = ligarFiltroPeriodo(doc, periodoTabsContainer, {
+      chave: chavePeriodo,
+      comChip: !!periodoPersonalizado,
+      periodoInicial,
+      limites,
+      aoMudar(periodo) {
+        estado.periodoAtual = periodo;
         estado.atualizar();
-      });
+      },
     });
+    if (filtro) estado.periodoAtual = filtro.periodo;
   }
 
   const janela = doc.defaultView;
@@ -2252,20 +2401,20 @@ function montarCorpoGraficoAtivo_(doc, corpo, { ativo, serie }) {
 
   const chartWrap = corpo.querySelector('.ativo-grafico-chart-wrap');
   const formatMoeda = ativo.classe === 'usa' ? formatUSD : formatBRL;
-  const botoesPeriodo = Array.from(corpo.querySelectorAll('.filter-tab'));
 
   function redesenhar_(periodoId) {
     renderGraficoPrecoAtivo_(doc, chartWrap, { serie, periodoId, formatMoeda });
   }
 
-  botoesPeriodo.forEach((botao) => {
-    botao.addEventListener('click', () => {
-      botoesPeriodo.forEach((b) => b.classList.toggle('active', b === botao));
-      redesenhar_(botao.dataset.periodo);
-    });
+  // 02/10/2026 (pedido A): mesmo filtro com "Escolher período" dos outros
+  // gráficos - o calendário só deixa escolher dias que a série do ativo tem.
+  const filtro = ligarFiltroPeriodo(doc, corpo.querySelector('.ativo-grafico-periodo'), {
+    chave: 'inicio.graficoAtivo',
+    periodoInicial: 'mes',
+    limites: limitesDoHistorico_(serie),
+    aoMudar: redesenhar_,
   });
-
-  redesenhar_('mes');
+  redesenhar_(filtro ? filtro.periodo : 'mes');
 }
 
 /**
@@ -2403,6 +2552,8 @@ export function wireGraficoAtivo(doc, container, { token, getHistoricoAtivoImpl 
     if (!cardAberto) return;
     const alvo = ev.target;
     if (popover.contains(alvo) || cardAberto.contains(alvo)) return;
+    // 02/10/2026: o calendário de "Escolher período" mora fora do popover
+    if (alvo && typeof alvo.closest === 'function' && alvo.closest('.fp-camada')) return;
     esconder_();
   }
 
@@ -2528,11 +2679,20 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       historico: resposta.historico,
       periodoTabsContainer: doc.getElementById('periodoTabs'),
       periodoInicial: 'mes',
+      // 02/10/2026: "Escolher período" (A), "Ontem era" + meses (B) e o card de Análise (C)
+      periodoPersonalizado: { chave: 'inicio.rentabilidade' },
+      ontem: resposta.ontem,
       paineis: PAINEIS_RENTABILIDADE.map(({ visaoId, sufixo }) => ({
         visaoId,
         infoContainer: doc.getElementById(`rentabInfo${sufixo}`),
         chartContainer: doc.getElementById(`rentabChart${sufixo}`),
         legendaContainer: doc.getElementById(`rentabLegenda${sufixo}`),
+        comparativo: true,
+        analise: true,
+        // 03/10/2026 (revisão do pedido D, "Patrimônio total: incluir o índice
+        // IPCA"): a mesma linha do IPCA da Visão geral de Carteiras também no
+        // Patrimônio total da Início (as outras visões ficam como estavam).
+        benchmarksExtra: visaoId === 'total' ? [{ campo: 'indiceIpca', label: 'IPCA', cor: '--rf', dash: '3 3' }] : null,
       })),
     });
 

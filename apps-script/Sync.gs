@@ -24,7 +24,11 @@
  * incompleto como "sucesso".
  *
  * SETUP (rodar uma vez, se ainda não rodou):
- * 1) instalarGatilhoDiario() manualmente no editor.
+ * 1) instalarAgendaDiaria() (Agenda.gs) manualmente no editor — 02/10/2026:
+ *    substituiu o gatilho diário solto de ~10h (gatilhoDiario) pela agenda
+ *    encadeada: ativos -> Renda Fixa + Índices às 10:01 em ponto e, só se
+ *    os dois derem certo, snapshot/proventos/informes FNet, com até 3
+ *    tentativas cada. instalarGatilhoDiario() agora só chama ela.
  * 2) Aba "Registro de Controle" com cabeçalho na linha 1:
  *    Timestamp | Origem | Status | Detalhe.
  * 3) [testes] Aba "aux_tests" com o MESMO cabeçalho de "aux_historico-patrimonio"
@@ -123,28 +127,26 @@ var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 var TICKERS_FORA_DO_HISTORICO = ['STR'];
 
 /**
- * Instala o gatilho diário — rodar UMA VEZ, manualmente, no editor.
- * Time-driven trigger não tem opção nativa "seg-sáb" na API, por isso
- * ele dispara todo dia e é a própria gatilhoDiario() que pula domingo.
+ * 02/10/2026 (Tiago: "Sync: Horário fixo de execução: ativos, renda fixa e
+ * índices às 10:01 sempre. As outras, depois, só se ativos/RF/índices
+ * deram certo, com retry 2-3x."): o gatilho solto de
+ * .atHour(10).nearMinute(1) (que o Apps Script dispara em qualquer ponto
+ * de uma janela de ±15 min, sem dependência com os outros jobs) foi
+ * substituído pela agenda encadeada de Agenda.gs. Esta função continua
+ * existindo pra quem já tinha o hábito de rodá-la — agora só delega pra
+ * instalarAgendaDiaria() (que remove o gatilho antigo de gatilhoDiario,
+ * se ainda existir, e instala o despertador da agenda).
  */
 function instalarGatilhoDiario() {
-  var jaExiste = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'gatilhoDiario';
-  });
-  if (jaExiste) {
-    Logger.log('Gatilho já existe, nada a fazer.');
-    return;
-  }
-  ScriptApp.newTrigger('gatilhoDiario')
-    .timeBased()
-    .everyDays(1)
-    .atHour(10)
-    .nearMinute(1)
-    .create();
-  Logger.log('Gatilho diário instalado (dispara por volta de 10h, todo dia — domingo é ignorado dentro da própria função).');
+  return instalarAgendaDiaria(); // Agenda.gs
 }
 
-/** Chamada pelo gatilho — só filtra domingo antes de rodar a rotina de verdade. */
+/**
+ * Rotina antiga do gatilho diário (ativos + snapshot do resumo) — não tem
+ * mais gatilho próprio desde 02/10/2026 (ver Agenda.gs, que roda as mesmas
+ * duas coisas em etapas separadas, com retry), mas continua funcionando
+ * se for chamada na mão no editor. Só filtra domingo antes de rodar.
+ */
 function gatilhoDiario() {
   if (new Date().getDay() === 0) { // 0 = domingo
     Logger.log('Hoje é domingo, gatilho não faz nada.');

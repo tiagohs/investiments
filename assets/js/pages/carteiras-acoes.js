@@ -185,6 +185,7 @@ function desenhar(doc, dados) {
     wireGraficosClasseCarteiras(doc, {
       historico: dados.historico,
       periodoTabsContainer: doc.getElementById('acoesPeriodoTabs'),
+      periodoPersonalizado: { chave: 'carteiras.acoes' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
       paineis: [{
         visaoId: 'carteiraAcoes',
         camposProventos: ['proventosAcoes'], // 24/09/2026: proventos recebidos no período
@@ -196,6 +197,8 @@ function desenhar(doc, dados) {
         evolucaoChartContainer: doc.getElementById('acoesEvolucaoChart'),
         evolucaoLegendaContainer: doc.getElementById('acoesEvolucaoLegenda'),
         corToken: '--acoes',
+        analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
+        comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
       }],
     });
   } else {

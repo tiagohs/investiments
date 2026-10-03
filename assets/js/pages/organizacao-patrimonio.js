@@ -11,19 +11,29 @@
  *  - Balanço: investimentos (do site), reserva, apê (índices ou valor
  *    digitado), FGTS, outros bens | financiamento, FIES (saldo andando
  *    sozinho mês a mês), outras dívidas. Quanto do apê já é seu.
- *  - Histórico (31/12 de cada ano, pelo IR) + de onde veio o crescimento.
- *  - Carreira (CTPS) e FGTS (extratos).
+ *  - Histórico (31/12 de cada ano, pelo IR) com filtro de período e o card
+ *    de análise + de onde veio o crescimento (também com filtro).
+ *  - Patrimônio vs. inflação (patrimonio-inflacao.js).
  *  - Aposentadoria: a meta SEM as parcelas das dívidas, explicada; ritmo x
- *    meta; projeção com marcos.
- *  - Simulador "amortizar ou investir" e "Como acelerar".
- *  - Documentos: PDFs lidos no navegador (patrimonio-import.js) - só os
- *    totais vão pra planilha (Patrimonio.gs, aba aux_patrimonio).
+ *    meta; projeção com marcos; "Como acelerar".
+ *  - Documentos: PDFs lidos no navegador (patrimonio-import.js) - só o que a
+ *    tela usa vai pra planilha (Patrimonio.gs, aba aux_patrimonio).
+ * 03/10/2026 (Tiago: "Patrimônio: mover a área de simulação de pagamento das
+ * dívidas para Gastos e Despesas; só deixe aqui simulações que façam sentido
+ * relacionadas ao tema patrimônio" e "Carreira e FGTS (que estão em
+ * Patrimônio) ... pra Renda e Orçamentos"): o simulador amortizar × investir
+ * agora é organizacao-simulador.js (aba Gastos e Despesas) e Carreira/FGTS
+ * são desenhados por montarCarreiraFgts (aba Renda e Orçamentos). Ficam aqui
+ * as simulações de patrimônio: projeção da aposentadoria e Coast FI.
  * Contas em patrimonio-calc.js; gráficos em patrimonio-graficos.js.
  */
 import { getPatrimonio, salvarPatrimonio, getArquivosIrPatrimonio, getArquivoIrPatrimonio } from '../api-client.js';
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { carregarPdfJs, extrairLinhasPdf } from './holerite.js';
 import { lerValorBR } from './organizacao-calc.js';
+import { ligarFiltroPeriodo } from '../periodo-personalizado.js';
+import { analisarSerie, renderAnalise } from '../analise-grafico.js';
+import { montarPatrimonioVsInflacao, seriesReais } from './patrimonio-inflacao.js';
 import {
   identificarDocumento, lerDeclaracaoIr, lerExtratoFgts, lerCtps, lerExtratoCaixaHabitacao, lerExtratoFies, contaFgtsParaSalvar, GRUPOS_IR, MOTIVOS_SAQUE_FGTS,
 } from './patrimonio-import.js';
@@ -177,7 +187,7 @@ export function dicasAcelerar(ctx) {
     if (r && r.taxaEmpate) {
       dicas.push({
         id: 'amortizar', titulo: 'Financiamento: amortizar ou investir?', destaque: false,
-        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. Simule abaixo.`,
+        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule em Gastos e Despesas ›</a>`,
       });
     }
   }
@@ -185,7 +195,7 @@ export function dicasAcelerar(ctx) {
   const c4 = rodar({ alvo: alvo4 });
   dicas.push({
     id: 'saque', titulo: 'Quanto sacar por ano', destaque: false,
-    html: `A meta usa <b>${esc(pct(meta.taxa, 0))} ao ano</b> (o rendimento da Distribuição e Metas). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
+    html: `A meta usa <b>${esc(pct(meta.taxa, 0))} ao ano</b> (o rendimento da aba Distribuição e Metas da planilha). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
   });
   if (num(ctx.coast)) {
     dicas.push({
@@ -382,6 +392,66 @@ export function htmlFgts(ctx) {
     ${barrasDivergentes(destino, { sinal: false })}`;
 }
 
+/**
+ * 03/10/2026: Carreira e FGTS saíram da aba Patrimônio e foram pra "Renda e
+ * Orçamentos" (pedido do Tiago). Esta função desenha a seção onde a página
+ * mandar, com o contexto da aba Patrimônio (contextoPatrimonio) - o mesmo
+ * HTML de antes (htmlCarreira/htmlFgts) e o balão do gráfico de salários.
+ * aoAcao('importar') leva pra importação de documentos (aba Patrimônio).
+ *   const cf = montarCarreiraFgts(raiz, { doc, aoAcao });  cf.atualizar(ctx);
+ */
+export function montarCarreiraFgts(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null } = {}) {
+  const win = doc && doc.defaultView;
+  let ctx = null;
+  const dicas = {};
+  raiz.innerHTML = `<section class="pt-sec" id="ptSecCarreira"><div class="pt-sec-cab"><h2>Carreira e FGTS</h2><span class="pt-hint">pela Carteira de Trabalho e pelos extratos do FGTS</span></div>
+      <div class="pt-duas"><div class="pt-card pt-pad" id="ptCarreira"><span class="skel" style="height:180px;border-radius:12px"></span></div><div class="pt-card pt-pad" id="ptFgts"><span class="skel" style="height:180px;border-radius:12px"></span></div></div></section>`;
+  const largura = () => { const e = raiz.querySelector('#ptCarreira'); return (e && e.clientWidth) || 520; };
+  function desenhar() {
+    if (!ctx) return;
+    const car = htmlCarreira(ctx, largura() - 32);
+    raiz.querySelector('#ptCarreira').innerHTML = car.html;
+    dicas.sal = car.dicas;
+    raiz.querySelector('#ptFgts').innerHTML = htmlFgts(ctx);
+  }
+  function mostrar(alvo) {
+    const box = alvo.closest('[data-grafico]');
+    const tt = box && box.querySelector('.pt-tt');
+    const html = box && dicas[box.dataset.grafico] && dicas[box.dataset.grafico][Number(alvo.dataset.i)];
+    if (!tt || !html) return;
+    tt.innerHTML = html;
+    tt.hidden = false;
+    const rb = box.getBoundingClientRect ? box.getBoundingClientRect() : { left: 0, width: 0 };
+    const ra = alvo.getBoundingClientRect ? alvo.getBoundingClientRect() : { left: 0, width: 0 };
+    let x = ra.left - rb.left + ra.width / 2 + 12;
+    if (x > rb.width - 210) x = Math.max(4, ra.left - rb.left + ra.width / 2 - 222);
+    tt.style.left = `${x}px`;
+    tt.style.top = '24px';
+  }
+  const esconder = () => raiz.querySelectorAll('.pt-tt').forEach((t) => { t.hidden = true; });
+  raiz.addEventListener('mouseover', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrar(h); });
+  raiz.addEventListener('mouseout', (ev) => { if (ev.target.closest && ev.target.closest('.pt-hit')) esconder(); });
+  raiz.addEventListener('focusin', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrar(h); });
+  raiz.addEventListener('focusout', esconder);
+  raiz.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-acao]');
+    if (b && raiz.contains(b) && typeof aoAcao === 'function') aoAcao(b.dataset.acao);
+  });
+  if (win && typeof win.addEventListener === 'function') {
+    let t = null; let antes = 0;
+    win.addEventListener('resize', () => {
+      if (!ctx || !raiz.offsetParent) return;
+      clearTimeout(t);
+      t = setTimeout(() => { const w = largura(); if (Math.abs(w - antes) >= 8) { antes = w; desenhar(); } }, 200);
+    });
+  }
+  return {
+    atualizar(novoCtx) { ctx = novoCtx; desenhar(); },
+    erro(msg) { raiz.querySelectorAll('#ptCarreira, #ptFgts').forEach((e) => { e.innerHTML = `<p class="pt-nota">${esc(msg)}</p>`; }); },
+    get contexto() { return ctx; },
+  };
+}
+
 export function htmlMeta(ctx) {
   const { meta, p, libs, d } = ctx;
   const fmtp = (v) => formatNumeroBR(v, 2);
@@ -390,12 +460,12 @@ export function htmlMeta(ctx) {
   const quita = libs.map((l) => `${l.id === 'fies' ? 'o FIES' : 'o apê'} em ${mesAno(somarMeses(d.hoje, l.mes))}`).join(' e ');
   return `
     <div class="pt-meta-conta">
-      <p>A meta da <a href="../distribuicoes-metas.html">Distribuição e Metas</a> parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(brl(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
+      <p>A meta da planilha (aba Distribuição e Metas) parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(brl(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
       <ol class="pt-meta-passos">
         <li><span>Planilha hoje</span><code>(${esc(fmtp(meta.custoComFolga))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaDM))}/mês</b><small>precisa de ${esc(mil(meta.patrimonioDM))}</small></li>
         <li class="pt-meta-final"><span>Sem as parcelas</span><code>(${esc(fmtp(meta.custoComFolga))} − ${esc(fmtp(meta.parcelas))} × ${esc(formatNumeroBR(1 + meta.folga, 2))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaSem))}/mês</b><small>precisa de <b>${esc(mil(meta.patrimonioSem))}</b></small></li>
       </ol>
-      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(pct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(pct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da Distribuição e Metas)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - a gente mexe nela quando fizer a tela de Metas.</p>
+      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(pct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(pct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da aba Distribuição e Metas da planilha)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - quem acompanha a meta é a tela <a href="../metas.html">Metas e Objetivos</a>.</p>
     </div>
     <details class="pt-descontar"><summary>O que conta como parcela de dívida (${marcados.length})</summary><div class="pt-chk-lista">${opcoes}</div></details>`;
 }
@@ -433,38 +503,6 @@ export function htmlDicas(dicas) {
   return dicas.map((x) => `<article class="pt-dica${x.destaque ? ' hl' : ''}" data-dica="${esc(x.id)}"><span class="pt-dica-t">${esc(x.titulo)}</span><p>${x.html}</p></article>`).join('');
 }
 
-export function htmlSimulador(ctx, sim) {
-  const { cfg, d } = ctx;
-  const temFin = cfg.financiamento && num(cfg.financiamento.saldo);
-  const temFies = cfg.fies && num(cfg.fies.saldo);
-  if (!temFin && !temFies) return '<p class="pt-nota">Cadastre o financiamento ou o FIES pra simular.</p>';
-  const qual = sim.divida === 'fies' && temFies ? 'fies' : (temFin ? 'financiamento' : 'fies');
-  const par = parametrosDivida(qual, cfg[qual], d.hoje);
-  const r = amortizarOuInvestir(par, { valor: sim.valor || 0, mensal: sim.mensal || 0, modo: sim.modo, rendimentoAnual: sim.rendimento });
-  const seg = (grupo, itens, atual) => `<div class="pt-seg" role="group" data-sim="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${atual === v ? 'on' : ''}" aria-pressed="${atual === v}">${esc(rot)}</button>`).join('')}</div>`;
-  const fimMes = r ? mesAno(somarMeses(d.hoje, r.meses)) : '';
-  const res = !r || (!(sim.valor > 0) && !(sim.mensal > 0)) ? '<p class="pt-nota">Coloque um valor a mais (agora ou por mês).</p>' : `
-    <div class="pt-sim-res">
-      <div class="pt-tile${r.melhor === 'amortizar' ? ' dest' : ''}"><span class="pt-rot">Amortizando</span><b>${esc(mil(r.patrimonioAmortizando))}</b><small>investido em ${esc(fimMes)}, depois de quitar (o que sobra das parcelas vai pro investimento)</small></div>
-      <div class="pt-tile${r.melhor === 'investir' ? ' dest' : ''}"><span class="pt-rot">Investindo</span><b>${esc(mil(r.patrimonioInvestindo))}</b><small>investido em ${esc(fimMes)}, pagando a dívida normal</small></div>
-    </div>
-    <p class="pt-sim-veredito"><b>${r.melhor === 'amortizar' ? 'Amortizar' : 'Investir'} deixa você com ${esc(mil(Math.abs(r.vantagemAmortizar)))} a mais</b> em ${esc(fimMes)}${r.taxaEmpate ? `. Empata se o investimento render <b>${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>` : ''}.</p>
-    <ul class="pt-sim-det">
-      ${sim.modo === 'prazo' ? `<li>Termina <b>${esc(mesesTxt(r.mesesAMenos))} antes</b> (${esc(mesAno(somarMeses(d.hoje, r.mesesComExtra)))})</li>` : `<li>Parcela de <b>${esc(brl(r.parcelaAntes))}</b> pra <b>${esc(brl(r.parcelaDepois))}</b></li>`}
-      <li>Economiza <b>${esc(mil(r.jurosEconomizados))}</b> de juros</li>
-      <li>Dívida a ${esc(pct(par.sistema === 'SAC' ? par.taxaMensal * 12 : (1 + par.taxaMensal) ** 12 - 1, 2))} a.a. (sem a TR)</li>
-    </ul>`;
-  return `
-    <div class="pt-sim-ctl">
-      <label class="pt-ctl"><span class="pt-ctl-row">Dívida</span>${seg('divida', [...(temFin ? [['financiamento', 'Financiamento']] : []), ...(temFies ? [['fies', 'FIES']] : [])], qual)}</label>
-      <label class="pt-ctl" for="ptSimValor"><span class="pt-ctl-row">A mais, agora</span><span class="pt-input"><i>R$</i><input id="ptSimValor" inputmode="decimal" value="${esc(numCampo(sim.valor, 0))}"></span></label>
-      <label class="pt-ctl" for="ptSimMensal"><span class="pt-ctl-row">A mais, todo mês</span><span class="pt-input"><i>R$</i><input id="ptSimMensal" inputmode="decimal" value="${esc(numCampo(sim.mensal, 0))}"></span></label>
-      <label class="pt-ctl"><span class="pt-ctl-row">Amortizar pra</span>${seg('modo', [['prazo', 'diminuir o prazo'], ['parcela', 'diminuir a parcela']], sim.modo)}</label>
-      <label class="pt-ctl" for="ptSimRend"><span class="pt-ctl-row">Investimento rende (líquido)</span><span class="pt-input"><input id="ptSimRend" inputmode="decimal" value="${esc(formatNumeroBR(sim.rendimento * 100, 1))}"><i>% a.a.</i></span></label>
-    </div>
-    <div class="pt-sim-saida">${res}</div>`;
-}
-
 export function htmlFontes(ctx, { driveConfigurado = false } = {}) {
   const { cfg, d } = ctx;
   const irs = (cfg.ir && cfg.ir.anos) || [];
@@ -481,7 +519,7 @@ export function htmlFontes(ctx, { driveConfigurado = false } = {}) {
   ];
   return `
     <ul class="pt-fontes">${itens.map((i) => `<li class="${i.ok ? 'ok' : 'falta'}"><span class="pt-fonte-st" aria-label="${i.ok ? 'ok' : 'falta'}">${i.ok ? '✓' : '•'}</span><span class="pt-fonte-n"><b>${esc(i.nome)}</b><small>${esc(i.det)}</small></span><span class="pt-fonte-a">${i.acoes}</span></li>`).join('')}</ul>
-    <p class="pt-nota">Os PDFs são lidos <b>aqui no navegador</b> e não sobem pra lugar nenhum: só os totais (saldos, valores por ano) vão pra aba <code>aux_patrimonio</code> da sua planilha, no seu Drive - nada de CPF, PIS, conta, endereço ou número de contrato.${driveConfigurado ? ' As declarações do IR podem vir direto da sua pasta do Drive.' : ' Pra ler as declarações direto da pasta do Drive, rode <code>configurarPastaIrDireto</code> uma vez no Apps Script.'}</p>`;
+    <p class="pt-nota">Os PDFs são lidos <b>aqui no navegador</b> e não sobem pra lugar nenhum: só o que a tela usa vai pra aba <code>aux_patrimonio</code> da sua planilha (privada, no seu Drive) - saldos e valores por ano, as empresas e os salários da Carteira de Trabalho, o mês de nascimento e, da declaração do IR, o <b>banco, a agência e a conta</b> de cada conta declarada e a raiz do CNPJ de quem te paga (pra aba Renda e Orçamentos). Nada de CPF, PIS, endereço ou número de contrato.${driveConfigurado ? ' As declarações do IR podem vir direto da sua pasta do Drive.' : ' Pra ler as declarações direto da pasta do Drive, rode <code>configurarPastaIrDireto</code> uma vez no Apps Script.'}</p>`;
 }
 
 function resumoImportado(item) {
@@ -688,6 +726,82 @@ export function lerDocumento(linhas) {
 }
 
 // ---------------------------------------------------------------------------
+// Filtros e análise do histórico (03/10/2026 - Tiago: "Muitas informações
+// parecem engessadas. Inclua filtro nos gráficos e tabelas ... seguindo o
+// padrão das outras telas")
+// ---------------------------------------------------------------------------
+
+export const PERIODOS_HISTORICO = [{ id: '5a', nome: '5 anos' }, { id: '10a', nome: '10 anos' }, { id: 'tudo', nome: 'Tudo' }];
+export const PERIODOS_ORIGEM = [{ id: '6m', nome: '6 meses' }, { id: '12m', nome: '12 meses' }, { id: '24m', nome: '24 meses' }, { id: 'tudo', nome: 'Tudo' }];
+const fimDoMes = (mes) => { const [a, m] = String(mes).split('-').map(Number); const d = new Date(Date.UTC(a, m, 0)); return `${mes}-${String(d.getUTCDate()).padStart(2, '0')}`; };
+const dataLinhaHist = (l, hoje) => (l.hoje ? String(hoje).slice(0, 10) : `${l.ano}-12-31`);
+
+/** Linhas do histórico anual dentro do período ('5a' | '10a' | 'tudo' | { inicio, fim }). */
+export function recortarHistorico(hist, periodo, hoje) {
+  const linhas = hist || [];
+  if (!periodo || periodo === 'tudo') return linhas;
+  if (typeof periodo === 'object') {
+    const a = String(periodo.inicio || '0000'); const b = String(periodo.fim || '9999');
+    return linhas.filter((l) => { const d = dataLinhaHist(l, hoje); return d >= a && d <= b; });
+  }
+  const anos = ({ '3a': 3, '5a': 5, '10a': 10 })[periodo];
+  if (!anos) return linhas;
+  const anoHoje = Number(String(hoje).slice(0, 4));
+  return linhas.filter((l) => l.ano >= anoHoje - anos);
+}
+
+/** Texto curto do período ("últimos 12 meses", "mar/25 a set/26"). */
+export function rotuloPeriodoOrigem(o, periodo) {
+  if (!o) return '';
+  if (periodo && typeof periodo === 'object') return `${mesAno(o.de)} a ${mesAno(o.ate)}`;
+  return ({ '6m': 'últimos 6 meses', '12m': 'últimos 12 meses', '24m': 'últimos 24 meses', tudo: `desde ${mesAno(o.de)}` })[periodo] || `${mesAno(o.de)} a ${mesAno(o.ate)}`;
+}
+
+/**
+ * Série pro card "Análise" (analise-grafico.js) embaixo do gráfico do
+ * histórico: o patrimônio líquido de 31/12 de cada ano (e o de hoje), com o
+ * dinheiro novo de cada ano (aportes, parcelas que abateram dívida, compra
+ * do apê - o "fluxo" de patrimonio-inflacao.js!seriesReais) pra comparar o
+ * crescimento SEM os aportes com o CDI e o IPCA (historicoMensal traz
+ * indiceCdi/indiceIpca). Só os anos em que o site tem o mês a mês (antes
+ * disso não dá pra separar aporte de rendimento). null = sem dado bastante.
+ */
+export function analiseHistorico(linhas, d, ctx = null) {
+  if (!linhas || linhas.length < 2 || !d) return null;
+  let base = null;
+  try { base = seriesReais(d, { hoje: d.hoje, ctx }); } catch (e) { base = null; }
+  const pts = (base && base.pontos) || [];
+  if (pts.length < 2) return null;
+  const mesHoje = mesDe(d.hoje);
+  const mesDaLinha = (l) => (l.hoje ? mesHoje : `${l.ano}-12`);
+  let usaveis = linhas.filter((l) => mesDaLinha(l) >= pts[0].mes);
+  // rentabilidade sobre um patrimônio negativo (dívida maior que tudo) não faz
+  // sentido: a análise começa depois do último fim de ano com líquido ≤ 0
+  const ultNeg = usaveis.map((l) => l.liquido > 0).lastIndexOf(false);
+  if (ultNeg >= 0) usaveis = usaveis.slice(ultNeg + 1);
+  if (usaveis.length < 2) return null;
+  const serie = usaveis.map((l, k) => {
+    const m = mesDaLinha(l);
+    const antes = k ? mesDaLinha(usaveis[k - 1]) : null;
+    const fluxo = k ? pts.filter((p) => p.mes > antes && p.mes <= m && num(p.fluxo)).reduce((s2, p) => s2 + p.fluxo, 0) : 0;
+    return { data: dataLinhaHist(l, d.hoje), valor: l.liquido, fluxo: Math.round(fluxo * 100) / 100 };
+  });
+  const dataMes = (m) => (m === mesHoje ? String(d.hoje).slice(0, 10) : fimDoMes(m));
+  const hm = (d.historicoMensal || []).filter((p) => p && /^\d{4}-\d{2}$/.test(String(p.mes)) && p.mes <= mesHoje);
+  const indices = {};
+  const cdi = hm.filter((p) => num(p.indiceCdi) && p.indiceCdi > 0).map((p) => ({ data: dataMes(p.mes), valor: p.indiceCdi }));
+  const ipca = hm.filter((p) => num(p.indiceIpca) && p.indiceIpca > 0).map((p) => ({ data: dataMes(p.mes), valor: p.indiceIpca }));
+  if (cdi.length >= 2) indices.CDI = cdi;
+  if (ipca.length >= 2) indices.IPCA = ipca;
+  return {
+    serie, indices, periodo: { inicio: serie[0].data, fim: serie[serie.length - 1].data },
+    analise: analisarSerie({ serie, indices, periodo: { inicio: serie[0].data, fim: serie[serie.length - 1].data }, nome: 'O patrimônio líquido (sem contar o dinheiro novo)', indiceReferencia: indices.IPCA ? 'IPCA' : null }),
+  };
+}
+
+const tabsPeriodo = (periodos, id, rotulo) => `<div class="filter-tabs pt-filtro" id="${id}" role="group" aria-label="${esc(rotulo)}">${periodos.map((p) => `<button type="button" class="filter-tab" data-periodo="${p.id}">${esc(p.nome)}</button>`).join('')}</div>`;
+
+// ---------------------------------------------------------------------------
 // Aba
 // ---------------------------------------------------------------------------
 
@@ -698,19 +812,29 @@ function base64ParaBytes(b64) {
   return out;
 }
 
+/**
+ * Monta a aba. 03/10/2026: `getPatrimonioImpl` pode ser o carregador
+ * compartilhado da página (a mesma resposta serve as 3 abas e o painel de
+ * Documentos) e `aoMudarDados(dados, ctx)` avisa a página a cada redesenho
+ * (carregou, salvou um bloco, importou documentos, mudou preferência) pra
+ * Renda e Orçamentos, o simulador e os Documentos acompanharem.
+ */
 export function montarAbaPatrimonio({
   doc, el, token, getPatrimonioImpl = getPatrimonio, salvarImpl = salvarPatrimonio, getArquivosIrImpl = getArquivosIrPatrimonio,
   getArquivoIrImpl = getArquivoIrPatrimonio, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf, atrasoPrefsMs = 700,
+  aoMudarDados = null,
 }) {
   let dados = null;
   let ctx = null;
   const est = {
-    prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '',
-    sim: { divida: 'financiamento', valor: 30000, mensal: 0, modo: 'prazo', rendimento: null },
+    prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '', perHist: 'tudo', perOrigem: '12m',
   };
   let timerPrefs = null;
   const win = doc.defaultView;
   el._ptDicas = {};
+  let inflacao = null;
+  const filtros = {};
+  const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados, ctx); } catch (e) { /* a aba continua */ } } };
 
   const largura = (sel, padrao) => { const e = el.querySelector(sel); return (e && e.clientWidth) || padrao; };
 
@@ -721,22 +845,82 @@ export function montarAbaPatrimonio({
       <div id="ptPainel"></div>
       <section class="pt-sec"><div class="pt-sec-cab"><h2>O que você tem e o que você deve</h2><span class="pt-hint">investimentos vêm do site; financiamento e FIES andam sozinhos mês a mês</span></div>
         <div class="pt-card pt-bal" id="ptBalanco"></div></section>
-      <section class="pt-sec"><div class="pt-sec-cab"><h2>Como seu patrimônio cresceu</h2><span class="pt-hint">31/12 de cada ano · hoje pelo site</span></div>
-        <div class="pt-card"><div class="pt-grafico" data-grafico="hist" id="ptGHist"></div>
-          <div class="pt-leg pt-leg-graf">${SERIES_HISTORICO.map((s) => `<span><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}<span><i class="pt-leg-linha"></i>Patrimônio líquido</span></div>
+      <section class="pt-sec" id="ptSecHist"><div class="pt-sec-cab"><h2>Como seu patrimônio cresceu</h2><span class="pt-hint">31/12 de cada ano · hoje pelo site</span></div>
+        <div class="pt-card"><div class="pt-graf-cab">${tabsPeriodo(PERIODOS_HISTORICO, 'ptFiltroHist', 'Período do histórico')}<span class="pt-hint" id="ptHistHint"></span></div>
+          <div class="pt-grafico" data-grafico="hist" id="ptGHist"></div>
+          <div class="pt-leg pt-leg-graf">${SERIES_HISTORICO.map((x) => `<span><i style="background:${x.cor}"></i>${esc(x.nome)}</span>`).join('')}<span><i class="pt-leg-linha"></i>Patrimônio líquido</span></div>
+          <div class="pt-analise" id="ptAnaliseHist" hidden></div>
           <div class="pt-tab-wrap" id="ptTHist"></div><p class="pt-nota pt-nota-pad" id="ptNotaHist"></p></div>
-        <div class="pt-card pt-pad"><div class="pt-card-cab"><h3>De onde veio o crescimento</h3><span class="pt-hint">últimos 12 meses</span></div><div id="ptOrigem"></div></div></section>
-      <section class="pt-sec"><div class="pt-sec-cab"><h2>Carreira e FGTS</h2><span class="pt-hint">pela Carteira de Trabalho e pelos extratos do FGTS</span></div>
-        <div class="pt-duas"><div class="pt-card pt-pad" id="ptCarreira"></div><div class="pt-card pt-pad" id="ptFgts"></div></div></section>
-      <section class="pt-sec"><div class="pt-sec-cab"><h2>Aposentadoria: quanto, quando e o que muda o prazo</h2><span class="pt-hint">em dinheiro de hoje (rendimento acima da inflação)</span></div>
+        <div class="pt-card pt-pad"><div class="pt-card-cab pt-card-cab-filtro"><h3>De onde veio o crescimento</h3><span class="pt-hint" id="ptOrigemHint"></span>${tabsPeriodo(PERIODOS_ORIGEM, 'ptFiltroOrigem', 'Período de "de onde veio o crescimento"')}</div><div id="ptOrigem"></div></div></section>
+      <div id="ptInflacao" class="pt-inflacao"></div>
+      <section class="pt-sec"><div class="pt-sec-cab"><h2>Aposentadoria: quanto, quando e o que muda o prazo</h2><span class="pt-hint">em dinheiro de hoje (rendimento acima da inflação)</span><a class="pt-link pt-sec-link" href="../metas.html">Ver ou criar a meta de aposentadoria em Metas e Objetivos ›</a></div>
         <div class="pt-card pt-pad" id="ptMeta"></div>
         <div class="pt-card pt-fut"><div class="pt-fut-ctl" id="ptCtl"></div><div class="pt-fut-res"><div class="pt-tiles" id="ptTiles"></div><div class="pt-grafico" data-grafico="proj" id="ptGProj"></div>
           <div class="pt-leg"><span><i style="background:var(--pt-inv)"></i>Seus investimentos</span><span><i class="pt-leg-tracejado"></i>Patrimônio necessário</span><span><i style="background:var(--ink-faint)"></i>Marcos</span></div></div></div></section>
       <section class="pt-sec"><div class="pt-sec-cab"><h2>Como acelerar</h2><span class="pt-hint">calculado com os seus números - quanto cada coisa muda o prazo</span></div><div class="pt-dicas" id="ptDicas"></div></section>
-      <section class="pt-sec" id="ptSecSim"><div class="pt-sec-cab"><h2>Simular: amortizar ou investir?</h2><span class="pt-hint">o mesmo dinheiro saindo do bolso nos dois caminhos</span></div><div class="pt-card pt-sim" id="ptSim"></div></section>
-      <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números</span></div><div class="pt-card pt-pad" id="ptFontes"></div></section>
+      <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números · importe aqui o IR, o FGTS, a Carteira de Trabalho e os extratos do financiamento e do FIES</span></div><div class="pt-card pt-pad" id="ptFontes"></div></section>
       <input type="file" id="ptArquivo" accept="application/pdf,.pdf" multiple hidden>`;
     ligar();
+    ligarFiltros();
+  }
+
+  function ligarFiltros() {
+    const ligar1 = (id, chave, inicial, aoMudar) => {
+      const tabs = el.querySelector(`#${id}`);
+      if (!tabs) return;
+      let ctl = null;
+      try { ctl = ligarFiltroPeriodo(doc, tabs, { chave, periodoInicial: inicial, comChip: true, aoMudar }); } catch (e) { ctl = null; }
+      if (ctl) { filtros[id] = ctl; return ctl.periodo; }
+      tabs.addEventListener('click', (ev) => {
+        const b = ev.target.closest('[data-periodo]');
+        if (!b) return;
+        tabs.querySelectorAll('.filter-tab').forEach((x) => { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', String(x === b)); });
+        aoMudar(b.dataset.periodo);
+      });
+      const b0 = tabs.querySelector(`[data-periodo="${inicial}"]`);
+      if (b0) { b0.classList.add('active'); b0.setAttribute('aria-pressed', 'true'); }
+      return inicial;
+    };
+    est.perHist = ligar1('ptFiltroHist', 'patrimonio.historico', est.perHist, (p) => { est.perHist = p; desenharHistorico(); }) || est.perHist;
+    est.perOrigem = ligar1('ptFiltroOrigem', 'patrimonio.origem', est.perOrigem, (p) => { est.perOrigem = p; desenharOrigem(); }) || est.perOrigem;
+  }
+
+  function atualizarLimitesFiltros() {
+    if (!ctx) return;
+    const hoje = String(dados.hoje).slice(0, 10);
+    const h0 = ctx.hist[0];
+    const hm = (dados.historicoMensal || []).filter((x) => num(x.patrimonio));
+    const lims = {
+      ptFiltroHist: h0 ? { min: `${h0.ano}-01-01`, max: hoje } : null,
+      ptFiltroOrigem: hm.length ? { min: `${hm[0].mes}-01`, max: hoje } : null,
+    };
+    Object.entries(filtros).forEach(([id, c]) => { if (lims[id]) try { c.definirLimites(lims[id]); } catch (e) { /* ok */ } });
+  }
+
+  function desenharHistorico() {
+    if (!ctx || !el.querySelector('#ptGHist')) return;
+    const linhas = recortarHistorico(ctx.hist, est.perHist, dados.hoje);
+    const hint = el.querySelector('#ptHistHint');
+    if (linhas.length < 2) {
+      el.querySelector('#ptGHist').innerHTML = '<p class="pt-nota pt-nota-pad">Pouco histórico neste período (precisa de pelo menos 2 fins de ano). Escolha um período maior.</p>';
+      el._ptDicas.hist = [];
+    } else desenharGrafico('#ptGHist', 'hist', graficoHistorico(linhas, { largura: largura('#ptGHist', 720) }));
+    if (hint) hint.textContent = linhas.length >= 2 ? `${linhas[0].ano} → ${linhas[linhas.length - 1].hoje ? 'hoje' : linhas[linhas.length - 1].ano}` : '';
+    el.querySelector('#ptTHist').innerHTML = linhas.length ? htmlHistoricoTabela(linhas) : '';
+    const box = el.querySelector('#ptAnaliseHist');
+    if (box) {
+      let a = null;
+      try { a = analiseHistorico(linhas, dados, ctx); } catch (e) { a = null; }
+      renderAnalise(doc, box, a && a.analise && a.analise.pontos && a.analise.pontos.length ? a.analise : null);
+    }
+  }
+
+  function desenharOrigem() {
+    if (!dados || !el.querySelector('#ptOrigem')) return;
+    let o = null;
+    try { o = origemCrescimento(dados, est.perOrigem); } catch (e) { o = null; }
+    el.querySelector('#ptOrigem').innerHTML = o ? htmlCrescimento(o) : '<p class="pt-nota">Sem meses suficientes neste período (o site começa a contar no 1º mês do histórico da Início).</p>';
+    el.querySelector('#ptOrigemHint').textContent = rotuloPeriodoOrigem(o, est.perOrigem);
   }
 
   function recalcular() { ctx = contextoPatrimonio(dados, est.prefs); }
@@ -765,11 +949,6 @@ export function montarAbaPatrimonio({
     el.querySelector('#ptDicas').innerHTML = htmlDicas(dicasAcelerar(ctx));
   }
 
-  function desenharSimulador() {
-    if (est.sim.rendimento == null) est.sim.rendimento = num(dados.cdi) ? Math.round(dados.cdi * 0.85 * 1000) / 1000 : 0.1;
-    el.querySelector('#ptSim').innerHTML = htmlSimulador(ctx, est.sim);
-  }
-
   function desenharPainel() {
     const painel = el.querySelector('#ptPainel');
     let html = '';
@@ -792,21 +971,30 @@ export function montarAbaPatrimonio({
     el.querySelector('#ptSecFontes').hidden = faltando;
     el.querySelector('#ptFontes').innerHTML = faltando ? '' : fontes;
     el.querySelector('#ptBalanco').innerHTML = htmlBalanco(ctx);
-    desenharGrafico('#ptGHist', 'hist', graficoHistorico(ctx.hist, { largura: largura('#ptGHist', 720) }));
-    el.querySelector('#ptTHist').innerHTML = htmlHistoricoTabela(ctx.hist);
+    desenharHistorico();
     el.querySelector('#ptNotaHist').innerHTML = htmlHistoricoNota(ctx);
-    el.querySelector('#ptOrigem').innerHTML = htmlCrescimento(ctx.origem);
-    const car = htmlCarreira(ctx, largura('#ptCarreira', 520) - 32);
-    el.querySelector('#ptCarreira').innerHTML = car.html;
-    el._ptDicas.sal = car.dicas;
-    el.querySelector('#ptFgts').innerHTML = htmlFgts(ctx);
+    desenharOrigem();
+    atualizarLimitesFiltros();
+    desenharInflacao();
     el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
     desenharFuturo();
-    desenharSimulador();
     desenharPainel();
     if (dados.avisos) {
       const av = Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ');
       el.querySelector('#ptNotaHist').insertAdjacentHTML('beforeend', `<span class="pt-aviso bad"> Parte dos dados não veio: ${esc(av)}</span>`);
+    }
+    avisar();
+  }
+
+  // Patrimônio vs. inflação (patrimonio-inflacao.js), logo depois do histórico
+  function desenharInflacao() {
+    const box = el.querySelector('#ptInflacao');
+    if (!box) return;
+    try {
+      if (!inflacao) inflacao = montarPatrimonioVsInflacao(box, { patrimonio: dados, ctx, doc, hoje: dados.hoje });
+      else inflacao.atualizar({ patrimonio: dados, ctx, hoje: dados.hoje });
+    } catch (e) {
+      box.innerHTML = `<p class="pt-nota">Não deu pra montar "Patrimônio vs. inflação": ${esc(e.message || e)}</p>`;
     }
   }
 
@@ -829,6 +1017,7 @@ export function montarAbaPatrimonio({
     if (meta) el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
     desenharFuturo({ controles });
     salvarPrefsDepois();
+    avisar();
   }
 
   async function salvarBloco(chave, valor) {
@@ -952,8 +1141,6 @@ export function montarAbaPatrimonio({
         else if (grupo === 'aporteModo') mudarPrefs({ aporteModo: v }, { controles: true });
         return;
       }
-      const sim = ev.target.closest('[data-sim] [data-v]');
-      if (sim) { est.sim[sim.closest('[data-sim]').dataset.sim] = sim.dataset.v; desenharSimulador(); return; }
       const b = ev.target.closest('[data-acao]');
       if (!b || !el.contains(b)) return;
       const acao = b.dataset.acao;
@@ -1007,11 +1194,6 @@ export function montarAbaPatrimonio({
       else if (t.dataset && t.dataset.drive !== undefined) { est.drive.arquivos[Number(t.dataset.drive)].marcado = t.checked; desenharPainel(); }
       else if (t.id === 'ptRend' || t.id === 'ptAporte') salvarPrefsDepois();
       else if (t.id === 'ptIdade') { const v = lerValorBR(t.value); if (num(v) && v >= 30 && v <= 90) mudarPrefs({ idadeAlvo: Math.round(v) }); }
-      else if (t.id === 'ptSimValor' || t.id === 'ptSimMensal' || t.id === 'ptSimRend') {
-        const v = lerValorBR(t.value);
-        if (t.id === 'ptSimRend') { if (num(v)) est.sim.rendimento = v / 100; } else est.sim[t.id === 'ptSimValor' ? 'valor' : 'mensal'] = num(v) ? v : 0;
-        desenharSimulador();
-      }
     });
 
     el.addEventListener('input', (ev) => {
@@ -1039,11 +1221,26 @@ export function montarAbaPatrimonio({
 
   el.innerHTML = '<div class="carteiras-loading" aria-hidden="true"><span class="skel" style="height:150px;border-radius:14px"></span><span class="skel" style="height:320px;border-radius:14px"></span></div>';
   const pronto = carregar();
+  /** Abre a importação de PDFs (o seletor de arquivos) e rola até os documentos. */
+  function abrirImportacao() {
+    const inp = el.querySelector('#ptArquivo');
+    if (inp) inp.click();
+    rolarAte('#ptSecFontes:not([hidden]), #ptFontesTopo:not([hidden])');
+  }
+  function rolarAte(sel) {
+    const alvo = el.querySelector(sel);
+    if (alvo && alvo.scrollIntoView) try { alvo.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
+  }
+
   return {
     pronto,
     recarregar: carregar,
     get dados() { return dados; },
     get contexto() { return ctx; },
     lerArquivos,
+    abrirImportacao,
+    /** Declarações do IR direto da pasta do Drive (lista pra marcar e ler). */
+    abrirDriveIr: async () => { await pronto; if (!dados) return; rolarAte('#ptPainel'); await abrirDrive(); },
+    rolarAte,
   };
 }

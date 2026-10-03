@@ -7,6 +7,7 @@
 // Proventos, a exportação da B3 e o FNet, já sem repetição. Aqui só desenha.
 import { formatBRL, formatNumeroBR } from '../format.js';
 import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026
+import { iconeConferenciaHtml } from './proventos-calc.js'; // 02/10/2026: pago presumido / conferência B3
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const COR_CLASSE = { acoes: '--acoes', fiis: '--fiis', acoesEua: '--usa' };
@@ -21,6 +22,39 @@ export function diaMesDeChave(chave) {
 
 function anoMesLocal_(data) {
   return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
+}
+function diaLocal_(data) {
+  return `${anoMesLocal_(data)}-${String(data.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 02/10/2026 (Tiago: "se a data de pagamento já passou, deduz que está
+ * pago"): separa o que a Início mostra pelo dia de hoje -
+ *  - recebidos do mês = aba Proventos + pagos não lançados (B3/FNet) deste
+ *    mês + a receber cujo pagamento já chegou (resposta do cache de ontem),
+ *    esses dois como pago presumido (contam no "Recebido");
+ *  - avisos = pagos não lançados de meses anteriores e os que o extrato da
+ *    B3 não confirmou.
+ */
+export function separarPorDataInicio(dados, { hoje = new Date() } = {}) {
+  const d = dados || {};
+  const dia = diaLocal_(hoje);
+  const mes = dia.slice(0, 7);
+  const aReceber = [];
+  const recebidos = Array.isArray(d.recebidosNoMes) ? d.recebidosNoMes.slice() : [];
+  const avisos = [];
+  (Array.isArray(d.aReceber) ? d.aReceber : []).forEach((p) => {
+    if (p.dataPagamento && p.dataPagamento <= dia) {
+      if (p.dataPagamento.slice(0, 7) === mes) recebidos.push({ ...p, conferencia: 'presumido' });
+      else avisos.push({ ...p, conferencia: 'presumido' });
+    } else aReceber.push(p);
+  });
+  (Array.isArray(d.pagosNaoLancados) ? d.pagosNaoLancados : []).forEach((p) => {
+    const conferencia = p.conferencia || 'presumido';
+    if (conferencia !== 'nao_confirmado' && String(p.dataPagamento || '').slice(0, 7) === mes) recebidos.push({ ...p, conferencia, naoLancado: true });
+    else avisos.push({ ...p, conferencia });
+  });
+  return { aReceber, recebidos, avisos };
 }
 
 const soma_ = (itens) => Math.round((itens || []).reduce((s, p) => s + (typeof p.valor === 'number' ? p.valor : 0), 0) * 100) / 100;
@@ -52,11 +86,12 @@ function linhaHtml_(p, { modo = 'receber' } = {}) {
     ? `${formatNumeroBR(q, q % 1 ? 2 : 0)} × ${p.moeda === 'USD' ? 'US$' : 'R$'} ${p.valorPorCota.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
     : '';
   let quando;
-  if (modo === 'recebido') quando = `pago ${diaMesDeChave(p.dataPagamento)}`;
-  else if (modo === 'naoLancado') quando = `pago ${diaMesDeChave(p.dataPagamento)} · ainda não lançado`;
+  const naoLancado = p.naoLancado || (p.fonte && p.fonte !== 'Planilha');
+  if (modo === 'recebido') quando = `pago ${diaMesDeChave(p.dataPagamento)}${naoLancado ? ' · ainda não lançado' : ''}`;
+  else if (modo === 'naoLancado') quando = `pago ${diaMesDeChave(p.dataPagamento)} · ${p.conferencia === 'nao_confirmado' ? 'não confirmado pela B3' : 'ainda não lançado'}`;
   else quando = p.dataPagamento ? `paga ${diaMesDeChave(p.dataPagamento)}` : 'pagamento a definir';
   const detalhes = [quando, p.dataCom ? `data com ${diaMesDeChave(p.dataCom)}` : '', p.tipo || ''].filter(Boolean).join(' · ');
-  const selo = modo === 'receber' && p.jaLancado ? '<span class="prov-selo" title="Já está na aba Proventos">lançado</span>' : '';
+  const selo = modo === 'receber' && p.jaLancado ? '<span class="prov-selo" title="Já está na aba Proventos">lançado</span>' : (modo === 'receber' ? '' : iconeConferenciaHtml(p, { classe: 'prov-conf' }));
   const cor = COR_CLASSE[p.classe] || '--ink-faint';
   return `
     <li class="prov-item">
@@ -77,9 +112,7 @@ function linhaHtml_(p, { modo = 'receber' } = {}) {
  */
 export function renderProventosAnunciados(doc, secao, dados, { hoje = new Date() } = {}) {
   if (!secao) return;
-  const aReceber = (dados && Array.isArray(dados.aReceber)) ? dados.aReceber : [];
-  const recebidos = (dados && Array.isArray(dados.recebidosNoMes)) ? dados.recebidosNoMes : [];
-  const naoLancados = (dados && Array.isArray(dados.pagosNaoLancados)) ? dados.pagosNaoLancados : [];
+  const { aReceber, recebidos, avisos: naoLancados } = separarPorDataInicio(dados, { hoje }); // 02/10/2026
   const corpo = secao.querySelector('.prov-corpo');
   if (!aReceber.length && !recebidos.length && !naoLancados.length) {
     secao.hidden = true;
@@ -109,7 +142,7 @@ export function renderProventosAnunciados(doc, secao, dados, { hoje = new Date()
     }
   }
   if (naoLancados.length) {
-    html += `<p class="prov-aviso">Já pagos e ainda não lançados na aba Proventos:</p>
+    html += `<p class="prov-aviso">Já pagos e ainda não lançados (ou não confirmados pela B3):</p>
       <ul class="prov-lista prov-lista-aviso">${naoLancados.map((p) => linhaHtml_(p, { modo: 'naoLancado' })).join('')}</ul>`;
   }
   corpo.innerHTML = html;

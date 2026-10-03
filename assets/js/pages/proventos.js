@@ -15,6 +15,8 @@
 import { getProventos, importarProventosB3 } from '../api-client.js';
 import { formatBRL, formatBRLCompacto, formatNumeroBR } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
+import { ligarFiltroPeriodo, ehPeriodoPersonalizado } from '../periodo-personalizado.js'; // 02/10/2026: "Escolher período"
+import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise embaixo do Histórico mensal
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { logoAtivoHtml } from './carteiras-classe-comum.js';
 import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026
@@ -22,6 +24,8 @@ import {
   CLASSES, NOME_CLASSE, COR_CLASSE, PERIODOS, MESES_CURTOS, MESES_LONGOS,
   resumoConsolidado, historicoMensal, rankingPorAtivo, receitaFutura, rotuloMes,
   itensAgenda, anosDaAgenda, contagemPorMes, filtrarAgenda, previaExportacaoB3,
+  normalizarPorData, hojeSaoPaulo, resumoConferencia, iconeConferenciaHtml, // 02/10/2026: pago presumido / conferência B3
+  filtrarClasse, proventosPorMes, analisarProventosMensais, somarMeses, // 02/10/2026: análise do histórico mensal
 } from './proventos-calc.js';
 
 const CHAVE_CACHE = 'proventos';
@@ -59,8 +63,8 @@ function valorPorCotaTxt(p) {
 // ---------------------------------------------------------------------------
 
 /** Botões de um controle segmentado (um grupo só, em vez de várias pílulas soltas). */
-function segHtml(itens, ativo, attr, rotulo, extra = '') {
-  return `<div class="pv-seg${extra}" role="group" aria-label="${rotulo}">${itens.map((it) => `<button type="button" class="pv-seg-btn${it.id === ativo ? ' active' : ''}" data-${attr}="${it.id}" aria-pressed="${it.id === ativo}">${it.html}</button>`).join('')}</div>`;
+function segHtml(itens, ativo, attr, rotulo, extra = '', classeBotao = '') {
+  return `<div class="pv-seg${extra}" role="group" aria-label="${rotulo}">${itens.map((it) => `<button type="button" class="pv-seg-btn${classeBotao}${it.id === ativo ? ' active' : ''}" data-${attr}="${it.id}" aria-pressed="${it.id === ativo}">${it.html}</button>`).join('')}</div>`;
 }
 const rotuloDuplo = (longo, curto) => `<span class="pv-longo">${longo}</span><span class="pv-curto">${curto}</span>`;
 
@@ -122,6 +126,35 @@ function cardsHtml(r, periodoNome, periodoId, mesNome) {
     </div>`;
 }
 
+/**
+ * 02/10/2026 (Tiago: "se a data de pagamento já passou, deduz que está
+ * pago. Eu mando no final do mês [o arquivo da B3] e você faz o check
+ * final"): uma linha discreta abaixo dos cartões - quanto dos totais é pago
+ * presumido e o resultado da última conferência; o que pede atenção
+ * (valor diferente / não confirmado) abre numa lista curta.
+ */
+function conferenciaHtml(c) {
+  const partes = [];
+  if (c.presumidos.quantidade) {
+    partes.push(`${iconeConferenciaHtml({ conferencia: 'presumido' })}<span><b>${c.presumidos.quantidade}</b> pago${c.presumidos.quantidade === 1 ? '' : 's'} presumido${c.presumidos.quantidade === 1 ? '' : 's'} (${formatBRL(c.presumidos.total)}) aguardando o extrato da B3</span>`);
+  }
+  if (c.ultimoPeriodo) {
+    const p = c.ultimoPeriodo;
+    const conferido = p.conferidoEm ? ` em ${dm(p.conferidoEm)}` : '';
+    partes.push(`${iconeConferenciaHtml({ conferencia: 'confirmado' })}<span>${esc(rotuloMes(p.mes))} conferido com a B3${conferido}: <b>${p.confirmados}</b> confirmado${p.confirmados === 1 ? '' : 's'}${p.divergentes ? ` · <b>${p.divergentes}</b> com valor diferente` : ''}${p.naoConfirmados ? ` · <b>${p.naoConfirmados}</b> não confirmado${p.naoConfirmados === 1 ? '' : 's'}` : ''}${p.extras ? ` · <b>${p.extras}</b> no extrato e não lançado${p.extras === 1 ? '' : 's'}` : ''}</span>`);
+  }
+  if (!partes.length) return '';
+  const atencao = [
+    ...c.divergentes.map((d) => `<li>${iconeConferenciaHtml({ ...d, conferencia: 'divergente' })}<b>${esc(d.ticker)}</b> ${dm(d.dataPagamento)} · previsto ${formatBRL(d.valor)} · B3 ${formatBRL(d.valorB3)}${d.dataB3 && d.dataB3 !== d.dataPagamento ? ` em ${dm(d.dataB3)}` : ''}</li>`),
+    ...c.naoConfirmados.map((d) => `<li>${iconeConferenciaHtml({ conferencia: 'nao_confirmado' })}<b>${esc(d.ticker)}</b> ${dm(d.dataPagamento)} · ${formatBRL(d.valor)} · não veio no extrato${d.contando ? ' (lançado: continua no total)' : ' (fora do total)'}</li>`),
+  ];
+  return `
+    <div class="pv-conf-faixa">
+      ${partes.map((x) => `<span class="pv-conf-item">${x}</span>`).join('')}
+      ${atencao.length ? `<details class="pv-conf-det"><summary>ver ${atencao.length} pra conferir</summary><ul>${atencao.join('')}</ul></details>` : ''}
+    </div>`;
+}
+
 function historicoCardHtml(estado) {
   const agrupar = [['classe', 'Classe'], ['tipo', 'Tipo'], ['ativo', 'Ativo']];
   return `
@@ -140,6 +173,7 @@ function historicoCardHtml(estado) {
       </div>
       <div class="pv-hist-corpo" id="pvHistCorpo"></div>
       <div class="pv-legenda" id="pvHistLegenda"></div>
+      <div class="ag-slot pv-hist-analise" id="pvHistAnalise" hidden></div>
     </section>`;
 }
 
@@ -214,7 +248,8 @@ function renderHistoricoGrafico(doc, corpo, hist) {
     tip.innerHTML = `
       <div class="pv-tooltip-titulo">${esc(MESES_LONGOS[Number(hist.meses[i].slice(5, 7)) - 1])} de ${hist.meses[i].slice(0, 4)}</div>
       ${linhas.map((p) => `<div class="pv-tooltip-item"><span class="pv-dot" style="background:var(${p.g.cor})"></span>${esc(p.g.rotulo)}<b>${formatBRL(p.v)}</b></div>`).join('') || '<div class="pv-tooltip-item">Nenhum provento</div>'}
-      ${linhas.length > 1 ? `<div class="pv-tooltip-item pv-tooltip-total">Total<b>${formatBRL(hist.totais[i])}</b></div>` : ''}`;
+      ${linhas.length > 1 ? `<div class="pv-tooltip-item pv-tooltip-total">Total<b>${formatBRL(hist.totais[i])}</b></div>` : ''}
+      ${hist.presumidos && hist.presumidos[i] > 0 ? `<div class="pv-tooltip-item pv-tooltip-presumido">${iconeConferenciaHtml({ conferencia: 'presumido' })}inclui ${formatBRL(hist.presumidos[i])} presumido</div>` : ''}`;
     tip.hidden = false;
     // ao lado da barra (nunca por cima dela)
     const cx = padL + slot * i + slot / 2;
@@ -305,14 +340,46 @@ function futuroHtml(f) {
     : '<p class="pv-vazio">Nenhuma data com anunciada à frente.</p>'}`;
 }
 
+/**
+ * 02/10/2026 (Tiago: "Adicionar em todos os filtros dos gráficos a opção
+ * 'Escolher período'"): o período do Consolidado pode ser um intervalo
+ * { inicio, fim } do calendário - cartões, barras e ranking usam os MESES
+ * que tocam o intervalo (o gráfico é mensal; ver proventos-calc!mesesDoIntervalo).
+ */
+function periodoDoEstado(estado) {
+  if (ehPeriodoPersonalizado(estado.periodo)) return { id: estado.periodo, nome: 'Período escolhido', personalizado: true };
+  return PERIODOS.find((p) => p.id === estado.periodo) || PERIODOS[1];
+}
+
+/** { min, max } do calendário: do 1º provento recebido até hoje. */
+export function limitesPeriodoProventos(dados) {
+  const datas = (dados.recebidos || []).map((p) => p.data).filter((d) => typeof d === 'string' && d <= dados.hoje).sort();
+  return { min: datas[0] || `${dados.hoje.slice(0, 4)}-01-01`, max: dados.hoje };
+}
+
+function mesesEntre(inicio, fim) {
+  const lista = [];
+  for (let m = inicio; m <= fim && lista.length < 600; m = somarMeses(m, 1)) lista.push(m);
+  return lista;
+}
+
+/** Análise do Histórico mensal (mesma janela e carteira do gráfico). */
+export function analiseHistoricoProventos(dados, estado, hist, r) {
+  const porMes = proventosPorMes(filtrarClasse(dados.recebidos, estado.classe), dados.hoje);
+  // a média é a MESMA do cartão "Média mensal" (meses fechados do período)
+  const mesesFechados = r.mediaInicio && r.mediaFim ? mesesEntre(r.mediaInicio, r.mediaFim) : null;
+  return analisarProventosMensais({ porMes, meses: hist.meses, mesAtual: dados.hoje.slice(0, 7), aReceberMes: r.aReceberEsteMes || 0, mesesFechados });
+}
+
 function renderConsolidado(doc, el, dados, estado, redesenhar, filtrosEl) {
-  const periodo = PERIODOS.find((p) => p.id === estado.periodo) || PERIODOS[1];
+  const periodo = periodoDoEstado(estado);
   const r = resumoConsolidado(dados, { classe: estado.classe, periodoId: periodo.id });
   const hist = historicoMensal(dados, { classe: estado.classe, periodoId: periodo.id, agrupar: estado.agrupar });
   const ranking = rankingPorAtivo(dados, { classe: estado.classe, periodoId: periodo.id });
   const futuro = receitaFutura(dados, { classe: estado.classe });
   el.innerHTML = `
     ${cardsHtml(r, periodo.nome, periodo.id, MESES_LONGOS[Number(dados.hoje.slice(5, 7)) - 1])}
+    ${conferenciaHtml(resumoConferencia(dados, { classe: estado.classe }))}
     ${historicoCardHtml(estado)}
     <div class="pv-duas">
       <section class="pv-bloco" aria-labelledby="pvRankTitulo">
@@ -329,10 +396,22 @@ function renderConsolidado(doc, el, dados, estado, redesenhar, filtrosEl) {
   if (estado.visao === 'tabela') renderHistoricoTabela(corpo, hist);
   else renderHistoricoGrafico(doc, corpo, hist);
   renderLegendaHistorico(el.querySelector('#pvHistLegenda'), hist);
+  // 02/10/2026 (pedido C): card de Análise embaixo do gráfico - lembra se estava aberto entre redesenhos
+  const slotAnalise = el.querySelector('#pvHistAnalise');
+  slotAnalise._agAberto = !!estado.analiseAberta;
+  renderAnalise(doc, slotAnalise, analiseHistoricoProventos(dados, estado, hist, r));
+  const det = slotAnalise.querySelector('details');
+  if (det) det.addEventListener('toggle', () => { estado.analiseAberta = det.open; });
 
   const CURTO = { ano: 'Ano', '12m': '12m', '24m': '24m', '36m': '36m', inicio: 'Início' };
-  filtrosEl.innerHTML = segHtml(PERIODOS.map((p) => ({ id: p.id, html: rotuloDuplo(p.nome, CURTO[p.id]) })), periodo.id, 'periodo', 'Período', ' pv-seg-periodos');
-  filtrosEl.querySelectorAll('[data-periodo]').forEach((b) => b.addEventListener('click', () => { estado.periodo = b.getAttribute('data-periodo'); redesenhar(); }));
+  // 02/10/2026: os botões também são .filter-tab (o que periodo-personalizado.js
+  // procura); o chip "Escolher período" entra ao lado do controle segmentado.
+  filtrosEl.innerHTML = `<div class="pv-periodo" id="pvPeriodo">${segHtml(PERIODOS.map((p) => ({ id: p.id, html: rotuloDuplo(p.nome, CURTO[p.id]) })), periodo.personalizado ? null : periodo.id, 'periodo', 'Período', ' pv-seg-periodos', ' filter-tab')}</div>`;
+  ligarFiltroPeriodo(doc, filtrosEl.querySelector('#pvPeriodo'), {
+    periodoInicial: estado.periodo,
+    limites: limitesPeriodoProventos(dados),
+    aoMudar(p) { estado.periodo = p; redesenhar(); },
+  });
   el.querySelectorAll('[data-agrupar]').forEach((b) => b.addEventListener('click', () => { estado.agrupar = b.getAttribute('data-agrupar'); redesenhar(); }));
   el.querySelectorAll('[data-visao]').forEach((b) => b.addEventListener('click', () => { estado.visao = b.getAttribute('data-visao'); redesenhar(); }));
   const mais = el.querySelector('[data-acao="ranking"]');
@@ -395,6 +474,7 @@ function ligarTooltipRanking(doc, lista, ranking) {
 const STATUS_PILL = {
   pago: ['Pago', 'pago'],
   naoLancado: ['Pago · não lançado', 'naolancado'],
+  naoConfirmado: ['Não confirmado', 'naolancado'], // 02/10/2026: o extrato da B3 do mês não trouxe
   aReceber: ['A receber', 'areceber'],
   semData: ['A definir', 'semdata'],
 };
@@ -413,7 +493,7 @@ function linhaAgendaHtml(p) {
       <td class="pv-ag-det">${p.dataCom ? dma(p.dataCom) : '—'}</td>
       <td class="pv-ag-meta">${meta}</td>
       <td class="pv-ag-pag">${p.dataPagamento ? dma(p.dataPagamento) : 'a definir'}</td>
-      <td class="pv-ag-sit"><span class="pv-pill ${classe}">${rotulo}</span></td>
+      <td class="pv-ag-sit"><span class="pv-pill ${classe}">${rotulo}</span>${p.status === 'naoConfirmado' ? '' : iconeConferenciaHtml(p)}</td>
       <td class="pv-ag-total"><b>${formatBRL(p.valor)}</b>${emDolar ? `<small>${usd(p.liquido)}${p.cambio ? ` · câmbio ${formatNumeroBR(p.cambio, 4)}` : ''}</small>` : ''}</td>
     </tr>`;
 }
@@ -426,7 +506,7 @@ function renderAgenda(doc, el, dados, estado, redesenhar, filtrosEl) {
   if (estado.mes === 'semData' && !cont.semData) estado.mes = null;
   const { itens: lista, total } = filtrarAgenda(itens, { ano: estado.ano, mes: estado.mes, status: estado.status });
   const recebido = lista.filter((p) => p.status === 'pago' || p.status === 'naoLancado').reduce((s, p) => s + p.valor, 0);
-  const aReceber = total - recebido;
+  const aReceber = lista.filter((p) => p.status === 'aReceber' || p.status === 'semData').reduce((s, p) => s + p.valor, 0);
   const iAno = anos.indexOf(estado.ano);
   const titulo = estado.mes === 'semData' ? 'Sem data de pagamento' : (estado.mes ? `${MESES_LONGOS[estado.mes - 1]} de ${estado.ano}` : `Ano de ${estado.ano}`);
   el.innerHTML = `
@@ -540,7 +620,7 @@ export function estadoInicialProventos(dados, prefs = {}) {
   return {
     aba: prefs.aba === 'agenda' ? 'agenda' : 'consolidado',
     classe: ['todas', 'acoes', 'fiis', 'acoesEua'].includes(prefs.classe) ? prefs.classe : 'todas',
-    periodo: PERIODOS.some((p) => p.id === prefs.periodo) ? prefs.periodo : '12m',
+    periodo: PERIODOS.some((p) => p.id === prefs.periodo) || ehPeriodoPersonalizado(prefs.periodo) ? prefs.periodo : '12m',
     agrupar: ['classe', 'tipo', 'ativo'].includes(prefs.agrupar) ? prefs.agrupar : 'classe',
     visao: 'grafico',
     rankingTodos: false,
@@ -550,8 +630,10 @@ export function estadoInicialProventos(dados, prefs = {}) {
   };
 }
 
-export function desenharProventos(doc, conteudo, dados, estado, { token = null, importarImpl = importarProventosB3, carregarXlsx = carregarSheetJs, aoImportar = async () => {} } = {}) {
-  const redesenhar = () => desenharProventos(doc, conteudo, dados, estado, { token, importarImpl, carregarXlsx, aoImportar });
+export function desenharProventos(doc, conteudo, dadosBrutos, estado, { token = null, importarImpl = importarProventosB3, carregarXlsx = carregarSheetJs, aoImportar = async () => {}, hojeLocal = hojeSaoPaulo() } = {}) {
+  // 02/10/2026: pagamento até hoje (São Paulo) = pago; os não lançados entram como presumidos
+  const dados = normalizarPorData(dadosBrutos, hojeLocal);
+  const redesenhar = () => desenharProventos(doc, conteudo, dados, estado, { token, importarImpl, carregarXlsx, aoImportar, hojeLocal });
   gravarPrefs(estado);
   conteudo.innerHTML = `${topoHtml(estado, dados)}<div class="pv-painel" id="pvPainel"></div>`;
   conteudo.querySelectorAll('[data-aba]').forEach((b) => b.addEventListener('click', () => { estado.aba = b.getAttribute('data-aba'); redesenhar(); }));
@@ -563,7 +645,8 @@ export function desenharProventos(doc, conteudo, dados, estado, { token = null, 
   ligarImportacao(doc, token, { importarImpl, carregarXlsx, aoImportar });
 }
 
-export async function montarPaginaProventos(token, { doc = document, getProventosImpl = getProventos, importarImpl = importarProventosB3, carregarXlsx = carregarSheetJs } = {}) {
+export async function montarPaginaProventos(token, { doc = document, getProventosImpl = getProventos, importarImpl = importarProventosB3, carregarXlsx = carregarSheetJs, hojeLocal = null } = {}) {
+  const hojeDe = () => hojeLocal || hojeSaoPaulo(); // 02/10/2026 (testes fixam o dia)
   const loadingEl = doc.getElementById('proventosLoading');
   const erroEl = doc.getElementById('proventosErro');
   const conteudo = doc.getElementById('proventosConteudo');
@@ -576,7 +659,7 @@ export async function montarPaginaProventos(token, { doc = document, getProvento
     if (!estado) estado = estadoInicialProventos(dados, lerPrefs());
     loadingEl.hidden = true;
     conteudo.hidden = false; // antes de desenhar: o gráfico mede a largura do cartão
-    desenharProventos(doc, conteudo, dados, estado, { token, importarImpl, carregarXlsx, aoImportar: carregar });
+    desenharProventos(doc, conteudo, dados, estado, { token, importarImpl, carregarXlsx, aoImportar: carregar, hojeLocal: hojeDe() });
   };
 
   async function carregar() {
@@ -610,7 +693,7 @@ export async function montarPaginaProventos(token, { doc = document, getProvento
       if (win.innerWidth === larguraAntes) return;
       larguraAntes = win.innerWidth;
       clearTimeout(t);
-      t = setTimeout(() => { if (dadosAtuais && estado) desenharProventos(doc, conteudo, dadosAtuais, estado, { token, importarImpl, carregarXlsx, aoImportar: carregar }); }, 150);
+      t = setTimeout(() => { if (dadosAtuais && estado) desenharProventos(doc, conteudo, dadosAtuais, estado, { token, importarImpl, carregarXlsx, aoImportar: carregar, hojeLocal: hojeDe() }); }, 150);
     });
   }
 }

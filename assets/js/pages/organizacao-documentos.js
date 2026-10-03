@@ -1,0 +1,299 @@
+/**
+ * organizacao-documentos.js - 03/10/2026: painel "Documentos" da Organização
+ * Financeira (no topo da página, valendo pras 3 abas).
+ *
+ * Tiago: "eu tenho que saber quais documentos preciso enviar mensalmente ou
+ * de vez em quando, e o que dá pra ser automatizado" e "Me mostre quais
+ * documentos precisaremos sempre estar enviando (prefiro que o site seja o
+ * mais inteligente possível)".
+ *
+ * Um lugar só, enxuto: uma barra com o resumo (quantos pra enviar, atrasados,
+ * em dia, automáticos) que abre a lista. Cada documento tem o status (em dia
+ * / atenção / atrasado / nunca enviado) calculado com as datas que o site JÁ
+ * TEM, o próximo esperado e o botão que leva ao lugar de importar.
+ *
+ * Sem lógica duplicada: IR, holerite, Carteira de Trabalho, FGTS, aportes e
+ * informe vêm de renda-calc.js!documentosRenda (o card "Documentos" da seção
+ * Renda); faturas e extratos, dos "meses importados" dos Gastos
+ * (gastos-calc.js!coberturaDocumentos) + a lista do Drive (novos/alterados).
+ * Aqui só entram os que não tinham dono: extrato do financiamento (Caixa),
+ * do FIES e o extrato de proventos da B3 (check final do mês).
+ *
+ * USO (organizacao.js):
+ *   const painel = montarPainelDocumentos(raiz, { doc, aoAcao });
+ *   painel.atualizar({ patrimonio, salario, gastos, gastosDrive, hoje });
+ *   // cada fonte: a resposta da API, null (não veio) ou undefined (carregando)
+ *   // aoAcao(acao, extra): 'ir-drive' | 'pdfs' (extra = arquivos) |
+ *   //   'holerite' (extra = arquivo) | 'gastos-novos' | 'gastos' | 'ir-sem-drive'
+ */
+import { documentosRenda } from './renda-calc.js';
+import { coberturaDocumentos, NOME_FONTE } from './gastos-calc.js';
+
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const mesDe = (d) => String(d || '').slice(0, 7);
+const rotMes = (m) => { const [a, mm] = String(m || '').split('-'); return a && mm ? `${MESES[Number(mm) - 1]}/${a.slice(2)}` : ''; };
+const dataCurta = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : rotMes(iso); };
+function somarMeses(mes, n) {
+  const [y, m] = mesDe(mes).split('-').map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+function difMeses(a, b) {
+  const [ya, ma] = mesDe(a).split('-').map(Number);
+  const [yb, mb] = mesDe(b).split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+const isoDe = (hoje) => {
+  if (hoje instanceof Date) return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  return String(hoje || '').slice(0, 10);
+};
+
+/** Gravidade (pra ordenar e resumir). */
+const PESO = { atrasado: 4, falta: 3, atencao: 2, carregando: 1, ok: 0, opcional: 0 };
+export const ROTULO_ESTADO = { ok: 'em dia', atencao: 'atenção', atrasado: 'atrasado', falta: 'nunca enviado', opcional: 'opcional', carregando: 'verificando…' };
+
+/** Fontes de fatura (cartão) e de extrato (conta) - gastos-calc.js!NOME_FONTE. */
+export const FONTES_CARTAO = ['ourocard', 'nubank-cartao', 'ofx-cartao'];
+export const FONTES_CONTA = ['nubank-conta', 'bradesco', 'ofx-conta'];
+
+/** Faturas (cartão) ou extratos (conta): status pelos meses importados + o que está novo no Drive. */
+export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
+  const cartao = tipo === 'faturas';
+  const base = cartao
+    ? { id: 'faturas', nome: 'Faturas do cartão', frequencia: 'todo mês', automatico: 'clique', como: 'o site acha os PDFs na pasta Documentos/Transações/Cartão de Crédito do Drive - você só confirma "Importar"' }
+    : { id: 'extratos', nome: 'Extratos da conta', frequencia: 'todo mês', automatico: 'clique', como: 'o site acha os PDFs (ou CSV/OFX) na pasta Documentos/Transações/Extratos do Drive - você só confirma "Importar"' };
+  if (gastos === undefined) return { ...base, estado: 'carregando', ultimo: null, proximo: '', acao: null };
+  const hojeIso = isoDe(hoje || new Date());
+  const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso);
+  const fontes = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
+  const novos = gastosDrive && Array.isArray(gastosDrive.arquivos)
+    ? gastosDrive.arquivos.filter((a) => (!a.importado || a.alterado) && (cartao ? /cart[aã]o/i.test(a.caminho || '') : /extrato/i.test(a.caminho || ''))).length
+    : 0;
+  const proxMes = mesDe(hojeIso);
+  const proximo = cartao ? `fatura de ${rotMes(proxMes)} (a que vence este mês)` : `extrato de ${rotMes(cob.ultimoFechado)} (o mês que fechou)`;
+  if (!fontes.length) {
+    return {
+      ...base, ultimo: null, estado: novos ? 'atencao' : 'falta',
+      proximo: novos ? `${novos} no Drive esperando` : 'importe pelo menos os últimos 12 meses',
+      acao: { id: novos ? 'gastos-novos' : 'gastos', rotulo: novos ? `Importar ${novos} do Drive` : 'Abrir Gastos' },
+      detalhe: gastos === null ? 'os gastos não carregaram agora' : null,
+    };
+  }
+  // fatura: o mês do vencimento; a do mês passado já devia estar lá - a deste mês sai uns dias antes do vencimento
+  let pior = 'ok';
+  const partes = fontes.map((f) => {
+    const atraso = difMeses(f.ultimo, cob.ultimoFechado);
+    const est = atraso <= 0 ? 'ok' : atraso === 1 ? 'atencao' : 'atrasado';
+    if (PESO[est] > PESO[pior]) pior = est;
+    return `${NOME_FONTE[f.fonte] || f.nome} ${rotMes(f.ultimo)}`;
+  });
+  const faltam = fontes.reduce((s, f) => s + f.faltam.length, 0);
+  let estado = pior;
+  if (estado === 'ok' && novos) estado = 'atencao';
+  return {
+    ...base, estado, ultimo: partes.join(' · '),
+    proximo: novos ? `${novos} ${novos === 1 ? 'novo' : 'novos'} no Drive · ${proximo}` : (pior === 'ok' ? proximo : `faltam meses (${faltam}) - ${proximo}`),
+    acao: novos ? { id: 'gastos-novos', rotulo: `Importar ${novos} ${novos === 1 ? 'novo' : 'novos'}` } : (pior !== 'ok' ? { id: 'gastos', rotulo: 'Ver meses que faltam' } : null),
+  };
+}
+
+/** Extrato do financiamento (Caixa) ou do FIES: opcional - o saldo anda sozinho; o extrato só recalibra. */
+export function documentoDivida(tipo, cfg, hoje) {
+  const fin = tipo === 'caixa';
+  const x = cfg && (fin ? cfg.financiamento : cfg.fies);
+  const base = fin
+    ? { id: 'caixa', nome: 'Extrato do financiamento (Caixa)', frequencia: '1x por ano (opcional)', automatico: false, como: 'PDF "Demonstrativo de Evolução - Habitação" do app da Caixa. O saldo anda sozinho mês a mês; o extrato só recalibra (TR, amortizações extras)' }
+    : { id: 'fies', nome: 'Extrato do FIES (Banco do Brasil)', frequencia: '1x por ano (opcional)', automatico: false, como: 'comprovante do SISBB (app do BB) com o saldo devedor. A parcela e a taxa são fixas: o site projeta sozinho' };
+  const hojeIso = isoDe(hoje || new Date());
+  if (!x || !x.dataSaldo) return { ...base, estado: x ? 'opcional' : 'falta', ultimo: null, proximo: 'importe uma vez pra o site começar a projetar', acao: { id: 'pdfs', rotulo: 'Importar PDF' } };
+  const meses = difMeses(x.dataSaldo, hojeIso);
+  const quando = somarMeses(x.dataSaldo, 12);
+  return {
+    ...base, ultimo: `saldo de ${dataCurta(x.dataSaldo)}`,
+    estado: meses >= 12 ? 'atencao' : 'ok',
+    proximo: meses >= 12 ? 'vale recalibrar (mais de 1 ano)' : `quando quiser - sugestão: ${rotMes(quando)}`,
+    acao: meses >= 12 ? { id: 'pdfs', rotulo: 'Importar PDF' } : null,
+  };
+}
+
+/** Extrato de proventos da B3: no fim do mês, pro "check final" da tela Proventos. */
+export function documentoB3(hoje) {
+  const hojeIso = isoDe(hoje || new Date());
+  const [a, m, d] = hojeIso.split('-').map(Number);
+  const ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  const mes = mesDe(hojeIso);
+  const fimDoMes = d >= ultimoDia - 3;
+  const comecoDoMes = d <= 7;
+  const alvo = fimDoMes ? mes : somarMeses(mes, -1);
+  return {
+    id: 'b3', nome: 'Extrato de proventos da B3', frequencia: 'fim do mês', automatico: false,
+    como: 'Área do Investidor da B3 → Extratos → Movimentação (Excel), importado em Transações → Lançamentos. Os proventos já entram sozinhos pelos anúncios; o extrato só confere (pago presumido → conferido)',
+    ultimo: null,
+    estado: fimDoMes || comecoDoMes ? 'atencao' : 'ok',
+    proximo: fimDoMes || comecoDoMes ? `hora de mandar o de ${rotMes(alvo)}` : `fim de ${rotMes(mes)}`,
+    acao: { id: 'b3', rotulo: 'Ir pra Lançamentos', href: '../transacoes/index.html#lancamentos' },
+  };
+}
+
+/**
+ * A lista inteira. Cada fonte: resposta da API, null (não veio) ou
+ * undefined (ainda carregando - o item mostra "verificando…").
+ */
+export function documentosOrganizacao({ patrimonio, salario, gastos, gastosDrive, hoje } = {}) {
+  const hojeIso = isoDe(hoje || (patrimonio && patrimonio.hoje) || new Date());
+  const cfg = (patrimonio && patrimonio.config) || {};
+  const carregandoRenda = patrimonio === undefined || salario === undefined;
+  const renda = documentosRenda({ patrimonio: patrimonio || null, salario: salario || null, hoje: hojeIso });
+  const porId = Object.fromEntries(renda.map((x) => [x.id, x]));
+  const daRenda = (id, extra = {}, carregando = carregandoRenda) => {
+    const x = porId[id];
+    if (!x) return null;
+    return { ...x, estado: carregando ? 'carregando' : x.estado, ...extra };
+  };
+  const drive = !!(patrimonio && patrimonio.pastaIrConfigurada);
+  const itens = [
+    daRenda('ir', { acao: { id: drive ? 'ir-drive' : 'pdfs', rotulo: drive ? 'Ler do Drive' : 'Importar PDF' }, automatico: drive ? 'clique' : false }, patrimonio === undefined),
+    daRenda('holerite', { como: 'PDF do holerite, lido aqui no navegador (Renda e Orçamentos → Orçamento do salário). Dá pra automatizar como o IR: uma pasta "Holerites" no Drive', acao: { id: 'holerite', rotulo: 'Importar holerite' } }, salario === undefined),
+    documentoGastos('faturas', { gastos, gastosDrive, hoje: hojeIso }),
+    documentoGastos('extratos', { gastos, gastosDrive, hoje: hojeIso }),
+    daRenda('fgts', { frequencia: 'a cada 6 meses (opcional)', como: 'PDF do app FGTS, um por empresa. O saldo anda sozinho com os 8% do salário; o extrato recalibra (juros, saques)', acao: { id: 'pdfs', rotulo: 'Importar PDFs' } }, patrimonio === undefined),
+    daRenda('ctps', { acao: { id: 'pdfs', rotulo: 'Importar PDF' } }),
+    patrimonio === undefined ? { ...documentoDivida('caixa', {}, hojeIso), estado: 'carregando', acao: null } : documentoDivida('caixa', cfg, hojeIso),
+    patrimonio === undefined ? { ...documentoDivida('fies', {}, hojeIso), estado: 'carregando', acao: null } : documentoDivida('fies', cfg, hojeIso),
+    documentoB3(hojeIso),
+    daRenda('investimentos', {
+      nome: 'Investimentos, cotações, índices e proventos', frequencia: 'automático',
+      como: 'sincronização com a B3 (compras/vendas), cotações, CDI/IPCA e os índices do apê (FipeZap, IVG-R) - nada a mandar',
+      ultimo: (() => { const hm = (patrimonio && patrimonio.historicoMensal) || []; const u = hm[hm.length - 1]; return u ? `histórico até ${rotMes(u.mes)}` : (porId.investimentos && porId.investimentos.ultimo) || null; })(),
+    }, salario === undefined && patrimonio === undefined),
+    daRenda('informe', {}, false),
+  ].filter(Boolean).map((x) => ({ ...x, acao: x.acao && x.acao.id ? x.acao : (x.acao ? { id: x.acao, rotulo: 'Atualizar' } : null) }));
+  // o que você manda primeiro (mais urgente em cima); o que chega sozinho depois
+  const manual = itens.filter((x) => !x.automatico).sort((a, b) => (PESO[b.estado] || 0) - (PESO[a.estado] || 0));
+  const auto = itens.filter((x) => x.automatico).sort((a, b) => (PESO[b.estado] || 0) - (PESO[a.estado] || 0));
+  const conta = (f) => itens.filter(f).length;
+  return {
+    hoje: hojeIso,
+    manual, auto, itens: [...manual, ...auto],
+    resumo: {
+      total: itens.length,
+      atrasados: conta((x) => x.estado === 'atrasado'),
+      nunca: conta((x) => x.estado === 'falta'),
+      atencao: conta((x) => x.estado === 'atencao'),
+      emDia: conta((x) => x.estado === 'ok' || x.estado === 'opcional'),
+      automaticos: auto.length,
+      carregando: conta((x) => x.estado === 'carregando'),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HTML
+// ---------------------------------------------------------------------------
+
+const ICONE_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>';
+const SIMBOLO = { ok: '✓', atencao: '!', atrasado: '!', falta: '+', opcional: '·', carregando: '…' };
+
+export function htmlResumoDocumentos(r) {
+  const s = r.resumo;
+  const chips = [];
+  if (s.atrasados) chips.push(`<span class="og-doc-chip atrasado">${s.atrasados} ${s.atrasados === 1 ? 'atrasado' : 'atrasados'}</span>`);
+  if (s.nunca) chips.push(`<span class="og-doc-chip falta">${s.nunca} nunca ${s.nunca === 1 ? 'enviado' : 'enviados'}</span>`);
+  if (s.atencao) chips.push(`<span class="og-doc-chip atencao">${s.atencao} pra olhar</span>`);
+  if (s.emDia) chips.push(`<span class="og-doc-chip ok">${s.emDia} em dia</span>`);
+  if (s.carregando) chips.push(`<span class="og-doc-chip carregando">verificando ${s.carregando}…</span>`);
+  return chips.join('');
+}
+
+function htmlLinha(x) {
+  const rot = ROTULO_ESTADO[x.estado] || '';
+  const chip = x.automatico === 'clique' ? '<span class="og-doc-freq auto">Drive · 1 clique</span>' : x.automatico ? '<span class="og-doc-freq auto">automático</span>' : `<span class="og-doc-freq">${esc(x.frequencia)}</span>`;
+  const acao = x.acao
+    ? (x.acao.href
+      ? `<a class="og-doc-btn${x.estado === 'ok' ? ' leve' : ''}" href="${esc(x.acao.href)}">${esc(x.acao.rotulo)}</a>`
+      : `<button type="button" class="og-doc-btn${x.estado === 'ok' || x.estado === 'opcional' ? ' leve' : ''}" data-doc-acao="${esc(x.acao.id)}" data-doc="${esc(x.id)}">${esc(x.acao.rotulo)}</button>`)
+    : '';
+  return `<li class="og-doc est-${esc(x.estado)}" data-doc-id="${esc(x.id)}">
+      <span class="og-doc-st" title="${esc(rot)}" aria-hidden="true">${SIMBOLO[x.estado] || '·'}</span>
+      <div class="og-doc-n"><b>${esc(x.nome)}</b>${chip}<small>${esc(x.como)}</small></div>
+      <div class="og-doc-q"><span class="og-doc-est">${esc(rot)}</span>${x.ultimo ? `<span>último: <b>${esc(x.ultimo)}</b></span>` : (x.automatico ? '' : '<span class="og-doc-fraco">o site não guarda a data deste</span>')}${x.proximo ? `<span>${esc(x.proximo)}</span>` : ''}${x.detalhe ? `<span class="og-doc-fraco">${esc(x.detalhe)}</span>` : ''}</div>
+      <div class="og-doc-a">${acao}</div>
+    </li>`;
+}
+
+export function htmlListaDocumentos(r) {
+  return `
+    <div class="og-docs-grupo"><div class="og-docs-gcab"><h3>Você manda</h3><span class="hint">PDFs lidos aqui no navegador - nada sobe pra lugar nenhum além da sua planilha</span></div>
+      <ul class="og-docs-ul">${r.manual.map(htmlLinha).join('')}</ul></div>
+    <div class="og-docs-grupo"><div class="og-docs-gcab"><h3>Chegam sozinhos (ou com 1 clique)</h3><span class="hint">Drive, sincronização e APIs públicas</span></div>
+      <ul class="og-docs-ul">${r.auto.map(htmlLinha).join('')}</ul></div>
+    <p class="og-nota fraca og-docs-nota">O que ainda dá pra automatizar: o <b>holerite</b> (uma pasta "Holerites" no Drive, lida como a do IR) e o <b>extrato do FGTS</b> (o app não exporta sozinho - por isso o site projeta o saldo com os depósitos do holerite). Financiamento e FIES andam sozinhos: os extratos são só pra recalibrar.</p>`;
+}
+
+/** Monta o painel (barra + lista recolhível). */
+export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null, storage = undefined } = {}) {
+  const win = doc && doc.defaultView;
+  let store = storage;
+  if (store === undefined) { try { store = win && win.localStorage; } catch (e) { store = null; } }
+  let aberto = false;
+  try { aberto = !!store && store.getItem('organizacao.documentos') === '1'; } catch (e) { aberto = false; }
+  let r = null;
+  raiz.classList.add('og-docs');
+  raiz.innerHTML = `
+    <button type="button" class="og-docs-barra" aria-expanded="${aberto}" aria-controls="ogDocsLista">
+      <span class="og-docs-ico">${ICONE_DOC}</span>
+      <span class="og-docs-tit"><b>Documentos</b><small>o que o site precisa de você, e o que chega sozinho</small></span>
+      <span class="og-docs-chips" aria-live="polite"><span class="og-doc-chip carregando">verificando…</span></span>
+      <span class="og-docs-ver"><span class="og-docs-ver-t">${aberto ? 'Fechar' : 'Ver lista'}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
+    </button>
+    <div class="og-docs-lista" id="ogDocsLista"${aberto ? '' : ' hidden'}></div>
+    <input type="file" id="ogDocsPdf" accept="application/pdf,.pdf" multiple hidden>
+    <input type="file" id="ogDocsHolerite" accept="application/pdf,.pdf" hidden>`;
+  const barra = raiz.querySelector('.og-docs-barra');
+  const lista = raiz.querySelector('.og-docs-lista');
+
+  function abrir(sim) {
+    aberto = !!sim;
+    barra.setAttribute('aria-expanded', String(aberto));
+    lista.hidden = !aberto;
+    raiz.classList.toggle('aberto', aberto);
+    raiz.querySelector('.og-docs-ver-t').textContent = aberto ? 'Fechar' : 'Ver lista';
+    try { if (store) store.setItem('organizacao.documentos', aberto ? '1' : '0'); } catch (e) { /* ok */ }
+    if (aberto && r && !lista.innerHTML) lista.innerHTML = htmlListaDocumentos(r);
+  }
+  raiz.classList.toggle('aberto', aberto);
+  barra.addEventListener('click', () => abrir(!aberto));
+  const avisar = (acao, extra) => { if (typeof aoAcao === 'function') aoAcao(acao, extra); };
+  lista.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-doc-acao]');
+    if (!b) return;
+    const acao = b.dataset.docAcao;
+    // o seletor de arquivo precisa abrir no MESMO clique (o navegador exige um gesto do usuário)
+    if (acao === 'pdfs') { raiz.querySelector('#ogDocsPdf').click(); return; }
+    if (acao === 'holerite') { raiz.querySelector('#ogDocsHolerite').click(); return; }
+    avisar(acao, { doc: b.dataset.doc });
+  });
+  raiz.addEventListener('change', (ev) => {
+    const t = ev.target;
+    const arqs = [...(t.files || [])];
+    t.value = '';
+    if (!arqs.length) return;
+    if (t.id === 'ogDocsPdf') avisar('pdfs', arqs);
+    else if (t.id === 'ogDocsHolerite') avisar('holerite', arqs[0]);
+  });
+
+  return {
+    atualizar(fontes = {}) {
+      r = documentosOrganizacao(fontes);
+      raiz.querySelector('.og-docs-chips').innerHTML = htmlResumoDocumentos(r);
+      const urgente = r.resumo.atrasados + r.resumo.nunca;
+      raiz.classList.toggle('urgente', urgente > 0);
+      if (aberto) lista.innerHTML = htmlListaDocumentos(r);
+      else lista.innerHTML = '';
+      return r;
+    },
+    abrir,
+    get resumo() { return r; },
+  };
+}

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   somarMeses, somarDias, mesesFechadosDoPeriodo, rotuloMes, mesesDoPeriodo, resumoConsolidado, historicoMensal, rankingPorAtivo,
   receitaFutura, itensAgenda, anosDaAgenda, contagemPorMes, filtrarAgenda, previaExportacaoB3,
+  mesesDoIntervalo, proventosPorMes, analisarProventosMensais, // 02/10/2026
 } from '../assets/js/pages/proventos-calc.js';
 
 import { DADOS } from './proventos-exemplo.mjs';
@@ -149,4 +150,62 @@ test('previaExportacaoB3(): acha o cabeçalho da B3, ignora a linha de total e o
   assert.equal(p.total, 14.5);
   assert.equal(previaExportacaoB3([['Data', 'Ativo'], ['1', 'ABCD11']]).ok, false);
   assert.equal(previaExportacaoB3(null).ok, false);
+});
+
+// 02/10/2026: "Escolher período" (intervalo do calendário) e a análise do histórico mensal
+test('período personalizado: meses que TOCAM o intervalo (cortados no mês de hoje); cartões, barras e ranking só desses meses', () => {
+  assert.deepEqual(mesesDoIntervalo({ inicio: '2026-07-20', fim: '2026-09-02' }, '2026-09-24'), ['2026-07', '2026-08', '2026-09']);
+  assert.deepEqual(mesesDoIntervalo({ inicio: '2026-09-02', fim: '2026-07-20' }, '2026-09-24'), ['2026-07', '2026-08', '2026-09'], 'ordem invertida');
+  assert.deepEqual(mesesDoIntervalo({ inicio: '2026-08-01', fim: '2026-12-31' }, '2026-09-24'), ['2026-08', '2026-09'], 'não passa de hoje');
+  const ago = { inicio: '2026-08-10', fim: '2026-08-12' };
+  assert.deepEqual(mesesDoPeriodo(ago, '2026-09-24'), ['2026-08']);
+  assert.deepEqual(mesesFechadosDoPeriodo(ago, '2026-09-24'), ['2026-08']);
+  assert.deepEqual(mesesFechadosDoPeriodo({ inicio: '2026-09-01', fim: '2026-09-20' }, '2026-09-24'), ['2026-09'], 'só o mês de hoje: usa ele');
+  const r = resumoConsolidado(DADOS, { periodoId: ago });
+  assert.equal(r.renda, 15, 'agosto inteiro (10 + 5), nada de setembro');
+  assert.equal(r.primeiroMes, '2026-08');
+  assert.equal(r.ultimoMes, '2026-08');
+  assert.equal(r.media, 15);
+  assert.equal(r.renda12m, resumoConsolidado(DADOS, { periodoId: '12m' }).renda12m, '12 meses não muda');
+  const h = historicoMensal(DADOS, { periodoId: ago });
+  assert.deepEqual(h.meses, ['2026-08']);
+  assert.deepEqual(h.totais, [15]);
+  const rk = rankingPorAtivo(DADOS, { periodoId: ago });
+  assert.deepEqual(rk.map((a) => [a.ticker, a.total]), [['AAAA11', 10], ['CCCC', 5]]);
+  // intervalo antigo: o que veio depois dele não entra
+  const r24 = resumoConsolidado(DADOS, { periodoId: { inicio: '2024-03-01', fim: '2024-03-31' } });
+  assert.equal(r24.renda, 1);
+});
+
+test('analisarProventosMensais(): média x período anterior, último mês x média de 12, regularidade, pico e o mês corrente', () => {
+  assert.deepEqual(proventosPorMes([{ data: '2026-01-02', valor: 1 }, { data: '2026-01-20', valor: 2.5 }, { data: '2026-02-01', valor: 9 }], '2026-01-31'), { '2026-01': 3.5 });
+  // 24 meses inventados: 100/mês no 1º ano, 120/mês no 2º, um pico de 600 e o último mês fechado fraco
+  const porMes = {};
+  for (let i = 0; i < 24; i += 1) porMes[somarMeses('2024-09', i)] = i < 12 ? 100 : 120;
+  porMes['2026-03'] = 600;
+  porMes['2026-08'] = 40;
+  porMes['2026-09'] = 30;
+  const meses = mesesDoPeriodo('12m', '2026-09-24');
+  const a = analisarProventosMensais({ porMes, meses, mesAtual: '2026-09', aReceberMes: 70 });
+  const tipos = a.pontos.map((p) => p.tipo);
+  assert.equal(tipos[0], 'comparacao', 'a comparação abre a lista');
+  assert.ok(a.pontos.length <= 4);
+  const comp = a.pontos[0];
+  assert.equal(comp.tom, 'bom');
+  assert.match(comp.texto, /Média de R\$ 156,36\/mês em out\/25 a ago\/26 \(meses fechados\) — 54% acima da média dos 11 meses anteriores \(R\$ 101,82\/mês\)/);
+  const ult = a.pontos.find((p) => p.tipo === 'ultimoMes');
+  assert.equal(ult.tom, 'atencao');
+  assert.match(ult.texto, /Em ago\/26 entraram R\$ 40,00 — \d+% abaixo da média dos 12 meses anteriores/);
+  assert.ok(a.pontos.some((p) => p.tipo === 'pico' && /Mar\/26 foi fora da curva: R\$ 600,00/.test(p.texto)));
+  assert.equal(a.tom, 'neutro', 'comparação a favor + um alerta pontual');
+  assert.match(a.resumo, /^Média de R\$ 156,36\/mês, \+54% vs os 11 meses antes · ago\/26 abaixo da média$/);
+  // janela sem nada recebido: sem pontos (a tela não mostra o card)
+  assert.deepEqual(analisarProventosMensais({ porMes: {}, meses, mesAtual: '2026-09' }).pontos, []);
+  // histórico curto: sem comparação com período anterior, mas com a média e o mês corrente
+  const curto = analisarProventosMensais({ porMes: { '2026-08': 10, '2026-09': 4 }, meses, mesAtual: '2026-09', aReceberMes: 6 });
+  assert.match(curto.pontos[0].texto, /Média de R\$ 10,00\/mês em ago\/26 \(1 mês fechado\)/);
+  assert.ok(curto.pontos.some((p) => p.tipo === 'mesAtual' && /até agora: R\$ 4,00 recebidos \+ R\$ 6,00 anunciados a receber/.test(p.texto)));
+  // regularidade: todos os meses fechados com provento
+  const reg = analisarProventosMensais({ porMes: Object.fromEntries(meses.map((m) => [m, 10])), meses, mesAtual: '2026-09' });
+  assert.ok(reg.pontos.some((p) => p.tipo === 'regularidade' && p.tom === 'bom'));
 });
