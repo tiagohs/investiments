@@ -1,0 +1,991 @@
+{
+ "sobre": "03/10/2026: cidades turísticas principais por país (código ISO-2), em português; \"Nome|outro|outro\" = nome padrão brasileiro e os outros nomes aceitos na busca. Lista enxuta - a tela aceita qualquer cidade digitada fora dela.",
+ "cidades": {
+  "BR": [
+   "São Paulo|Sao Paulo",
+   "Rio de Janeiro|Rio",
+   "Salvador",
+   "Brasília|Brasilia",
+   "Belo Horizonte|BH",
+   "Fortaleza",
+   "Recife",
+   "Porto Alegre",
+   "Curitiba",
+   "Florianópolis|Floripa",
+   "Natal",
+   "Maceió",
+   "João Pessoa",
+   "Manaus",
+   "Belém",
+   "Foz do Iguaçu",
+   "Gramado",
+   "Canela",
+   "Bonito",
+   "Fernando de Noronha|Noronha",
+   "Porto Seguro",
+   "Arraial d'Ajuda",
+   "Trancoso",
+   "Ilhéus",
+   "Itacaré",
+   "Morro de São Paulo",
+   "Chapada Diamantina|Lençóis",
+   "Jericoacoara|Jeri",
+   "Porto de Galinhas",
+   "Maragogi",
+   "São Miguel dos Milagres",
+   "Pipa",
+   "Lençóis Maranhenses|Barreirinhas",
+   "São Luís",
+   "Paraty",
+   "Angra dos Reis|Ilha Grande",
+   "Búzios|Armação dos Búzios",
+   "Arraial do Cabo",
+   "Cabo Frio",
+   "Petrópolis",
+   "Campos do Jordão",
+   "Ilhabela",
+   "Ubatuba",
+   "Balneário Camboriú",
+   "Bombinhas",
+   "Ouro Preto",
+   "Tiradentes",
+   "Inhotim|Brumadinho",
+   "Capitólio",
+   "Pirenópolis",
+   "Chapada dos Veadeiros|Alto Paraíso",
+   "Alter do Chão",
+   "Vitória",
+   "Goiânia",
+   "Campo Grande",
+   "Cuiabá",
+   "Pantanal|Corumbá",
+   "Aracaju",
+   "Teresina",
+   "Santos",
+   "Campinas",
+   "Blumenau",
+   "Caldas Novas"
+  ],
+  "AR": [
+   "Buenos Aires",
+   "Bariloche|San Carlos de Bariloche",
+   "Mendoza",
+   "Ushuaia",
+   "El Calafate",
+   "El Chaltén",
+   "Córdoba",
+   "Salta",
+   "Puerto Iguazú|Iguazú",
+   "Rosario",
+   "Mar del Plata",
+   "Puerto Madryn",
+   "San Martín de los Andes",
+   "Jujuy|Purmamarca"
+  ],
+  "CL": [
+   "Santiago",
+   "Valparaíso",
+   "Viña del Mar",
+   "San Pedro de Atacama|Atacama",
+   "Puerto Natales|Torres del Paine",
+   "Punta Arenas",
+   "Puerto Varas",
+   "Pucón",
+   "Ilha de Páscoa|Easter Island|Rapa Nui",
+   "La Serena",
+   "Valle Nevado"
+  ],
+  "UY": [
+   "Montevidéu|Montevideo",
+   "Punta del Este",
+   "Colonia del Sacramento|Colonia",
+   "José Ignacio",
+   "Piriápolis",
+   "Cabo Polonio",
+   "Punta del Diablo"
+  ],
+  "PE": [
+   "Lima",
+   "Cusco|Cuzco",
+   "Machu Picchu|Aguas Calientes",
+   "Arequipa",
+   "Puno|Lago Titicaca",
+   "Vale Sagrado|Urubamba",
+   "Paracas",
+   "Iquitos",
+   "Huacachina|Ica"
+  ],
+  "CO": [
+   "Bogotá|Bogota",
+   "Cartagena",
+   "Medellín|Medellin",
+   "Santa Marta",
+   "San Andrés",
+   "Cali",
+   "Barranquilla",
+   "Salento"
+  ],
+  "BO": [
+   "La Paz",
+   "Uyuni|Salar de Uyuni",
+   "Sucre",
+   "Santa Cruz de la Sierra",
+   "Copacabana"
+  ],
+  "EC": [
+   "Quito",
+   "Guayaquil",
+   "Galápagos|Galapagos",
+   "Cuenca",
+   "Baños"
+  ],
+  "PY": [
+   "Assunção|Asunción",
+   "Ciudad del Este",
+   "Encarnación"
+  ],
+  "VE": [
+   "Caracas",
+   "Ilha Margarita",
+   "Los Roques"
+  ],
+  "US": [
+   "Nova York|New York|NYC",
+   "Miami",
+   "Orlando",
+   "Los Angeles|LA",
+   "San Francisco|São Francisco",
+   "Las Vegas",
+   "Chicago",
+   "Washington|Washington DC",
+   "Boston",
+   "Seattle",
+   "San Diego",
+   "Nova Orleans|New Orleans",
+   "Honolulu|Havaí|Hawaii",
+   "Fort Lauderdale",
+   "Tampa",
+   "Atlanta",
+   "Houston",
+   "Dallas",
+   "Austin",
+   "Denver",
+   "Filadélfia|Philadelphia",
+   "Nashville",
+   "Napa",
+   "Aspen",
+   "Vail",
+   "Salt Lake City",
+   "Phoenix",
+   "Grand Canyon",
+   "Yellowstone",
+   "Anchorage",
+   "Key West",
+   "Savannah",
+   "Charleston",
+   "Portland"
+  ],
+  "CA": [
+   "Toronto",
+   "Vancouver",
+   "Montreal",
+   "Quebec|Québec",
+   "Ottawa",
+   "Calgary",
+   "Banff",
+   "Whistler",
+   "Niagara Falls|Cataratas do Niágara",
+   "Victoria",
+   "Halifax",
+   "Jasper"
+  ],
+  "MX": [
+   "Cidade do México|Mexico City|CDMX",
+   "Cancún|Cancun",
+   "Playa del Carmen",
+   "Tulum",
+   "Cozumel",
+   "Guadalajara",
+   "Oaxaca",
+   "Puerto Vallarta",
+   "Los Cabos|Cabo San Lucas",
+   "San Miguel de Allende",
+   "Mérida",
+   "Isla Mujeres",
+   "Acapulco",
+   "Holbox"
+  ],
+  "CR": [
+   "San José",
+   "La Fortuna|Arenal",
+   "Monteverde",
+   "Manuel Antonio",
+   "Tamarindo",
+   "Puerto Viejo"
+  ],
+  "PA": [
+   "Cidade do Panamá|Panama City",
+   "Bocas del Toro",
+   "San Blas"
+  ],
+  "GT": [
+   "Antigua Guatemala",
+   "Cidade da Guatemala",
+   "Lago Atitlán",
+   "Flores|Tikal"
+  ],
+  "CU": [
+   "Havana|La Habana",
+   "Varadero",
+   "Trinidad",
+   "Viñales",
+   "Cienfuegos"
+  ],
+  "DO": [
+   "Punta Cana",
+   "Santo Domingo",
+   "Samaná",
+   "La Romana",
+   "Puerto Plata"
+  ],
+  "JM": [
+   "Montego Bay",
+   "Kingston",
+   "Negril",
+   "Ocho Rios"
+  ],
+  "BS": [
+   "Nassau",
+   "Paradise Island",
+   "Exuma"
+  ],
+  "AW": [
+   "Oranjestad",
+   "Palm Beach",
+   "Eagle Beach"
+  ],
+  "CW": [
+   "Willemstad"
+  ],
+  "PR": [
+   "San Juan",
+   "Vieques",
+   "Culebra"
+  ],
+  "TT": [
+   "Port of Spain",
+   "Tobago"
+  ],
+  "BB": [
+   "Bridgetown"
+  ],
+  "PT": [
+   "Lisboa|Lisbon",
+   "Porto|Oporto",
+   "Sintra",
+   "Cascais",
+   "Coimbra",
+   "Braga",
+   "Guimarães",
+   "Aveiro",
+   "Óbidos",
+   "Nazaré",
+   "Fátima",
+   "Évora",
+   "Lagos",
+   "Faro",
+   "Albufeira",
+   "Portimão",
+   "Tavira",
+   "Funchal|Madeira",
+   "Ponta Delgada|Açores",
+   "Vale do Douro|Douro",
+   "Peniche",
+   "Ericeira",
+   "Setúbal",
+   "Comporta",
+   "Viana do Castelo"
+  ],
+  "ES": [
+   "Madri|Madrid",
+   "Barcelona",
+   "Sevilha|Sevilla|Seville",
+   "Granada",
+   "Valência|Valencia",
+   "Málaga|Malaga",
+   "Córdoba|Cordoba",
+   "Toledo",
+   "San Sebastián|Donostia",
+   "Bilbao",
+   "Ibiza|Eivissa",
+   "Palma de Maiorca|Palma|Mallorca|Maiorca",
+   "Menorca",
+   "Tenerife",
+   "Gran Canária|Las Palmas",
+   "Lanzarote",
+   "Salamanca",
+   "Segóvia|Segovia",
+   "Santiago de Compostela",
+   "Girona",
+   "Cádiz",
+   "Ronda",
+   "Marbella",
+   "Alicante",
+   "Benidorm",
+   "Zaragoza",
+   "Formentera",
+   "Sitges",
+   "Montserrat"
+  ],
+  "FR": [
+   "Paris",
+   "Lyon",
+   "Nice",
+   "Marselha|Marseille",
+   "Bordeaux",
+   "Estrasburgo|Strasbourg",
+   "Toulouse",
+   "Montpellier",
+   "Cannes",
+   "Mônaco|Monaco",
+   "Avignon",
+   "Annecy",
+   "Chamonix",
+   "Colmar",
+   "Mont Saint-Michel",
+   "Versalhes|Versailles",
+   "Reims",
+   "Lille",
+   "Nantes",
+   "Carcassonne",
+   "Saint-Tropez",
+   "Biarritz",
+   "Aix-en-Provence",
+   "Arles",
+   "Antibes",
+   "Èze|Eze",
+   "Tours|Vale do Loire",
+   "Rouen",
+   "Dijon",
+   "Disneyland Paris|Marne-la-Vallée"
+  ],
+  "IT": [
+   "Roma|Rome",
+   "Veneza|Venezia|Venice",
+   "Florença|Firenze|Florence",
+   "Milão|Milano|Milan",
+   "Nápoles|Napoli|Naples",
+   "Pisa",
+   "Siena",
+   "Bolonha|Bologna",
+   "Verona",
+   "Turim|Torino|Turin",
+   "Gênova|Genova",
+   "Cinque Terre|Monterosso",
+   "Positano|Costa Amalfitana",
+   "Amalfi",
+   "Capri",
+   "Sorrento",
+   "Pompeia|Pompei",
+   "Lago de Como|Como|Bellagio",
+   "Lago di Garda|Garda",
+   "Palermo",
+   "Catânia|Catania",
+   "Taormina",
+   "Bari",
+   "Matera",
+   "Lecce",
+   "Dolomitas|Cortina d'Ampezzo",
+   "Bergamo",
+   "Lucca",
+   "San Gimignano",
+   "Assis|Assisi",
+   "Perugia",
+   "Trieste",
+   "Orvieto",
+   "Montepulciano",
+   "Sardenha|Cagliari",
+   "Vaticano|Vatican"
+  ],
+  "GB": [
+   "Londres|London",
+   "Edimburgo|Edinburgh",
+   "Liverpool",
+   "Manchester",
+   "Oxford",
+   "Cambridge",
+   "Bath",
+   "York",
+   "Glasgow",
+   "Brighton",
+   "Stonehenge|Salisbury",
+   "Cotswolds",
+   "Stratford-upon-Avon",
+   "Inverness|Highlands",
+   "Belfast",
+   "Cardiff",
+   "Bristol",
+   "Windsor",
+   "Canterbury",
+   "Lake District|Windermere",
+   "Isle of Skye|Ilha de Skye"
+  ],
+  "IE": [
+   "Dublin",
+   "Galway",
+   "Cork",
+   "Killarney",
+   "Kilkenny",
+   "Cliffs of Moher|Penhascos de Moher",
+   "Limerick"
+  ],
+  "NL": [
+   "Amsterdã|Amsterdam",
+   "Roterdã|Rotterdam",
+   "Haia|Den Haag|The Hague",
+   "Utrecht",
+   "Delft",
+   "Leiden",
+   "Haarlem",
+   "Zaanse Schans",
+   "Giethoorn",
+   "Maastricht",
+   "Eindhoven",
+   "Volendam",
+   "Kinderdijk"
+  ],
+  "BE": [
+   "Bruxelas|Bruxelles|Brussels",
+   "Bruges|Brugge",
+   "Gante|Gent|Ghent",
+   "Antuérpia|Antwerpen|Antwerp",
+   "Leuven|Lovaina",
+   "Dinant",
+   "Liège"
+  ],
+  "LU": [
+   "Luxemburgo|Luxembourg",
+   "Vianden"
+  ],
+  "DE": [
+   "Berlim|Berlin",
+   "Munique|München|Munich",
+   "Frankfurt|Frankfurt am Main",
+   "Hamburgo|Hamburg",
+   "Colônia|Köln|Cologne",
+   "Düsseldorf|Dusseldorf",
+   "Stuttgart",
+   "Dresden|Dresda",
+   "Heidelberg",
+   "Nuremberg|Nürnberg|Nuremberga",
+   "Rothenburg ob der Tauber",
+   "Füssen|Neuschwanstein",
+   "Leipzig",
+   "Bremen",
+   "Hannover",
+   "Potsdam",
+   "Baden-Baden",
+   "Freiburg",
+   "Garmisch-Partenkirchen",
+   "Berchtesgaden",
+   "Würzburg",
+   "Bamberg",
+   "Trier|Tréveris",
+   "Floresta Negra|Black Forest"
+  ],
+  "AT": [
+   "Viena|Wien|Vienna",
+   "Salzburgo|Salzburg",
+   "Innsbruck",
+   "Hallstatt",
+   "Graz",
+   "Linz",
+   "Kitzbühel",
+   "Zell am See",
+   "St. Anton|Sankt Anton"
+  ],
+  "CH": [
+   "Zurique|Zürich|Zurich",
+   "Genebra|Genève|Geneva",
+   "Lucerna|Luzern|Lucerne",
+   "Interlaken",
+   "Berna|Bern",
+   "Basileia|Basel",
+   "Zermatt",
+   "Grindelwald",
+   "Lauterbrunnen",
+   "Montreux",
+   "Lausanne",
+   "Lugano",
+   "St. Moritz|Saint Moritz",
+   "Davos",
+   "Wengen",
+   "Mürren",
+   "Engelberg|Titlis",
+   "Jungfraujoch",
+   "Gstaad",
+   "Locarno",
+   "Stein am Rhein",
+   "Appenzell"
+  ],
+  "LI": [
+   "Vaduz"
+  ],
+  "MC": [
+   "Monte Carlo|Mônaco"
+  ],
+  "CZ": [
+   "Praga|Praha|Prague",
+   "Český Krumlov|Cesky Krumlov",
+   "Brno",
+   "Karlovy Vary",
+   "Kutná Hora"
+  ],
+  "HU": [
+   "Budapeste|Budapest",
+   "Eger",
+   "Lago Balaton|Balaton",
+   "Szentendre",
+   "Pécs"
+  ],
+  "PL": [
+   "Cracóvia|Kraków|Krakow",
+   "Varsóvia|Warszawa|Warsaw",
+   "Gdansk|Gdańsk",
+   "Wrocław|Breslávia",
+   "Zakopane",
+   "Poznań",
+   "Auschwitz|Oświęcim"
+  ],
+  "SK": [
+   "Bratislava"
+  ],
+  "SI": [
+   "Liubliana|Ljubljana",
+   "Lago de Bled|Bled",
+   "Piran"
+  ],
+  "HR": [
+   "Dubrovnik",
+   "Split",
+   "Zagreb",
+   "Hvar",
+   "Plitvice",
+   "Zadar",
+   "Rovinj",
+   "Pula",
+   "Korčula"
+  ],
+  "RS": [
+   "Belgrado|Beograd",
+   "Novi Sad"
+  ],
+  "BA": [
+   "Sarajevo",
+   "Mostar"
+  ],
+  "ME": [
+   "Kotor",
+   "Budva"
+  ],
+  "AL": [
+   "Tirana",
+   "Ksamil",
+   "Saranda"
+  ],
+  "GR": [
+   "Atenas|Athens",
+   "Santorini|Thira|Fira|Oia",
+   "Mykonos|Míconos",
+   "Creta|Heraklion|Chania",
+   "Rodes|Rhodes",
+   "Corfu",
+   "Tessalônica|Thessaloniki",
+   "Meteora",
+   "Nafplio",
+   "Delfos|Delphi",
+   "Zakynthos|Zante",
+   "Paros",
+   "Naxos",
+   "Milos"
+  ],
+  "CY": [
+   "Nicósia|Nicosia",
+   "Limassol",
+   "Pafos|Paphos",
+   "Ayia Napa",
+   "Larnaca"
+  ],
+  "MT": [
+   "Valletta|La Valeta",
+   "Gozo",
+   "Sliema",
+   "St. Julian's",
+   "Mdina"
+  ],
+  "TR": [
+   "Istambul|Istanbul",
+   "Capadócia|Cappadocia|Göreme",
+   "Antália|Antalya",
+   "Pamukkale",
+   "Éfeso|Efes|Selçuk",
+   "Bodrum",
+   "Izmir",
+   "Ancara|Ankara",
+   "Fethiye"
+  ],
+  "DK": [
+   "Copenhague|København|Copenhagen",
+   "Aarhus",
+   "Odense",
+   "Billund|Legoland"
+  ],
+  "SE": [
+   "Estocolmo|Stockholm",
+   "Gotemburgo|Göteborg|Gothenburg",
+   "Malmö",
+   "Kiruna|Lapônia sueca",
+   "Uppsala"
+  ],
+  "NO": [
+   "Oslo",
+   "Bergen",
+   "Tromsø|Tromso",
+   "Lofoten",
+   "Stavanger|Preikestolen",
+   "Flåm",
+   "Ålesund",
+   "Geiranger"
+  ],
+  "FI": [
+   "Helsinque|Helsinki",
+   "Rovaniemi|Lapônia",
+   "Turku",
+   "Tampere"
+  ],
+  "IS": [
+   "Reykjavík|Reykjavik",
+   "Vík|Vik",
+   "Akureyri",
+   "Blue Lagoon|Grindavík",
+   "Círculo Dourado|Golden Circle",
+   "Jökulsárlón",
+   "Húsavík"
+  ],
+  "EE": [
+   "Tallinn"
+  ],
+  "LV": [
+   "Riga"
+  ],
+  "LT": [
+   "Vilnius",
+   "Kaunas",
+   "Trakai"
+  ],
+  "RO": [
+   "Bucareste|Bucharest",
+   "Brașov|Brasov",
+   "Sibiu",
+   "Cluj-Napoca",
+   "Bran|Castelo do Drácula",
+   "Sighișoara"
+  ],
+  "BG": [
+   "Sófia|Sofia",
+   "Plovdiv",
+   "Varna",
+   "Burgas"
+  ],
+  "RU": [
+   "Moscou|Moscow",
+   "São Petersburgo|Saint Petersburg"
+  ],
+  "UA": [
+   "Kiev|Kyiv",
+   "Lviv",
+   "Odessa"
+  ],
+  "GE": [
+   "Tbilisi",
+   "Batumi",
+   "Kazbegi"
+  ],
+  "AD": [
+   "Andorra la Vella",
+   "Soldeu"
+  ],
+  "VA": [
+   "Cidade do Vaticano"
+  ],
+  "SM": [
+   "San Marino"
+  ],
+  "AE": [
+   "Dubai",
+   "Abu Dhabi",
+   "Sharjah",
+   "Ras Al Khaimah"
+  ],
+  "QA": [
+   "Doha"
+  ],
+  "IL": [
+   "Jerusalém|Jerusalem",
+   "Tel Aviv",
+   "Haifa",
+   "Eilat",
+   "Mar Morto|Dead Sea",
+   "Nazaré"
+  ],
+  "JO": [
+   "Petra|Wadi Musa",
+   "Amã|Amman",
+   "Wadi Rum",
+   "Aqaba"
+  ],
+  "EG": [
+   "Cairo|Gizé|Giza",
+   "Luxor",
+   "Assuã|Aswan",
+   "Hurghada",
+   "Sharm el-Sheikh",
+   "Alexandria"
+  ],
+  "MA": [
+   "Marrakech|Marraquexe",
+   "Fez|Fès",
+   "Casablanca",
+   "Chefchaouen",
+   "Rabat",
+   "Merzouga|Saara",
+   "Essaouira",
+   "Tânger|Tanger"
+  ],
+  "ZA": [
+   "Cidade do Cabo|Cape Town",
+   "Joanesburgo|Johannesburg",
+   "Parque Kruger|Kruger",
+   "Durban",
+   "Stellenbosch",
+   "Port Elizabeth|Gqeberha",
+   "Hermanus"
+  ],
+  "KE": [
+   "Nairóbi|Nairobi",
+   "Masai Mara|Maasai Mara",
+   "Mombasa"
+  ],
+  "TZ": [
+   "Zanzibar|Stone Town",
+   "Arusha",
+   "Serengeti",
+   "Kilimanjaro|Moshi"
+  ],
+  "MU": [
+   "Port Louis",
+   "Grand Baie"
+  ],
+  "SC": [
+   "Mahé|Victoria",
+   "Praslin",
+   "La Digue"
+  ],
+  "CV": [
+   "Praia",
+   "Sal|Santa Maria",
+   "Boa Vista",
+   "Mindelo"
+  ],
+  "MZ": [
+   "Maputo",
+   "Tofo",
+   "Vilanculos",
+   "Bazaruto"
+  ],
+  "AO": [
+   "Luanda"
+  ],
+  "TN": [
+   "Túnis|Tunis",
+   "Sidi Bou Said",
+   "Djerba"
+  ],
+  "JP": [
+   "Tóquio|Tokyo",
+   "Quioto|Kyoto",
+   "Osaka",
+   "Hiroshima",
+   "Nara",
+   "Hakone",
+   "Nikko",
+   "Kanazawa",
+   "Sapporo",
+   "Fukuoka",
+   "Okinawa|Naha",
+   "Monte Fuji|Kawaguchiko",
+   "Yokohama",
+   "Kobe",
+   "Takayama",
+   "Nagoya"
+  ],
+  "KR": [
+   "Seul|Seoul",
+   "Busan",
+   "Jeju",
+   "Incheon",
+   "Gyeongju"
+  ],
+  "CN": [
+   "Pequim|Beijing",
+   "Xangai|Shanghai",
+   "Xi'an",
+   "Guilin",
+   "Chengdu",
+   "Hangzhou",
+   "Suzhou",
+   "Zhangjiajie",
+   "Guangzhou|Cantão",
+   "Shenzhen"
+  ],
+  "HK": [
+   "Hong Kong",
+   "Kowloon",
+   "Lantau"
+  ],
+  "MO": [
+   "Macau"
+  ],
+  "TW": [
+   "Taipé|Taipei",
+   "Kaohsiung",
+   "Taichung",
+   "Hualien|Taroko"
+  ],
+  "TH": [
+   "Bangkok",
+   "Phuket",
+   "Chiang Mai",
+   "Krabi|Ao Nang",
+   "Koh Samui",
+   "Koh Phi Phi|Phi Phi",
+   "Pattaya",
+   "Ayutthaya",
+   "Chiang Rai",
+   "Koh Phangan",
+   "Koh Tao"
+  ],
+  "VN": [
+   "Hanói|Hanoi",
+   "Ho Chi Minh|Saigon|Saigão",
+   "Hoi An",
+   "Da Nang",
+   "Baía de Ha Long|Ha Long",
+   "Hue",
+   "Nha Trang",
+   "Sapa",
+   "Phu Quoc"
+  ],
+  "KH": [
+   "Siem Reap|Angkor",
+   "Phnom Penh"
+  ],
+  "LA": [
+   "Luang Prabang",
+   "Vientiane"
+  ],
+  "MY": [
+   "Kuala Lumpur",
+   "Penang|George Town",
+   "Langkawi",
+   "Malaca|Melaka",
+   "Kota Kinabalu"
+  ],
+  "SG": [
+   "Singapura|Singapore|Cingapura"
+  ],
+  "ID": [
+   "Bali|Ubud|Denpasar",
+   "Jacarta|Jakarta",
+   "Lombok",
+   "Yogyakarta",
+   "Ilhas Gili|Gili",
+   "Komodo|Labuan Bajo",
+   "Nusa Penida"
+  ],
+  "PH": [
+   "Manila",
+   "Palawan|El Nido",
+   "Coron",
+   "Boracay",
+   "Cebu",
+   "Bohol"
+  ],
+  "IN": [
+   "Nova Délhi|New Delhi|Délhi",
+   "Agra|Taj Mahal",
+   "Jaipur",
+   "Mumbai|Bombaim",
+   "Goa",
+   "Varanasi",
+   "Udaipur",
+   "Jodhpur",
+   "Kerala|Kochi",
+   "Rishikesh",
+   "Bangalore"
+  ],
+  "NP": [
+   "Katmandu|Kathmandu",
+   "Pokhara",
+   "Everest|Lukla"
+  ],
+  "LK": [
+   "Colombo",
+   "Kandy",
+   "Ella",
+   "Sigiriya",
+   "Galle"
+  ],
+  "MV": [
+   "Malé|Male",
+   "Maafushi"
+  ],
+  "AU": [
+   "Sydney",
+   "Melbourne",
+   "Brisbane",
+   "Gold Coast",
+   "Cairns|Grande Barreira de Corais",
+   "Perth",
+   "Adelaide",
+   "Hobart|Tasmânia",
+   "Uluru|Ayers Rock",
+   "Darwin",
+   "Byron Bay",
+   "Canberra",
+   "Whitsundays|Airlie Beach"
+  ],
+  "NZ": [
+   "Auckland",
+   "Queenstown",
+   "Wellington",
+   "Christchurch",
+   "Rotorua",
+   "Milford Sound|Te Anau",
+   "Wanaka",
+   "Hobbiton|Matamata",
+   "Taupo",
+   "Franz Josef"
+  ],
+  "FJ": [
+   "Nadi",
+   "Suva",
+   "Ilhas Mamanuca"
+  ],
+  "PF": [
+   "Papeete|Taiti|Tahiti",
+   "Bora Bora",
+   "Moorea"
+  ]
+ }
+}

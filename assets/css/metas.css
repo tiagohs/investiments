@@ -581,3 +581,130 @@ body.mt-dialogo-aberto{ overflow:hidden; }
   .mt-tabela th, .mt-tabela td{ padding:6px 5px; font-size:11.5px; }
 }
 @media (prefers-reduced-motion: reduce){ .mt-anel-valor{ transition:none; } .mt-dica-balao{ animation:none; } }
+
+/* ===========================================================================
+   04/10/2026 - Metas › Viagem v3: bandeiras, dropdown de país/cidade, taxa
+   turística, "já comprado" (a pagar) x "a juntar", entradas programadas
+   =========================================================================== */
+.mt-bandeira{ display:inline-block; vertical-align:middle; border-radius:3px; object-fit:cover; box-shadow:0 0 0 1px rgba(0,0,0,.14); background:var(--surface-3); flex:none; }
+.mt-bandeira.vazio{ box-shadow:inset 0 0 0 1px var(--border); background:var(--surface-3); }
+.mt-bandeiras{ display:inline-flex; align-items:center; gap:3px; margin-right:6px; vertical-align:middle; }
+.mt-bandeiras small{ font-size:10px; color:var(--ink-faint); font-weight:700; }
+.mt-eyebrow .mt-bandeiras{ margin-right:7px; }
+.mt-card-tit > span .mt-bandeiras{ margin-right:6px; }
+.mt-roteiro{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--acoes); border-color:color-mix(in srgb, var(--acoes) 40%, var(--border)); }
+.mt-roteiro:hover{ background:var(--acoes-soft); }
+.mt-dest-nome{ display:inline-flex; align-items:center; gap:8px; }
+
+/* dropdown pesquisável */
+.mt-combo{ position:relative; min-width:0; display:flex; align-items:center; }
+.mt-combo-flag{ position:absolute; left:7px; top:50%; transform:translateY(-50%); display:inline-flex; pointer-events:none; }
+.mt-combo-pais .mt-combo-input{ padding-left:36px; }
+.mt-combo-lista{ position:absolute; left:0; right:0; top:calc(100% + 3px); z-index:30; max-height:248px; overflow-y:auto; margin:0; padding:4px; list-style:none; min-width:210px;
+  background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 28px rgba(0,0,0,.2); }
+.mt-combo-lista[hidden]{ display:none; }
+.mt-combo-op{ display:flex; align-items:center; gap:9px; padding:7px 8px; border-radius:7px; cursor:pointer; font-size:12.5px; color:var(--ink); }
+.mt-combo-op:hover, .mt-combo-op.ativo{ background:var(--acoes-soft); }
+.mt-combo-op.sel{ font-weight:700; }
+.mt-combo-op.sel::after{ content:'✓'; margin-left:auto; color:var(--acoes); }
+.mt-combo-op em{ margin-left:auto; font-style:normal; font-size:10.5px; color:var(--ink-faint); font-family:var(--mono); }
+.mt-combo-op.sel em{ margin-left:8px; }
+.mt-combo-op.livre .mt-combo-nome{ color:var(--acoes); }
+.mt-combo-nome{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mt-combo-vazio{ padding:9px 10px; font-size:11.5px; color:var(--ink-faint); }
+
+/* destino: taxa turística */
+.mt-dest-taxa{ display:flex; flex-direction:column; gap:6px; border-top:1px dashed var(--border); padding-top:8px; }
+.mt-dest-taxa-tit{ font-size:11.5px; font-weight:700; color:var(--ink-muted); display:flex; align-items:center; gap:3px; flex-wrap:wrap; }
+.mt-dest-taxa-tit em{ font-style:normal; font-weight:500; color:var(--ink-faint); }
+.mt-dest-campos.taxa{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+.mt-dest-taxa .mt-nota{ margin:0; }
+.mt-dest-taxa .mt-nota a{ color:var(--acoes); }
+.mt-dest-taxa .mt-link{ display:inline; }
+
+/* itens "já comprado" (editor): 2 linhas */
+.mt-fixo-ed{ grid-template-columns:minmax(0,1.5fr) minmax(0,1.2fr) minmax(0,1.3fr) auto; }
+.mt-fixo-ed > .mt-mini, .mt-fixo-ed > .mt-check-txt{ grid-column:auto; }
+.mt-fixo-ed.cartao{ border-left:3px solid var(--acoes); padding-left:8px; }
+.mt-fixo-ed.pago{ border-left:3px solid var(--good); padding-left:8px; }
+.mt-fixo-ed.juntar{ border-left:3px solid var(--warn); padding-left:8px; }
+.mt-fixo-ed .mt-x{ align-self:center; }
+.mt-forma select{ width:100%; }
+
+/* entradas programadas (editor) */
+.mt-ents-ed{ list-style:none; margin:8px 0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.mt-ent-ed{ border:1px solid var(--border); border-radius:12px; padding:9px 11px; display:flex; flex-direction:column; gap:7px; }
+.mt-ent-ed.off{ opacity:.6; }
+.mt-ent-cab{ display:flex; align-items:center; gap:4px; justify-content:space-between; }
+.mt-ent-cab .mt-check-txt{ padding-bottom:0; font-size:13px; color:var(--ink); }
+.mt-ent-campos{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; align-items:end; }
+.mt-ent-campos input, .mt-ent-campos select{ font-family:var(--body-f); font-size:12.5px; color:var(--ink); background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 7px; min-width:0; width:100%; box-sizing:border-box; }
+.mt-ent-campos input[inputmode]{ font-family:var(--mono); }
+.mt-ent-resumo{ margin:0; font-size:11.5px; color:var(--ink-muted); line-height:1.5; }
+.mt-ent-resumo b{ font-family:var(--mono); color:var(--ink); }
+.mt-ent-add{ display:flex; flex-wrap:wrap; gap:6px 16px; }
+.mt-resumo-viagem li.pagar b{ color:var(--acoes); }
+.mt-resumo-viagem li.entradas b{ color:var(--good-ink); }
+.mt-resumo-viagem li.aporte{ background:var(--good-soft); }
+.mt-resumo-viagem li.aporte b{ color:var(--good-ink); }
+
+/* herói: "Por mês: paga + guarda" */
+.mt-pormes{ display:flex; align-items:stretch; gap:10px; flex-wrap:wrap; border:1px solid var(--border); border-radius:12px; padding:9px 12px; background:color-mix(in srgb, var(--surface) 82%, transparent); }
+.mt-pormes-tit{ display:flex; align-items:center; gap:3px; font-size:11.5px; font-weight:700; color:var(--ink-muted); align-self:center; text-transform:uppercase; letter-spacing:.06em; }
+.mt-pm{ display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 150px; padding-left:10px; border-left:3px solid var(--border); }
+.mt-pm i{ font-style:normal; font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-faint); }
+.mt-pm b{ font-family:var(--mono); font-size:19px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--ink); line-height:1.2; }
+.mt-pm em{ font-style:normal; font-size:11px; color:var(--ink-faint); }
+.mt-pm.paga{ border-left-color:var(--acoes); }
+.mt-pm.guarda{ border-left-color:var(--good); }
+.mt-pm.guarda b{ color:var(--good-ink); }
+.mt-pm-mais{ align-self:center; font-size:18px; color:var(--ink-faint); font-weight:300; }
+
+/* detalhe: a pagar (já comprado) */
+.mt-pagar-resumo{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:10px; }
+.mt-pagar-resumo span{ background:var(--surface-3); border-radius:10px; padding:7px 10px; display:flex; flex-direction:column; gap:1px; min-width:0; }
+.mt-pagar-resumo i{ font-style:normal; font-size:10.5px; color:var(--ink-faint); font-weight:600; }
+.mt-pagar-resumo b{ font-family:var(--mono); font-size:15px; color:var(--ink); }
+.mt-apagar .mt-fixos li{ align-items:center; flex-wrap:wrap; }
+.mt-apagar .mt-fixos li .mt-v-nome{ flex:1 1 180px; }
+.mt-sit{ display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:100px; white-space:nowrap; }
+.mt-sit.ok{ background:var(--good-soft); color:var(--good-ink); }
+.mt-sit.pend{ background:var(--warn-soft); color:var(--warn-ink); }
+.mt-sit.juntar{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-tabela tr.atual th, .mt-tabela tr.atual td{ background:var(--acoes-soft); }
+
+/* detalhe: a juntar */
+.mt-conta-viagem li > span{ display:flex; flex-direction:column; min-width:0; }
+.mt-conta-viagem li > span em{ font-style:normal; font-weight:500; font-size:11px; color:var(--ink-faint); }
+.mt-conta-viagem li.total small{ font-size:11px; font-weight:600; margin-left:2px; }
+.mt-conta-viagem li.entrada b{ color:var(--good-ink); }
+.mt-conta-viagem li.destaque > span em, .mt-conta-viagem li.total > span em{ color:inherit; opacity:.75; }
+.mt-conta-viagem li{ align-items:center; }
+
+.mt-entradas .mt-tabela td, .mt-entradas .mt-tabela th{ white-space:normal; }
+.mt-entradas .mt-tabela td.mt-fraco{ min-width:140px; }
+.mt-tabela-destinos td, .mt-tabela-destinos th{ white-space:normal; }
+.mt-revisar-aviso{ margin:0; background:var(--warn-soft); color:var(--warn-ink); border-radius:10px; padding:8px 12px; font-size:12px; line-height:1.5; }
+.mt-revisar-aviso .mt-link{ color:inherit; text-decoration:underline; margin-left:4px; }
+
+@media (max-width:760px){
+  .mt-ent-campos{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mt-fixo-ed{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .mt-fixo-ed input[data-fixo-campo="nome"]{ grid-column:1 / -1; }
+}
+@media (max-width:560px){
+  .mt-dest-cab{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .mt-dest-cab .mt-dest-num{ order:1; }
+  .mt-dest-cab .mt-combo-pais{ order:2; flex:1 1 calc(100% - 66px); min-width:0; }
+  .mt-dest-cab .mt-x{ order:3; }
+  .mt-dest-cab .mt-combo-cidade{ order:4; flex:1 1 55%; min-width:0; }
+  .mt-dest-cab select{ order:5; flex:0 0 auto; }
+  .mt-dest-campos.taxa{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .mt-pagar-resumo{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .mt-pm{ flex-basis:100%; }
+  .mt-pm-mais{ display:none; }
+  .mt-pormes{ flex-direction:column; gap:8px; }
+  .mt-combo-lista{ min-width:0; }
+  .mt-combo-pais .mt-combo-lista{ min-width:230px; max-width:calc(100vw - 48px); }
+  .mt-apagar .mt-fixos li{ gap:4px 8px; }
+}

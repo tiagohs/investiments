@@ -40,7 +40,7 @@ import {
   getMetas, salvarMeta as salvarMetaApi, excluirMeta as excluirMetaApi,
   getMetasHistorico, excluirMetaDefinitivamente as excluirDefinitivoApi,
 } from '../api-client.js';
-import { mountRefreshControl } from '../shell.js';
+import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { urlAtivo } from '../link-ativo.js';
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado } from '../periodo-personalizado.js';
@@ -51,7 +51,13 @@ import {
   mesesEntre, mesDe, cotacao, somarMeses, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor,
   analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal, SUGESTOES_INVESTIMENTO, chaveSugestaoInvestimento,
   avaliarVinculos, destinoPadrao, contaAposentadoria, calcularViagem, explicarStatus,
+  migrarMetaViagem, entradaPadrao, normalizarUrl, acharPais, paisPorCodigo, sugestaoTaxaTuristica, ehLinkWanderlog,
 } from './metas-calc.js';
+import {
+  bandeiraHtml, bandeirasViagemHtml, opcoesPaisesHtml, opcoesCidadesHtml, destinosEditorHtml, fixosEditorHtml, entradasEditorHtml,
+  resumoViagemHtml, resumoEntradaHtml, totalDestinoTexto, notaTaxaHtml, porMesHtml, botaoRoteiroHtml, viagemDetalheHtml,
+  entradasDetalheHtml, avisoRevisarHtml,
+} from './metas-viagem.js';
 import {
   iconeMetaSvg, seloMetaHtml, escHtml, formatMoeda, valorGrandeHtml, pct, statusPillHtml, garantirEstiloMetas, contextoMetas,
   metaPrincipalDoTipo, tipoMetaDoSlug, infoHtml, statusComDicaHtml,
@@ -114,6 +120,20 @@ function gravarCaminho(obj, caminho, valor) {
   o[partes[partes.length - 1]] = valor;
 }
 
+/**
+ * 04/10/2026: países (com moeda e bandeira), cidades turísticas e taxas
+ * turísticas da meta de viagem (assets/data/*.json). Nunca lança: sem os
+ * arquivos o assistente aceita país e cidade digitados.
+ */
+export async function carregarDadosViagemPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetch : null) {
+  const vazio = { paises: [], cidades: null, taxas: null };
+  if (!fetchImpl) return vazio;
+  const raiz = resolveSiteRootUrl();
+  const buscar = (nome) => fetchImpl(new URL(`assets/data/${nome}`, raiz).href).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const [p, c, t] = await Promise.all([buscar('paises.json'), buscar('cidades.json'), buscar('taxas-turisticas.json')]);
+  return { paises: (p && p.paises) || [], cidades: (c && c.cidades) || null, taxas: t || null };
+}
+
 const clonar = (o) => JSON.parse(JSON.stringify(o));
 const idItem = () => Math.random().toString(36).slice(2, 10);
 const ROTULO_CLASSE = { acoes: 'Ações', fiis: 'FIIs', usa: 'Ações EUA', rf: 'Renda Fixa' };
@@ -147,6 +167,7 @@ const ICONE_NUM = {
   moeda: '<circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2c-.5-.9-1.5-1.4-2.6-1.4-1.5 0-2.6.8-2.6 2s1.1 1.7 2.6 2 2.7.9 2.7 2.1-1.2 2-2.7 2c-1.2 0-2.2-.5-2.7-1.4M12 6.3v1.5M12 16.3v1.5"/>',
   calendario: '<rect x="4" y="5.5" width="16" height="14.5" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
   marco: '<path d="M6 20.5V4M6 4.5h11l-2.5 3.5L17 11.5H6"/>',
+  conta: '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M3.5 10h17M7 14.5h3"/>',
 };
 function iconeNum(chave, tamanho = 15) {
   return `<svg viewBox="0 0 24 24" width="${tamanho}" height="${tamanho}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONE_NUM[chave] || ICONE_NUM.alvo}</svg>`;
@@ -201,14 +222,15 @@ export function cardMetaHtml(meta, c) {
     linhas.push(['Prazo', c.dataAlvo ? `${rotuloMes(c.dataAlvo)}${c.mesesRestantes != null && c.mesesRestantes >= 0 ? `<small>em ${rotuloDuracao(c.mesesRestantes)}</small>` : ''}` : (c.dataEstimada ? `${rotuloMes(c.dataEstimada)}<small>estimado no seu ritmo</small>` : '—')]);
   }
   const necessario = c.aporteNecessarioTotal;
+  const parcelasAPagar = c.viagem ? c.viagem.aPagar.mesAtualBRL : 0; // 04/10/2026: parcelas são pagas à parte
   const voce = c.aporteAtual ? `${formatMoeda(c.aporteAtual, 'BRL', { casas: 0 })}${c.aporteOrigem === 'historico' ? ' (real)' : ''}` : '—';
   const aporte = necessario != null && necessario > 0
-    ? `<div class="mt-aporte ${c.aporteAtual + 0.5 >= (c.parcelasCorrendo > 0 ? (c.aporteNecessario || 0) : necessario) ? 'ok' : 'baixo'}"><span>Aporte/mês</span><b>${formatMoeda(necessario, 'BRL', { casas: 0 })}</b><span class="mt-fraco">necessário${c.parcelasCorrendo > 0 ? ` (${r0(c.parcelasCorrendo)} de parcelas)` : ''} · você: ${voce}</span></div>`
+    ? `<div class="mt-aporte ${c.aporteAtual + 0.5 >= (c.parcelasCorrendo > 0 ? (c.aporteNecessario || 0) : necessario) ? 'ok' : 'baixo'}"><span>Aporte/mês</span><b>${formatMoeda(necessario, 'BRL', { casas: 0 })}</b><span class="mt-fraco">${c.viagem ? 'pra guardar' : 'necessário'}${!c.viagem && c.parcelasCorrendo > 0 ? ` (${r0(c.parcelasCorrendo)} de parcelas)` : ''} · você: ${voce}${parcelasAPagar > 0 ? ` · paga ${r0(parcelasAPagar)}/mês de parcelas` : ''}</span></div>`
     : (c.dataEstimada && c.status !== 'concluida' && c.status !== 'saldo-ideal' ? `<div class="mt-aporte ok"><span>Nesse ritmo</span><b>${rotuloMes(c.dataEstimada)}</b><span class="mt-fraco">${c.aporteAtual > 0 ? `aportando ${voce}/mês` : 'só com o rendimento'}</span></div>` : '');
   return `<button class="mt-card" type="button" data-abrir="${escHtml(meta.id)}" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   <span class="mt-card-cab">
     ${seloMetaHtml(meta)}
-    <span class="mt-card-tit"><strong>${escHtml(meta.nome)}</strong><span>${escHtml(ap.rotulo)}${meta.contribuicao === 'recorrente' ? ' · pagamento recorrente' : ''}</span></span>
+    <span class="mt-card-tit"><strong>${escHtml(meta.nome)}</strong><span>${c.viagem ? bandeirasViagemHtml(meta, { tamanho: 15 }) : ''}${escHtml(ap.rotulo)}${meta.contribuicao === 'recorrente' ? ' · pagamento recorrente' : ''}</span></span>
     ${meta.status === 'arquivada' ? '<span class="mt-status na">Arquivada</span>' : statusPillHtml(c.status, meta)}
   </span>
   <span class="mt-card-valor">${linhaValor}</span>
@@ -269,6 +291,13 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     nums.push(numHeroi({ icone: 'alvo', rotulo: 'Saldo ideal', valor: c.alvoBRL != null ? valorGrandeHtml(c.alvoBRL) : '—', sub: c.partes.length ? `${c.partes[1].valor} meses x ${r0(c.partes[0].valor)} + ${pct(c.partes[2].valor)}` : '', dica: EXPLICACOES.saldoIdeal }));
     const dif = c.atualLiquidoBRL - (c.alvoBRL || 0);
     nums.push(numHeroi({ icone: dif >= 0 ? 'sobe' : 'falta', rotulo: dif >= 0 ? 'Acima do ideal (líquido)' : 'Falta (líquido)', valor: `<span class="${dif >= 0 ? 'mt-bom' : 'mt-ruim'}">${dif >= 0 ? '+' : ''}${valorGrandeHtml(Math.abs(dif))}</span>`, tom: dif >= 0 ? 'bom' : 'ruim', sub: c.atualBRL >= (c.alvoBRL || 0) && dif < 0 ? 'no bruto já bate - a diferença é o imposto' : `bruto ${c.atualBRL - (c.alvoBRL || 0) >= 0 ? '+' : '−'}${r0(Math.abs(c.atualBRL - (c.alvoBRL || 0)))}` }));
+  } else if (c.viagem) {
+    // 04/10/2026 (Tiago: "quero saber quanto tenho que pagar por mês, e quanto tenho que aportar e guardar pro futuro"):
+    // o herói olha só o que falta JUNTAR; o que já foi comprado no cartão aparece à parte ("A pagar")
+    const est = c.moeda !== 'BRL' && c.alvoMoeda != null;
+    nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já guardado', valor: valorGrandeHtml(c.ja), sub: `de <b>${c.total != null ? r0(c.total) : '—'}</b> a juntar${est ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })} a ${formatMoeda(c.cotacao, 'BRL', { casas: 2 })})` : ''}`, dica: EXPLICACOES.aJuntar }));
+    const subEntradas = c.entradasTotal > 0 && c.decomposicao ? `− <b>${r0(c.entradasTotal)}</b> de entradas programadas = <b>${r0(c.decomposicao.restante)}</b> a aportar` : (c.falta > 0 ? 'falta guardar até a viagem' : `${pct(c.percentual)} concluído`);
+    nums.push(numHeroi({ icone: 'falta', rotulo: 'Falta juntar', valor: c.falta > 0 ? `<span class="mt-ruim">${valorGrandeHtml(c.falta)}</span>` : '<span class="mt-bom">nada</span>', tom: c.falta > 0 ? 'ruim' : 'bom', sub: subEntradas, dica: EXPLICACOES.entradas }));
   } else {
     const contaFalta = (c.total != null && c.alvoBRL != null) ? Math.max(0, c.total - c.alvoBRL - (c.ja - c.atualBRL)) : 0;
     nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já tenho', valor: valorGrandeHtml(c.ja), sub: `de <b>${c.total != null ? r0(c.total) : '—'}</b>${estrangeira ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })} a ${formatMoeda(c.cotacao, 'BRL', { casas: 2 })})` : ''}`, dica: EXPLICACOES.percentual }));
@@ -281,11 +310,15 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   // 03/10/2026 (revisão): parcelas que já correm (itens fixos da viagem / conta
   // mensal) são pagas à parte (cartão) - o seu aporte compara com o que falta
   // JUNTAR (a mesma regra do status "no ritmo"/"atrasada"); as parcelas aparecem ao lado.
-  const parcelas = !reserva && c.parcelasCorrendo > 0 ? c.parcelasCorrendo : 0;
+  const parcelas = !reserva && !c.viagem && c.parcelasCorrendo > 0 ? c.parcelasCorrendo : 0;
   const necJuntar = reserva ? null : (parcelas ? c.aporteNecessario : c.aporteNecessarioTotal);
   const subParcelas = parcelas ? `+ <b>${r0(parcelas)}</b>/mês de parcelas` : '';
   const subAporte = parcelas && !(necJuntar > 0) ? `nada a juntar · ${subParcelas}` : `${aporteSub(necJuntar)}${parcelas ? ` · ${subParcelas}` : ''}`;
   nums.push(numHeroi({ icone: 'moeda', rotulo: c.aporteOrigem === 'historico' ? 'Seu aporte real' : 'Seu aporte', valor: valorAporte, tom: necJuntar != null && necJuntar > 0 ? (c.aporteAtual + 0.5 >= necJuntar ? 'bom' : 'ruim') : '', sub: subAporte, dica: EXPLICACOES.aporteReal }));
+  if (c.viagem && c.viagem.aPagar.itens.length) {
+    const ap = c.viagem.aPagar;
+    nums.push(numHeroi({ icone: 'conta', rotulo: 'A pagar (já comprado)', valor: valorGrandeHtml(ap.totalBRL), sub: `${ap.pendenteBRL > 0.5 ? `<b>${r0(ap.pendenteBRL)}</b> a confirmar nas faturas` : 'tudo confirmado'} · fora do aporte`, dica: EXPLICACOES.aPagar }));
+  }
   if (meta.tipo === 'aposentadoria' && c.aposentadoria) {
     const prox = (marcos || []).find((m) => !m.ja && m.mes);
     nums.splice(1, 0, numHeroi({ icone: 'alvo', rotulo: 'Montante alvo', valor: c.alvoBRL != null ? valorGrandeHtml(c.alvoBRL) : '—', sub: `renda ideal <b>${c.aposentadoria.renda ? r0(c.aposentadoria.renda) : '—'}</b>/mês${prox ? ` · ${prox.rotulo} em <b>${prox.ano}</b>` : ''}`, dica: EXPLICACOES.taxaRetirada }));
@@ -295,12 +328,14 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   const tomAnel = ['concluida', 'saldo-ideal'].includes(c.status) ? 'bom' : (['atrasada', 'vencida'].includes(c.status) ? 'ruim' : 'meta');
   const viagemInfo = meta.especificos && meta.especificos.destino ? ` · ${escHtml(meta.especificos.destino)}` : '';
   const destinosTxt = c.viagem && c.viagem.destinos.length ? ` · ${c.viagem.destinos.map((d) => escHtml(d.cidade || d.pais)).join(', ')}` : '';
+  const bandeiras = c.viagem ? bandeirasViagemHtml(meta, { tamanho: 18 }) : '';
   return `<section class="mt-heroi mt-heroi-v2" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   <div class="mt-heroi-cab">
     ${seloMetaHtml(meta, { tamanho: 46 })}
-    <div class="mt-heroi-tit"><span class="mt-eyebrow">${escHtml(ap.rotulo)}${viagemInfo}${destinosTxt}${c.dataAlvo ? ` · até ${rotuloMes(c.dataAlvo)}` : ''}</span><h2>${escHtml(meta.nome)}</h2></div>
+    <div class="mt-heroi-tit"><span class="mt-eyebrow">${bandeiras}${escHtml(ap.rotulo)}${viagemInfo}${destinosTxt}${c.dataAlvo ? ` · até ${rotuloMes(c.dataAlvo)}` : ''}</span><h2>${escHtml(meta.nome)}</h2></div>
     ${arquivada ? '<span class="mt-status na">Arquivada</span>' : statusComDicaHtml(c.status, meta)}
     <div class="mt-heroi-acoes">
+      ${botaoRoteiroHtml(meta)}
       ${arquivada ? '<button class="btn btn-ghost mt-btn-sm" type="button" data-restaurar>Restaurar</button><button class="btn btn-ghost mt-btn-sm mt-btn-perigo" type="button" data-excluir-definitivo>Excluir definitivamente</button>' : '<button class="btn btn-ghost mt-btn-sm" type="button" data-editar>Editar</button><button class="btn btn-ghost mt-btn-sm" type="button" data-arquivar>Arquivar</button>'}
     </div>
   </div>
@@ -308,6 +343,7 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     ${anelProgressoHtml(p, { tom: tomAnel, p2: reserva && c.liquido.impostoBRL > 0 ? c.percentualBruto : null, rotulo: reserva ? 'líquido' : 'da meta' })}
     <div class="mt-heroi-numeros">${nums.join('')}</div>
   </div>
+  ${c.viagem ? porMesHtml(c) : ''}
   ${reserva && c.liquido.impostoBRL > 0 ? `<p class="mt-heroi-legenda"><i class="liq"></i>líquido ${pct(c.percentual)} <i class="bru"></i>bruto ${pct(c.percentualBruto)} do saldo ideal</p>` : ''}
   <p class="mt-heroi-ritmo ${ritmo.tom}">${iconeNum(ritmo.tom === 'bom' ? 'foguete' : 'relogio', 16)}<span>${ritmo.html}</span>${infoHtml(EXPLICACOES.noSeuRitmo, { rotulo: 'Como o ritmo é calculado?' })}</p>
   ${meta.notas ? `<p class="mt-notas">${escHtml(meta.notas)}</p>` : ''}
@@ -366,6 +402,7 @@ export async function montarPaginaMetas(token, {
   excluirMetaImpl = excluirMetaApi,
   getMetasHistoricoImpl = getMetasHistorico,
   excluirDefinitivoImpl = excluirDefinitivoApi,
+  carregarDadosViagemImpl = carregarDadosViagemPadrao, // 04/10/2026: países, cidades e taxas turísticas
   win = doc.defaultView,
   usarCache = true,
 } = {}) {
@@ -385,6 +422,7 @@ export async function montarPaginaMetas(token, {
     resposta: null, ctx: null, filtroStatus: 'todas', filtroTipo: 'todos', detalheId: null, assistente: null, simulador: null,
     historico: null, indices: [], historicoCarregando: false, historicoErro: null,
     modoHist: 'acumulado', periodos: { hist: '12m', proj: 'fim', renda: '12m' }, editandoSaldo: null,
+    dados: { paises: [], cidades: null, taxas: null }, // 04/10/2026
   };
 
   function idDoHash() {
@@ -445,6 +483,29 @@ export async function montarPaginaMetas(token, {
     estado.ctx.historico = resumo;
   }
 
+  /**
+   * 04/10/2026: viagens cadastradas antes (países digitados, itens fixos, conta
+   * mensal) ganham o formato novo na hora de desenhar - nada é gravado até o
+   * Tiago salvar (metas-calc!migrarMetaViagem); o que não mapear vira "revise".
+   */
+  function migrarResposta(resposta) {
+    const mig = (m) => (m && (m.tipo === 'viagemInternacional' || m.tipo === 'viagemNacional') ? migrarMetaViagem(m, { paises: estado.dados.paises, cidades: estado.dados.cidades }).meta : m);
+    return { ...resposta, metas: (resposta.metas || []).map(mig), arquivadas: (resposta.arquivadas || []).map(mig) };
+  }
+  /** Os dados de países chegaram (ou mudaram): refaz a migração e redesenha o que depende deles. */
+  function aoChegarDadosViagem() {
+    if (!estado.resposta) return;
+    estado.resposta = migrarResposta(estado.resposta); // idempotente
+    estado.ctx = { ...contextoMetas(estado.resposta), historico: estado.ctx ? estado.ctx.historico : {} };
+    aplicarHistoricoNoCtx();
+    const a = estado.assistente;
+    if (a) {
+      const f = doc.activeElement;
+      const digitando = f && el.dialogo.contains(f) && ['INPUT', 'TEXTAREA'].includes(f.tagName);
+      if (a.passo === 2 && !digitando) desenharAssistente();
+    } else desenhar();
+  }
+
   function desenharResposta(resposta) {
     if (el.carregando) el.carregando.hidden = true;
     if (!resposta || !resposta.ok) {
@@ -455,8 +516,8 @@ export async function montarPaginaMetas(token, {
       return;
     }
     if (el.erro) el.erro.hidden = true;
-    estado.resposta = resposta;
-    estado.ctx = contextoMetas(resposta);
+    estado.resposta = migrarResposta(resposta);
+    estado.ctx = contextoMetas(estado.resposta);
     aplicarHistoricoNoCtx();
     if (el.avisos) {
       const av = resposta.avisos || {};
@@ -632,6 +693,9 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 <div class="mt-colunas">
   <div class="mt-col-principal">`;
 
+    // 04/10/2026: viagem - primeiro as contas (a pagar x a juntar, entradas, destinos)
+    if (c.viagem) html += viagemDetalheHtml(meta, c, { cambio: estado.ctx.cambio, dados: estado.dados });
+
     // histórico
     html += `<section class="mt-bloco" id="mtHistBloco"><div class="mt-bloco-cab"><h3>Histórico${infoHtml(EXPLICACOES.historico)}</h3>
       <div class="mt-bloco-ctrl"><div class="filter-tabs mt-modo" role="group" aria-label="Visão"><button type="button" class="filter-tab ${estado.modoHist === 'acumulado' ? 'active' : ''}" data-modo-hist="acumulado">Acumulado</button><button type="button" class="filter-tab ${estado.modoHist === 'mensal' ? 'active' : ''}" data-modo-hist="mensal">Mês a mês</button></div>
@@ -657,9 +721,9 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 
     html += velocidadeHtml(meta, c);
     if (meta.tipo === 'aposentadoria' || (meta.tipo === 'rendaPassiva' && c.alvoBRL > 0)) html += marcosHtml(meta, c, marcosRitmo);
-    if (c.viagem) html += viagemDetalheHtml(meta, c);
+    if (!c.viagem) html += entradasDetalheHtml(meta, c); // 04/10/2026: entradas programadas valem pra qualquer meta (na viagem vêm junto)
 
-    if (c.partes.length && meta.tipo !== 'acumulo') {
+    if (c.partes.length && meta.tipo !== 'acumulo' && !c.viagem) { // viagem: a conta está em "A juntar"
       const ehApos = meta.tipo === 'aposentadoria';
       html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>De onde vem o alvo</h3>${ehApos && !arquivada ? '<button type="button" class="mt-link" data-editar>Editar a conta</button>' : ''}</div><ul class="mt-partes ${ehApos ? 'passos' : ''}">${c.partes.map((pt) => `<li class="${/^=/.test(pt.rotulo) ? 'sub' : ''}"><span>${escHtml(pt.rotulo)}${pt.chave === 'extra' ? infoHtml(EXPLICACOES.extra) : pt.chave === 'reinvestimento' ? infoHtml(EXPLICACOES.reinvestimento) : pt.chave === 'taxa' ? infoHtml(EXPLICACOES.taxaRetirada) : ''}</span><b class="mono">${pt.tipo === '%' ? pct(pt.valor, 1) : pt.tipo === 'n' ? pt.valor : (pt.moeda && pt.moeda !== 'BRL' ? `${formatMoeda(pt.valorMoeda, pt.moeda, { casas: 0 })} ≈ ${formatMoeda(pt.valor)}` : formatMoeda(pt.valor))}</b></li>`).join('')}<li class="total"><span>${meta.tipo === 'rendaPassiva' ? 'Patrimônio necessário' : meta.tipo === 'reservaEmergencia' ? 'Saldo ideal' : ehApos ? `Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : 0, 1)}` : 'Alvo'}</span><b class="mono">${formatMoeda(c.alvoBRL)}</b></li></ul>
       ${meta.tipo === 'reservaEmergencia' ? '<p class="mt-nota">O custo de vida vem das Despesas essenciais (Organização Financeira) - adicionar ou remover uma despesa lá muda o saldo ideal aqui. O status olha o valor LÍQUIDO: o que cairia na conta se resgatasse tudo hoje.</p>' : ''}
@@ -729,28 +793,6 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
   ${cen.length ? `<h4 class="mt-grupo">E se a renda fosse menor?</h4><div class="mt-cenarios">${cen.map((x) => `<div class="mt-cen"><span class="mt-cen-tit">Renda ${Math.round(x.reducao * 100)}% menor${x.renda ? ` (${r0(x.renda)}/mês)` : ''}</span><b>${r0(x.montante)}</b><span>precisaria juntar · <span class="mt-bom">−${r0(x.economia)}</span></span>${x.aporteNecessario != null ? `<span>aporte até o prazo: <b>${r0(x.aporteNecessario)}</b>/mês</span>` : ''}${x.data ? `<span>no seu ritmo: <b>${rotuloMes(x.data)}</b>${x.mesesAMenos > 0 ? ` (${rotuloDuracao(x.mesesAMenos)} antes)` : ''}</span>` : ''}</div>`).join('')}</div>
   <p class="mt-nota">Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : (meta.especificos && meta.especificos.dyAnual) || 0, 1)}${rendaBase ? `, a partir da renda de ${r0(rendaBase)}/mês` : ''}.</p>` : ''}
 </section>`;
-  }
-
-  function viagemDetalheHtml(meta, c) {
-    const v = c.viagem;
-    let html = '';
-    if (v.temDestinos) {
-      const moedas = Object.values(v.porMoeda);
-      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Destinos</h3><span class="mt-fraco">${v.dias} dias${v.margem ? ` · margem de ${pct(v.margem)}` : ''}</span></div>
-  <div class="mt-tabela-rolagem"><table class="mt-tabela"><thead><tr><th scope="col">Destino</th><th scope="col">Dias</th><th scope="col">Por dia</th><th scope="col">Total</th></tr></thead><tbody>${v.destinos.map((d) => `<tr><th scope="row">${escHtml(d.cidade || d.pais)}<span class="mt-fraco">${d.cidade && d.pais ? ` · ${escHtml(d.pais)}` : ''}</span></th><td>${d.dias}</td><td>${formatMoeda(d.diaria, d.moeda, { casas: 0 })}</td><td><b>${formatMoeda(d.totalMoeda, d.moeda, { casas: 0 })}</b>${d.totalBRL != null && d.moeda !== 'BRL' ? `<span class="mt-fraco"> ≈ ${r0(d.totalBRL)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>
-  <h4 class="mt-grupo">Por moeda${infoHtml(EXPLICACOES.cambio)}</h4>
-  <ul class="mt-moedas">${moedas.map((x) => {
-    const p = x.comMargem > 0 ? Math.min(1, x.guardado / x.comMargem) : 0;
-    return `<li><div class="mt-moeda-cab"><b>${x.moeda}</b><span>${formatMoeda(x.comMargem, x.moeda, { casas: 0 })} com margem${x.cotacao && x.moeda !== 'BRL' ? ` · 1 ${x.moeda} = ${formatMoeda(x.cotacao, 'BRL', { casas: 2 })}` : ''}</span></div>
-      <span class="mt-barra"><span style="width:${(p * 100).toFixed(1)}%"></span></span>
-      <div class="mt-moeda-num"><span>já trocado: <b>${formatMoeda(x.guardado, x.moeda, { casas: 0 })}</b></span><span class="${x.falta > 0 ? 'mt-ruim' : 'mt-bom'}">${x.falta > 0 ? `faltam <b>${formatMoeda(x.falta, x.moeda, { casas: 0 })}</b>${x.faltaBRL != null && x.moeda !== 'BRL' ? ` ≈ ${r0(x.faltaBRL)} hoje` : ''}` : 'completo ✓'}</span></div></li>`;
-  }).join('')}</ul></section>`;
-    }
-    if (v.temFixos) {
-      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Itens fixos e compras antecipadas</h3><span class="mt-fraco">${r0(v.fixosPagoBRL)} pagos de ${r0(v.fixosTotalBRL)}${v.parcelaMensal ? ` · ${r0(v.parcelaMensal)}/mês correndo` : ''}</span></div>
-  <ul class="mt-fixos">${v.fixos.map((f) => `<li class="${f.pagas >= f.parcelas ? 'pago' : ''}"><span class="mt-v-nome">${escHtml(f.nome)}<em>${f.parcelas > 1 ? `${f.pagas} de ${f.parcelas} parcelas de ${f.parcelaBRL != null ? r0(f.parcelaBRL) : '—'}` : (f.pagas ? 'pago' : 'à vista')}${f.parte < 1 ? ` · sua parte ${pct(f.parte)}` : ''}${f.moeda !== 'BRL' ? ` · ${formatMoeda(f.totalMoeda, f.moeda, { casas: 0 })}` : ''}${f.fim && f.parcelas > 1 ? ` · até ${rotuloMes(f.fim)}` : ''}</em></span><b class="mono">${f.totalBRL != null ? formatMoeda(f.totalBRL) : '—'}</b></li>`).join('')}</ul></section>`;
-    }
-    return html;
   }
 
   function vinculosDetalheHtml(meta, c, { arquivada = false } = {}) {
@@ -1151,8 +1193,11 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const c = calcDe(m);
     if (c.renda) return `renda hoje <b>${r0(c.renda.atual)}</b>/mês · patrimônio necessário <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>`;
     if (c.alvoBRL == null && !(c.viagem && c.viagem.temFixos)) return 'informe o alvo';
-    const extra = c.viagem && c.viagem.fixosTotalBRL ? ` + fixos <b>${r0(c.viagem.fixosTotalBRL)}</b>` : '';
-    return `alvo <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>${c.moeda !== 'BRL' && c.alvoMoeda ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })})` : ''}${extra}${c.aporteNecessarioTotal ? ` · aporte <b>${r0(c.aporteNecessarioTotal)}</b>/mês` : ''}`;
+    if (c.viagem) { // 04/10/2026: a juntar x já comprado (parcelas à parte)
+      const par = c.viagem.aPagar.mesAtualBRL;
+      return `a juntar <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>${c.moeda !== 'BRL' && c.alvoMoeda ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })})` : ''}${c.aporteNecessario != null ? ` · guarda <b>${r0(c.aporteNecessario)}</b>/mês` : ''}${par > 0 ? ` · paga <b>${r0(par)}</b>/mês` : ''}`;
+    }
+    return `alvo <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>${c.moeda !== 'BRL' && c.alvoMoeda ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })})` : ''}${c.aporteNecessarioTotal ? ` · aporte <b>${r0(c.aporteNecessarioTotal)}</b>/mês` : ''}`;
   }
   function atualizarPrevia() {
     const a = estado.assistente;
@@ -1162,12 +1207,19 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const conta = el.dialogo.querySelector('#mtContaApos');
     if (conta) conta.innerHTML = contaAposentadoriaHtml(a.meta);
     const viag = el.dialogo.querySelector('#mtResumoViagem');
-    if (viag) viag.innerHTML = resumoViagemHtml(a.meta);
+    if (viag) viag.innerHTML = resumoViagemHtml(a.meta, calcDe(a.meta));
+    const pessoasPadrao = Math.max(1, Number(a.meta.especificos && a.meta.especificos.pessoas) || 1);
     el.dialogo.querySelectorAll('[data-dest-total]').forEach((x) => {
       const d = (a.meta.especificos.destinos || [])[Number(x.dataset.destTotal)];
-      if (!d) return;
-      const diaria = CATEGORIAS_DIARIA.reduce((s, [k]) => s + (Number(d.gastos && d.gastos[k]) || 0), 0) + (Number(d.gastos && d.gastos.outros) || 0);
-      x.textContent = `${formatMoeda(diaria, d.moeda || 'EUR', { casas: 0 })}/dia · total ${formatMoeda(diaria * (Number(d.dias) || 0) + (Number(d.extras) || 0), d.moeda || 'EUR', { casas: 0 })}`;
+      if (d) x.textContent = totalDestinoTexto(d, { pessoasPadrao });
+    });
+    el.dialogo.querySelectorAll('[data-taxa-nota]').forEach((x) => {
+      const d = (a.meta.especificos.destinos || [])[Number(x.dataset.taxaNota)];
+      if (d) x.innerHTML = notaTaxaHtml(d, Number(x.dataset.taxaNota), estado.dados.taxas);
+    });
+    el.dialogo.querySelectorAll('[data-entrada-resumo]').forEach((x) => {
+      const e = (a.meta.entradas || [])[Number(x.dataset.entradaResumo)];
+      if (e) x.innerHTML = resumoEntradaHtml(a.meta, e, { referencias: estado.ctx.referencias, hoje: estado.ctx.hoje });
     });
   }
 
@@ -1220,46 +1272,6 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     return `<ol class="mt-conta">${passos}</ol>`;
   }
 
-  /** Resumo da viagem ao vivo (por moeda + fixos) no assistente. */
-  function resumoViagemHtml(m) {
-    const v = calcularViagem(m, { cambio: estado.ctx.cambio, hoje: estado.ctx.hoje });
-    const moedas = Object.values(v.porMoeda);
-    if (!moedas.length && !v.fixos.length) return '<p class="mt-nota">Adicione os destinos: o alvo em cada moeda sai sozinho (dias x gasto diário + extras, com a margem).</p>';
-    return `<ul class="mt-resumo-viagem">${moedas.map((x) => `<li><b>${formatMoeda(x.comMargem, x.moeda, { casas: 0 })}</b><span>${x.dias} dias · ${escHtml(x.destinos.join(', '))}${x.cotacao && x.moeda !== 'BRL' ? ` · ≈ ${r0(x.comMargemBRL)} hoje` : ''}</span></li>`).join('')}${v.fixos.length ? `<li><b>${r0(v.fixosTotalBRL)}</b><span>itens fixos (sua parte)${v.parcelaMensal ? ` · ${r0(v.parcelaMensal)}/mês correndo` : ''}</span></li>` : ''}</ul>`;
-  }
-
-  function destinosEditorHtml(m) {
-    const ds = (m.especificos && m.especificos.destinos) || [];
-    const linhas = ds.map((d, i) => `<li class="mt-dest">
-  <div class="mt-dest-cab"><span class="mt-dest-num">${i + 1}</span>
-    <input data-dest="${i}" data-dest-campo="cidade" value="${escHtml(d.cidade || '')}" placeholder="Cidade" aria-label="Cidade do destino ${i + 1}">
-    <input data-dest="${i}" data-dest-campo="pais" value="${escHtml(d.pais || '')}" placeholder="País" aria-label="País do destino ${i + 1}">
-    <select data-dest="${i}" data-dest-campo="moeda" aria-label="Moeda do destino ${i + 1}">${MOEDAS.map((x) => `<option ${x === (d.moeda || 'EUR') ? 'selected' : ''}>${x}</option>`).join('')}</select>
-    <button type="button" class="mt-x" data-dest-remover="${i}" aria-label="Remover destino ${i + 1}">×</button></div>
-  <div class="mt-dest-campos">
-    <label class="mt-campo"><span>Dias</span><input data-dest="${i}" data-dest-campo="dias" inputmode="numeric" value="${numParaCampo(d.dias, 0)}"></label>
-    ${CATEGORIAS_DIARIA.map(([k, r]) => `<label class="mt-campo"><span>${r}/dia</span><input data-dest="${i}" data-dest-campo="gastos.${k}" inputmode="decimal" value="${numParaCampo(d.gastos && d.gastos[k])}"></label>`).join('')}
-    <label class="mt-campo"><span>Ingressos/extras</span><input data-dest="${i}" data-dest-campo="extras" inputmode="decimal" value="${numParaCampo(d.extras)}"></label>
-  </div>
-  <p class="mt-dest-total" data-dest-total="${i}"></p>
-</li>`).join('');
-    return `<ul class="mt-dests">${linhas}</ul><button type="button" class="mt-link" data-dest-add>+ Adicionar destino (país/cidade)</button>`;
-  }
-
-  function fixosEditorHtml(m) {
-    const fs = (m.especificos && m.especificos.fixos) || [];
-    const linhas = fs.map((f, i) => `<li class="mt-fixo-ed">
-  <input data-fixo="${i}" data-fixo-campo="nome" value="${escHtml(f.nome || '')}" placeholder="Passagem, hotel, ingresso…" aria-label="Item fixo ${i + 1}">
-  <span class="mt-entrada"><select data-fixo="${i}" data-fixo-campo="moeda" aria-label="Moeda">${MOEDAS.map((x) => `<option ${x === (f.moeda || 'BRL') ? 'selected' : ''}>${x}</option>`).join('')}</select><input data-fixo="${i}" data-fixo-campo="valor" inputmode="decimal" value="${numParaCampo(f.valor)}" aria-label="Valor total"></span>
-  <label class="mt-mini"><span>parcelas</span><input data-fixo="${i}" data-fixo-campo="parcelas" inputmode="numeric" value="${numParaCampo(f.parcelas, 0)}"></label>
-  <label class="mt-mini"><span>1ª parcela</span><input type="month" data-fixo="${i}" data-fixo-campo="inicio" value="${escHtml(f.inicio || '')}"></label>
-  <label class="mt-mini"><span>sua parte %</span><input data-fixo="${i}" data-fixo-campo="parte" inputmode="decimal" value="${numParaCampo(f.parte == null ? 100 : f.parte * 100, 1)}"></label>
-  <label class="mt-check-txt"><input type="checkbox" data-fixo="${i}" data-fixo-campo="pago" ${f.pago ? 'checked' : ''}> pago</label>
-  <button type="button" class="mt-x" data-fixo-remover="${i}" aria-label="Remover ${escHtml(f.nome || 'item')}">×</button>
-</li>`).join('');
-    return `<ul class="mt-fixos-ed">${linhas}</ul><button type="button" class="mt-link" data-fixo-add>+ Adicionar item fixo</button>`;
-  }
-
   function passoDadosHtml(m) {
     const ref = estado.ctx.referencias || {};
     const simbolo = (moeda) => (moeda === 'BRL' ? 'R$' : moeda);
@@ -1268,8 +1280,13 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     f.push(campo({ caminho: 'nome', rotulo: 'Nome da meta', formato: 'texto', largura: 'largo', foco: true }));
     if (m.tipo === 'acumulo') f.push(campo({ caminho: 'categoria', rotulo: 'Categoria', formato: 'select', opcoes: Object.entries(CATEGORIAS_ACUMULO).map(([k, c]) => [k, c.nome]) }));
     const dataViagem = m.tipo === 'viagemInternacional' || m.tipo === 'viagemNacional';
-    const porDestinos = dataViagem && (((m.especificos && m.especificos.destinos) || []).length > 0 || (m.tipo === 'viagemInternacional' && !(m.contaMensal && m.contaMensal.valor > 0)));
-    if (dataViagem) f.push(campo({ caminho: 'especificos.destino', rotulo: 'Nome da viagem / roteiro', formato: 'texto', ajuda: 'ex. Mochilão pela Europa - os destinos você lista abaixo' }));
+    // 04/10/2026: toda viagem é por destinos (país/cidade) + "já comprado"; a "conta mensal" antiga virou item no cartão (migração)
+    const porDestinos = dataViagem;
+    if (dataViagem) {
+      f.push(campo({ caminho: 'especificos.destino', rotulo: 'Nome da viagem / roteiro', formato: 'texto', ajuda: 'ex. Eurotrip - os destinos você lista abaixo' }));
+      f.push(campo({ caminho: 'especificos.roteiroUrl', rotulo: 'Roteiro (Wanderlog)', formato: 'texto', largura: 'largo', ajuda: 'cole o link do roteiro (wanderlog.com/…): vira um botão no detalhe da viagem, em nova aba' }));
+      f.push(campo({ caminho: 'especificos.pessoas', rotulo: 'Pessoas na viagem (taxa turística)', formato: 'int', ajuda: 'a taxa turística é por pessoa e por noite' }));
+    }
     if (m.tipo === 'rendaPassiva') {
       f.push(campo({ caminho: 'especificos.rendaMensal', rotulo: 'Renda passiva por mês', ajuda: ref.rendaPassiva && ref.rendaPassiva.metaPlanilha ? `na planilha (aba Distribuição e Metas): ${formatMoeda(ref.rendaPassiva.metaPlanilha)}` : '' }));
       f.push(campo({ caminho: 'especificos.dyAnual', rotulo: 'Rendimento em proventos (DY) ao ano', formato: 'pct', ajuda: 'patrimônio necessário = renda x 12 / DY' }));
@@ -1331,14 +1348,15 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       f.push(campo({ caminho: 'rendimentoAnual', rotulo: 'Rendimento esperado ao ano', formato: 'pct', ajuda: m.tipo === 'aposentadoria' ? 'use o rendimento real (acima da inflação)' : '' }));
     }
     if (porDestinos) {
-      extra += `<fieldset class="mt-grupo-campos"><legend>Destinos <em>(país/cidade, dias e gasto diário na moeda de lá)</em></legend>${destinosEditorHtml(m)}
-  <div class="mt-campos">${campo({ caminho: 'especificos.margem', rotulo: 'Margem de segurança', formato: 'pct', dica: EXPLICACOES.margemViagem })}</div>
-  <div id="mtResumoViagem">${resumoViagemHtml(m)}</div></fieldset>`;
-      extra += `<fieldset class="mt-grupo-campos"><legend>Itens fixos e compras antecipadas <em>(passagens, hospedagem, ingressos - parcelados ou à vista)</em></legend>${fixosEditorHtml(m)}</fieldset>`;
-    } else if (dataViagem) {
-      extra += `<fieldset class="mt-grupo-campos"><legend>Conta mensal (passagens, hospedagem parceladas)</legend><div class="mt-campos">
-${campo({ caminho: 'contaMensal.descricao', rotulo: 'Descrição', formato: 'texto' })}${campo({ caminho: 'contaMensal.valor', rotulo: 'Valor por mês' })}${campo({ caminho: 'contaMensal.meses', rotulo: 'Meses', formato: 'int' })}${campo({ caminho: 'contaMensal.inicio', rotulo: 'Começa em', formato: 'mes' })}</div></fieldset>`;
-      extra += '<button type="button" class="mt-link" data-dest-add>+ Planejar por destinos (dias x gasto diário)</button>';
+      extra += `<fieldset class="mt-grupo-campos"><legend>Destinos <em>(país/cidade, dias e gasto diário na moeda de lá)</em></legend>${destinosEditorHtml(m, { dados: estado.dados })}
+  <div class="mt-campos">${campo({ caminho: 'especificos.margem', rotulo: 'Margem de segurança', formato: 'pct', dica: EXPLICACOES.margemViagem })}</div></fieldset>`;
+      extra += `<fieldset class="mt-grupo-campos"><legend>Já comprado e a pagar <em>(passagens, hospedagem, ingressos)</em>${infoHtml(EXPLICACOES.aPagar, { rotulo: 'O que é "já comprado"?' })}</legend>${fixosEditorHtml(m, { hoje: estado.ctx.hoje, dados: estado.dados })}
+  <p class="mt-nota">No cartão ou pago = já comprado: conta como pago e fica <b>fora do aporte</b>. "Ainda vou pagar" entra no dinheiro a juntar.</p></fieldset>`;
+      extra += `<div id="mtResumoViagem">${resumoViagemHtml(m, calcDe(m))}</div>`;
+    }
+    // 04/10/2026: entradas programadas (13º, FGTS, PLR...) - qualquer meta de juntar dinheiro
+    if (!['rendaPassiva', 'reservaEmergencia', 'aposentadoria'].includes(m.tipo) && m.contribuicao !== 'recorrente') {
+      extra += `<fieldset class="mt-grupo-campos"><legend>Entradas programadas <em>(13º, FGTS, PLR…)</em></legend>${entradasEditorHtml(m, { referencias: estado.ctx.referencias, hoje: estado.ctx.hoje })}</fieldset>`;
     }
     if (!['rendaPassiva', 'reservaEmergencia', 'aposentadoria'].includes(m.tipo) && m.contribuicao !== 'recorrente') {
       extra += `<fieldset class="mt-grupo-campos"><legend>Sub-itens de custo <em>(opcional)</em></legend><div id="mtItensAssistente"></div></fieldset>`;
@@ -1401,15 +1419,16 @@ ${saldosEditorHtml(m)}`;
     const linhas = [
       ['Tipo', ap.rotulo],
       c.renda ? ['Renda hoje / meta', `${formatMoeda(c.renda.atual)} / ${formatMoeda(c.renda.alvo)} por mês`] : null,
-      ['Alvo', c.alvoBRL != null ? `${formatMoeda(c.alvoBRL)}${c.moeda !== 'BRL' && c.alvoMoeda != null ? ` (${formatMoeda(c.alvoMoeda, c.moeda)})` : ''}` : '—'],
+      [c.viagem ? 'A juntar' : 'Alvo', c.alvoBRL != null ? `${formatMoeda(c.alvoBRL)}${c.moeda !== 'BRL' && c.alvoMoeda != null ? ` (${formatMoeda(c.alvoMoeda, c.moeda)})` : ''}` : '—'],
       c.conta ? ['Conta mensal', `${formatMoeda(c.conta.valor)} x ${c.conta.total} meses`] : null,
       ['Já tem', `${formatMoeda(c.atualBRL)} (${pct(c.percentual)})`],
       m.tipo !== 'reservaEmergencia' ? ['Prazo', c.dataAlvo ? `${rotuloMes(c.dataAlvo)} · ${rotuloDuracao(c.mesesRestantes)}` : 'sem data'] : null,
-      m.tipo !== 'reservaEmergencia' ? ['Aporte necessário', c.aporteNecessarioTotal != null ? `${formatMoeda(c.aporteNecessarioTotal)}/mês` : '—'] : null,
+      m.tipo !== 'reservaEmergencia' ? [c.viagem ? 'Aporte (pra guardar)' : 'Aporte necessário', c.aporteNecessarioTotal != null ? `${formatMoeda(c.aporteNecessarioTotal)}/mês` : '—'] : null,
       ['Seu aporte', c.aporteAtual ? `${formatMoeda(c.aporteAtual)}/mês${c.aporteOrigem === 'historico' ? ' (real)' : ''}` : '—'],
       m.tipo === 'reservaEmergencia' ? ['Líquido hoje', formatMoeda(c.atualLiquidoBRL)] : null,
       c.aposentadoria ? ['Renda ideal', c.aposentadoria.renda ? `${formatMoeda(c.aposentadoria.renda)}/mês` : '—'] : null,
-      c.viagem && c.viagem.temFixos ? ['Itens fixos', `${formatMoeda(c.viagem.fixosTotalBRL)} (${formatMoeda(c.viagem.fixosPagoBRL)} pagos)`] : null,
+      c.viagem && c.viagem.aPagar.itens.length ? ['A pagar (já comprado)', `${formatMoeda(c.viagem.aPagar.totalBRL)}${c.viagem.aPagar.mesAtualBRL ? ` · ${formatMoeda(c.viagem.aPagar.mesAtualBRL)}/mês` : ''} - fora do aporte`] : null,
+      c.entradasTotal > 0 ? ['Entradas programadas', `${formatMoeda(c.entradasTotal)} até a data`] : null,
       ['Investimentos vinculados', `${c.vinculos.length} · ${formatMoeda(c.valorVinculado)}`],
     ].filter(Boolean);
     return `<div class="mt-revisar" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
@@ -1436,26 +1455,91 @@ ${saldosEditorHtml(m)}`;
   function validarPasso(a) {
     const m = a.meta;
     if (a.passo === 2 && !String(m.nome || '').trim()) return 'Dê um nome pra meta.';
+    const url = m.especificos && m.especificos.roteiroUrl;
+    if (a.passo === 2 && String(url || '').trim() && normalizarUrl(url) === null) return 'O link do roteiro não parece válido (ex. https://wanderlog.com/plan/…).';
     return null;
   }
 
-  function lerCampo(inp) {
-    const m = estado.assistente.meta;
-    const f = inp.dataset.formato;
-    let v;
-    if (f === 'texto' || f === 'select' || f === 'mes') v = inp.value || null;
-    else if (f === 'bool') v = inp.checked;
-    else if (f === 'pct') { const n = parseNumeroBR(inp.value); v = n == null ? null : n / 100; }
-    else if (f === 'int' || f === 'ano') { const n = parseNumeroBR(inp.value); v = n == null ? null : Math.round(n); }
-    else v = parseNumeroBR(inp.value);
-    if (inp.dataset.campo === 'nome' || inp.dataset.campo === 'notas') v = inp.value;
-    gravarCaminho(m, inp.dataset.campo, v);
-  }
+  // --- 04/10/2026: dropdown pesquisável de país/cidade (bandeira, moeda e taxa turística sugerida) ---
+  const destinoDe = (i) => ((estado.assistente && estado.assistente.meta.especificos.destinos) || [])[Number(i)] || null;
 
-  function validarPasso(a) {
-    const m = a.meta;
-    if (a.passo === 2 && !String(m.nome || '').trim()) return 'Dê um nome pra meta.';
-    return null;
+  /** Preenche a taxa turística com a sugestão confirmada (só se estiver vazia, ou com `forcar`). */
+  function aplicarTaxaSugerida(d, { forcar = false } = {}) {
+    const sug = sugestaoTaxaTuristica(d, estado.dados.taxas);
+    if (!sug || (!forcar && d.taxaTuristica != null) || (sug.moeda && d.moeda && sug.moeda !== d.moeda)) return;
+    if (sug.tipo === 'fixa') { d.taxaTuristica = sug.valor; d.taxaMaxNoites = sug.maxNoites || null; } else if (sug.tipo === 'nao-cobra') d.taxaTuristica = 0;
+  }
+  function definirPais(d, p) {
+    d.paisCodigo = p.codigo; d.pais = p.nome;
+    if (p.moeda) d.moeda = p.moeda;
+    aplicarTaxaSugerida(d);
+  }
+  /** Atualiza bandeira, moeda, taxa e total de 1 destino sem redesenhar o diálogo (não perde o foco). */
+  function atualizarLinhaDestino(i) {
+    const d = destinoDe(i);
+    const li = el.dialogo.querySelector(`[data-dest-item="${i}"]`);
+    if (!d || !li) return;
+    const flag = li.querySelector('.mt-combo-flag');
+    if (flag) flag.innerHTML = bandeiraHtml(d.paisCodigo, { tamanho: 22 });
+    const inpPais = li.querySelector('[data-combo="pais"]');
+    if (inpPais && doc.activeElement !== inpPais) inpPais.value = d.pais || '';
+    const sel = li.querySelector('select[data-dest-campo="moeda"]');
+    if (sel) {
+      if (![...sel.options].some((o) => o.value === d.moeda)) { const o = doc.createElement('option'); o.textContent = d.moeda; sel.appendChild(o); }
+      sel.value = d.moeda;
+    }
+    const tx = li.querySelector('[data-dest-campo="taxaTuristica"]');
+    if (tx && doc.activeElement !== tx) tx.value = numParaCampo(d.taxaTuristica);
+    const rotTx = li.querySelector('.mt-dest-campos.taxa label span');
+    if (rotTx) rotTx.textContent = `Por pessoa/noite (${d.moeda || 'EUR'})`;
+  }
+  function fecharCombos(exceto = null) {
+    el.dialogo.querySelectorAll('.mt-combo-lista').forEach((l) => {
+      if (l === exceto) return;
+      l.hidden = true;
+      const inp = l.parentElement && l.parentElement.querySelector('.mt-combo-input');
+      if (inp) { inp.setAttribute('aria-expanded', 'false'); inp.removeAttribute('aria-activedescendant'); inp.dataset.digitou = ''; }
+    });
+  }
+  function abrirCombo(input) {
+    const d = destinoDe(input.dataset.dest);
+    const lista = input.parentElement && input.parentElement.querySelector('.mt-combo-lista');
+    if (!d || !lista) return;
+    fecharCombos(lista);
+    const busca = input.dataset.digitou === '1' ? input.value : '';
+    lista.innerHTML = input.dataset.combo === 'pais'
+      ? opcoesPaisesHtml(estado.dados.paises, busca, { selecionado: d.paisCodigo })
+      : opcoesCidadesHtml(estado.dados.cidades, d.paisCodigo, busca, { atual: d.cidade });
+    lista.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    const sel = lista.querySelector('.sel');
+    if (sel && !busca && sel.scrollIntoView) { try { sel.scrollIntoView({ block: 'nearest' }); } catch (e) { /* jsdom */ } }
+  }
+  function escolherPais(i, codigo) {
+    const d = destinoDe(i);
+    const p = paisPorCodigo(codigo, estado.dados.paises);
+    if (!d || !p) return;
+    definirPais(d, p);
+    const inpPais = el.dialogo.querySelector(`[data-dest-item="${i}"] [data-combo="pais"]`);
+    if (inpPais) inpPais.value = p.nome;
+    fecharCombos();
+    atualizarLinhaDestino(i);
+    atualizarPrevia();
+    const cid = el.dialogo.querySelector(`[data-dest-item="${i}"] [data-combo="cidade"]`);
+    if (cid) { try { cid.focus(); } catch (e) { /* ok */ } }
+  }
+  function escolherCidade(i, nome) {
+    const d = destinoDe(i);
+    if (!d) return;
+    d.cidade = nome;
+    aplicarTaxaSugerida(d);
+    const inp = el.dialogo.querySelector(`[data-dest-item="${i}"] [data-combo="cidade"]`);
+    if (inp) inp.value = nome;
+    fecharCombos();
+    atualizarLinhaDestino(i);
+    atualizarPrevia();
+    const dias = el.dialogo.querySelector(`[data-dest-item="${i}"] [data-dest-campo="dias"]`);
+    if (dias) { try { dias.focus(); } catch (e) { /* ok */ } }
   }
 
   // eventos do assistente (delegação no fundo do diálogo)
@@ -1463,6 +1547,17 @@ ${saldosEditorHtml(m)}`;
     const a = estado.assistente;
     if (!a) return;
     if (ev.target === el.dialogo || ev.target.closest('[data-fechar]')) { fecharAssistente(); return; }
+    if (!ev.target.closest('.mt-combo')) fecharCombos();
+    const opPais = ev.target.closest('[data-pais-opcao]');
+    if (opPais) { escolherPais(opPais.closest('[data-dest-item]').dataset.destItem, opPais.dataset.paisOpcao); return; }
+    const opCidade = ev.target.closest('[data-cidade-opcao]');
+    if (opCidade) { escolherCidade(opCidade.closest('[data-dest-item]').dataset.destItem, opCidade.dataset.cidadeOpcao); return; }
+    const taxaAplicar = ev.target.closest('[data-taxa-aplicar]');
+    if (taxaAplicar) { const i = Number(taxaAplicar.dataset.taxaAplicar); const d = destinoDe(i); if (d) { aplicarTaxaSugerida(d, { forcar: true }); atualizarLinhaDestino(i); atualizarPrevia(); } return; }
+    const addEnt = ev.target.closest('[data-entrada-add]');
+    if (addEnt) { a.meta.entradas = a.meta.entradas || []; a.meta.entradas.push(entradaPadrao(addEnt.dataset.entradaAdd)); desenharAssistente(); return; }
+    const remEnt = ev.target.closest('[data-entrada-remover]');
+    if (remEnt) { a.meta.entradas.splice(Number(remEnt.dataset.entradaRemover), 1); desenharAssistente(); return; }
     const tipoBtn = ev.target.closest('[data-tipo]');
     if (tipoBtn) {
       const tipo = tipoBtn.dataset.tipo;
@@ -1486,7 +1581,7 @@ ${saldosEditorHtml(m)}`;
     const esp = a.meta.especificos || (a.meta.especificos = {});
     if (ev.target.closest('[data-dest-add]')) {
       esp.destinos = esp.destinos || [];
-      esp.destinos.push(destinoPadrao({ moeda: a.meta.moeda && a.meta.moeda !== 'BRL' ? a.meta.moeda : 'EUR' }));
+      esp.destinos.push(a.meta.tipo === 'viagemNacional' ? destinoPadrao({ pais: 'Brasil', paisCodigo: 'BR', moeda: 'BRL' }) : destinoPadrao({ moeda: a.meta.moeda && a.meta.moeda !== 'BRL' ? a.meta.moeda : 'EUR' }));
       if (esp.margem == null) esp.margem = 0.1;
       if (!esp.fixos) esp.fixos = [];
       desenharAssistente();
@@ -1498,7 +1593,7 @@ ${saldosEditorHtml(m)}`;
     if (remDest) { esp.destinos.splice(Number(remDest.dataset.destRemover), 1); desenharAssistente(); return; }
     if (ev.target.closest('[data-fixo-add]')) {
       esp.fixos = esp.fixos || [];
-      esp.fixos.push({ id: idItem(), nome: '', valor: null, moeda: 'BRL', parcelas: 1, inicio: mesDe(estado.ctx.hoje), parte: 1, pago: false });
+      esp.fixos.push({ id: idItem(), nome: '', valor: null, moeda: 'BRL', parcelas: 1, inicio: mesDe(estado.ctx.hoje), parte: 1, pago: false, forma: 'cartao', cartao: '', confirmado: false });
       desenharAssistente();
       const ult = el.dialogo.querySelector(`[data-fixo="${esp.fixos.length - 1}"][data-fixo-campo="nome"]`);
       if (ult) { try { ult.focus(); } catch (e) { /* ok */ } }
@@ -1536,6 +1631,9 @@ ${saldosEditorHtml(m)}`;
       meta.vinculos = (meta.vinculos || []).filter((v) => v.tipo !== 'saldo' || String(v.instituicao || '').trim());
       if (meta.especificos && Array.isArray(meta.especificos.destinos)) meta.especificos.destinos = meta.especificos.destinos.filter((d) => String(d.cidade || d.pais || '').trim());
       if (meta.especificos && Array.isArray(meta.especificos.fixos)) meta.especificos.fixos = meta.especificos.fixos.filter((x) => String(x.nome || '').trim());
+      if (meta.especificos && 'roteiroUrl' in meta.especificos) meta.especificos.roteiroUrl = normalizarUrl(meta.especificos.roteiroUrl) || '';
+      delete meta._revisar; delete meta._entradasPadrao; // só da migração, na tela
+      if (Array.isArray(meta.entradas)) meta.entradas = meta.entradas.filter((e) => e && e.tipo);
       const salva = await salvar(meta);
       if (salva) fecharAssistente(); else { salvarBtn.disabled = false; salvarBtn.textContent = 'Tentar de novo'; }
     }
@@ -1545,9 +1643,24 @@ ${saldosEditorHtml(m)}`;
     if (!a) return;
     const t = ev.target;
     if (t.dataset.campo && !['select', 'bool', 'mes'].includes(t.dataset.formato)) { lerCampo(t); atualizarPrevia(); }
-    if (t.dataset.dest != null && t.tagName !== 'SELECT') {
+    if (t.dataset.combo) { // país/cidade: digitar filtra a lista (a cidade fora da lista vale)
+      const d = destinoDe(t.dataset.dest);
+      if (d) { if (t.dataset.combo === 'pais') d.pais = t.value; else d.cidade = t.value; }
+      t.dataset.digitou = '1';
+      abrirCombo(t);
+      atualizarPrevia();
+    } else if (t.dataset.dest != null && t.tagName !== 'SELECT') {
       const d = (a.meta.especificos.destinos || [])[Number(t.dataset.dest)];
       if (d) gravarCaminho(d, t.dataset.destCampo, ['cidade', 'pais'].includes(t.dataset.destCampo) ? t.value : parseNumeroBR(t.value));
+      atualizarPrevia();
+    }
+    if (t.dataset.entrada != null && t.type !== 'checkbox' && t.type !== 'month' && t.tagName !== 'SELECT') {
+      const e = (a.meta.entradas || [])[Number(t.dataset.entrada)];
+      const k = t.dataset.entradaCampo;
+      if (e) {
+        if (k === 'nome') e.nome = t.value;
+        else if (k === 'pct') { const n = parseNumeroBR(t.value); e.pct = n == null ? 1 : Math.max(0, Math.min(1, n / 100)); } else e[k] = parseNumeroBR(t.value);
+      }
       atualizarPrevia();
     }
     if (t.dataset.fixo != null && t.type !== 'checkbox' && t.tagName !== 'SELECT' && t.type !== 'month') {
@@ -1555,6 +1668,7 @@ ${saldosEditorHtml(m)}`;
       const k = t.dataset.fixoCampo;
       if (fx) {
         if (k === 'nome') fx.nome = t.value;
+        else if (k === 'cartao') fx.cartao = t.value;
         else if (k === 'parte') { const n = parseNumeroBR(t.value); fx.parte = n == null ? 1 : Math.max(0, Math.min(1, n / 100)); }
         else if (k === 'parcelas') { const n = parseNumeroBR(t.value); fx.parcelas = n == null ? 1 : Math.max(1, Math.round(n)); }
         else fx[k] = parseNumeroBR(t.value);
@@ -1601,14 +1715,43 @@ ${saldosEditorHtml(m)}`;
         desenharAssistente();
       } else atualizarPrevia();
     }
+    if (t.dataset.combo) { // saiu do campo de país/cidade: casa o que foi digitado com a lista (sinônimos, sem acento)
+      const i = t.dataset.dest;
+      const d = destinoDe(i);
+      if (d && t.dataset.combo === 'pais') {
+        const p = acharPais(t.value, estado.dados.paises);
+        if (p) definirPais(d, p); else { d.pais = t.value; d.paisCodigo = null; }
+      } else if (d) aplicarTaxaSugerida(d);
+      atualizarLinhaDestino(i);
+      atualizarPrevia();
+      return;
+    }
     if (t.dataset.dest != null && t.tagName === 'SELECT') {
       const d = (a.meta.especificos.destinos || [])[Number(t.dataset.dest)];
       if (d) d.moeda = t.value;
+      atualizarLinhaDestino(t.dataset.dest);
       atualizarPrevia();
     }
     if (t.dataset.fixo != null && (t.type === 'checkbox' || t.tagName === 'SELECT' || t.type === 'month')) {
       const fx = (a.meta.especificos.fixos || [])[Number(t.dataset.fixo)];
-      if (fx) fx[t.dataset.fixoCampo] = t.type === 'checkbox' ? t.checked : (t.value || null);
+      if (fx) {
+        fx[t.dataset.fixoCampo] = t.type === 'checkbox' ? t.checked : (t.value || null);
+        if (t.dataset.fixoCampo === 'forma') { // muda os campos que aparecem (cartão: parcelas, 1ª fatura...)
+          fx.pago = fx.forma === 'pago';
+          if (fx.forma === 'cartao' && !fx.inicio) fx.inicio = mesDe(estado.ctx.hoje);
+          desenharAssistente();
+          return;
+        }
+      }
+      atualizarPrevia();
+    }
+    if (t.dataset.entrada != null && (t.type === 'checkbox' || t.type === 'month' || t.tagName === 'SELECT')) {
+      const e = (a.meta.entradas || [])[Number(t.dataset.entrada)];
+      if (e) {
+        const k = t.dataset.entradaCampo;
+        if (t.type === 'checkbox') e.ativo = t.checked; else e[k] = t.value || null;
+        if (k === 'ativo') { desenharAssistente(); return; }
+      }
       atualizarPrevia();
     }
     if (t.dataset.saldo != null && t.tagName === 'SELECT') {
@@ -1636,6 +1779,35 @@ ${saldosEditorHtml(m)}`;
         if (v.modo === 'valor' && v.valor == null) { const at = (estado.ctx.ativos || []).find((x) => x.id === v.id); v.valor = at ? Math.round(at.valorBRL / 2) : 0; }
       }
       desenharAssistente();
+    }
+  });
+  // dropdown de país/cidade: abre ao focar, navega com as setas, Enter escolhe, Esc fecha só a lista
+  el.dialogo.addEventListener('focusin', (ev) => { if (estado.assistente && ev.target.dataset && ev.target.dataset.combo) { ev.target.dataset.digitou = ''; abrirCombo(ev.target); } });
+  el.dialogo.addEventListener('focusout', (ev) => {
+    const caixa = ev.target.closest && ev.target.closest('.mt-combo');
+    if (caixa) setTimeout(() => { if (!caixa.contains(doc.activeElement)) fecharCombos(); }, 0);
+  });
+  el.dialogo.addEventListener('mousedown', (ev) => { if (ev.target.closest && ev.target.closest('.mt-combo-op')) ev.preventDefault(); }); // não tira o foco do campo
+  el.dialogo.addEventListener('keydown', (ev) => {
+    const t = ev.target;
+    if (!estado.assistente || !t.dataset || !t.dataset.combo) return;
+    const lista = t.parentElement.querySelector('.mt-combo-lista');
+    const ops = lista && !lista.hidden ? [...lista.querySelectorAll('.mt-combo-op')] : [];
+    if (ev.key === 'Escape' && lista && !lista.hidden) { ev.stopPropagation(); fecharCombos(); return; }
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (lista && lista.hidden) { abrirCombo(t); return; }
+      if (!ops.length) return;
+      const atual = ops.findIndex((o) => o.classList.contains('ativo'));
+      const prox = ev.key === 'ArrowDown' ? Math.min(ops.length - 1, atual + 1) : Math.max(0, atual < 0 ? 0 : atual - 1);
+      ops.forEach((o, k) => { o.classList.toggle('ativo', k === prox); });
+      if (ops[prox].id) t.setAttribute('aria-activedescendant', ops[prox].id);
+      if (ops[prox].scrollIntoView) { try { ops[prox].scrollIntoView({ block: 'nearest' }); } catch (e) { /* jsdom */ } }
+      return;
+    }
+    if (ev.key === 'Enter' && ops.length) {
+      const alvo = ops.find((o) => o.classList.contains('ativo')) || (ops.length === 1 ? ops[0] : null);
+      if (alvo) { ev.preventDefault(); alvo.click(); }
     }
   });
   doc.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && estado.assistente) fecharAssistente(); });
@@ -1723,8 +1895,15 @@ ${saldosEditorHtml(m)}`;
   estado.detalheId = idDoHash();
   estado.novaPendente = novaDoHash();
 
+  // 04/10/2026: países/cidades/taxas em paralelo com as metas (arquivos pequenos, no cache do service worker)
+  estado.dadosPromise = (async () => {
+    let d = null;
+    try { d = await carregarDadosViagemImpl(); } catch (e) { d = null; }
+    if (d && Array.isArray(d.paises) && d.paises.length) { estado.dados = { paises: d.paises, cidades: d.cidades || null, taxas: d.taxas || null }; aoChegarDadosViagem(); }
+  })();
+
   async function carregarERedesenhar() {
-    const resposta = await getMetasImpl(token);
+    const [resposta] = await Promise.all([getMetasImpl(token), estado.dadosPromise]);
     if (resposta && resposta.ok) gravarCacheDados('metas', resposta);
     desenharResposta(resposta);
     if (resposta && resposta.ok) carregarHistorico();

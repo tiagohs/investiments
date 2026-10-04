@@ -70,6 +70,35 @@
  * POST action=excluirMetaDefinitivo  id   apaga a linha (só meta arquivada)
  *
  * Depois de colar: NOVA VERSÃO da implantação (Router.gs ganhou as ações).
+ *
+ * 04/10/2026 (Metas › Viagem - Tiago: "Inclua link com o Wanderlog"; "meu 13º
+ * (90%) e meu FGTS Aniversário (90% do que eu receber) vou colocar pra
+ * guardar [...] o aporte mensal necessário tem que levar isso em
+ * consideração"; "Está dizendo que o CHF está sem a cotação, mas incluí ela
+ * na aba 'Bolsa USA >>>': D8 é a cotação do Dólar, D9 Libra, D10 Franco
+ * Suíço e D11 Euro [...] se puder variar para todas as moedas, ótimo";
+ * "Incluir a taxa diária de turismo"; "compras no cartão de crédito já
+ * feitas (passagens, hotéis) não devem ser incluídas na conta de aportes";
+ * "Inclua dropdown de Países e Cidades, bandeiras"):
+ *   - meta.links [{ rotulo, url }] (qualquer meta) e especificos.roteiroUrl
+ *     (viagem: o roteiro no Wanderlog) - só http(s);
+ *   - meta.entradas (qualquer meta): entradas programadas (13º, saque-
+ *     aniversário do FGTS, PLR/bônus, outra) com % destinado, valor/mês
+ *     opcionais (vazio = o navegador estima pelo salário e pelo FGTS) e
+ *     recorrência. Pra estimar, o GET metas leva referencias.salario
+ *     (Distribuição e Metas N11 + pagamentos da aba Salário - Salario.gs) e
+ *     referencias.fgts (aux_patrimonio: contas do FGTS e nascimento -
+ *     Patrimonio.gs), só leitura;
+ *   - viagem: destino com paisCodigo (ISO-2) e taxa turística (por pessoa por
+ *     noite, moeda local); itens fixos com forma ('cartao' = já comprado no
+ *     cartão, conta como pago e fica fora do aporte; 'pago'; 'juntar' = ainda
+ *     não pago, entra no dinheiro a juntar), cartão e "confirmado";
+ *   - câmbio: 1º a aba "Bolsa USA >>>" (D8:D11 - conferida pela fórmula
+ *     GOOGLEFINANCE("XXXBRL") da célula ou pelo rótulo ao lado, e por faixa de
+ *     valor plausível), 2º a aba aux_cambio (criada sob demanda: uma linha
+ *     por moeda com =GOOGLEFINANCE("CURRENCY:XXXBRL")), depois AwesomeAPI/PTAX
+ *     e, por último, o dólar/euro antigos da planilha. Cada cotação sai com a
+ *     origem e a data.
  */
 
 var METAS_ABA_ = 'aux_metas';
@@ -78,7 +107,22 @@ var METAS_CACHE_CAMBIO_ = 'metas_cambio_v1';
 var METAS_CAMBIO_SEGUNDOS_ = 6 * 60 * 60;
 var METAS_TIPOS_ = ['rendaPassiva', 'viagemInternacional', 'viagemNacional', 'casa', 'carro', 'reservaEmergencia', 'aposentadoria', 'acumulo'];
 var METAS_CATEGORIAS_ = ['projetos', 'educacao', 'equipamentos', 'empreendedorismo', 'hobbies', 'pets', 'eventos', 'assinaturas', 'saude', 'mudancaPais', 'casamento', 'veiculosLazer', 'outros'];
-var METAS_MOEDAS_ = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY'];
+// 04/10/2026: todas as moedas dos países de assets/data/paises.json (a moeda padrão de cada destino)
+var METAS_MOEDAS_ = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY',
+  'AED', 'AFN', 'ALL', 'AMD', 'AOA', 'ARS', 'AWG', 'AZN', 'BAM', 'BBD', 'BDT', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BSD', 'BTN', 'BWP', 'BYN',
+  'BZD', 'CDF', 'CLP', 'CNY', 'COP', 'CRC', 'CUP', 'CVE', 'CZK', 'DJF', 'DKK', 'DOP', 'DZD', 'EGP', 'ERN', 'ETB', 'FJD', 'GEL', 'GHS', 'GIP',
+  'GMD', 'GNF', 'GTQ', 'GYD', 'HKD', 'HNL', 'HTG', 'HUF', 'IDR', 'ILS', 'INR', 'IQD', 'IRR', 'ISK', 'JMD', 'JOD', 'KES', 'KGS', 'KHR', 'KMF',
+  'KPW', 'KRW', 'KWD', 'KYD', 'KZT', 'LAK', 'LBP', 'LKR', 'LRD', 'LSL', 'LYD', 'MAD', 'MDL', 'MGA', 'MKD', 'MMK', 'MNT', 'MOP', 'MRU', 'MUR',
+  'MVR', 'MWK', 'MXN', 'MYR', 'MZN', 'NAD', 'NGN', 'NIO', 'NOK', 'NPR', 'NZD', 'OMR', 'PEN', 'PGK', 'PHP', 'PKR', 'PLN', 'PYG', 'QAR', 'RON',
+  'RSD', 'RUB', 'RWF', 'SAR', 'SBD', 'SCR', 'SDG', 'SEK', 'SGD', 'SLE', 'SOS', 'SRD', 'SSP', 'STN', 'SYP', 'SZL', 'THB', 'TJS', 'TMT', 'TND',
+  'TOP', 'TRY', 'TTD', 'TWD', 'TZS', 'UAH', 'UGX', 'UYU', 'UZS', 'VES', 'VND', 'VUV', 'WST', 'XAF', 'XCD', 'XOF', 'XPF', 'YER', 'ZAR', 'ZMW'];
+var METAS_ABA_CAMBIO_ = 'aux_cambio';
+var METAS_ABA_BOLSA_USA_ = 'Bolsa USA >>>';
+/** Faixa plausível (reais por 1 unidade) pra conferir a cotação lida da aba Bolsa USA >>>. */
+var METAS_FAIXA_CAMBIO_ = { USD: [2, 15], EUR: [2, 16], GBP: [3, 18], CHF: [2, 16] };
+/** Posição de cada moeda na aba Bolsa USA >>> (o Tiago: D8 dólar, D9 libra, D10 franco, D11 euro). */
+var METAS_CELULAS_BOLSA_USA_ = { 8: 'USD', 9: 'GBP', 10: 'CHF', 11: 'EUR' };
+var METAS_TIPOS_ENTRADA_ = ['decimo13', 'fgts', 'plr', 'outra'];
 var METAS_DINHEIRO_MAX_ = 1e10;
 var METAS_CACHE_HIST_RESUMO_ = 'metas_hist_resumo_v1';
 var METAS_MAX_HIST_SALDO_ = 120; // pontos de histórico guardados por "Saldo em conta"
@@ -328,6 +372,14 @@ function numMeta_(v, min, max, campo) {
   return Math.round(n * 1e6) / 1e6;
 }
 function txtMeta_(v, max) { return v === null || v === undefined ? '' : String(v).replace(/^[=+\-@\s]+/, '').replace(/[\u0000-\u001f]/g, ' ').slice(0, max || 80); }
+/** 04/10/2026: link http(s) (ex. o roteiro no Wanderlog); sem protocolo ganha https://. Inválido = ''. */
+function urlMeta_(v) {
+  var u = String(v == null ? '' : v).trim();
+  if (!u) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u.replace(/^\/+/, '');
+  if (!/^https?:\/\/[^\s/?#]+\.[^\s/?#]+[^\s]*$/i.test(u) || u.length > 500) return '';
+  return u;
+}
 function mesMeta_(v) { var m = String(v || '').match(/^(\d{4})-(\d{2})/); return m && Number(m[2]) >= 1 && Number(m[2]) <= 12 ? m[1] + '-' + m[2] : null; }
 function moedaMeta_(v) { var m = String(v || 'BRL').toUpperCase(); return METAS_MOEDAS_.indexOf(m) >= 0 ? m : 'BRL'; }
 function idCurtoMeta_(v) { var s = String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24); return s || Math.random().toString(36).slice(2, 10); }
@@ -385,15 +437,23 @@ function normalizarMeta_(v) {
     // por categoria) + itens fixos/compras antecipadas (passagens, hospedagem,
     // ingressos) - o desenho da planilha de viagem do Tiago.
     meta.especificos = { destino: txtMeta_(e.destino, 60), dataViagem: mesMeta_(e.dataViagem), margem: numMeta_(e.margem, 0, 2, 'margem'), destinos: [], fixos: [] };
+    // 04/10/2026: roteiro no Wanderlog e quantas pessoas a SUA parte cobre (taxa turística)
+    meta.especificos.roteiroUrl = urlMeta_(e.roteiroUrl);
+    meta.especificos.pessoas = numMeta_(e.pessoas, 1, 20, 'pessoas');
     if (Array.isArray(e.destinos)) {
       meta.especificos.destinos = e.destinos.slice(0, 30).map(function (x) {
         if (!x || typeof x !== 'object') return null;
         var g = x.gastos && typeof x.gastos === 'object' ? x.gastos : {};
         var gastos = {};
         ['alimentacao', 'transporte', 'passeios', 'compras', 'outros'].forEach(function (k) { gastos[k] = d(g[k], 'gasto diário ' + k) || 0; });
+        var cod = String(x.paisCodigo || '').toUpperCase();
         return {
           id: idCurtoMeta_(x.id), pais: txtMeta_(x.pais, 50).trim(), cidade: txtMeta_(x.cidade, 50).trim(), moeda: moedaMeta_(x.moeda),
-          dias: numMeta_(x.dias, 0, 366, 'dias') || 0, gastos: gastos, extras: d(x.extras, 'extras do destino') || 0
+          paisCodigo: /^[A-Z]{2}$/.test(cod) ? cod : null,
+          dias: numMeta_(x.dias, 0, 366, 'dias') || 0, gastos: gastos, extras: d(x.extras, 'extras do destino') || 0,
+          // 04/10/2026: taxa turística por pessoa por noite (moeda do destino)
+          taxaTuristica: d(x.taxaTuristica, 'taxa turística'), taxaNoites: numMeta_(x.taxaNoites, 0, 366, 'noites da taxa'),
+          taxaPessoas: numMeta_(x.taxaPessoas, 1, 50, 'pessoas da taxa'), taxaMaxNoites: numMeta_(x.taxaMaxNoites, 1, 366, 'máximo de noites da taxa')
         };
       }).filter(function (x) { return x && (x.pais || x.cidade); });
     }
@@ -402,10 +462,14 @@ function normalizarMeta_(v) {
         if (!x || typeof x !== 'object') return null;
         var nomeF = txtMeta_(x.nome, 60).trim();
         if (!nomeF) return null;
+        // 04/10/2026: forma de pagamento - 'cartao' (já comprado: conta como pago, fora do aporte),
+        // 'pago' (à vista/pix) ou 'juntar' (ainda não pago: entra no dinheiro a juntar)
+        var forma = ['cartao', 'pago', 'juntar'].indexOf(x.forma) >= 0 ? x.forma : (x.pago === true ? 'pago' : 'cartao');
         return {
           id: idCurtoMeta_(x.id), nome: nomeF, valor: d(x.valor, 'item fixo ' + nomeF) || 0, moeda: moedaMeta_(x.moeda),
           parcelas: numMeta_(x.parcelas, 1, 120, 'parcelas') || 1, inicio: mesMeta_(x.inicio),
-          parte: x.parte == null || x.parte === '' ? 1 : numMeta_(x.parte, 0, 1, 'sua parte'), pago: x.pago === true
+          parte: x.parte == null || x.parte === '' ? 1 : numMeta_(x.parte, 0, 1, 'sua parte'), pago: forma === 'pago',
+          forma: forma, cartao: txtMeta_(x.cartao, 40).trim(), confirmado: x.confirmado === true
         };
       }).filter(function (x) { return x; });
     }
@@ -426,6 +490,26 @@ function normalizarMeta_(v) {
       extra: d(e.extra, 'extra'), reinvestimento: numMeta_(e.reinvestimento, 0, 5, 'reinvestimento'),
       anoNascimento: numMeta_(e.anoNascimento, 1900, 2100, 'anoNascimento')
     };
+  }
+  // 04/10/2026: links (qualquer meta) e entradas programadas (13º, FGTS, PLR...)
+  if (Array.isArray(v.links)) {
+    meta.links = v.links.slice(0, 10).map(function (l) {
+      if (!l || typeof l !== 'object') return null;
+      var u = urlMeta_(l.url);
+      return u ? { id: idCurtoMeta_(l.id), rotulo: txtMeta_(l.rotulo, 60).trim(), url: u } : null;
+    }).filter(function (x) { return x; });
+  }
+  if (Array.isArray(v.entradas)) {
+    meta.entradas = v.entradas.slice(0, 20).map(function (x) {
+      if (!x || typeof x !== 'object' || METAS_TIPOS_ENTRADA_.indexOf(x.tipo) < 0) return null;
+      return {
+        id: idCurtoMeta_(x.id), tipo: x.tipo, nome: txtMeta_(x.nome, 60).trim(),
+        pct: x.pct == null || x.pct === '' ? 1 : numMeta_(x.pct, 0, 1, '% da entrada'),
+        valor: d(x.valor, 'valor da entrada'), mes: mesMeta_(x.mes),
+        recorrencia: ['unica', 'anual', 'mensal'].indexOf(x.recorrencia) >= 0 ? x.recorrencia : (x.tipo === 'decimo13' || x.tipo === 'fgts' ? 'anual' : 'unica'),
+        ativo: x.ativo !== false
+      };
+    }).filter(function (x) { return x; });
   }
   if (Array.isArray(v.itens)) {
     meta.itens = v.itens.slice(0, 60).map(function (it) {
@@ -516,6 +600,9 @@ function montarTelaMetas_(ss, agora, opcoes) {
       referencias.patrimonio.reinvestimento = desp.patrimonio.reinvestimento;
       referencias.patrimonio.rendaDesejada = desp.patrimonio.rendaDesejada;
     } catch (eD) { avisos.reserva = String(eD); }
+    // 04/10/2026: pra estimar as entradas programadas (13º e saque-aniversário do FGTS)
+    try { referencias.salario = referenciasSalarioMetas_(ss); } catch (eSal) { avisos.salario = String(eSal); }
+    try { referencias.fgts = referenciasFgtsMetas_(ss); } catch (eF) { avisos.fgts = String(eF); }
     try {
       var rp = montarMetasCarteira_().rendaPassiva;
       referencias.rendaPassiva = { metaPlanilha: typeof rp.meta === 'number' ? rp.meta : null, media12m: typeof rp.mediaUlt12Meses === 'number' ? rp.mediaUlt12Meses : null, meses: rp.mesesMedia || null };
@@ -615,6 +702,54 @@ function irResgateDoAtivo_(pos, valorAtivo) {
   return { ir: ir, iof: iof, liquido: Math.round((valorAtivo - ir - iof) * 100) / 100, isento: !!pos.isento, precisao: pos.precisao || null };
 }
 
+/**
+ * 04/10/2026: salário pra estimar o 13º - o líquido da Distribuição e Metas
+ * (N11, o mesmo da aba Salário), o último holerite mensal e os extras (13º,
+ * PLR, bônus) já lançados ou previstos na aba Salário (Salario.gs).
+ */
+function referenciasSalarioMetas_(ss) {
+  var liquido = null;
+  try {
+    var dm = ss.getSheetByName('Distribuição e Metas');
+    var v = dm ? dm.getRange('N11').getValue() : null;
+    liquido = typeof v === 'number' && v > 0 ? Math.round(v * 100) / 100 : null;
+  } catch (eN) { liquido = null; }
+  var pags = [];
+  try { pags = typeof lerPagamentosSalario_ === 'function' ? lerPagamentosSalario_(ss) : []; } catch (eP) { pags = []; }
+  var mensais = pags.filter(function (p) { return p.tipo === 'Mensal' && p.status !== 'Previsto'; }).sort(function (a, b) { return a.mes < b.mes ? 1 : -1; });
+  var h = mensais[0] || null;
+  var anoPassado = String(new Date().getFullYear() - 1);
+  return {
+    liquido: liquido,
+    holerite: h ? { mes: h.mes, salarioBase: h.salarioBase, totalVencimentos: h.totalVencimentos, inss: h.inss, irrf: h.irrf, liquido: h.liquido } : null,
+    extras: pags.filter(function (p) { return p.tipo !== 'Mensal' && String(p.mes) >= anoPassado; }).map(function (p) { return { mes: p.mes, tipo: p.tipo, status: p.status, liquido: p.liquido }; })
+  };
+}
+
+/**
+ * 04/10/2026: FGTS pra estimar o saque-aniversário - o mesmo que a aba
+ * Patrimônio usa (aux_patrimonio: contas, saques-aniversário, nascimento e
+ * salários da carteira), sem o extrato mês a mês. A conta fica no navegador
+ * (patrimonio-calc.js!resumoFgts).
+ */
+function referenciasFgtsMetas_(ss) {
+  if (typeof lerConfigPatrimonio_ !== 'function') return null;
+  var cfg = lerConfigPatrimonio_(ss).config || {};
+  var f = cfg.fgts;
+  if (!f || !Array.isArray(f.contas) || !f.contas.length) return null;
+  var carreira = cfg.carreira || {};
+  return {
+    contas: f.contas.map(function (c) {
+      return {
+        empregador: c.empregador || '', admissao: c.admissao || null, afastamento: c.afastamento || null, saldo: c.saldo || 0, dataSaldo: c.dataSaldo || null,
+        saques: { aniversario: (c.saques && c.saques.aniversario) || 0 }, saquesAniversario: c.saquesAniversario || []
+      };
+    }),
+    nascimento: (cfg.preferencias && cfg.preferencias.nascimento) || carreira.nascimento || null,
+    carreira: { contratos: (carreira.contratos || []).map(function (c) { return { empregador: c.empregador || '', salarios: c.salarios || [] }; }) }
+  };
+}
+
 /** Moedas de "Saldo em conta", destinos e itens fixos de viagem (pro câmbio). */
 function moedasUsadasMeta_(m) {
   var out = [];
@@ -680,8 +815,136 @@ function cotacaoMetas_(moeda, cambio) {
 /**
  * { EUR: { valor, fonte, data }, ... } pra cada moeda pedida. `buscar` (testes)
  * substitui a rede: fn(moedas) -> { EUR: 6.1, ... }.
+ *
+ * 04/10/2026 (Tiago: "incluí [o CHF] na aba 'Bolsa USA >>>': D8 é a cotação
+ * do Dólar, D9 Libra, D10 Franco Suíço e D11 Euro; eu uso a fórmula do Google
+ * Finance [...] se puder variar para todas as moedas, ótimo"). Ordem:
+ *   1. aba "Bolsa USA >>>" (cambioAbaBolsaUsaMetas_) - USD, GBP, CHF, EUR;
+ *   2. aba aux_cambio (cambioAuxMetas_) - =GOOGLEFINANCE("CURRENCY:XXXBRL")
+ *      escrita sob demanda pra qualquer outra moeda que uma meta usar;
+ *   3. AwesomeAPI -> PTAX -> dólar/euro antigos da planilha (cambioApiMetas_, cache de 6h).
+ * `opcoes.semPlanilha` (testes antigos) pula 1 e 2.
  */
-function cambioMetas_(ss, moedas, agora, buscar) {
+function cambioMetas_(ss, moedas, agora, buscar, opcoes) {
+  moedas = (moedas || []).filter(function (m) { return m && m !== 'BRL' && METAS_MOEDAS_.indexOf(m) >= 0; });
+  var hoje = isoDiaMeta_(agora || new Date());
+  var out = {};
+  if (!(opcoes && opcoes.semPlanilha)) {
+    var aba = {};
+    try { aba = cambioAbaBolsaUsaMetas_(ss); } catch (eA) { aba = {}; }
+    moedas.forEach(function (m) {
+      if (aba[m]) out[m] = { valor: aba[m].valor, fonte: 'planilha · ' + METAS_ABA_BOLSA_USA_ + ' ' + aba[m].celula, data: hoje, origem: 'planilha', conferido: aba[m].como };
+    });
+    var faltamAux = moedas.filter(function (m) { return !out[m]; });
+    if (faltamAux.length) {
+      var aux = {};
+      try { aux = cambioAuxMetas_(ss, faltamAux); } catch (eX) { aux = {}; }
+      faltamAux.forEach(function (m) {
+        if (aux[m]) out[m] = { valor: aux[m], fonte: 'planilha · ' + METAS_ABA_CAMBIO_ + ' (GOOGLEFINANCE)', data: hoje, origem: 'planilha' };
+      });
+    }
+  }
+  var resto = moedas.filter(function (m) { return !out[m]; });
+  if (resto.length) {
+    var api = cambioApiMetas_(ss, resto, agora, buscar);
+    resto.forEach(function (m) { if (api[m]) out[m] = api[m]; });
+  }
+  return out;
+}
+
+/**
+ * Cotações da aba "Bolsa USA >>>" (coluna D, linhas 5 a 20): a moeda de cada
+ * célula sai da própria fórmula (GOOGLEFINANCE("EURBRL") / "CURRENCY:EURBRL"),
+ * senão do rótulo da linha ("Cotação do dólar hoje:", "libra", "franco",
+ * "euro"), senão da posição combinada (D8 USD, D9 GBP, D10 CHF, D11 EUR) - e
+ * só vale se o valor estiver numa faixa plausível pra moeda.
+ * { USD: { valor, celula: 'D8', como: 'fórmula'|'rótulo'|'posição' }, ... }
+ */
+function cambioAbaBolsaUsaMetas_(ss) {
+  var aba = ss && ss.getSheetByName ? ss.getSheetByName(METAS_ABA_BOLSA_USA_) : null;
+  if (!aba || typeof aba.getRange !== 'function') return {};
+  var rg = aba.getRange(5, 1, 16, 4); // A5:D20
+  var vals = rg.getValues();
+  var forms = null;
+  try { forms = typeof rg.getFormulas === 'function' ? rg.getFormulas() : null; } catch (eF) { forms = null; }
+  var out = {};
+  vals.forEach(function (l, i) {
+    var linha = 5 + i;
+    var v = Number(l[3]);
+    if (!(typeof l[3] === 'number' || (typeof l[3] === 'string' && l[3] !== '')) || !(v > 0)) return;
+    var moeda = null, como = null;
+    var f = forms && forms[i] ? String(forms[i][3] || '') : '';
+    var mf = f.match(/GOOGLEFINANCE\(\s*"+(?:CURRENCY:)?([A-Z]{3})BRL"/i);
+    if (mf) { moeda = mf[1].toUpperCase(); como = 'fórmula'; }
+    if (!moeda) {
+      var rot = (String(l[0] || '') + ' ' + String(l[1] || '') + ' ' + String(l[2] || '')).toLowerCase();
+      if (/d[oó]lar/.test(rot) && !/canad|austral|hong|cingap|singap|neozel/.test(rot)) moeda = 'USD';
+      else if (/libra/.test(rot)) moeda = 'GBP';
+      else if (/franco/.test(rot)) moeda = 'CHF';
+      else if (/\beuro/.test(rot)) moeda = 'EUR';
+      if (moeda) como = 'rótulo';
+      else if (!rot.trim() && METAS_CELULAS_BOLSA_USA_[linha]) { moeda = METAS_CELULAS_BOLSA_USA_[linha]; como = 'posição'; }
+    }
+    if (!moeda || out[moeda]) return;
+    var faixa = METAS_FAIXA_CAMBIO_[moeda];
+    if (faixa && (v < faixa[0] || v > faixa[1])) return; // valor estranho pra essa moeda: não usa
+    out[moeda] = { valor: v, celula: 'D' + linha, como: como };
+  });
+  return out;
+}
+
+/**
+ * Aba aux_cambio (criada sob demanda): Moeda | Reais por 1 unidade. Cada moeda
+ * que falta ganha uma linha com =IFERROR(GOOGLEFINANCE("CURRENCY:XXXBRL");"")
+ * - na 1ª vez o Google ainda está calculando (vem vazio e a tela usa a API);
+ * da próxima já vem o valor. { CZK: 0.24, ... } só das que têm número.
+ */
+function cambioAuxMetas_(ss, moedas) {
+  if (!ss || !moedas || !moedas.length) return {};
+  var aba = ss.getSheetByName(METAS_ABA_CAMBIO_);
+  var linhas = [];
+  try { linhas = aba && aba.getLastRow() >= 2 ? aba.getRange(2, 1, aba.getLastRow() - 1, 2).getValues() : []; } catch (eL) { linhas = []; }
+  var onde = {};
+  linhas.forEach(function (l, i) { var m = String(l[0] || '').trim().toUpperCase(); if (m && !onde[m]) onde[m] = { linha: i + 2, valor: l[1] }; });
+  var faltam = moedas.filter(function (m) { return !onde[m]; });
+  if (faltam.length && typeof ss.insertSheet === 'function') {
+    var trava = null;
+    try { trava = LockService.getScriptLock(); if (trava.tryLock && !trava.tryLock(5000)) trava = false; } catch (eT) { trava = null; }
+    if (trava !== false) {
+      try {
+        var temCab = false;
+        try { temCab = !!(aba && aba.getLastRow() >= 1); } catch (eC) { temCab = false; }
+        if (!aba || !temCab) {
+          if (!aba || typeof aba.getRange !== 'function') aba = ss.insertSheet(METAS_ABA_CAMBIO_);
+          aba.getRange(1, 1, 1, 2).setValues([['Moeda', 'Reais por 1 unidade (GOOGLEFINANCE)']]);
+        }
+        var prox = Math.max(aba.getLastRow(), 1) + 1;
+        faltam.forEach(function (m) {
+          aba.getRange(prox, 1, 1, 1).setValues([[m]]);
+          var cel = aba.getRange(prox, 2, 1, 1);
+          if (typeof cel.setFormula === 'function') cel.setFormula('=IFERROR(GOOGLEFINANCE("CURRENCY:' + m + 'BRL");"")');
+          onde[m] = { linha: prox, valor: null, nova: true };
+          prox++;
+        });
+        if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.flush) SpreadsheetApp.flush();
+      } finally {
+        try { if (trava && trava.releaseLock) trava.releaseLock(); } catch (eR) { /* ok */ }
+      }
+    }
+  }
+  var out = {};
+  moedas.forEach(function (m) {
+    var x = onde[m];
+    if (!x) return;
+    var v = x.valor;
+    if (x.nova) { try { v = aba.getRange(x.linha, 2, 1, 1).getValues()[0][0]; } catch (eV) { v = null; } }
+    if (typeof v === 'number' && v > 0) out[m] = v;
+  });
+  return out;
+}
+
+/** AwesomeAPI -> PTAX -> planilha antiga (cache de 6h). */
+function cambioApiMetas_(ss, moedas, agora, buscar) {
   moedas = (moedas || []).filter(function (m) { return m && m !== 'BRL' && METAS_MOEDAS_.indexOf(m) >= 0; });
   var cache = null;
   try { cache = CacheService.getScriptCache(); } catch (eC) { cache = null; }

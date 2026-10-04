@@ -1,0 +1,2011 @@
+{
+ "sobre": "03/10/2026: países (nome no padrão brasileiro, código ISO 3166-1 alfa-2, moeda padrão ISO 4217, região) para a meta de viagem (assets/js/pages/metas.js). aliases = outros nomes aceitos na busca e na migração dos destinos digitados à mão. Bandeiras em assets/imgs/flags/<codigo minúsculo>.svg.",
+ "paises": [
+  {
+   "codigo": "AF",
+   "nome": "Afeganistão",
+   "moeda": "AFN",
+   "regiao": "Ásia",
+   "aliases": [
+    "Afghanistan"
+   ]
+  },
+  {
+   "codigo": "ZA",
+   "nome": "África do Sul",
+   "moeda": "ZAR",
+   "regiao": "África",
+   "aliases": [
+    "Africa do Sul",
+    "South Africa"
+   ]
+  },
+  {
+   "codigo": "AL",
+   "nome": "Albânia",
+   "moeda": "ALL",
+   "regiao": "Europa",
+   "aliases": [
+    "Albania"
+   ]
+  },
+  {
+   "codigo": "DE",
+   "nome": "Alemanha",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Deutschland",
+    "Germany"
+   ]
+  },
+  {
+   "codigo": "AD",
+   "nome": "Andorra",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "AO",
+   "nome": "Angola",
+   "moeda": "AOA",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "AI",
+   "nome": "Anguila",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Anguilla"
+   ]
+  },
+  {
+   "codigo": "AG",
+   "nome": "Antígua e Barbuda",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Antigua and Barbuda"
+   ]
+  },
+  {
+   "codigo": "SA",
+   "nome": "Arábia Saudita",
+   "moeda": "SAR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Saudi Arabia"
+   ]
+  },
+  {
+   "codigo": "DZ",
+   "nome": "Argélia",
+   "moeda": "DZD",
+   "regiao": "África",
+   "aliases": [
+    "Algeria"
+   ]
+  },
+  {
+   "codigo": "AR",
+   "nome": "Argentina",
+   "moeda": "ARS",
+   "regiao": "América do Sul",
+   "aliases": []
+  },
+  {
+   "codigo": "AM",
+   "nome": "Armênia",
+   "moeda": "AMD",
+   "regiao": "Europa",
+   "aliases": [
+    "Armenia"
+   ]
+  },
+  {
+   "codigo": "AW",
+   "nome": "Aruba",
+   "moeda": "AWG",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "AU",
+   "nome": "Austrália",
+   "moeda": "AUD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Australia"
+   ]
+  },
+  {
+   "codigo": "AT",
+   "nome": "Áustria",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Austria"
+   ]
+  },
+  {
+   "codigo": "AZ",
+   "nome": "Azerbaijão",
+   "moeda": "AZN",
+   "regiao": "Europa",
+   "aliases": [
+    "Azerbaijan"
+   ]
+  },
+  {
+   "codigo": "BS",
+   "nome": "Bahamas",
+   "moeda": "BSD",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "BH",
+   "nome": "Bahrein",
+   "moeda": "BHD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Barein",
+    "Bahrain"
+   ]
+  },
+  {
+   "codigo": "BD",
+   "nome": "Bangladesh",
+   "moeda": "BDT",
+   "regiao": "Ásia",
+   "aliases": []
+  },
+  {
+   "codigo": "BB",
+   "nome": "Barbados",
+   "moeda": "BBD",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "BE",
+   "nome": "Bélgica",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Belgium"
+   ]
+  },
+  {
+   "codigo": "BZ",
+   "nome": "Belize",
+   "moeda": "BZD",
+   "regiao": "América Central",
+   "aliases": []
+  },
+  {
+   "codigo": "BJ",
+   "nome": "Benin",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "BM",
+   "nome": "Bermudas",
+   "moeda": "BMD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Bermuda"
+   ]
+  },
+  {
+   "codigo": "BY",
+   "nome": "Bielorrússia",
+   "moeda": "BYN",
+   "regiao": "Europa",
+   "aliases": [
+    "Belarus"
+   ]
+  },
+  {
+   "codigo": "BO",
+   "nome": "Bolívia",
+   "moeda": "BOB",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Bolivia, Plurinational State of"
+   ]
+  },
+  {
+   "codigo": "BA",
+   "nome": "Bósnia e Herzegovina",
+   "moeda": "BAM",
+   "regiao": "Europa",
+   "aliases": [
+    "Bósnia",
+    "Bosnia and Herzegovina"
+   ]
+  },
+  {
+   "codigo": "BW",
+   "nome": "Botsuana",
+   "moeda": "BWP",
+   "regiao": "África",
+   "aliases": [
+    "Botswana"
+   ]
+  },
+  {
+   "codigo": "BR",
+   "nome": "Brasil",
+   "moeda": "BRL",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Brazil"
+   ]
+  },
+  {
+   "codigo": "BN",
+   "nome": "Brunei",
+   "moeda": "BND",
+   "regiao": "Ásia",
+   "aliases": [
+    "Brunei Darussalam"
+   ]
+  },
+  {
+   "codigo": "BG",
+   "nome": "Bulgária",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Bulgaria"
+   ]
+  },
+  {
+   "codigo": "BF",
+   "nome": "Burkina Faso",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "BI",
+   "nome": "Burundi",
+   "moeda": "BIF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "BT",
+   "nome": "Butão",
+   "moeda": "BTN",
+   "regiao": "Ásia",
+   "aliases": [
+    "Bhutan"
+   ]
+  },
+  {
+   "codigo": "CV",
+   "nome": "Cabo Verde",
+   "moeda": "CVE",
+   "regiao": "África",
+   "aliases": [
+    "Cape Verde"
+   ]
+  },
+  {
+   "codigo": "CM",
+   "nome": "Camarões",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "Cameroon"
+   ]
+  },
+  {
+   "codigo": "KH",
+   "nome": "Camboja",
+   "moeda": "KHR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Cambodia"
+   ]
+  },
+  {
+   "codigo": "CA",
+   "nome": "Canadá",
+   "moeda": "CAD",
+   "regiao": "América do Norte",
+   "aliases": [
+    "Canada"
+   ]
+  },
+  {
+   "codigo": "BQ",
+   "nome": "Caribe Neerlandês",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Bonaire",
+    "Caribbean Netherlands"
+   ]
+  },
+  {
+   "codigo": "QA",
+   "nome": "Catar",
+   "moeda": "QAR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Qatar"
+   ]
+  },
+  {
+   "codigo": "KZ",
+   "nome": "Cazaquistão",
+   "moeda": "KZT",
+   "regiao": "Ásia",
+   "aliases": [
+    "Kazakhstan"
+   ]
+  },
+  {
+   "codigo": "TD",
+   "nome": "Chade",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "Chad"
+   ]
+  },
+  {
+   "codigo": "CL",
+   "nome": "Chile",
+   "moeda": "CLP",
+   "regiao": "América do Sul",
+   "aliases": []
+  },
+  {
+   "codigo": "CN",
+   "nome": "China",
+   "moeda": "CNY",
+   "regiao": "Ásia",
+   "aliases": [
+    "China (People's Republic of China)"
+   ]
+  },
+  {
+   "codigo": "CY",
+   "nome": "Chipre",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Cyprus"
+   ]
+  },
+  {
+   "codigo": "CO",
+   "nome": "Colômbia",
+   "moeda": "COP",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Colombia"
+   ]
+  },
+  {
+   "codigo": "KM",
+   "nome": "Comores",
+   "moeda": "KMF",
+   "regiao": "África",
+   "aliases": [
+    "Comoros"
+   ]
+  },
+  {
+   "codigo": "CG",
+   "nome": "Congo",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "República do Congo",
+    "Republic of the Congo"
+   ]
+  },
+  {
+   "codigo": "KP",
+   "nome": "Coreia do Norte",
+   "moeda": "KPW",
+   "regiao": "Ásia",
+   "aliases": [
+    "Korea, Democratic People's Republic of"
+   ]
+  },
+  {
+   "codigo": "KR",
+   "nome": "Coreia do Sul",
+   "moeda": "KRW",
+   "regiao": "Ásia",
+   "aliases": [
+    "Coréia do Sul",
+    "Coreia",
+    "Korea, Republic of"
+   ]
+  },
+  {
+   "codigo": "CI",
+   "nome": "Costa do Marfim",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": [
+    "Côte d'Ivoire"
+   ]
+  },
+  {
+   "codigo": "CR",
+   "nome": "Costa Rica",
+   "moeda": "CRC",
+   "regiao": "América Central",
+   "aliases": []
+  },
+  {
+   "codigo": "HR",
+   "nome": "Croácia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Croacia",
+    "Croatia"
+   ]
+  },
+  {
+   "codigo": "CU",
+   "nome": "Cuba",
+   "moeda": "CUP",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "CW",
+   "nome": "Curaçao",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Curacao"
+   ]
+  },
+  {
+   "codigo": "DK",
+   "nome": "Dinamarca",
+   "moeda": "DKK",
+   "regiao": "Europa",
+   "aliases": [
+    "Denmark"
+   ]
+  },
+  {
+   "codigo": "DJ",
+   "nome": "Djibuti",
+   "moeda": "DJF",
+   "regiao": "África",
+   "aliases": [
+    "Djibouti"
+   ]
+  },
+  {
+   "codigo": "DM",
+   "nome": "Dominica",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "EG",
+   "nome": "Egito",
+   "moeda": "EGP",
+   "regiao": "África",
+   "aliases": [
+    "Egipto",
+    "Egypt"
+   ]
+  },
+  {
+   "codigo": "SV",
+   "nome": "El Salvador",
+   "moeda": "USD",
+   "regiao": "América Central",
+   "aliases": [
+    "Salvador"
+   ]
+  },
+  {
+   "codigo": "AE",
+   "nome": "Emirados Árabes Unidos",
+   "moeda": "AED",
+   "regiao": "Ásia",
+   "aliases": [
+    "Emirados",
+    "Dubai",
+    "Abu Dhabi",
+    "EAU",
+    "UAE",
+    "United Arab Emirates"
+   ]
+  },
+  {
+   "codigo": "EC",
+   "nome": "Equador",
+   "moeda": "USD",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Ecuador"
+   ]
+  },
+  {
+   "codigo": "ER",
+   "nome": "Eritreia",
+   "moeda": "ERN",
+   "regiao": "África",
+   "aliases": [
+    "Eritrea"
+   ]
+  },
+  {
+   "codigo": "SK",
+   "nome": "Eslováquia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Slovakia"
+   ]
+  },
+  {
+   "codigo": "SI",
+   "nome": "Eslovênia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Eslovénia",
+    "Slovenia"
+   ]
+  },
+  {
+   "codigo": "ES",
+   "nome": "Espanha",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "España",
+    "Espana",
+    "Spain"
+   ]
+  },
+  {
+   "codigo": "SZ",
+   "nome": "Essuatíni",
+   "moeda": "SZL",
+   "regiao": "África",
+   "aliases": [
+    "Suazilândia",
+    "Eswatini",
+    "Kingdom of Eswatini"
+   ]
+  },
+  {
+   "codigo": "US",
+   "nome": "Estados Unidos",
+   "moeda": "USD",
+   "regiao": "América do Norte",
+   "aliases": [
+    "EUA",
+    "USA",
+    "Estados Unidos da América",
+    "America",
+    "U.S.A.",
+    "United States"
+   ]
+  },
+  {
+   "codigo": "EE",
+   "nome": "Estônia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Estónia",
+    "Estonia"
+   ]
+  },
+  {
+   "codigo": "ET",
+   "nome": "Etiópia",
+   "moeda": "ETB",
+   "regiao": "África",
+   "aliases": [
+    "Ethiopia"
+   ]
+  },
+  {
+   "codigo": "FJ",
+   "nome": "Fiji",
+   "moeda": "FJD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "PH",
+   "nome": "Filipinas",
+   "moeda": "PHP",
+   "regiao": "Ásia",
+   "aliases": [
+    "Philippines"
+   ]
+  },
+  {
+   "codigo": "FI",
+   "nome": "Finlândia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Finland"
+   ]
+  },
+  {
+   "codigo": "FR",
+   "nome": "França",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Franca",
+    "France"
+   ]
+  },
+  {
+   "codigo": "GA",
+   "nome": "Gabão",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "Gabon"
+   ]
+  },
+  {
+   "codigo": "GM",
+   "nome": "Gâmbia",
+   "moeda": "GMD",
+   "regiao": "África",
+   "aliases": [
+    "Gambia"
+   ]
+  },
+  {
+   "codigo": "GH",
+   "nome": "Gana",
+   "moeda": "GHS",
+   "regiao": "África",
+   "aliases": [
+    "Ghana"
+   ]
+  },
+  {
+   "codigo": "GE",
+   "nome": "Geórgia",
+   "moeda": "GEL",
+   "regiao": "Europa",
+   "aliases": [
+    "Georgia"
+   ]
+  },
+  {
+   "codigo": "GI",
+   "nome": "Gibraltar",
+   "moeda": "GIP",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "GD",
+   "nome": "Granada",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Grenada"
+   ]
+  },
+  {
+   "codigo": "GR",
+   "nome": "Grécia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Greece"
+   ]
+  },
+  {
+   "codigo": "GL",
+   "nome": "Groenlândia",
+   "moeda": "DKK",
+   "regiao": "América do Norte",
+   "aliases": [
+    "Greenland"
+   ]
+  },
+  {
+   "codigo": "GP",
+   "nome": "Guadalupe",
+   "moeda": "EUR",
+   "regiao": "Caribe",
+   "aliases": [
+    "Guadeloupe"
+   ]
+  },
+  {
+   "codigo": "GU",
+   "nome": "Guam",
+   "moeda": "USD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "GT",
+   "nome": "Guatemala",
+   "moeda": "GTQ",
+   "regiao": "América Central",
+   "aliases": []
+  },
+  {
+   "codigo": "GY",
+   "nome": "Guiana",
+   "moeda": "GYD",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Guyana"
+   ]
+  },
+  {
+   "codigo": "GF",
+   "nome": "Guiana Francesa",
+   "moeda": "EUR",
+   "regiao": "América do Sul",
+   "aliases": [
+    "French Guiana"
+   ]
+  },
+  {
+   "codigo": "GN",
+   "nome": "Guiné",
+   "moeda": "GNF",
+   "regiao": "África",
+   "aliases": [
+    "Guinea"
+   ]
+  },
+  {
+   "codigo": "GQ",
+   "nome": "Guiné Equatorial",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "Equatorial Guinea"
+   ]
+  },
+  {
+   "codigo": "GW",
+   "nome": "Guiné-Bissau",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": [
+    "Guinea-Bissau"
+   ]
+  },
+  {
+   "codigo": "HT",
+   "nome": "Haiti",
+   "moeda": "HTG",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "HN",
+   "nome": "Honduras",
+   "moeda": "HNL",
+   "regiao": "América Central",
+   "aliases": []
+  },
+  {
+   "codigo": "HK",
+   "nome": "Hong Kong",
+   "moeda": "HKD",
+   "regiao": "Ásia",
+   "aliases": []
+  },
+  {
+   "codigo": "HU",
+   "nome": "Hungria",
+   "moeda": "HUF",
+   "regiao": "Europa",
+   "aliases": [
+    "Hungary"
+   ]
+  },
+  {
+   "codigo": "YE",
+   "nome": "Iêmen",
+   "moeda": "YER",
+   "regiao": "Ásia",
+   "aliases": [
+    "Iémen",
+    "Yemen"
+   ]
+  },
+  {
+   "codigo": "KY",
+   "nome": "Ilhas Cayman",
+   "moeda": "KYD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Cayman",
+    "Cayman Islands"
+   ]
+  },
+  {
+   "codigo": "CK",
+   "nome": "Ilhas Cook",
+   "moeda": "NZD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Cook Islands"
+   ]
+  },
+  {
+   "codigo": "FO",
+   "nome": "Ilhas Faroé",
+   "moeda": "DKK",
+   "regiao": "Europa",
+   "aliases": [
+    "Ilhas Feroé",
+    "Faroe",
+    "Faroe Islands"
+   ]
+  },
+  {
+   "codigo": "MH",
+   "nome": "Ilhas Marshall",
+   "moeda": "USD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Marshall Islands"
+   ]
+  },
+  {
+   "codigo": "SB",
+   "nome": "Ilhas Salomão",
+   "moeda": "SBD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Solomon Islands"
+   ]
+  },
+  {
+   "codigo": "VI",
+   "nome": "Ilhas Virgens Americanas",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Virgin Islands, U.S."
+   ]
+  },
+  {
+   "codigo": "VG",
+   "nome": "Ilhas Virgens Britânicas",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Virgin Islands, British"
+   ]
+  },
+  {
+   "codigo": "IN",
+   "nome": "Índia",
+   "moeda": "INR",
+   "regiao": "Ásia",
+   "aliases": [
+    "India"
+   ]
+  },
+  {
+   "codigo": "ID",
+   "nome": "Indonésia",
+   "moeda": "IDR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Bali",
+    "Indonesia"
+   ]
+  },
+  {
+   "codigo": "IR",
+   "nome": "Irã",
+   "moeda": "IRR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Irão",
+    "Iran, Islamic Republic of"
+   ]
+  },
+  {
+   "codigo": "IQ",
+   "nome": "Iraque",
+   "moeda": "IQD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Iraq"
+   ]
+  },
+  {
+   "codigo": "IE",
+   "nome": "Irlanda",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Eire",
+    "Ireland"
+   ]
+  },
+  {
+   "codigo": "IS",
+   "nome": "Islândia",
+   "moeda": "ISK",
+   "regiao": "Europa",
+   "aliases": [
+    "Iceland"
+   ]
+  },
+  {
+   "codigo": "IL",
+   "nome": "Israel",
+   "moeda": "ILS",
+   "regiao": "Ásia",
+   "aliases": []
+  },
+  {
+   "codigo": "IT",
+   "nome": "Itália",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Italia",
+    "Italy"
+   ]
+  },
+  {
+   "codigo": "JM",
+   "nome": "Jamaica",
+   "moeda": "JMD",
+   "regiao": "Caribe",
+   "aliases": []
+  },
+  {
+   "codigo": "JP",
+   "nome": "Japão",
+   "moeda": "JPY",
+   "regiao": "Ásia",
+   "aliases": [
+    "Japao",
+    "Japan"
+   ]
+  },
+  {
+   "codigo": "JO",
+   "nome": "Jordânia",
+   "moeda": "JOD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Jordan"
+   ]
+  },
+  {
+   "codigo": "KI",
+   "nome": "Kiribati",
+   "moeda": "AUD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "XK",
+   "nome": "Kosovo",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "KW",
+   "nome": "Kuwait",
+   "moeda": "KWD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Kuweit"
+   ]
+  },
+  {
+   "codigo": "LA",
+   "nome": "Laos",
+   "moeda": "LAK",
+   "regiao": "Ásia",
+   "aliases": [
+    "Laos (Lao People's Democratic Republic)"
+   ]
+  },
+  {
+   "codigo": "LS",
+   "nome": "Lesoto",
+   "moeda": "LSL",
+   "regiao": "África",
+   "aliases": [
+    "Lesotho"
+   ]
+  },
+  {
+   "codigo": "LV",
+   "nome": "Letônia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Letónia",
+    "Latvia"
+   ]
+  },
+  {
+   "codigo": "LB",
+   "nome": "Líbano",
+   "moeda": "LBP",
+   "regiao": "Ásia",
+   "aliases": [
+    "Lebanon"
+   ]
+  },
+  {
+   "codigo": "LR",
+   "nome": "Libéria",
+   "moeda": "LRD",
+   "regiao": "África",
+   "aliases": [
+    "Liberia"
+   ]
+  },
+  {
+   "codigo": "LY",
+   "nome": "Líbia",
+   "moeda": "LYD",
+   "regiao": "África",
+   "aliases": [
+    "Libya"
+   ]
+  },
+  {
+   "codigo": "LI",
+   "nome": "Liechtenstein",
+   "moeda": "CHF",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "LT",
+   "nome": "Lituânia",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Lithuania"
+   ]
+  },
+  {
+   "codigo": "LU",
+   "nome": "Luxemburgo",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Luxembourg"
+   ]
+  },
+  {
+   "codigo": "MO",
+   "nome": "Macau",
+   "moeda": "MOP",
+   "regiao": "Ásia",
+   "aliases": [
+    "Macao"
+   ]
+  },
+  {
+   "codigo": "MK",
+   "nome": "Macedônia do Norte",
+   "moeda": "MKD",
+   "regiao": "Europa",
+   "aliases": [
+    "Macedônia",
+    "Macedonia",
+    "North Macedonia"
+   ]
+  },
+  {
+   "codigo": "MG",
+   "nome": "Madagascar",
+   "moeda": "MGA",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "MY",
+   "nome": "Malásia",
+   "moeda": "MYR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Malaysia"
+   ]
+  },
+  {
+   "codigo": "MW",
+   "nome": "Malawi",
+   "moeda": "MWK",
+   "regiao": "África",
+   "aliases": [
+    "Malaui"
+   ]
+  },
+  {
+   "codigo": "MV",
+   "nome": "Maldivas",
+   "moeda": "MVR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Maldives"
+   ]
+  },
+  {
+   "codigo": "ML",
+   "nome": "Mali",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "MT",
+   "nome": "Malta",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "MA",
+   "nome": "Marrocos",
+   "moeda": "MAD",
+   "regiao": "África",
+   "aliases": [
+    "Morocco"
+   ]
+  },
+  {
+   "codigo": "MQ",
+   "nome": "Martinica",
+   "moeda": "EUR",
+   "regiao": "Caribe",
+   "aliases": [
+    "Martinique"
+   ]
+  },
+  {
+   "codigo": "MU",
+   "nome": "Maurício",
+   "moeda": "MUR",
+   "regiao": "África",
+   "aliases": [
+    "Ilhas Maurício",
+    "Mauritius"
+   ]
+  },
+  {
+   "codigo": "MR",
+   "nome": "Mauritânia",
+   "moeda": "MRU",
+   "regiao": "África",
+   "aliases": [
+    "Mauritania"
+   ]
+  },
+  {
+   "codigo": "MX",
+   "nome": "México",
+   "moeda": "MXN",
+   "regiao": "América do Norte",
+   "aliases": [
+    "Mexico"
+   ]
+  },
+  {
+   "codigo": "MM",
+   "nome": "Mianmar",
+   "moeda": "MMK",
+   "regiao": "Ásia",
+   "aliases": [
+    "Birmânia",
+    "Myanmar"
+   ]
+  },
+  {
+   "codigo": "FM",
+   "nome": "Micronésia",
+   "moeda": "USD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Micronesia, Federated States of"
+   ]
+  },
+  {
+   "codigo": "MZ",
+   "nome": "Moçambique",
+   "moeda": "MZN",
+   "regiao": "África",
+   "aliases": [
+    "Mozambique"
+   ]
+  },
+  {
+   "codigo": "MD",
+   "nome": "Moldávia",
+   "moeda": "MDL",
+   "regiao": "Europa",
+   "aliases": [
+    "Moldova, Republic of"
+   ]
+  },
+  {
+   "codigo": "MC",
+   "nome": "Mônaco",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Monaco",
+    "Mónaco"
+   ]
+  },
+  {
+   "codigo": "MN",
+   "nome": "Mongólia",
+   "moeda": "MNT",
+   "regiao": "Ásia",
+   "aliases": [
+    "Mongolia"
+   ]
+  },
+  {
+   "codigo": "ME",
+   "nome": "Montenegro",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "NA",
+   "nome": "Namíbia",
+   "moeda": "NAD",
+   "regiao": "África",
+   "aliases": [
+    "Namibia"
+   ]
+  },
+  {
+   "codigo": "NR",
+   "nome": "Nauru",
+   "moeda": "AUD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "NP",
+   "nome": "Nepal",
+   "moeda": "NPR",
+   "regiao": "Ásia",
+   "aliases": []
+  },
+  {
+   "codigo": "NI",
+   "nome": "Nicarágua",
+   "moeda": "NIO",
+   "regiao": "América Central",
+   "aliases": [
+    "Nicaragua"
+   ]
+  },
+  {
+   "codigo": "NE",
+   "nome": "Níger",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": [
+    "Niger"
+   ]
+  },
+  {
+   "codigo": "NG",
+   "nome": "Nigéria",
+   "moeda": "NGN",
+   "regiao": "África",
+   "aliases": [
+    "Nigeria"
+   ]
+  },
+  {
+   "codigo": "NO",
+   "nome": "Noruega",
+   "moeda": "NOK",
+   "regiao": "Europa",
+   "aliases": [
+    "Norway"
+   ]
+  },
+  {
+   "codigo": "NC",
+   "nome": "Nova Caledônia",
+   "moeda": "XPF",
+   "regiao": "Oceania",
+   "aliases": [
+    "New Caledonia"
+   ]
+  },
+  {
+   "codigo": "NZ",
+   "nome": "Nova Zelândia",
+   "moeda": "NZD",
+   "regiao": "Oceania",
+   "aliases": [
+    "Nova Zelandia",
+    "New Zealand"
+   ]
+  },
+  {
+   "codigo": "OM",
+   "nome": "Omã",
+   "moeda": "OMR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Oman"
+   ]
+  },
+  {
+   "codigo": "NL",
+   "nome": "Países Baixos",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Holanda",
+    "Paises Baixos",
+    "Netherlands",
+    "Holland",
+    "Nederland"
+   ]
+  },
+  {
+   "codigo": "PW",
+   "nome": "Palau",
+   "moeda": "USD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "PS",
+   "nome": "Palestina",
+   "moeda": "ILS",
+   "regiao": "Ásia",
+   "aliases": [
+    "Palestine"
+   ]
+  },
+  {
+   "codigo": "PA",
+   "nome": "Panamá",
+   "moeda": "USD",
+   "regiao": "América Central",
+   "aliases": [
+    "Panama"
+   ]
+  },
+  {
+   "codigo": "PG",
+   "nome": "Papua-Nova Guiné",
+   "moeda": "PGK",
+   "regiao": "Oceania",
+   "aliases": [
+    "Papua New Guinea"
+   ]
+  },
+  {
+   "codigo": "PK",
+   "nome": "Paquistão",
+   "moeda": "PKR",
+   "regiao": "Ásia",
+   "aliases": [
+    "Pakistan"
+   ]
+  },
+  {
+   "codigo": "PY",
+   "nome": "Paraguai",
+   "moeda": "PYG",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Paraguay"
+   ]
+  },
+  {
+   "codigo": "PE",
+   "nome": "Peru",
+   "moeda": "PEN",
+   "regiao": "América do Sul",
+   "aliases": []
+  },
+  {
+   "codigo": "PF",
+   "nome": "Polinésia Francesa",
+   "moeda": "XPF",
+   "regiao": "Oceania",
+   "aliases": [
+    "Taiti",
+    "Tahiti",
+    "Bora Bora",
+    "French Polynesia"
+   ]
+  },
+  {
+   "codigo": "PL",
+   "nome": "Polônia",
+   "moeda": "PLN",
+   "regiao": "Europa",
+   "aliases": [
+    "Polónia",
+    "Poland"
+   ]
+  },
+  {
+   "codigo": "PR",
+   "nome": "Porto Rico",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Puerto Rico"
+   ]
+  },
+  {
+   "codigo": "PT",
+   "nome": "Portugal",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "KE",
+   "nome": "Quênia",
+   "moeda": "KES",
+   "regiao": "África",
+   "aliases": [
+    "Quénia",
+    "Kenya"
+   ]
+  },
+  {
+   "codigo": "KG",
+   "nome": "Quirguistão",
+   "moeda": "KGS",
+   "regiao": "Ásia",
+   "aliases": [
+    "Kyrgyzstan"
+   ]
+  },
+  {
+   "codigo": "GB",
+   "nome": "Reino Unido",
+   "moeda": "GBP",
+   "regiao": "Europa",
+   "aliases": [
+    "Inglaterra",
+    "Escócia",
+    "Escocia",
+    "País de Gales",
+    "Gales",
+    "Irlanda do Norte",
+    "Grã-Bretanha",
+    "Gra-Bretanha",
+    "UK",
+    "U.K.",
+    "England",
+    "Scotland",
+    "Wales",
+    "Great Britain",
+    "Britain",
+    "United Kingdom"
+   ]
+  },
+  {
+   "codigo": "CF",
+   "nome": "República Centro-Africana",
+   "moeda": "XAF",
+   "regiao": "África",
+   "aliases": [
+    "Central African Republic"
+   ]
+  },
+  {
+   "codigo": "CD",
+   "nome": "República Democrática do Congo",
+   "moeda": "CDF",
+   "regiao": "África",
+   "aliases": [
+    "Congo-Kinshasa",
+    "Congo, the Democratic Republic of the"
+   ]
+  },
+  {
+   "codigo": "DO",
+   "nome": "República Dominicana",
+   "moeda": "DOP",
+   "regiao": "Caribe",
+   "aliases": [
+    "Punta Cana",
+    "Dominican Republic"
+   ]
+  },
+  {
+   "codigo": "CZ",
+   "nome": "República Tcheca",
+   "moeda": "CZK",
+   "regiao": "Europa",
+   "aliases": [
+    "Tchéquia",
+    "Tchequia",
+    "Chéquia",
+    "República Checa",
+    "Czechia",
+    "Czech Republic",
+    "Tcheca"
+   ]
+  },
+  {
+   "codigo": "RE",
+   "nome": "Reunião",
+   "moeda": "EUR",
+   "regiao": "África",
+   "aliases": [
+    "Réunion"
+   ]
+  },
+  {
+   "codigo": "RO",
+   "nome": "Romênia",
+   "moeda": "RON",
+   "regiao": "Europa",
+   "aliases": [
+    "Roménia",
+    "Romania"
+   ]
+  },
+  {
+   "codigo": "RW",
+   "nome": "Ruanda",
+   "moeda": "RWF",
+   "regiao": "África",
+   "aliases": [
+    "Rwanda"
+   ]
+  },
+  {
+   "codigo": "RU",
+   "nome": "Rússia",
+   "moeda": "RUB",
+   "regiao": "Europa",
+   "aliases": [
+    "Russian Federation"
+   ]
+  },
+  {
+   "codigo": "WS",
+   "nome": "Samoa",
+   "moeda": "WST",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "SM",
+   "nome": "San Marino",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": []
+  },
+  {
+   "codigo": "LC",
+   "nome": "Santa Lúcia",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Saint Lucia"
+   ]
+  },
+  {
+   "codigo": "BL",
+   "nome": "São Bartolomeu",
+   "moeda": "EUR",
+   "regiao": "Caribe",
+   "aliases": [
+    "St. Barth",
+    "Saint Barthélemy"
+   ]
+  },
+  {
+   "codigo": "KN",
+   "nome": "São Cristóvão e Névis",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Saint Kitts and Nevis"
+   ]
+  },
+  {
+   "codigo": "MF",
+   "nome": "São Martinho (França)",
+   "moeda": "EUR",
+   "regiao": "Caribe",
+   "aliases": [
+    "Saint Martin"
+   ]
+  },
+  {
+   "codigo": "SX",
+   "nome": "São Martinho (Países Baixos)",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Sint Maarten",
+    "Sint Maarten (Dutch part)"
+   ]
+  },
+  {
+   "codigo": "ST",
+   "nome": "São Tomé e Príncipe",
+   "moeda": "STN",
+   "regiao": "África",
+   "aliases": [
+    "Sao Tome and Principe"
+   ]
+  },
+  {
+   "codigo": "VC",
+   "nome": "São Vicente e Granadinas",
+   "moeda": "XCD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Saint Vincent and the Grenadines"
+   ]
+  },
+  {
+   "codigo": "SC",
+   "nome": "Seicheles",
+   "moeda": "SCR",
+   "regiao": "África",
+   "aliases": [
+    "Seychelles"
+   ]
+  },
+  {
+   "codigo": "SN",
+   "nome": "Senegal",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "SL",
+   "nome": "Serra Leoa",
+   "moeda": "SLE",
+   "regiao": "África",
+   "aliases": [
+    "Sierra Leone"
+   ]
+  },
+  {
+   "codigo": "RS",
+   "nome": "Sérvia",
+   "moeda": "RSD",
+   "regiao": "Europa",
+   "aliases": [
+    "Serbia"
+   ]
+  },
+  {
+   "codigo": "SG",
+   "nome": "Singapura",
+   "moeda": "SGD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Cingapura",
+    "Singapore"
+   ]
+  },
+  {
+   "codigo": "SY",
+   "nome": "Síria",
+   "moeda": "SYP",
+   "regiao": "Ásia",
+   "aliases": [
+    "Syrian Arab Republic"
+   ]
+  },
+  {
+   "codigo": "SO",
+   "nome": "Somália",
+   "moeda": "SOS",
+   "regiao": "África",
+   "aliases": [
+    "Somalia"
+   ]
+  },
+  {
+   "codigo": "LK",
+   "nome": "Sri Lanka",
+   "moeda": "LKR",
+   "regiao": "Ásia",
+   "aliases": []
+  },
+  {
+   "codigo": "SD",
+   "nome": "Sudão",
+   "moeda": "SDG",
+   "regiao": "África",
+   "aliases": [
+    "Sudan"
+   ]
+  },
+  {
+   "codigo": "SS",
+   "nome": "Sudão do Sul",
+   "moeda": "SSP",
+   "regiao": "África",
+   "aliases": [
+    "South Sudan"
+   ]
+  },
+  {
+   "codigo": "SE",
+   "nome": "Suécia",
+   "moeda": "SEK",
+   "regiao": "Europa",
+   "aliases": [
+    "Sweden"
+   ]
+  },
+  {
+   "codigo": "CH",
+   "nome": "Suíça",
+   "moeda": "CHF",
+   "regiao": "Europa",
+   "aliases": [
+    "Suica",
+    "Suiça",
+    "Suisse",
+    "Schweiz",
+    "Svizzera",
+    "Switzerland"
+   ]
+  },
+  {
+   "codigo": "SR",
+   "nome": "Suriname",
+   "moeda": "SRD",
+   "regiao": "América do Sul",
+   "aliases": []
+  },
+  {
+   "codigo": "TH",
+   "nome": "Tailândia",
+   "moeda": "THB",
+   "regiao": "Ásia",
+   "aliases": [
+    "Tailandia",
+    "Thailand"
+   ]
+  },
+  {
+   "codigo": "TW",
+   "nome": "Taiwan",
+   "moeda": "TWD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Taiwan (Republic of China)"
+   ]
+  },
+  {
+   "codigo": "TJ",
+   "nome": "Tajiquistão",
+   "moeda": "TJS",
+   "regiao": "Ásia",
+   "aliases": [
+    "Tajikistan"
+   ]
+  },
+  {
+   "codigo": "TZ",
+   "nome": "Tanzânia",
+   "moeda": "TZS",
+   "regiao": "África",
+   "aliases": [
+    "Zanzibar",
+    "Tanzania, United Republic of"
+   ]
+  },
+  {
+   "codigo": "TL",
+   "nome": "Timor-Leste",
+   "moeda": "USD",
+   "regiao": "Ásia",
+   "aliases": [
+    "Timor Leste"
+   ]
+  },
+  {
+   "codigo": "TG",
+   "nome": "Togo",
+   "moeda": "XOF",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "TO",
+   "nome": "Tonga",
+   "moeda": "TOP",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "TT",
+   "nome": "Trinidad e Tobago",
+   "moeda": "TTD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Trinidad and Tobago"
+   ]
+  },
+  {
+   "codigo": "TN",
+   "nome": "Tunísia",
+   "moeda": "TND",
+   "regiao": "África",
+   "aliases": [
+    "Tunisia"
+   ]
+  },
+  {
+   "codigo": "TM",
+   "nome": "Turcomenistão",
+   "moeda": "TMT",
+   "regiao": "Ásia",
+   "aliases": [
+    "Turkmenistan"
+   ]
+  },
+  {
+   "codigo": "TC",
+   "nome": "Turks e Caicos",
+   "moeda": "USD",
+   "regiao": "Caribe",
+   "aliases": [
+    "Turks and Caicos Islands"
+   ]
+  },
+  {
+   "codigo": "TR",
+   "nome": "Turquia",
+   "moeda": "TRY",
+   "regiao": "Europa",
+   "aliases": [
+    "Türkiye",
+    "Turkiye",
+    "Republic of Türkiye"
+   ]
+  },
+  {
+   "codigo": "TV",
+   "nome": "Tuvalu",
+   "moeda": "AUD",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "UA",
+   "nome": "Ucrânia",
+   "moeda": "UAH",
+   "regiao": "Europa",
+   "aliases": [
+    "Ukraine"
+   ]
+  },
+  {
+   "codigo": "UG",
+   "nome": "Uganda",
+   "moeda": "UGX",
+   "regiao": "África",
+   "aliases": []
+  },
+  {
+   "codigo": "UY",
+   "nome": "Uruguai",
+   "moeda": "UYU",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Uruguay"
+   ]
+  },
+  {
+   "codigo": "UZ",
+   "nome": "Uzbequistão",
+   "moeda": "UZS",
+   "regiao": "Ásia",
+   "aliases": [
+    "Uzbekistan"
+   ]
+  },
+  {
+   "codigo": "VU",
+   "nome": "Vanuatu",
+   "moeda": "VUV",
+   "regiao": "Oceania",
+   "aliases": []
+  },
+  {
+   "codigo": "VA",
+   "nome": "Vaticano",
+   "moeda": "EUR",
+   "regiao": "Europa",
+   "aliases": [
+    "Cidade do Vaticano",
+    "Santa Sé",
+    "Holy See (Vatican City State)"
+   ]
+  },
+  {
+   "codigo": "VE",
+   "nome": "Venezuela",
+   "moeda": "VES",
+   "regiao": "América do Sul",
+   "aliases": [
+    "Venezuela, Bolivarian Republic of"
+   ]
+  },
+  {
+   "codigo": "VN",
+   "nome": "Vietnã",
+   "moeda": "VND",
+   "regiao": "Ásia",
+   "aliases": [
+    "Vietname",
+    "Vietnam"
+   ]
+  },
+  {
+   "codigo": "ZM",
+   "nome": "Zâmbia",
+   "moeda": "ZMW",
+   "regiao": "África",
+   "aliases": [
+    "Zambia"
+   ]
+  },
+  {
+   "codigo": "ZW",
+   "nome": "Zimbábue",
+   "moeda": "USD",
+   "regiao": "África",
+   "aliases": [
+    "Zimbabwe"
+   ]
+  }
+ ]
+}

@@ -364,3 +364,119 @@ test('Metas v2 (planilha real): GET metasHistorico pelo Router, resumo vai junto
   const depois = get({ action: 'metas' });
   assert.ok(!depois.metas.concat(depois.arquivadas).some((x) => x.id === s.id), 'sumiu de vez');
 });
+
+// ---------------------------------------------------------------------------
+// 04/10/2026 (Tiago: "incluí [a cotação] na aba 'Bolsa USA >>>': D8 é a cotação
+// do Dólar, D9 Libra, D10 Franco Suíço e D11 Euro; uso =GOOGLEFINANCE("EURBRL");
+// se puder variar para todas as moedas, ótimo") - dados inventados.
+// ---------------------------------------------------------------------------
+
+function abaBolsaUsa(ss, { d8 = 5.21, d9 = 7.4, d10 = 6.6, d11 = 6.2, rotulos = true } = {}) {
+  const aba = ss.insertSheet('Bolsa USA >>>');
+  aba.cel.set('6,1', 'Os resultados estimados em R$ se baseiam na cotação do dólar no dia.'); // A6 (nota, não é cotação)
+  if (rotulos) aba.cel.set('8,1', 'Cotação do dólar hoje:');
+  aba.cel.set('8,4', d8); aba.cel.set('9,4', d9); aba.cel.set('10,4', d10); aba.cel.set('11,4', d11);
+  return aba;
+}
+
+test('câmbio: a aba "Bolsa USA >>>" (D8 USD, D9 GBP, D10 CHF, D11 EUR) é a 1ª fonte - sem rede', () => {
+  const sb = sandbox(); // sem rede: se tentasse a API, estouraria
+  const ss = criarFalsa();
+  abaBolsaUsa(ss);
+  const r = semRealm(sb.cambioMetas_(ss, ['USD', 'GBP', 'CHF', 'EUR', 'BRL'], new sb.Date('2026-10-04T12:00:00Z')));
+  assert.deepEqual(['USD', 'GBP', 'CHF', 'EUR'].map((m) => r[m].valor), [5.21, 7.4, 6.6, 6.2]);
+  assert.equal(r.CHF.origem, 'planilha');
+  assert.match(r.CHF.fonte, /Bolsa USA >>> D10/);
+  assert.equal(r.CHF.data, '2026-10-04');
+  assert.equal(r.BRL, undefined);
+});
+
+test('câmbio: valor fora da faixa plausível é ignorado (cai pra API); a fórmula GOOGLEFINANCE manda mais que a posição', () => {
+  const urls = [];
+  const sb = sandbox({ fetch: (u) => { urls.push(u); return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ CHFBRL: { bid: '6.55', create_date: '2026-10-04 10:00:00' } }) }; } });
+  const ss = criarFalsa();
+  const aba = abaBolsaUsa(ss, { d10: 66 }); // CHF a R$ 66: estranho (célula errada?)
+  // a célula D9 traz uma fórmula de EURBRL: vale a moeda da fórmula, não a posição combinada (GBP)
+  const orig = aba.getRange.bind(aba);
+  aba.getRange = (...a) => {
+    const rg = orig(...a);
+    rg.getFormulas = () => { const f = []; for (let i = 0; i < a[2]; i++) f.push(['', '', '', a[0] + i === 9 ? '=GOOGLEFINANCE("EURBRL")' : '']); return f; };
+    return rg;
+  };
+  const r = semRealm(sb.cambioMetas_(ss, ['EUR', 'GBP', 'CHF'], new sb.Date('2026-10-04T12:00:00Z')));
+  assert.equal(r.EUR.valor, 7.4, 'D9 tem =GOOGLEFINANCE("EURBRL"): é o euro');
+  assert.equal(r.EUR.origem, 'planilha');
+  assert.equal(r.CHF.valor, 6.55, 'D10 = 66 não é plausível: usa a API');
+  assert.equal(r.CHF.fonte, 'AwesomeAPI');
+  assert.ok(urls.length >= 1);
+});
+
+test('câmbio: outras moedas pela aba aux_cambio (=GOOGLEFINANCE("CURRENCY:XXXBRL"), criada sob demanda) com fallback na API', () => {
+  const formulas = [];
+  const sb = sandbox({ fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ CZKBRL: { bid: '0.25', create_date: '2026-10-04 10:00:00' } }) }) });
+  const ss = criarFalsa();
+  abaBolsaUsa(ss);
+  const antes = ss.insertSheet; // a aba criada ganha setFormula (a planilha de verdade guarda a fórmula e calcula depois)
+  ss.insertSheet = (nome) => {
+    const aba = antes(nome);
+    const orig = aba.getRange.bind(aba);
+    aba.getRange = (...a) => { const rg = orig(...a); rg.setFormula = (f) => formulas.push([nome, a[0], f]); return rg; };
+    return aba;
+  };
+  const agora = new sb.Date('2026-10-04T12:00:00Z');
+  // 1ª vez: o Google ainda está calculando (célula vazia) -> a API cobre, e a linha com a fórmula fica criada
+  let r = semRealm(sb.cambioMetas_(ss, ['EUR', 'CZK'], agora));
+  assert.equal(r.EUR.valor, 6.2, 'EUR continua pela Bolsa USA');
+  assert.equal(r.CZK.valor, 0.25);
+  assert.equal(r.CZK.fonte, 'AwesomeAPI');
+  assert.deepEqual(formulas, [['aux_cambio', 2, '=IFERROR(GOOGLEFINANCE("CURRENCY:CZKBRL");"")']]);
+  const aux = ss.getSheetByName('aux_cambio');
+  assert.equal(aux.cel.get('1,1'), 'Moeda');
+  assert.equal(aux.cel.get('2,1'), 'CZK');
+  // 2ª vez: o Google calculou -> vale o número da aba (sem nova linha, sem rede)
+  aux.cel.set('2,2', 0.2431);
+  const sb2 = sandbox();
+  r = semRealm(sb2.cambioMetas_(ss, ['CZK'], agora));
+  assert.equal(r.CZK.valor, 0.2431);
+  assert.equal(r.CZK.origem, 'planilha');
+  assert.match(r.CZK.fonte, /aux_cambio/);
+  assert.equal(aux.getLastRow(), 2, 'não duplica a linha');
+});
+
+test('salvar: viagem com país/cidade, roteiro (Wanderlog), taxa turística, forma dos itens e entradas programadas', () => {
+  const sb = sandbox();
+  const ss = criarFalsa();
+  const agora = new sb.Date('2026-10-04T12:00:00Z');
+  const r = semRealm(sb.salvarMeta_(ss, JSON.stringify({
+    tipo: 'viagemInternacional', nome: 'Viagem Teste', moeda: 'EUR', dataAlvo: '2027-06',
+    especificos: {
+      roteiroUrl: 'https://wanderlog.com/plan/abc', pessoas: 2,
+      destinos: [{ pais: 'Suíça', paisCodigo: 'ch', cidade: 'Zurique', moeda: 'CHF', dias: 3, gastos: { alimentacao: 100 }, taxaTuristica: 2.5, taxaNoites: 3, taxaPessoas: 2 }],
+      fixos: [
+        { nome: 'Passagem', valor: 1000, parcelas: 5, inicio: '2026-08', forma: 'cartao', cartao: 'Cartão X', confirmado: true },
+        { nome: 'Antigo pago', valor: 10, pago: true },
+        { nome: 'Ingresso', valor: 50, forma: 'juntar' },
+      ],
+    },
+    entradas: [
+      { tipo: 'decimo13', pct: 0.9 }, { tipo: 'fgts', pct: 0.9, mes: '2027-03' }, { tipo: 'invalido', pct: 1 },
+    ],
+    links: [{ rotulo: 'Roteiro', url: 'https://wanderlog.com/plan/abc' }, { rotulo: 'ruim', url: 'javascript:alert(1)' }],
+  }), agora));
+  assert.equal(r.ok, true, r.erro);
+  const m = r.meta;
+  assert.equal(m.especificos.roteiroUrl, 'https://wanderlog.com/plan/abc');
+  assert.equal(m.especificos.destinos[0].paisCodigo, 'CH');
+  assert.deepEqual([m.especificos.destinos[0].taxaTuristica, m.especificos.destinos[0].taxaNoites, m.especificos.destinos[0].taxaPessoas], [2.5, 3, 2]);
+  assert.deepEqual(m.especificos.fixos.map((f) => [f.forma, f.pago, f.cartao, f.confirmado]), [['cartao', false, 'Cartão X', true], ['pago', true, '', false], ['juntar', false, '', false]]);
+  assert.deepEqual(m.entradas.map((e) => [e.tipo, e.pct, e.mes, e.recorrencia]), [['decimo13', 0.9, null, 'anual'], ['fgts', 0.9, '2027-03', 'anual']]);
+  assert.deepEqual(m.links.map((l) => l.url), ['https://wanderlog.com/plan/abc'], 'javascript: é descartado');
+});
+
+test('salvar: link de roteiro que não é http(s) é recusado ou descartado (não vira link clicável)', () => {
+  const sb = sandbox();
+  const ss = criarFalsa();
+  const r = semRealm(sb.salvarMeta_(ss, JSON.stringify({ tipo: 'viagemInternacional', nome: 'V', moeda: 'EUR', especificos: { roteiroUrl: 'javascript:alert(1)' } }), new sb.Date('2026-10-04T12:00:00Z')));
+  if (r.ok) assert.ok(!r.meta.especificos.roteiroUrl || /^https?:/.test(r.meta.especificos.roteiroUrl));
+  else assert.match(r.erro, /link|url/i);
+});

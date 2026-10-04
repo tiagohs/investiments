@@ -31,7 +31,35 @@
  * cada investimento vinculado (liquidez x prazo, risco x horizonte, moeda);
  * análise (mesmo formato de analise-grafico.js) dos gráficos de histórico,
  * projeção e renda mensal. Tudo puro, testado em tests/metas-calc.test.js.
+ *
+ * 04/10/2026 (Metas › Viagem - Tiago: "compras no cartão de crédito já
+ * feitas (passagens, hotéis) não devem ser incluídas na conta de aportes [...]
+ * O aporte mensal será sempre para o dinheiro que preciso juntar, e não para
+ * o que eu tenho que pagar"; "meu 13º (90%) e meu FGTS Aniversário (90% do
+ * que eu receber) vou colocar pra guardar [...] o aporte mensal necessário
+ * tem que levar isso em consideração"; "Incluir a taxa diária de turismo";
+ * países/cidades com bandeira; "Inclua link com o Wanderlog"):
+ *   - viagem em DUAS partes (calcularViagem): "A pagar (já comprado)" - itens
+ *     no cartão contam como PAGOS de antemão (só falta a fatura chegar), com
+ *     o cronograma de parcelas por mês e por cartão, FORA do aporte - e "A
+ *     juntar" - gasto lá (diárias x dias), taxa turística, margem e o que
+ *     ainda não foi pago, menos o que já está guardado. O aporte, o status e
+ *     a projeção olham só o "a juntar";
+ *   - entradas programadas (qualquer meta): 13º (1ª parcela em novembro sem
+ *     descontos, 2ª em dezembro com INSS/IR - estimado pelo holerite),
+ *     saque-aniversário do FGTS (no mês do aniversário, pela conta da aba
+ *     Patrimônio), PLR/bônus e outras, cada uma com o % que vai pra meta; só
+ *     as que caem ANTES da data da meta. O aporte necessário desconta o valor
+ *     delas (com o rendimento até a data) e a projeção sobe em degraus;
+ *   - países (assets/data/paises.json) e a migração dos destinos digitados à
+ *     mão (migrarMetaViagem: "Suiça"/"Switzerland" -> CH; itens fixos antigos
+ *     -> "A pagar"; o que não reconhecer vira um aviso "revise");
+ *   - taxa turística por destino (valor por pessoa por noite x noites x
+ *     pessoas, com sugestão de assets/data/taxas-turisticas.json);
+ *   - links (o roteiro no Wanderlog) validados.
  */
+
+import { resumoFgts, salarioEm } from './patrimonio-calc.js';
 
 /** Tipos de meta. `grupo` organiza a escolha no 1º passo da criação. */
 export const TIPOS_META = {
@@ -63,6 +91,8 @@ export const CATEGORIAS_ACUMULO = {
 };
 
 export const MOEDAS = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY'];
+/** 04/10/2026: moedas que aparecem primeiro nas listas (o resto vem dos países). */
+export const MOEDAS_COMUNS = ['BRL', 'EUR', 'USD', 'GBP', 'CHF', 'CZK', 'HUF', 'DKK', 'SEK', 'NOK', 'PLN', 'CAD', 'AUD', 'JPY', 'ARS', 'CLP', 'UYU', 'MXN'];
 
 export const STATUS_META = {
   concluida: { rotulo: 'Concluída', classe: 'good', explicacao: 'Você já juntou o alvo inteiro (na renda passiva: a renda média já chegou na meta).' },
@@ -102,6 +132,14 @@ export const EXPLICACOES = {
   cambio: 'Cotação de hoje (AwesomeAPI; se falhar, PTAX do Banco Central). O que falta em moeda estrangeira é convertido para reais por ela.',
   saldoConta: 'Dinheiro parado numa conta (ex. Wise em euro): não é investimento, entra pelo saldo informado, convertido pelo câmbio do dia. Atualize o saldo sempre que mudar - cada atualização vira um ponto no histórico.',
   avaliacao: 'Avaliação automática de cada investimento vinculado: liquidez x prazo da meta, risco (oscilação) x horizonte e moeda. Não é recomendação de compra ou venda.',
+  // 04/10/2026 (viagem em 2 partes + entradas programadas)
+  aPagar: 'O que você JÁ COMPROU (passagens, hotéis, ingressos) no cartão conta como pago desde já: só falta a fatura chegar. Por isso fica fora do aporte - aqui você vê quanto paga em cada mês, por cartão. Cada parcela vira "confirmada" quando o mês da fatura passa (ou quando você marca o item como confirmado).',
+  aJuntar: 'O dinheiro que você ainda precisa JUNTAR até a viagem: gasto lá (diárias x dias de cada destino, na moeda de lá), taxa turística, margem de segurança e o que ainda não foi pago - menos o que já está guardado (saldo em conta, ex. Wise em euro, e investimentos vinculados). O aporte mensal, o status e a projeção olham só essa parte.',
+  entradas: 'Dinheiro que vai entrar e você já decidiu guardar na meta (13º, saque-aniversário do FGTS, PLR...). Só contam as que caem ANTES da data da meta. O aporte mensal necessário desconta o valor delas (com o rendimento até a data). Valor vazio = estimado pelo seu salário (aba Salário) e pelo FGTS (aba Patrimônio); dá pra digitar o valor e o mês.',
+  decimo13: '13º salário: a 1ª parcela (até 30/nov) é metade do salário bruto, sem descontos; a 2ª (até 20/dez) é a outra metade menos o INSS e o IR do 13º inteiro. Estimado pelo seu último holerite (aba Salário) - se o 13º já estiver lançado lá, vale o valor lançado.',
+  fgts: 'Saque-aniversário do FGTS: liberado no mês do seu aniversário (até o fim do 2º mês seguinte). Valor = alíquota da faixa x saldo + parcela adicional (Lei 8.036/90), estimado pela aba Patrimônio com o saldo projetado até lá.',
+  taxaTuristica: 'Taxa turística (city tax / taxa de hospedagem): cobrada pelo hotel por pessoa e por noite, na moeda local - nem toda cidade cobra, e algumas têm limite de noites. Entra no dinheiro a juntar (sem margem). Os valores sugeridos são de um hotel 3 estrelas, com a fonte - confira antes de viajar.',
+  cambioFonte: 'Cotação de hoje: 1º a da sua planilha (aba Bolsa USA >>>, GOOGLEFINANCE - dólar, libra, franco e euro); outras moedas pela aba aux_cambio (também GOOGLEFINANCE, criada sozinha); se a planilha não tiver, AwesomeAPI ou PTAX do Banco Central.',
 };
 
 
@@ -183,22 +221,62 @@ export function valorFuturo({ atual = 0, aporte = 0, meses = 0, taxa = 0 }) {
  * `taxa` ao mês: (alvo - atual*(1+i)^n) * i / ((1+i)^n - 1). Já alcançado
  * (ou que alcança só com o rendimento) = 0. Sem meses = null.
  */
-export function aporteNecessario({ alvo, atual = 0, meses, taxa = 0 }) {
+export function aporteNecessario({ alvo, atual = 0, meses, taxa = 0, entradas = null }) {
   if (!(alvo > 0)) return 0;
   if (meses == null || !Number.isFinite(meses)) return null;
   if (atual >= alvo) return 0;
-  if (meses <= 0) return alvo - atual; // prazo vencido: falta tudo agora
-  if (!taxa) return Math.max(0, (alvo - atual) / meses);
+  // 04/10/2026: entradas programadas ({ k: mês a partir de hoje, valor }) rendem até a data
+  const fvE = valorFuturoEntradas(entradas, meses, taxa);
+  if (meses <= 0) return Math.max(0, alvo - atual - fvE); // prazo vencido: falta tudo agora
+  if (!taxa) return Math.max(0, (alvo - atual - fvE) / meses);
   const f = Math.pow(1 + taxa, meses);
-  return Math.max(0, ((alvo - atual * f) * taxa) / (f - 1));
+  return Math.max(0, ((alvo - atual * f - fvE) * taxa) / (f - 1));
+}
+
+/**
+ * 04/10/2026: valor, no mês `n`, das entradas programadas ({ k, valor }: k =
+ * meses a partir de hoje, 1 = o 1º ponto da projeção) que caem até n.
+ */
+export function valorFuturoEntradas(entradas, n, taxa = 0) {
+  return (entradas || []).reduce((s, e) => (e && e.k <= n && e.valor > 0 ? s + e.valor * Math.pow(1 + (taxa || 0), Math.max(0, n - e.k)) : s), 0);
+}
+
+/** 04/10/2026: saldo mês a mês (0..n) com aporte no fim de cada mês e as entradas programadas no mês k. */
+export function trajetoriaMensal({ atual = 0, aporte = 0, taxa = 0, entradas = null, meses = 0 }) {
+  const porK = new Map();
+  (entradas || []).forEach((e) => { if (e && e.valor > 0) porK.set(e.k, (porK.get(e.k) || 0) + e.valor); });
+  const out = [atual];
+  let v = atual;
+  for (let t = 1; t <= meses; t++) {
+    v = v * (1 + (taxa || 0)) + (aporte || 0) + (porK.get(t) || 0);
+    out.push(v);
+  }
+  return out;
 }
 
 /**
  * Meses até chegar em `alvo` aportando `aporte` por mês (fracionário; Infinity
  * se nunca chega). (1+i)^n = (alvo*i + aporte) / (atual*i + aporte).
  */
-export function prazoParaAlvo({ alvo, atual = 0, aporte = 0, taxa = 0 }) {
+export function prazoParaAlvo({ alvo, atual = 0, aporte = 0, taxa = 0, entradas = null }) {
   if (!(alvo > 0) || atual >= alvo) return 0;
+  if (entradas && entradas.some((e) => e && e.valor > 0)) {
+    // 04/10/2026: com entradas programadas não tem fórmula fechada - mês a mês
+    const ultimaK = Math.max(...entradas.map((e) => e.k || 0));
+    let v = atual;
+    const porK = new Map();
+    entradas.forEach((e) => { if (e && e.valor > 0) porK.set(e.k, (porK.get(e.k) || 0) + e.valor); });
+    for (let t = 1; t <= 1200; t++) {
+      const antes = v;
+      v = v * (1 + (taxa || 0)) + (aporte || 0) + (porK.get(t) || 0);
+      if (v >= alvo) {
+        const passo = v - antes;
+        return passo > 0 && !porK.get(t) ? t - 1 + (alvo - antes) / passo : t;
+      }
+      if (t > ultimaK && !(aporte > 0) && !(taxa > 0)) return Infinity;
+    }
+    return Infinity;
+  }
   if (!taxa) return aporte > 0 ? (alvo - atual) / aporte : Infinity;
   const denom = atual * taxa + aporte;
   if (denom <= 0) return Infinity;
@@ -374,31 +452,85 @@ export function contaAposentadoria(meta, referencias = {}) {
  * 03/10/2026: viagem por destinos + itens fixos (o desenho da planilha de
  * viagem do Tiago). Cada destino: dias x gasto diário (alimentação,
  * transporte, passeios, compras, outros) + extras (ingressos), na moeda do
- * destino. O alvo em cada moeda leva a margem; o que já está em "Saldo em
- * conta" naquela moeda abate dela; o resto vira reais pelo câmbio do dia.
- * Itens fixos (passagens, hospedagem): valor x sua parte, parcelados a
- * partir do mês de início (pagas = meses desde o início, ou "já pago").
+ * destino.
+ *
+ * 04/10/2026 (Tiago: "compras no cartão de crédito já feitas (passagens,
+ * hotéis) não devem ser incluídas na conta de aportes. São contas a pagar pra
+ * viagem, mas não é algo pra ser juntado [...] O que está no meu cartão já
+ * deveria de antemão ser considerado 'pago'"): a viagem tem DUAS partes.
+ *   aPagar  - itens fixos 'cartao' (já comprados: PAGOS de antemão, só falta a
+ *             fatura - "confirmado" quando o mês da última parcela passa ou
+ *             ele marca) e 'pago' (à vista/pix). Cronograma das parcelas por
+ *             mês e por cartão. Não entra no aporte.
+ *   juntar  - por moeda: gasto lá x (1 + margem) + taxa turística (por pessoa
+ *             por noite x noites x pessoas, sem margem) + itens 'juntar' (ainda
+ *             não pagos), menos o "Saldo em conta" naquela moeda; o resto vira
+ *             reais pelo câmbio do dia. gastoBRL = o total a juntar em reais.
+ * A "conta mensal" antiga de uma viagem (contaMensal) entra como um item no
+ * cartão (mesma coisa: parcelas já compradas).
  */
 export function calcularViagem(meta, { cambio = {}, hoje } = {}) {
   const esp = (meta && meta.especificos) || {};
   const margem = num(esp.margem) ?? 0;
+  const pessoasPadrao = Math.max(1, num(esp.pessoas) || 1);
+  const mesHoje = mesDe(hoje || new Date());
   const destinos = (esp.destinos || []).map((d) => {
     const g = d.gastos || {};
     const diaria = ['alimentacao', 'transporte', 'passeios', 'compras', 'outros'].reduce((s, k) => s + (num(g[k]) || 0), 0);
-    const totalMoeda = r2(diaria * (num(d.dias) || 0) + (num(d.extras) || 0));
+    const dias = num(d.dias) || 0;
+    const gastosMoeda = r2(diaria * dias + (num(d.extras) || 0));
+    const taxa = taxaTuristicaDestino(d, { pessoasPadrao });
+    const totalMoeda = r2(gastosMoeda + taxa.total);
     const cot = cotacao(d.moeda || 'BRL', cambio);
-    return { ...d, diaria: r2(diaria), totalMoeda, totalBRL: cot == null ? null : r2(totalMoeda * cot), cotacao: cot };
+    return { ...d, diaria: r2(diaria), gastosMoeda, taxa, totalMoeda, totalBRL: cot == null ? null : r2((gastosMoeda * (1 + margem) + taxa.total) * cot), cotacao: cot };
   });
+  // itens fixos (+ a conta mensal antiga de viagem, como item no cartão)
+  const brutos = [...(esp.fixos || [])];
+  if (meta && meta.contaMensal && num(meta.contaMensal.valor) > 0) {
+    const n = Math.max(1, num(meta.contaMensal.meses) || 1);
+    brutos.push({ id: 'conta-mensal', nome: meta.contaMensal.descricao || 'Conta mensal', valor: r2(num(meta.contaMensal.valor) * n), moeda: 'BRL', parcelas: n, inicio: meta.contaMensal.inicio || null, parte: 1, forma: 'cartao' });
+  }
+  const fixos = brutos.map((f) => {
+    const forma = formaFixo(f);
+    const parte = num(f.parte) ?? 1;
+    const cot = cotacao(f.moeda || 'BRL', cambio);
+    const total = (num(f.valor) || 0) * parte;
+    const parcelas = Math.max(1, num(f.parcelas) || 1);
+    const totalBRL = cot == null ? null : r2(total * cot);
+    const parcelaBRL = totalBRL == null ? null : r2(totalBRL / parcelas);
+    const cronograma = [];
+    if (forma === 'cartao' && f.inicio) {
+      for (let k = 0; k < parcelas; k++) {
+        const mes = somarMeses(f.inicio, k);
+        cronograma.push({ mes, n: k + 1, valor: parcelaBRL, confirmada: !!f.confirmado || mes < mesHoje });
+      }
+    }
+    const pagas = forma === 'pago' ? parcelas : cronograma.filter((c) => c.confirmada).length;
+    const confirmado = forma === 'pago' || !!f.confirmado || (forma === 'cartao' && cronograma.length > 0 && pagas >= parcelas);
+    const pendenteBRL = forma === 'cartao' && totalBRL != null ? r2(cronograma.length ? cronograma.filter((c) => !c.confirmada).reduce((s, c) => s + (c.valor || 0), 0) : (f.confirmado ? 0 : totalBRL)) : 0;
+    const status = forma === 'juntar' ? 'a-juntar' : (confirmado ? 'confirmado' : 'pendente');
+    return {
+      ...f, forma, parte, totalMoeda: r2(total), totalBRL, parcelas, pagas, parcelaBRL, cronograma, status, pendenteBRL,
+      // compat (v2): "pago" = já comprado (cartão) ou à vista
+      pagoBRL: forma === 'juntar' || totalBRL == null ? 0 : totalBRL,
+      ativa: forma === 'cartao' && cronograma.some((c) => c.mes >= mesHoje), semInicio: forma === 'cartao' && !f.inicio,
+      fim: f.inicio && forma === 'cartao' ? somarMeses(f.inicio, parcelas - 1) : null,
+    };
+  });
+  // --- a juntar, por moeda ---
   const porMoeda = {};
+  const grupo = (m) => porMoeda[m] || (porMoeda[m] = { moeda: m, gastos: 0, taxa: 0, itens: 0, dias: 0, destinos: [] });
   destinos.forEach((d) => {
-    const m = d.moeda || 'BRL';
-    const x = porMoeda[m] || (porMoeda[m] = { moeda: m, total: 0, dias: 0, destinos: [] });
-    x.total += d.totalMoeda; x.dias += num(d.dias) || 0; x.destinos.push(d.cidade || d.pais);
+    const x = grupo(d.moeda || 'BRL');
+    x.gastos += d.gastosMoeda; x.taxa += d.taxa.total; x.dias += num(d.dias) || 0; x.destinos.push(d.cidade || d.pais);
   });
-  const saldos = (meta.vinculos || []).filter((v) => v.tipo === 'saldo');
+  fixos.filter((f) => f.forma === 'juntar').forEach((f) => { grupo(f.moeda || 'BRL').itens += f.totalMoeda; });
+  const saldos = ((meta && meta.vinculos) || []).filter((v) => v.tipo === 'saldo');
   Object.values(porMoeda).forEach((x) => {
-    x.total = r2(x.total);
-    x.comMargem = r2(x.total * (1 + margem));
+    x.gastos = r2(x.gastos); x.taxa = r2(x.taxa); x.itens = r2(x.itens);
+    x.total = x.gastos; // compat v2: gasto sem margem
+    x.margemValor = r2(x.gastos * margem);
+    x.comMargem = r2(x.gastos * (1 + margem) + x.taxa + x.itens); // o total a juntar nessa moeda
     x.guardado = r2(saldos.filter((v) => (v.moeda || 'BRL') === x.moeda).reduce((s, v) => s + (Number(v.saldo) || 0), 0));
     x.falta = r2(Math.max(0, x.comMargem - x.guardado));
     x.cotacao = cotacao(x.moeda, cambio);
@@ -406,27 +538,66 @@ export function calcularViagem(meta, { cambio = {}, hoje } = {}) {
     x.faltaBRL = x.cotacao == null ? null : r2(x.falta * x.cotacao);
   });
   const semCambio = Object.values(porMoeda).filter((x) => x.cotacao == null).map((x) => x.moeda);
-  const gastoBRL = r2(Object.values(porMoeda).reduce((s, x) => s + (x.comMargemBRL || 0), 0));
-  const mesHoje = mesDe(hoje || new Date());
-  const fixos = (esp.fixos || []).map((f) => {
-    const parte = num(f.parte) ?? 1;
-    const cot = cotacao(f.moeda || 'BRL', cambio);
-    const total = (num(f.valor) || 0) * parte;
-    const parcelas = Math.max(1, num(f.parcelas) || 1);
-    const pagas = f.pago ? parcelas : (f.inicio ? parcelasPagas({ totalParcelas: parcelas, inicio: f.inicio }, mesHoje) : 0);
-    const totalBRL = cot == null ? null : r2(total * cot);
-    const parcelaBRL = totalBRL == null ? null : r2(totalBRL / parcelas);
-    return { ...f, parte, totalMoeda: r2(total), totalBRL, parcelas, pagas, parcelaBRL, pagoBRL: totalBRL == null ? 0 : r2((totalBRL * pagas) / parcelas), ativa: pagas < parcelas && !!f.inicio, fim: f.inicio ? somarMeses(f.inicio, parcelas - 1) : null };
-  });
   fixos.filter((f) => f.totalBRL == null).forEach((f) => { if (!semCambio.includes(f.moeda)) semCambio.push(f.moeda); });
-  const fixosTotalBRL = r2(fixos.reduce((s, f) => s + (f.totalBRL || 0), 0));
-  const fixosPagoBRL = r2(fixos.reduce((s, f) => s + f.pagoBRL, 0));
-  const parcelaMensal = r2(fixos.filter((f) => f.ativa).reduce((s, f) => s + (f.parcelaBRL || 0), 0));
+  const gastoBRL = r2(Object.values(porMoeda).reduce((s, x) => s + (x.comMargemBRL || 0), 0));
+  const taxaBRL = r2(Object.values(porMoeda).reduce((s, x) => s + (x.cotacao ? x.taxa * x.cotacao : 0), 0));
+  const margemBRL = r2(Object.values(porMoeda).reduce((s, x) => s + (x.cotacao ? x.margemValor * x.cotacao : 0), 0));
+  const juntarItensBRL = r2(fixos.filter((f) => f.forma === 'juntar').reduce((s, f) => s + (f.totalBRL || 0), 0));
+  // --- a pagar (já comprado) ---
+  const comprados = fixos.filter((f) => f.forma !== 'juntar');
+  const meses = new Map();
+  comprados.forEach((f) => f.cronograma.forEach((c) => {
+    const x = meses.get(c.mes) || { mes: c.mes, total: 0, pendente: 0, porCartao: {}, itens: [] };
+    x.total = r2(x.total + (c.valor || 0));
+    if (!c.confirmada) x.pendente = r2(x.pendente + (c.valor || 0));
+    const cartao = f.cartao || 'Cartão';
+    x.porCartao[cartao] = r2((x.porCartao[cartao] || 0) + (c.valor || 0));
+    x.itens.push({ nome: f.nome, n: c.n, de: f.parcelas, valor: c.valor, cartao: f.cartao || null, confirmada: c.confirmada });
+    meses.set(c.mes, x);
+  }));
+  const cronograma = [...meses.values()].sort((a, b) => (a.mes < b.mes ? -1 : 1));
+  const doMes = cronograma.find((x) => x.mes === mesHoje);
+  const futuros = cronograma.filter((x) => x.mes >= mesHoje);
+  const aPagar = {
+    itens: comprados,
+    totalBRL: r2(comprados.reduce((s, f) => s + (f.totalBRL || 0), 0)),
+    pendenteBRL: r2(comprados.reduce((s, f) => s + (f.pendenteBRL || 0), 0)),
+    confirmadoBRL: r2(comprados.reduce((s, f) => s + (f.totalBRL || 0) - (f.pendenteBRL || 0), 0)),
+    cronograma,
+    mesAtualBRL: doMes ? doMes.pendente : 0,
+    proximoMes: futuros.find((x) => x.mes > mesHoje) || null,
+    ultimoMes: futuros.length ? futuros[futuros.length - 1].mes : null,
+    mediaAteFimBRL: futuros.length ? r2(futuros.reduce((s, x) => s + x.pendente, 0) / futuros.length) : 0,
+    cartoes: [...new Set(comprados.map((f) => f.cartao || 'Cartão'))],
+    semInicio: comprados.filter((f) => f.semInicio).map((f) => f.nome),
+  };
   const dias = destinos.reduce((s, d) => s + (num(d.dias) || 0), 0);
   return {
-    margem, destinos, porMoeda, gastoBRL, fixos, fixosTotalBRL, fixosPagoBRL, parcelaMensal, dias, semCambio,
-    temDestinos: destinos.length > 0, temFixos: fixos.length > 0,
+    mesHoje, margem, pessoas: pessoasPadrao, destinos, porMoeda, gastoBRL, taxaBRL, margemBRL, juntarItensBRL, fixos, aPagar, dias, semCambio,
+    // compat v2
+    fixosTotalBRL: aPagar.totalBRL, fixosPagoBRL: aPagar.totalBRL, parcelaMensal: aPagar.mesAtualBRL,
+    temDestinos: destinos.length > 0, temFixos: fixos.length > 0, temJuntar: Object.keys(porMoeda).length > 0,
   };
+}
+
+/** Forma de pagamento de um item fixo (o antigo `pago: true` = 'pago'; sem nada = 'cartao'). */
+export function formaFixo(f) {
+  if (f && ['cartao', 'pago', 'juntar'].includes(f.forma)) return f.forma;
+  return f && f.pago ? 'pago' : 'cartao';
+}
+
+/**
+ * 04/10/2026: taxa turística de 1 destino: valor por pessoa por noite (moeda
+ * do destino) x noites (padrão = dias; no máximo `taxaMaxNoites`) x pessoas
+ * (padrão = as da viagem). { valor, noites, pessoas, total }
+ */
+export function taxaTuristicaDestino(d, { pessoasPadrao = 1 } = {}) {
+  const valor = num(d && d.taxaTuristica) || 0;
+  let noites = num(d && d.taxaNoites) ?? (num(d && d.dias) || 0);
+  const max = num(d && d.taxaMaxNoites);
+  if (max > 0) noites = Math.min(noites, max);
+  const pessoas = Math.max(1, num(d && d.taxaPessoas) || pessoasPadrao || 1);
+  return { valor, noites, pessoas, max: max || null, total: r2(valor * noites * pessoas) };
 }
 
 /**
@@ -453,7 +624,7 @@ export function calcularMeta(meta, ctx = {}) {
     return { ...it, valorBRL: brl == null ? null : r2(brl) };
   });
   const itensConcluidosBRL = itens.filter((it) => it.concluido).reduce((s, it) => s + (it.valorBRL || 0), 0);
-  const viagem = ehViagem && ((esp.destinos || []).length || (esp.fixos || []).length) ? calcularViagem(meta, { cambio, hoje }) : null;
+  const viagem = ehViagem && ((esp.destinos || []).length || (esp.fixos || []).length || (meta.contaMensal && num(meta.contaMensal.valor) > 0)) ? calcularViagem(meta, { cambio, hoje }) : null;
   let aposentadoria = null;
 
   if (meta.tipo === 'reservaEmergencia') {
@@ -471,11 +642,19 @@ export function calcularMeta(meta, ctx = {}) {
     alvoBRL = renda > 0 && dy > 0 ? r2((renda * 12) / dy) : null;
     alvoMoeda = alvoBRL;
     partes.push({ rotulo: 'Renda mensal desejada', valor: renda }, { rotulo: 'Rendimento (DY) ao ano', valor: dy, tipo: '%' });
-  } else if (viagem && viagem.temDestinos) {
-    alvoBRL = r2(viagem.gastoBRL + itens.reduce((s, it) => s + (it.valorBRL || 0), 0));
+  } else if (viagem) {
+    // 04/10/2026: o alvo da viagem é só o "a juntar" (o que já foi comprado no cartão fica à parte)
+    const simples = !viagem.temDestinos && num(meta.valorAlvo) > 0 ? paraBRL(meta.valorAlvo, moeda, cambio) : 0;
+    const somaItens = itens.reduce((s, it) => s + (it.valorBRL || 0), 0);
+    alvoBRL = r2(viagem.gastoBRL + (simples || 0) + somaItens);
     alvoMoeda = moeda === 'BRL' ? alvoBRL : (cotacao(moeda, cambio) ? alvoBRL / cotacao(moeda, cambio) : null);
-    Object.values(viagem.porMoeda).forEach((x) => partes.push({ rotulo: `Gasto lá em ${x.moeda} (${x.dias} dias${viagem.margem ? ` + ${Math.round(viagem.margem * 100)}% de margem` : ''})`, valor: x.comMargemBRL, moeda: x.moeda, valorMoeda: x.comMargem }));
-    if (itens.length) partes.push({ rotulo: `Soma dos ${itens.length} sub-itens`, valor: r2(itens.reduce((s, it) => s + (it.valorBRL || 0), 0)) });
+    if (simples) partes.push({ rotulo: 'Dinheiro pra gastar lá (informado)', valor: r2(simples), moeda, valorMoeda: num(meta.valorAlvo) });
+    Object.values(viagem.porMoeda).forEach((x) => {
+      if (x.gastos > 0) partes.push({ rotulo: `Gasto lá em ${x.moeda} (${x.dias} dias${viagem.margem ? ` + ${Math.round(viagem.margem * 100)}% de margem` : ''})`, valor: x.cotacao == null ? null : r2((x.gastos + x.margemValor) * x.cotacao), moeda: x.moeda, valorMoeda: r2(x.gastos + x.margemValor) });
+      if (x.taxa > 0) partes.push({ rotulo: `Taxa turística em ${x.moeda}`, valor: x.cotacao == null ? null : r2(x.taxa * x.cotacao), moeda: x.moeda, valorMoeda: x.taxa, chave: 'taxa-turistica' });
+      if (x.itens > 0) partes.push({ rotulo: `Ainda não pago em ${x.moeda}`, valor: x.cotacao == null ? null : r2(x.itens * x.cotacao), moeda: x.moeda, valorMoeda: x.itens });
+    });
+    if (itens.length) partes.push({ rotulo: `Soma dos ${itens.length} sub-itens`, valor: r2(somaItens) });
     viagem.semCambio.forEach((m) => avisos.push(`sem câmbio de ${m}`));
   } else if (itens.length) {
     alvoBRL = itens.reduce((s, it) => s + (it.valorBRL || 0), 0);
@@ -517,7 +696,7 @@ export function calcularMeta(meta, ctx = {}) {
 
   // --- conta mensal (passagens/hospedagem parceladas) ---
   let conta = null;
-  if (meta.contaMensal && num(meta.contaMensal.valor) > 0) {
+  if (!ehViagem && meta.contaMensal && num(meta.contaMensal.valor) > 0) { // 04/10/2026: na viagem, vira item no cartão (calcularViagem)
     const total = num(meta.contaMensal.meses) || 1;
     const pagas = parcelasPagas({ totalParcelas: total, inicio: meta.contaMensal.inicio || hoje }, ctx.hoje || hoje);
     conta = {
@@ -587,9 +766,10 @@ export function calcularMeta(meta, ctx = {}) {
   if (aporteInformado > 0) { aporteAtual = aporteInformado; aporteOrigem = 'informado'; } else if (aporteReal != null) { aporteAtual = Math.max(0, aporteReal); aporteOrigem = 'historico'; }
 
   // --- progresso, prazo e ritmo ---
-  const totalExtra = (conta ? conta.valorTotal : 0) + (viagem ? viagem.fixosTotalBRL : 0);
-  const pagoExtra = (conta ? conta.valorPago : 0) + (viagem ? viagem.fixosPagoBRL : 0);
-  const total = alvoBRL != null ? alvoBRL + totalExtra : (viagem && viagem.temFixos ? totalExtra : null);
+  // 04/10/2026: na viagem o que já foi comprado não entra (é "a pagar", à parte)
+  const totalExtra = conta ? conta.valorTotal : 0;
+  const pagoExtra = conta ? conta.valorPago : 0;
+  const total = alvoBRL != null ? alvoBRL + totalExtra : null;
   const ja = atualBRL + pagoExtra;
   const ehReserva = meta.tipo === 'reservaEmergencia';
   // reserva: o IDEAL é o líquido (Tiago: "se eu tenho 65k e a meta é 62k, se eu resgatar os 65k, o valor líquido precisa ser >= 62k")
@@ -601,16 +781,24 @@ export function calcularMeta(meta, ctx = {}) {
 
   const dataAlvo = ehReserva ? null : (meta.dataAlvo || (recorrente && recorrente.fim) || null);
   const mesesRestantes = dataAlvo ? mesesEntre(hoje, dataAlvo) : null;
+  // 04/10/2026: entradas programadas (13º, FGTS...) que caem antes da data
+  const entradas = Array.isArray(meta.entradas) && !ehReserva && !recorrente
+    ? expandirEntradas(meta, { referencias: ctx.referencias || {}, hoje: ctx.hoje || hoje, ate: dataAlvo || somarMeses(hoje, 24) })
+    : [];
+  const entradasValidas = entradas.filter((e) => e.valor > 0);
+  const entradasFluxo = entradasValidas.map((e) => ({ k: Math.max(1, mesesEntre(hoje, e.mes)), valor: e.valor, mes: e.mes }));
+  const entradasTotal = r2(entradasValidas.reduce((s, e) => s + e.valor, 0));
   let necessario = null;
   if (recorrente) necessario = recorrente.restantes > 0 ? recorrente.parcela : 0;
-  else if (alvoBRL != null && mesesRestantes != null) necessario = r2(aporteNecessario({ alvo: alvoBRL, atual: atualRitmo, meses: mesesRestantes, taxa }));
-  const parcelasCorrendo = (conta && conta.ativa ? num(conta.valor) : 0) + (viagem ? viagem.parcelaMensal : 0);
-  const necessarioTotal = necessario != null ? r2(necessario + parcelasCorrendo) : (parcelasCorrendo ? r2(parcelasCorrendo) : null);
+  else if (alvoBRL != null && mesesRestantes != null) necessario = r2(aporteNecessario({ alvo: alvoBRL, atual: atualRitmo, meses: mesesRestantes, taxa, entradas: entradasFluxo }));
+  // 04/10/2026: na viagem, as parcelas do cartão são pagas à parte (não somam no aporte)
+  const parcelasCorrendo = viagem ? viagem.aPagar.mesAtualBRL : (conta && conta.ativa ? num(conta.valor) : 0);
+  const necessarioTotal = viagem ? necessario : (necessario != null ? r2(necessario + parcelasCorrendo) : (parcelasCorrendo ? r2(parcelasCorrendo) : null));
 
   // prazo estimado no ritmo atual
   let mesesEstimados = null;
   if (recorrente) mesesEstimados = recorrente.restantes;
-  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoBRL, atual: atualRitmo, aporte: aporteAtual, taxa });
+  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoBRL, atual: atualRitmo, aporte: aporteAtual, taxa, entradas: entradasFluxo });
   const dataEstimada = mesesEstimados != null && Number.isFinite(mesesEstimados) ? somarMeses(hoje, Math.ceil(mesesEstimados)) : null;
 
   let status;
@@ -635,6 +823,9 @@ export function calcularMeta(meta, ctx = {}) {
     atualLiquidoBRL, faltaLiquida: alvoBRL != null ? Math.max(0, r2(alvoBRL - atualLiquidoBRL)) : null, liquido, atualRitmo, aporteReal, aporteInformado: aporteInformado || null, aporteOrigem,
     aporte3m: hist && num(hist.aporte3m) != null ? r2(num(hist.aporte3m)) : null, mesesBaseAporte: hist ? hist.mesesBase || 0 : 0,
     viagem, aposentadoria, total: total != null ? r2(total) : null, ja: r2(ja), parcelasCorrendo: r2(parcelasCorrendo),
+    // 04/10/2026
+    entradas, entradasFluxo, entradasTotal,
+    decomposicao: falta != null ? { falta, entradas: entradasValidas, totalEntradas: entradasTotal, restante: r2(Math.max(0, falta - entradasTotal)), meses: mesesRestantes, aporte: necessario } : null,
   };
 }
 
@@ -651,12 +842,18 @@ export function serieProjecao(calc, { maxMeses = 360, hoje, meses = null } = {})
   n = Math.min(maxMeses, Math.max(1, n));
   const necessario = calc.aporteNecessario != null ? calc.aporteNecessario : null;
   const base = calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL; // reserva: o líquido
+  // 04/10/2026: entradas programadas (13º, FGTS...) entram como degraus
+  const ent = calc.entradasFluxo || [];
+  const ritmo = trajetoriaMensal({ atual: base, aporte: calc.aporteAtual, taxa: calc.taxa, entradas: ent, meses: n });
+  const nec = necessario == null ? null : trajetoriaMensal({ atual: base, aporte: necessario, taxa: calc.taxa, entradas: ent, meses: n });
   const pontos = [];
   for (let i = 0; i <= n; i++) {
+    const e = ent.filter((x) => x.k === i);
     pontos.push({
       mes: somarMeses(inicio, i),
-      ritmo: r2(valorFuturo({ atual: base, aporte: calc.aporteAtual, meses: i, taxa: calc.taxa })),
-      necessaria: necessario == null ? null : r2(valorFuturo({ atual: base, aporte: necessario, meses: i, taxa: calc.taxa })),
+      ritmo: r2(ritmo[i]),
+      necessaria: nec == null ? null : r2(nec[i]),
+      entrada: e.length ? r2(e.reduce((t, x) => t + x.valor, 0)) : 0,
     });
   }
   return pontos;
@@ -701,12 +898,14 @@ export function metaPadrao(tipo, { referencias = {}, hoje, categoria } = {}) {
     base.especificos = { meses: num(rs.meses) || 6, margem: num(rs.sobra) ?? 0.1, usarDespesasPlanilha: true, despesaMensal: null };
     base.vinculos = [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }];
   }
-  if (tipo === 'viagemInternacional') {
+  if (tipo === 'viagemInternacional' || tipo === 'viagemNacional') {
     // 03/10/2026: por destinos + itens fixos (substitui a "conta mensal" única)
-    base.moeda = 'EUR'; base.rendimentoAnual = 0.1;
-    base.especificos = { destino: '', dataViagem: null, margem: 0.1, destinos: [], fixos: [] };
+    // 04/10/2026: roteiro (Wanderlog), pessoas da taxa turística e as entradas
+    // programadas já ligadas (Tiago: "meu 13º (90%) e meu FGTS Aniversário (90%)")
+    base.moeda = tipo === 'viagemNacional' ? 'BRL' : 'EUR'; base.rendimentoAnual = 0.1;
+    base.especificos = { destino: '', dataViagem: null, margem: 0.1, destinos: [], fixos: [], roteiroUrl: '', pessoas: 1 };
+    base.entradas = [entradaPadrao('decimo13'), entradaPadrao('fgts')];
   }
-  if (tipo === 'viagemNacional') { base.contaMensal = { descricao: 'Passagens e hospedagem', valor: null, meses: 6, inicio: mes }; }
   if (tipo === 'casa') { base.especificos = { valorImovel: null, entradaPct: 0.2, custosPct: 0.05 }; base.dataAlvo = somarMeses(mes, 60); base.rendimentoAnual = 0.1; }
   if (tipo === 'carro') { base.especificos = { valorCarro: null, entradaPct: 1 }; base.dataAlvo = somarMeses(mes, 24); }
   if (tipo === 'aposentadoria') {
@@ -799,14 +998,14 @@ export function velocidadeMeta(calc, { hoje } = {}) {
   const cenarios = [1, 0.75, 0.5].map((f) => {
     const meses = Math.max(1, f === 1 ? Math.ceil(baseMeses) : Math.round(baseMeses * f));
     // no ritmo = o aporte de hoje; nos outros, o que fecha naquele prazo
-    const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: calc.alvoBRL, atual, meses, taxa: calc.taxa || 0 }) || 0);
+    const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: calc.alvoBRL, atual, meses, taxa: calc.taxa || 0, entradas: calc.entradasFluxo }) || 0);
     return { fracao: f, meses, data: somarMeses(mes, meses), aporte, aMais: r2(aporte - (calc.aporteAtual || 0)) };
   });
   return { origem, baseMeses, cenarios };
 }
 
 function mesesAte(calc, { atual, aporte, taxa }) {
-  return prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte, taxa });
+  return prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte, taxa, entradas: calc.entradasFluxo });
 }
 
 /**
@@ -873,7 +1072,7 @@ export function marcosProjecao(calc, { hoje, aporte = null, maxMeses = 720, anoN
     const ehAlvo = i === valores.length - 1;
     const rotulo = ehAlvo ? 'Alvo' : (passo === 1e6 ? `${Math.round(v / 1e6)}º milhão` : `${Math.round(((i + 1) * 100) / 4)}% do alvo`);
     if (atual >= v) return { valor: v, rotulo, meses: 0, mes, ano: Number(mes.slice(0, 4)), idade: anoNascimento ? Number(mes.slice(0, 4)) - anoNascimento : null, ja: true };
-    const n = prazoParaAlvo({ alvo: v, atual, aporte: ap, taxa: calc.taxa || 0 });
+    const n = prazoParaAlvo({ alvo: v, atual, aporte: ap, taxa: calc.taxa || 0, entradas: calc.entradasFluxo });
     if (!Number.isFinite(n) || n > maxMeses) return { valor: v, rotulo, meses: null, mes: null, ano: null, idade: null, ja: false };
     const m = somarMeses(mes, Math.ceil(n));
     const ano = Number(m.slice(0, 4));
@@ -891,13 +1090,14 @@ export function cenariosRendaMenor(calc, { hoje, reducoes = [0.1, 0.2] } = {}) {
   const renda = calc.aposentadoria ? calc.aposentadoria.renda : (calc.renda ? calc.renda.alvo : null);
   const atual = calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL;
   const mes = mesDe(hoje || new Date());
-  const m0 = prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0 });
+  const ent = calc.entradasFluxo;
+  const m0 = prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0, entradas: ent });
   return reducoes.map((r) => {
     const montante = r2(calc.alvoBRL * (1 - r));
-    const n = prazoParaAlvo({ alvo: montante, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0 });
+    const n = prazoParaAlvo({ alvo: montante, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0, entradas: ent });
     return {
       reducao: r, renda: renda != null ? r2(renda * (1 - r)) : null, montante, economia: r2(calc.alvoBRL - montante),
-      aporteNecessario: calc.mesesRestantes != null ? r2(aporteNecessario({ alvo: montante, atual, meses: Math.max(0, calc.mesesRestantes), taxa: calc.taxa || 0 }) || 0) : null,
+      aporteNecessario: calc.mesesRestantes != null ? r2(aporteNecessario({ alvo: montante, atual, meses: Math.max(0, calc.mesesRestantes), taxa: calc.taxa || 0, entradas: ent }) || 0) : null,
       data: Number.isFinite(n) ? somarMeses(mes, Math.ceil(n)) : null,
       mesesAMenos: Number.isFinite(n) && Number.isFinite(m0) ? Math.ceil(m0) - Math.ceil(n) : null,
     };
@@ -1016,11 +1216,11 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
   if (calc.aporteNecessario > 0 && calc.mesesRestantes > 0) {
     const n = calc.mesesRestantes;
     const aportes = calc.aporteNecessario * n;
-    const rend = Math.max(0, calc.alvoBRL - (calc.atualRitmo || 0) - aportes);
+    const rend = Math.max(0, calc.alvoBRL - (calc.atualRitmo || 0) - aportes - (calc.entradasTotal || 0));
     const gap = calc.aporteNecessario - (calc.aporteAtual || 0);
     out.push({
       tipo: 'composicao', tom: gap > 0.5 ? 'atencao' : 'bom', peso: 70,
-      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${moedaTxt(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${moedaTxt(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${moedaTxt(aportes)} seriam aportes e ${moedaTxt(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).`,
+      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${moedaTxt(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${moedaTxt(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${moedaTxt(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${moedaTxt(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${moedaTxt(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).`,
       resumo: gap > 0.5 ? `faltam ${moedaTxt(gap)}/mês pro prazo` : 'aporte cobre o prazo',
     });
   }
@@ -1265,6 +1465,282 @@ export function avaliarVinculos(meta, calc) {
 }
 
 /** Destino novo pro assistente de viagem (gasto diário em branco). */
-export function destinoPadrao({ pais = '', cidade = '', moeda = 'EUR', dias = 3 } = {}) {
-  return { id: Math.random().toString(36).slice(2, 10), pais, cidade, moeda, dias, gastos: { alimentacao: null, transporte: null, passeios: null, compras: null, outros: null }, extras: null };
+export function destinoPadrao({ pais = '', paisCodigo = null, cidade = '', moeda = 'EUR', dias = 3 } = {}) {
+  return { id: Math.random().toString(36).slice(2, 10), pais, paisCodigo, cidade, moeda, dias, gastos: { alimentacao: null, transporte: null, passeios: null, compras: null, outros: null }, extras: null, taxaTuristica: null, taxaNoites: null, taxaPessoas: null, taxaMaxNoites: null };
+}
+
+// ---------------------------------------------------------------------------
+// 04/10/2026: Metas › Viagem v3 - países/cidades, migração, taxa turística,
+// links (Wanderlog) e entradas programadas (13º, FGTS, PLR...)
+// ---------------------------------------------------------------------------
+
+const idCurto = () => Math.random().toString(36).slice(2, 10);
+
+/** "Suíça " -> "suica" (sem acento, minúsculo, só letras/números e espaço). */
+export function normalizarNome(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+const INDICES_PAISES = new WeakMap();
+function indicePaises(paises) {
+  if (!Array.isArray(paises)) return new Map();
+  let idx = INDICES_PAISES.get(paises);
+  if (idx) return idx;
+  idx = new Map();
+  paises.forEach((p) => {
+    [p.nome, ...(p.aliases || [])].forEach((n) => { const k = normalizarNome(n); if (k && !idx.has(k)) idx.set(k, p); });
+  });
+  // o código ISO por último (não briga com um nome de 2 letras)
+  paises.forEach((p) => { const k = normalizarNome(p.codigo); if (!idx.has(k)) idx.set(k, p); });
+  INDICES_PAISES.set(paises, idx);
+  return idx;
+}
+
+/** País pelo nome digitado (acentos/caixa/sinônimos: "Suiça", "Switzerland", "Inglaterra", "Holanda", "CH"). */
+export function acharPais(texto, paises) {
+  const k = normalizarNome(texto);
+  if (!k) return null;
+  return indicePaises(paises).get(k) || null;
+}
+
+export function paisPorCodigo(codigo, paises) {
+  const c = String(codigo || '').toUpperCase();
+  return (paises || []).find((p) => p.codigo === c) || null;
+}
+
+/** "Madri|Madrid" -> { nome: 'Madri', aliases: ['Madrid'] } (assets/data/cidades.json). */
+export function cidadesDoPais(cidades, codigo) {
+  const lista = (cidades && cidades[String(codigo || '').toUpperCase()]) || [];
+  return lista.map((x) => { const [nome, ...aliases] = String(x).split('|'); return { nome, aliases }; });
+}
+
+/** País de uma cidade conhecida ("Interlaken" -> CH), quando o país ficou em branco. */
+export function acharPaisPelaCidade(cidade, cidades, paises) {
+  const k = normalizarNome(cidade);
+  if (!k || !cidades) return null;
+  const achados = Object.keys(cidades).filter((cod) => cidadesDoPais(cidades, cod).some((c) => [c.nome, ...c.aliases].some((n) => normalizarNome(n) === k)));
+  return achados.length === 1 ? paisPorCodigo(achados[0], paises) : null;
+}
+
+/** Bandeira local (assets/imgs/flags/<iso>.svg), relativa à raiz do site. */
+export function caminhoBandeira(codigo) {
+  return /^[A-Za-z]{2}$/.test(String(codigo || '')) ? `assets/imgs/flags/${String(codigo).toLowerCase()}.svg` : null;
+}
+
+/** Link http(s) (sem protocolo ganha https://). Inválido = null; vazio = ''. */
+export function normalizarUrl(texto) {
+  let u = String(texto == null ? '' : texto).trim();
+  if (!u) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = `https://${u.replace(/^\/+/, '')}`;
+  try {
+    const x = new URL(u);
+    if (!['http:', 'https:'].includes(x.protocol) || !x.hostname.includes('.') || /\s/.test(u)) return null;
+    return x.href;
+  } catch (e) { return null; }
+}
+
+export function ehLinkWanderlog(u) {
+  try { return /(^|\.)wanderlog\.com$/i.test(new URL(u).hostname); } catch (e) { return false; }
+}
+
+/**
+ * Sugestão de taxa turística (assets/data/taxas-turisticas.json) pro destino:
+ * pela cidade (nomes/aliases, sem acento) e, se houver, pelo país.
+ */
+export function sugestaoTaxaTuristica(destino, taxas) {
+  const lista = (taxas && taxas.cidades) || taxas || [];
+  const k = normalizarNome(destino && destino.cidade);
+  if (!k || !Array.isArray(lista)) return null;
+  return lista.find((t) => (!destino.paisCodigo || t.pais === destino.paisCodigo) && (t.nomes || [t.cidade]).some((n) => normalizarNome(n) === k)) || null;
+}
+
+// --- entradas programadas ---------------------------------------------------
+
+export const TIPOS_ENTRADA = {
+  decimo13: { rotulo: '13º salário', pct: 0.9, recorrencia: 'anual', dica: 'decimo13' },
+  fgts: { rotulo: 'Saque-aniversário do FGTS', pct: 0.9, recorrencia: 'anual', dica: 'fgts' },
+  plr: { rotulo: 'PLR / bônus', pct: 1, recorrencia: 'unica' },
+  outra: { rotulo: 'Outra entrada', pct: 1, recorrencia: 'unica' },
+};
+
+export function entradaPadrao(tipo, extra = {}) {
+  const t = TIPOS_ENTRADA[tipo] || TIPOS_ENTRADA.outra;
+  return { id: idCurto(), tipo: TIPOS_ENTRADA[tipo] ? tipo : 'outra', nome: '', pct: t.pct, valor: null, mes: null, recorrencia: t.recorrencia, ativo: true, ...extra };
+}
+
+/**
+ * 13º de um ano: 1ª parcela em novembro (metade do bruto, sem descontos) e 2ª
+ * em dezembro (outra metade - INSS e IR do 13º inteiro, aproximados pelos do
+ * holerite mensal - a mesma conta da aba Salário, salario-calc!extrasDoAno).
+ * Lançado na aba Salário (Recebido/Previsto) = vale o valor lançado.
+ * Sem holerite: salário da carteira (aux_patrimonio) - (bruto - líquido N11);
+ * só o líquido: metade em cada parcela (aproximado).
+ */
+export function estimativa13(referencias = {}, ano) {
+  const sal = referencias.salario || {};
+  const extras = sal.extras || [];
+  const lancado = (tipo) => extras.find((p) => p.tipo === tipo && String(p.mes || '').slice(0, 4) === String(ano) && num(p.liquido) > 0);
+  const l1 = lancado('13º (1ª parcela)');
+  const l2 = lancado('13º (2ª parcela)');
+  const h = sal.holerite;
+  let bruto = h ? (num(h.salarioBase) || num(h.totalVencimentos)) : null;
+  let descontos = h ? (num(h.inss) || 0) + (num(h.irrf) || 0) : null;
+  let origem = 'holerite';
+  if (!(bruto > 0)) {
+    const doc = referencias.fgts && referencias.fgts.carreira ? salarioEm(referencias.fgts.carreira, `${ano}-12-31`) : null;
+    if (doc > 0 && num(sal.liquido) > 0) { bruto = doc; descontos = Math.max(0, doc - sal.liquido); origem = 'carreira'; } else bruto = null;
+  }
+  let p1 = null; let p2 = null;
+  if (bruto > 0) { p1 = bruto / 2; p2 = Math.max(0, bruto / 2 - (descontos || 0)); } else if (num(sal.liquido) > 0) { p1 = sal.liquido / 2; p2 = sal.liquido / 2; origem = 'aproximado'; }
+  if (p1 == null && !l1 && !l2) return null;
+  return {
+    bruto, descontos,
+    p1: { mes: `${ano}-11`, valor: l1 ? l1.liquido : (p1 == null ? null : r2(p1)), origem: l1 ? 'planilha' : origem },
+    p2: { mes: `${ano}-12`, valor: l2 ? l2.liquido : (p2 == null ? null : r2(p2)), origem: l2 ? 'planilha' : origem },
+  };
+}
+
+/** Saque-aniversário: o mês (próximo aniversário) e o valor que a aba Patrimônio calcula (patrimonio-calc!resumoFgts). */
+export function estimativaFgts(referencias = {}, hoje) {
+  const f = referencias.fgts;
+  if (!f || !Array.isArray(f.contas) || !f.contas.length) return null;
+  const dia = typeof hoje === 'string' ? (hoje.length === 7 ? `${hoje}-01` : hoje.slice(0, 10)) : `${mesDe(hoje || new Date())}-01`;
+  const sal = f.carreira ? salarioEm(f.carreira, dia) : null;
+  const r = resumoFgts({ contas: f.contas }, dia, { nascimento: f.nascimento || null, depositoMensal: sal > 0 ? sal * 0.08 : null });
+  const a = r && r.aniversario;
+  if (!a || !a.proximo) return { mes: null, valor: null, ativo: a ? a.ativo : false, saldo: r ? r.saldo : null };
+  const valor = a.estimado ? a.estimado.valor : (a.comSaldoDeHoje ? a.comSaldoDeHoje.valor : null);
+  return { mes: a.proximo, valor: valor == null ? null : r2(valor), ativo: !!a.ativo, mesAniversario: a.mesAniversario, saldo: r.saldo };
+}
+
+/**
+ * Cada vez que uma entrada programada cai, de hoje até `ate` (exclusive - "só
+ * as que caem ANTES da data da meta"): [{ id, entradaId, tipo, rotulo, mes,
+ * bruto, pct, valor (= bruto x pct), origem, nota }]. bruto null = falta o
+ * valor (sem salário/FGTS pra estimar) - fica de fora da conta.
+ */
+export function expandirEntradas(meta, { referencias = {}, hoje, ate = null } = {}) {
+  const mesHoje = mesDe(hoje || new Date());
+  const fim = mesDe(ate) || somarMeses(mesHoje, 24);
+  const out = [];
+  (meta && Array.isArray(meta.entradas) ? meta.entradas : []).filter((e) => e && e.ativo !== false).forEach((e) => {
+    const t = TIPOS_ENTRADA[e.tipo] || TIPOS_ENTRADA.outra;
+    const pct = num(e.pct) ?? t.pct;
+    const recorrencia = e.recorrencia || t.recorrencia;
+    const nome = String(e.nome || '').trim() || t.rotulo;
+    let primeira = true;
+    const add = (mes, bruto, origem, rotulo, nota = '') => {
+      if (!mes || mes < mesHoje || mes >= fim) return false;
+      out.push({ id: `${e.id}|${mes}|${rotulo}`, entradaId: e.id, tipo: e.tipo, rotulo, mes, bruto: bruto == null ? null : r2(bruto), pct, valor: bruto == null ? 0 : r2(bruto * pct), origem, nota });
+      return true;
+    };
+    const anoIni = Number(mesHoje.slice(0, 4));
+    const anoFim = Number(fim.slice(0, 4));
+    if (e.tipo === 'decimo13') {
+      for (let ano = anoIni; ano <= anoFim; ano++) {
+        if (recorrencia === 'unica' && !primeira) break;
+        const est = estimativa13(referencias, ano);
+        let v1 = est ? est.p1.valor : null; let v2 = est ? est.p2.valor : null;
+        let o1 = est ? est.p1.origem : 'sem-dados'; let o2 = est ? est.p2.origem : 'sem-dados';
+        if (num(e.valor) > 0) { // valor informado = o líquido do 13º inteiro do ano
+          const soma = (v1 || 0) + (v2 || 0);
+          const frac = soma > 0 ? (v1 || 0) / soma : 0.5;
+          v1 = e.valor * frac; v2 = e.valor - v1; o1 = 'informado'; o2 = 'informado';
+        }
+        const a = add(`${ano}-11`, v1, o1, `${nome} (1ª parcela)`, v1 == null ? 'informe o valor (sem holerite pra estimar)' : '');
+        const b = add(`${ano}-12`, v2, o2, `${nome} (2ª parcela)`, v2 == null ? 'informe o valor (sem holerite pra estimar)' : '');
+        if (a || b) primeira = false;
+      }
+      return;
+    }
+    let mes0 = mesDe(e.mes);
+    let valor = num(e.valor) > 0 ? e.valor : null;
+    let origem = valor != null ? 'informado' : 'sem-dados';
+    let nota = '';
+    if (e.tipo === 'fgts') {
+      const est = estimativaFgts(referencias, hoje);
+      if (!mes0 && est && est.mes) mes0 = est.mes;
+      if (valor == null && est && est.valor > 0) { valor = est.valor; origem = 'estimado'; }
+      if (est && !est.ativo) nota = 'pelo histórico do FGTS você ainda não está no saque-aniversário - confira';
+      if (!mes0) nota = 'informe o mês do saque (aniversário) - sem dados do FGTS na aba Patrimônio';
+    } else if (e.tipo === 'plr' && valor == null) {
+      const prev = ((referencias.salario || {}).extras || []).find((p) => ['PLR', 'Bônus'].includes(p.tipo) && String(p.mes) >= mesHoje && num(p.liquido) > 0);
+      if (prev) { valor = prev.liquido; origem = 'planilha'; if (!mes0) mes0 = mesDe(prev.mes); }
+    }
+    if (!mes0) return;
+    if (valor == null && !nota) nota = 'informe o valor';
+    const passo = recorrencia === 'mensal' ? 1 : (recorrencia === 'anual' ? 12 : 0);
+    let mes = mes0;
+    if (passo) while (mes < mesHoje) mes = somarMeses(mes, passo); // recorrente que começou antes: a próxima
+    for (let n = 0; n < 600 && mes < fim; n++) {
+      add(mes, valor, origem, nome, nota);
+      if (!passo) break;
+      mes = somarMeses(mes, passo);
+    }
+  });
+  return out.sort((a, b) => (a.mes < b.mes ? -1 : (a.mes > b.mes ? 1 : 0)));
+}
+
+/**
+ * 04/10/2026: migração da meta de viagem cadastrada antes (v2) - sem perder
+ * nada. Destinos: país digitado -> código ISO (acentos, caixa e sinônimos:
+ * "Suiça"/"Switzerland" -> CH, "Inglaterra"/"Reino Unido" -> GB, "Holanda" ->
+ * NL; sem país, pela cidade conhecida); itens fixos antigos -> "A pagar" (no
+ * cartão; o `pago` vira à vista); conta mensal -> item no cartão; viagem sem
+ * entradas configuradas ganha o 13º e o FGTS (90%), como o Tiago pediu. O
+ * que não der pra mapear vira um aviso "revise: <campo>".
+ * { meta (cópia), revisar: [{ destinoId?, fixoId?, campo, texto }], mudou }
+ */
+export function migrarMetaViagem(meta, { paises = [], cidades = null } = {}) {
+  if (!meta || !['viagemInternacional', 'viagemNacional'].includes(meta.tipo)) return { meta, revisar: [], mudou: false };
+  const m = JSON.parse(JSON.stringify(meta));
+  m.especificos = m.especificos && typeof m.especificos === 'object' ? m.especificos : {};
+  const esp = m.especificos;
+  const revisar = [];
+  let mudou = false;
+  (esp.destinos || []).forEach((d) => {
+    if (!d.id) { d.id = idCurto(); mudou = true; }
+    let p = d.paisCodigo ? paisPorCodigo(d.paisCodigo, paises) : null;
+    if (!p) {
+      p = acharPais(d.pais, paises);
+      let deduzido = false;
+      if (!p && !String(d.pais || '').trim()) {
+        p = acharPaisPelaCidade(d.cidade, cidades, paises) || (m.tipo === 'viagemNacional' ? paisPorCodigo('BR', paises) : null);
+        deduzido = !!p;
+      }
+      if (p) {
+        d.paisCodigo = p.codigo;
+        if (d.pais !== p.nome) { if (String(d.pais || '').trim()) d.paisDigitado = d.pais; d.pais = p.nome; }
+        if (deduzido) revisar.push({ destinoId: d.id, campo: 'país', texto: `país deduzido pela cidade (${p.nome}) - confira` });
+        mudou = true;
+      } else if (paises.length && (String(d.pais || '').trim() || String(d.cidade || '').trim())) {
+        revisar.push({ destinoId: d.id, campo: 'país', texto: String(d.pais || '').trim() ? `"${d.pais}" não reconhecido - escolha o país na lista` : 'escolha o país na lista' });
+      }
+    }
+    if (p && d.moeda && p.moeda && d.moeda !== p.moeda) {
+      revisar.push({ destinoId: d.id, campo: 'moeda', texto: `a moeda está ${d.moeda}, mas a de ${p.nome} é ${p.moeda} - confira em que moeda estão os gastos` });
+    }
+  });
+  (esp.fixos || []).forEach((f) => {
+    if (!f.id) { f.id = idCurto(); mudou = true; }
+    if (!['cartao', 'pago', 'juntar'].includes(f.forma)) {
+      f.forma = f.pago ? 'pago' : 'cartao';
+      mudou = true;
+    }
+    if (f.forma === 'cartao' && !f.inicio) revisar.push({ fixoId: f.id, campo: 'mês da 1ª fatura', texto: `"${f.nome}": informe o mês da 1ª fatura (pra montar as parcelas por mês)` });
+  });
+  if (m.contaMensal && num(m.contaMensal.valor) > 0) {
+    const n = Math.max(1, num(m.contaMensal.meses) || 1);
+    esp.fixos = esp.fixos || [];
+    esp.fixos.push({ id: idCurto(), nome: m.contaMensal.descricao || 'Passagens e hospedagem', valor: r2(num(m.contaMensal.valor) * n), moeda: 'BRL', parcelas: n, inicio: m.contaMensal.inicio || null, parte: 1, forma: 'cartao', cartao: '', confirmado: false, pago: false });
+    m.contaMensal = null;
+    mudou = true;
+  }
+  if (!Array.isArray(m.entradas)) {
+    m.entradas = [entradaPadrao('decimo13'), entradaPadrao('fgts')];
+    m._entradasPadrao = true;
+    mudou = true;
+  }
+  m._revisar = revisar;
+  return { meta: m, revisar, mudou };
 }

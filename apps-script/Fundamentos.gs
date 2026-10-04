@@ -70,9 +70,15 @@ var FUND_UA_ = 'Mozilla/5.0';
 var FUND_LIMITE_MS_ = 4.5 * 60 * 1000;
 var FUND_FOLGA_MS_ = 40 * 1000;
 var FUND_VALIDADE_DIAS_ = { fundamentus: 1, yahoo: 1, planilha: 1, sec: 7 }; // cvm: mês do calendário
+// 04/10/2026 (Tiago: "falharam: WIZC3|fundamentus (Error: HTTP 403 ...); isso rolou em todos"):
+// o Fundamentus bloqueia (403) qualquer User-Agent que contenha "Google-Apps-Script" - e o
+// UrlFetchApp SEMPRE acrescenta isso ao User-Agent, não tem como contornar daqui. As ações
+// BR e os FIIs passam a usar o Yahoo (ticker + ".SA": múltiplos, balanço, proventos, 52s,
+// volume) + CVM; o Fundamentus fica desligado (código mantido caso um dia haja um proxy).
+var FUND_USAR_FUNDAMENTUS_ = false;
 var FUND_ORDEM_FONTES_ = {
-  acoes: ['fundamentus', 'cvm', 'planilha'],
-  fiis: ['cvm', 'fundamentus', 'planilha'],
+  acoes: ['cvm', 'yahoo', 'fundamentus', 'planilha'],
+  fiis: ['cvm', 'yahoo', 'fundamentus', 'planilha'],
   acoesEua: ['yahoo', 'sec', 'planilha']
 };
 var FUND_CLASSES_PLANILHA_ = { 'Ações': 'acoes', 'FIIs': 'fiis', 'Ações EUA': 'acoesEua' };
@@ -227,11 +233,14 @@ function atualizarFundamentos_(origem, opcoes) {
     gravarAgora();
   } else if (acoesCvm.length) acoesCvm.forEach(function (a) { pendentes.push(a.ticker + '|cvm'); });
 
-  // 3) por ticker: Fundamentus (BR), Yahoo + SEC (EUA)
+  // 3) por ticker: Yahoo (BR com ".SA" e EUA) + SEC (EUA); Fundamentus só se religado (ver FUND_USAR_FUNDAMENTUS_)
+  // 04/10/2026: fonte que bloqueia o Apps Script (403 pelo User-Agent "Google-Apps-Script", ex. SEC)
+  // é desligada pro resto da execução com UM aviso - sem 30 linhas de "falharam" e sem gastar tempo.
+  var bloqueadas = {};
   ativos.forEach(function (a) {
-    var fontes = a.classe === 'acoesEua' ? ['yahoo', 'sec'] : ['fundamentus'];
+    var fontes = a.classe === 'acoesEua' ? ['yahoo', 'sec'] : (FUND_USAR_FUNDAMENTUS_ ? ['yahoo', 'fundamentus'] : ['yahoo']);
     fontes.forEach(function (fonte) {
-      if (!vencido(a.ticker, fonte)) return;
+      if (bloqueadas[fonte] || !vencido(a.ticker, fonte)) return;
       if (!temTempo()) { pendentes.push(a.ticker + '|' + fonte); return; }
       try {
         var dados = fonte === 'fundamentus' ? fundColetarFundamentus_(a, ctx)
@@ -239,7 +248,10 @@ function atualizarFundamentos_(origem, opcoes) {
         if (dados) salvar(a.ticker, fonte, dados);
         else falhas.push(a.ticker + '|' + fonte + ' (sem dado na fonte)');
       } catch (eT) {
-        falhas.push(a.ticker + '|' + fonte + ' (' + String(eT).slice(0, 80) + ')');
+        if (fonte !== 'yahoo' && /HTTP 403/.test(String(eT))) {
+          bloqueadas[fonte] = true;
+          avisosGerais.push(({ sec: 'SEC', fundamentus: 'Fundamentus' }[fonte] || fonte) + ' bloqueia o Apps Script (HTTP 403) - ignorada nesta execução; o Yahoo cobre o principal.');
+        } else falhas.push(a.ticker + '|' + fonte + ' (' + String(eT).slice(0, 80) + ')');
       }
       gravarAgora();
     });
@@ -368,11 +380,12 @@ function anexarFundamentosAoRadar_(ss, grupos) {
 /** Mescla as fontes de um ticker na ordem de prioridade da classe (a 1ª que tiver a chave ganha). */
 function fundMontarDoTicker_(tabela, ticker, classe) {
   var ordem = FUND_ORDEM_FONTES_[classe] || ['fundamentus', 'cvm', 'yahoo', 'sec', 'planilha'];
-  var valores = {}, fontes = [], avisos = [], ultima = null;
+  var valores = {}, fontes = [], avisos = [], ultima = null, cotacao = null;
   ordem.forEach(function (fonte) {
     var l = tabela.mapa[ticker + '|' + fonte];
     if (!l || !l.dados) return;
     var v = l.dados.valores || {};
+    if (cotacao == null && v.cotacao > 0) cotacao = v.cotacao;
     var usou = false;
     Object.keys(v).forEach(function (k) {
       if (v[k] == null || valores[k] != null || FUND_CHAVES_INTERNAS_.indexOf(k) !== -1) return;
@@ -385,6 +398,13 @@ function fundMontarDoTicker_(tabela, ticker, classe) {
     if (l.atualizadoEm && (!ultima || l.atualizadoEm > ultima)) ultima = l.atualizadoEm;
   });
   if (!fontes.length) return null;
+  // 04/10/2026: histórico anual da SEC (10 anos) é melhor que o anual do Yahoo (~4 anos) quando existe
+  var lSec = tabela.mapa[ticker + '|sec'];
+  if (lSec && lSec.dados && lSec.dados.valores) ['cagrReceita5a', 'cagrLucro5a', 'anosComLucro'].forEach(function (k) {
+    if (lSec.dados.valores[k] != null) valores[k] = lSec.dados.valores[k];
+  });
+  // 04/10/2026: FII sem Fundamentus - P/VP = cotação (Yahoo) ÷ VP/cota (CVM)
+  if (classe === 'fiis' && valores.pvp == null && valores.vpCota > 0 && cotacao > 0) valores.pvp = Math.round(cotacao / valores.vpCota * 100) / 100;
   fundSanidade_(valores, avisos); // defensivo: linha antiga gravada antes de uma regra nova
   return { fontes: fontes, atualizadoEm: ultima ? fundChaveDia_(ultima) : null, valores: valores, avisos: avisos };
 }
@@ -675,31 +695,84 @@ var FUND_YAHOO_TIPOS_ = ['trailingPeRatio', 'trailingPbRatio', 'trailingPsRatio'
   'trailingMarketCap', 'trailingTotalRevenue', 'trailingNetIncome', 'trailingEBITDA', 'trailingEBIT', 'trailingGrossProfit',
   'trailingOperatingIncome', 'trailingFreeCashFlow', 'trailingCashDividendsPaid', 'trailingRepurchaseOfCapitalStock',
   'trailingInterestExpense', 'trailingDilutedEPS', 'quarterlyStockholdersEquity', 'quarterlyTotalDebt', 'quarterlyCashAndCashEquivalents',
-  'quarterlyNetDebt', 'quarterlyCurrentAssets', 'quarterlyCurrentLiabilities', 'quarterlyTotalAssets', 'quarterlyOrdinarySharesNumber'];
+  'quarterlyNetDebt', 'quarterlyCurrentAssets', 'quarterlyCurrentLiabilities', 'quarterlyTotalAssets', 'quarterlyOrdinarySharesNumber',
+  'annualTotalRevenue', 'annualNetIncome'];
 
 function fundColetarYahoo_(ativo, ctx) {
-  var t = encodeURIComponent(ativo.ticker);
+  var br = ativo.classe === 'acoes' || ativo.classe === 'fiis';
+  var ehFii = ativo.classe === 'fiis';
+  var t = encodeURIComponent(fundSimboloYahoo_(ativo));
   var valores = {}, avisos = [], algum = false;
   try {
     var chart = JSON.parse(fundBuscarTexto_('https://query1.finance.yahoo.com/v8/finance/chart/' + t + '?range=max&interval=1mo&events=div'));
     var c = fundMapearYahooChart_(chart, ctx.hoje);
+    // ticker novo (ex.: AXIA7, classe criada há pouco): sem histórico, "0 anos pagando / DY 0" seria mentira
+    var nMeses = (((chart.chart || {}).result || [])[0] || {}).timestamp;
+    // ou o Yahoo não tem NENHUM provento da classe (aconteceu com AXIA7): a planilha/aba Proventos valem mais
+    var semDivs = !Object.keys(((((chart.chart || {}).result || [])[0] || {}).events || {}).dividends || {}).length;
+    if (br && !ehFii && ((nMeses && nMeses.length < 24 && !c.dpa12m) || semDivs)) {
+      ['dy', 'dpa12m', 'anosPagandoDividendos', 'anosAumentandoDividendos'].forEach(function (k) { delete c[k]; });
+      avisos.push(ativo.ticker + ': o Yahoo não tem histórico de proventos desta classe - DY e anos pagando vêm da planilha.');
+    }
+    if (ehFii) c = fundYahooChartParaFii_(c, chart, ctx.hoje);
     Object.keys(c).forEach(function (k) { valores[k] = c[k]; });
     algum = true;
   } catch (e1) { avisos.push('Yahoo (preço/dividendos) não respondeu: ' + String(e1).slice(0, 80)); }
-  if (ctx.temTempo()) {
+  // FII não tem balanço no Yahoo (vem da CVM)
+  if (!ehFii && ctx.temTempo()) {
     try {
       var agoraS = Math.floor(ctx.agora.getTime() / 1000);
       var url = 'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/' + t + '?type=' + FUND_YAHOO_TIPOS_.join(',') +
-        '&period1=' + (agoraS - 2 * 366 * 86400) + '&period2=' + agoraS;
-      var ts = fundMapearYahooTimeseries_(JSON.parse(fundBuscarTexto_(url)), FUND_INFO_EUA_[ativo.ticker]);
+        '&period1=' + (agoraS - 6 * 366 * 86400) + '&period2=' + agoraS;
+      var ts = fundMapearYahooTimeseries_(JSON.parse(fundBuscarTexto_(url)), br ? null : FUND_INFO_EUA_[ativo.ticker]);
       Object.keys(ts).forEach(function (k) { if (valores[k] == null) valores[k] = ts[k]; });
+      if (br && valores.dy == null && valores.dpa12m != null && valores.cotacao > 0) valores.dy = fundArred_(valores.dpa12m / valores.cotacao, 4);
+      // classe sem múltiplos prontos no Yahoo (ex.: AXIA7): P/L e P/VP pelo preço da própria classe
+      if (br && valores.cotacao > 0) {
+        if (valores.pl == null && valores.lpa > 0) valores.pl = fundArred_(valores.cotacao / valores.lpa, 2);
+        if (valores.pvp == null && valores.vpa > 0) valores.pvp = fundArred_(valores.cotacao / valores.vpa, 2);
+        if (valores.earningsYield == null && valores.pl > 0) valores.earningsYield = fundArred_(1 / valores.pl, 4);
+        // o "diluted EPS" do Yahoo pra B3 às vezes vem fora de escala (PETR4: 1,98 com P/L 4,8 a R$ 51):
+        // LPA/VPA coerentes com o P/L e o P/VP do próprio Yahoo
+        var lpaPl = valores.pl > 0 ? valores.cotacao / valores.pl : null;
+        if (lpaPl && (!(valores.lpa > 0) || Math.abs(valores.lpa / lpaPl - 1) > 0.2)) valores.lpa = fundArred_(lpaPl, 4);
+        var vpaPvp = valores.pvp > 0 ? valores.cotacao / valores.pvp : null;
+        if (vpaPvp && (!(valores.vpa > 0) || Math.abs(valores.vpa / vpaPvp - 1) > 0.2)) valores.vpa = fundArred_(vpaPvp, 4);
+      }
       algum = true;
     } catch (e2) { avisos.push('Yahoo (balanço) não respondeu: ' + String(e2).slice(0, 80)); }
   }
   if (!algum) throw new Error(avisos.join(' / '));
-  var info = FUND_INFO_EUA_[ativo.ticker];
+  var info = br ? null : FUND_INFO_EUA_[ativo.ticker];
   if (info) { valores.adr = info.adr; valores.paisSede = info.paisSede; }
+  if (br) valores.paisSede = 'Brasil';
   return { valores: valores, avisos: avisos };
+}
+
+/** Símbolo no Yahoo: ações BR e FIIs ganham ".SA" (B3); EUA ficam como estão. */
+function fundSimboloYahoo_(ativo) {
+  var t = String(ativo.ticker || '').trim().toUpperCase();
+  return (ativo.classe === 'acoes' || ativo.classe === 'fiis') && !/\.SA$/.test(t) ? t + '.SA' : t;
+}
+
+/** FII: o chart do Yahoo dá rendimentos e liquidez - traduz pras chaves de FII do contrato. */
+function fundYahooChartParaFii_(c, json, hojeIso) {
+  var v = {};
+  if (c.bolsa) v.bolsa = c.bolsa;
+  if (c.cotacao) v.cotacao = c.cotacao;
+  if (c.maxima52s) v.maxima52s = c.maxima52s;
+  if (c.minima52s) v.minima52s = c.minima52s;
+  if (c.dy != null) v.dy12m = c.dy;
+  if (c.volumeMedio2m != null) v.liquidezDiaria = c.volumeMedio2m;
+  var r = json.chart.result[0];
+  var divs = (r.events && r.events.dividends) || {};
+  var lista = Object.keys(divs).map(function (k) { return divs[k]; })
+    .filter(function (d) { return d && d.amount > 0 && d.date > 0; })
+    .map(function (d) { return { dataCom: new Date(d.date * 1000).toISOString().slice(0, 10), valor: d.amount }; });
+  var res = fundResumoProventos_(lista, hojeIso);
+  if (res.ultimo != null) v.ultimoRendimento = res.ultimo;
+  if (res.porMes12m != null) v.rendimentoMedio12m = res.porMes12m;
+  return v;
 }
 
 /** chart (range=max, interval=1mo, events=div): preço, 52s, bolsa, dividendos (anos pagando/aumentando, DPA 12m, DY), volume médio 2m (US$). */
@@ -736,6 +809,7 @@ function fundMapearYahooChart_(json, hojeIso) {
 
 function fundBolsaYahoo_(codigo, nome) {
   var c = String(codigo || '').toUpperCase(), n = String(nome || '').toUpperCase();
+  if (c === 'SAO' || /S[AÃ]O PAULO|BOVESPA/.test(n)) return 'B3';
   if (/^(PNK|OTC|OQB|OQX|OEM|OPI)$/.test(c) || /OTC|PINK/.test(n)) return 'OTC';
   if (/^(NMS|NGM|NCM|NAS)$/.test(c) || /NASDAQ/.test(n)) return 'NASDAQ';
   if (/^(NYQ|ASE|PCX|NYS)$/.test(c) || /NYSE/.test(n)) return 'NYSE';
@@ -745,13 +819,14 @@ function fundBolsaYahoo_(codigo, nome) {
 /** timeseries -> chaves do contrato. ADR (info.adr): sem LPA/VPA (por ação ORDINÁRIA, não por ADR). */
 function fundMapearYahooTimeseries_(json, info) {
   var res = (json && json.timeseries && json.timeseries.result) || [];
-  var ult = {};
+  var ult = {}, anual = {};
   res.forEach(function (r) {
     var tipo = r && r.meta && r.meta.type && r.meta.type[0];
     var pts = (tipo && r[tipo]) || [];
     pts.forEach(function (p) {
       if (!p || !p.reportedValue || typeof p.reportedValue.raw !== 'number' || !isFinite(p.reportedValue.raw)) return;
       if (!ult[tipo] || p.asOfDate > ult[tipo].data) ult[tipo] = { data: p.asOfDate, valor: p.reportedValue.raw };
+      if (/^annual/.test(tipo)) (anual[tipo] = anual[tipo] || []).push({ data: p.asOfDate, valor: p.reportedValue.raw });
     });
   });
   var g = function (k) { return ult[k] ? ult[k].valor : null; };
@@ -766,6 +841,7 @@ function fundMapearYahooTimeseries_(json, info) {
   if (g('trailingCashDividendsPaid') != null) put('dividendosPagos12m', Math.abs(g('trailingCashDividendsPaid')));
   if (g('trailingRepurchaseOfCapitalStock') != null) put('recompras12m', Math.abs(g('trailingRepurchaseOfCapitalStock')));
   if (!(info && info.adr)) put('lpa', g('trailingDilutedEPS'), 4);
+  if (!(info && info.adr) && v.lpa == null && g('trailingNetIncome') != null && g('quarterlyOrdinarySharesNumber') > 0) put('lpa', g('trailingNetIncome') / g('quarterlyOrdinarySharesNumber'), 4);
   var rec = g('trailingTotalRevenue'), ll = g('trailingNetIncome'), pl = g('quarterlyStockholdersEquity'), ativo = g('quarterlyTotalAssets');
   var ebitda = g('trailingEBITDA'), divLiq = g('quarterlyNetDebt'), juros = g('trailingInterestExpense'), mc = g('trailingMarketCap');
   if (divLiq == null && g('quarterlyTotalDebt') != null && g('quarterlyCashAndCashEquivalents') != null) divLiq = g('quarterlyTotalDebt') - g('quarterlyCashAndCashEquivalents');
@@ -783,9 +859,24 @@ function fundMapearYahooTimeseries_(json, info) {
   if (ebit != null && juros > 0) put('coberturaJuros', ebit / juros, 2);
   if (g('trailingFreeCashFlow') != null && mc > 0) put('fcfYield', g('trailingFreeCashFlow') / mc, 4);
   if (mc > 0 && divLiq != null && ebit > 0) put('evEbit', (mc + divLiq) / ebit, 2);
+  // classe sem P/L/P/VP prontos (ex.: AXIA7): refaz pelo valor de mercado da empresa
+  if (v.pl == null && mc > 0 && ll > 0) put('pl', mc / ll, 2);
+  if (v.pvp == null && mc > 0 && pl > 0) put('pvp', mc / pl, 2);
   if (v.pl > 0) put('earningsYield', 1 / v.pl, 4);
   if (v.dividendosPagos12m != null && ll > 0) put('payout', v.dividendosPagos12m / ll, 4);
   if (!(info && info.adr) && pl > 0 && g('quarterlyOrdinarySharesNumber') > 0) put('vpa', pl / g('quarterlyOrdinarySharesNumber'), 4);
+  // 04/10/2026: anuais do Yahoo (até ~4 anos) - CAGR e anos com lucro quando a SEC não responde / ações BR
+  var ord = function (k) { return (anual[k] || []).sort(function (a, b) { return a.data < b.data ? -1 : 1; }); };
+  var recs = ord('annualTotalRevenue'), lls = ord('annualNetIncome');
+  if (recs.length >= 3 && recs[0].valor > 0 && recs[recs.length - 1].valor > 0) {
+    var anos = (Date.parse(recs[recs.length - 1].data) - Date.parse(recs[0].data)) / (365.25 * 86400000);
+    if (anos >= 2) put('cagrReceita5a', Math.pow(recs[recs.length - 1].valor / recs[0].valor, 1 / anos) - 1, 4);
+  }
+  if (lls.length >= 3 && lls[0].valor > 0 && lls[lls.length - 1].valor > 0) {
+    var anosL = (Date.parse(lls[lls.length - 1].data) - Date.parse(lls[0].data)) / (365.25 * 86400000);
+    if (anosL >= 2) put('cagrLucro5a', Math.pow(lls[lls.length - 1].valor / lls[0].valor, 1 / anosL) - 1, 4);
+  }
+  if (lls.length) { var n = 0; for (var i = lls.length - 1; i >= 0 && lls[i].valor > 0; i--) n++; v.anosComLucro = n; }
   return v;
 }
 

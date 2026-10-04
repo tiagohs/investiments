@@ -131,6 +131,14 @@ function yahooChart({ bolsa = 'NYQ', nome = 'NYSE', preco = 50 } = {}) {
     .forEach(([d, a]) => { divs[String(ts(d))] = { amount: a, date: ts(d) }; });
   return { chart: { result: [{ meta: { currency: 'USD', exchangeName: bolsa, fullExchangeName: nome, regularMarketPrice: preco, fiftyTwoWeekHigh: 60, fiftyTwoWeekLow: 40 }, timestamp: meses, events: { dividends: divs }, indicators: { quote: [{ volume: vols }] } }], error: null } };
 }
+// 04/10/2026: o Fundamentus bloqueia o Apps Script (403) - BR passa a vir do Yahoo com ".SA"
+function yahooChartFii(preco = 95) {
+  const divs = {};
+  for (let i = 0; i < 12; i++) { const d = new Date(Date.UTC(2025, 9 + i, 12)).toISOString().slice(0, 10); divs[String(ts(d))] = { amount: 0.8, date: ts(d) }; }
+  const meses = []; const vols = [];
+  for (let i = 0; i < 6; i++) { meses.push(ts(`2026-${String(5 + i).padStart(2, '0')}-01`)); vols.push(i === 5 ? 9 : 21000); }
+  return { chart: { result: [{ meta: { currency: 'BRL', exchangeName: 'SAO', fullExchangeName: 'São Paulo', regularMarketPrice: preco, fiftyTwoWeekHigh: 101, fiftyTwoWeekLow: 88 }, timestamp: meses, events: { dividends: divs }, indicators: { quote: [{ volume: vols }] } }], error: null } };
+}
 function yahooTimeseries(v) {
   return { timeseries: { result: Object.entries(v).map(([tipo, valor]) => ({ meta: { symbol: ['ZZZZ'], type: [tipo] }, timestamp: [1], [tipo]: [{ asOfDate: '2026-03-31', reportedValue: { raw: valor * 0.5 } }, { asOfDate: '2026-06-30', reportedValue: { raw: valor } }, null] })), error: null } };
 }
@@ -193,6 +201,10 @@ function montar({ ativos = null, agora = AGORA } = {}) {
     if (/fundamentus.*\/proventos\.php\?papel=ZZZZ3/.test(url)) return resp(200, paginaProventosAcao(PROVENTOS_ACAO));
     if (/fundamentus.*fii_proventos\.php\?papel=ZZZZ11/.test(url)) return resp(200, paginaProventosFii([['15/09/2026', '0,80'], ['14/08/2026', '0,80']]));
     if (/dados\.cvm\.gov\.br/.test(url)) { const z = zips[url.replace(/^.*\//, '')]; return z ? resp(200, '', z) : resp(404, 'não achou'); }
+    if (/fundamentus/.test(url)) return resp(403, 'Forbidden'); // como o site responde ao Apps Script
+    if (/finance\/chart\/ZZZZ3\.SA\?/.test(url)) return resp(200, JSON.stringify(yahooChart({ bolsa: 'SAO', nome: 'São Paulo', preco: 12.5 })));
+    if (/timeseries\/ZZZZ3\.SA\?/.test(url)) return resp(200, JSON.stringify(yahooTimeseries({ ...TS_ZZZZ, trailingPeRatio: 8, trailingPbRatio: 1.25 })));
+    if (/finance\/chart\/ZZZZ11\.SA\?/.test(url)) return resp(200, JSON.stringify(yahooChartFii()));
     if (/finance\/chart\/ZZZZ\?/.test(url)) return resp(200, JSON.stringify(yahooChart()));
     if (/timeseries\/ZZZZ\?/.test(url)) return resp(200, JSON.stringify(yahooTimeseries(TS_ZZZZ)));
     if (/sec\.gov\/files\/company_tickers\.json/.test(url)) return resp(200, JSON.stringify({ 0: { cik_str: 123, ticker: 'ZZZZ', title: 'ZETA CORP' } }));
@@ -370,7 +382,8 @@ test('Coleta inteira: grava aux_fundamentos (ticker | fonte | json | data), 1x p
   const linhas = aba.getRange(1, 1, aba.getLastRow(), 4).getValues();
   assert.deepEqual(linhas[0], ['Ticker', 'Fonte', 'JSON', 'Atualizado em']);
   assert.deepEqual(linhas.slice(1).map((l) => `${l[0]}|${l[1]}`).sort(),
-    ['ZZZZ11|cvm', 'ZZZZ11|fundamentus', 'ZZZZ3|cvm', 'ZZZZ3|fundamentus', 'ZZZZ|sec', 'ZZZZ|yahoo']);
+    ['ZZZZ11|cvm', 'ZZZZ11|yahoo', 'ZZZZ3|cvm', 'ZZZZ3|yahoo', 'ZZZZ|sec', 'ZZZZ|yahoo']);
+  assert.ok(!chamadas.some((u) => /fundamentus/.test(u)), 'Fundamentus desligado (bloqueia o Apps Script com 403)');
   linhas.slice(1).forEach((l) => { JSON.parse(l[2]); assert.ok(l[3] instanceof sb.Date); });
   // fórmulas GOOGLEFINANCE escritas (o Sheets calcula depois)
   const gf = ss.getSheetByName('aux_fundamentos-gf');
@@ -387,19 +400,21 @@ test('Coleta inteira: grava aux_fundamentos (ticker | fonte | json | data), 1x p
 
   // tela do ativo (contrato)
   const acao = plain(sb.lerFundamentosDoAtivo_(ss, 'ZZZZ3', 'acoes', null));
-  assert.deepEqual(acao.fonte, ['fundamentus', 'cvm']);
+  assert.deepEqual(acao.fonte, ['cvm', 'yahoo']);
   assert.equal(acao.atualizadoEm, '2026-10-03');
   assert.equal(acao.valores.pl, 8); assert.equal(acao.valores.segmentoListagem, 'N1'); assert.equal(acao.valores.estatal, true);
-  assert.equal(acao.valores.anosPagandoDividendos, 5); assert.equal(acao.valores.payout, 0.5769); assert.equal(acao.valores.dividendosPagos12m, 720000000);
+  assert.equal(acao.valores.anosPagandoDividendos, 3); assert.equal(acao.valores.payout, 0.3); assert.equal(acao.valores.dividendosPagos12m, 120000000);
+  assert.equal(acao.valores.roe, 0.16); assert.equal(acao.valores.paisSede, 'Brasil');
   assert.equal(acao.valores.bolsa, 'B3');
   assert.ok(Array.isArray(acao.avisos));
   assert.deepEqual(acao.historico, { pl: [{ data: '2026-10', valor: 8 }], pvp: [{ data: '2026-10', valor: 1.25 }], dy: [{ data: '2026-10', valor: 0.064 }] }, 'foto mensal da Auxiliar_ativos');
 
   const serie = [{ data: '2025-08-28', preco: 90 }, { data: '2025-08-29', preco: 92 }, { data: '2026-07-31', preco: 97 }, { data: '2026-08-31', preco: 94 }];
   const fii = plain(sb.lerFundamentosDoAtivo_(ss, 'ZZZZ11', 'fiis', serie));
-  assert.deepEqual(fii.fonte, ['cvm', 'fundamentus']);
-  assert.equal(fii.valores.vpCota, 100, 'CVM vem antes do Fundamentus nos FIIs');
-  assert.equal(fii.valores.pvp, 0.95); assert.equal(fii.valores.dy12m, 0.101); assert.equal(fii.valores.numeroCotistas, 42000);
+  assert.deepEqual(fii.fonte, ['cvm', 'yahoo']);
+  assert.equal(fii.valores.vpCota, 100, 'CVM vem antes do Yahoo nos FIIs');
+  assert.equal(fii.valores.rendimentoMedio12m, 0.8); assert.equal(fii.valores.bolsa, 'B3');
+  assert.equal(fii.valores.pvp, 0.95); assert.equal(fii.valores.dy12m, 0.1011, "12 × 0,80 ÷ 95 (Yahoo)"); assert.equal(fii.valores.numeroCotistas, 42000);
   assert.equal(fii.valores.ultimoRendimento, 0.8);
   assert.deepEqual(fii.historico.vpCota.map((p) => p.data), ['2025-08', '2026-07', '2026-08', '2026-10'], 'CVM + a foto deste mês');
   assert.deepEqual(fii.historico.pvp, [{ data: '2025-08', valor: 0.9684 }, { data: '2026-07', valor: 0.9798 }, { data: '2026-08', valor: 0.94 }, { data: '2026-10', valor: 0.95 }],
@@ -418,7 +433,7 @@ test('Coleta inteira: grava aux_fundamentos (ticker | fonte | json | data), 1x p
   // Radar: resumo por item
   const grupos = [{ classe: 'acoes', itens: [{ ativo: 'ZZZZ3' }, { ativo: 'SEMD3' }] }, { classe: 'fiis', itens: [{ ativo: 'ZZZZ11' }] }];
   sb.anexarFundamentosAoRadar_(ss, grupos);
-  assert.equal(grupos[0].itens[0].fundamentos.valores.roe, 0.156);
+  assert.equal(grupos[0].itens[0].fundamentos.valores.roe, 0.16);
   assert.equal(grupos[0].itens[0].fundamentos.historico, undefined);
   assert.equal(grupos[0].itens[1].fundamentos, undefined);
   assert.equal(grupos[1].itens[0].fundamentos.valores.vacanciaFisica, 0.05);
@@ -429,7 +444,7 @@ test('Coleta: sem tempo, nada é buscado e tudo fica pendente (a agenda tenta de
   const r = plain(a.sb.atualizarFundamentos_('Automático', { limiteMs: 1 }));
   assert.equal(r.porTempo, true);
   assert.equal(a.chamadas.length, 0);
-  assert.ok(r.pendentes.includes('ZZZZ3|fundamentus') && r.pendentes.includes('ZZZZ|sec') && r.pendentes.includes('ZZZZ11|cvm'));
+  assert.ok(r.pendentes.includes('ZZZZ3|yahoo') && r.pendentes.includes('ZZZZ|sec') && r.pendentes.includes('ZZZZ11|cvm'));
 
   const b = montar();
   const fetchOrig = b.sb.UrlFetchApp.fetch;
@@ -474,4 +489,14 @@ test('Contrato no motor de critérios: com fundamentos a análise avalia mais cr
   const com = avaliarAtivo({ ...base, fundamentos });
   assert.ok(com.cobertura.avaliados > sem.cobertura.avaliados + 5, `${sem.cobertura.avaliados} -> ${com.cobertura.avaliados}`);
   assert.equal(avaliarAtivo({ ...base, fundamentos: undefined }).cobertura.avaliados, sem.cobertura.avaliados, 'sem o campo: não quebra');
+});
+
+test('Fonte que bloqueia o Apps Script (HTTP 403, ex. SEC) é desligada na execução com UM aviso, sem virar falha por ticker', () => {
+  const { sb, chamadas } = montar();
+  const fetchOrig = sb.UrlFetchApp.fetch;
+  sb.UrlFetchApp.fetch = (url, o) => (/sec\.gov/.test(url) ? { getResponseCode: () => 403, getContentText: () => 'Forbidden' } : fetchOrig(url, o));
+  const r = plain(sb.atualizarFundamentos_('Manual', {}));
+  assert.doesNotMatch(r.detalhe, /\|sec \(/);
+  assert.match(r.detalhe, /SEC bloqueia o Apps Script/);
+  assert.ok(!chamadas.some((u) => /fundamentus/.test(u)));
 });

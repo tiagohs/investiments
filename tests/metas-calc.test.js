@@ -10,7 +10,11 @@ import {
   taxaMensal, valorFuturo, aporteNecessario, prazoParaAlvo, simular, cotacao, paraBRL, resolverVinculos,
   ativosSobrecomprometidos, reservaIdeal, parcelasPagas, calcularMeta, serieProjecao, resumoMetas, metaPadrao,
   sugestoesMetas, mesesEntre, somarMeses, rotuloMes, rotuloDuracao, aparenciaMeta,
+  taxaTuristicaDestino, expandirEntradas, estimativa13, estimativaFgts, entradaPadrao, valorFuturoEntradas, trajetoriaMensal,
+  acharPais, acharPaisPelaCidade, cidadesDoPais, caminhoBandeira, normalizarUrl, ehLinkWanderlog, sugestaoTaxaTuristica, migrarMetaViagem,
 } from '../assets/js/pages/metas-calc.js';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const perto = (a, b, tol = 0.01) => Math.abs(a - b) <= tol;
 
@@ -121,8 +125,10 @@ test('reserva ideal = meses x despesa x (1 + sobra); meta de reserva usa o custo
 });
 
 test('acúmulo em euro com sub-itens, item pago, guardado fora e vínculo: alvo, falta, aporte, status', () => {
+  // 04/10/2026: era uma viagem - na viagem a conta mensal virou "a pagar" (fora do aporte, ver o teste
+  // da viagem em 2 partes); a regra antiga (conta mensal soma no aporte) continua valendo pros outros tipos
   const meta = {
-    id: 'm1', tipo: 'viagemInternacional', nome: 'Viagem', moeda: 'EUR', dataAlvo: '2027-07', valorInicial: 1000, aporteMensal: 500, rendimentoAnual: 0,
+    id: 'm1', tipo: 'acumulo', nome: 'Viagem', moeda: 'EUR', dataAlvo: '2027-07', valorInicial: 1000, aporteMensal: 500, rendimentoAnual: 0,
     itens: [{ nome: 'Comida', valor: 1000, moeda: 'EUR' }, { nome: 'Compras', valor: 500, moeda: 'EUR' }, { nome: 'Seguro', valor: 300, moeda: 'BRL', concluido: true }],
     vinculos: [{ tipo: 'ativo', id: 'BBBB11', modo: 'valor', valor: 2000 }],
     contaMensal: { descricao: 'Passagens', valor: 400, meses: 5, inicio: '2026-08' },
@@ -332,14 +338,17 @@ test('viagem por destinos: dias x gasto diário por moeda + margem, saldo na moe
   assert.deepEqual([v.porMoeda.EUR.total, v.porMoeda.EUR.comMargem, v.porMoeda.EUR.guardado, v.porMoeda.EUR.falta, v.porMoeda.EUR.faltaBRL], [600, 660, 200, 460, 2760]);
   assert.deepEqual([v.porMoeda.USD.comMargem, v.porMoeda.USD.comMargemBRL], [330, 1650]);
   assert.equal(v.gastoBRL, 660 * 6 + 1650);
-  assert.deepEqual(v.fixos.map((f) => [f.totalBRL, f.pagas, f.pagoBRL]), [[4000, 3, 1200], [1500, 1, 250], [120, 1, 120]]);
-  assert.equal(v.parcelaMensal, 400 + 250);
+  // 04/10/2026: o que está no cartão conta como PAGO de antemão - parcela "confirmada" quando o mês da fatura passa
+  assert.deepEqual(v.fixos.map((f) => [f.forma, f.totalBRL, f.pagas, f.pendenteBRL, f.status]), [['cartao', 4000, 2, 3200, 'pendente'], ['cartao', 1500, 0, 1500, 'pendente'], ['pago', 120, 1, 0, 'confirmado']]);
+  assert.equal(v.parcelaMensal, 400 + 250, 'fatura de out: passagem + hotel');
+  assert.deepEqual([v.aPagar.totalBRL, v.aPagar.pendenteBRL, v.aPagar.mesAtualBRL], [5620, 4700, 650]);
   const c = calcularMeta(meta, CTX);
-  assert.equal(c.alvoBRL, 5610);
+  assert.equal(c.alvoBRL, 5610, 'só o a juntar');
   assert.equal(c.atualBRL, 1200, '€ 200 no saldo');
-  assert.equal(c.total, 5610 + 5620);
-  assert.equal(c.ja, 1200 + 1570);
-  assert.ok(perto(c.aporteNecessarioTotal, (5610 - 1200) / 8 + 650), 'gasto lá em 8 meses + parcelas correndo');
+  assert.equal(c.total, 5610, 'o já comprado não entra no total a juntar');
+  assert.equal(c.ja, 1200);
+  assert.ok(perto(c.aporteNecessarioTotal, (5610 - 1200) / 8), 'aporte só do a juntar (as parcelas são pagas à parte)');
+  assert.equal(c.parcelasCorrendo, 650);
 });
 
 test('avaliação dos vínculos (liquidez x prazo, risco x horizonte, moeda) e a sugestão certa por tipo', () => {
@@ -378,4 +387,287 @@ test('análises: histórico (aportes x rendimento x CDI), projeção (ritmo x pr
   assert.ok(r.pontos.some((x) => x.tipo === 'crescimento' && x.tom === 'bom'));
   assert.match(explicarStatus('atrasada', { tipo: 'rendaPassiva' }), /patrimônio que gera a renda/);
   assert.ok(EXPLICACOES.liquido && EXPLICACOES.aporteReal);
+});
+
+// ---------------------------------------------------------------------------
+// 04/10/2026: Metas › Viagem v3 (dados inventados) - entradas programadas,
+// a pagar x a juntar, taxa turística, países/migração, Wanderlog
+// ---------------------------------------------------------------------------
+const lerJson = (nome) => JSON.parse(fs.readFileSync(fileURLToPath(new URL(`../assets/data/${nome}`, import.meta.url)), 'utf8'));
+const PAISES = lerJson('paises.json').paises;
+const CIDADES = lerJson('cidades.json').cidades;
+const TAXAS = lerJson('taxas-turisticas.json');
+const REF_SAL = { salario: { liquido: 6000, holerite: { salarioBase: 8000, totalVencimentos: 8000, inss: 900, irrf: 700, liquido: 6400 }, extras: [] } };
+const HOJE = '2026-10-04';
+
+test('13º: 1ª parcela (nov) = metade do bruto sem descontos; 2ª (dez) = metade - INSS - IR; só entra o que cai ANTES da data', () => {
+  const est = estimativa13(REF_SAL, 2026);
+  assert.deepEqual([est.p1.mes, est.p1.valor, est.p2.mes, est.p2.valor], ['2026-11', 4000, '2026-12', 2400]);
+  const meta = { entradas: [entradaPadrao('decimo13')] }; // 90%
+  const ate = (d) => expandirEntradas(meta, { referencias: REF_SAL, hoje: HOJE, ate: d }).map((e) => [e.mes, e.valor]);
+  assert.deepEqual(ate('2027-06'), [['2026-11', 3600], ['2026-12', 2160]]);
+  assert.deepEqual(ate('2026-12'), [['2026-11', 3600]], 'a 2ª parcela cai em dez: não conta numa meta que fecha em dez');
+  assert.deepEqual(ate('2026-11'), [], 'nem a 1ª: cai no mês da data, não antes');
+  assert.equal(ate('2028-06').length, 4, 'meta mais longa: o 13º de 2027 também');
+  // lançado na aba Salário vale o lançado
+  const ref2 = { salario: { ...REF_SAL.salario, extras: [{ mes: '2026-12', tipo: '13º (2ª parcela)', status: 'Previsto', liquido: 2500 }] } };
+  assert.equal(expandirEntradas(meta, { referencias: ref2, hoje: HOJE, ate: '2027-06' })[1].valor, 2250);
+  // sem holerite: só o líquido = metade em cada parcela (aproximado)
+  const aprox = estimativa13({ salario: { liquido: 5000 } }, 2026);
+  assert.deepEqual([aprox.p1.valor, aprox.p2.valor, aprox.p1.origem], [2500, 2500, 'aproximado']);
+  // sem nenhum dado: não inventa
+  assert.equal(estimativa13({}, 2026), null);
+  const sem = expandirEntradas(meta, { referencias: {}, hoje: HOJE, ate: '2027-06' });
+  assert.deepEqual(sem.map((e) => e.valor), [0, 0]);
+  assert.match(sem[0].nota, /informe o valor/);
+});
+
+test('FGTS aniversário: mês do aniversário e valor da aba Patrimônio (resumoFgts); editável (valor e mês); % padrão 90', () => {
+  const ref = { fgts: {
+    contas: [{ empregador: 'X', admissao: '2019-03-01', afastamento: null, saldo: 30000, dataSaldo: '2026-09-01', saques: { aniversario: 900 }, saquesAniversario: [{ data: '2026-03-10', valor: 900 }] }],
+    nascimento: '1990-03-15', carreira: { contratos: [{ empregador: 'X', salarios: [{ data: '2024-01-01', valor: 8000 }] }] },
+  } };
+  const est = estimativaFgts(ref, HOJE);
+  assert.equal(est.mes, '2027-03');
+  assert.ok(est.valor > 3000 && est.valor < 9000, `saque estimado ${est.valor}`);
+  assert.equal(est.ativo, true);
+  const meta = { entradas: [entradaPadrao('fgts')] };
+  const [e] = expandirEntradas(meta, { referencias: ref, hoje: HOJE, ate: '2027-06' });
+  assert.equal(e.mes, '2027-03');
+  assert.ok(perto(e.valor, est.valor * 0.9, 0.02), '90% do que vai receber');
+  // data antes do aniversário: não entra
+  assert.deepEqual(expandirEntradas(meta, { referencias: ref, hoje: HOJE, ate: '2027-03' }), []);
+  // valor e mês informados valem mais que a estimativa
+  const edit = { entradas: [entradaPadrao('fgts', { valor: 4000, mes: '2027-01', pct: 0.5 })] };
+  const [e2] = expandirEntradas(edit, { referencias: ref, hoje: HOJE, ate: '2027-06' });
+  assert.deepEqual([e2.mes, e2.valor, e2.origem], ['2027-01', 2000, 'informado']);
+  // sem dados do FGTS: avisa o que falta
+  const [e3] = expandirEntradas(meta, { referencias: {}, hoje: HOJE, ate: '2027-06' }) .concat([null]);
+  assert.equal(e3, null, 'sem mês do aniversário não há como saber quando cai');
+});
+
+test('PLR/outra entrada: uma vez ou recorrente; desligada não conta', () => {
+  const meta = { entradas: [
+    entradaPadrao('plr', { valor: 3000, mes: '2027-02', pct: 1 }),
+    entradaPadrao('outra', { nome: 'Venda do notebook', valor: 800, mes: '2026-12', pct: 0.5 }),
+    entradaPadrao('outra', { nome: 'Desligada', valor: 999, mes: '2026-12', ativo: false }),
+    entradaPadrao('outra', { nome: 'Mensal', valor: 100, mes: '2026-11', recorrencia: 'mensal' }),
+  ] };
+  const r = expandirEntradas(meta, { referencias: {}, hoje: HOJE, ate: '2027-02' });
+  assert.deepEqual(r.map((e) => [e.rotulo, e.mes, e.valor]), [['Mensal', '2026-11', 100], ['Venda do notebook', '2026-12', 400], ['Mensal', '2026-12', 100], ['Mensal', '2027-01', 100]]);
+});
+
+test('aporte com entradas: (falta - entradas até a data) / meses; com rendimento as entradas rendem até a data; degraus na projeção', () => {
+  const base = { id: 'g', tipo: 'acumulo', nome: 'Meta', moeda: 'BRL', valorAlvo: 20000, dataAlvo: '2027-06', rendimentoAnual: 0, status: 'ativa', vinculos: [], itens: [], valorInicial: 2000, especificos: {}, entradas: [] };
+  const ctx = { ativos: [], cambio: {}, hoje: HOJE, referencias: REF_SAL, historico: {} };
+  const sem = calcularMeta(base, ctx);
+  assert.equal(sem.mesesRestantes, 8);
+  assert.equal(sem.aporteNecessario, (20000 - 2000) / 8);
+  const com = calcularMeta({ ...base, entradas: [entradaPadrao('decimo13'), entradaPadrao('outra', { valor: 1000, mes: '2027-03', pct: 1 })] }, ctx);
+  assert.equal(com.entradasTotal, 3600 + 2160 + 1000);
+  assert.equal(com.aporteNecessario, (20000 - 2000 - 6760) / 8);
+  assert.deepEqual([com.decomposicao.falta, com.decomposicao.totalEntradas, com.decomposicao.restante, com.decomposicao.meses], [18000, 6760, 11240, 8]);
+  // com rendimento: o aporte fecha EXATAMENTE no alvo (entradas rendem a partir do mês em que caem)
+  const rend = calcularMeta({ ...base, rendimentoAnual: 0.12, entradas: [entradaPadrao('outra', { valor: 5000, mes: '2026-12', pct: 1 })] }, ctx);
+  const taxa = rend.taxa;
+  const fvEntradas = valorFuturoEntradas(rend.entradasFluxo, 8, taxa);
+  assert.ok(fvEntradas > 5000);
+  const traj = trajetoriaMensal({ atual: 2000, aporte: rend.aporteNecessario, taxa, entradas: rend.entradasFluxo, meses: 8 });
+  assert.ok(perto(traj[traj.length - 1], 20000, 0.5), `fecha no alvo: ${traj[traj.length - 1]}`);
+  // degrau no mês da entrada (k = 2: dezembro)
+  const k = rend.entradasFluxo[0].k;
+  assert.ok(traj[k] - traj[k - 1] > 5000 + rend.aporteNecessario - 1, 'a curva sobe em degrau');
+  const serie = serieProjecao(com, { hoje: HOJE });
+  assert.ok(serie.length >= 8 && serie.some((p) => p.necessaria != null));
+  // o ritmo atual também enxerga as entradas: prazo menor
+  const ritmo = calcularMeta({ ...base, aporteMensal: 1000, entradas: [entradaPadrao('outra', { valor: 6000, mes: '2026-12', pct: 1 })] }, ctx);
+  const semE = calcularMeta({ ...base, aporteMensal: 1000 }, ctx);
+  assert.ok(ritmo.mesesEstimados < semE.mesesEstimados);
+});
+
+test('viagem: "A pagar" (cartão) fica FORA do aporte; "A juntar" (diárias, taxa, margem, itens não pagos) menos o guardado e as entradas', () => {
+  const base = {
+    id: 'vg', tipo: 'viagemInternacional', nome: 'V', moeda: 'EUR', dataAlvo: '2027-06', rendimentoAnual: 0, status: 'ativa', itens: [],
+    especificos: { margem: 0.1, pessoas: 2, destinos: [
+      { id: 'a', cidade: 'Paris', paisCodigo: 'FR', moeda: 'EUR', dias: 5, gastos: { alimentacao: 100 }, extras: 0, taxaTuristica: 5, taxaNoites: null, taxaPessoas: null },
+      { id: 'b', cidade: 'Zurique', paisCodigo: 'CH', moeda: 'CHF', dias: 2, gastos: { alimentacao: 100 }, extras: 0 },
+    ], fixos: [] },
+    vinculos: [{ tipo: 'saldo', id: 'w', instituicao: 'Wise', moeda: 'EUR', saldo: 300 }],
+    entradas: [],
+  };
+  const cambio = { EUR: { valor: 6 }, CHF: { valor: 7 } };
+  const ctx = { ativos: [], cambio, hoje: HOJE, referencias: {}, historico: {} };
+  const sem = calcularMeta(base, ctx);
+  // EUR: 5 x 100 = 500 + 10% = 550 + taxa 5 x 5 noites x 2 pessoas = 50 -> 600 (guardado 300); CHF: 200 + 10% = 220
+  assert.deepEqual([sem.viagem.porMoeda.EUR.comMargem, sem.viagem.porMoeda.EUR.taxa, sem.viagem.porMoeda.CHF.comMargem], [600, 50, 220]);
+  assert.equal(sem.alvoBRL, 600 * 6 + 220 * 7);
+  assert.equal(sem.atualBRL, 1800);
+  assert.equal(sem.falta, 600 * 6 + 220 * 7 - 1800);
+  const aporte0 = sem.aporteNecessario;
+  assert.equal(aporte0, sem.falta / 8);
+  // compra no cartão (já feita): NÃO muda o aporte nem o status; aparece só em "A pagar"
+  const comCartao = { ...base, especificos: { ...base.especificos, fixos: [
+    { id: 'f1', nome: 'Passagem', valor: 6000, moeda: 'BRL', parcelas: 6, inicio: '2026-08', parte: 1, forma: 'cartao', cartao: 'Cartão X' },
+    { id: 'f2', nome: 'Seguro', valor: 500, moeda: 'BRL', parcelas: 1, forma: 'pago' },
+  ] } };
+  const c1 = calcularMeta(comCartao, ctx);
+  assert.equal(c1.aporteNecessario, aporte0, 'o cartão não entra no aporte');
+  assert.equal(c1.alvoBRL, sem.alvoBRL);
+  assert.equal(c1.status, sem.status);
+  const ap = c1.viagem.aPagar;
+  assert.equal(ap.totalBRL, 6500);
+  // 6 parcelas de 1.000 de ago a jan; hoje é out: ago/set já passaram (confirmadas), out-jan pendentes
+  assert.deepEqual(ap.cronograma.map((x) => [x.mes, x.total, x.pendente]), [['2026-08', 1000, 0], ['2026-09', 1000, 0], ['2026-10', 1000, 1000], ['2026-11', 1000, 1000], ['2026-12', 1000, 1000], ['2027-01', 1000, 1000]]);
+  assert.equal(ap.mesAtualBRL, 1000);
+  assert.equal(ap.pendenteBRL, 4000);
+  assert.equal(ap.confirmadoBRL, 2500, 'ago+set do cartão + o seguro à vista');
+  assert.equal(ap.ultimoMes, '2027-01');
+  assert.deepEqual(ap.itens.map((f) => [f.nome, f.status]), [['Passagem', 'pendente'], ['Seguro', 'confirmado']]);
+  assert.equal(ap.cronograma[0].porCartao['Cartão X'], 1000);
+  // marcar como confirmado (fatura paga): tudo vira confirmado
+  const conf = calcularViagem({ ...comCartao, especificos: { ...comCartao.especificos, fixos: [{ ...comCartao.especificos.fixos[0], confirmado: true }] } }, { cambio, hoje: HOJE });
+  assert.equal(conf.aPagar.pendenteBRL, 0);
+  assert.equal(conf.fixos[0].status, 'confirmado');
+  // item "ainda vou pagar" ENTRA no a juntar (e no aporte)
+  const comJuntar = { ...base, especificos: { ...base.especificos, fixos: [{ id: 'f3', nome: 'Trem', valor: 100, moeda: 'CHF', parcelas: 1, forma: 'juntar' }] } };
+  const c2 = calcularMeta(comJuntar, ctx);
+  assert.equal(c2.alvoBRL, sem.alvoBRL + 700);
+  assert.ok(c2.aporteNecessario > aporte0);
+  assert.equal(c2.viagem.aPagar.itens.length, 0);
+  // entradas (13º 90%) reduzem o aporte; decomposição explica
+  const c3 = calcularMeta({ ...comCartao, entradas: [entradaPadrao('decimo13', { pct: 0.3 })] }, { ...ctx, referencias: REF_SAL });
+  assert.equal(c3.entradasTotal, 1920);
+  assert.equal(c3.aporteNecessario, (sem.falta - 1920) / 8);
+  assert.equal(c3.decomposicao.restante, sem.falta - 1920);
+  // entradas maiores que a falta: nada a aportar (nunca negativo)
+  assert.equal(calcularMeta({ ...comCartao, entradas: [entradaPadrao('decimo13')] }, { ...ctx, referencias: REF_SAL }).aporteNecessario, 0);
+  // status só pelo a juntar: aporte informado cobrindo o necessário = no ritmo, mesmo com muita parcela no cartão
+  const cr = calcularMeta({ ...comCartao, aporteMensal: Math.ceil(aporte0) }, ctx);
+  assert.equal(cr.status, 'no-ritmo');
+  assert.equal(calcularMeta({ ...comCartao, aporteMensal: 10 }, ctx).status, 'atrasada');
+});
+
+test('conta mensal antiga da viagem vira item no cartão (aporte não muda)', () => {
+  const meta = { id: 'v', tipo: 'viagemNacional', nome: 'V', moeda: 'BRL', valorAlvo: 3000, dataAlvo: '2027-06', rendimentoAnual: 0, status: 'ativa', vinculos: [], itens: [], especificos: {}, contaMensal: { descricao: 'Hotel', valor: 500, meses: 6, inicio: '2026-09' } };
+  const c = calcularMeta(meta, { ativos: [], cambio: {}, hoje: HOJE, referencias: {}, historico: {} });
+  assert.equal(c.viagem.aPagar.totalBRL, 3000);
+  assert.equal(c.viagem.aPagar.mesAtualBRL, 500);
+  assert.equal(c.aporteNecessario, 3000 / 8, 'só o valor pra gastar lá');
+});
+
+test('taxa turística: por pessoa por noite x noites (padrão = dias; máximo da cidade) x pessoas (padrão = as da viagem)', () => {
+  assert.deepEqual(taxaTuristicaDestino({ dias: 5, taxaTuristica: 5.53 }, { pessoasPadrao: 2 }), { valor: 5.53, noites: 5, pessoas: 2, max: null, total: 55.3 });
+  assert.equal(taxaTuristicaDestino({ dias: 10, taxaTuristica: 7, taxaMaxNoites: 7 }, { pessoasPadrao: 1 }).total, 49, 'Barcelona: no máximo 7 noites');
+  assert.equal(taxaTuristicaDestino({ dias: 4, taxaTuristica: 3, taxaNoites: 2, taxaPessoas: 3 }).total, 18, 'noites e pessoas editáveis');
+  assert.equal(taxaTuristicaDestino({ dias: 4 }).total, 0, 'nem toda cidade cobra');
+  // entra no "a juntar" sem margem
+  const v = calcularViagem({ especificos: { margem: 0.5, destinos: [{ moeda: 'EUR', dias: 2, gastos: { alimentacao: 100 }, taxaTuristica: 10 }] } }, { cambio: { EUR: 6 }, hoje: HOJE });
+  assert.equal(v.porMoeda.EUR.comMargem, 200 * 1.5 + 20);
+  assert.equal(v.taxaBRL, 120);
+});
+
+test('sugestão de taxa turística (taxas-turisticas.json): só valor com fonte e ano; percentual/sem fonte = informe manualmente', () => {
+  const paris = sugestaoTaxaTuristica({ cidade: 'Paris', paisCodigo: 'FR' }, TAXAS);
+  assert.equal(paris.tipo, 'fixa');
+  assert.ok(paris.valor > 0 && paris.moeda === 'EUR' && paris.ano >= 2025 && /^https:\/\//.test(paris.fonte.url));
+  assert.equal(sugestaoTaxaTuristica({ cidade: 'barcelona' }, TAXAS).maxNoites, 7);
+  assert.equal(sugestaoTaxaTuristica({ cidade: 'Amsterdã', paisCodigo: 'NL' }, TAXAS).tipo, 'percentual');
+  assert.equal(sugestaoTaxaTuristica({ cidade: 'Lugar Nenhum' }, TAXAS), null);
+  assert.equal(sugestaoTaxaTuristica({ cidade: 'Paris', paisCodigo: 'PT' }, TAXAS), null, 'o país tem que bater');
+  TAXAS.cidades.forEach((t) => {
+    assert.ok(['fixa', 'percentual', 'nao-cobra'].includes(t.tipo), t.cidade);
+    assert.ok(t.fonte && /^https:\/\//.test(t.fonte.url) && t.fonte.nome && t.ano, `fonte e ano de ${t.cidade}`);
+    if (t.tipo === 'fixa') assert.ok(t.valor > 0 && t.moeda, t.cidade);
+    if (t.tipo === 'percentual') assert.ok(t.valor == null, `${t.cidade}: percentual não vira valor fixo`);
+  });
+  ['Paris', 'Barcelona', 'Roma', 'Veneza', 'Amsterdã', 'Lisboa', 'Porto', 'Viena', 'Praga', 'Budapeste', 'Berlim', 'Zurique'].forEach((c) => {
+    assert.ok(TAXAS.cidades.some((t) => t.cidade === c), `${c} está na lista`);
+  });
+});
+
+test('países: nome em português, sinônimos, ISO, bandeira local e cidades por país', () => {
+  assert.equal(PAISES.length > 190, true);
+  PAISES.forEach((p) => {
+    assert.match(p.codigo, /^[A-Z]{2}$/);
+    assert.match(p.moeda || '', /^[A-Z]{3}$/, p.nome);
+    assert.ok(fs.existsSync(fileURLToPath(new URL(`../${caminhoBandeira(p.codigo)}`, import.meta.url))), `bandeira de ${p.nome}`);
+  });
+  Object.keys(CIDADES).forEach((cod) => assert.ok(PAISES.some((p) => p.codigo === cod), `cidades de ${cod} sem país`));
+  const cod = (t) => (acharPais(t, PAISES) || {}).codigo;
+  assert.deepEqual(['Suiça', 'Suíça', 'switzerland', 'SUIÇA', ' ch '].map(cod), ['CH', 'CH', 'CH', 'CH', 'CH']);
+  assert.deepEqual(['Inglaterra', 'Reino Unido', 'UK', 'Escócia', 'Great Britain'].map(cod).slice(0, 2), ['GB', 'GB']);
+  assert.deepEqual(['Holanda', 'Países Baixos', 'Espanha', 'França', 'Estados Unidos', 'EUA', 'Brasil', 'Republica Tcheca', 'Tchéquia'].map(cod).slice(0, 7), ['NL', 'NL', 'ES', 'FR', 'US', 'US', 'BR']);
+  assert.equal(cod('Narnia'), undefined);
+  assert.equal(acharPais('Suíça', PAISES).moeda, 'CHF');
+  assert.equal(acharPais('Brasil', PAISES).moeda, 'BRL');
+  assert.equal(caminhoBandeira('CH'), 'assets/imgs/flags/ch.svg');
+  assert.equal(caminhoBandeira('xx1'), null);
+  assert.ok(cidadesDoPais(CIDADES, 'FR').some((c) => c.nome === 'Paris'));
+  assert.equal(acharPaisPelaCidade('Interlaken', CIDADES, PAISES).codigo, 'CH');
+  assert.equal(acharPaisPelaCidade('Madrid', CIDADES, PAISES).codigo, 'ES', 'sinônimo da cidade');
+});
+
+test('Wanderlog: normaliza o link (https:// se faltar), recusa o que não é http(s), reconhece o domínio', () => {
+  assert.equal(normalizarUrl('wanderlog.com/plan/abc'), 'https://wanderlog.com/plan/abc');
+  assert.equal(normalizarUrl('  https://wanderlog.com/plan/abc?x=1 '), 'https://wanderlog.com/plan/abc?x=1');
+  assert.equal(normalizarUrl(''), '');
+  assert.equal(normalizarUrl('javascript:alert(1)'), null);
+  assert.equal(normalizarUrl('isso nao e link'), null);
+  assert.equal(ehLinkWanderlog('https://wanderlog.com/plan/abc'), true);
+  assert.equal(ehLinkWanderlog('https://www.wanderlog.com/view/xyz'), true);
+  assert.equal(ehLinkWanderlog('https://exemplo.com/wanderlog.com'), false);
+});
+
+test('migração da viagem antiga: país digitado -> ISO, itens fixos -> "A pagar", conta mensal -> item no cartão, entradas padrão, "revise" no que não mapear', () => {
+  const antiga = {
+    id: 'v', tipo: 'viagemInternacional', nome: 'Antiga', moeda: 'EUR', dataAlvo: '2027-06', rendimentoAnual: 0.1, status: 'ativa', vinculos: [], itens: [],
+    contaMensal: { descricao: 'Hotel parcelado', valor: 300, meses: 4, inicio: '2026-09' },
+    especificos: { destino: 'Europa', margem: 0.1, destinos: [
+      { id: 'd1', pais: 'Suiça', cidade: 'Zurique', moeda: 'CHF', dias: 3, gastos: { alimentacao: 100 } },
+      { id: 'd2', pais: 'Inglaterra', cidade: 'Londres', moeda: 'GBP', dias: 2, gastos: {} },
+      { id: 'd3', pais: 'switzerland', cidade: 'Lucerna', moeda: 'EUR', dias: 1, gastos: {} },
+      { id: 'd4', pais: '', cidade: 'Interlaken', moeda: 'CHF', dias: 1, gastos: {} },
+      { id: 'd5', pais: 'Atlântida', cidade: 'Cidade Perdida', moeda: 'EUR', dias: 1, gastos: {} },
+    ], fixos: [
+      { id: 'f1', nome: 'Passagem', valor: 5000, moeda: 'BRL', parcelas: 10, inicio: '2026-08', parte: 1, pago: false },
+      { id: 'f2', nome: 'Ingresso', valor: 100, moeda: 'EUR', parcelas: 1, pago: true },
+      { id: 'f3', nome: 'Hotel sem mês', valor: 800, moeda: 'BRL', parcelas: 4, parte: 1 },
+    ] },
+  };
+  const original = JSON.stringify(antiga);
+  const { meta: m, revisar, mudou } = migrarMetaViagem(antiga, { paises: PAISES, cidades: CIDADES });
+  assert.equal(JSON.stringify(antiga), original, 'não altera a meta de entrada');
+  assert.equal(mudou, true);
+  const d = m.especificos.destinos;
+  assert.deepEqual(d.map((x) => [x.paisCodigo, x.pais]), [['CH', 'Suíça'], ['GB', 'Reino Unido'], ['CH', 'Suíça'], ['CH', 'Suíça'], [undefined, 'Atlântida']]);
+  assert.equal(d[0].paisDigitado, 'Suiça', 'guarda o que foi digitado');
+  assert.deepEqual(d.map((x) => x.cidade), ['Zurique', 'Londres', 'Lucerna', 'Interlaken', 'Cidade Perdida'], 'nada se perde');
+  assert.equal(d[0].gastos.alimentacao, 100);
+  assert.deepEqual(m.especificos.fixos.map((f) => [f.nome, f.forma]).slice(0, 3), [['Passagem', 'cartao'], ['Ingresso', 'pago'], ['Hotel sem mês', 'cartao']]);
+  const hotel = m.especificos.fixos.find((f) => f.nome === 'Hotel parcelado');
+  assert.deepEqual([hotel.valor, hotel.parcelas, hotel.inicio, hotel.forma], [1200, 4, '2026-09', 'cartao']);
+  assert.equal(m.contaMensal, null);
+  assert.deepEqual(m.entradas.map((e) => [e.tipo, e.pct]), [['decimo13', 0.9], ['fgts', 0.9]]);
+  assert.equal(m._entradasPadrao, true);
+  const campos = revisar.map((r) => `${r.campo}:${r.destinoId || r.fixoId}`);
+  assert.ok(campos.includes('país:d5'), '"Atlântida" não mapeia');
+  assert.ok(campos.includes('país:d4'), 'país deduzido pela cidade: confira');
+  assert.ok(campos.includes('moeda:d3'), 'Suíça em euro: confira a moeda');
+  assert.ok(campos.some((c) => c.startsWith('mês da 1ª fatura:f3')));
+  assert.ok(!campos.includes('país:d1') && !campos.includes('país:d2'));
+  // idempotente: migrar de novo não duplica nada
+  const de2 = migrarMetaViagem(m, { paises: PAISES, cidades: CIDADES });
+  assert.equal(de2.meta.especificos.fixos.length, m.especificos.fixos.length);
+  assert.equal(de2.meta.entradas.length, 2);
+  // o aporte da migrada = o do "a juntar" (os itens antigos não entram)
+  const ctx = { ativos: [], cambio: { EUR: 6, CHF: 7, GBP: 8 }, hoje: HOJE, referencias: {}, historico: {} };
+  const c = calcularMeta(de2.meta, ctx);
+  assert.equal(c.viagem.aPagar.totalBRL, 5000 + 600 + 800 + 1200);
+  assert.ok(c.aporteNecessario > 0);
+  // sem lista de países carregada: migra o resto e não chuta país
+  const sp = migrarMetaViagem(antiga, { paises: [] });
+  assert.equal(sp.meta.especificos.destinos[0].paisCodigo, undefined);
+  assert.equal(sp.meta.especificos.fixos[0].forma, 'cartao');
+  // não é viagem: devolve igual
+  assert.equal(migrarMetaViagem({ tipo: 'casa' }, { paises: PAISES }).mudou, false);
 });

@@ -11,6 +11,12 @@ import { JSDOM } from 'jsdom';
 import { montarPaginaMetas, TEMPLATE_METAS, parseNumeroBR, graficoProjecaoSvg, heroiHtml, cardMetaHtml } from '../assets/js/pages/metas.js';
 import { cardMetaRendaPassiva, carregarMetasParaCard, formatMoeda } from '../assets/js/metas-card.js';
 import { calcularMeta } from '../assets/js/pages/metas-calc.js';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// 04/10/2026: países, cidades e taxas turísticas (assets/data) - os mesmos arquivos que o navegador busca
+const lerDado = (n) => JSON.parse(fs.readFileSync(fileURLToPath(new URL(`../assets/data/${n}`, import.meta.url)), 'utf8'));
+const DADOS_VIAGEM = { paises: lerDado('paises.json').paises, cidades: lerDado('cidades.json').cidades, taxas: lerDado('taxas-turisticas.json') };
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const BASE = {
@@ -40,9 +46,9 @@ const clique = (w, el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: 
 const digitar = (w, el, valor, tipo = 'input') => { el.value = valor; el.dispatchEvent(new w.Event(tipo, { bubbles: true })); };
 const espera = () => new Promise((r) => setTimeout(r, 0));
 
-async function montar({ metas = [], hash = '', historico = { ok: true, hoje: '2026-10-02', metas: {}, indices: [] } } = {}) {
+async function montar({ metas = [], hash = '', historico = { ok: true, hoje: '2026-10-02', metas: {}, indices: [] }, base = {}, dadosViagem = DADOS_VIAGEM } = {}) {
   const { doc, w } = montarDom(hash);
-  let servidor = { ...clone(BASE), metas: clone(metas) };
+  let servidor = { ...clone(BASE), ...clone(base), metas: clone(metas) };
   const salvas = [];
   const arquivadas = [];
   const excluidas = [];
@@ -59,6 +65,7 @@ async function montar({ metas = [], hash = '', historico = { ok: true, hoje: '20
     excluirMetaImpl: async (_t, id, { restaurar }) => { arquivadas.push([id, restaurar]); return { ok: true, id }; },
     getMetasHistoricoImpl: async () => clone(historico),
     excluirDefinitivoImpl: async (_t, id) => { excluidas.push(id); return { ok: true, id, excluida: true }; },
+    carregarDadosViagemImpl: async () => dadosViagem,
   });
   await espera();
   return { doc, w, pagina, salvas, arquivadas, excluidas };
@@ -432,19 +439,245 @@ test('v2 arquivada: "Excluir definitivamente" (com confirmação) apaga e volta 
 // card não podem pintar o aporte de vermelho comparando com as parcelas.
 test('v2 viagem: parcelas correndo à parte - herói e card comparam o aporte com o que falta JUNTAR', () => {
   const meta = {
-    id: 'v1', tipo: 'viagemInternacional', nome: 'Viagem Parcelas', moeda: 'EUR', dataAlvo: '2027-05', rendimentoAnual: 0, status: 'ativa', itens: [],
+    id: 'v1', tipo: 'viagemInternacional', nome: 'Viagem Parcelas', moeda: 'EUR', dataAlvo: '2027-05', rendimentoAnual: 0, status: 'ativa', itens: [], aporteMensal: 100,
     especificos: { margem: 0, destinos: [{ id: 'd1', cidade: 'Cidade A', moeda: 'EUR', dias: 2, gastos: { alimentacao: 50 } }],
-      fixos: [{ id: 'f1', nome: 'Passagem', valor: 1200, moeda: 'BRL', parte: 1, parcelas: 6, inicio: '2026-08' }] },
-    vinculos: [{ tipo: 'saldo', id: 's1', instituicao: 'Conta X', moeda: 'EUR', saldo: 100 }],
+      fixos: [{ id: 'f1', nome: 'Passagem', valor: 1200, moeda: 'BRL', parte: 1, parcelas: 6, inicio: '2026-08', forma: 'cartao' }] },
+    vinculos: [{ tipo: 'saldo', id: 's1', instituicao: 'Conta X', moeda: 'EUR', saldo: 50 }],
   };
   const c = calcularMeta(meta, { ...clone(BASE), historico: {} });
-  assert.equal(c.falta, 0, 'o dinheiro de lá já está guardado');
-  assert.ok(c.parcelasCorrendo > 0);
+  assert.equal(c.falta, 300, '€ 100 - € 50 guardados, a R$ 6');
+  assert.equal(c.parcelasCorrendo, 200);
+  assert.equal(c.aporteNecessario, 42.86, 'o aporte NÃO soma as parcelas do cartão');
   assert.equal(c.status, 'no-ritmo');
   const h = heroiHtml(meta, c);
-  assert.match(h, /nada a juntar · \+ <b>R\$\s200<\/b>\/mês de parcelas/);
-  assert.doesNotMatch(h, /mt-num-heroi[^"]*ruim[^>]*>[\s\S]{0,200}Seu aporte/, 'aporte não fica vermelho');
+  assert.match(h, /Por mês/);
+  assert.match(h, /class="mt-pm paga"><i>paga<\/i><b>R\$\s200<\/b>/);
+  assert.match(h, /class="mt-pm guarda"><i>guarda<\/i><b>R\$\s43<\/b>/);
+  assert.match(h, /A pagar \(já comprado\)/);
   const card = cardMetaHtml(meta, c);
   assert.match(card, /class="mt-aporte ok"/);
-  assert.match(card, /necessário \(R\$\s200 de parcelas\)/);
+  assert.match(card, /pra guardar/);
+  assert.match(card, /paga R\$\s200\/mês de parcelas/);
+});
+
+// ---------------------------------------------------------------------------
+// 04/10/2026: Metas › Viagem v3 (dados inventados) - jsdom do detalhe e do cadastro
+// ---------------------------------------------------------------------------
+const REF_VIAGEM = {
+  ...BASE.referencias,
+  salario: { liquido: 6000, holerite: { salarioBase: 8000, totalVencimentos: 8000, inss: 900, irrf: 700, liquido: 6400 }, extras: [] },
+  fgts: {
+    contas: [{ empregador: 'X', admissao: '2019-03-01', afastamento: null, saldo: 30000, dataSaldo: '2026-09-01', saques: { aniversario: 900 }, saquesAniversario: [{ data: '2026-03-10', valor: 900 }] }],
+    nascimento: '1990-03-15', carreira: { contratos: [{ empregador: 'X', salarios: [{ data: '2024-01-01', valor: 8000 }] }] },
+  },
+};
+const BASE_VIAGEM = { hoje: '2026-10-04', referencias: REF_VIAGEM, cambio: { EUR: { valor: 6, fonte: 'planilha · Bolsa USA >>> D11', data: '2026-10-04' }, CHF: { valor: 7, fonte: 'planilha · Bolsa USA >>> D10', data: '2026-10-04' } } };
+const META_EUROTRIP = {
+  id: 'et', tipo: 'viagemInternacional', nome: 'Eurotrip Teste', moeda: 'EUR', dataAlvo: '2027-06', aporteMensal: 500, rendimentoAnual: 0, status: 'ativa', itens: [],
+  vinculos: [{ tipo: 'saldo', id: 's1', instituicao: 'Wise', moeda: 'EUR', saldo: 500 }],
+  especificos: {
+    destino: 'Europa', margem: 0.1, pessoas: 2, roteiroUrl: 'https://wanderlog.com/plan/abc',
+    destinos: [
+      { id: 'd1', pais: 'Suíça', paisCodigo: 'CH', cidade: 'Zurique', moeda: 'CHF', dias: 3, gastos: { alimentacao: 100 }, taxaTuristica: 2.5 },
+      { id: 'd2', pais: 'França', paisCodigo: 'FR', cidade: 'Paris', moeda: 'EUR', dias: 4, gastos: { alimentacao: 80 }, taxaTuristica: 5.53 },
+    ],
+    fixos: [
+      { id: 'f1', nome: 'Passagens', valor: 6000, moeda: 'BRL', parcelas: 6, inicio: '2026-08', parte: 1, forma: 'cartao', cartao: 'Cartão X' },
+      { id: 'f2', nome: 'Seguro', valor: 400, moeda: 'BRL', parcelas: 1, forma: 'pago' },
+    ],
+  },
+  entradas: [{ id: 'e1', tipo: 'decimo13', pct: 0.9, recorrencia: 'anual', ativo: true }, { id: 'e2', tipo: 'fgts', pct: 0.9, recorrencia: 'anual', ativo: true }],
+};
+
+test('v3 viagem: detalhe com A pagar (já comprado) x A juntar, entradas programadas, bandeiras, câmbio com fonte e botão do Wanderlog', async () => {
+  const { doc } = await montarV2({ metas: [META_EUROTRIP], hash: '#meta=et', base: BASE_VIAGEM });
+  const tela = doc.getElementById('mtTela');
+  const heroi = tela.querySelector('.mt-heroi-v2');
+  const rot = heroi.querySelector('a[data-roteiro]');
+  assert.ok(rot, 'botão do roteiro');
+  assert.deepEqual([rot.getAttribute('href'), rot.getAttribute('target'), /noopener/.test(rot.getAttribute('rel'))], ['https://wanderlog.com/plan/abc', '_blank', true]);
+  assert.match(rot.textContent, /Wanderlog/);
+  assert.ok(heroi.querySelectorAll('.mt-bandeiras img.mt-bandeira').length === 2, 'bandeiras CH e FR');
+  assert.match(heroi.querySelector('.mt-bandeiras img').getAttribute('src'), /assets\/imgs\/flags\/ch\.svg$/);
+  // Por mês: paga as parcelas, guarda o aporte do a juntar
+  const pm = heroi.querySelector('.mt-pormes');
+  assert.match(pm.querySelector('.paga b').textContent, /R\$\s1\.000/);
+  assert.match(pm.querySelector('.guarda b').textContent, /R\$/);
+  const apagar = [...tela.querySelectorAll('.mt-bloco')].find((b) => /A pagar \(já comprado\)/.test(b.querySelector('h3').textContent));
+  assert.ok(apagar);
+  assert.match(apagar.textContent, /Passagens/);
+  assert.match(apagar.textContent, /pago - confirmação pendente/);
+  assert.match(apagar.textContent, /pago e confirmado/, 'o seguro à vista');
+  assert.match(apagar.textContent, /Cartão X R\$\s1\.000/);
+  assert.match(apagar.textContent, /não entra no aporte/);
+  const ajuntar = [...tela.querySelectorAll('.mt-bloco')].find((b) => /^A juntar/.test(b.querySelector('h3').textContent));
+  assert.match(ajuntar.textContent, /Taxa turística/);
+  assert.match(ajuntar.textContent, /Total a juntar/);
+  assert.match(ajuntar.textContent, /Já guardado/);
+  assert.match(ajuntar.textContent, /13º salário \(1ª parcela\)/);
+  assert.match(ajuntar.textContent, /aporte mensal/);
+  assert.doesNotMatch(ajuntar.textContent, /Passagens/, 'o que está no cartão não entra no a juntar');
+  const ent = [...tela.querySelectorAll('.mt-bloco')].find((b) => /Entradas programadas/.test(b.querySelector('h3').textContent));
+  assert.match(ent.textContent, /Saque-aniversário do FGTS/);
+  assert.match(ent.textContent, /estimado pelo último holerite/);
+  assert.match(tela.textContent, /1 CHF = R\$\s7,00\s*\(planilha · Bolsa USA >>> D10, 04\/10\)/);
+  assert.match(tela.textContent, /Taxa turística/);
+  assert.doesNotMatch(tela.textContent, /Itens fixos e compras antecipadas/);
+});
+
+test('v3 viagem: sem link de roteiro não tem botão; link que não é do Wanderlog vira "Roteiro"', async () => {
+  const sem = clone(META_EUROTRIP); sem.especificos.roteiroUrl = '';
+  let r = await montarV2({ metas: [sem], hash: '#meta=et', base: BASE_VIAGEM });
+  assert.equal(r.doc.querySelector('a[data-roteiro]'), null);
+  const outro = clone(META_EUROTRIP); outro.especificos.roteiroUrl = 'https://exemplo.com/roteiro';
+  r = await montarV2({ metas: [outro], hash: '#meta=et', base: BASE_VIAGEM });
+  assert.equal(r.doc.querySelector('a[data-roteiro]').textContent.trim(), 'Roteiro');
+});
+
+test('v3 cadastro: dropdown de país (Brasil no topo, busca sem acento, bandeira, moeda) e de cidade (aceita fora da lista), taxa sugerida com fonte, roteiro e entradas', async () => {
+  const { doc, w, salvas } = await montarV2({ metas: [], base: BASE_VIAGEM });
+  clique(w, doc.getElementById('mtNova'));
+  const dlg = doc.getElementById('mtDialogo');
+  clique(w, dlg.querySelector('[data-tipo="viagemInternacional"]'));
+  clique(w, dlg.querySelector('[data-dest-add]'));
+  const pais = dlg.querySelector('[data-dest-item="0"] [data-combo="pais"]');
+  pais.focus();
+  const lista = dlg.querySelector('[data-dest-item="0"] .mt-combo-pais .mt-combo-lista');
+  assert.equal(lista.hidden, false, 'abre ao focar');
+  assert.equal(lista.querySelector('.mt-combo-op').dataset.paisOpcao, 'BR', 'Brasil no topo');
+  assert.ok(lista.querySelectorAll('.mt-combo-op').length > 60, 'lista dos países');
+  digitar(w, pais, 'suica');
+  const ops = [...dlg.querySelectorAll('[data-dest-item="0"] .mt-combo-pais [data-pais-opcao]')];
+  assert.deepEqual(ops.map((o) => o.dataset.paisOpcao), ['CH'], 'sem acento: suica = Suíça');
+  assert.ok(ops[0].querySelector('img.mt-bandeira'));
+  clique(w, ops[0]);
+  assert.equal(pais.value, 'Suíça');
+  assert.match(dlg.querySelector('[data-dest-item="0"] .mt-combo-flag img').getAttribute('src'), /flags\/ch\.svg$/);
+  assert.equal(dlg.querySelector('[data-dest-item="0"] select[data-dest-campo="moeda"]').value, 'CHF', 'país preenche a moeda');
+  // cidade: lista da Suíça; escolher preenche e sugere a taxa turística (com fonte)
+  const cid = dlg.querySelector('[data-dest-item="0"] [data-combo="cidade"]');
+  cid.focus();
+  const cidades = [...dlg.querySelectorAll('[data-dest-item="0"] [data-cidade-opcao]')].map((o) => o.dataset.cidadeOpcao);
+  assert.ok(cidades.includes('Zurique') && cidades.includes('Interlaken'));
+  digitar(w, cid, 'zuri');
+  clique(w, dlg.querySelector('[data-dest-item="0"] [data-cidade-opcao="Zurique"]'));
+  assert.equal(cid.value, 'Zurique');
+  assert.equal(dlg.querySelector('[data-dest-campo="taxaTuristica"]').value, '2,5');
+  const nota = dlg.querySelector('[data-taxa-nota="0"]');
+  assert.match(nota.textContent, /Sugestão/);
+  assert.match(nota.querySelector('a').getAttribute('href'), /^https:\/\//);
+  assert.match(nota.textContent, /2026/);
+  // cidade fora da lista vale
+  digitar(w, cid, 'Cidadezinha Qualquer');
+  const livre = dlg.querySelector('[data-dest-item="0"] [data-cidade-opcao="Cidadezinha Qualquer"]');
+  assert.ok(livre, 'oferece usar o texto digitado');
+  clique(w, livre);
+  assert.equal(cid.value, 'Cidadezinha Qualquer');
+  // país digitado exato (sinônimo) resolve ao sair do campo
+  clique(w, dlg.querySelector('[data-dest-add]'));
+  const pais2 = dlg.querySelector('[data-dest-item="1"] [data-combo="pais"]');
+  digitar(w, pais2, 'Inglaterra'); pais2.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(dlg.querySelector('[data-dest-item="1"] select[data-dest-campo="moeda"]').value, 'GBP');
+  assert.match(dlg.querySelector('[data-dest-item="1"] .mt-combo-flag img').getAttribute('src'), /flags\/gb\.svg$/);
+  // nome, dias e gasto
+  digitar(w, dlg.querySelector('[data-campo="nome"]'), 'Viagem v3');
+  digitar(w, dlg.querySelector('[data-dest="0"][data-dest-campo="dias"]'), '3');
+  digitar(w, dlg.querySelector('[data-dest="0"][data-dest-campo="gastos.alimentacao"]'), '100');
+  assert.match(dlg.querySelector('[data-dest-total="0"]').textContent, /CHF\s100\/dia · total CHF\s300 \+ taxa turística CHF\s8/, 'taxa 2,5 x 3 noites x 1 pessoa');
+  // Wanderlog: link inválido barra; sem protocolo ganha https://
+  const url = dlg.querySelector('[data-campo="especificos.roteiroUrl"]');
+  digitar(w, url, 'isso não é um link');
+  clique(w, dlg.querySelector('[data-proximo]'));
+  assert.match(dlg.querySelector('#mtPrevia').textContent, /link do roteiro/);
+  assert.equal(dlg.querySelectorAll('.mt-passos li.atual')[0].textContent.trim().replace(/^\d/, ''), 'Dados', 'continua no passo Dados');
+  digitar(w, url, 'wanderlog.com/plan/xyz');
+  // entradas programadas: 13º e FGTS (90%) já ligados; dá pra adicionar PLR
+  assert.equal(dlg.querySelectorAll('.mt-ent-ed').length, 2);
+  assert.match(dlg.querySelector('[data-entrada-resumo="0"]').textContent, /R\$/);
+  clique(w, dlg.querySelector('[data-entrada-add="plr"]'));
+  assert.equal(dlg.querySelectorAll('.mt-ent-ed').length, 3);
+  digitar(w, dlg.querySelector('[data-entrada="2"][data-entrada-campo="valor"]'), '2000');
+  const mes = dlg.querySelector('[data-entrada="2"][data-entrada-campo="mes"]'); mes.value = '2027-02'; mes.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.match(dlg.querySelector('[data-entrada-resumo="2"]').textContent, /fev\/2027/i);
+  // item no cartão
+  clique(w, dlg.querySelector('[data-fixo-add]'));
+  digitar(w, dlg.querySelector('[data-fixo="0"][data-fixo-campo="nome"]'), 'Passagem');
+  digitar(w, dlg.querySelector('[data-fixo="0"][data-fixo-campo="valor"]'), '3.000');
+  digitar(w, dlg.querySelector('[data-fixo="0"][data-fixo-campo="parcelas"]'), '6');
+  digitar(w, dlg.querySelector('[data-fixo="0"][data-fixo-campo="cartao"]'), 'Cartão Y');
+  assert.equal(dlg.querySelector('[data-fixo="0"][data-fixo-campo="forma"]').value, 'cartao', 'padrão: já comprado no cartão');
+  const meta = dlg.querySelector('[data-campo="dataAlvo"]'); meta.value = '2027-06'; meta.dispatchEvent(new w.Event('change', { bubbles: true }));
+  clique(w, dlg.querySelector('[data-proximo]'));
+  clique(w, dlg.querySelector('[data-proximo]'));
+  clique(w, dlg.querySelector('[data-salvar]'));
+  await espera();
+  const s = salvas[0];
+  assert.equal(s.especificos.roteiroUrl, 'https://wanderlog.com/plan/xyz');
+  assert.deepEqual([s.especificos.destinos[0].paisCodigo, s.especificos.destinos[0].pais, s.especificos.destinos[0].moeda, s.especificos.destinos[0].cidade, s.especificos.destinos[0].taxaTuristica], ['CH', 'Suíça', 'CHF', 'Cidadezinha Qualquer', 2.5]);
+  assert.equal(s.especificos.destinos[1].paisCodigo, 'GB');
+  assert.deepEqual([s.especificos.fixos[0].forma, s.especificos.fixos[0].cartao, s.especificos.fixos[0].parcelas, s.especificos.fixos[0].valor], ['cartao', 'Cartão Y', 6, 3000]);
+  assert.deepEqual(s.entradas.map((e) => [e.tipo, e.pct]), [['decimo13', 0.9], ['fgts', 0.9], ['plr', 1]]);
+  assert.equal(s.entradas[2].valor, 2000);
+  assert.equal(s._revisar, undefined);
+  assert.match(doc.getElementById('mtTela').textContent, /Wanderlog/);
+});
+
+test('v3 cadastro: mudar "como paga" troca os campos (cartão: parcelas, 1ª fatura, cartão; juntar: só a sua parte)', async () => {
+  const { doc, w } = await montarV2({ metas: [META_EUROTRIP], hash: '#meta=et', base: BASE_VIAGEM });
+  clique(w, doc.querySelector('[data-editar]'));
+  const dlg = doc.getElementById('mtDialogo');
+  assert.ok(dlg.querySelector('[data-fixo="0"][data-fixo-campo="parcelas"]'));
+  assert.equal(dlg.querySelector('[data-fixo="1"][data-fixo-campo="parcelas"]'), null, 'à vista não pede parcelas');
+  const forma = dlg.querySelector('[data-fixo="0"][data-fixo-campo="forma"]');
+  forma.value = 'juntar'; forma.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(dlg.querySelector('[data-fixo="0"][data-fixo-campo="parcelas"]'), null);
+  assert.match(dlg.querySelector('#mtResumoViagem').textContent, /a juntar/);
+  assert.doesNotMatch(dlg.querySelector('#mtResumoViagem').textContent, /já comprado \(a pagar\)[^]*Passagens/);
+});
+
+test('v3 migração na tela: viagem antiga (país digitado, item fixo, conta mensal) abre migrada, sem perder nada, com aviso "Revise"', async () => {
+  const antiga = {
+    id: 'ant', tipo: 'viagemInternacional', nome: 'Viagem Antiga', moeda: 'EUR', dataAlvo: '2027-06', aporteMensal: 300, rendimentoAnual: 0, status: 'ativa', itens: [], vinculos: [],
+    contaMensal: { descricao: 'Hotel', valor: 250, meses: 4, inicio: '2026-09' },
+    especificos: { destino: 'Europa', margem: 0.1, destinos: [
+      { id: 'a', pais: 'Suiça', cidade: 'Zurique', moeda: 'CHF', dias: 3, gastos: { alimentacao: 100 } },
+      { id: 'b', pais: 'Atlântida', cidade: 'Cidade Perdida', moeda: 'EUR', dias: 2, gastos: { alimentacao: 50 } },
+    ], fixos: [{ id: 'f', nome: 'Passagem', valor: 3000, moeda: 'BRL', parcelas: 5, inicio: '2026-08', parte: 1, pago: false }] },
+  };
+  const { doc, w, salvas } = await montarV2({ metas: [antiga], hash: '#meta=ant', base: BASE_VIAGEM });
+  const tela = doc.getElementById('mtTela');
+  assert.match(tela.querySelector('.mt-revisar-aviso').textContent, /Atlântida/);
+  assert.match(tela.querySelector('.mt-revisar-aviso').textContent, /Revise/);
+  assert.match(tela.textContent, /Suíça/);
+  assert.match(tela.textContent, /Cidade Perdida/);
+  assert.ok(tela.querySelector('.mt-tabela-destinos img.mt-bandeira[src$="ch.svg"]'));
+  const apagar = [...tela.querySelectorAll('.mt-bloco')].find((b) => /A pagar \(já comprado\)/.test(b.querySelector('h3').textContent));
+  assert.match(apagar.textContent, /Passagem/);
+  assert.match(apagar.textContent, /Hotel/, 'a conta mensal antiga virou item no cartão');
+  const ent = [...tela.querySelectorAll('.mt-bloco')].find((b) => /Entradas programadas/.test(b.querySelector('h3').textContent));
+  assert.match(ent.textContent, /13º e FGTS \(90%\) entraram como padrão/);
+  assert.equal(salvas.length, 0, 'nada é gravado sozinho');
+  // editar mostra o país mapeado e salvar grava o formato novo
+  clique(w, tela.querySelector('[data-editar]'));
+  const dlg = doc.getElementById('mtDialogo');
+  assert.equal(dlg.querySelector('[data-dest-item="0"] [data-combo="pais"]').value, 'Suíça');
+  assert.equal(dlg.querySelector('[data-dest-item="1"] [data-combo="pais"]').value, 'Atlântida', 'o que não mapeou continua como digitado');
+  clique(w, dlg.querySelector('[data-proximo]')); clique(w, dlg.querySelector('[data-proximo]'));
+  clique(w, dlg.querySelector('[data-salvar]'));
+  await espera();
+  assert.equal(salvas[0].especificos.destinos[0].paisCodigo, 'CH');
+  assert.equal(salvas[0].especificos.fixos.length, 2);
+  assert.equal(salvas[0].contaMensal, null);
+  assert.equal(salvas[0].entradas.length, 2);
+});
+
+test('v3 entradas programadas valem pra qualquer meta (acumulo): bloco no detalhe e aporte menor', async () => {
+  const meta = { id: 'ac', tipo: 'acumulo', categoria: 'projetos', nome: 'Notebook', moeda: 'BRL', valorAlvo: 12000, dataAlvo: '2027-06', rendimentoAnual: 0, status: 'ativa', itens: [], vinculos: [], valorInicial: 0, especificos: {},
+    entradas: [{ id: 'e1', tipo: 'decimo13', pct: 0.5, recorrencia: 'anual', ativo: true }] };
+  const { doc } = await montarV2({ metas: [meta], hash: '#meta=ac', base: BASE_VIAGEM });
+  const tela = doc.getElementById('mtTela');
+  assert.match(tela.textContent, /Entradas programadas/);
+  assert.match(tela.textContent, /13º salário \(1ª parcela\)/);
+  const c = calcularMeta(meta, { ...clone(BASE), ...BASE_VIAGEM, historico: {} });
+  assert.equal(c.aporteNecessario, (12000 - 2000 - 1200) / 8);
 });
