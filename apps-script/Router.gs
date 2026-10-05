@@ -93,6 +93,9 @@ function doGet(e) {
   if (action === 'transacoes') { // 26/09/2026: tela Transações - aportes + lançamentos (Aportes.gs)
     return handleTransacoes(e, auth);
   }
+  if (action === 'aportesPendentes') { // 06/10/2026: aviso de aporte aguardando no header (Aportes.gs)
+    return handleAportesPendentes(e, auth);
+  }
   if (action === 'infoNovoAtivo') { // 26/09/2026: Carteiras - adicionar ativo (NovoAtivo.gs)
     return handleInfoNovoAtivo(e, auth);
   }

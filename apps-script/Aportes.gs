@@ -48,6 +48,20 @@ function handleTransacoes(e, auth) {
   }
 }
 
+/**
+ * 06/10/2026 (Tiago: "ainda não vejo no header, ou em algum lugar visível em todo o site, que tenho
+ * um carrinho em andamento" - era um aporte "Aguardando valores finais"): GET leve só com os aportes
+ * aguardando (aux_aportes), pro aviso do header de todas as telas e de todos os aparelhos.
+ */
+function handleAportesPendentes(e, auth) {
+  try {
+    var aportes = lerAportes_(SpreadsheetApp.getActiveSpreadsheet()).filter(function (a) { return a.status === 'aguardando'; });
+    return jsonOut({ ok: true, aportes: aportes });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'aportesPendentes', erro: String(erro) });
+  }
+}
+
 /** POST salvarAporte: e.parameter.aporte = JSON { id?, data, status, observacao, itens: [...] }. */
 function handleSalvarAporte(e) {
   try {

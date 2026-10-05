@@ -511,6 +511,11 @@ export async function getTransacoes(token) {
   return request('GET', 'transacoes', token);
 }
 
+/** 06/10/2026: só os aportes "aguardando valores finais" (leve) - aviso do header em todas as telas. */
+export async function getAportesPendentes(token) {
+  return request('GET', 'aportesPendentes', token);
+}
+
 /** Grava (ou regrava pelo id) um aporte: { id?, data, status: 'aguardando'|'concluido', observacao, itens }. */
 export async function salvarAporte(token, aporte) {
   return request('POST', 'salvarAporte', token, { aporte: JSON.stringify(aporte) });

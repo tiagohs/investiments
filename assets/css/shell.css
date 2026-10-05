@@ -622,3 +622,7 @@ a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:cen
   .carrinho-panel{ top:auto; bottom:0; left:0; right:0; transform:none; width:100%; border-radius:18px 18px 0 0; max-height:78vh;
         padding:14px 14px calc(14px + env(safe-area-inset-bottom)); }
 }
+
+/* 06/10/2026: aportes aguardando valores finais também no carrinho do header */
+.carrinho-sep{ border:0; border-top:1px solid var(--border); margin:10px 0; }
+.carrinho-wrap.pendente .carrinho-btn{ border-color:var(--warn, #c98a00); }

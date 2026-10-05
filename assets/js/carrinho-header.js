@@ -20,6 +20,59 @@ import {
   lerCarrinhoLocal, carrinhoValido, totaisCarrinho, itensDoCarrinho, situacaoCarrinho, dataBRT, horaTxt,
 } from './carrinho-global.js';
 import { formatBRL, formatNumeroBR } from './format.js';
+import { getAportesPendentes } from './api-client.js';
+
+// 06/10/2026 (Tiago, com print de um aporte "Aguardando valores finais": "ainda não vejo no header,
+// ou em algum lugar visível em todo o site, que tenho um carrinho em andamento"): o header também
+// mostra os aportes já confirmados que esperam os valores finais (aux_aportes, sincronizados entre
+// aparelhos). Cache local pra aparecer na hora + busca leve no servidor (no máximo 1x/min, e ao
+// voltar pra aba). A tela Transações publica a lista sempre que muda.
+export const CHAVE_PENDENTES = 'investiments_aportes_pendentes';
+export const EVENTO_PENDENTES = 'aportes:pendentes';
+
+/** Aportes "aguardando" -> resumo { id, data, n, totalBrl, totalUsd } (valor final se já informado, senão o planejado). */
+export function resumoPendentes(aportes) {
+  return (Array.isArray(aportes) ? aportes : []).filter((a) => a && a.status === 'aguardando').map((a) => {
+    let totalBrl = 0, totalUsd = 0;
+    (a.itens || []).forEach((it) => {
+      const v = Number(it.valorFinal) > 0 ? Number(it.valorFinal) : (Number(it.valorPlanejado) || 0);
+      if (it.moeda === 'USD') totalUsd += v; else totalBrl += v;
+    });
+    return { id: a.id, data: a.data, n: (a.itens || []).length, totalBrl, totalUsd };
+  });
+}
+
+/** A tela Transações chama ao carregar/mudar os aportes: grava o resumo e avisa o header. */
+export function publicarAportesPendentes(aportes, { win = (typeof window !== 'undefined' ? window : null), storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : null) } = {}) {
+  if (!Array.isArray(aportes)) return;
+  const lista = resumoPendentes(aportes);
+  try { if (storage) storage.setItem(CHAVE_PENDENTES, JSON.stringify({ ts: Date.now(), lista })); } catch (e) { /* só conveniência */ }
+  if (win && typeof win.CustomEvent === 'function' && typeof win.dispatchEvent === 'function') win.dispatchEvent(new win.CustomEvent(EVENTO_PENDENTES, { detail: { lista } }));
+}
+
+function lerPendentes(storage) {
+  try {
+    const r = JSON.parse((storage && storage.getItem(CHAVE_PENDENTES)) || 'null');
+    return r && Array.isArray(r.lista) ? r : { ts: 0, lista: [] };
+  } catch (e) { return { ts: 0, lista: [] }; }
+}
+
+/** HTML da parte "Aguardando valores finais" do popover. */
+export function pendentesPanelHtml(lista, { hrefTransacoes = '#', naTransacoes = false } = {}) {
+  if (!lista || !lista.length) return '';
+  const linhas = lista.map((p) => `
+    <li class="carrinho-item">
+      <span class="carrinho-item-nome"><b>Aporte de ${dma(p.data)}</b><small>${p.n} ativo${p.n === 1 ? '' : 's'} · comprado, falta conferir quantidade e preço</small></span>
+      <span class="carrinho-item-valor">${formatBRL(p.totalBrl)}${p.totalUsd > 0 ? `<small>+ US$ ${formatNumeroBR(p.totalUsd)}</small>` : ''}</span>
+    </li>`).join('');
+  const botao = naTransacoes
+    ? '<button type="button" class="btn btn-primary carrinho-ir" data-pendentes-abrir>Conferir e concluir</button>'
+    : `<a class="btn btn-primary carrinho-ir" href="${esc(String(hrefTransacoes).split('#')[0])}#andamento">Conferir e concluir em Transações</a>`;
+  return `
+    <div class="carrinho-cab"><h3>Aguardando valores finais</h3><small>${lista.length} aporte${lista.length === 1 ? '' : 's'}</small></div>
+    <ul class="carrinho-itens">${linhas}</ul>
+    ${botao}`;
+}
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dma = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '');
@@ -86,7 +139,10 @@ export function carrinhoAvisoHtml(carrinho, sit) {
 export function setupCarrinhoHeader(doc, {
   win = doc.defaultView, agora = () => new Date(), storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : null),
   setIntervalImpl = typeof setInterval !== 'undefined' ? setInterval : null,
+  getAportesPendentesImpl = getAportesPendentes,
 } = {}) {
+  let token = null;
+  let buscando = false;
   const wrap = doc.getElementById('carrinhoWrap');
   const aviso = doc.getElementById('carrinhoAviso');
   if (!wrap) return null;
@@ -117,22 +173,43 @@ export function setupCarrinhoHeader(doc, {
   function atualizar() {
     const c = lerCarrinho();
     const sit = c ? situacaoCarrinho(c, agora()) : { vazio: true };
-    if (!c || sit.vazio) {
+    const temCarrinho = !!(c && !sit.vazio);
+    const pend = lerPendentes(storage).lista;
+    if (!temCarrinho && !pend.length) {
       wrap.hidden = true;
       if (aviso) { aviso.hidden = true; aviso.innerHTML = ''; }
       return;
     }
-    const t = totaisCarrinho(c, c.cambio || 0);
+    const t = temCarrinho ? totaisCarrinho(c, c.cambio || 0) : { n: 0, totalBrl: 0 };
+    const totalPend = pend.reduce((s, p) => s + p.totalBrl, 0);
     wrap.hidden = false;
-    wrap.classList.toggle('pendente', !!sit.expirado);
-    if (badge) badge.textContent = String(t.n);
-    if (totalEl) totalEl.textContent = formatBRL(t.totalBrl);
+    wrap.classList.toggle('pendente', !!sit.expirado || pend.length > 0);
+    if (badge) badge.textContent = String(t.n + pend.length);
+    if (totalEl) totalEl.textContent = temCarrinho ? formatBRL(t.totalBrl) : 'aguardando';
     const btn = doc.getElementById('carrinhoBtn');
-    if (btn) btn.setAttribute('aria-label', `Carrinho em andamento: ${t.n} ite${t.n === 1 ? 'm' : 'ns'}, ${formatBRL(t.totalBrl)}`);
-    if (conteudo) conteudo.innerHTML = carrinhoPanelHtml(c, sit, { hoje: dataBRT(agora()), hrefTransacoes: hrefTransacoes(), naTransacoes });
-    if (aviso) {
-      if (sit.expirado && !sit.perguntado) { aviso.innerHTML = carrinhoAvisoHtml(c, sit); aviso.hidden = false; } else { aviso.hidden = true; aviso.innerHTML = ''; }
+    const partes = [];
+    if (temCarrinho) partes.push(`carrinho com ${t.n} ite${t.n === 1 ? 'm' : 'ns'}, ${formatBRL(t.totalBrl)}`);
+    if (pend.length) partes.push(`${pend.length} aporte${pend.length === 1 ? '' : 's'} aguardando valores finais (${formatBRL(totalPend)})`);
+    if (btn) { btn.setAttribute('aria-label', `Em andamento: ${partes.join('; ')}`); btn.title = `Em andamento: ${partes.join('; ')}`; }
+    if (conteudo) {
+      conteudo.innerHTML = (temCarrinho ? carrinhoPanelHtml(c, sit, { hoje: dataBRT(agora()), hrefTransacoes: hrefTransacoes(), naTransacoes }) : '')
+        + (temCarrinho && pend.length ? '<hr class="carrinho-sep">' : '')
+        + pendentesPanelHtml(pend, { hrefTransacoes: hrefTransacoes(), naTransacoes });
     }
+    if (aviso) {
+      if (temCarrinho && sit.expirado && !sit.perguntado) { aviso.innerHTML = carrinhoAvisoHtml(c, sit); aviso.hidden = false; } else { aviso.hidden = true; aviso.innerHTML = ''; }
+    }
+  }
+
+  /** Busca leve no servidor (todas as telas, qualquer aparelho); no máximo 1x por minuto, a não ser forçada. */
+  async function buscarPendentes(forcar = false) {
+    if (!token || buscando || typeof getAportesPendentesImpl !== 'function') return;
+    if (!forcar && Date.now() - lerPendentes(storage).ts < 60000) return;
+    buscando = true;
+    try {
+      const r = await getAportesPendentesImpl(token);
+      if (r && r.ok && Array.isArray(r.aportes)) publicarAportesPendentes(r.aportes, { win, storage });
+    } catch (e) { /* sem rede: fica o que está guardado */ } finally { buscando = false; }
   }
 
   function responder(resp) {
@@ -161,6 +238,12 @@ export function setupCarrinhoHeader(doc, {
   }
   if (conteudo) {
     conteudo.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-pendentes-abrir]')) {
+        fecharPopovers();
+        const alvo = doc.getElementById('txAndamento');
+        if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
       if (!ev.target.closest('[data-carrinho-abrir]')) return;
       fecharPopovers();
       win.dispatchEvent(new win.CustomEvent(EVENTO_ABRIR_CARRINHO));
@@ -168,14 +251,17 @@ export function setupCarrinhoHeader(doc, {
   }
   if (win && typeof win.addEventListener === 'function') {
     win.addEventListener(EVENTO_CARRINHO, atualizar);
-    win.addEventListener('storage', (ev) => { if (!ev.key || ev.key === CHAVE_CARRINHO) atualizar(); });
-    win.addEventListener('focus', atualizar);
+    win.addEventListener(EVENTO_PENDENTES, atualizar);
+    win.addEventListener('storage', (ev) => { if (!ev.key || ev.key === CHAVE_CARRINHO || ev.key === CHAVE_PENDENTES) atualizar(); });
+    win.addEventListener('focus', () => { atualizar(); buscarPendentes(); });
   }
-  doc.addEventListener('visibilitychange', () => { if (!doc.hidden) atualizar(); });
+  doc.addEventListener('visibilitychange', () => { if (!doc.hidden) { atualizar(); buscarPendentes(); } });
   if (setIntervalImpl) {
-    const timer = setIntervalImpl(atualizar, 60000);
+    const timer = setIntervalImpl(() => { atualizar(); buscarPendentes(); }, 60000);
     if (timer && typeof timer.unref === 'function') timer.unref(); // não segura o processo em testes
   }
   atualizar();
-  return { atualizar, responder };
+  /** O shell chama quando o login fica disponível: a partir daí busca os aportes aguardando no servidor. */
+  function definirToken(t) { token = t || null; if (token && !naTransacoes) buscarPendentes(true); }
+  return { atualizar, responder, definirToken, buscarPendentes };
 }

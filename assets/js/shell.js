@@ -882,7 +882,13 @@ export async function mountShell(options = {}) {
     setupThemeToggle(doc, { initTheme, toggleTheme });
     setupLogoutButton(doc);
     // 05/10/2026: carrinho em andamento (Transações) no header + aviso "Você comprou?" quando expira
-    try { setupCarrinhoHeader(doc); } catch (erroCarrinho) { console.error('shell.js: carrinho do header', erroCarrinho); }
+    let carrinhoHeader = null;
+    try { carrinhoHeader = setupCarrinhoHeader(doc); } catch (erroCarrinho) { console.error('shell.js: carrinho do header', erroCarrinho); }
+    // 06/10/2026: com o login, o header busca os aportes "aguardando valores finais" (qualquer tela/aparelho)
+    if (carrinhoHeader && typeof carrinhoHeader.definirToken === 'function') {
+      const tokenAgora = (() => { try { return getToken(); } catch (e) { return null; } })();
+      if (tokenAgora) { try { carrinhoHeader.definirToken(tokenAgora); } catch (e) { /* o resto da tela segue */ } }
+    }
     setupAuthGate(doc, { onAuthenticated: options.onAuthenticated });
   } catch (error) {
     console.error('shell.js: failed to mount the shell', error);

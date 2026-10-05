@@ -16,6 +16,7 @@
 // e shell.js); aqui a gente escuta, troca pra aba Lançamentos, filtra pelo
 // ativo e abre o gráfico (busca o histórico de preço via getHistoricoAtivo).
 
+import { publicarAportesPendentes } from '../carrinho-header.js';
 import { getTransacoes, salvarAporte, excluirAporte, salvarCaixaDolar, excluirCaixaDolar, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -37,7 +38,7 @@ function gravarLocal(chave, valor) {
 
 function abaInicial(win) {
   const hash = String((win && win.location && win.location.hash) || '').replace('#', '');
-  if (hash === 'carrinho') return 'aportes'; // 05/10/2026: "Ir para Transações" do carrinho do header
+  if (hash === 'carrinho' || hash === 'andamento') return 'aportes'; // 05-06/10/2026: links do carrinho do header
   if (ABAS.some((a) => a.id === hash)) return hash;
   const salva = lerLocal(CHAVE_ABA);
   return ABAS.some((a) => a.id === salva) ? salva : 'aportes';
@@ -108,7 +109,7 @@ export async function montarPaginaTransacoes(token, {
         salvarCaixaDolar: (mov) => salvarCaixaDolarImpl(token, mov),
         excluirCaixaDolar: (id) => excluirCaixaDolarImpl(token, id),
         aoMudarCaixa: (caixa) => { dados.caixaDolar = caixa; gravarCacheDados(CHAVE_CACHE, dados); },
-        aoMudarDados: (aportes) => { dados.aportes = aportes; gravarCacheDados(CHAVE_CACHE, dados); desenharTopo(); },
+        aoMudarDados: (aportes) => { dados.aportes = aportes; gravarCacheDados(CHAVE_CACHE, dados); desenharTopo(); publicarAportesPendentes(aportes, { win }); },
       });
     } else {
       renderLancamentos({
@@ -123,9 +124,14 @@ export async function montarPaginaTransacoes(token, {
 
   function desenhar(novos) {
     dados = novos;
+    publicarAportesPendentes(dados && dados.aportes, { win }); // 06/10/2026: aviso do header
     if (!estado.aportes) {
       estado.aportes = estadoInicialAportes(dados, carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje));
       if (String((win && win.location && win.location.hash) || '') === '#carrinho') estado.aportes.carrinhoAberto = true;
+      // 06/10/2026: "Conferir e concluir" do header -> rola até "Aguardando valores finais"
+      if (String((win && win.location && win.location.hash) || '') === '#andamento' && win && typeof win.setTimeout === 'function') {
+        win.setTimeout(() => { const alvo = doc.getElementById('txAndamento'); if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ block: 'start' }); }, 50);
+      }
     }
     loadingEl.hidden = true;
     conteudo.hidden = false;
