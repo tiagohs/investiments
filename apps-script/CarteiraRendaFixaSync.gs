@@ -275,6 +275,8 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
     proxima++;
   });
   removidas.slice().sort(function (a, b) { return b.linha - a.linha; }).forEach(function (p) { aba.deleteRow(p.linha); });
+  // 05/10/2026: a Carteira Renda Fixa mudou - a tela de Renda Fixa (cache do resultado montado) recalcula na próxima abertura
+  try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (eInv) { /* cache é só otimização */ }
   return saida;
 }
 

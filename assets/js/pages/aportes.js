@@ -33,8 +33,14 @@ import {
   chaveItem, carrinhoVazio, definirQuantidade, definirValorRf, removerDoCarrinho, atualizarPrecos,
   itensDoCarrinho, totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo,
   finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
+  mesclarAporteComCarrinho, mesclarAportes, aguardandoDoDia,
 } from './aportes-calc.js';
-import { momentoHtml, carregarMetasMomento } from './momento-aporte.js';
+import { momentoHtml, carregarMetasMomento, carregarMacroMomento } from './momento-aporte.js';
+// 05/10/2026: Tesouro por valor/quantidade (aportes-rf-calc.js), fluxo das Ações EUA (aportes-eua*.js),
+// merge de aportes do mesmo dia (aportes-calc.js!mesclarAporteComCarrinho)
+import { ehTesouro, puDoTitulo, dataCotacao, compraPorValor, compraPorQuantidade, acharTesouroHoje, minimoTesouro, textoMinimo } from './aportes-rf-calc.js';
+import { gravarTaxasRemessa, sugerirDivisaoCaixa, caixaValido } from './aportes-eua-calc.js';
+import { estadoInicialEua, euaFluxoHtml, remessaResultadoHtml, remessaDoEstado, necessidadeHtml, lerNumeroCampo as lerNumeroEua } from './aportes-eua.js';
 import { getToken } from '../auth.js';
 import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
 import { celulaMapa } from './aportes-mapa-calc.js';
@@ -156,6 +162,19 @@ function rodapeAndamentoHtml(a, estado, cambio) {
     </div>`;
 }
 
+/** 05/10/2026: aportes aguardando no MESMO dia (o carrinho confirmado duas vezes já gravou dois): oferece juntar. */
+function avisoDuplicadosHtml(lista) {
+  const porDia = {};
+  lista.forEach((a) => { (porDia[a.data] = porDia[a.data] || []).push(a); });
+  const dias = Object.keys(porDia).filter((d) => porDia[d].length > 1).sort();
+  if (!dias.length) return '';
+  return dias.map((d) => `
+    <div class="tx-aviso aviso tx-aviso-juntar" role="status">
+      <span>Há <b>${porDia[d].length} aportes de ${dma(d)}</b> aguardando valores finais. Dá pra juntar num só (a mesma ação soma a quantidade).</span>
+      <button type="button" class="btn btn-ghost tx-btn-sm" data-acao="juntar-dia" data-dia="${esc(d)}">Juntar os aportes de ${dm(d)}</button>
+    </div>`).join('');
+}
+
 function andamentoHtml(estado, dados) {
   const lista = dados.aportes.filter((a) => a.status === 'aguardando');
   if (!lista.length) return '';
@@ -165,6 +184,7 @@ function andamentoHtml(estado, dados) {
         <h2 id="txAndamentoTitulo">Aguardando valores finais</h2>
         <span class="hint">confira quantidade e preço de cada ordem executada e conclua</span>
       </div>
+      ${avisoDuplicadosHtml(lista)}
       ${lista.map((a) => {
         const dig = estado.digitados[a.id] || {};
         const usaEua = a.itens.some((it) => it.moeda === 'USD');
@@ -269,23 +289,35 @@ function prateleiraRvHtml(estado, dados, classe) {
  * carrinho (senão o "R$ a investir" do Radar). Metas buscadas 1x por tela.
  */
 function opcoesMomento(estado, dados, valorNoCarrinho) {
-  return { metasObjetivos: estado.metasObjetivos || null, cambio: dados.cambio || null, valorSugerido: valorNoCarrinho > 0 ? valorNoCarrinho : null };
+  return { metasObjetivos: estado.metasObjetivos || null, cambio: dados.cambio || null, valorSugerido: valorNoCarrinho > 0 ? valorNoCarrinho : null, macro: estado.macro || null };
 }
 
 function garantirMetasMomento(ctx) {
   const { estado } = ctx;
   if (estado.metasPedidas) return;
   estado.metasPedidas = true;
+  const refazer = () => {
+    const atual = ctx.el && ctx.el._txCtx ? ctx.el._txCtx : ctx;
+    const lista = atual.el && atual.el.querySelector('#txPrateleiraLista');
+    if (lista) lista.innerHTML = atual.estado.classeAtiva === 'rendaFixa' ? prateleiraRfHtml(atual.estado, atual.dados) : prateleiraRvHtml(atual.estado, atual.dados, atual.estado.classeAtiva);
+  };
   const carregar = ctx.carregarMetas || ((aoChegar) => {
     const token = getToken();
     return token ? carregarMetasMomento(token, { aoChegar }) : Promise.resolve(null);
   });
   Promise.resolve(carregar((metas) => {
     estado.metasObjetivos = metas;
-    const atual = ctx.el && ctx.el._txCtx ? ctx.el._txCtx : ctx;
-    const lista = atual.el && atual.el.querySelector('#txPrateleiraLista');
-    if (lista) lista.innerHTML = atual.estado.classeAtiva === 'rendaFixa' ? prateleiraRfHtml(atual.estado, atual.dados) : prateleiraRvHtml(atual.estado, atual.dados, atual.estado.classeAtiva);
+    refazer();
   })).catch(() => { /* sem metas: o momento fica sem esse sinal */ });
+  // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata, NTN-B) - 1 busca por tela; sem ele o momento segue igual
+  const carregarMacro = ctx.carregarMacro || ((aoChegar) => {
+    const token = getToken();
+    return token ? carregarMacroMomento(token, { aoChegar, tesouroExtra: ctx.dados && ctx.dados.tesouro }) : Promise.resolve(null);
+  });
+  Promise.resolve(carregarMacro((macro) => {
+    estado.macro = macro;
+    refazer();
+  })).catch(() => { /* sem macro */ });
 }
 
 function momentoLinhaHtml(m, colunas) {
@@ -293,35 +325,75 @@ function momentoLinhaHtml(m, colunas) {
   return html ? `<tr class="tx-momento-tr"><td colspan="${colunas}" class="esq">${html}</td></tr>` : '';
 }
 
+// ---------------------------------------------------------------------------
+// Renda fixa (05/10/2026): tabela como a das outras classes - nome com
+// instituição + tipo (Renda fixa / Renda emergencial, a marcação da planilha),
+// "Cotação" (PU de compra de hoje do Tesouro; nos outros títulos "—"), "Na
+// classe" (valor investido e, embaixo, a % da classe) - e no Tesouro Direto o
+// investimento por VALOR ou por QUANTIDADE com o mínimo do dia (1% do PU).
+// ---------------------------------------------------------------------------
+
+const rotuloCategoriaRf = (a) => (/emergenc/i.test(a.categoria || '') ? 'Renda emergencial' : 'Renda fixa');
+
+/** "= 0,19 título · R$ 495,90 (sobram R$ 4,10)" + "mínimo hoje R$ 26,10 (1% do PU de R$ 2.610,00)". */
+function rfInfoHtml(pu, it, { sobra = 0, abaixo = false } = {}) {
+  const partes = [];
+  if (it && it.qtd > 0) partes.push(`<b>= ${formatNumeroBR(it.qtd, 2)} título${it.qtd > 1 ? 's' : ''}</b> · ${formatBRL(it.valor)}${sobra > 0.004 ? ` <span class="tx-fraco">(sobram ${formatBRL(sobra)}: o Tesouro vende em frações de 0,01)</span>` : ''}`);
+  if (abaixo) partes.push(`<span class="tx-rf-abaixo">abaixo do mínimo de ${formatBRL(minimoTesouro(pu))}</span>`);
+  partes.push(`<span class="tx-rf-min">${textoMinimo(pu, formatBRL)}</span>`);
+  return partes.join('<br>');
+}
+
+function aplicarRfHtml(a, k, it, pu) {
+  const attrs = `data-rf="${esc(k)}" data-titulo="${esc(a.titulo)}" data-inst="${esc(a.instituicao)}"${pu ? ` data-pu="${pu}"` : ''}`;
+  const valor = inputHtml(`class="tx-valor-rf" ${attrs}`, it ? dinheiroCampo(it.valor) : '', { rotulo: `Valor a aplicar em ${a.titulo}`, prefixo: 'R$' });
+  if (!(pu > 0)) return valor;
+  const qtd = `<label class="tx-campo"><input type="text" inputmode="decimal" class="tx-qtd-rf" data-rf-qtd="${esc(k)}" data-titulo="${esc(a.titulo)}" data-inst="${esc(a.instituicao)}" data-pu="${pu}" value="${it && it.qtd ? numCampo(it.qtd) : ''}" placeholder="0,00" aria-label="Quantidade de títulos de ${esc(a.titulo)}" autocomplete="off"><span class="tx-campo-pos">título</span></label>`;
+  return `<div class="tx-rf-aplicar">${valor}<span class="tx-rf-ou">ou</span>${qtd}<small class="tx-rf-info" data-rf-info="${esc(k)}">${rfInfoHtml(pu, it)}</small></div>`;
+}
+
 function prateleiraRfHtml(estado, dados) {
   const lista = filtrarPrateleira(dados.classes.rendaFixa || [], estado, { classe: 'rendaFixa', metas: dados.metas, hoje: dados.hoje });
+  const todos = dados.classes.rendaFixa || [];
+  const somaClasse = todos.reduce((t, x) => t + (x.valorAtualizado || 0), 0);
   const linhas = lista.map((a) => {
     const k = chaveItem('rendaFixa', a.titulo, a.instituicao);
     const it = estado.carrinho.itens[k];
     const u = a.ultimoPago;
+    const pu = ehTesouro(a.titulo) ? puDoTitulo(a) : null;
+    const dataPu = dataCotacao(a);
+    const peso = somaClasse > 0 ? (a.valorAtualizado || 0) / somaClasse : 0;
+    const emerg = /emergenc/i.test(a.categoria || '');
     return `
       <tr class="${it ? 'no-carrinho' : ''}" data-linha="${esc(k)}">
-        <td class="esq"><span class="tx-ativo">${logoRendaFixaHtml({ indexador: a.indexador, tipoInvestimento: a.tipo, instituicao: a.instituicao })}<span class="tx-ativo-nome"><b>${esc(a.titulo)}</b><small>${esc(a.instituicao)}${a.categoria ? ` · ${esc(a.categoria)}` : ''}</small></span></span></td>
-        <td data-rot="Valor atual"><b class="tx-mono">${formatBRL(a.valorAtualizado)}</b></td>
+        <td class="esq"><span class="tx-ativo">${logoRendaFixaHtml({ indexador: a.indexador, tipoInvestimento: a.tipo, instituicao: a.instituicao })}<span class="tx-ativo-nome"><b>${esc(a.titulo)}</b><small>${esc(a.instituicao)}<span class="tx-tipo-rf${emerg ? ' emergencial' : ''}" title="Marcação na planilha (coluna Categoria)">${rotuloCategoriaRf(a)}</span></small></span></span></td>
+        <td data-rot="Cotação">${pu > 0
+    ? `<b class="tx-mono" title="Preço unitário de compra do Tesouro Direto">${formatBRL(pu)}</b><small class="tx-fraco" title="Preço unitário de compra do Tesouro Direto${dataPu ? ` (data-base ${dma(dataPu)})` : ''}">PU${dataPu ? ` · ${dm(dataPu)}` : ''}</small>`
+    : `<span class="tx-fraco">—</span>${a.valorAtualizado > 0 ? `<small class="tx-fraco">atualizado ${formatBRL(a.valorAtualizado)}</small>` : ''}`}</td>
+        <td data-rot="Na classe" class="tx-mono" title="${a.valorAtualizado > 0 ? `Valor atualizado ${formatBRL(a.valorAtualizado)}` : ''}"><b>${a.valorInvestido > 0 ? formatBRL(a.valorInvestido) : '—'}</b><small class="tx-fraco">${formatNumeroBR(peso * 100, 1)}%</small></td>
         <td data-rot="Último aporte">${u && u.valor > 0 ? `<span class="tx-ultimo"><b>${formatBRL(u.valor)}</b><small>${dma(u.data)}${u.origem === 'aporte' ? ' · aporte' : ''}</small></span>` : '<span class="tx-fraco">—</span>'}</td>
         <td data-rot="Vencimento" class="tx-mono">${a.vencimento ? dma(a.vencimento) : '—'}</td>
-        <td data-rot="Aplicar" class="tx-td-qtd">${inputHtml(`class="tx-valor-rf" data-rf="${esc(k)}" data-titulo="${esc(a.titulo)}" data-inst="${esc(a.instituicao)}"`, it ? dinheiroCampo(it.valor) : '', { rotulo: `Valor a aplicar em ${a.titulo}`, prefixo: 'R$' })}</td>
-      </tr>${momentoLinhaHtml(momentoAporte(a, 'rendaFixa', dados.metas, dados.hoje, opcoesMomento(estado, dados, it ? it.valor : null)), 5)}`;
+        <td data-rot="Aplicar" class="tx-td-qtd">${aplicarRfHtml(a, k, it, pu)}</td>
+      </tr>${momentoLinhaHtml(momentoAporte(a, 'rendaFixa', dados.metas, dados.hoje, opcoesMomento(estado, dados, it ? it.valor : null)), 6)}`;
   }).join('');
+  const nomesNovo = [...new Set([...(dados.tesouro || []).map((t) => t.nome), ...todos.map((a) => a.titulo)])];
   return `
     <div class="tx-tabela-wrap">
       <table class="tx-tabela tx-prateleira tx-prateleira-rf">
-        <thead><tr><th class="esq">Título</th><th>Valor atual</th><th>Último aporte</th><th>Vencimento</th><th>Aplicar</th></tr></thead>
-        <tbody>${linhas || '<tr><td colspan="5" class="tx-vazio">Nenhum título com esse filtro.</td></tr>'}</tbody>
+        <thead><tr><th class="esq">Título</th><th>Cotação</th><th>Na classe</th><th>Último aporte</th><th>Vencimento</th><th>Aplicar</th></tr></thead>
+        <tbody>${linhas || '<tr><td colspan="6" class="tx-vazio">Nenhum título com esse filtro.</td></tr>'}</tbody>
       </table>
     </div>
+    <p class="tx-nota tx-nota-tesouro">Tesouro Direto: informe o <b>valor</b> ou a <b>quantidade</b> de títulos (frações de 0,01). O mínimo é o de <b>0,01 título = 1% do PU de compra do dia</b> (regra da B3 em vigor desde 18/11/2024; o antigo piso de R$ 30 acabou). Nos demais títulos (CDB, LCI...) o valor é livre.</p>
     <form class="tx-rf-novo" id="txRfNovo" autocomplete="off">
       <span class="tx-rf-novo-rot">Título novo</span>
-      <input type="text" id="txRfNovoTitulo" placeholder="Ex.: Tesouro IPCA+ 2035" aria-label="Nome do título" required>
+      <input type="text" id="txRfNovoTitulo" placeholder="Ex.: Tesouro IPCA+ 2035" aria-label="Nome do título" list="txTitulosNovos" required>
       <input type="text" id="txRfNovoInst" placeholder="Instituição" aria-label="Instituição" list="txInstituicoes">
       <label class="tx-campo"><span class="tx-campo-pre">R$</span><input type="text" inputmode="decimal" id="txRfNovoValor" placeholder="0,00" aria-label="Valor a aplicar" required></label>
       <button type="submit" class="btn btn-ghost tx-btn-sm">Adicionar</button>
-      <datalist id="txInstituicoes">${[...new Set((dados.classes.rendaFixa || []).map((a) => a.instituicao).filter(Boolean))].map((i) => `<option value="${esc(i)}"></option>`).join('')}</datalist>
+      <small class="tx-rf-info tx-rf-novo-info" id="txRfNovoInfo" aria-live="polite"></small>
+      <datalist id="txInstituicoes">${[...new Set(todos.map((a) => a.instituicao).filter(Boolean))].map((i) => `<option value="${esc(i)}"></option>`).join('')}</datalist>
+      <datalist id="txTitulosNovos">${nomesNovo.map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
     </form>`;
 }
 
@@ -337,7 +409,7 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
     out = [...out].sort((a, b) => folga(a) - folga(b));
   } else if (ordem === 'momento') {
     const n = totalRanking(lista);
-    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n, metasObjetivos: estado.metasObjetivos || null, cambio }).pontos]));
+    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n, metasObjetivos: estado.metasObjetivos || null, cambio, macro: estado.macro || null }).pontos]));
     out = [...out].sort((a, b) => pontos.get(b) - pontos.get(a));
   } else if (ordem === 'ultimo') {
     const d = (a) => (a.ultimoPago && a.ultimoPago.data) || '';
@@ -368,6 +440,7 @@ function prateleiraHtml(estado, dados) {
         ${rf ? '' : `<label class="tx-toggle"><input type="checkbox" id="txSoComprar"${estado.soComprar ? ' checked' : ''}><span>Só viés Comprar</span></label>`}
       </div>
     </div>
+    ${estado.classeAtiva === 'acoesEua' ? euaFluxoHtml(estado, dados, totaisCarrinho(estado.carrinho, dados.cambio).totalUsd) : ''}
     ${estado.classeAtiva === 'acoesEua' && dados.cambio > 0 ? `<p class="tx-nota tx-nota-cambio">Em dólar, com a conversão em reais embaixo: cotação e subtotal pelo câmbio de hoje (<b>${formatBRL(dados.cambio)}</b>); o último pago pelo câmbio do dia da compra e pelo de hoje.</p>` : ''}
     <div id="txPrateleiraLista">${rf ? prateleiraRfHtml(estado, dados) : prateleiraRvHtml(estado, dados, estado.classeAtiva)}</div>
     <p class="tx-momento-nota">Embaixo de cada ativo, a leitura dos <b>seus</b> critérios: preço-teto, ranking da Suno, % desejado do Radar, preço médio, última compra, P/VP e P/L${rf ? ', taxa de hoje x a sua média contratada e as metas de Renda Fixa' : ''}. Não é recomendação de compra.</p>`;
@@ -378,12 +451,16 @@ function carrinhoConteudoHtml(estado, dados) {
   const itens = itensDoCarrinho(c);
   const t = totaisCarrinho(c, dados.cambio);
   const editando = c.editandoId ? dados.aportes.find((a) => a.id === c.editandoId) : null;
+  // 05/10/2026: já tem aporte aguardando valores finais nesse dia? Confirmar SOMA nele (sem duplicar)
+  const mesclar = !editando && itens.length ? aguardandoDoDia(dados.aportes, c.data) : [];
+  const mesclaHtml = mesclar.length ? `
+    <p class="tx-recibo-mescla">Já existe um aporte de ${dma(c.data)} <b>aguardando valores finais</b>${mesclar.length > 1 ? ` (${mesclar.length} deles)` : ''}: ao confirmar, este carrinho é <b>somado</b> a ele, sem duplicar. <button type="button" class="tx-link" data-acao="editar" data-id="${esc(mesclar[0].id)}">Editar o aporte existente</button></p>` : '';
   const grupos = CLASSES_APORTE.filter((cl) => t.porClasse[cl.id]).map((cl) => `
     <div class="tx-recibo-grupo">
       <div class="tx-recibo-grupo-cab">${dotHtml(cl.id)}<b>${cl.nome}</b><span>${cl.id === 'acoesEua' ? `${usd(t.porClasse[cl.id].valor)} <small class="tx-fraco">≈ ${formatBRL(t.porClasse[cl.id].brl)}</small>` : formatBRL(t.porClasse[cl.id].brl)}</span></div>
       ${itens.filter((it) => it.classe === cl.id).map((it) => `
         <div class="tx-recibo-linha">
-          <span class="tx-recibo-ativo"><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? esc(it.instituicao || 'aplicação') : `${qtdTxt(it.qtd)} × ${precoTxt(it.preco, it.moeda)}`}</small></span>
+          <span class="tx-recibo-ativo"><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? (it.qtd > 0 && it.pu > 0 ? `${formatNumeroBR(it.qtd, 2)} título${it.qtd > 1 ? 's' : ''} × ${formatBRL(it.pu)}${it.instituicao ? ` · ${esc(it.instituicao)}` : ''}` : esc(it.instituicao || 'aplicação')) : `${qtdTxt(it.qtd)} × ${precoTxt(it.preco, it.moeda)}`}</small></span>
           <span class="tx-recibo-valor">${dinheiro(it.subtotal, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? `<small class="tx-fraco">≈ R$ ${formatNumeroBR(it.subtotal * dados.cambio)}</small>` : ''}</span>
           <button type="button" class="tx-recibo-tirar" data-tirar="${esc(it.chave)}" aria-label="Tirar ${esc(it.ativo)} do carrinho">×</button>
         </div>`).join('')}
@@ -400,12 +477,14 @@ function carrinhoConteudoHtml(estado, dados) {
       <b>${formatBRL(t.totalBrl)}</b>
     </div>
     ${t.totalUsd ? `<p class="tx-recibo-nota">Inclui ${usd(t.totalUsd)} ≈ ${formatBRL(t.totalUsd * (dados.cambio || 0))} (dólar ${formatBRL(dados.cambio)}).</p>` : ''}
+    ${t.totalUsd && estado.eua ? necessidadeHtml(estado, dados, t.totalUsd) : ''}
+    ${mesclaHtml}
     <div class="tx-recibo-campos">
       <label class="tx-rotulo">Data da compra<input type="date" id="txDataAporte" value="${esc(c.data)}"></label>
       <label class="tx-rotulo">Observação<input type="text" id="txObsAporte" value="${esc(c.observacao || '')}" placeholder="opcional" maxlength="140"></label>
     </div>
     <div class="tx-recibo-acoes">
-      <button type="button" class="btn btn-primary" data-acao="confirmar-carrinho"${itens.length ? '' : ' disabled'}>${editando ? 'Salvar alterações' : 'Confirmar aporte'}</button>
+      <button type="button" class="btn btn-primary" data-acao="confirmar-carrinho"${itens.length ? '' : ' disabled'}>${editando ? 'Salvar alterações' : (mesclar.length ? 'Somar ao aporte do dia' : 'Confirmar aporte')}</button>
       <button type="button" class="btn btn-ghost" data-acao="esvaziar"${itens.length ? '' : ' disabled'}>Esvaziar</button>
     </div>
     <p class="tx-recibo-nota">Confirmar guarda o aporte como <b>aguardando valores finais</b>: depois de comprar na corretora você ajusta quantidade e preço e conclui.</p>`;
@@ -569,7 +648,10 @@ function historicoHtml(estado, dados) {
 export function estadoInicialAportes(dados, carrinho) {
   return {
     classeAtiva: 'acoes', busca: '', ordem: 'carteira', soComprar: false,
-    carrinho: atualizarPrecos(carrinho, dados.classes), carrinhoAberto: false,
+    // 05/10/2026: carrinho de um dia que passou NÃO ganha cotação nova (os números mudam de um dia pro
+    // outro; ele só serve pra responder "Você comprou?" e confirmar com os preços do dia dele)
+    carrinho: carrinho && carrinho.data && carrinho.data < dados.hoje ? carrinho : atualizarPrecos(carrinho, dados.classes), carrinhoAberto: false,
+    eua: estadoInicialEua(dados, typeof globalThis !== 'undefined' ? globalThis.localStorage : null),
     digitados: {}, confirmando: null, abertos: {}, historicoTodos: false,
     ano: Number(dados.hoje.slice(0, 4)), mesSel: dados.hoje.slice(0, 7),
     mensagem: null, ocupado: false, mapa: estadoInicialMapa(),
@@ -591,8 +673,8 @@ export function renderAportes(ctx) {
     ${mensagemHtml(estado)}
     ${etapasHtml(estado, dados)}
     ${andamentoHtml(estado, dados)}
-    ${mapaHtml(estado.mapa, dados)}
     ${novoAporteHtml(estado, dados)}
+    ${mapaHtml(estado.mapa, dados)}
     ${historicoHtml(estado, dados)}
     ${resumoHtml(estado, dados)}`;
   // os eventos ficam no contêiner (delegados) e são ligados UMA vez; cada
@@ -619,6 +701,8 @@ function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {
   });
   const etapa = el.querySelector('.tx-etapas');
   if (etapa) etapa.outerHTML = etapasHtml(estado, dados);
+  const nec = el.querySelector('#txEuaNecessidade');
+  if (nec && estado.eua) nec.innerHTML = necessidadeHtml(estado, dados, totaisCarrinho(novo, dados.cambio).totalUsd);
   if (prateleira) {
     const lista = el.querySelector('#txPrateleiraLista');
     if (lista) lista.innerHTML = estado.classeAtiva === 'rendaFixa' ? prateleiraRfHtml(estado, dados) : prateleiraRvHtml(estado, dados, estado.classeAtiva);
@@ -766,6 +850,16 @@ function repetirDoMapa(ctx, ativo, mes) {
   if (linha && linha.classList) linha.classList.add('tx-destaque');
 }
 
+/** Salva o aporte e apaga os outros que foram juntados nele (uma chamada por vez; a última devolve a lista certa). */
+async function salvarEExcluir(ctx, aporte, apagar) {
+  let r = await ctx.salvarAporte(aporte);
+  for (const a of apagar) {
+    if (!r || !r.ok) return r;
+    r = await ctx.excluirAporte(a.id);
+  }
+  return r;
+}
+
 async function executar(ctx, fn, sucesso) {
   const { estado } = ctx;
   if (estado.ocupado) return;
@@ -780,8 +874,70 @@ async function executar(ctx, fn, sucesso) {
     return;
   }
   if (Array.isArray(r.aportes)) ctx.aoMudarDados(r.aportes);
+  if (r.caixaDolar) { ctx.dados.caixaDolar = r.caixaDolar; if (typeof ctx.aoMudarCaixa === 'function') ctx.aoMudarCaixa(r.caixaDolar); }
   sucesso(r);
   renderAportes(ctx);
+}
+
+/** Refaz só o fluxo das Ações EUA (o resto da aba fica como está). */
+function redesenharEua(ctx) {
+  const { el, dados, estado } = ctx;
+  const f = el.querySelector('#txEuaFluxo');
+  if (f) f.outerHTML = euaFluxoHtml(estado, dados, totaisCarrinho(estado.carrinho, dados.cambio).totalUsd);
+}
+
+function atualizarResultadoRemessa(ctx) {
+  const r = ctx.el.querySelector('#txRemResultado');
+  if (r) r.innerHTML = remessaResultadoHtml(ctx.estado, ctx.dados);
+}
+
+/** 05/10/2026: "Sugerir divisão" - o caixa em dólar dividido pelos alvos do Radar; vai direto pro carrinho. */
+function sugerirDivisaoEua(ctx) {
+  const { dados, estado } = ctx;
+  const caixa = caixaValido(dados.caixaDolar);
+  const s = sugerirDivisaoCaixa(dados.classes.acoesEua || [], caixa.saldoUsd, { metas: dados.metas, hoje: dados.hoje, cambio: dados.cambio, metasObjetivos: estado.metasObjetivos || null, macro: estado.macro || null });
+  let novo = estado.carrinho;
+  Object.keys(novo.itens).filter((k) => novo.itens[k].classe === 'acoesEua').forEach((k) => { novo = removerDoCarrinho(novo, k); });
+  s.itens.forEach((i) => { novo = definirQuantidade(novo, { classe: 'acoesEua', ativo: i.ticker, moeda: 'USD', preco: i.preco }, i.qtd); });
+  estado.eua.sugestao = s;
+  mudarCarrinho(ctx, novo, { prateleira: true });
+  redesenharEua(ctx);
+}
+
+/** Tesouro pelo nome: { nome, pu } da lista de hoje do Tesouro ou da carteira (null se não for Tesouro/sem PU). */
+function tesouroDoNome(dados, nome) {
+  if (!ehTesouro(nome)) return null;
+  const achado = acharTesouroHoje(dados.tesouro, nome);
+  if (achado && achado.pu > 0) return { nome: achado.nome, pu: achado.pu };
+  const daCarteira = acharTesouroHoje((dados.classes.rendaFixa || []).map((a) => ({ nome: a.titulo, pu: puDoTitulo(a) })), nome);
+  return daCarteira && daCarteira.pu > 0 ? { nome: daCarteira.nome, pu: daCarteira.pu } : null;
+}
+
+function atualizarInfoRfNovo(ctx) {
+  const { el, dados } = ctx;
+  const info = el.querySelector('#txRfNovoInfo');
+  if (!info) return;
+  const t = tesouroDoNome(dados, el.querySelector('#txRfNovoTitulo').value);
+  if (!t) { info.innerHTML = ''; return; }
+  const valor = lerNumeroCampo(el.querySelector('#txRfNovoValor').value);
+  const c = valor > 0 ? compraPorValor(valor, t.pu) : null;
+  info.innerHTML = rfInfoHtml(t.pu, c && c.qtd > 0 ? { qtd: c.qtd, valor: c.valor } : null, { sobra: c ? c.sobra : 0, abaixo: !!(c && c.abaixoMinimo) });
+}
+
+/** Depois de mexer no valor ou na quantidade de um Tesouro: a outra caixinha, a linha e o texto embaixo. */
+function atualizarLinhaRf(ctx, k, pu, { sobra = 0, abaixo = false, origem = 'valor' } = {}) {
+  const { el, doc, estado } = ctx;
+  const it = estado.carrinho.itens[k];
+  const linha = el.querySelector(`[data-linha="${k}"]`);
+  if (linha) linha.classList.toggle('no-carrinho', !!it);
+  if (!(pu > 0)) return;
+  const ativo = doc.activeElement;
+  const campoValor = el.querySelector(`[data-rf="${k}"]`);
+  const campoQtd = el.querySelector(`[data-rf-qtd="${k}"]`);
+  if (origem === 'qtd' && campoValor && campoValor !== ativo) campoValor.value = it ? dinheiroCampo(it.valor) : '';
+  if (origem === 'valor' && campoQtd && campoQtd !== ativo) campoQtd.value = it ? numCampo(it.qtd) : '';
+  const info = el.querySelector(`[data-rf-info="${k}"]`);
+  if (info) info.innerHTML = rfInfoHtml(pu, it, { sobra, abaixo });
 }
 
 function ligarAportes(el) {
@@ -791,11 +947,19 @@ function ligarAportes(el) {
     const redesenhar = () => renderAportes(ctx);
     // clicar fora do popover do mapa (e fora de outro quadrado) fecha ele
     if (estado.mapa.selecionado && !ev.target.closest('#txMapaPop') && !ev.target.closest('[data-mapa-cel]')) fecharPopMapa(ctx);
-    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico],[data-mapa-repetir]');
+    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico],[data-mapa-repetir],[data-rem-modo]');
     if (!alvo || !el.contains(alvo)) return;
     if (alvo.hasAttribute('data-rolar')) {
       const destino = doc.getElementById(alvo.getAttribute('data-rolar'));
       if (destino) { ev.preventDefault(); if (typeof destino.scrollIntoView === 'function') destino.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      return;
+    }
+    if (alvo.hasAttribute('data-rem-modo')) {
+      const r = remessaDoEstado(estado, dados);
+      const modo = alvo.getAttribute('data-rem-modo');
+      if (r && modo !== estado.eua.modo) estado.eua.valor = dinheiroCampo(modo === 'dolares' ? r.usd : r.reais);
+      estado.eua.modo = modo;
+      redesenharEua(ctx);
       return;
     }
     if (alvo.hasAttribute('data-mapa-classe')) {
@@ -859,19 +1023,66 @@ function ligarAportes(el) {
       el.querySelector('.tx-recibo-fundo').hidden = !estado.carrinhoAberto;
       return;
     }
+    if (acao === 'rem-registrar') {
+      const r = remessaDoEstado(estado, dados);
+      if (!r || !ctx.salvarCaixaDolar) { estado.mensagem = { tipo: 'erro', html: 'Informe quanto vai enviar (em R$ ou em US$) antes de registrar o envio.' }; redesenhar(); return; }
+      const mov = { data: estado.eua.data || dados.hoje, tipo: 'envio', usd: r.usd, reais: r.reais, comercial: r.comercial, vet: r.vet, conversao: r.conversao, encargos: r.encargos, observacao: 'Remessa Online (estimativa)' };
+      executar(ctx, () => ctx.salvarCaixaDolar(mov), () => {
+        estado.eua.valor = '';
+        estado.mensagem = { tipo: 'ok', html: `Envio registrado: <b>${usd(r.usd)}</b> no caixa em dólar (${formatBRL(r.reais)} enviados, VET R$ ${formatNumeroBR(r.vet, 4)}). Agora é só comprar as ações com ele, hoje ou depois.` };
+      });
+      return;
+    }
+    if (acao === 'rem-excluir') {
+      executar(ctx, () => ctx.excluirCaixaDolar(id), () => { estado.mensagem = { tipo: 'ok', html: 'Lançamento apagado do caixa em dólar.' }; });
+      return;
+    }
+    if (acao === 'eua-sugerir') { sugerirDivisaoEua(ctx); return; }
+    if (acao === 'eua-preparar-envio') {
+      const v = Number(alvo.getAttribute('data-usd'));
+      estado.eua.modo = 'dolares';
+      estado.eua.valor = dinheiroCampo(v);
+      estado.carrinhoAberto = false;
+      const cart = el.querySelector('#txCarrinho');
+      if (cart) cart.classList.remove('aberto');
+      const fundo = el.querySelector('.tx-recibo-fundo');
+      if (fundo) fundo.hidden = true;
+      redesenharEua(ctx);
+      const passo = doc.getElementById('txEuaEnviar');
+      if (passo && typeof passo.scrollIntoView === 'function') passo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    if (acao === 'juntar-dia') {
+      const lista = aguardandoDoDia(dados.aportes, alvo.getAttribute('data-dia'));
+      if (lista.length < 2) return;
+      const base = lista[lista.length - 1];
+      const outros = lista.filter((a) => a.id !== base.id);
+      const junto = outros.reduce((acc, a) => mesclarAportes(acc, a), base);
+      executar(ctx, () => salvarEExcluir(ctx, junto, outros), () => {
+        estado.mensagem = { tipo: 'ok', html: `Aportes de ${dma(base.data)} juntos em um só (${junto.itens.length} ativo${junto.itens.length > 1 ? 's' : ''}).` };
+      });
+      return;
+    }
     if (acao === 'esvaziar') { mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'descartar-edicao') { estado.carrinhoAberto = false; mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'historico-todos') { estado.historicoTodos = true; redesenhar(); return; }
     if (acao === 'voltar') { estado.confirmando = null; redesenhar(); return; }
     if (acao === 'cancelar' || acao === 'excluir') { estado.confirmando = `${acao}:${id}`; if (acao === 'excluir') estado.abertos[id] = true; redesenhar(); return; }
     if (acao === 'confirmar-carrinho') {
-      const aporte = aporteDoCarrinho(estado.carrinho);
       const editando = !!estado.carrinho.editandoId;
-      executar(ctx, () => ctx.salvarAporte(aporte), () => {
+      // 05/10/2026: outro carrinho no MESMO dia soma no aporte que já está aguardando (não duplica o confirmado)
+      const mesmoDia = !editando ? aguardandoDoDia(dados.aportes, estado.carrinho.data) : [];
+      const base = mesmoDia.length ? mesmoDia[mesmoDia.length - 1] : null;
+      const outros = mesmoDia.filter((a) => !base || a.id !== base.id);
+      let aporte = aporteDoCarrinho(estado.carrinho);
+      if (base) aporte = outros.reduce((acc, a) => mesclarAportes(acc, a), mesclarAporteComCarrinho(base, estado.carrinho));
+      executar(ctx, () => salvarEExcluir(ctx, aporte, outros), () => {
         estado.carrinho = carrinhoVazio(dados.hoje);
         ctx.salvarCarrinho(estado.carrinho);
         estado.carrinhoAberto = false;
-        estado.mensagem = { tipo: 'ok', html: `${editando ? 'Aporte atualizado' : 'Aporte confirmado'}: <b>aguardando valores finais</b>. Depois de comprar, ajuste quantidade e preço e conclua.` };
+        estado.mensagem = { tipo: 'ok', html: base
+          ? `Carrinho <b>somado</b> ao aporte de ${dma(aporte.data)} que já estava aguardando valores finais (agora com ${aporte.itens.length} ativo${aporte.itens.length > 1 ? 's' : ''}). Nada duplicado.`
+          : `${editando ? 'Aporte atualizado' : 'Aporte confirmado'}: <b>aguardando valores finais</b>. Depois de comprar, ajuste quantidade e preço e conclua.` };
       });
       return;
     }
@@ -929,6 +1140,7 @@ function ligarAportes(el) {
     const { estado } = el._txCtx;
     const d = ev.target;
     if (d && d.matches && d.matches('details[data-hist]')) estado.abertos[d.getAttribute('data-hist')] = d.open;
+    if (d && d.matches && d.matches('details[data-eua-taxas]')) estado.eua.taxasAbertas = d.open;
   }, true);
 
   el.addEventListener('input', (ev) => {
@@ -940,13 +1152,38 @@ function ligarAportes(el) {
       aoMudarQtd(ctx, t.getAttribute('data-qtd'), n || 0);
       return;
     }
-    if (t.matches('[data-rf]')) {
+    if (t.matches('[data-rf]') || t.matches('[data-rf-qtd]')) {
+      // 05/10/2026: no Tesouro Direto o valor e a quantidade de títulos (2 casas) andam juntos: qtd = valor ÷ PU
+      const porQtd = t.matches('[data-rf-qtd]');
+      const k = t.getAttribute(porQtd ? 'data-rf-qtd' : 'data-rf');
+      const ref = { ativo: t.getAttribute('data-titulo'), instituicao: t.getAttribute('data-inst') };
+      const pu = Number(t.getAttribute('data-pu')) || 0;
       const n = lerNumeroCampo(t.value);
-      mudarCarrinho(ctx, definirValorRf(estado.carrinho, { ativo: t.getAttribute('data-titulo'), instituicao: t.getAttribute('data-inst') }, n || 0));
-      const linha = t.closest('tr');
-      if (linha) linha.classList.toggle('no-carrinho', (n || 0) > 0);
+      let novo;
+      let extra = {};
+      if (pu > 0 && n > 0) {
+        const c = porQtd ? compraPorQuantidade(n, pu) : compraPorValor(n, pu);
+        novo = c.qtd > 0 ? definirValorRf(estado.carrinho, ref, c.valor, { qtd: c.qtd, pu }) : definirValorRf(estado.carrinho, ref, 0);
+        extra = { sobra: c.sobra, abaixo: c.abaixoMinimo };
+      } else novo = definirValorRf(estado.carrinho, ref, pu > 0 ? 0 : (n || 0));
+      mudarCarrinho(ctx, novo);
+      atualizarLinhaRf(ctx, k, pu, { ...extra, origem: porQtd ? 'qtd' : 'valor' });
       return;
     }
+    if (t.id === 'txRfNovoTitulo' || t.id === 'txRfNovoValor') { atualizarInfoRfNovo(ctx); return; }
+    if (t.id === 'txRemValor') { estado.eua.valor = t.value; atualizarResultadoRemessa(ctx); return; }
+    if (t.id === 'txRemCom') { estado.eua.comercial = t.value; atualizarResultadoRemessa(ctx); return; }
+    if (t.id === 'txRemConv' || t.id === 'txRemEnc') {
+      // taxas médias editáveis: as do Tiago ficam guardadas neste navegador
+      const pctCampo = lerNumeroCampo(t.value);
+      if (pctCampo != null && pctCampo >= 0 && pctCampo <= 20) {
+        estado.eua.taxas = { ...estado.eua.taxas, [t.id === 'txRemConv' ? 'conversao' : 'encargos']: pctCampo / 100 };
+        gravarTaxasRemessa(estado.eua.taxas);
+        atualizarResultadoRemessa(ctx);
+      }
+      return;
+    }
+    if (t.id === 'txEuaAjusteValor') { estado.eua.ajuste = t.value; return; }
     if (t.matches('[data-final]')) {
       const id = t.getAttribute('data-aporte');
       const i = Number(t.getAttribute('data-i'));
@@ -971,6 +1208,7 @@ function ligarAportes(el) {
     const { dados, estado } = ctx;
     const t = ev.target;
     if (t.matches('[data-qtd]')) { aoMudarQtd(ctx, t.getAttribute('data-qtd'), lerNumeroCampo(t.value) || 0, { escreverCampo: true }); return; }
+    if (t.id === 'txRemData' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) { estado.eua.data = t.value; return; }
     if (t.id === 'txDataAporte' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) { estado.carrinho = { ...estado.carrinho, data: t.value }; ctx.salvarCarrinho(estado.carrinho); return; }
     if (t.id === 'txOrdem' || t.id === 'txSoComprar') {
       if (t.id === 'txOrdem') estado.ordem = t.value; else estado.soComprar = t.checked;
@@ -980,14 +1218,34 @@ function ligarAportes(el) {
   });
 
   el.addEventListener('submit', (ev) => {
-    if (ev.target.id !== 'txRfNovo') return;
     const ctx = el._txCtx;
-    const { estado } = ctx;
+    const { estado, dados } = ctx;
+    if (ev.target.id === 'txEuaAjuste') {
+      ev.preventDefault();
+      const certo = lerNumeroEua(el.querySelector('#txEuaAjusteValor').value);
+      if (certo == null || certo < 0 || !ctx.salvarCaixaDolar) return;
+      const diff = Math.round((certo - caixaValido(dados.caixaDolar).saldoUsd) * 100) / 100;
+      if (!diff) { estado.mensagem = { tipo: 'ok', html: 'O saldo do caixa já está nesse valor.' }; renderAportes(ctx); return; }
+      executar(ctx, () => ctx.salvarCaixaDolar({ data: estado.eua.data || dados.hoje, tipo: 'ajuste', usd: diff, observacao: 'Acerto de saldo' }), () => {
+        estado.eua.ajuste = '';
+        estado.mensagem = { tipo: 'ok', html: `Saldo do caixa em dólar acertado: ${usd(certo)}.` };
+      });
+      return;
+    }
+    if (ev.target.id !== 'txRfNovo') return;
     ev.preventDefault();
     const titulo = el.querySelector('#txRfNovoTitulo').value.trim();
     const inst = el.querySelector('#txRfNovoInst').value.trim();
     const valor = lerNumeroCampo(el.querySelector('#txRfNovoValor').value);
     if (!titulo || !(valor > 0)) return;
+    const tes = tesouroDoNome(dados, titulo);
+    if (tes) {
+      // Tesouro: valor vira quantidade com 2 casas (valor ÷ PU) e o mínimo é 1% do PU
+      const c = compraPorValor(valor, tes.pu);
+      if (c.qtd <= 0) { atualizarInfoRfNovo(ctx); return; }
+      mudarCarrinho(ctx, definirValorRf(estado.carrinho, { ativo: tes.nome, instituicao: inst }, c.valor, { qtd: c.qtd, pu: tes.pu }), { prateleira: true });
+      return;
+    }
     mudarCarrinho(ctx, definirValorRf(estado.carrinho, { ativo: titulo, instituicao: inst }, valor), { prateleira: true });
   });
 }

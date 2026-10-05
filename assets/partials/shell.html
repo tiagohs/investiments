@@ -36,12 +36,28 @@
 
   <div class="overlay-backdrop" id="shell-backdrop"></div>
 
+  <!-- 05/10/2026 (Tiago: "no mobile, ao dar scroll, o header e o menu no topo ficam fixos"): .shell-fixo
+       junta topbar + menu num bloco só, que gruda no topo no celular (shell.css). -->
+  <div class="shell-fixo">
   <div class="topbar">
     <div class="brand">
       <div class="brand-mark">P</div>
       <div class="brand-text"><h1>Patrimônio</h1><span>carteira pessoal · B3 + EUA</span></div>
     </div>
     <div class="topbar-right">
+      <!-- 05/10/2026: carrinho em andamento (Transações) - visível em todas as telas (carrinho-header.js) -->
+      <div class="sync-wrap carrinho-wrap" id="carrinhoWrap" hidden>
+        <button class="carrinho-btn" id="carrinhoBtn" type="button" aria-expanded="false" aria-haspopup="true"
+                data-toggle-panel="carrinhoPanel" title="Carrinho de aporte em andamento">
+          <svg class="carrinho-ico" aria-hidden="true"><use href="#ico-cart"/></svg>
+          <span class="carrinho-badge" id="carrinhoBadge">0</span>
+          <span class="carrinho-valor" id="carrinhoTotal"></span>
+        </button>
+        <div class="overlay-panel carrinho-panel" id="carrinhoPanel" role="dialog" aria-label="Carrinho em andamento">
+          <div id="carrinhoPanelConteudo"></div>
+        </div>
+      </div>
+
       <div class="refresh-pill" id="refreshPill" title="Cotações atualizadas há --">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.3M21 12a9 9 0 0 1-15.3 6.3"/><path d="M18 3v5h-5M6 21v-5h5"/></svg>
         <span id="refreshLabel">--</span>
@@ -163,6 +179,10 @@
       <span class="nav-active-bar"></span>
     </div>
   </nav>
+  </div>
+
+  <!-- 05/10/2026: "Você comprou?" - carrinho que passou do dia/horário do pregão (carrinho-header.js) -->
+  <div class="carrinho-aviso" id="carrinhoAviso" role="alertdialog" aria-live="assertive" hidden></div>
 </template>
 
 <template id="shell-footer-template">

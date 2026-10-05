@@ -220,7 +220,53 @@ test('aporteMedio, projeção (com parcelas que viram aporte), Coast FI e idade'
   const libs = liberacoesDividas(DADOS, metaAposentadoria(DADOS));
   assert.deepEqual(libs.map((l) => [l.id, l.valor]), [['fies', 400], ['financiamento', 1600]]);
   assert.equal(libs[0].mes, 84);
-  assert.equal(libs[1].mes, 360);
+  // 05/10/2026: o apê já conta com o FGTS amortizando no prazo a cada 2 anos (o FGTS de teste tem saldo)
+  assert.equal(libs[1].semFgts, 360);
+  assert.ok(libs[1].usosFgts.length >= 1 && libs[1].mes < 360, `${libs[1].mes}`);
+});
+
+test('apê com o FGTS amortizando no prazo a cada 2 anos (regra da Caixa), com o saque-aniversário descontado', async () => {
+  const { projetarApeComFgts } = await import('../assets/js/pages/patrimonio-calc.js');
+  // financiamento inventado: saldo 120 mil, 120 parcelas de R$ 1.000 de amortização, 0,8% ao mês
+  const fin = { saldo: 120000, dataSaldo: '2025-06-10', taxaAnual: 0.096, amortizacao: 1000, dataInicio: '2020-01' };
+  const fgts = { contas: [{ saldo: 20000, dataSaldo: '2025-06-10', mensal: [['2025-06', 20000]], usosMoradia: [{ data: '2024-01-10', valor: 5000 }] }] };
+  const cfg = { financiamento: fin, fgts };
+  const r = projetarApeComFgts(cfg, '2025-06-25', { salario: 5000 });
+  assert.equal(r.semFgts, 120);
+  assert.ok(r.usos.length >= 2 && r.meses < 120);
+  // intervalo mínimo de 2 anos entre usos (SFH)
+  for (let k = 1; k < r.usos.length; k += 1) assert.ok(r.usos[k].mes - r.usos[k - 1].mes >= 24, 'a cada 2 anos no mínimo');
+  // o 1º uso: 24 meses depois do último (jan/2024) = jan/2026 = a 7ª parcela daqui
+  assert.equal(r.usos[0].mes, 7);
+  // sem FGTS ou com os usos desligados: o prazo do contrato
+  assert.equal(projetarApeComFgts({ financiamento: fin }, '2025-06-25').meses, 120);
+  assert.equal(projetarApeComFgts({ ...cfg, financiamento: { ...fin, usarFgtsComoExtra: false } }, '2025-06-25').meses, 120);
+  // saque-aniversário ativo (saque nos últimos 13 meses): o saldo que sobra pro apê é menor
+  const comSaque = { contas: [{ ...fgts.contas[0], saquesAniversario: [{ data: '2025-02-10', valor: 3000 }], saques: { aniversario: 3000 } }] };
+  const r2s = projetarApeComFgts({ financiamento: fin, fgts: comSaque }, '2025-06-25', { salario: 5000, nascimento: '1990-10' });
+  assert.ok(r2s.usos[0].valor < r.usos[0].valor, 'o saque-aniversário já saiu do FGTS');
+});
+
+test('FGTS usado na amortização do apê aparece como transferência (não é perda) em "pra onde foi" e no histórico anual', async () => {
+  const { origemCrescimento, usosFgtsNoApe } = await import('../assets/js/pages/patrimonio-calc.js');
+  const fin = { saldo: 90000, dataSaldo: '2026-06-10', taxaAnual: 0.09, amortizacao: 1000, dataInicio: '2024-01', valorFinanciado: 120000, saldosConhecidos: [{ data: '2025-12-31', saldo: 100000 }] };
+  const fgts = { contas: [{ saldo: 2000, dataSaldo: '2026-06-10', mensal: [['2025-12', 12000], ['2026-01', 2100], ['2026-06', 2600]], usosMoradia: [{ data: '2026-01-15', valor: 10000 }] }] };
+  const d = {
+    hoje: '2026-06-25',
+    config: { financiamento: fin, fgts, imovel: { valorCompra: 200000, dataCompra: '2024-01' } },
+    historicoMensal: [{ mes: '2025-12', patrimonio: 50000, aporte: 0 }, { mes: '2026-06', patrimonio: 56000, aporte: 4000 }],
+  };
+  assert.deepEqual(usosFgtsNoApe(d.config, '2025-12', '2026-06').map((u) => u.valor), [10000]);
+  const o = origemCrescimento(d, 6);
+  assert.equal(o.transferencias.length, 1);
+  assert.equal(o.transferencias[0].nome, 'FGTS usado na amortização do apê');
+  assert.equal(o.transferencias[0].valor, 10000);
+  const v = Object.fromEntries(o.itens.map((i) => [i.id, i.valor]));
+  assert.ok(v.fgts > 0, 'sem o uso, o FGTS só cresceu (depósitos e juros): nada de perda de R$ 10 mil');
+  // o total não muda: a transferência sai de um lado e entra no outro
+  perto(o.total, o.itens.reduce((a, i) => a + i.valor, 0), 0.01);
+  const h = historicoAnual(d);
+  assert.equal(h.find((l) => l.hoje).fgtsNoApe, 10000);
 });
 
 test('projeção com aporte crescendo e origem do crescimento (aportes, rendimento, dívidas, apê, FGTS)', async () => {

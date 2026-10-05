@@ -551,7 +551,74 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .momento-mais[open]{ width:100%; }
 .momento-mais[open] summary{ display:none; }
 .momento-sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+/* 05/10/2026: botão "i" que abre a explicação do ponto ali mesmo (criterios/macro.js!ajudaHtml) - momento de aporte e Análise do ativo */
+.ctx-i{ display:inline; margin-left:5px; }
+.ctx-i summary{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%; list-style:none; cursor:pointer;
+  font-family:var(--body-f); font-size:9.5px; font-weight:700; font-style:italic; line-height:1; color:var(--ink-muted); background:var(--surface-3); border:1px solid var(--border); vertical-align:1px; }
+.ctx-i summary::-webkit-details-marker{ display:none; }
+.ctx-i summary:hover, .ctx-i[open] summary{ color:var(--ink); border-color:var(--ink-faint); }
+.ctx-i summary:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.ctx-i p{ display:block; margin:5px 0 0; padding:7px 9px; border-radius:8px; background:var(--surface-2); color:var(--ink-muted); font-size:11.5px; line-height:1.45; font-weight:400; font-style:normal; }
+.momento-sinal.macro .momento-txt{ color:var(--ink-muted); }
 @media (max-width:640px){
   .momento{ padding:9px 11px 10px; gap:7px; }
   .momento-sinais{ grid-template-columns:minmax(0, 1fr); gap:5px; }
+}
+
+/* ================= 05/10/2026: header e menu FIXOS no celular =================
+   Tiago: "no mobile, ao dar scroll, o header e o menu no topo ficam fixos".
+   O topbar e o menu principal ficam juntos em .shell-fixo (shell.html); o
+   #shell-header vira display:contents pra o bloco grudar relativo ao .wrap
+   inteiro (se o pai fosse só o #shell-header, o sticky não teria por onde
+   andar). Sangra 12px pros lados (a margem do .wrap) pra cobrir a largura toda
+   e esconder o conteúdo que passa por trás. */
+#shell-header{ display:contents; }
+@media (max-width:640px){
+  .shell-fixo{ position:sticky; top:0; z-index:50; background:var(--bg); margin:0 -12px 14px; padding:0 12px; }
+  .shell-fixo .topbar{ padding:8px 0 8px; margin-bottom:0; }
+  .shell-fixo .mainnav{ margin-bottom:0; border-bottom-color:var(--border); }
+  .shell-fixo .brand-text span{ display:none; } /* só o nome: o header fica numa linha só */
+}
+
+/* ================= 05/10/2026: carrinho em andamento no header =================
+   Ícone + contagem (e o valor em telas largas); o popover lista os itens, o
+   total e leva pra Transações. No celular o popover vira uma folha presa embaixo
+   (o dedo alcança). Pendente (passou do horário) fica em âmbar. */
+.carrinho-btn{ position:relative; display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 11px 0 9px; border-radius:100px;
+      border:1px solid transparent; background:var(--acoes-soft); color:var(--acoes); cursor:pointer; box-shadow:var(--shadow); font:inherit; }
+.carrinho-btn:hover{ border-color:var(--acoes); }
+.carrinho-ico{ width:17px; height:17px; flex:none; }
+.carrinho-badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--acoes); color:#fff; font:700 10.5px var(--mono);
+      display:inline-flex; align-items:center; justify-content:center; }
+.carrinho-valor{ font:600 12px var(--mono); font-variant-numeric:tabular-nums; color:var(--ink); }
+.carrinho-wrap.pendente .carrinho-btn{ background:var(--warn-soft); color:var(--warn-ink); }
+.carrinho-wrap.pendente .carrinho-badge{ background:var(--warn); color:#fff; }
+.carrinho-panel{ width:min(360px, calc(100vw - 32px)); }
+.carrinho-cab{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:2px 4px 8px; }
+.carrinho-cab h3{ font-size:14px; }
+.carrinho-cab small{ font-size:11px; color:var(--ink-faint); }
+.carrinho-pendente{ margin:0 0 8px; padding:8px 10px; border-radius:10px; background:var(--warn-soft); color:var(--warn-ink); font-size:11.5px; }
+.carrinho-itens{ list-style:none; margin:0; padding:8px 0; border-top:1px dashed var(--border); max-height:44vh; overflow:auto; display:flex; flex-direction:column; gap:9px; }
+.carrinho-item{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start; padding:0 4px; }
+.carrinho-item-nome{ display:flex; flex-direction:column; min-width:0; }
+.carrinho-item-nome b{ font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.carrinho-item-nome small{ font-size:11px; color:var(--ink-faint); }
+.carrinho-item-valor{ display:flex; flex-direction:column; align-items:flex-end; font:600 12.5px var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.carrinho-item-valor small{ font-size:10.5px; font-weight:500; color:var(--ink-faint); }
+.carrinho-total{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; border-top:3px double var(--border); padding:10px 4px 8px; }
+.carrinho-total span{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--ink-muted); }
+.carrinho-total b{ font:600 20px var(--mono); font-variant-numeric:tabular-nums; }
+.carrinho-nota{ margin:0 4px 8px; font-size:11px; color:var(--ink-muted); }
+a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:center; text-decoration:none; box-sizing:border-box; }
+.carrinho-aviso{ position:fixed; z-index:70; top:12px; left:50%; transform:translateX(-50%); width:min(480px, calc(100vw - 24px)); }
+.carrinho-aviso[hidden]{ display:none; }
+.carrinho-aviso-card{ background:var(--surface); border:1px solid var(--warn); border-radius:14px; box-shadow:var(--shadow-lg); padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+.carrinho-aviso-titulo{ font-family:var(--display); font-size:16px; }
+.carrinho-aviso-card p{ margin:0; font-size:12.5px; color:var(--ink-muted); line-height:1.5; }
+.carrinho-aviso-botoes{ display:flex; gap:8px; flex-wrap:wrap; }
+.carrinho-aviso-botoes .btn{ flex:1 1 auto; justify-content:center; }
+@media (max-width:639.98px){
+  .carrinho-valor{ display:none; }
+  .carrinho-panel{ top:auto; bottom:0; left:0; right:0; transform:none; width:100%; border-radius:18px 18px 0 0; max-height:78vh;
+        padding:14px 14px calc(14px + env(safe-area-inset-bottom)); }
 }

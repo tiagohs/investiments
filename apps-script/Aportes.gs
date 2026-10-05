@@ -26,6 +26,11 @@
  */
 
 var ABA_APORTES = 'aux_aportes';
+// 05/10/2026: caixa em dólar (fluxo novo das Ações EUA): envio R$ -> US$ pela
+// Remessa Online, aguardando a compra das ações. Aba criada sob demanda no 1º envio.
+var ABA_CAIXA_DOLAR = 'aux_caixa_dolar';
+var CABECALHO_CAIXA_DOLAR = ['ID', 'Data', 'Tipo', 'US$', 'R$ enviados', 'Cotação comercial', 'VET (R$ por US$)', 'Taxa de conversão', 'Encargos (IOF)', 'Aporte', 'Observação', 'Criado em'];
+var TIPOS_CAIXA_DOLAR = { envio: 'Envio', uso: 'Uso', ajuste: 'Ajuste' };
 var CABECALHO_APORTES = ['ID', 'Data', 'Status', 'Classe', 'Ativo', 'Instituição', 'Moeda', 'Qtd planejada', 'Preço planejado', 'Valor planejado',
   'Qtd final', 'Preço final', 'Valor final', 'Observação', 'Criado em', 'Atualizado em'];
 var CLASSES_APORTE = ['acoes', 'fiis', 'acoesEua', 'rendaFixa'];
@@ -89,6 +94,8 @@ function montarTelaTransacoes_() {
     cambio: cambioHojeAporte_(ss),
     classes: classes,
     metas: contexto ? contexto.metas : null,
+    tesouro: contexto ? contexto.tesouroHoje : [], // 05/10/2026: PU de compra de hoje de cada título (mínimo = 1% do PU)
+    caixaDolar: lerCaixaDolar_(ss), // 05/10/2026: dólares enviados aguardando compra
     aportes: aportes,
     resumo: resumoInvestidoComCache_(ss, abas, cambioHist),
     lancamentos: listaLancamentosTela_(ss, abas, cambioHist)
@@ -338,9 +345,10 @@ function salvarAporte_(aporte) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var trava = LockService.getScriptLock();
   trava.waitLock(20000);
+  var id;
   try {
     var aba = garantirAbaAportes_(ss);
-    var id = String(aporte.id || '').trim() || ('AP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100));
+    id = String(aporte.id || '').trim() || ('AP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100));
     var existentes = linhasDoIdAporte_(aba, id);
     var criadoEm = existentes.length ? aba.getRange(existentes[0], 15).getValue() : new Date();
     var n = function (v) { var x = numeroAporte_(v); return x === null ? '' : x; };
@@ -357,10 +365,12 @@ function salvarAporte_(aporte) {
     });
     for (var i = existentes.length - 1; i >= 0; i--) aba.deleteRow(existentes[i]);
     aba.getRange(aba.getLastRow() + 1, 1, linhas.length, CABECALHO_APORTES.length).setValues(linhas);
-    return id;
   } finally {
     trava.releaseLock();
   }
+  // 05/10/2026: aporte concluído com Ações EUA gasta o caixa em dólar (fora da trava: o caixa tem a sua)
+  try { registrarUsoCaixaDolar_(ss, id, aporte); } catch (eC) { Logger.log('registrarUsoCaixaDolar_: ' + eC); }
+  return id;
 }
 
 function excluirAporte_(id) {
@@ -370,13 +380,17 @@ function excluirAporte_(id) {
   if (!aba) return 0;
   var trava = LockService.getScriptLock();
   trava.waitLock(20000);
+  var removidas = 0;
   try {
     var linhas = linhasDoIdAporte_(aba, id);
     for (var i = linhas.length - 1; i >= 0; i--) aba.deleteRow(linhas[i]);
-    return linhas.length;
+    removidas = linhas.length;
   } finally {
     trava.releaseLock();
   }
+  // 05/10/2026: aporte excluído devolve o que tinha gasto do caixa em dólar
+  try { registrarUsoCaixaDolar_(ss, id, null); } catch (eC) { Logger.log('registrarUsoCaixaDolar_: ' + eC); }
+  return removidas;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +476,165 @@ function enriquecerMomentoAporte_(ss, classes) {
     var chT = typeof chaveTesouro_ === 'function' ? chaveTesouro_(t.titulo) : null;
     var p = chT ? tesouro[chT] : null;
     t.taxaHoje = p && p.taxaCompra != null ? { taxa: p.taxaCompra / 100, pu: p.puCompra, data: p.dataBase } : null;
+    // 05/10/2026: cotação do título (PU de compra do dia) - Tesouro Direto; os outros ficam sem
+    t.cotacao = p && p.puCompra > 0 ? { pu: p.puCompra, puVenda: p.puVenda, data: p.dataBase } : null;
     t.taxaContratada = contratada[chaveRfAporte_(t.titulo, t.instituicao)] || null;
   });
-  return { metas: metas };
+  // 05/10/2026: tudo que o Tesouro vende hoje (título novo na Renda Fixa: "Tesouro Selic 2032")
+  var tesouroHoje = Object.keys(tesouro).map(function (k) {
+    var p = tesouro[k];
+    return { nome: p.tipo + ' ' + String(p.vencimento).slice(0, 4), tipo: p.tipo, vencimento: p.vencimento, pu: p.puCompra, puVenda: p.puVenda, taxa: p.taxaCompra, data: p.dataBase };
+  }).filter(function (t) { return t.pu > 0; }).sort(function (a, b) { return a.nome < b.nome ? -1 : (a.nome > b.nome ? 1 : 0); });
+  return { metas: metas, tesouroHoje: tesouroHoje };
+}
+
+// ---------------------------------------------------------------------------
+// 05/10/2026: caixa em dólar (Tiago: "primeiro envio BRL->USD pela Remessa
+// Online (taxas médias e quanto chega), depois divido os dólares entre as
+// ações. Às vezes só envio e compro depois"). Aba aux_caixa_dolar (criada no
+// 1º envio; você pode olhar/editar na planilha): ID | Data | Tipo (Envio / Uso /
+// Ajuste) | US$ | R$ enviados | Cotação comercial | VET | Taxa de conversão |
+// Encargos | Aporte | Observação | Criado em.
+//  - Envio: dólares que chegaram da Remessa Online (US$ positivo); guarda as
+//    taxas usadas, que viram o padrão da próxima estimativa.
+//  - Uso: gerado sozinho quando um aporte com Ações EUA é CONCLUÍDO (US$
+//    negativo = total pago nas ações); sai se o aporte for excluído.
+//  - Ajuste: acerto manual do saldo (ex.: dólar que já estava na corretora).
+// Saldo = soma da coluna US$. Sem a aba (nunca usou o fluxo), nada muda.
+// ---------------------------------------------------------------------------
+
+/** POST salvarCaixaDolar: e.parameter.mov = JSON { id?, data, tipo: 'envio'|'ajuste', usd, reais?, comercial?, vet?, conversao?, encargos?, observacao? }. */
+function handleSalvarCaixaDolar(e) {
+  try {
+    var mov = JSON.parse(e.parameter.mov || '{}');
+    var id = salvarMovimentoCaixaDolar_(mov);
+    return jsonOut({ ok: true, id: id, caixaDolar: lerCaixaDolar_(SpreadsheetApp.getActiveSpreadsheet()) });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'salvarCaixaDolar', erro: String(erro) });
+  }
+}
+
+/** POST excluirCaixaDolar: e.parameter.id - só envio/ajuste (o "uso" sai junto com o aporte). */
+function handleExcluirCaixaDolar(e) {
+  try {
+    var removidas = excluirMovimentoCaixaDolar_(String(e.parameter.id || ''));
+    return jsonOut({ ok: true, removidas: removidas, caixaDolar: lerCaixaDolar_(SpreadsheetApp.getActiveSpreadsheet()) });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'excluirCaixaDolar', erro: String(erro) });
+  }
+}
+
+function tipoDoTextoCaixa_(s) {
+  var t = String(s || '').toLowerCase();
+  if (/uso/.test(t)) return 'uso';
+  if (/ajuste/.test(t)) return 'ajuste';
+  return 'envio';
+}
+
+/** { saldoUsd, movimentos: [{ id, data, tipo, usd, reais, comercial, vet, conversao, encargos, aporteId, observacao }] } - mais novo primeiro. */
+function lerCaixaDolar_(ss) {
+  var aba = ss.getSheetByName(ABA_CAIXA_DOLAR);
+  if (!aba || aba.getLastRow() < 2) return { saldoUsd: 0, movimentos: [] };
+  var saldo = 0;
+  var movimentos = [];
+  aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_CAIXA_DOLAR.length).getValues().forEach(function (l) {
+    var id = String(l[0] || '').trim();
+    var usd = numeroAporte_(l[3]);
+    if (!id || usd === null) return;
+    saldo += usd;
+    movimentos.push({
+      id: id, data: chaveDataLanc_(l[1]), tipo: tipoDoTextoCaixa_(l[2]), usd: usd, reais: numeroAporte_(l[4]), comercial: numeroAporte_(l[5]),
+      vet: numeroAporte_(l[6]), conversao: numeroAporte_(l[7]), encargos: numeroAporte_(l[8]), aporteId: String(l[9] || '').trim(), observacao: String(l[10] || '')
+    });
+  });
+  movimentos.sort(function (a, b) { return a.data < b.data ? 1 : (a.data > b.data ? -1 : 0); });
+  return { saldoUsd: Math.round(saldo * 100) / 100, movimentos: movimentos };
+}
+
+function garantirAbaCaixaDolar_(ss) {
+  var aba = ss.getSheetByName(ABA_CAIXA_DOLAR);
+  if (!aba) {
+    aba = ss.insertSheet(ABA_CAIXA_DOLAR);
+    aba.getRange(1, 1, 1, CABECALHO_CAIXA_DOLAR.length).setValues([CABECALHO_CAIXA_DOLAR]);
+  }
+  return aba;
+}
+
+function salvarMovimentoCaixaDolar_(mov) {
+  if (!mov || typeof mov !== 'object') throw new Error('movimento vazio');
+  var tipo = String(mov.tipo || 'envio');
+  if (tipo !== 'envio' && tipo !== 'ajuste') throw new Error('tipo inválido: ' + tipo);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(mov.data || ''))) throw new Error('data inválida (use aaaa-mm-dd)');
+  var usd = numeroAporte_(mov.usd);
+  if (usd === null || usd === 0) throw new Error('informe os dólares');
+  if (tipo === 'envio' && usd < 0) throw new Error('um envio tem dólar positivo (para tirar, use ajuste)');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var trava = LockService.getScriptLock();
+  trava.waitLock(20000);
+  try {
+    var aba = garantirAbaCaixaDolar_(ss);
+    var id = String(mov.id || '').trim() || ('CX-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100));
+    var n = function (v) { var x = numeroAporte_(v); return x === null ? '' : x; };
+    var linha = [id, dataPlanilhaLanc_(mov.data), TIPOS_CAIXA_DOLAR[tipo], usd, n(mov.reais), n(mov.comercial), n(mov.vet), n(mov.conversao), n(mov.encargos), '', String(mov.observacao || ''), new Date()];
+    var existentes = aba.getLastRow() >= 2 ? aba.getRange(2, 1, aba.getLastRow() - 1, 1).getValues() : [];
+    var achada = 0;
+    existentes.forEach(function (l, i) { if (String(l[0]) === id) achada = i + 2; });
+    if (achada) aba.getRange(achada, 1, 1, linha.length).setValues([linha]);
+    else aba.getRange(aba.getLastRow() + 1, 1, 1, linha.length).setValues([linha]);
+    return id;
+  } finally {
+    trava.releaseLock();
+  }
+}
+
+function excluirMovimentoCaixaDolar_(id) {
+  if (!id) throw new Error('id vazio');
+  var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CAIXA_DOLAR);
+  if (!aba || aba.getLastRow() < 2) return 0;
+  var trava = LockService.getScriptLock();
+  trava.waitLock(20000);
+  try {
+    var vals = aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_CAIXA_DOLAR.length).getValues();
+    var removidas = 0;
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (String(vals[i][0]) !== id) continue;
+      if (tipoDoTextoCaixa_(vals[i][2]) === 'uso') throw new Error('o uso do caixa sai sozinho quando o aporte é excluído');
+      aba.deleteRow(i + 2);
+      removidas++;
+    }
+    return removidas;
+  } finally {
+    trava.releaseLock();
+  }
+}
+
+/**
+ * Aporte concluído com Ações EUA -> linha "Uso" (US$ negativo, id CX-USO-<aporte>);
+ * aporte nulo (excluído) ou sem Ações EUA pagas -> remove a linha. Só mexe se a
+ * aba do caixa existe (quem nunca enviou dólar pelo fluxo novo não é afetado).
+ */
+function registrarUsoCaixaDolar_(ss, aporteId, aporte) {
+  var aba = ss.getSheetByName(ABA_CAIXA_DOLAR);
+  if (!aba || !aporteId) return;
+  var idUso = 'CX-USO-' + aporteId;
+  var usd = 0;
+  if (aporte && aporte.status === 'concluido') {
+    (aporte.itens || []).forEach(function (it) {
+      if (it.classe === 'acoesEua' && Number(it.valorFinal) > 0) usd += Number(it.valorFinal);
+    });
+  }
+  usd = Math.round(usd * 100) / 100;
+  var trava = LockService.getScriptLock();
+  trava.waitLock(20000);
+  try {
+    if (aba.getLastRow() >= 2) {
+      var ids = aba.getRange(2, 1, aba.getLastRow() - 1, 1).getValues();
+      for (var i = ids.length - 1; i >= 0; i--) if (String(ids[i][0]) === idUso) aba.deleteRow(i + 2);
+    }
+    if (usd > 0) {
+      aba.getRange(aba.getLastRow() + 1, 1, 1, CABECALHO_CAIXA_DOLAR.length).setValues([[idUso, dataPlanilhaLanc_(aporte.data), TIPOS_CAIXA_DOLAR.uso, -usd, '', '', '', '', '', aporteId, 'Compra de ações EUA (aporte concluído)', new Date()]]);
+    }
+  } finally {
+    trava.releaseLock();
+  }
 }

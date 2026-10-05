@@ -157,3 +157,107 @@ export function lerHolerite(linhas) {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// 05/10/2026: holerites automáticos do Drive (Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>/MES-ANO.pdf)
+// ---------------------------------------------------------------------------
+//
+// Tiago: "holerites ficarão em Drive ... NOME_EMPRESA/Holerite/ANO/MES-ANO.pdf".
+// O Apps Script (Salario.gs) lista os PDFs e marca os novos (id + modifiedTime
+// ainda não registrados); aqui cada PDF novo é baixado, lido pelo MESMO leitor
+// do botão "Importar holerite" (lerHolerite) e salvo; o registro do arquivo
+// evita reimportar. Os que o leitor não entende ficam registrados como "erro"
+// (não insiste até o arquivo mudar no Drive).
+
+export function base64ParaBytes(b64) {
+  const bin = typeof globalThis.atob === 'function' ? globalThis.atob(b64) : Buffer.from(b64, 'base64').toString('binary');
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/** Os arquivos da lista do Drive que ainda não foram importados (ou mudaram depois de importados). */
+export const holeritesNovosDrive = (arquivos) => (arquivos || []).filter((a) => a && a.novo);
+
+/** Resultado de lerHolerite -> pagamento da aba Salário (Recebido). */
+export function pagamentoDoHolerite(h) {
+  return {
+    mes: h.mes, tipo: h.tipo || 'Mensal', status: 'Recebido', dataCredito: h.dataCredito || '',
+    salarioBase: h.salarioBase, outrosVencimentos: h.outrosVencimentos, inss: h.inss, irrf: h.irrf, outrosDescontos: h.outrosDescontos,
+    liquido: h.liquido, fgts: h.fgts, baseIrrf: h.baseIrrf, totalVencimentos: h.totalVencimentos, totalDescontos: h.totalDescontos,
+    percentualInvestir: null, itens: h.itens || [],
+  };
+}
+
+const NOME_EMPRESA_CURTO = (a) => `${a.empresa ? `${a.empresa}/` : ''}${a.nome}`;
+
+/**
+ * Importa os holerites novos do Drive.
+ *   listar()                  -> { ok, arquivos: [{ id, nome, empresa, modificado, novo, ... }] } (Salario.gs)
+ *   obter(id)                 -> { ok, base64 }
+ *   salvar(pagamento, arquivo, { usarComoBase }) -> resposta de salvarHoleriteDrive (tela do salário inteira)
+ *   carregarPdf(doc), lerPdf(lib, bytes) -> como no leitor manual
+ *   pagamentos                -> o que a aba Salário já tem (pra saber qual é o holerite mais novo - vira a base das contas)
+ *   aoProgresso({ total, feitos, atual, log })
+ * Só os `novo` entram (ou `ids`, se passado). Devolve { ok, erro?, log, importados, avisos, falhas, ultima (última resposta
+ * de `salvar` que deu certo) }. PDF que o leitor não entende é registrado como erro; falha de rede/de carregar o leitor
+ * NÃO é registrada (a próxima tentativa lê de novo).
+ */
+export async function lerHoleritesDoDrive({ listar, obter, salvar, carregarPdf, lerPdf, doc, pagamentos = [], ids = null, aoProgresso = null }) {
+  let lista;
+  try { lista = await listar(); } catch (e) { lista = { ok: false, erro: String(e && e.message ? e.message : e) }; }
+  if (!lista || !lista.ok) return { ok: false, erro: `Não deu pra listar o Drive: ${(lista && lista.erro) || 'erro'}`, log: [], importados: 0, avisos: 0, falhas: 0, ultima: null };
+  if (lista.configurado === false) return { ok: false, erro: 'Não achei a pasta Documentos/Trabalho no Drive (rode configurarPastaHoleritesDireto no editor do Apps Script).', log: [], importados: 0, avisos: 0, falhas: 0, ultima: null };
+  const alvo = ids ? (lista.arquivos || []).filter((a) => ids.includes(a.id)) : holeritesNovosDrive(lista.arquivos);
+  const log = [];
+  const prog = (atual) => { if (typeof aoProgresso === 'function') { try { aoProgresso({ total: alvo.length, feitos: log.length, atual, log }); } catch (e) { /* ok */ } } };
+  if (!alvo.length) return { ok: true, log, importados: 0, avisos: 0, falhas: 0, ultima: null, nada: true };
+  let lib;
+  try { lib = await carregarPdf(doc); } catch (e) { return { ok: false, erro: `Não deu pra abrir o leitor de PDF: ${String(e && e.message ? e.message : e)}`, log, importados: 0, avisos: 0, falhas: 0, ultima: null }; }
+
+  // 1) lê todos (antes de salvar, pra saber qual é o holerite mensal mais novo de tudo)
+  const lidos = [];
+  for (const a of alvo) {
+    prog(NOME_EMPRESA_CURTO(a));
+    const arquivo = { id: a.id, nome: a.nome, empresa: a.empresa || '', modificado: a.modificado || '' };
+    let r;
+    try { r = await obter(a.id); } catch (e) { r = { ok: false, erro: String(e && e.message ? e.message : e) }; }
+    if (!r || !r.ok || !r.base64) { log.push({ ...arquivo, status: 'erro', msg: `não baixou do Drive: ${(r && r.erro) || 'sem resposta'}`, registrar: false }); prog(''); continue; }
+    try {
+      const h = lerHolerite(await lerPdf(lib, base64ParaBytes(r.base64)));
+      if (!/^\d{4}-\d{2}$/.test(h.mes || '')) throw new Error('não achei o mês de referência no PDF');
+      if (!(h.liquido > 0)) throw new Error('não achei o valor líquido no PDF');
+      const problema = (h.avisos || []).join(' ');
+      lidos.push({ arquivo: { ...arquivo, tipo: h.tipo, situacao: problema ? 'aviso' : 'ok', problema }, h, pagamento: pagamentoDoHolerite(h) });
+    } catch (e) {
+      log.push({ ...arquivo, status: 'erro', msg: String(e && e.message ? e.message : e), registrar: true, h: null });
+    }
+    prog('');
+  }
+
+  // 2) o mensal mais novo (entre o que já tem e o que chegou) vira a base das contas
+  const jaTem = (pagamentos || []).filter((p) => p.tipo === 'Mensal' && p.status !== 'Previsto').map((p) => p.mes);
+  const novosMensais = lidos.filter((x) => x.pagamento.tipo === 'Mensal').map((x) => x.pagamento.mes);
+  const maisNovo = [...jaTem, ...novosMensais].sort().pop() || null;
+
+  // 3) grava um a um (do mais antigo pro mais novo)
+  let ultima = null;
+  lidos.sort((x, y) => (x.pagamento.mes < y.pagamento.mes ? -1 : x.pagamento.mes > y.pagamento.mes ? 1 : 0));
+  for (const x of lidos) {
+    prog(NOME_EMPRESA_CURTO(x.arquivo));
+    const usarComoBase = x.pagamento.tipo === 'Mensal' && x.pagamento.mes === maisNovo && !jaTem.some((m) => m > x.pagamento.mes);
+    let s;
+    try { s = await salvar(x.pagamento, x.arquivo, { usarComoBase }); } catch (e) { s = { ok: false, erro: String(e && e.message ? e.message : e) }; }
+    if (!s || !s.ok) { log.push({ ...x.arquivo, status: 'erro', msg: `não salvou: ${(s && s.erro) || 'sem resposta'}`, registrar: false }); prog(''); continue; }
+    ultima = s;
+    log.push({ ...x.arquivo, mes: x.pagamento.mes, status: x.arquivo.situacao === 'aviso' ? 'aviso' : 'ok', msg: `${x.pagamento.tipo} ${x.pagamento.mes}${x.arquivo.problema ? ` · ${x.arquivo.problema}` : ''}${usarComoBase ? ' · virou a base das contas' : ''}` });
+    prog('');
+  }
+
+  // 4) o que o leitor não entendeu fica registrado (não insiste até o arquivo mudar)
+  for (const item of log.filter((l) => l.registrar)) {
+    try { await salvar(null, { id: item.id, nome: item.nome, empresa: item.empresa, modificado: item.modificado, situacao: 'erro', problema: item.msg }, {}); } catch (e) { /* fica como novo */ }
+  }
+  const importados = log.filter((l) => l.status === 'ok' || l.status === 'aviso').length;
+  return { ok: true, log, importados, avisos: log.filter((l) => l.status === 'aviso').length, falhas: log.filter((l) => l.status === 'erro').length, ultima };
+}

@@ -108,6 +108,21 @@ export function extrasFinanciamento(fin, fgts) {
 }
 
 /**
+ * 05/10/2026 (Tiago: o "negativo" do FGTS de jan/2026 foi pra amortização do
+ * apê): os usos do FGTS na amortização do financiamento entre `de` (exclusive)
+ * e `ate` (inclusive), 'aaaa-mm'. NÃO é perda de patrimônio: o saldo do FGTS
+ * cai e a dívida cai igual (transferência). Só conta depois do início do
+ * financiamento (antes é entrada do imóvel).
+ */
+export function usosFgtsNoApe(cfg, de = null, ate = null) {
+  const fin = cfg && cfg.financiamento;
+  if (!fin) return [];
+  const inicio = fin.dataInicio ? mesDe(fin.dataInicio) : null;
+  return usosMoradiaFgts(cfg.fgts)
+    .filter((u) => (!inicio || mesDe(u.data) > inicio) && (!de || mesDe(u.data) > de) && (!ate || mesDe(u.data) <= ate));
+}
+
+/**
  * Saldo do financiamento no fim de `mes`. Âncoras: os saldos conhecidos
  * (extrato + os que o Tiago informar) e o valor financiado no início. Entre
  * duas âncoras, linha reta; as amortizações extras entram no mês em que
@@ -173,6 +188,21 @@ export function mesesRestantesFies(fies, hoje) {
 const pmt = (s, i, n) => (n <= 0 ? s : i > 0 ? (s * i) / (1 - (1 + i) ** -n) : s / n);
 
 /**
+ * 05/10/2026: o prazo que a Caixa devolve no "reduzir prazo" do SAC. Antes
+ * s0 com n0 parcelas (prestação sem seguro = s0/n0 + s0·i); depois da
+ * amortização o saldo é s1 e o prazo é o MENOR n tal que a prestação nova
+ * não passa da atual: s1·(1/n + i) <= s0·(1/n0 + i). Conferido com os dois
+ * testes que o Tiago fez no app (R$ 900 tira 2 parcelas, R$ 860 só 1).
+ * prazoCaixaSacExato é a versão contínua; prazoCaixaSac, o inteiro.
+ */
+export function prazoCaixaSacExato(s0, n0, i, s1) {
+  if (!(s1 > 0.005)) return 0;
+  const r = (s0 / s1) * (1 / n0 + i) - i;
+  return r > 0 ? Math.min(n0, 1 / r) : n0;
+}
+export const prazoCaixaSac = (s0, n0, i, s1) => (s1 > 0.005 ? Math.max(1, Math.min(n0, Math.ceil(prazoCaixaSacExato(s0, n0, i, s1) - 1e-9))) : 0);
+
+/**
  * Cronograma mês a mês (t = 1 é a próxima parcela). `extras` {t: valor} são
  * amortizações a mais pagas junto da parcela do mês t (t = 0: agora);
  * modo 'prazo' mantém a parcela/amortização e termina antes, 'parcela'
@@ -184,8 +214,11 @@ export function cronogramaDivida({ sistema = 'SAC', saldo, taxaMensal, meses, se
   let A = sistema === 'SAC' ? (num(amortizacao) && amortizacao > 0 ? amortizacao : s / meses) : null;
   let P = sistema === 'Price' ? (num(parcela) && parcela > 0 ? parcela : pmt(s, i, meses)) : null;
   const e0 = Math.min(extras[0] || 0, s);
+  const s00 = s;
   s -= e0;
   if (e0 > 0 && modo === 'parcela') { if (sistema === 'SAC') A = s / meses; else P = pmt(s, i, meses); }
+  // 05/10/2026: SAC no prazo = regra da Caixa (a prestação não sobe; o prazo é recalculado, ver prazoCaixaSac)
+  else if (e0 > 0 && sistema === 'SAC' && s > 0.005) A = s / prazoCaixaSac(s00, Math.max(1, Math.ceil(s00 / A - 1e-9)), i, s);
   const linhas = [];
   for (let t = 1; t <= meses + 600 && s > 0.005; t += 1) {
     const juros = s * i;
@@ -194,11 +227,12 @@ export function cronogramaDivida({ sistema = 'SAC', saldo, taxaMensal, meses, se
     let extra = 0;
     if (s > 0.005) {
       extra = Math.min((extras[t] || 0) + extraMensal, s);
+      const sAntes = s;
       s -= extra;
       if (extra > 0 && modo === 'parcela') {
         const resta = Math.max(1, meses - t);
         if (sistema === 'SAC') A = s / resta; else P = pmt(s, i, resta);
-      }
+      } else if (extra > 0 && sistema === 'SAC' && s > 0.005) A = s / prazoCaixaSac(sAntes, Math.max(1, Math.ceil(sAntes / A - 1e-9)), i, s);
     }
     linhas.push({ t, juros, amortizacao: amort, extra, pagamento: amort + juros + (amort > 0 ? seguro : 0), saldo: Math.max(0, s) });
   }
@@ -480,6 +514,7 @@ export function historicoAnual(d) {
       ano, rotulo: String(ano), fonte: ir ? 'ir' : 's', investimentos: investimentos || 0,
       imovel: imo && imo.valor > 0 ? imo.valor : entradaAntes(mes), entradaImovel: !(imo && imo.valor > 0) && entradaAntes(mes) > 0,
       fgts: fg || 0, financiamento: fin || 0, fies: fi || 0,
+      fgtsNoApe: r2(soma(usosFgtsNoApe(cfg, `${ano - 1}-12`, mes), (u) => u.valor)),
       renda: ir ? ir.tributaveis : null, rendaTotal: ir ? soma([ir.tributaveis, ir.isentos, ir.exclusivos]) : null,
       imovelNoIr: ir ? imoveisIr(ir) : null, compraImovel: !!(cfg.imovel && mesDe(cfg.imovel.dataCompra).slice(0, 4) === String(ano)),
     };
@@ -491,6 +526,7 @@ export function historicoAnual(d) {
     investimentos: r2(val('investimentos') + val('reserva') + soma(b.ativos.filter((a) => a.outro), (a) => a.valor)),
     imovel: val('imovel'), fgts: val('fgts'), financiamento: val('financiamento'), fies: val('fies'),
     outrasDividas: soma(b.dividas.filter((a) => a.outro), (a) => a.valor), renda: null,
+    fgtsNoApe: r2(soma(usosFgtsNoApe(cfg, `${anoHoje - 1}-12`, mesDe(d.hoje)), (u) => u.valor)),
   });
   let anterior = null;
   return linhas.map((l) => {
@@ -589,6 +625,51 @@ export function idadeEm(nascimento, data) {
   return difMeses(nascimento, data) / 12;
 }
 
+/**
+ * 05/10/2026 (Tiago: "nas contas e projeções, a ideia é sempre amortizar NO
+ * PRAZO o apê com o FGTS"): em que parcela o apê acaba se o FGTS amortizar
+ * (reduzindo o prazo, regra da Caixa - prazoCaixaSac) a cada 2 anos, que é o
+ * intervalo mínimo do SFH entre usos. O 1º uso é depois do último que já foi
+ * feito (resumoFgts.proximaAmortizacao); o saldo anda com 8% do salário + JAM
+ * (~0,4% ao mês) e DESCONTA o saque-aniversário do caminho (ele já sai do FGTS
+ * todo ano). Sem FGTS cadastrado (ou com "usos do FGTS como extra" desligado)
+ * é o prazo do contrato. Devolve { meses, semFgts, usos: [{ mes, valor }] }
+ * (mes = nº da parcela, 1 = a do mês que vem) ou null.
+ */
+export function projetarApeComFgts(cfg, hoje, { salario = null, nascimento = null } = {}) {
+  const fin = cfg && cfg.financiamento;
+  if (!fin || !num(fin.saldo)) return null;
+  const mesHoje = mesDe(hoje);
+  const saldo0 = saldoFinanciamento(fin, mesHoje, extrasFinanciamento(fin, cfg.fgts)) ?? fin.saldo;
+  const A0 = num(fin.amortizacao) && fin.amortizacao > 0 ? fin.amortizacao : (fin.prazoRestante ? fin.saldo / fin.prazoRestante : null);
+  if (!A0) return fin.prazoRestante ? { meses: fin.prazoRestante, semFgts: fin.prazoRestante, usos: [] } : null;
+  const semFgts = Math.ceil(saldo0 / A0 - 1e-9);
+  const out = { meses: semFgts, semFgts, usos: [] };
+  if (!(cfg.fgts && (cfg.fgts.contas || []).length) || fin.usarFgtsComoExtra === false) return out;
+  const dep = num(salario) ? salario * 0.08 : 0;
+  const r = resumoFgts(cfg.fgts, hoje, { nascimento, depositoMensal: dep });
+  const aniv = r.aniversario || {};
+  const i = (fin.taxaAnual || 0) / 12;
+  let s = saldo0; let A = A0; let fg = r.saldo;
+  let proximo = r.proximaAmortizacao > mesHoje ? r.proximaAmortizacao : somarMeses(mesHoje, 1);
+  for (let t = 1; t <= 600 && s > 0.005; t += 1) {
+    const mes = somarMeses(mesHoje, t);
+    s -= Math.min(A, s);
+    if (aniv.ativo && aniv.mesAniversario && Number(mes.slice(5, 7)) === aniv.mesAniversario) fg -= saqueAniversario(fg).valor;
+    fg = fg * 1.004 + dep;
+    if (s > 0.005 && mes >= proximo && fg > 0) {
+      const uso = Math.min(fg, s);
+      const antes = s;
+      s -= uso; fg -= uso;
+      out.usos.push({ mes: t, valor: r2(uso) });
+      proximo = somarMeses(mes, 24);
+      if (s > 0.005) A = s / prazoCaixaSac(antes, Math.max(1, Math.ceil(antes / A - 1e-9)), i, s);
+    }
+    if (s <= 0.005) { out.meses = t; break; }
+  }
+  return out;
+}
+
 /** Quando cada dívida acaba (meses a partir de hoje) e quanto libera por mês. */
 export function liberacoesDividas(d, meta) {
   const cfg = d.config || {};
@@ -606,7 +687,10 @@ export function liberacoesDividas(d, meta) {
     const A = cfg.financiamento.amortizacao || (cfg.financiamento.prazoRestante ? cfg.financiamento.saldo / cfg.financiamento.prazoRestante : null);
     const n = A ? Math.ceil(saldoHoje / A - 1e-9) : cfg.financiamento.prazoRestante;
     const v = valorDespesa(/^(?!.*fies)/i) || cfg.financiamento.parcela || 0;
-    if (n != null) out.push({ id: 'financiamento', nome: 'Apê quitado', mes: n, valor: r2(v) });
+    // 05/10/2026: sempre com o FGTS amortizando o apê no prazo a cada 2 anos (projetarApeComFgts)
+    const car = cfg.carreira || {};
+    const com = projetarApeComFgts(cfg, d.hoje, { salario: salarioEm(car, d.hoje), nascimento: car.nascimento || null });
+    if (n != null) out.push({ id: 'financiamento', nome: 'Apê quitado', mes: com && com.usos.length ? com.meses : n, semFgts: n, usosFgts: com ? com.usos : [], valor: r2(v) });
   }
   return out.sort((a, b) => a.mes - b.mes);
 }
@@ -657,13 +741,18 @@ export function origemCrescimento(d, meses = 12) {
   const fin = dif((m) => saldoFinanciamento(cfg.financiamento, m, extras));
   const fies = dif((m) => saldoFies(cfg.fies, m));
   const imovel = dif((m) => { const v = valorImovel(cfg.imovel, d.indices, m); return v ? v.valor : null; });
-  const fgts = dif((m) => saldoFgtsEm(cfg.fgts, m));
+  const fgtsVar = dif((m) => saldoFgtsEm(cfg.fgts, m));
+  // 05/10/2026: o FGTS que foi amortizar o apê não é perda nem "dívida abatida do bolso": sai do FGTS e abate a
+  // dívida (transferência de mesmo valor) - aparece à parte, e os dois itens mostram só o que é de verdade
+  const usos = usosFgtsNoApe(cfg, ini.mes, fim.mes);
+  const uso = r2(Math.min(soma(usos, (u) => u.valor), Math.max(0, -(fin))));
   const itens = [
     { id: 'aportes', nome: 'Aportes (compras − vendas)', valor: aportes },
     { id: 'rendimento', nome: 'Rendimento dos investimentos', valor: r2(varInv - aportes) },
-    { id: 'dividas', nome: 'Dívidas abatidas', valor: r2(-(fin + fies)) },
+    { id: 'dividas', nome: 'Dívidas abatidas', valor: r2(-(fin + fies) - uso) },
     { id: 'imovel', nome: 'Valorização do apê', valor: imovel },
-    { id: 'fgts', nome: 'FGTS', valor: fgts },
+    { id: 'fgts', nome: uso > 0 ? 'FGTS (depósitos e juros)' : 'FGTS', valor: r2(fgtsVar + uso) },
   ];
-  return { de: ini.mes, ate: fim.mes, itens, total: r2(soma(itens, (i) => i.valor)) };
+  const transferencias = uso > 0 ? [{ id: 'fgts-ape', nome: 'FGTS usado na amortização do apê', valor: uso, meses: usos.map((u) => mesDe(u.data)) }] : [];
+  return { de: ini.mes, ate: fim.mes, itens, transferencias, total: r2(soma(itens, (i) => i.valor)) };
 }

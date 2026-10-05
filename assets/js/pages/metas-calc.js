@@ -120,6 +120,7 @@ export const EXPLICACOES = {
   saldoIdeal: 'Saldo ideal da reserva = meses de custo de vida x custo de vida mensal (Despesas essenciais) x (1 + sobra de segurança).',
   rendaMedia: 'Média mensal dos proventos recebidos nos últimos 12 meses fechados pelos ativos vinculados que você ainda tem (a mesma janela da Distribuição e Metas; proventos de um ativo já vendido ou convertido em outro ticker ficam de fora, por isso pode dar um pouco menos que lá).',
   patrimonioRenda: 'Patrimônio que gera a renda = valor de hoje dos ativos vinculados. O necessário é a renda anual dividida pelo rendimento em proventos (DY) esperado.',
+  vencimentos: 'Título de renda fixa vinculado que vence: no vencimento o IR é descontado de qualquer jeito (tabela regressiva pelo tempo desde a aplicação) e o dinheiro cai na conta. "Sem reaplicar" é a reserva sem esse título (o dinheiro sai da carteira); "reaplicando" é a reserva se você puser o valor líquido de volta em um título vinculado. O mínimo é o saldo ideal líquido da meta.',
   velocidade: 'Simulação: o aporte mensal que faz você chegar no alvo em 75% ou 50% do tempo que levaria no ritmo atual (mesmo rendimento).',
   historico: 'Valor da meta no fim de cada mês, reconstruído pelo histórico dos ativos vinculados (cotações e títulos dia a dia) e dos saldos em conta. As barras são o aporte líquido do mês (compras - vendas).',
   projecao: 'Projeção a partir de hoje: a linha cheia é o seu ritmo atual; a tracejada é o aporte necessário para fechar no prazo; a pontilhada é o alvo.',
@@ -813,7 +814,7 @@ export function calcularMeta(meta, ctx = {}) {
   else if (recorrente) status = 'no-ritmo';
   else status = aporteAtual + 0.5 >= (necessario || 0) ? 'no-ritmo' : 'atrasada';
 
-  return {
+  const calcPronto = {
     id: meta.id, alvoMoeda: alvoMoeda != null ? r2(alvoMoeda) : null, moeda, alvoBRL: alvoBRL != null ? r2(alvoBRL) : null,
     cotacao: cotacao(moeda, cambio), atualBRL, valorVinculado: vinc.total, valorInicial, itensConcluidosBRL: r2(itensConcluidosBRL),
     falta, faltaMoeda: falta != null && cotacao(moeda, cambio) ? r2(falta / cotacao(moeda, cambio)) : null,
@@ -827,6 +828,12 @@ export function calcularMeta(meta, ctx = {}) {
     entradas, entradasFluxo, entradasTotal,
     decomposicao: falta != null ? { falta, entradas: entradasValidas, totalEntradas: entradasTotal, restante: r2(Math.max(0, falta - entradasTotal)), meses: mesesRestantes, aporte: necessario } : null,
   };
+  // 05/10/2026: 1º marco (milhão) no ritmo - 1 linha curta no card da lista
+  const proximoMarco = !ehReserva && !recorrente && alvoBRL >= 1.5e6 ? marcosProjecao(calcPronto, { hoje }).find((m) => !m.ja && m.rotulo !== 'Alvo') : null;
+  calcPronto.marcoProximo = proximoMarco && proximoMarco.mes ? { rotulo: proximoMarco.rotulo, mes: proximoMarco.mes, ano: proximoMarco.ano } : null;
+  // 05/10/2026: reserva com títulos de renda fixa que vencem
+  calcPronto.vencimentos = ehReserva ? eventosVencimento(calcPronto, { hoje }) : null;
+  return calcPronto;
 }
 
 /**
@@ -838,6 +845,8 @@ export function serieProjecao(calc, { maxMeses = 360, hoje, meses = null } = {})
   if (!calc || calc.alvoBRL == null) return [];
   const inicio = mesDe(hoje || new Date());
   let n = calc.mesesRestantes != null && calc.mesesRestantes > 0 ? calc.mesesRestantes : (Number.isFinite(calc.mesesEstimados) && calc.mesesEstimados > 0 ? Math.ceil(calc.mesesEstimados) : 12);
+  // 05/10/2026: reserva com título vencendo - o horizonte padrão chega até o último vencimento
+  if (meses == null && calc.vencimentos && calc.vencimentos.eventos.length) n = Math.max(n, ...calc.vencimentos.eventos.map((e) => e.em + 3));
   if (meses != null) n = meses; // 03/10/2026: o gráfico escolhe o horizonte (filtro de período)
   n = Math.min(maxMeses, Math.max(1, n));
   const necessario = calc.aporteNecessario != null ? calc.aporteNecessario : null;
@@ -999,7 +1008,9 @@ export function velocidadeMeta(calc, { hoje } = {}) {
     const meses = Math.max(1, f === 1 ? Math.ceil(baseMeses) : Math.round(baseMeses * f));
     // no ritmo = o aporte de hoje; nos outros, o que fecha naquele prazo
     const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: calc.alvoBRL, atual, meses, taxa: calc.taxa || 0, entradas: calc.entradasFluxo }) || 0);
-    return { fracao: f, meses, data: somarMeses(mes, meses), aporte, aMais: r2(aporte - (calc.aporteAtual || 0)) };
+    // 05/10/2026: "com isso, sua meta chega em ..., o 1º milhão em ..." de cada cenário
+    const rm = resumoMarcos(calc, { hoje, aporte });
+    return { fracao: f, meses, data: somarMeses(mes, meses), aporte, aMais: r2(aporte - (calc.aporteAtual || 0)), comIsso: rm.frase, velocidadeMarcos: rm.velocidade };
   });
   return { origem, baseMeses, cenarios };
 }
@@ -1030,16 +1041,16 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
   };
   const extraMes = aporte > 0 ? arred(aporte * 0.1, 50) : arred(Math.max(100, (calc.aporteNecessario || 0) * 0.25), 50);
   const e1 = efeito(mesesAte(calc, { atual, aporte: aporte + extraMes, taxa }));
-  if (e1) dicas.push({ id: 'aporte', texto: `Aportar ${moedaTxt(extraMes)} a mais por mês (${moedaTxt(aporte + extraMes)}) ${e1.texto}.`, mesesAMenos: e1.mesesAMenos });
+  if (e1) dicas.push({ id: 'aporte', texto: `Aportar ${moedaTxt(extraMes)} a mais por mês (${moedaTxt(aporte + extraMes)}) ${e1.texto}.`, mesesAMenos: e1.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + extraMes }).frase });
   const unico = arred(Math.max(1000, aporte), 500);
   const e2 = efeito(mesesAte(calc, { atual: atual + unico, aporte, taxa }));
-  if (e2) dicas.push({ id: 'unico', texto: `Um aporte extra de ${moedaTxt(unico)} agora (13º, restituição do IR, bônus) ${e2.texto}.`, mesesAMenos: e2.mesesAMenos });
+  if (e2) dicas.push({ id: 'unico', texto: `Um aporte extra de ${moedaTxt(unico)} agora (13º, restituição do IR, bônus) ${e2.texto}.`, mesesAMenos: e2.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, atual: atual + unico }).frase });
   const rend = num(meta.rendimentoAnual) || 0;
   const e3 = efeito(mesesAte(calc, { atual, aporte, taxa: taxaMensal(rend + 0.01) }));
-  if (e3 && meta.tipo !== 'reservaEmergencia') dicas.push({ id: 'rendimento', texto: `Render 1 ponto percentual a mais ao ano (${(Math.round((rend + 0.01) * 1000) / 10).toLocaleString('pt-BR')}% em vez de ${(Math.round(rend * 1000) / 10).toLocaleString('pt-BR')}%) - ex. tirar dinheiro parado da conta - ${e3.texto}.`, mesesAMenos: e3.mesesAMenos });
+  if (e3 && meta.tipo !== 'reservaEmergencia') dicas.push({ id: 'rendimento', texto: `Render 1 ponto percentual a mais ao ano (${(Math.round((rend + 0.01) * 1000) / 10).toLocaleString('pt-BR')}% em vez de ${(Math.round(rend * 1000) / 10).toLocaleString('pt-BR')}%) - ex. tirar dinheiro parado da conta - ${e3.texto}.`, mesesAMenos: e3.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, taxa: taxaMensal(rend + 0.01) }).frase });
   if (meta.tipo === 'rendaPassiva' && calc.renda && calc.renda.atual > 0) {
     const e4 = efeito(mesesAte(calc, { atual, aporte: aporte + calc.renda.atual, taxa }));
-    if (e4) dicas.push({ id: 'reinvestir', texto: `Reinvestir todos os proventos (${moedaTxt(calc.renda.atual)}/mês hoje) somados ao aporte ${e4.texto} - a renda cresce sozinha (efeito bola de neve).`, mesesAMenos: e4.mesesAMenos });
+    if (e4) dicas.push({ id: 'reinvestir', texto: `Reinvestir todos os proventos (${moedaTxt(calc.renda.atual)}/mês hoje) somados ao aporte ${e4.texto} - a renda cresce sozinha (efeito bola de neve).`, mesesAMenos: e4.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + calc.renda.atual }).frase });
   }
   if (calc.viagem) {
     Object.values(calc.viagem.porMoeda).filter((x) => x.moeda !== 'BRL' && x.faltaBRL > 0).forEach((x) => {
@@ -1058,10 +1069,13 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
  * cada milhão (alvo >= R$ 1,5 mi) ou cada quarto do alvo, mais o próprio
  * alvo. [{ valor, rotulo, meses, mes, ano, idade, ja }] (meses null = não chega em maxMeses).
  */
-export function marcosProjecao(calc, { hoje, aporte = null, maxMeses = 720, anoNascimento = null } = {}) {
-  if (!calc || !(calc.alvoBRL > 0)) return [];
-  const alvo = calc.alvoBRL;
-  const atual = calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL;
+export function marcosProjecao(calc, { hoje, aporte = null, maxMeses = 720, anoNascimento = null, atual: atualOv = null, taxa: taxaOv = null, alvo: alvoOv = null, entradas: entradasOv } = {}) {
+  // 05/10/2026: atual/taxa/alvo/entradas opcionais - as simulações (75%/50% do tempo, renda -10%, simulador...) reaproveitam o mesmo cálculo
+  if (!calc || !((alvoOv != null ? alvoOv : calc.alvoBRL) > 0)) return [];
+  const alvo = alvoOv != null ? alvoOv : calc.alvoBRL;
+  const atual = atualOv != null ? atualOv : (calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL);
+  const taxaUsada = taxaOv != null ? taxaOv : (calc.taxa || 0);
+  const entradasUsadas = entradasOv !== undefined ? entradasOv : calc.entradasFluxo;
   const ap = aporte != null ? aporte : (calc.aporteAtual || 0);
   const mes = mesDe(hoje || new Date());
   const passo = alvo >= 1.5e6 ? 1e6 : alvo / 4;
@@ -1072,12 +1086,69 @@ export function marcosProjecao(calc, { hoje, aporte = null, maxMeses = 720, anoN
     const ehAlvo = i === valores.length - 1;
     const rotulo = ehAlvo ? 'Alvo' : (passo === 1e6 ? `${Math.round(v / 1e6)}º milhão` : `${Math.round(((i + 1) * 100) / 4)}% do alvo`);
     if (atual >= v) return { valor: v, rotulo, meses: 0, mes, ano: Number(mes.slice(0, 4)), idade: anoNascimento ? Number(mes.slice(0, 4)) - anoNascimento : null, ja: true };
-    const n = prazoParaAlvo({ alvo: v, atual, aporte: ap, taxa: calc.taxa || 0, entradas: calc.entradasFluxo });
+    const n = prazoParaAlvo({ alvo: v, atual, aporte: ap, taxa: taxaUsada, entradas: entradasUsadas });
     if (!Number.isFinite(n) || n > maxMeses) return { valor: v, rotulo, meses: null, mes: null, ano: null, idade: null, ja: false };
     const m = somarMeses(mes, Math.ceil(n));
     const ano = Number(m.slice(0, 4));
     return { valor: v, rotulo, meses: Math.ceil(n), mes: m, ano, idade: anoNascimento ? ano - anoNascimento : null, ja: false };
   });
+}
+
+/**
+ * 05/10/2026 (Tiago: "nas simulações, sempre incluir 'com isso, sua meta de X
+ * chega em tal ano, o 1º milhão em tal ano, o 2º...'"): frase a partir dos
+ * marcos (marcosProjecao). Só faz sentido com alvo em milhões (>= R$ 1,5 mi:
+ * os marcos são cada milhão); senão devolve ''.
+ * "Com isso, sua meta de R$ 3.200.000 chega em mar/2041; o 1º milhão em 2029, o 2º em 2035, o 3º em 2040."
+ */
+export function fraseMarcos(marcos, { alvo = null } = {}) {
+  const lista = marcos || [];
+  const milhoes = lista.filter((m) => /º milhão$/.test(m.rotulo));
+  const fim = lista.find((m) => m.rotulo === 'Alvo');
+  if (!milhoes.length || !fim) return '';
+  const meta = alvo != null ? alvo : fim.valor;
+  const quando = fim.ja ? 'já está alcançada' : (fim.mes ? `chega em ${rotuloMes(fim.mes)}` : 'não chega em 60 anos');
+  const partes = milhoes.map((m, i) => {
+    const nome = i === 0 ? `o ${m.rotulo}` : `o ${m.rotulo.replace(/ milhão$/, '')}`;
+    return `${nome} ${m.ja ? 'já foi' : (m.ano ? `em ${m.ano}` : 'não chega')}`;
+  });
+  return `Com isso, sua meta de ${moedaTxt(meta)} ${quando}; ${partes.join(', ')}.`;
+}
+
+/**
+ * 05/10/2026: velocidade entre os marcos ("do 1º pro 2º milhão: 6 anos; do 2º
+ * pro 3º: 4 anos e 2 meses - os juros compostos aceleram"). Pula o trecho que
+ * começa num marco que já passou (não dá pra saber quando foi). '' sem 2 marcos.
+ */
+export function velocidadeEntreMarcos(marcos) {
+  const lista = (marcos || []).filter((m) => m.meses != null);
+  const ehMilhao = (m) => /º milhão$/.test(m.rotulo);
+  const ord = (m) => m.rotulo.replace(/ milhão$/, '');
+  const trechos = [];
+  for (let i = 0; i + 1 < lista.length; i++) {
+    const a = lista[i]; const b = lista[i + 1];
+    if (a.ja || !ehMilhao(a)) continue;
+    // a meta redonda (ex. R$ 3 mi) é o próprio "3º milhão"
+    const redondo = b.rotulo === 'Alvo' && b.valor % 1e6 === 0;
+    trechos.push({ n: b.meses - a.meses, entreMilhoes: ehMilhao(b) || redondo, de: ord(a), para: ehMilhao(b) ? ord(b) : (redondo ? `${b.valor / 1e6}º` : null) });
+  }
+  if (!trechos.length) return '';
+  const txt = trechos.map((t, i) => `${t.entreMilhoes ? `do ${t.de} pro ${t.para}${i === 0 ? ' milhão' : ''}` : `do ${t.de} milhão à meta`}: ${rotuloDuracao(t.n)}`).join('; ');
+  const completos = trechos.filter((t) => t.entreMilhoes);
+  const primeiro = completos[0]; const ultimo = completos[completos.length - 1];
+  const acelera = completos.length >= 2 && ultimo.n <= primeiro.n * 0.95 && primeiro.n - ultimo.n >= 3; // diferença de arredondamento não é aceleração
+  return `${txt}${acelera ? ' - os juros compostos aceleram: cada milhão novo vem mais rápido' : ''}.`;
+}
+
+/**
+ * 05/10/2026: { marcos, frase, velocidade } de uma simulação (aporte/atual/
+ * taxa/alvo diferentes dos da meta). Vazio fora do modo "milhões".
+ */
+export function resumoMarcos(calc, opcoes = {}) {
+  const alvo = opcoes.alvo != null ? opcoes.alvo : (calc && calc.alvoBRL);
+  if (!calc || !(alvo >= 1.5e6) || calc.recorrente) return { marcos: [], frase: '', velocidade: '' };
+  const marcos = marcosProjecao(calc, opcoes);
+  return { marcos, frase: fraseMarcos(marcos, { alvo }), velocidade: velocidadeEntreMarcos(marcos) };
 }
 
 /**
@@ -1100,6 +1171,8 @@ export function cenariosRendaMenor(calc, { hoje, reducoes = [0.1, 0.2] } = {}) {
       aporteNecessario: calc.mesesRestantes != null ? r2(aporteNecessario({ alvo: montante, atual, meses: Math.max(0, calc.mesesRestantes), taxa: calc.taxa || 0, entradas: ent }) || 0) : null,
       data: Number.isFinite(n) ? somarMeses(mes, Math.ceil(n)) : null,
       mesesAMenos: Number.isFinite(n) && Number.isFinite(m0) ? Math.ceil(m0) - Math.ceil(n) : null,
+      // 05/10/2026: com o montante menor, quando cada milhão chega no seu ritmo
+      comIsso: resumoMarcos(calc, { hoje, alvo: montante }).frase,
     };
   });
 }
@@ -1218,15 +1291,18 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
     const aportes = calc.aporteNecessario * n;
     const rend = Math.max(0, calc.alvoBRL - (calc.atualRitmo || 0) - aportes - (calc.entradasTotal || 0));
     const gap = calc.aporteNecessario - (calc.aporteAtual || 0);
+    const fraseNec = resumoMarcos(calc, { hoje, aporte: calc.aporteNecessario }).frase; // 05/10/2026
     out.push({
       tipo: 'composicao', tom: gap > 0.5 ? 'atencao' : 'bom', peso: 70,
-      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${moedaTxt(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${moedaTxt(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${moedaTxt(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${moedaTxt(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${moedaTxt(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).`,
+      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${moedaTxt(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${moedaTxt(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${moedaTxt(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${moedaTxt(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${moedaTxt(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).${fraseNec ? ` ${fraseNec}` : ''}`,
       resumo: gap > 0.5 ? `faltam ${moedaTxt(gap)}/mês pro prazo` : 'aporte cobre o prazo',
     });
   }
   const proximos = (marcos || []).filter((m) => !m.ja && m.mes);
   if (proximos.length) {
-    out.push({ tipo: 'marcos', tom: 'neutro', peso: 55, texto: `Marcos no seu ritmo: ${proximos.slice(0, 4).map((m) => `${m.rotulo} em ${rotuloMes(m.mes)}${m.idade ? ` (${m.idade} anos)` : ''}`).join('; ')}.`, resumo: `${proximos[0].rotulo} em ${proximos[0].ano}` });
+    // 05/10/2026: a velocidade entre os marcos (1º pro 2º milhão...) entra na explicação
+    const vel = velocidadeEntreMarcos(marcos);
+    out.push({ tipo: 'marcos', tom: 'neutro', peso: 55, texto: `Marcos no seu ritmo: ${proximos.slice(0, 4).map((m) => `${m.rotulo} em ${rotuloMes(m.mes)}${m.idade ? ` (${m.idade} anos)` : ''}`).join('; ')}.${vel ? ` Velocidade: ${vel}` : ''}`, resumo: `${proximos[0].rotulo} em ${proximos[0].ano}` });
   }
   return fecharAnalise(out);
 }
@@ -1377,6 +1453,82 @@ const mesVenc = (v) => {
   m = s.match(/^(\d{4})-(\d{2})/); if (m) return `${m[1]}-${m[2]}`;
   return null;
 };
+
+/**
+ * 05/10/2026 (Tiago: "ex. Tesouro Selic 2027 vence em janeiro do ano que vem e
+ * o IR é pago obrigatoriamente; a renda emergencial tem que continuar com o
+ * mínimo da meta quando vencer"): projeta, mês a mês, os títulos de renda fixa
+ * vinculados que vencem. No vencimento o IR é cobrado de qualquer jeito
+ * (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta - deixa
+ * de ser o título (e de contar na meta, se não reaplicar).
+ *
+ * `calc` precisa de vinculos, atualLiquidoBRL, alvoBRL (o mínimo, líquido) e taxa
+ * (mensal; o título cresce nela até vencer). O IR vem de `ativo.irResgate.vencimento`
+ * ({ aliquota, principal } - Metas.gs); sem isso estima com 15% sobre o rendimento
+ * que ainda vai render (`estimado: true`).
+ * Devolve { eventos: [{ mes, em, titulos: [{ nome, valorHoje, bruto, ir, liquido, estimado }],
+ * bruto, ir, liquido, reservaSemReaplicar, reservaReaplicando, acimaMinimo, acimaReaplicando,
+ * falta, perdeMes, tom, sugestao, texto }], minimo, proximo } ou null.
+ */
+export function eventosVencimento(calc, { hoje } = {}) {
+  if (!calc || !Array.isArray(calc.vinculos)) return null;
+  const mesHoje = mesDe(hoje || new Date());
+  const taxa = calc.taxa || 0;
+  const porMes = new Map();
+  calc.vinculos.forEach((v) => {
+    const parte = v.base > 0 ? v.valorBRL / v.base : 0;
+    (v.ativos || []).forEach((a) => {
+      if (a.classe !== 'rf' || !(parte > 0)) return;
+      const mes = mesVenc(a.vencimento);
+      const n = mes ? mesesEntre(mesHoje, mes) : null;
+      if (n == null || n < 0) return;
+      const valorHoje = (Number(a.valorBRL) || 0) * parte;
+      if (!(valorHoje > 0)) return;
+      const ir0 = a.irResgate || {};
+      const irHoje = ((Number(ir0.ir) || 0) + (Number(ir0.iof) || 0)) * parte;
+      const bruto = valorHoje * Math.pow(1 + taxa, n);
+      const iv = ir0.vencimento;
+      let ir;
+      let estimado = false;
+      if (ir0.isento) ir = 0; // LCI/LCA: isentas
+      else if (iv && Number.isFinite(iv.aliquota) && Number.isFinite(iv.principal)) ir = Math.max(0, bruto - iv.principal * parte) * iv.aliquota;
+      else { ir = irHoje + Math.max(0, bruto - valorHoje) * (iv && Number.isFinite(iv.aliquota) ? iv.aliquota : 0.15); estimado = true; }
+      const item = { nome: String(a.nome || '').split(' · ')[0], valorHoje: r2(valorHoje), liquidoHoje: r2(valorHoje - irHoje), bruto: r2(bruto), ir: r2(ir), liquido: r2(bruto - ir), estimado, indexador: a.indexador || null, descricao: a.descricao || null };
+      if (!porMes.has(mes)) porMes.set(mes, []);
+      porMes.get(mes).push(item);
+    });
+  });
+  if (!porMes.size) return null;
+  const minimo = calc.alvoBRL != null ? calc.alvoBRL : null;
+  let reaplicando = calc.atualLiquidoBRL || 0;
+  let semReaplicar = calc.atualLiquidoBRL || 0;
+  const jaAbaixo = (calc.alvoBRL != null) && (calc.atualLiquidoBRL || 0) < calc.alvoBRL - 0.5;
+  const eventos = [...porMes.keys()].sort().map((mes, idx) => {
+    const titulos = porMes.get(mes);
+    const soma = (k) => r2(titulos.reduce((t, x) => t + x[k], 0));
+    const liquido = soma('liquido'); const ir = soma('ir'); const bruto = soma('bruto'); const liquidoHoje = soma('liquidoHoje');
+    semReaplicar = Math.max(0, semReaplicar - liquidoHoje); // o título sai da meta; o dinheiro vai pra conta
+    reaplicando += liquido - liquidoHoje; // reaplicado, volta a contar (já sem o IR cobrado)
+    const acimaMinimo = minimo == null ? null : semReaplicar >= minimo - 0.5;
+    const acimaReaplicando = minimo == null ? null : reaplicando >= minimo - 0.5;
+    const falta = minimo == null || acimaMinimo ? 0 : r2(minimo - semReaplicar);
+    const faltaReaplicando = minimo == null || acimaReaplicando ? 0 : r2(minimo - reaplicando);
+    const todos = titulos.map((t) => t.nome).join(' e ');
+    const indexSelic = titulos.some((t) => /SELIC/i.test(`${t.nome} ${t.indexador || ''}`));
+    const sugestao = indexSelic || titulos.some((t) => /CDI|CDB/i.test(`${t.nome} ${t.indexador || ''}`))
+      ? 'um Tesouro Selic com o vencimento mais longo disponível (liquidez diária; resgate em D+1)'
+      : 'um Tesouro Selic com o vencimento mais longo disponível (liquidez diária) ou um CDB com liquidez diária a 100% do CDI';
+    const perdeMes = taxa > 0 ? r2(liquido * taxa) : null;
+    const tom = minimo != null && !acimaMinimo ? 'atencao' : 'neutro';
+    const partes = [
+      `Em ${rotuloMes(mes)} ${titulos.length > 1 ? 'vencem' : 'vence'} ${todos}: entram ${moedaTxt(liquido)} líquidos (IR ${moedaTxt(ir)}${titulos.some((t) => t.estimado) ? ', estimado' : ''}).`,
+    ];
+    if (minimo != null) partes.push(acimaMinimo ? `Sua reserva continua acima do mínimo? Sim (${moedaTxt(semReaplicar)} contra ${moedaTxt(minimo)}).` : `Sua reserva continua acima do mínimo? Não${jaAbaixo ? ' (já está abaixo hoje)' : ''}: sem ${idx > 0 ? 'esse título e os que vencem antes' : 'esse título'} ela fica em ${moedaTxt(semReaplicar)} e faltam ${moedaTxt(falta)} pro mínimo de ${moedaTxt(minimo)}${acimaReaplicando ? ' - reaplicando o dinheiro, volta a ficar acima.' : ` - mesmo reaplicando faltam ${moedaTxt(faltaReaplicando)}.`}`);
+    partes.push(`Reaplique em ${sugestao}. Sem reaplicar, o dinheiro fica na conta e para de render${perdeMes ? ` (cerca de ${moedaTxt(perdeMes)}/mês a menos)` : ''}.`);
+    return { mes, em: mesesEntre(mesHoje, mes), titulos, bruto, ir, liquido, reservaSemReaplicar: r2(semReaplicar), reservaReaplicando: r2(reaplicando), acimaMinimo, acimaReaplicando, falta, faltaReaplicando, perdeMes, tom, sugestao, texto: partes.join(' ') };
+  });
+  return { eventos, minimo, proximo: eventos[0], temAtencao: eventos.some((e) => e.tom === 'atencao') };
+}
 
 /** Veredito de 1 ativo pra meta: { veredito: 'bom'|'atencao'|'ruim', motivo }. */
 export function avaliarAtivoParaMeta(a, meta, calc) {

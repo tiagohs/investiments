@@ -11,7 +11,10 @@
 // valorPlanejado, qtdFinal, precoFinal, valorFinal }] }.
 
 // 03/10/2026: motor de critérios (nota/eliminatórios), preço x preço médio e metas de Metas e Objetivos
-import { avaliarAtivo, sinalPrecoMedio, sinaisDeMetas } from '../criterios/motor.js';
+import { avaliarAtivo, sinalPrecoMedio, sinaisDeMetas, sinaisRendaFixaMeta } from '../criterios/motor.js';
+// 05/10/2026: contexto de mercado (juro real, termômetro da bolsa, NTN-B) - peso pequeno e limitado
+import { sinaisMacro, LIMITE_PONTOS_MACRO } from '../criterios/macro.js';
+import { puDoTitulo } from './aportes-rf-calc.js';
 
 export const CLASSES_APORTE = [
   { id: 'acoes', nome: 'Ações', curto: 'Ações', cor: '--acoes' },
@@ -23,88 +26,37 @@ export const NOME_CLASSE_APORTE = Object.fromEntries(CLASSES_APORTE.map((c) => [
 export const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 export const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
-const ordemClasse = (c) => CLASSES_APORTE.findIndex((x) => x.id === c);
+// 05/10/2026: as contas puras do carrinho (pôr/tirar item, totais, validar o que
+// veio do navegador) moraram aqui até agora; foram pra ../carrinho-global.js
+// porque o header de todas as telas também lê o carrinho. Reexportadas aqui.
+import {
+  chaveItem, carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, removerDoCarrinho,
+  valorItemCarrinho, itensDoCarrinho, totaisCarrinho,
+} from '../carrinho-global.js';
+
+export {
+  chaveItem, carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, removerDoCarrinho,
+  valorItemCarrinho, itensDoCarrinho, totaisCarrinho,
+};
+
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const arred = (v, casas = 2) => Math.round(v * 10 ** casas) / 10 ** casas;
-
-export const chaveItem = (classe, ativo, instituicao = '') => `${classe}:${ativo}${classe === 'rendaFixa' && instituicao ? `|${instituicao}` : ''}`;
-
-export function carrinhoVazio(hoje) {
-  return { editandoId: null, data: hoje, observacao: '', itens: {} };
-}
-
-/** Carrinho lido do navegador, conferido (formato antigo/estragado vira vazio). */
-export function carrinhoValido(c, hoje) {
-  if (!c || typeof c !== 'object' || typeof c.itens !== 'object' || !c.itens) return carrinhoVazio(hoje);
-  const itens = {};
-  Object.entries(c.itens).forEach(([k, it]) => {
-    if (!it || !CLASSES_APORTE.some((x) => x.id === it.classe) || !it.ativo) return;
-    if (it.classe === 'rendaFixa' ? num(it.valor) > 0 : num(it.qtd) > 0) itens[k] = it;
-  });
-  return { editandoId: c.editandoId || null, data: /^\d{4}-\d{2}-\d{2}$/.test(c.data || '') ? c.data : hoje, observacao: String(c.observacao || ''), itens };
-}
-
-/** Define a quantidade (0 tira do carrinho). Devolve um carrinho novo. */
-export function definirQuantidade(carrinho, { classe, ativo, moeda = 'BRL', preco }, qtd) {
-  const itens = { ...carrinho.itens };
-  const k = chaveItem(classe, ativo);
-  const q = Math.max(0, Math.floor(num(qtd) * 10000) / 10000);
-  if (q > 0) itens[k] = { classe, ativo, moeda, qtd: q, preco: num(preco) || (itens[k] && itens[k].preco) || 0 };
-  else delete itens[k];
-  return { ...carrinho, itens };
-}
-
-export function definirValorRf(carrinho, { ativo, instituicao = '' }, valor) {
-  const itens = { ...carrinho.itens };
-  const k = chaveItem('rendaFixa', ativo, instituicao);
-  const v = Math.max(0, arred(num(valor), 2));
-  if (v > 0) itens[k] = { classe: 'rendaFixa', ativo, instituicao, moeda: 'BRL', valor: v };
-  else delete itens[k];
-  return { ...carrinho, itens };
-}
-
-export function removerDoCarrinho(carrinho, chave) {
-  const itens = { ...carrinho.itens };
-  delete itens[chave];
-  return { ...carrinho, itens };
-}
 
 /** Atualiza o preço de cada item com a cotação de agora (a prateleira é dinâmica). */
 export function atualizarPrecos(carrinho, classes) {
   const itens = {};
   Object.entries(carrinho.itens).forEach(([k, it]) => {
-    if (it.classe === 'rendaFixa') { itens[k] = it; return; }
+    if (it.classe === 'rendaFixa') {
+      // 05/10/2026: Tesouro por quantidade: valor = qtd × PU de hoje (a lista traz a cotação do dia)
+      const t = it.qtd > 0 && it.pu > 0 ? ((classes && classes.rendaFixa) || []).find((x) => x.titulo === it.ativo && (x.instituicao || '') === (it.instituicao || '')) : null;
+      const pu = t ? puDoTitulo(t) : null;
+      itens[k] = pu > 0 ? { ...it, pu, valor: arred(it.qtd * pu, 2) } : it;
+      return;
+    }
     const a = ((classes && classes[it.classe]) || []).find((x) => x.ticker === it.ativo);
     itens[k] = a && num(a.precoAtual) > 0 ? { ...it, preco: a.precoAtual } : it;
   });
   return { ...carrinho, itens };
-}
-
-export const valorItemCarrinho = (it) => (it.classe === 'rendaFixa' ? num(it.valor) : num(it.qtd) * num(it.preco));
-
-/** Itens em ordem de classe e nome, com o subtotal. */
-export function itensDoCarrinho(carrinho) {
-  return Object.entries(carrinho.itens)
-    .map(([chave, it]) => ({ chave, ...it, subtotal: arred(valorItemCarrinho(it), 4) }))
-    .sort((a, b) => ordemClasse(a.classe) - ordemClasse(b.classe) || a.ativo.localeCompare(b.ativo));
-}
-
-/** { porClasse: { id: { n, valor (moeda da classe), brl } }, n, totalBrl, totalUsd } */
-export function totaisCarrinho(carrinho, cambio) {
-  const porClasse = {};
-  let totalBrl = 0;
-  let totalUsd = 0;
-  itensDoCarrinho(carrinho).forEach((it) => {
-    const p = porClasse[it.classe] || (porClasse[it.classe] = { n: 0, valor: 0, brl: 0 });
-    p.n += 1;
-    p.valor += it.subtotal;
-    const brl = it.moeda === 'USD' ? it.subtotal * num(cambio) : it.subtotal;
-    p.brl += brl;
-    totalBrl += brl;
-    if (it.moeda === 'USD') totalUsd += it.subtotal;
-  });
-  Object.values(porClasse).forEach((p) => { p.valor = arred(p.valor); p.brl = arred(p.brl); });
-  return { porClasse, n: Object.keys(carrinho.itens).length, totalBrl: arred(totalBrl), totalUsd: arred(totalUsd) };
 }
 
 /** Carrinho -> aporte "aguardando valores finais" (o que vai pra planilha). */
@@ -115,16 +67,67 @@ export function aporteDoCarrinho(carrinho) {
     status: 'aguardando',
     observacao: carrinho.observacao || '',
     itens: itensDoCarrinho(carrinho).map((it) => (it.classe === 'rendaFixa'
-      ? { classe: it.classe, ativo: it.ativo, instituicao: it.instituicao || '', moeda: 'BRL', valorPlanejado: arred(it.valor) }
+      ? { classe: it.classe, ativo: it.ativo, instituicao: it.instituicao || '', moeda: 'BRL', valorPlanejado: arred(it.valor), ...(it.qtd > 0 && it.pu > 0 ? { qtdPlanejada: it.qtd, precoPlanejado: it.pu } : {}) }
       : { classe: it.classe, ativo: it.ativo, moeda: it.moeda, qtdPlanejada: it.qtd, precoPlanejado: it.preco, valorPlanejado: arred(it.qtd * it.preco) })),
   };
 }
+
+/**
+ * 05/10/2026: "se começar outro carrinho no mesmo dia, fazer MERGE" (Tiago: o
+ * aporte confirmado aparecia DUPLICADO lá em cima). Junta o carrinho novo ao
+ * aporte que já está aguardando valores finais naquele dia: o mesmo ativo soma
+ * (quantidade; o preço planejado vira a média ponderada; na renda fixa, o
+ * valor), ativo novo entra. O id (e a data) ficam os do aporte que já existe.
+ * Devolve um aporte "aguardando" pronto pra salvar com o mesmo id.
+ */
+export function mesclarAporteComCarrinho(aporte, carrinho) {
+  const novo = aporteDoCarrinho({ ...carrinho, editandoId: null });
+  return mesclarAportes(aporte, novo);
+}
+
+/** Soma os itens de `extra` (aporte aguardando) no aporte `base`; id/data/status do `base`. */
+export function mesclarAportes(base, extra) {
+  const itens = base.itens.map((it) => ({ ...it }));
+  const mesma = (a, b) => a.classe === b.classe && a.ativo === b.ativo && (a.classe !== 'rendaFixa' || (a.instituicao || '') === (b.instituicao || ''));
+  extra.itens.forEach((novo) => {
+    const i = itens.findIndex((it) => mesma(it, novo));
+    if (i < 0) { itens.push({ ...novo }); return; }
+    const it = itens[i];
+    const valor = arred(num(it.valorPlanejado) + num(novo.valorPlanejado), 4);
+    if (it.classe === 'rendaFixa') {
+      it.valorPlanejado = arred(valor, 2);
+      if (num(it.qtdPlanejada) > 0 || num(novo.qtdPlanejada) > 0) {
+        it.qtdPlanejada = arred(num(it.qtdPlanejada) + num(novo.qtdPlanejada), 2);
+        it.precoPlanejado = it.qtdPlanejada > 0 ? arred(it.valorPlanejado / it.qtdPlanejada, 2) : null;
+      }
+      return;
+    }
+    const qtd = arred(num(it.qtdPlanejada) + num(novo.qtdPlanejada), 4);
+    it.qtdPlanejada = qtd;
+    it.valorPlanejado = arred(valor, 2);
+    it.precoPlanejado = qtd > 0 ? arred(valor / qtd, 4) : it.precoPlanejado;
+  });
+  const obs = [base.observacao, extra.observacao].map((x) => String(x || '').trim()).filter(Boolean);
+  return {
+    id: base.id, data: base.data, status: 'aguardando',
+    observacao: obs.filter((x, i) => obs.indexOf(x) === i).join(' · '),
+    itens,
+  };
+}
+
+/** Aportes aguardando valores finais num dia (mais novo primeiro, como vêm da planilha). */
+export const aguardandoDoDia = (aportes, data) => (aportes || []).filter((a) => a.status === 'aguardando' && a.data === data);
 
 /** Aporte (aguardando) -> carrinho, pra editar. */
 export function carrinhoDoAporte(aporte) {
   const itens = {};
   aporte.itens.forEach((it) => {
-    if (it.classe === 'rendaFixa') itens[chaveItem('rendaFixa', it.ativo, it.instituicao)] = { classe: 'rendaFixa', ativo: it.ativo, instituicao: it.instituicao || '', moeda: 'BRL', valor: num(it.valorPlanejado) };
+    if (it.classe === 'rendaFixa') {
+      itens[chaveItem('rendaFixa', it.ativo, it.instituicao)] = {
+        classe: 'rendaFixa', ativo: it.ativo, instituicao: it.instituicao || '', moeda: 'BRL', valor: num(it.valorPlanejado),
+        ...(num(it.qtdPlanejada) > 0 && num(it.precoPlanejado) > 0 ? { qtd: it.qtdPlanejada, pu: it.precoPlanejado } : {}),
+      };
+    }
     else itens[chaveItem(it.classe, it.ativo)] = { classe: it.classe, ativo: it.ativo, moeda: it.moeda || 'BRL', qtd: num(it.qtdPlanejada), preco: num(it.precoPlanejado) };
   });
   return { editandoId: aporte.id, data: aporte.data, observacao: aporte.observacao || '', itens };
@@ -226,11 +229,28 @@ const reais = (v) => `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
 const moedaTxt = (v, moeda) => `${moeda === 'USD' ? 'US$' : 'R$'} ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const NOME_META_CLASSE = { acoes: 'Ações (Dividendos)', fiis: 'FIIs', acoesEua: 'Ações Internacionais' };
 
-function sinal(lista, tom, texto, peso) { lista.push({ tom, texto, peso }); }
+function sinal(lista, tom, texto, peso, extra = null) { lista.push(extra ? { tom, texto, peso, ...extra } : { tom, texto, peso }); }
+
+/**
+ * 05/10/2026: soma dos pontos do momento. O "contexto de mercado" (sinais
+ * macro) soma no máximo +/-0,5 no total (de 3 pra "Bom momento"): desempata
+ * ativo na beira do limiar, nunca decide sozinho nem passa por cima de
+ * fundamentos, metas e preço.
+ */
+function somaPontos(sinais) {
+  const normais = sinais.filter((x) => !x.macro).reduce((s, x) => s + x.peso, 0);
+  const macro = sinais.filter((x) => x.macro).reduce((s, x) => s + x.peso, 0);
+  return normais + Math.max(-LIMITE_PONTOS_MACRO, Math.min(LIMITE_PONTOS_MACRO, macro));
+}
+
+function sinaisDoMacro(sinais, macro, classe, opcoes = {}) {
+  sinaisMacro(macro, classe, opcoes).forEach((x) => sinal(sinais, x.tom, x.texto, x.peso, { macro: true, ajuda: x.ajuda }));
+}
 
 function fechar(sinais, nivel) {
-  const pontos = Math.round(sinais.reduce((s, x) => s + x.peso, 0) * 10) / 10;
-  const ordenados = [...sinais].sort((a, b) => Math.abs(b.peso) - Math.abs(a.peso));
+  const pontos = Math.round(somaPontos(sinais) * 10) / 10;
+  // contexto de mercado por último (só é "o mais pesado" quando não há mais nada)
+  const ordenados = [...sinais].sort((a, b) => (a.macro ? 1 : 0) - (b.macro ? 1 : 0) || Math.abs(b.peso) - Math.abs(a.peso));
   return { nivel, rotulo: ROTULO_MOMENTO[nivel], pontos, sinais: ordenados };
 }
 
@@ -289,7 +309,7 @@ function sinaisDoMotor(sinais, a, classe) {
 
 function sinaisMeta(sinais, alvo, opcoes) {
   const lista = sinaisDeMetas({ ...alvo, metas: opcoes.metasObjetivos, valorSugerido: opcoes.valorSugerido, cambio: opcoes.cambio });
-  lista.forEach((x) => sinal(sinais, x.tom, x.texto, x.peso));
+  lista.forEach((x) => sinal(sinais, x.tom, x.texto, x.peso, x.ajuda ? { ajuda: x.ajuda } : null));
   return lista;
 }
 
@@ -315,7 +335,7 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     else sinal(sinais, 'neutro', `No % desejado do Radar (${pctTxt(at)} de ${pctTxt(d)})`, 0);
   }
   const pm = sinalPrecoMedio({ precoAtual: preco, precoMedio: a.precoMedio, quantidade: a.quantidade, moeda: a.moeda });
-  if (pm) sinal(sinais, pm.tom, pm.texto, pm.peso);
+  if (pm) sinal(sinais, pm.tom, pm.texto, pm.peso, pm.ajuda ? { ajuda: pm.ajuda } : null);
   const u = a.ultimoPago;
   if (preco > 0 && u && u.preco > 0) {
     const v = preco / u.preco - 1;
@@ -354,7 +374,8 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     else if (posicao >= 0.75) { entreOsUltimos = true; sinal(sinais, 'ruim', `Ranking ${rk} de ${totalRanking}: entre os últimos da Suno`, -1); }
     else sinal(sinais, 'neutro', `Ranking ${rk} de ${totalRanking} na Suno`, 0);
   }
-  const pontos = sinais.reduce((s, x) => s + x.peso, 0);
+  sinaisDoMacro(sinais, opcoes.macro, classe); // 05/10/2026: contexto de mercado (<= 0,5 ponto no total)
+  const pontos = somaPontos(sinais);
   let nivel = acimaDoTeto || pontos <= -1 ? 'esperar' : (pontos >= 3 ? 'bom' : 'neutro');
   if (nivel === 'bom' && (entreOsUltimos || motor.eliminatorio)) nivel = 'neutro';
   return fechar(sinais, nivel);
@@ -377,6 +398,16 @@ function textoTaxa(indice, taxa) {
 
 /** Marca da Renda Fixa em Metas e Objetivos ('emergencial' | 'longo-prazo') pela categoria da planilha. */
 export const marcaRf = (t) => (/emergencial|reserva/i.test(String((t && (t.categoria || t.tipoCarteira)) || '')) ? 'emergencial' : 'longo-prazo');
+
+/** A classe (ações, FIIs) mais abaixo da fatia desejada (Objetivos da planilha), com folga de 1 p.p.; null se nenhuma. */
+function classeMaisAbaixoDaAlocacao(metas) {
+  if (!metas) return null;
+  const lista = [['acoesENacionais', 'Ações'], ['fiis', 'FIIs']]
+    .map(([k, nome]) => ({ nome, desejado: metas[k] && metas[k].desejado, atual: metas[k] && metas[k].atual }))
+    .filter((x) => typeof x.desejado === 'number' && typeof x.atual === 'number' && x.desejado > 0 && x.atual - x.desejado <= -0.01)
+    .sort((a, b) => (a.atual - a.desejado) - (b.atual - b.desejado));
+  return lista[0] || null;
+}
 
 function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
   const sinais = [];
@@ -407,11 +438,25 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
     else sinal(sinais, 'neutro', `${nome} na meta`, 0);
   }
   if (metas) sinalMetaClasse(sinais, metas.rendaFixa, 'Renda Fixa');
-  if (t.vencimento && hoje) {
+  // 05/10/2026 (Tiago: "Tesouro Selic 2032 é positivo investir se a renda emergencial estiver abaixo do ideal"):
+  // este título combina com a(s) meta(s) a que está ligado? (reserva abaixo do ideal, liquidez, vence antes/depois da
+  // meta, IPCA+ longo pra meta curta, vencendo em < 12 meses na reserva)
+  const encaixe = sinaisRendaFixaMeta({
+    titulo: { titulo, descricao: t.tipo || t.tipoInvestimento || '', indexador: t.indexador || indice, vencimento: t.vencimento },
+    ref: `rf:${titulo}|${String(t.instituicao || '').trim()}`, marca: marcaRf(t), metas: opcoes.metasObjetivos, hoje,
+  });
+  encaixe.forEach((x) => sinal(sinais, x.tom, x.texto, x.peso, x.ajuda ? { ajuda: x.ajuda } : null));
+  // reserva (ou outra meta) no ideal: neutro e diz onde faz mais falta - outra meta (já no texto) ou a classe mais abaixo da alocação-alvo
+  if (metasObj.some((x) => x.tipo === 'atingida' && !x.outraMeta)) {
+    const alvoClasse = classeMaisAbaixoDaAlocacao(metas);
+    if (alvoClasse) sinal(sinais, 'neutro', `Para o próximo aporte, a classe mais abaixo da alocação-alvo é ${alvoClasse.nome} (${pctTxt(alvoClasse.atual)} de ${pctTxt(alvoClasse.desejado, 0)})`, 0);
+  }
+  if (t.vencimento && hoje && !encaixe.some((x) => x.tipo === 'rf-vencendo')) {
     const dias = (Date.parse(`${t.vencimento}T12:00:00Z`) - Date.parse(`${hoje}T12:00:00Z`)) / 86400000;
     if (dias < 365) sinal(sinais, 'ruim', 'Vence em menos de 1 ano', -0.5);
   }
-  const pontos = sinais.reduce((s, x) => s + x.peso, 0);
+  sinaisDoMacro(sinais, opcoes.macro, 'rendaFixa', { indexador: indice, taxaPropria: indice === 'IPCA' && hojeT != null });
+  const pontos = somaPontos(sinais);
   return fechar(sinais, pontos >= 2 ? 'bom' : (pontos < 0 ? 'esperar' : 'neutro'));
 }
 
@@ -423,8 +468,8 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
  * = quanto se pensa aportar (moeda do ativo; padrão: o "R$ a investir" do
  * Radar), opcoes.cambio = dólar (ativos EUA).
  */
-export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0, metasObjetivos = null, valorSugerido = null, cambio = null } = {}) {
+export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0, metasObjetivos = null, valorSugerido = null, cambio = null, macro = null } = {}) {
   if (!a) return fechar([], 'neutro');
-  const opcoes = { metasObjetivos, valorSugerido, cambio };
+  const opcoes = { metasObjetivos, valorSugerido, cambio, macro };
   return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje, opcoes) : momentoRendaVariavel(a, classe, metas, total, opcoes);
 }

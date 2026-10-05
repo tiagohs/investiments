@@ -68,7 +68,7 @@ function planilhaBase() {
   });
 }
 
-function sandbox(ss) {
+function sandbox(ss, extras = []) {
   const registro = [];
   const caches = { limpou: 0 };
   const sb = {
@@ -89,7 +89,7 @@ function sandbox(ss) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs'].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
+  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', ...extras].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
   return { sb, registro, caches };
 }
 
@@ -185,4 +185,66 @@ test('Aportes: aux_aportes criada no 1º salvar; regravar pelo id; concluir tira
 
   assert.equal(sb.excluirAporte_(id), 2);
   assert.equal(sb.lerAportes_(ss).length, 0);
+});
+
+
+// 05/10/2026: caixa em dólar das Ações EUA (aux_caixa_dolar): criada no 1º envio; aporte concluído gasta o caixa
+// sozinho; excluir o aporte devolve; sem a aba (quem não usa o fluxo) nada é criado.
+test('Caixa em dólar: envio da Remessa, uso ao concluir o aporte (regravar troca, excluir devolve), ajuste, validações', () => {
+  const ss = planilhaBase();
+  const { sb } = sandbox(ss);
+  assert.deepEqual(plain(sb.lerCaixaDolar_(ss)), { saldoUsd: 0, movimentos: [] });
+  const envio = sb.salvarMovimentoCaixaDolar_({ data: '2026-10-05', tipo: 'envio', usd: 100, reais: 520, comercial: 5.1, vet: 5.2, conversao: 0.0113, encargos: 0.011, observacao: 'Remessa' });
+  assert.match(envio, /^CX-/);
+  assert.equal(ss.getSheetByName('aux_caixa_dolar')._dados[1][2], 'Envio');
+  assert.equal(sb.lerCaixaDolar_(ss).saldoUsd, 100);
+  const id = sb.salvarAporte_({ data: '2026-10-05', status: 'aguardando', itens: [{ classe: 'acoesEua', ativo: 'AAA', qtdPlanejada: 1.5, precoPlanejado: 10, valorPlanejado: 15 }] });
+  assert.equal(sb.lerCaixaDolar_(ss).saldoUsd, 100, 'aguardando ainda não gasta o caixa');
+  const concluido = (valorFinal) => ({ id, data: '2026-10-05', status: 'concluido', itens: [
+    { classe: 'acoesEua', ativo: 'AAA', qtdPlanejada: 1.5, precoPlanejado: 10, valorPlanejado: 15, qtdFinal: valorFinal / 10, precoFinal: 10, valorFinal },
+    { classe: 'fiis', ativo: 'TEST11', qtdPlanejada: 1, precoPlanejado: 100, valorPlanejado: 100, qtdFinal: 1, precoFinal: 100, valorFinal: 100 }] });
+  sb.salvarAporte_(concluido(15));
+  let c = plain(sb.lerCaixaDolar_(ss));
+  assert.equal(c.saldoUsd, 85, 'só as Ações EUA gastam dólar (o FII não)');
+  assert.deepEqual(c.movimentos.map((m) => [m.tipo, m.usd, m.aporteId]), [['envio', 100, ''], ['uso', -15, id]]);
+  sb.salvarAporte_(concluido(20));
+  c = plain(sb.lerCaixaDolar_(ss));
+  assert.equal(c.saldoUsd, 80, 'regravar troca o uso, não soma');
+  assert.equal(c.movimentos.filter((m) => m.tipo === 'uso').length, 1);
+  assert.throws(() => sb.excluirMovimentoCaixaDolar_(`CX-USO-${id}`), /sai sozinho/);
+  sb.salvarMovimentoCaixaDolar_({ data: '2026-10-06', tipo: 'ajuste', usd: -10, observacao: 'Acerto de saldo' });
+  assert.equal(sb.lerCaixaDolar_(ss).saldoUsd, 70);
+  sb.excluirAporte_(id);
+  c = plain(sb.lerCaixaDolar_(ss));
+  assert.equal(c.saldoUsd, 90, 'aporte excluído devolve o que gastou');
+  assert.equal(sb.excluirMovimentoCaixaDolar_(envio), 1);
+  assert.equal(sb.lerCaixaDolar_(ss).saldoUsd, -10);
+  assert.throws(() => sb.salvarMovimentoCaixaDolar_({ data: '2026-10-05', tipo: 'envio', usd: 0 }), /informe os dólares/);
+  assert.throws(() => sb.salvarMovimentoCaixaDolar_({ data: '5/10', tipo: 'envio', usd: 5 }), /data inválida/);
+  assert.throws(() => sb.salvarMovimentoCaixaDolar_({ data: '2026-10-05', tipo: 'uso', usd: 5 }), /tipo inválido/);
+  assert.throws(() => sb.salvarMovimentoCaixaDolar_({ data: '2026-10-05', tipo: 'envio', usd: -5 }), /positivo/);
+  // quem nunca enviou dólar pelo fluxo novo: concluir aporte EUA não cria a aba
+  const ss2 = planilhaBase();
+  const { sb: sb2 } = sandbox(ss2);
+  const id2 = sb2.salvarAporte_({ data: '2026-10-05', status: 'concluido', itens: [{ classe: 'acoesEua', ativo: 'AAA', valorFinal: 15, qtdFinal: 1.5, precoFinal: 10 }] });
+  assert.ok(id2);
+  assert.equal(ss2.getSheetByName('aux_caixa_dolar'), null);
+});
+
+test('Transações: lista do Tesouro de hoje (PU de compra) e cotação por título vêm do CSV do Tesouro Transparente', () => {
+  const ss = planilhaBase();
+  const ssSemMetas = { getSheetByName: (n) => (n === 'Distribuição e Metas' ? null : ss.getSheetByName(n)), insertSheet: (n) => ss.insertSheet(n) };
+  const { sb } = sandbox(ssSemMetas, ['CarteiraRendaFixaSync.gs']);
+  const csv = ['Tipo Titulo;Data Vencimento;Data Base;Taxa Compra Manha;Taxa Venda Manha;PU Compra Manha;PU Venda Manha;PU Base Manha',
+    'Tesouro Selic;01/03/2029;02/10/2026;0,05;0,06;15613,45;15600,00;15600,00',
+    'Tesouro Selic;01/03/2032;02/10/2026;0,10;0,11;20142,00;20100,00;20100,00',
+    'Tesouro Prefixado;01/01/2027;02/10/2026;13,37;13,49;767,46;766,00;766,00',
+    'Tesouro Selic;01/03/2029;01/10/2026;0,05;0,06;15000,00;14990,00;14990,00'].join('\n');
+  sb.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 200, getContentText: () => csv }) };
+  const tela = plain(sb.montarTelaTransacoes_());
+  assert.deepEqual(tela.tesouro.map((t) => [t.nome, t.pu, t.data]), [
+    ['Tesouro Prefixado 2027', 767.46, '2026-10-02'], ['Tesouro Selic 2029', 15613.45, '2026-10-02'], ['Tesouro Selic 2032', 20142, '2026-10-02']]);
+  const selic = tela.classes.rendaFixa.find((t) => t.titulo === 'Tesouro Selic 2029');
+  assert.deepEqual(selic.cotacao, { pu: 15613.45, puVenda: 15600, data: '2026-10-02' });
+  assert.deepEqual(tela.caixaDolar, { saldoUsd: 0, movimentos: [] });
 });

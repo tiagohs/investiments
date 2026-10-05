@@ -36,7 +36,7 @@
  * pedaço só se monta quando a aba dele abre.
  */
 import {
-  getDespesas, salvarDespesas, getPatrimonio, getSalario, getGastos, getArquivosGastos, getArquivoGastos,
+  getDespesas, salvarDespesas, getPatrimonio, getSalario, getArquivosHolerites, getGastos, getArquivosGastos, getArquivoGastos,
   salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos,
 } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
@@ -676,6 +676,7 @@ export async function montarPaginaOrganizacao(token, {
   const api = {
     getPatrimonio: patrimonioOpcoes.getPatrimonioImpl || ((t) => getPatrimonio(t)),
     getSalario: salarioOpcoes.getSalarioImpl || ((t) => getSalario(t)),
+    getArquivosHolerites: salarioOpcoes.listarHoleritesImpl || ((t) => getArquivosHolerites(t)), // 05/10/2026: holerites no Drive
     gastos: gastosOpcoes.api || {
       getGastos: () => getGastos(token), getArquivosGastos: () => getArquivosGastos(token), getArquivoGastos: (id) => getArquivoGastos(token, id),
       salvarImportacaoGastos: (a, l) => salvarImportacaoGastos(token, a, l), salvarRegraGastos: (pp, c) => salvarRegraGastos(token, pp, c),
@@ -684,6 +685,7 @@ export async function montarPaginaOrganizacao(token, {
   };
   const pat = criarCarregador(() => api.getPatrimonio(token));
   const sal = criarCarregador(() => api.getSalario(token));
+  const holDrive = criarCarregador(() => api.getArquivosHolerites(token)); // 05/10/2026: lista dos holerites no Drive (painel Documentos + aba Renda)
   const gas = criarCarregador(() => api.gastos.getGastos());
   const gasDrive = criarCarregador(() => api.gastos.getArquivosGastos());
   let ctxPat = null; // o contexto que a aba Patrimônio calculou (com as preferências do Tiago)
@@ -758,6 +760,7 @@ export async function montarPaginaOrganizacao(token, {
     if (!salario && el.salario) {
       salario = montarAbaSalario({
         doc, el: el.salario, token, ...salarioOpcoes, getSalarioImpl: primeiraDepoisRecarrega(sal),
+        listarHoleritesImpl: primeiraDepoisRecarrega(holDrive), // 05/10/2026: a mesma lista alimenta o painel Documentos
         aoMudarDados: (d) => { if (d && d !== sal.valor) sal.definir(d); },
       });
     }
@@ -822,13 +825,14 @@ export async function montarPaginaOrganizacao(token, {
     if (visivel('renda')) { if (salario || rendaMontada) montarRenda(); } else pendente.renda = true;
   });
   gas.inscrever(() => atualizarDocumentos());
+  holDrive.inscrever(() => atualizarDocumentos());
   gasDrive.inscrever(() => atualizarDocumentos());
 
   // --- Documentos -------------------------------------------------------------
   let painelDocs = null;
   function atualizarDocumentos() {
     if (!painelDocs) return;
-    try { painelDocs.atualizar({ patrimonio: pat.valor, salario: sal.valor, gastos: gas.valor, gastosDrive: gasDrive.valor, hoje: hojeIso() || new Date() }); } catch (e) { /* o painel é extra */ }
+    try { painelDocs.atualizar({ patrimonio: pat.valor, salario: sal.valor, gastos: gas.valor, gastosDrive: gasDrive.valor, holeritesDrive: holDrive.valor, hoje: hojeIso() || new Date() }); } catch (e) { /* o painel é extra */ }
   }
   async function acaoDocumento(acao, extra) {
     if (acao === 'ir-drive') { await irParaIr(); return; }
@@ -843,6 +847,11 @@ export async function montarPaginaOrganizacao(token, {
     if (acao === 'holerite') {
       mostrarAba('renda');
       if (salario) await salario.importarArquivo(extra);
+      return;
+    }
+    if (acao === 'holerite-drive') { // 05/10/2026: lê só os holerites novos da pasta Documentos/Trabalho do Drive
+      mostrarAba('renda');
+      if (salario) await salario.lerHoleritesDrive();
       return;
     }
     if (acao === 'gastos' || acao === 'gastos-novos') {
@@ -867,7 +876,7 @@ export async function montarPaginaOrganizacao(token, {
     Object.entries(paineis).forEach(([k, p]) => { if (p) p.hidden = k !== aba; });
     if (abasEl) abasEl.querySelectorAll('[data-aba]').forEach((b) => { const a = b.dataset.aba === aba; b.classList.toggle('active', a); b.setAttribute('aria-selected', String(a)); b.tabIndex = a ? 0 : -1; });
     if (aba === 'patrimonio') montarPatrimonio();
-    if (aba === 'despesas') { montarDespesasExtras(); pendente.despesas = false; }
+    if (aba === 'despesas') { montarDespesasExtras(); pendente.despesas = false; if (gastos && gastos.aoMostrar) { try { gastos.aoMostrar(); } catch (e) { /* ok */ } } }
     if (aba === 'simulacoes') { montarSimulacoes(); if (pendente.simulacoes && simulacoes && pat.valor) desenharSimulador(); pendente.simulacoes = false; }
     if (aba === 'renda') { montarRenda(); pendente.renda = false; }
     if (win && win.history && typeof win.history.replaceState === 'function' && win.location) {
@@ -915,6 +924,7 @@ export async function montarPaginaOrganizacao(token, {
     else if (sal.iniciado) tarefas.push(sal.recarregar());
     if (gastos && gastos.dados) tarefas.push(gastos.recarregar());
     else { if (gas.iniciado) tarefas.push(gas.recarregar()); if (gasDrive.iniciado) tarefas.push(gasDrive.recarregar()); }
+    if (holDrive.iniciado) tarefas.push(holDrive.recarregar());
     await Promise.all(tarefas);
   };
 
@@ -922,7 +932,7 @@ export async function montarPaginaOrganizacao(token, {
   if (cache && cache.dados && cache.dados.ok) { aplicarDados(cache.dados); desenharTudo(); }
   // 03/10/2026: o painel Documentos precisa das 4 respostas - busca em
   // segundo plano (as que a aba aberta já pediu são reaproveitadas)
-  if (painelDocs) { pat.obter(); sal.obter(); gas.obter(); gasDrive.obter(); }
+  if (painelDocs) { pat.obter(); sal.obter(); gas.obter(); gasDrive.obter(); holDrive.obter(); }
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
@@ -932,7 +942,7 @@ export async function montarPaginaOrganizacao(token, {
     get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, get patrimonio() { return patrimonio; },
     get gastos() { return gastos; }, get simulador() { return simulador; }, get simulacoes() { return simulacoes; }, get renda() { return renda; }, get carreira() { return carreira; },
     get documentos() { return painelDocs; }, get abaAtual() { return abaAtual; },
-    carregadores: { patrimonio: pat, salario: sal, gastos: gas, gastosDrive: gasDrive },
+    carregadores: { patrimonio: pat, salario: sal, gastos: gas, gastosDrive: gasDrive, holeritesDrive: holDrive },
     mostrarAba, acaoDocumento,
   };
 }

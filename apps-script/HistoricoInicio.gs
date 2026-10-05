@@ -898,6 +898,8 @@ function limparCacheHistoricoInicio_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   // 25/09/2026: o botão "Limpar cache" também refaz a tela Proventos / meta de Renda Passiva
   if (typeof invalidarCacheProventos_ === 'function') invalidarCacheProventos_();
+  // 05/10/2026: ...e o resultado montado da tela Carteiras > Renda Fixa (CarteirasRendaFixa.gs)
+  if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_();
   // 25/09/2026: ...e as notícias de cada ativo (tela do ativo - Ativo.gs)
   var noticiasRemovidas = 0;
   if (typeof limparCacheNoticiasAtivos_ === 'function') {

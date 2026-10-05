@@ -601,6 +601,11 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
       partes.push('Taxas CDI/SELIC falharam: ' + String(erro));
     }
 
+    // 05/10/2026: a tela de Renda Fixa não vai mais ao BCB (só lê aba/cache) - o IPCA 12m "de hoje" é atualizado
+    // aqui, na agenda (guarda no cache e no último valor bom), e o resultado cacheado da tela é invalidado.
+    try { buscarIpcaAcumulado12Meses_(); } catch (erroIpca) { /* benchmark: nunca derruba a agenda */ }
+    try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (erroInv) { /* só cache */ }
+
     var detalhe = partes.join(' — ');
     gravarRegistroControle_(status, origem, detalhe);
     // notificarFalhaSincronizacao_ (Sync.gs) já só envia e-mail quando
@@ -839,16 +844,69 @@ function buscarCdiSelicAnualizadosHoje_() {
   };
 }
 
+// 04/10/2026 (Tiago: "Não deu pra carregar Renda Fixa agora (carteirasRendaFixa): Exception:
+// Erro de DNS: https://api.bcb.gov.br/... Eu preciso conseguir atingir a tela mesmo com o erro,
+// se ele não for extremamente importante (se der pra lidar com cache, melhor)"): o IPCA 12m é só
+// um benchmark - NUNCA pode derrubar a tela. Ordem: cache (6h) -> API do BCB -> IPCA mensal já
+// salvo na aba aux_historico-indices -> último valor bom guardado (PropertiesService) -> null.
+var CHAVE_IPCA12M_ = 'benchmark_ipca12m';
+
 function buscarIpcaAcumulado12Meses_() {
-  var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/13?formato=json';
-  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  var dados = JSON.parse(resposta.getContentText());
-  if (!Array.isArray(dados) || dados.length === 0) return null;
-  var ultimos12 = dados.slice(-12);
-  var fator = ultimos12.reduce(function (acumulado, item) {
-    return acumulado * (1 + parseFloat(item.valor) / 100);
-  }, 1);
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e) { cache = null; }
+  try {
+    var emCache = cache && cache.get(CHAVE_IPCA12M_);
+    if (emCache != null && emCache !== '' && isFinite(Number(emCache))) return Number(emCache);
+  } catch (e0) { /* segue */ }
+
+  var valor = null;
+  try {
+    var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/13?formato=json';
+    var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    if (resposta.getResponseCode() === 200) valor = ipca12MesesDeValores_(JSON.parse(resposta.getContentText()).map(function (i) { return parseFloat(i.valor); }));
+  } catch (e1) { valor = null; } // DNS/timeout do BCB: cai pros dados que já temos
+  if (valor == null) valor = ipca12MesesDaAba_();
+
+  var props = null;
+  try { props = PropertiesService.getScriptProperties(); } catch (e2) { props = null; }
+  if (valor != null) {
+    try { if (cache) cache.put(CHAVE_IPCA12M_, String(valor), 6 * 60 * 60); } catch (e3) { /* ok */ }
+    try { if (props) props.setProperty(CHAVE_IPCA12M_, String(valor)); } catch (e4) { /* ok */ }
+    return valor;
+  }
+  try {
+    var guardado = props && props.getProperty(CHAVE_IPCA12M_);
+    if (guardado != null && guardado !== '' && isFinite(Number(guardado))) return Number(guardado);
+  } catch (e5) { /* ok */ }
+  return null;
+}
+
+/** Lista de variações mensais (%) -> acumulado dos últimos 12 (fração). */
+function ipca12MesesDeValores_(valores) {
+  var lista = (valores || []).filter(function (v) { return typeof v === 'number' && isFinite(v); });
+  if (lista.length < 12) return null;
+  var fator = lista.slice(-12).reduce(function (acc, v) { return acc * (1 + v / 100); }, 1);
   return arredondarBenchmarkRf_(fator - 1);
+}
+
+/** IPCA mensal já salvo na aba aux_historico-indices (A=Data, B=Índice, C=Valor %), últimos 12 meses distintos. */
+function ipca12MesesDaAba_() {
+  try {
+    var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_HISTORICO_INDICES);
+    if (!aba || aba.getLastRow() < 2) return null;
+    return ipca12MesesDeLinhas_(aba.getRange(2, 1, aba.getLastRow() - 1, 3).getValues());
+  } catch (e) { return null; }
+}
+
+/** 05/10/2026: o miolo de ipca12MesesDaAba_ sobre linhas JÁ LIDAS (A=Data, B=Índice, C=Valor %) - a Renda Fixa lê a aba 1x só. */
+function ipca12MesesDeLinhas_(linhas) {
+  var porMes = {};
+  linhas.forEach(function (l) {
+    if (l[1] !== 'IPCA' || !(l[0] instanceof Date) || typeof l[2] !== 'number') return;
+    porMes[Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')] = l[2];
+  });
+  var meses = Object.keys(porMes).sort();
+  return ipca12MesesDeValores_(meses.map(function (m) { return porMes[m]; }));
 }
 
 /** Taxa diária do BCB (formato "% do dia", ex.: 0.043) -> taxa anualizada (252 dias úteis, fração). */

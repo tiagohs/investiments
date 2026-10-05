@@ -131,7 +131,7 @@ export function dicasAcelerar(ctx) {
     const dif = sem != null && com != null ? (sem - com) / 12 : null;
     dicas.push({
       id: 'parcelas', titulo: 'Parcelas que viram aporte', destaque: !p.parcelasViramAporte,
-      html: `${libs.map((l) => `${esc(l.nome.replace(' quitado', ''))} acaba em <b>${esc(mesAno(somarMeses(d.hoje, l.mes)))}</b> e libera <b>${esc(brl0(l.valor))}/mês</b>`).join('; ')}. Continuar investindo esse valor ${p.parcelasViramAporte ? 'já está na conta e ' : ''}antecipa <b>${esc(anosTxt(dif))}</b>${p.parcelasViramAporte ? '' : ' - ligue "as parcelas viram aporte" pra ver'}.`,
+      html: `${libs.map((l) => `${esc(l.nome.replace(' quitado', ''))} acaba em <b>${esc(mesAno(somarMeses(d.hoje, l.mes)))}</b>${l.usosFgts && l.usosFgts.length ? ` (com o FGTS amortizando no prazo a cada 2 anos: ${esc(String(l.usosFgts.length))} ${l.usosFgts.length === 1 ? 'uso' : 'usos'}, ${esc(mesesTxt(l.semFgts - l.mes))} antes)` : ''} e libera <b>${esc(brl0(l.valor))}/mês</b>`).join('; ')}. Continuar investindo esse valor ${p.parcelasViramAporte ? 'já está na conta e ' : ''}antecipa <b>${esc(anosTxt(dif))}</b>${p.parcelasViramAporte ? '' : ' - ligue "as parcelas viram aporte" pra ver'}.`,
     });
   }
   // FGTS no financiamento a cada 2 anos (descontando os saques-aniversário do caminho)
@@ -157,7 +157,7 @@ export function dicasAcelerar(ctx) {
     const saiu = proj.saques.reduce((s, x) => s + x.valor, 0);
     dicas.push({
       id: 'fgts', titulo: 'FGTS no financiamento', destaque: true,
-      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(pct(cfg.financiamento.taxaAnual, 2))} + TR.`,
+      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Amortizando no prazo (a Caixa recalcula o prazo e a prestação não sobe), isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(pct(cfg.financiamento.taxaAnual, 2))} + TR.`,
     });
   }
   const aniv = fg && fg.aniversario;
@@ -320,7 +320,7 @@ export function htmlBalanco(ctx) {
 
 export function htmlHistoricoTabela(hist) {
   const linhas = hist.map((l) => `<tr${l.hoje ? ' class="pt-hoje"' : ''}>
-    <td class="esq"><b>${esc(l.hoje ? 'Hoje' : l.ano)}</b>${l.compraImovel ? '<small>compra do apê</small>' : ''}${l.entradaImovel ? '<small>entrada do apê (FGTS)</small>' : ''}${l.fonte === 's' ? '<small>pelo site</small>' : ''}</td>
+    <td class="esq"><b>${esc(l.hoje ? 'Hoje' : l.ano)}</b>${l.compraImovel ? '<small>compra do apê</small>' : ''}${l.entradaImovel ? '<small>entrada do apê (FGTS)</small>' : ''}${l.fgtsNoApe > 0 ? `<small>FGTS usado na amortização do apê: ${esc(brl0(l.fgtsNoApe))} (transferência)</small>` : ''}${l.fonte === 's' ? '<small>pelo site</small>' : ''}</td>
     <td>${esc(brl0(l.ativos))}</td><td>${l.dividas ? `−${esc(brl0(l.dividas))}` : '—'}</td><td><b>${esc(brl0(l.liquido))}</b></td>
     <td class="${num(l.noAno) ? (l.noAno >= 0 ? 'good' : 'bad') : ''}">${num(l.noAno) ? `${l.noAno >= 0 ? '+' : '−'}${esc(brl0(Math.abs(l.noAno)))}` : '—'}</td>
     <td>${num(l.renda) ? esc(brl0(l.renda)) : '<span class="pt-fraco">—</span>'}</td>
@@ -347,7 +347,7 @@ export function htmlCrescimento(o) {
   if (!o) return '<p class="pt-nota">Precisa de pelo menos 12 meses de histórico no site.</p>';
   const cores = { aportes: 'var(--pt-inv)', rendimento: 'var(--pt-inv)', dividas: 'var(--pt-div1)', imovel: 'var(--pt-imo)', fgts: 'var(--pt-fgts)' };
   return `${barrasDivergentes(o.itens.filter((i) => Math.abs(i.valor) >= 1).map((i) => ({ ...i, cor: i.valor >= 0 ? cores[i.id] : 'var(--pt-neg)' })))}
-    <p class="pt-nota">De ${esc(mesAno(o.de))} a ${esc(mesAno(o.ate))} o patrimônio líquido ${o.total >= 0 ? 'cresceu' : 'caiu'} <b class="pt-num">${esc(brl0(Math.abs(o.total)))}</b>. "Dívidas abatidas" é o saldo que caiu (parcelas + amortizações extras); o FGTS usado no apê sai de um lado e entra no outro.</p>`;
+    <p class="pt-nota">De ${esc(mesAno(o.de))} a ${esc(mesAno(o.ate))} o patrimônio líquido ${o.total >= 0 ? 'cresceu' : 'caiu'} <b class="pt-num">${esc(brl0(Math.abs(o.total)))}</b>. "Dívidas abatidas" é o saldo que caiu (parcelas + amortizações extras).${(o.transferencias || []).map((t) => ` <b>${esc(t.nome)}: ${esc(brl0(t.valor))}</b> - é transferência (saiu do FGTS e abateu a dívida do mesmo tamanho), não é perda nem entra nas barras.`).join('')}</p>`;
 }
 
 export function htmlCarreira(ctx, largura = 520) {
@@ -376,7 +376,7 @@ export function htmlFgts(ctx) {
   const fg = ctx.fgts;
   if (!fg) return `<div class="pt-card-cab"><h3>FGTS</h3></div><p class="pt-nota">Importe os extratos do app FGTS (um PDF por empresa, inclusive as antigas): saldo, quanto foi pro apê, saques e a próxima vez que dá pra amortizar.</p><button type="button" class="btn btn-ghost pt-btn-sm" data-acao="importar">Importar extratos</button>`;
   const destino = [
-    { id: 'moradia', nome: 'Usado no apê', valor: fg.usadoMoradia, cor: 'var(--pt-imo)' },
+    { id: 'moradia', nome: 'Usado na amortização do apê', valor: fg.usadoMoradia, cor: 'var(--pt-imo)' },
     ...Object.entries(fg.saques).filter(([k, v]) => k !== 'moradia' && v > 0).map(([k, v]) => ({ id: k, nome: `Sacado: ${MOTIVOS_SAQUE_FGTS[k] || k}`, valor: v, cor: 'var(--pt-div2)' })),
     { id: 'saldo', nome: 'Saldo hoje', valor: fg.saldo, cor: 'var(--pt-fgts)' },
   ].filter((x) => x.valor > 0);

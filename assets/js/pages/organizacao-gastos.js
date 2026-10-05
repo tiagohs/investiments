@@ -244,7 +244,7 @@ export function htmlHero(r) {
   if (r.vazio) {
     return `<div class="gs-hero-vazio"><h3>Seus gastos aparecem aqui</h3>
       <p>Importe as faturas do cartão e os extratos da conta - das pastas <b>Documentos/Transações</b> do seu Drive ou do computador. Os PDFs são lidos no seu navegador; só os lançamentos (data, descrição, valor) vão pra planilha.</p>
-      <div class="gs-acoes"><button type="button" class="btn btn-primary" data-acao="drive">Procurar no Drive</button><button type="button" class="btn" data-acao="arquivo">Importar do computador</button></div></div>`;
+      <div class="gs-acoes"><button type="button" class="btn btn-primary" data-acao="drive">Procurar no Drive</button><button type="button" class="btn" data-acao="arquivo">Importar do computador</button><button type="button" class="btn btn-ghost" data-acao="recarregar">Recarregar da planilha</button></div></div>`;
   }
   const d = r.doMes;
   const v6 = pctVar(d.total, r.media6); const v12 = pctVar(d.total, r.media12);
@@ -368,6 +368,8 @@ export function htmlPainel(est) {
         <div class="gs-acoes">${novos.length ? '<button type="button" class="btn btn-primary" data-acao="importar-novos">Importar agora</button>' : ''}${falhos.length ? `<button type="button" class="btn${novos.length ? '' : ' btn-primary'}" data-acao="importar-falhos">Tentar de novo só os que falharam</button>` : ''}<button type="button" class="gs-mini" data-acao="dispensar">depois</button></div></div>`);
     }
   }
+  // 05/10/2026 (Tiago, P3): se a releitura da planilha falhar (rede, Apps Script), o que acabou de entrar fica na tela e avisa
+  if (est.falhaAtualizar) partes.push(`<div class="gs-painel gs-aviso-bad" role="status"><span>${est.pendenteSync ? 'O que você acabou de importar está na tela, mas ainda não consegui confirmar com a planilha' : 'Não consegui atualizar os gastos com a planilha agora'} (${esc(est.falhaAtualizar)}). Tentando de novo sozinho.</span><button type="button" class="gs-mini" data-acao="recarregar">Tentar agora</button></div>`);
   const imp = est.importacao;
   if (imp) {
     const ok = imp.log.filter((x) => x.status === 'ok' || x.status === 'aviso').length;
@@ -417,7 +419,9 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     periodo: PERIODOS.some((p) => p.id === lerLocal(storage, CHAVE_PERIODO)) ? lerLocal(storage, CHAVE_PERIODO) : '12m',
     filtroPeriodo: null, // 03/10/2026: controlador de periodo-personalizado.js (presets + "Escolher período")
     mes: null, cat: null, filtro: { busca: '', categoria: '' }, limite: 60, drive: null, importacao: null, senha: null, dispensado: false,
+    falhaAtualizar: '', pendenteSync: false,
   };
+  let seqCarga = 0; let cargaAplicada = 0; let tentativasCarga = 0; let timerCarga = null;
   let dados = null; let resumo = null; let desp = despesas;
   let resolverSenha = null;
   const dicas = {};
@@ -594,6 +598,25 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     return lancs.map((l, i) => ({ ...l, origem: docLido.origem, fonte: docLido.fonte, categoria: categorizar(l, rp), chaveDedup: chaves[i] }));
   }
 
+  /**
+   * 05/10/2026 (Tiago, P3: depois de importar, a seção voltava ao "Seus gastos aparecem aqui" até dar reload): o que a
+   * planilha acabou de gravar entra na tela na hora, sem esperar a releitura - se ela falhar (rede, Apps Script
+   * ocupado), a tela continua certa e a releitura é refeita sozinha. O arquivo reimportado substitui o dele.
+   */
+  function aplicarSalvo(meta, lancs) {
+    if (!dados) dados = { lancs: [], regras: [], arquivos: [] };
+    dados.lancs = dados.lancs.filter((l) => l.arquivo !== meta.id).concat(lancs.map((l) => ({
+      mes: l.mes, data: l.data, origem: l.origem, fonte: l.fonte, descricao: l.descricao, categoria: l.categoria,
+      valor: l.valor, tipo: l.tipo, parcela: l.parcela || '', arquivo: meta.id,
+    })));
+    dados.arquivos = dados.arquivos.filter((a) => a.id !== meta.id).concat([{
+      id: meta.id, nome: meta.nome, caminho: meta.caminho, fonte: meta.fonte, modificado: meta.modificado, meses: meta.meses,
+      lancamentos: lancs.length, total: meta.total, conferencia: meta.conferencia, entradas: meta.entradas,
+      situacao: meta.situacao, problema: meta.problema, importadoEm: new Date().toISOString(),
+    }]);
+    est.pendenteSync = true;
+  }
+
   async function importarLista(itens) {
     est.importacao = { total: itens.length, log: [], atual: '', fim: false };
     est.dispensado = true;
@@ -627,6 +650,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
         };
         const s = await api.salvarImportacaoGastos(meta, lancs);
         if (!s || !s.ok) throw Object.assign(new Error(`não salvou: ${(s && s.erro) || 'sem resposta'}`), { naoSalvou: true });
+        aplicarSalvo(meta, lancs);
         const meses = meta.meses.length > 1 ? `${mesAno(meta.meses[0])}–${mesAno(meta.meses[meta.meses.length - 1])}` : mesAno(meta.meses[0]);
         msg = `${NOME_FONTE[lido.fonte] || lido.fonte} ${meses} · ${s.gravados} lançamentos${s.pulados ? ` (${s.pulados} já estavam)` : ''}`;
         if (problema) { status = 'aviso'; msg += ` · ${problema}`; } else if (c && c.ok) msg += ' · soma confere';
@@ -644,6 +668,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     }
     est.importacao.fim = true;
     est.importacao.atual = '';
+    if (dados) desenhar(); // o que entrou já aparece, antes da releitura
     await carregar({ comDrive: true });
   }
 
@@ -722,6 +747,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
       else if (acao === 'importar-novos') await procurarDrive({ importar: 'novos' });
       else if (acao === 'importar-falhos') { est.importacao = null; await procurarDrive({ importar: 'falhos' }); }
       else if (acao === 'arquivo') raiz.querySelector('#gsArquivo').click();
+      else if (acao === 'recarregar') { tentativasCarga = 0; await carregar({ comDrive: true }); }
       else if (acao === 'dispensar') { est.dispensado = true; desenharPainel(); }
       else if (acao === 'fechar-imp') { est.importacao = null; desenharPainel(); }
       else if (acao === 'fechar-drive') { est.drive = null; desenharPainel(); }
@@ -764,17 +790,35 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     }
   }
 
-  async function carregar({ comDrive = false } = {}) {
+  /** Nova releitura sozinha (3 tentativas, 4 s / 8 s / 12 s) enquanto a última falhou ou o que entrou ainda não foi confirmado. */
+  function agendarNovaTentativa() {
+    if (timerCarga || tentativasCarga >= 3) return;
+    tentativasCarga += 1;
+    const t = setTimeout(() => { timerCarga = null; carregar({ comDrive: false, automatica: true }); }, 4000 * tentativasCarga);
+    if (t && typeof t.unref === 'function') t.unref();
+    timerCarga = t;
+  }
+
+  async function carregar({ comDrive = false, automatica = false } = {}) {
+    const meu = seqCarga += 1;
     const pDrive = comDrive || !est.drive ? api.getArquivosGastos().catch((e) => ({ ok: false, erro: String(e) })) : null;
     let r;
     try { r = await api.getGastos(); } catch (e) { r = { ok: false, erro: String(e) }; }
+    // 05/10/2026: resposta velha (pedida antes de uma releitura mais nova que já chegou) não sobrescreve a tela
+    if (meu < cargaAplicada) return;
     if (!r || !r.ok) {
-      if (!dados) raiz.innerHTML = `<div class="carteiras-erro">Não deu pra carregar os gastos agora (${esc((r && r.etapa) || '?')}): ${esc((r && r.erro) || 'erro desconhecido')}.</div>`;
+      if (!dados) { raiz.innerHTML = `<div class="carteiras-erro">Não deu pra carregar os gastos agora (${esc((r && r.etapa) || '?')}): ${esc((r && r.erro) || 'erro desconhecido')}. <button type="button" class="btn btn-ghost" data-acao="recarregar">Tentar de novo</button></div>`; return; }
+      est.falhaAtualizar = String((r && (r.erro || r.etapa)) || 'erro desconhecido').slice(0, 120);
+      desenharPainel();
+      agendarNovaTentativa();
       return;
     }
+    cargaAplicada = meu;
+    est.falhaAtualizar = ''; est.pendenteSync = false; tentativasCarga = 0;
+    if (timerCarga) { clearTimeout(timerCarga); timerCarga = null; }
     dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [] };
     desenhar();
-    if (pDrive) {
+    if (pDrive && !automatica) {
       const d = await pDrive;
       if (d && d.ok) est.drive = { configurado: d.configurado !== false, arquivos: d.arquivos || [] };
       else if (d) est.drive = { erro: `Não deu pra listar o Drive: ${d.erro || 'erro'}` };
@@ -799,6 +843,12 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
   return {
     pronto,
     recarregar: () => carregar({ comDrive: true }),
+    /** A aba Gastos e Despesas voltou a aparecer: refaz o desenho (os gráficos medem a largura) e relê se a última releitura falhou ou a tela está vazia. */
+    aoMostrar() {
+      if (!dados) return;
+      desenhar();
+      if (est.falhaAtualizar || est.pendenteSync || !dados.lancs.length) { tentativasCarga = 0; carregar({ comDrive: false, automatica: true }); }
+    },
     atualizarDespesas(d) { desp = d; if (dados) desenhar(); },
     importarNovos: () => procurarDrive({ importar: 'novos' }),
     importarFalhos: () => procurarDrive({ importar: 'falhos' }),

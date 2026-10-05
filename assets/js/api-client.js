@@ -509,6 +509,20 @@ export async function excluirAporte(token, id) {
 }
 
 /**
+ * 05/10/2026: caixa em dólar das Ações EUA (Aportes.gs, aba aux_caixa_dolar). Grava (ou regrava pelo id)
+ * um envio da Remessa Online ou um ajuste de saldo: { id?, data, tipo: 'envio'|'ajuste', usd, reais?, comercial?, vet?, conversao?, encargos?, observacao? }.
+ * Resposta: { ok, id, caixaDolar: { saldoUsd, movimentos } }.
+ */
+export async function salvarCaixaDolar(token, mov) {
+  return request('POST', 'salvarCaixaDolar', token, { mov: JSON.stringify(mov) });
+}
+
+/** Apaga um envio/ajuste do caixa em dólar. */
+export async function excluirCaixaDolar(token, id) {
+  return request('POST', 'excluirCaixaDolar', token, { id });
+}
+
+/**
  * Itens lidos dos extratos (lancamentos-parse.js). simular=true só confere o
  * que já está na planilha; false grava os novos (e os marcados com forcar).
  */
@@ -629,6 +643,24 @@ export async function excluirPagamentoSalario(token, mes, tipo) {
   return request('POST', 'excluirPagamentoSalario', token, { mes: mes || '', tipo: tipo || '' });
 }
 
+/** 05/10/2026: holerites em Documentos/Trabalho/<EMPRESA>/Holerite/<ANO> no Drive (Salario.gs) - lista (marca os novos). */
+export async function getArquivosHolerites(token) {
+  return request('GET', 'holeritesArquivos', token);
+}
+
+/** Um PDF de holerite do Drive, em base64 (lido no navegador - holerite.js). */
+export async function getArquivoHolerite(token, id) {
+  return request('GET', 'holeriteArquivo', token, { id: id || '' });
+}
+
+/**
+ * Grava 1 holerite lido do Drive (pagamento, como salvarPagamentoSalario) e registra o arquivo (id + modifiedTime) pra
+ * não importar de novo; `arquivo.situacao` 'erro' só registra a falha.
+ */
+export async function salvarHoleriteDrive(token, pagamento, arquivo, { usarComoBase = false } = {}) {
+  return request('POST', 'salvarHoleriteDrive', token, { pagamento: JSON.stringify(pagamento || {}), arquivo: JSON.stringify(arquivo || {}), usarComoBase: usarComoBase ? '1' : '' });
+}
+
 /** 27/09/2026: aba Patrimônio da Organização Financeira (Patrimonio.gs). */
 export async function getPatrimonio(token) {
   return request('GET', 'patrimonio', token);
@@ -660,6 +692,11 @@ export async function getArquivoIrPatrimonio(token, id) {
  */
 export async function getMetas(token) {
   return request('GET', 'metas', token);
+}
+
+/** 05/10/2026: contexto de mercado das análises (Macro.gs): juros, Tesouro, termômetro da bolsa. { ok, macro } */
+export async function getMacro(token, { atualizar = false } = {}) {
+  return request('GET', 'macro', token, atualizar ? { atualizar: '1' } : {});
 }
 
 /** Cria (meta sem id) ou substitui (com id) uma meta - o objeto inteiro vai em JSON. */

@@ -453,3 +453,13 @@ a.hint:hover{ color:var(--acoes); }
 /* 03/10/2026: o simulador foi pra aba Simulações - em Gastos e Despesas fica só o link */
 .og-link-sim{ margin:4px 0 0; text-align:right; }
 .og-link-sim .pt-link{ font-size:12.5px; }
+
+/* 05/10/2026: "Ler holerites do Drive" (Renda e Orçamentos) - Tiago: holerites vêm de Documentos/Trabalho/<EMPRESA>/Holerite/<ANO> */
+.sl-drive{ margin:12px 0 4px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface-2, transparent); }
+.sl-drive-linha{ display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.sl-drive-linha .og-nota{ margin:0; flex:1 1 180px; }
+.sl-drive-msg{ margin:0; }
+.sl-drive-log{ list-style:none; margin:10px 0 0; padding:0; font-size:12px; }
+.sl-drive-log li{ display:flex; flex-wrap:wrap; gap:6px; align-items:baseline; padding:4px 0; border-top:1px solid var(--border); }
+.sl-drive-log li small{ color:var(--ink-muted); }
+.sl-drive-log li.ok > span{ color:var(--good-ink); } .sl-drive-log li.aviso > span{ color:var(--warn-ink); } .sl-drive-log li.erro > span{ color:var(--bad-ink); }

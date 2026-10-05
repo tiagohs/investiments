@@ -36,7 +36,10 @@ import {
 } from './ativo-calc.js';
 // 03/10/2026: análise por critérios (base Suno e outras fontes) + metas de Metas e Objetivos
 import { avaliarAtivo, GRUPOS } from '../criterios/motor.js';
-import { getMetas } from '../api-client.js';
+import { getMetas, getMacro } from '../api-client.js';
+// 05/10/2026: contexto de mercado na Análise (criterios/macro.js, Macro.gs)
+import { ajudaHtml, resumoMacro } from '../criterios/macro.js';
+import { carregarMacroMomento } from './momento-aporte.js';
 import { metasComCalculo } from '../metas-card.js';
 import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
@@ -91,7 +94,7 @@ function carregarEstaticosPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetc
 // ---------------------------------------------------------------------------
 
 /** Tudo que as seções precisam, calculado 1x a partir da resposta. */
-export function montarContexto(resposta, { sobre = null, ir = null, metas = null } = {}) {
+export function montarContexto(resposta, { sobre = null, ir = null, metas = null, macro = null } = {}) {
   const classe = resposta.classe || (resposta.tipo === 'rf' ? 'rendaFixa' : 'acoes');
   const cfg = CLASSES_ATIVO[classe] || CLASSES_ATIVO.acoes;
   const emDolar = resposta.moeda === 'USD';
@@ -103,7 +106,8 @@ export function montarContexto(resposta, { sobre = null, ir = null, metas = null
   const percentualCarteira = percentualNaCarteira(historico);
   return {
     // 03/10/2026: análise por critérios (criterios/motor.js); refeita quando as metas chegam
-    avaliacao: avaliacaoDoAtivo(resposta, { faixa, percentualCarteira, metas }),
+    avaliacao: avaliacaoDoAtivo(resposta, { faixa, percentualCarteira, metas, macro }),
+    macro,
     resposta,
     classe,
     cfg,
@@ -135,9 +139,9 @@ export function montarContexto(resposta, { sobre = null, ir = null, metas = null
 }
 
 /** 03/10/2026: a análise do motor de critérios - nunca derruba a página (erro = sem análise). */
-export function avaliacaoDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null } = {}) {
+export function avaliacaoDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null, macro = null } = {}) {
   try {
-    return avaliarAtivo(entradaMotorDoAtivo(resposta, { faixa, percentualCarteira, metas }));
+    return avaliarAtivo(entradaMotorDoAtivo(resposta, { faixa, percentualCarteira, metas, macro }));
   } catch (erro) {
     if (typeof console !== 'undefined') console.error('análise do ativo', erro);
     return null;
@@ -732,7 +736,22 @@ function fonteLinkHtml(f) {
 }
 
 function pontoHtml(p) {
-  return `<li class="at-an-ponto tom-${p.tom}"><span class="at-an-ico" title="${ROTULO_TOM[p.tom] || ''}">${iconeTom(p.tom)}</span><span class="at-an-txt">${esc(p.texto)}</span></li>`;
+  return `<li class="at-an-ponto tom-${p.tom}"><span class="at-an-ico" title="${ROTULO_TOM[p.tom] || ''}">${iconeTom(p.tom)}</span><span class="at-an-txt">${esc(p.texto)}${ajudaHtml(p.ajuda)}</span></li>`;
+}
+
+/** 05/10/2026: "Para o seu aporte" - metas + preço médio + contexto de mercado (criterios/motor.js!leituraParaVoce); a nota continua só dos fundamentos. */
+function leituraHtml(av) {
+  const l = av.leitura;
+  if (!l) return '';
+  const classe = { favoravel: 'bom', neutro: 'neutro', cautela: 'ruim' }[l.nivel] || 'neutro';
+  return `<div class="at-an-voce nivel-${classe}"><em class="at-an-voce-t">Para o seu aporte</em><strong>${esc(l.rotulo)}</strong><span>${esc(l.texto)}</span>${ajudaHtml('Junta o que pesa para o SEU aporte: as metas (completar uma meta vale mais), preço abaixo do seu preço médio e o contexto de mercado (no máximo meio ponto). Não muda a nota de fundamentos e nunca fica "a favor" se os fundamentos estão fracos ou há critério eliminatório.')}</div>`;
+}
+
+/** Chips do contexto de mercado (juro real, NTN-B, bolsa) - cada um com o "i". */
+function chipsMacroHtml(macro) {
+  const itens = resumoMacro(macro);
+  if (!itens.length) return '';
+  return `<div class="at-an-macro" aria-label="Contexto de mercado"><span class="at-an-macro-t">Contexto de mercado</span>${itens.map((i) => `<span class="at-an-chip nivel-${i.tom === 'bom' ? 'bom' : (i.tom === 'atencao' ? 'misto' : 'ok')}">${esc(i.rotulo)} <b>${esc(i.valor)}</b>${ajudaHtml(i.ajuda)}</span>`).join('')}</div>`;
 }
 
 function criterioHtml(p) {
@@ -763,8 +782,10 @@ export function analiseHtml(ctx) {
   const temNota = typeof av.nota === 'number';
   // até 2 pontos da sua carteira (metas antes; preço médio só quando a favor) + os critérios que mais pesam
   const daCarteira = pontos.filter((p) => p.grupo === 'carteira' && (p.metaId || p.tom === 'bom'))
-    .sort((x, y) => (y.metaId ? 1 : 0) - (x.metaId ? 1 : 0)).slice(0, 2);
-  const visiveis = [...pontos.filter((p) => p.grupo !== 'carteira' && p.tom !== 'neutro').slice(0, PONTOS_VISIVEIS - (daCarteira.length ? 1 : 0)), ...daCarteira];
+    .sort((x, y) => (y.metaId ? 1 : 0) - (x.metaId ? 1 : 0)).slice(0, ctx.ehRf ? 4 : 2);
+  // 05/10/2026: o contexto de mercado tem lugar próprio (1 linha, com o "i"); não disputa as linhas dos fundamentos
+  const doContexto = pontos.filter((p) => p.grupo === 'contexto').slice(0, 2);
+  const visiveis = [...pontos.filter((p) => p.grupo !== 'carteira' && p.grupo !== 'contexto' && p.tom !== 'neutro').slice(0, PONTOS_VISIVEIS - (daCarteira.length ? 1 : 0)), ...daCarteira, ...doContexto];
   const grupos = Object.entries(av.notaPorGrupo || {});
   const porGrupo = {};
   pontos.forEach((p) => { (porGrupo[p.grupo] || (porGrupo[p.grupo] = [])).push(p); });
@@ -784,7 +805,8 @@ export function analiseHtml(ctx) {
   return `
     <section class="at-card at-analise" id="at-analise" aria-labelledby="at-analise-titulo">
       <div class="at-card-titulo"><h2 id="at-analise-titulo">${ctx.ehRf ? 'Análise do título' : 'Análise do ativo'}</h2><span class="hint">${ctx.ehRf ? 'suas metas' : `${av.cobertura.avaliados} critérios`}</span></div>${topo}
-      ${visiveis.length ? `<ul class="at-an-pontos">${visiveis.map(pontoHtml).join('')}</ul>` : ''}${av.avisos && av.avisos.length ? `
+      ${leituraHtml(av)}
+      ${visiveis.length ? `<ul class="at-an-pontos">${visiveis.map(pontoHtml).join('')}</ul>` : ''}${ctx.macro ? chipsMacroHtml(ctx.macro) : ''}${av.avisos && av.avisos.length ? `
       <p class="at-an-aviso">${av.avisos.map(esc).join(' ')}</p>` : ''}${ctx.ehRf ? '' : `
       <details class="at-an-todos">
         <summary>Ver todos os critérios (${pontos.length})</summary>${todos}
@@ -1910,6 +1932,7 @@ export async function montarPaginaAtivo(token, {
   getVideosImpl = undefined,
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
+  getMacroImpl = getMacro, // 05/10/2026: contexto de mercado da Análise (Macro.gs)
   agora = () => new Date(),
 } = {}) {
   const loadingEl = doc.getElementById('ativoLoading');
@@ -1978,9 +2001,16 @@ export async function montarPaginaAtivo(token, {
   // completa a meta" da Análise) - 1 busca por tela, o cache 'metas' (o mesmo
   // da tela Metas) aparece na hora; falhou = análise sem os pontos de meta.
   const aplicarMetas = () => {
-    if (!estado.ctx || !estado.metas) return;
-    estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas });
+    if (!estado.ctx || !(estado.metas || estado.macro)) return;
+    estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas, macro: estado.macro });
+    estado.ctx.macro = estado.macro || null;
     trocarAnalise(conteudoEl, estado.ctx);
+  };
+  // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata, NTN-B) - 1 busca por tela; falhou = análise sem ele
+  const pedirMacro = () => {
+    if (estado.macroPedido || !getMacroImpl) return;
+    estado.macroPedido = true;
+    carregarMacroMomento(token, { getMacroImpl, aoChegar: (m) => { estado.macro = m; aplicarMetas(); } }).catch(() => null);
   };
   const pedirMetas = () => {
     if (estado.metasPedidas || !getMetasImpl) return;
@@ -2002,7 +2032,7 @@ export async function montarPaginaAtivo(token, {
 
   const desenharResposta = async (resposta) => {
     const estaticos = await estaticosPromise;
-    estado.ctx = montarContexto(resposta, { ...(estaticos || {}), metas: estado.metas });
+    estado.ctx = montarContexto(resposta, { ...(estaticos || {}), metas: estado.metas, macro: estado.macro });
     loadingEl.hidden = true;
     erroEl.hidden = true;
     conteudoEl.hidden = false;
@@ -2010,6 +2040,7 @@ export async function montarPaginaAtivo(token, {
     aplicarIntradia();
     pedirIntradia();
     pedirMetas();
+    pedirMacro();
     // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece.
     // 02/10/2026: + o canal oficial do ativo (canais-youtube.js); renda fixa só com canal (Tesouro).
     if (!estado.ctx.ehRf || estado.ctx.canal) {

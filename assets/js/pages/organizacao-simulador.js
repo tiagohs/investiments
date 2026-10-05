@@ -197,7 +197,7 @@ export function htmlValorNota(p) {
   const div = p.dividas[min.id];
   const anual = p.frequencia === 'anual';
   const explica = div.sistema === 'SAC'
-    ? `2 × a amortização de ${brl0(min.porParcela)}${div.tr ? ', já com a TR' : ''}`
+    ? `~${brl0(min.porParcela)} por parcela: a Caixa recalcula o prazo pra prestação não subir, então é bem menos que a amortização do contrato`
     : `o principal das 2 últimas parcelas, a valor de hoje`;
   const modo = p.modo === 'parcela' ? ' (no modo <b>Prazo</b>; reduzindo a parcela, o prazo fica e a parcela cai)' : '';
   if (!p.valorManual) {

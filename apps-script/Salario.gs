@@ -347,3 +347,281 @@ function excluirPagamentoSalario_(ss, mes, tipo, agora) {
   r.ok = true;
   return r;
 }
+
+// ---------------------------------------------------------------------------
+// 05/10/2026: holerites direto do Drive - "Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>/MES-ANO.pdf"
+// ---------------------------------------------------------------------------
+//
+// Tiago: "holerites ficarão em Drive Documentos/Trabalho/NOME_EMPRESA/Holerite/
+// ANO/MES-ANO.pdf (já tem 2 meses de 2026 da empresa atual lá)". Mesmo desenho
+// do IR (Patrimonio.gs) e dos gastos (Gastos.gs): o Apps Script LISTA os PDFs
+// (e entrega um por vez em base64); quem LÊ o PDF é o navegador (holerite.js,
+// o mesmo leitor do botão "Importar holerite"); aqui só chegam os valores já
+// lidos e o REGISTRO de quais arquivos já foram importados.
+//
+//   'aux_holerites-arquivos'  ID | Nome | Empresa | Mês | Modificado | Importado em | Tipo | Situação | Problema
+//       Situação = ok | aviso (entrou, mas o leitor avisou algo - ex.: soma não bate) | erro (não deu pra ler:
+//       fica registrado só pra tela não insistir até o arquivo mudar). Um arquivo só volta a ser "novo" se
+//       o modifiedTime do Drive mudou desde a importação. Reimportar o mesmo mês/tipo substitui a linha da aba Salário.
+//
+// GET  action=holeritesArquivos     PDFs achados (marca novos/alterados/com problema)
+// GET  action=holeriteArquivo&id=   um PDF (base64) - só os da lista
+// POST action=salvarHoleriteDrive   pagamento (JSON), arquivo (JSON), usarComoBase - grava o pagamento e registra o arquivo
+//                                   (arquivo.situacao 'erro' + arquivo.problema: só registra a falha)
+//
+// A pasta "Trabalho" (de preferência dentro de "Documentos") é achada sozinha; se não achar (ou houver mais de
+// uma), rode 1 vez no editor configurarPastaHoleritesDireto('<id da pasta Trabalho>').
+
+var HOLERITE_ABA_ARQUIVOS_ = 'aux_holerites-arquivos';
+var HOLERITE_CAB_ARQ_ = ['ID', 'Nome', 'Empresa', 'Mês', 'Modificado', 'Importado em', 'Tipo', 'Situação', 'Problema'];
+var HOLERITE_SITUACOES_ = ['ok', 'aviso', 'erro'];
+var PROP_PASTA_HOLERITES_ = 'HOLERITES_PASTA_TRABALHO';
+var HOLERITE_MAX_BYTES_ = 8 * 1024 * 1024;
+
+function handleHoleritesArquivos(e, auth) {
+  if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  try {
+    return jsonOut(listarArquivosHolerites_(SpreadsheetApp.getActiveSpreadsheet()));
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'holerites', erro: String(erro) });
+  }
+}
+
+function handleHoleriteArquivo(e, auth) {
+  if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  try {
+    return jsonOut(arquivoHolerite_(SpreadsheetApp.getActiveSpreadsheet(), (e && e.parameter && e.parameter.id) || ''));
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'holerites', erro: String(erro) });
+  }
+}
+
+function handleSalvarHoleriteDrive(e) {
+  return comTravaSalario_(function () {
+    var p = (e && e.parameter) || {};
+    var pag, arq;
+    try { pag = JSON.parse(p.pagamento || '{}'); arq = JSON.parse(p.arquivo || '{}'); } catch (eJ) { return { ok: false, etapa: 'holerites', erro: 'dados inválidos (JSON)' }; }
+    return salvarHoleriteDrive_(SpreadsheetApp.getActiveSpreadsheet(), pag, arq, { usarComoBase: p.usarComoBase === '1' || p.usarComoBase === 'true' }, new Date());
+  });
+}
+
+/** Minúsculas, sem acento e sem espaços nas pontas ("Holerite", "HOLERITES", "holeríte" -> 'holerite(s)'). */
+function semAcentoHolerite_(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+var HOLERITE_MESES_NOME_ = {
+  janeiro: 1, jan: 1, fevereiro: 2, fev: 2, marco: 3, mar: 3, abril: 4, abr: 4, maio: 5, mai: 5, junho: 6, jun: 6,
+  julho: 7, jul: 7, agosto: 8, ago: 8, setembro: 9, set: 9, outubro: 10, out: 10, novembro: 11, nov: 11, dezembro: 12, dez: 12
+};
+
+/**
+ * 'aaaa-mm' que o NOME do arquivo diz: "01-2026", "1_2026", "2026-01", "JANEIRO-2026", "jan 2026". Sem mês
+ * reconhecível devolve '' (quem manda é o conteúdo do PDF; o nome só ordena e aparece na lista). `anoPasta`
+ * completa um nome que só tem o mês ("janeiro.pdf" dentro da pasta 2026).
+ */
+function mesDoNomeHolerite_(nome, anoPasta) {
+  var n = semAcentoHolerite_(nome).replace(/\.pdf$/, '');
+  var m = n.match(/(?:^|[^0-9])(\d{1,2})\s*[-_.\/ ]\s*(20\d{2})(?:[^0-9]|$)/);
+  if (m && Number(m[1]) >= 1 && Number(m[1]) <= 12) return m[2] + '-' + ('0' + Number(m[1])).slice(-2);
+  m = n.match(/(?:^|[^0-9])(20\d{2})\s*[-_.\/ ]\s*(\d{1,2})(?:[^0-9]|$)/);
+  if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) return m[1] + '-' + ('0' + Number(m[2])).slice(-2);
+  var nomes = Object.keys(HOLERITE_MESES_NOME_).sort(function (a, b) { return b.length - a.length; }).join('|');
+  m = n.match(new RegExp('(?:^|[^a-z])(' + nomes + ')(?:[^a-z0-9]*)(20\\d{2})?(?:[^a-z]|$)'));
+  if (m) {
+    var ano = m[2] || (anoPasta && /^20\d{2}$/.test(String(anoPasta)) ? String(anoPasta) : '');
+    if (ano) return ano + '-' + ('0' + HOLERITE_MESES_NOME_[m[1]]).slice(-2);
+  }
+  m = n.match(new RegExp('(20\\d{2})[^a-z0-9]*(' + nomes + ')(?:[^a-z]|$)'));
+  if (m) return m[1] + '-' + ('0' + HOLERITE_MESES_NOME_[m[2]]).slice(-2);
+  return '';
+}
+
+/** Acha "Trabalho" (de preferência dentro de "Documentos"). */
+function acharPastaTrabalhoHolerites_(idOpcional) {
+  if (idOpcional) return DriveApp.getFolderById(idOpcional);
+  var it = DriveApp.searchFolders("title contains 'Trabalho'");
+  var cands = [];
+  while (it.hasNext()) { var f = it.next(); if (semAcentoHolerite_(f.getName()) === 'trabalho') cands.push(f); }
+  var achada = null;
+  cands.forEach(function (p) {
+    if (achada) return;
+    var pais = p.getParents();
+    while (pais.hasNext()) { if (/^documentos?$/.test(semAcentoHolerite_(pais.next().getName()))) { achada = p; return; } }
+  });
+  if (!achada && cands.length === 1) achada = cands[0];
+  return achada;
+}
+
+/**
+ * Rode 1 vez no editor: acha Documentos/Trabalho, guarda o ID e pede a autorização de leitura do Drive.
+ * Com mais de uma pasta "Trabalho": configurarPastaHoleritesDireto('<id>').
+ */
+function configurarPastaHoleritesDireto(idOpcional) {
+  var pasta = acharPastaTrabalhoHolerites_(idOpcional || null);
+  if (!pasta) throw new Error('Não achei Documentos/Trabalho no seu Drive - rode configurarPastaHoleritesDireto("<id da pasta Trabalho>")');
+  PropertiesService.getScriptProperties().setProperty(PROP_PASTA_HOLERITES_, pasta.getId());
+  var r = listarArquivosHolerites_(SpreadsheetApp.getActiveSpreadsheet());
+  Logger.log('Pasta dos holerites configurada: ' + pasta.getName() + ' - ' + r.arquivos.length + ' PDF(s), ' + r.novos + ' novo(s): ' +
+    r.arquivos.map(function (a) { return a.empresa + '/' + a.nome; }).join(', '));
+  return r;
+}
+
+/** ID da pasta "Trabalho" (guardado; ou achado e guardado na 1ª vez). '' = não achou. */
+function pastaTrabalhoHolerites_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(PROP_PASTA_HOLERITES_);
+  if (id) return id;
+  var p = acharPastaTrabalhoHolerites_(null);
+  if (!p) return '';
+  props.setProperty(PROP_PASTA_HOLERITES_, p.getId());
+  return p.getId();
+}
+
+function textoIsoHolerite_(v) {
+  if (v && typeof v.getTime === 'function') return v.toISOString();
+  return v ? String(v) : '';
+}
+
+function textoMesHolerite_(v) {
+  if (v && typeof v.getFullYear === 'function') return v.getFullYear() + '-' + ('0' + (v.getMonth() + 1)).slice(-2);
+  var m = String(v || '').match(/^(\d{4})-(\d{2})/);
+  return m ? m[1] + '-' + m[2] : '';
+}
+
+/** Texto seguro pra célula (sem fórmula, sem controle, sem CPF/CNPJ). */
+function textoSeguroHolerite_(v, max) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').replace(/^[=+\-@]+/, '').replace(/\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g, '•••').replace(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g, '•••').slice(0, max || 160);
+}
+
+/** O registro da aba 'aux_holerites-arquivos' (um por arquivo importado ou que falhou). */
+function lerArquivosImportadosHolerites_(ss) {
+  var aba = ss.getSheetByName(HOLERITE_ABA_ARQUIVOS_);
+  if (!aba || aba.getLastRow() < 2) return [];
+  var linhas = aba.getRange(2, 1, aba.getLastRow() - 1, HOLERITE_CAB_ARQ_.length).getValues();
+  return linhas.filter(function (l) { return String(l[0] || '').trim(); }).map(function (l) {
+    var sit = HOLERITE_SITUACOES_.indexOf(String(l[7] || '')) >= 0 ? String(l[7]) : 'ok';
+    return {
+      id: String(l[0]), nome: String(l[1] || ''), empresa: String(l[2] || ''), mes: textoMesHolerite_(l[3]),
+      modificado: textoIsoHolerite_(l[4]), importadoEm: textoIsoHolerite_(l[5]), tipo: String(l[6] || ''), situacao: sit, problema: String(l[8] || '')
+    };
+  });
+}
+
+/**
+ * Os PDFs de "Trabalho/<EMPRESA>/Holerite/<ANO>/..." (a pasta "Holerite" de cada empresa, sem ligar pra
+ * maiúsculas/acento nem pro plural; PDF direto nela ou numa subpasta de ano, até 3 níveis). Cada arquivo:
+ * { id, nome, empresa, ano, mes ('aaaa-mm' do nome, ou ''), tamanho, modificado, importado, alterado, situacao,
+ * problema, novo }. `novo` = ainda não importado, ou o modifiedTime mudou desde a importação.
+ */
+function listarArquivosHolerites_(ss) {
+  var idRaiz = pastaTrabalhoHolerites_();
+  if (!idRaiz) return { ok: true, configurado: false, arquivos: [], novos: 0, falhos: 0 };
+  var raiz = DriveApp.getFolderById(idRaiz);
+  var reg = {};
+  lerArquivosImportadosHolerites_(ss).forEach(function (a) { reg[a.id] = a; });
+  var arquivos = [];
+  var coletar = function (pasta, empresa, ano, nivel) {
+    var fs = pasta.getFiles();
+    while (fs.hasNext()) {
+      var f = fs.next();
+      var nome = f.getName();
+      if (!(/pdf$/i.test(f.getMimeType() || '') || /\.pdf$/i.test(nome))) continue;
+      var mod = f.getLastUpdated().toISOString();
+      var imp = reg[f.getId()] || null;
+      var mudou = !!imp && !!imp.modificado && imp.modificado !== mod;
+      arquivos.push({
+        id: f.getId(), nome: textoSeguroHolerite_(nome, 120), empresa: empresa, ano: ano, mes: mesDoNomeHolerite_(nome, ano),
+        tamanho: f.getSize(), modificado: mod,
+        importado: !!imp && imp.situacao !== 'erro', alterado: mudou && imp.situacao !== 'erro',
+        situacao: imp ? imp.situacao : '', problema: imp ? imp.problema : '',
+        novo: !imp || mudou
+      });
+    }
+    if (nivel >= 3) return;
+    var subs = pasta.getFolders();
+    while (subs.hasNext()) {
+      var s = subs.next();
+      var nm = String(s.getName() || '').trim();
+      coletar(s, empresa, /^20\d{2}$/.test(nm) ? nm : ano, nivel + 1);
+    }
+  };
+  var empresas = raiz.getFolders();
+  while (empresas.hasNext()) {
+    var emp = empresas.next();
+    var nomeEmp = String(emp.getName() || '').trim();
+    var subs = emp.getFolders();
+    while (subs.hasNext()) {
+      var h = subs.next();
+      if (/^holerites?$/.test(semAcentoHolerite_(h.getName()))) coletar(h, nomeEmp, '', 1);
+    }
+  }
+  arquivos.sort(function (a, b) {
+    var x = (a.mes || a.ano || '') + '|' + a.empresa + '|' + a.nome; var y = (b.mes || b.ano || '') + '|' + b.empresa + '|' + b.nome;
+    return x < y ? -1 : (x > y ? 1 : 0);
+  });
+  return {
+    ok: true, configurado: true, arquivos: arquivos,
+    novos: arquivos.filter(function (a) { return a.novo; }).length,
+    falhos: arquivos.filter(function (a) { return a.situacao === 'erro' || a.situacao === 'aviso'; }).length
+  };
+}
+
+/** Um PDF da lista, em base64 - recusa qualquer id que não esteja nas pastas de holerite. */
+function arquivoHolerite_(ss, id) {
+  if (!id) return { ok: false, etapa: 'holerites', erro: 'id vazio' };
+  var lista = listarArquivosHolerites_(ss);
+  if (!lista.configurado) return { ok: false, etapa: 'holerites', erro: 'pasta dos holerites não encontrada (rode configurarPastaHoleritesDireto no editor)' };
+  var achado = lista.arquivos.filter(function (a) { return a.id === id; })[0];
+  if (!achado) return { ok: false, etapa: 'holerites', erro: 'arquivo fora das pastas de holerite' };
+  if (achado.tamanho > HOLERITE_MAX_BYTES_) return { ok: false, etapa: 'holerites', erro: 'PDF grande demais (' + Math.round(achado.tamanho / 1024) + ' KB)' };
+  var bytes = DriveApp.getFileById(id).getBlob().getBytes();
+  return { ok: true, id: id, nome: achado.nome, empresa: achado.empresa, mes: achado.mes, modificado: achado.modificado, base64: Utilities.base64Encode(bytes) };
+}
+
+/** Grava (ou troca) o registro de um arquivo na aba 'aux_holerites-arquivos'. */
+function registrarArquivoHolerite_(ss, arquivo, agora) {
+  var id = String(arquivo.id || '').slice(0, 200);
+  var aba = ss.getSheetByName(HOLERITE_ABA_ARQUIVOS_);
+  if (!aba) {
+    aba = ss.insertSheet(HOLERITE_ABA_ARQUIVOS_);
+    aba.getRange(1, 1, 1, HOLERITE_CAB_ARQ_.length).setValues([HOLERITE_CAB_ARQ_]);
+    if (aba.setFrozenRows) aba.setFrozenRows(1);
+  }
+  var existentes = aba.getLastRow() >= 2 ? aba.getRange(2, 1, aba.getLastRow() - 1, HOLERITE_CAB_ARQ_.length).getValues() : [];
+  var outras = existentes.filter(function (l) { return String(l[0] || '').trim() && String(l[0]) !== id; }).map(function (l) {
+    return [String(l[0]), String(l[1] || ''), String(l[2] || ''), textoMesHolerite_(l[3]), textoIsoHolerite_(l[4]), textoIsoHolerite_(l[5]), String(l[6] || ''), String(l[7] || ''), String(l[8] || '')];
+  });
+  var sit = HOLERITE_SITUACOES_.indexOf(String(arquivo.situacao || 'ok')) >= 0 ? String(arquivo.situacao || 'ok') : 'ok';
+  outras.push([
+    id, textoSeguroHolerite_(arquivo.nome, 120), textoSeguroHolerite_(arquivo.empresa, 80), textoMesHolerite_(arquivo.mes),
+    String(arquivo.modificado || '').slice(0, 40), (agora || new Date()).toISOString(), textoSeguroHolerite_(arquivo.tipo, 30), sit,
+    sit === 'ok' ? '' : textoSeguroHolerite_(arquivo.problema, 160)
+  ]);
+  var antes = Math.max(aba.getLastRow(), 1);
+  if (antes > 1) aba.getRange(2, 1, antes - 1, HOLERITE_CAB_ARQ_.length).clearContent();
+  [4, 5, 6].forEach(function (c) { aba.getRange(2, c, outras.length, 1).setNumberFormat('@'); });
+  aba.getRange(2, 1, outras.length, HOLERITE_CAB_ARQ_.length).setValues(outras);
+}
+
+/**
+ * Importa 1 holerite lido do Drive: grava o pagamento (aba Salário, mesma chave mês+tipo - reimportar substitui)
+ * e registra o arquivo. Com arquivo.situacao 'erro' só registra a falha (nada muda na aba Salário).
+ * O arquivo só vale se o id estiver na lista do Drive (ninguém registra id inventado).
+ */
+function salvarHoleriteDrive_(ss, pagamento, arquivo, opcoes, agora) {
+  arquivo = arquivo || {};
+  var id = String(arquivo.id || '').slice(0, 200);
+  if (!id) return { ok: false, etapa: 'holerites', erro: 'arquivo sem id' };
+  if (arquivo.situacao === 'erro') {
+    registrarArquivoHolerite_(ss, arquivo, agora);
+    return { ok: true, id: id, falha: true };
+  }
+  var r = salvarPagamentoSalario_(ss, pagamento, opcoes || {}, agora);
+  if (!r || !r.ok) return r;
+  registrarArquivoHolerite_(ss, { id: id, nome: arquivo.nome, empresa: arquivo.empresa, mes: pagamento && pagamento.mes, modificado: arquivo.modificado,
+    tipo: pagamento && pagamento.tipo, situacao: arquivo.situacao === 'aviso' ? 'aviso' : 'ok', problema: arquivo.problema }, agora);
+  SpreadsheetApp.flush();
+  r.holerite = { id: id, situacao: arquivo.situacao === 'aviso' ? 'aviso' : 'ok' };
+  return r;
+}

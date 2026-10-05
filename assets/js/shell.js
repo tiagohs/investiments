@@ -53,6 +53,7 @@ import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, sy
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
 import { limparCacheDados } from './cache-dados.js';
+import { setupCarrinhoHeader } from './carrinho-header.js'; // 05/10/2026: carrinho em andamento no header de todas as telas
 
 /**
  * The shell partial always lives at assets/partials/shell.html relative
@@ -880,6 +881,8 @@ export async function mountShell(options = {}) {
     setupPopovers(doc);
     setupThemeToggle(doc, { initTheme, toggleTheme });
     setupLogoutButton(doc);
+    // 05/10/2026: carrinho em andamento (Transações) no header + aviso "Você comprou?" quando expira
+    try { setupCarrinhoHeader(doc); } catch (erroCarrinho) { console.error('shell.js: carrinho do header', erroCarrinho); }
     setupAuthGate(doc, { onAuthenticated: options.onAuthenticated });
   } catch (error) {
     console.error('shell.js: failed to mount the shell', error);

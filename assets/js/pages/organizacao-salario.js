@@ -17,9 +17,9 @@
  *    ano (13º, férias, PLR, bônus) com quanto investir de cada um.
  * Contas em salario-calc.js; back-end em apps-script/Salario.gs.
  */
-import { getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario } from '../api-client.js';
+import { getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario, getArquivosHolerites, getArquivoHolerite, salvarHoleriteDrive } from '../api-client.js';
 import { formatBRL, formatNumeroBR } from '../format.js';
-import { carregarPdfJs, extrairLinhasPdf, lerHolerite, TIPOS_PAGAMENTO } from './holerite.js';
+import { carregarPdfJs, extrairLinhasPdf, lerHolerite, TIPOS_PAGAMENTO, lerHoleritesDoDrive, holeritesNovosDrive } from './holerite.js';
 import {
   metaMensal, mediaInvestida, mesesAteAlvo, trajetoria, ultimoHolerite, orcamentoSalario, extrasDoAno,
 } from './salario-calc.js';
@@ -82,10 +82,29 @@ export function htmlFormBase(d) {
     </form>`;
 }
 
-export function htmlHolerite(d, { form }) {
+/**
+ * 05/10/2026: `drive` = estado do Drive (holerites em Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>): null (ainda
+ * não veio), { configurado, arquivos, lendo, msg, log }. "Ler holerites do Drive" importa só os novos, com 1 clique;
+ * "Importar holerite (PDF)" (manual) continua.
+ */
+export function htmlDriveHolerites(drive) {
+  if (!drive) return '';
+  if (drive.erro) return `<p class="og-nota bad sl-drive-msg">${esc(drive.erro)}</p>`;
+  if (drive.configurado === false) return '<p class="og-nota sl-drive-msg">Pasta <b>Documentos/Trabalho</b> do Drive não encontrada - rode <code>configurarPastaHoleritesDireto</code> no editor do Apps Script pra o site ler os holerites sozinho.</p>';
+  const novos = holeritesNovosDrive(drive.arquivos);
+  const total = (drive.arquivos || []).length;
+  const log = drive.log && drive.log.length ? `<ul class="sl-drive-log">${drive.log.map((x) => `<li class="${esc(x.status)}"><span aria-hidden="true">${x.status === 'ok' ? '✓' : x.status === 'aviso' ? '!' : '✕'}</span> <b>${esc(x.empresa ? `${x.empresa} · ` : '')}${esc(x.nome)}</b> <small>${esc(x.msg)}</small></li>`).join('')}</ul>` : '';
+  const botao = drive.lendo
+    ? `<button type="button" class="btn btn-primary og-btn-sm" disabled>${esc(drive.lendo)}</button>`
+    : `<button type="button" class="btn ${novos.length ? 'btn-primary' : 'btn-ghost'} og-btn-sm" data-acao="ler-holerites-drive">Ler holerites do Drive${novos.length ? ` (${novos.length} ${novos.length === 1 ? 'novo' : 'novos'})` : ''}</button>`;
+  const resumo = drive.msg ? esc(drive.msg) : (novos.length ? `${novos.length} ${novos.length === 1 ? 'holerite novo' : 'holerites novos'} no Drive (de ${total}).` : `${total} ${total === 1 ? 'holerite' : 'holerites'} no Drive, todos já importados.`);
+  return `<div class="sl-drive"><div class="sl-drive-linha">${botao}<span class="og-nota sl-drive-msg" role="status">${resumo}</span></div>${log}</div>`;
+}
+
+export function htmlHolerite(d, { form, drive = null }) {
   if (form) return htmlFormPagamento(form, d);
   const hol = ultimoHolerite(d.pagamentos);
-  const botoes = `<div class="tx-botoes"><button type="button" class="btn btn-primary og-btn-sm" data-acao="importar">Importar holerite (PDF)</button><button type="button" class="btn btn-ghost og-btn-sm" data-acao="novo-pagamento">Adicionar à mão</button><input type="file" id="slArquivo" accept="application/pdf,.pdf" hidden></div>`;
+  const botoes = `${htmlDriveHolerites(drive)}<div class="tx-botoes"><button type="button" class="btn ${drive && drive.configurado !== false && !drive.erro ? 'btn-ghost' : 'btn-primary'} og-btn-sm" data-acao="importar">Importar holerite (PDF)</button><button type="button" class="btn btn-ghost og-btn-sm" data-acao="novo-pagamento">Adicionar à mão</button><input type="file" id="slArquivo" accept="application/pdf,.pdf" hidden></div>`;
   if (!hol) {
     return `<div class="lateral-cab"><h2>Holerite</h2></div><p class="og-nota">Nenhum holerite salvo ainda. Importe o PDF do mês (é lido aqui no navegador) ou preencha à mão.</p>${botoes}${htmlPagamentos(d)}`;
   }
@@ -249,11 +268,12 @@ function lerForm(form) {
 export function montarAbaSalario({
   doc, el, token, getSalarioImpl = getSalario, salvarBaseImpl = salvarSalarioBase, salvarPagamentoImpl = salvarPagamentoSalario,
   excluirPagamentoImpl = excluirPagamentoSalario, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf,
+  listarHoleritesImpl = getArquivosHolerites, obterHoleriteImpl = getArquivoHolerite, salvarHoleriteDriveImpl = salvarHoleriteDrive,
   confirmar = (msg) => (doc.defaultView && doc.defaultView.confirm ? doc.defaultView.confirm(msg) : true),
-  aoMudarDados = null,
+  aoMudarDados = null, aoMudarDrive = null,
 }) {
   let dados = null;
-  const est = { editandoBase: false, form: null };
+  const est = { editandoBase: false, form: null, drive: null };
   const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados); } catch (e) { /* ok */ } } };
 
   // "No seu ritmo" da projeção: média dos últimos 12 meses fechados (tudo, com proventos)
@@ -290,7 +310,7 @@ export function montarAbaSalario({
     desenharTopo();
     el.querySelector('#slBase').innerHTML = est.editandoBase ? htmlFormBase(dados) : '';
     if (est.editandoBase) previaBase();
-    el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form });
+    el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form, drive: est.drive });
     el.querySelector('#slExtras').innerHTML = htmlExtras(dados);
     el.querySelector('#slOrcamento').innerHTML = htmlOrcamento(dados);
     const av = el.querySelector('#slAvisos');
@@ -321,6 +341,7 @@ export function montarAbaSalario({
     }
     dados = r;
     desenhar();
+    if (!est.drive) carregarDrive();
   }
 
   function aplicarResposta(r) {
@@ -331,7 +352,7 @@ export function montarAbaSalario({
 
   function abrirForm(pagamento, extra = {}) {
     est.form = { pagamento: { ...pagamento }, usarComoBase: false, ...extra };
-    el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form });
+    el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form, drive: est.drive });
     const alvo = el.querySelector('#slHolerite');
     if (alvo.scrollIntoView) try { alvo.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
   }
@@ -394,6 +415,51 @@ export function montarAbaSalario({
     }
   }
 
+  // --- 05/10/2026: holerites do Drive (Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>/MES-ANO.pdf) ---------------
+  function redesenharHolerite() {
+    if (est.form || !dados) return;
+    const box = el.querySelector('#slHolerite');
+    if (box) box.innerHTML = htmlHolerite(dados, { form: null, drive: est.drive });
+    if (typeof aoMudarDrive === 'function') { try { aoMudarDrive(est.drive); } catch (e) { /* ok */ } }
+  }
+
+  /** Lista os PDFs do Drive (e marca os novos). Falha de rede não derruba a aba: o botão manual continua. */
+  async function carregarDrive() {
+    let r;
+    try { r = await listarHoleritesImpl(token); } catch (e) { r = { ok: false, erro: String(e && e.message ? e.message : e) }; }
+    const manter = est.drive && (est.drive.lendo || est.drive.log) ? { lendo: est.drive.lendo, log: est.drive.log, msg: est.drive.msg } : {};
+    // 05/10/2026: Apps Script sem a versão nova ainda não conhece 'holeritesArquivos'
+    const motivo = (r && r.erro) || 'erro';
+    if (!r || !r.ok) est.drive = { erro: /a[cç][aã]o desconhecida|unknown action/i.test(motivo) ? 'O Apps Script ainda não tem a leitura de holerites do Drive: publique a NOVA VERSÃO da implantação (Salario.gs e Router.gs).' : `Não deu pra listar os holerites do Drive: ${motivo}`, arquivos: [] };
+    else est.drive = { configurado: r.configurado !== false, arquivos: r.arquivos || [], ...manter };
+    redesenharHolerite();
+    return est.drive;
+  }
+
+  /** "Ler holerites do Drive": só os novos (id + modifiedTime ainda não registrados), com 1 clique. */
+  async function lerDoDrive({ ids = null } = {}) {
+    if (est.drive && est.drive.lendo) return null;
+    est.drive = { ...(est.drive || { arquivos: [] }), lendo: 'Lendo…', msg: '', log: null };
+    redesenharHolerite();
+    const r = await lerHoleritesDoDrive({
+      listar: () => listarHoleritesImpl(token), obter: (id) => obterHoleriteImpl(token, id),
+      salvar: (pag, arq, o) => salvarHoleriteDriveImpl(token, pag, arq, o), carregarPdf, lerPdf, doc, pagamentos: (dados && dados.pagamentos) || [], ids,
+      aoProgresso: ({ total, feitos, atual }) => { if (est.drive && est.drive.lendo) { est.drive.lendo = `Lendo ${Math.min(feitos + 1, total)} de ${total}…`; est.drive.msg = atual ? `Lendo ${atual}` : ''; redesenharHolerite(); } },
+    });
+    if (r.ultima && aplicarResposta(r.ultima)) desenhar();
+    const partes = [];
+    if (!r.ok) partes.push(r.erro);
+    else if (r.nada) partes.push('Nada novo no Drive: todos os holerites já foram importados.');
+    else {
+      if (r.importados) partes.push(`${r.importados} ${r.importados === 1 ? 'holerite importado' : 'holerites importados'}`);
+      if (r.avisos) partes.push(`${r.avisos} com aviso (confira abaixo)`);
+      if (r.falhas) partes.push(`${r.falhas} não ${r.falhas === 1 ? 'deu' : 'deram'} pra ler`);
+    }
+    est.drive = { ...(est.drive || {}), lendo: '', msg: partes.join(' · '), log: r.log && r.log.length ? r.log : null };
+    await carregarDrive();
+    return r;
+  }
+
   function ligar() {
     el.addEventListener('click', async (ev) => {
       const b = ev.target.closest('[data-acao]');
@@ -404,9 +470,10 @@ export function montarAbaSalario({
         const f = el.querySelector('#slBaseForm');
         f.querySelector('#slLiquido').value = formatNumeroBR(Number(b.dataset.valor));
         f.querySelector('#slLiquido').dispatchEvent(new doc.defaultView.Event('input', { bubbles: true }));
-      } else if (acao === 'importar') el.querySelector('#slArquivo')?.click();
+      } else if (acao === 'ler-holerites-drive') await lerDoDrive();
+      else if (acao === 'importar') el.querySelector('#slArquivo')?.click();
       else if (acao === 'novo-pagamento') abrirForm({ mes: String(dados.hoje || '').slice(0, 7), tipo: 'Mensal', status: 'Recebido' }, { origem: 'manual' });
-      else if (acao === 'cancelar-pagamento') { est.form = null; el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: null }); }
+      else if (acao === 'cancelar-pagamento') { est.form = null; el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: null, drive: est.drive }); }
       else if (acao === 'editar-pagamento') {
         const li = b.closest('[data-mes]');
         const p = dados.pagamentos.find((x) => x.mes === li.dataset.mes && x.tipo === li.dataset.tipo);
@@ -488,5 +555,9 @@ export function montarAbaSalario({
     /** Lê um PDF de holerite (o mesmo fluxo do botão "Importar holerite"). */
     importarArquivo: async (arquivo) => { await pronto; if (dados) { rolarAteHolerite(); await importarArquivo(arquivo); } },
     rolarAteHolerite,
+    /** 05/10/2026: lê os holerites novos do Drive (o painel Documentos usa). */
+    lerHoleritesDrive: async (o) => { await pronto; return dados ? lerDoDrive(o || {}) : null; },
+    recarregarDrive: carregarDrive,
+    get drive() { return est.drive; },
   };
 }

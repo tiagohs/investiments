@@ -16,15 +16,15 @@
 // e shell.js); aqui a gente escuta, troca pra aba Lançamentos, filtra pelo
 // ativo e abre o gráfico (busca o histórico de preço via getHistoricoAtivo).
 
-import { getTransacoes, salvarAporte, excluirAporte, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
+import { getTransacoes, salvarAporte, excluirAporte, salvarCaixaDolar, excluirCaixaDolar, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { carrinhoValido } from './aportes-calc.js';
+import { CHAVE_CARRINHO, EVENTO_CARRINHO, EVENTO_ABRIR_CARRINHO } from '../carrinho-global.js';
 import { renderAportes, estadoInicialAportes } from './aportes.js';
 import { renderLancamentos, estadoInicialLancamentos, carregarSheetJs, abrirGraficoPara } from './lancamentos.js';
 
 const CHAVE_CACHE = 'transacoes';
-const CHAVE_CARRINHO = 'transacoes.carrinho.v1';
 const CHAVE_ABA = 'transacoes.aba.v1';
 const ABAS = [{ id: 'aportes', nome: 'Aportes' }, { id: 'lancamentos', nome: 'Lançamentos' }];
 
@@ -37,6 +37,7 @@ function gravarLocal(chave, valor) {
 
 function abaInicial(win) {
   const hash = String((win && win.location && win.location.hash) || '').replace('#', '');
+  if (hash === 'carrinho') return 'aportes'; // 05/10/2026: "Ir para Transações" do carrinho do header
   if (ABAS.some((a) => a.id === hash)) return hash;
   const salva = lerLocal(CHAVE_ABA);
   return ABAS.some((a) => a.id === salva) ? salva : 'aportes';
@@ -64,10 +65,11 @@ function topoHtml(estado, dados) {
 }
 
 /**
- * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, importarImpl, carregarXlsx, getHistoricoAtivoImpl }
+ * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, salvarCaixaDolarImpl, excluirCaixaDolarImpl, importarImpl, carregarXlsx, getHistoricoAtivoImpl }
  */
 export async function montarPaginaTransacoes(token, {
   doc = document, getTransacoesImpl = getTransacoes, salvarAporteImpl = salvarAporte, excluirAporteImpl = excluirAporte,
+  salvarCaixaDolarImpl = salvarCaixaDolar, excluirCaixaDolarImpl = excluirCaixaDolar,
   importarImpl = importarLancamentos, carregarXlsx = carregarSheetJs, getHistoricoAtivoImpl = getHistoricoAtivo,
 } = {}) {
   const loadingEl = doc.getElementById('transacoesLoading');
@@ -78,7 +80,15 @@ export async function montarPaginaTransacoes(token, {
   const estado = { aba: abaInicial(win), aportes: null, lancamentos: estadoInicialLancamentos() };
   let dados = null;
 
-  const salvarCarrinho = (c) => gravarLocal(CHAVE_CARRINHO, c);
+  // 05/10/2026: o carrinho guarda o dólar da hora (o header soma os itens em US$ com ele) e avisa o
+  // header de todas as telas (evento carrinho:mudou) pra atualizar o ícone/contagem.
+  const salvarCarrinho = (c) => {
+    const cambio = dados && dados.cambio > 0 ? { cambio: dados.cambio } : {};
+    gravarLocal(CHAVE_CARRINHO, { ...c, ...cambio });
+    if (win && typeof win.CustomEvent === 'function' && typeof win.dispatchEvent === 'function') {
+      win.dispatchEvent(new win.CustomEvent(EVENTO_CARRINHO, { detail: { origem: 'pagina' } }));
+    }
+  };
 
   function desenharTopo() {
     const topo = conteudo.querySelector('#txTopo');
@@ -95,6 +105,9 @@ export async function montarPaginaTransacoes(token, {
         doc, el: pA, dados, estado: estado.aportes, salvarCarrinho,
         salvarAporte: (aporte) => salvarAporteImpl(token, aporte),
         excluirAporte: (id) => excluirAporteImpl(token, id),
+        salvarCaixaDolar: (mov) => salvarCaixaDolarImpl(token, mov),
+        excluirCaixaDolar: (id) => excluirCaixaDolarImpl(token, id),
+        aoMudarCaixa: (caixa) => { dados.caixaDolar = caixa; gravarCacheDados(CHAVE_CACHE, dados); },
         aoMudarDados: (aportes) => { dados.aportes = aportes; gravarCacheDados(CHAVE_CACHE, dados); desenharTopo(); },
       });
     } else {
@@ -110,7 +123,10 @@ export async function montarPaginaTransacoes(token, {
 
   function desenhar(novos) {
     dados = novos;
-    if (!estado.aportes) estado.aportes = estadoInicialAportes(dados, carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje));
+    if (!estado.aportes) {
+      estado.aportes = estadoInicialAportes(dados, carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje));
+      if (String((win && win.location && win.location.hash) || '') === '#carrinho') estado.aportes.carrinhoAberto = true;
+    }
     loadingEl.hidden = true;
     conteudo.hidden = false;
     if (!conteudo.querySelector('#txTopo')) {
@@ -130,6 +146,22 @@ export async function montarPaginaTransacoes(token, {
         desenharPainel();
       });
       if (win && typeof win.addEventListener === 'function') {
+        // 05/10/2026: o header (carrinho em andamento) pode descartar o carrinho ("Não comprei"), pedir
+        // pra abrir ("Ir para Transações" estando aqui) ou mudar o carrinho em outra aba do navegador.
+        win.addEventListener(EVENTO_CARRINHO, (ev) => {
+          if (!dados || !estado.aportes || (ev.detail && ev.detail.origem === 'pagina')) return;
+          estado.aportes.carrinho = carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje);
+          if (estado.aba === 'aportes') desenharPainel();
+        });
+        win.addEventListener(EVENTO_ABRIR_CARRINHO, () => {
+          if (!dados || !estado.aportes) return;
+          estado.aba = 'aportes';
+          estado.aportes.carrinhoAberto = true;
+          desenharTopo();
+          desenharPainel();
+          const alvo = conteudo.querySelector('#txNovoAporte');
+          if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
         // 27/09/2026: "Ver gráfico do preço" do popover do mapa de compras (Aportes) - troca pra
         // Lançamentos já filtrado nesse ativo e abre o gráfico "Suas compras no preço".
         win.addEventListener('transacoes:verGrafico', (ev) => {

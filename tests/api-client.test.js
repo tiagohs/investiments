@@ -484,3 +484,34 @@ test('Gastos: GET (lançamentos, arquivos do Drive, um arquivo) e POST (importa�
   assert.equal(vistos[4].params.get('categoria'), 'compras');
   assert.equal(vistos[5].params.get('id'), 'f1');
 });
+
+// 05/10/2026: holerites no Drive (Salario.gs) - lista, baixa um PDF, salva o pagamento + registro do arquivo.
+import { getArquivosHolerites, getArquivoHolerite, salvarHoleriteDrive } from '../assets/js/api-client.js';
+
+test('Holerites do Drive: GET (lista, um PDF) e POST (pagamento + arquivo registrado, em JSON)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    vistos.push({ metodo: opts.method, params: opts.method === 'GET' ? new URL(url).searchParams : new URLSearchParams(opts.body) });
+    return jsonResponse({ ok: true });
+  });
+  await getArquivosHolerites('tk');
+  await getArquivoHolerite('tk', 'f1');
+  await salvarHoleriteDrive('tk', { mes: '2026-01', tipo: 'Mensal', liquido: 7000 }, { id: 'f1', nome: '01-2026.pdf' }, { usarComoBase: true });
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [['GET', 'holeritesArquivos'], ['GET', 'holeriteArquivo'], ['POST', 'salvarHoleriteDrive']]);
+  assert.equal(vistos[1].params.get('id'), 'f1');
+  assert.deepEqual(JSON.parse(vistos[2].params.get('arquivo')), { id: 'f1', nome: '01-2026.pdf' });
+  assert.equal(JSON.parse(vistos[2].params.get('pagamento')).mes, '2026-01');
+});
+
+// 05/10/2026: contexto de mercado das análises (Macro.gs).
+import { getMacro } from '../assets/js/api-client.js';
+
+test('Macro: getMacro (GET action=macro; "atualizar" ignora o cache de 6h)', async (t) => {
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url) => { vistos.push(new URL(url).searchParams); return jsonResponse({ ok: true, macro: {} }); });
+  await getMacro('tk');
+  await getMacro('tk', { atualizar: true });
+  assert.equal(vistos[0].get('action'), 'macro');
+  assert.equal(vistos[0].get('atualizar'), null);
+  assert.equal(vistos[1].get('atualizar'), '1');
+});

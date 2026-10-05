@@ -662,7 +662,7 @@ function ativosParaMetas_(ss) {
     };
     if (a.classe === 'rf' && irPorChave) {
       var chaveIr = String(a.nome || a.tipoInvestimento || a.ticker || '').trim().toUpperCase() + '|' + String(a.instituicao || '').trim().toUpperCase();
-      item.irResgate = irResgateDoAtivo_(irPorChave[chaveIr], item.valorBRL);
+      item.irResgate = irResgateDoAtivo_(irPorChave[chaveIr], item.valorBRL, a.vencimento);
     }
     out.push(item);
   });
@@ -683,7 +683,7 @@ function aliquotaIofMetas_(dias) {
  * (resgate antes de 30 dias) incide primeiro; o IR é sobre o rendimento
  * menos o IOF - por isso o IR é refeito aqui lote a lote. LCI/LCA: isentas.
  */
-function irResgateDoAtivo_(pos, valorAtivo) {
+function irResgateDoAtivo_(pos, valorAtivo, vencimentoTexto) {
   if (!pos) return { ir: 0, iof: 0, liquido: valorAtivo, isento: null, precisao: 'sem-dados' };
   var ir = 0, iof = 0;
   if (!pos.isento) {
@@ -699,7 +699,53 @@ function irResgateDoAtivo_(pos, valorAtivo) {
   var fator = totalPos > 0 ? Math.min(1, valorAtivo / totalPos) : 1;
   ir = Math.round(ir * fator * 100) / 100;
   iof = Math.round(iof * fator * 100) / 100;
-  return { ir: ir, iof: iof, liquido: Math.round((valorAtivo - ir - iof) * 100) / 100, isento: !!pos.isento, precisao: pos.precisao || null };
+  var saida = { ir: ir, iof: iof, liquido: Math.round((valorAtivo - ir - iof) * 100) / 100, isento: !!pos.isento, precisao: pos.precisao || null };
+  var venc = irNoVencimentoMetas_(pos, vencimentoTexto, valorAtivo, fator, new Date());
+  if (venc) saida.vencimento = venc;
+  return saida;
+}
+
+/** Alíquota regressiva do IR (Lei 11.033/2004) pelos dias corridos de aplicação. */
+function aliquotaIrDiasMetas_(dias) {
+  if (dias <= 180) return 0.225;
+  if (dias <= 360) return 0.20;
+  if (dias <= 720) return 0.175;
+  return 0.15;
+}
+
+/**
+ * 05/10/2026 (Tiago: "no vencimento o IR é pago obrigatoriamente"): dados pro
+ * front projetar o IR no dia do vencimento (vencimento "MM/yyyy" - sem dia,
+ * considera o dia 15). Cada lote é aplicado há `diasCorridos` + os dias até
+ * vencer: a alíquota efetiva é a média das alíquotas dos lotes ponderada pelo
+ * rendimento. `principal` = o que foi investido (valor atual - rendimento);
+ * o front projeta o valor bruto no vencimento e cobra a alíquota sobre o que
+ * passar do principal. Sem vencimento válido/já vencido: null.
+ */
+function irNoVencimentoMetas_(pos, vencimentoTexto, valorAtivo, fator, hoje) {
+  var m = String(vencimentoTexto || '').match(/^(\d{2})\/(\d{4})$/);
+  if (!m || !pos) return null;
+  var dt = new Date(Number(m[2]), Number(m[1]) - 1, 15);
+  var dias = Math.floor((dt.getTime() - hoje.getTime()) / 86400000);
+  if (!(dias >= 0)) return null;
+  var mes = m[2] + '-' + m[1];
+  if (pos.isento) return { mes: mes, dias: dias, aliquota: 0, principal: Math.round(valorAtivo * 100) / 100 };
+  var lotes = pos.detalhes || [];
+  var somaRend = 0, somaPonderada = 0, maisAntigo = 0;
+  lotes.forEach(function (l) {
+    var rend = Number(l.rendimento) || 0;
+    var d = (Number(l.diasCorridos) || 0) + dias;
+    somaRend += rend;
+    somaPonderada += rend * aliquotaIrDiasMetas_(d);
+    if (d > maisAntigo) maisAntigo = d;
+  });
+  var aliquota = somaRend > 0 ? somaPonderada / somaRend : (lotes.length ? aliquotaIrDiasMetas_(maisAntigo) : null);
+  var rendAtual = somaRend * fator;
+  return {
+    mes: mes, dias: dias,
+    aliquota: aliquota == null ? null : Math.round(aliquota * 10000) / 10000,
+    principal: aliquota == null ? null : Math.round((valorAtivo - rendAtual) * 100) / 100
+  };
 }
 
 /**

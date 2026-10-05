@@ -86,7 +86,7 @@ export function graficoHistorico(linhas, { largura = 720, altura = 300 } = {}) {
   });
   linhas.forEach((l, k) => { s += `<rect class="pt-hit" data-i="${k}" tabindex="0" x="${f1(mg.l + bw * k)}" y="${mg.t}" width="${f1(bw)}" height="${H - mg.t - mg.b}"><title>${esc(`${l.rotulo}: líquido ${mil(l.liquido)}`)}</title></rect>`; });
   const dicas = linhas.map((l) => `<b class="pt-tt-t">${esc(l.hoje ? 'Hoje' : `31/12/${l.ano}`)}${l.fonte === 's' ? ' <small>(site)</small>' : ''}</b>
-    ${linhaTt('Investimentos e contas', brl0(l.investimentos))}${l.imovel ? linhaTt('Apartamento', brl0(l.imovel)) : ''}${l.fgts ? linhaTt('FGTS', brl0(l.fgts)) : ''}
+    ${linhaTt('Investimentos e contas', brl0(l.investimentos))}${l.imovel ? linhaTt('Apartamento', brl0(l.imovel)) : ''}${l.fgts ? linhaTt('FGTS', brl0(l.fgts)) : ''}${l.fgtsNoApe > 0 ? linhaTt('FGTS → amortização do apê', brl0(l.fgtsNoApe)) : ''}
     ${l.financiamento ? linhaTt('Financiamento', `−${brl0(l.financiamento)}`) : ''}${l.fies ? linhaTt('FIES', `−${brl0(l.fies)}`) : ''}${l.outrasDividas ? linhaTt('Outras dívidas', `−${brl0(l.outrasDividas)}`) : ''}
     ${linhaTt('Líquido', brl0(l.liquido), 'pt-tt-total')}${num(l.noAno) ? linhaTt('No ano', `${l.noAno >= 0 ? '+' : '−'}${brl0(Math.abs(l.noAno))}`) : ''}`);
   const svg = `<svg class="pt-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Patrimônio no fim de cada ano: ativos acima do zero, dívidas abaixo, e a linha do patrimônio líquido - de ${mil(linhas[0].liquido)} em ${linhas[0].rotulo} para ${mil(linhas[n - 1].liquido)} hoje`)}">${s}</svg>`;

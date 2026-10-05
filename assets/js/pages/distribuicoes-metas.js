@@ -160,13 +160,14 @@ import {
   salvarSplitInterno as salvarSplitInternoApi,
   getIntradia,
   getMetas,
+  getMacro,
 } from '../api-client.js';
 import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
-import { momentoHtml, momentoDoRadar, metasDaDistribuicao } from './momento-aporte.js';
+import { momentoHtml, momentoDoRadar, metasDaDistribuicao, carregarMacroMomento } from './momento-aporte.js';
 // 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
 import { svgIntradia, rotuloDiaIntradia } from './inicio-intradia.js';
 // 03/10/2026: Metas da carteira -> Metas e Objetivos (ver rodapeMetaObjetivosHtml).
@@ -1718,11 +1719,11 @@ const TABELAS_RADAR = [
  * meta" do momento; devolve { atualizarMomentos() } pra página redesenhar
  * quando elas chegarem (sem perder aba, ordem e filtro).
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null, obterMacro = () => null } = {}) {
   if (!container) return null;
   container.innerHTML = '';
   if (!radar) return null;
-  const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null });
+  const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null, macro: obterMacro() || null }); // 05/10/2026: + contexto de mercado
 
   wirePointerTooltipRadar_(doc, container);
 
@@ -2097,6 +2098,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarSplitInternoImpl = salvarSplitInternoApi,
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
+  getMacroImpl = getMacro, // 05/10/2026: contexto de mercado do momento do Radar (Macro.gs)
   raizSite,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
@@ -2164,6 +2166,16 @@ export async function montarPaginaDistribuicoesMetas(token, {
     return buscandoMetas;
   }
 
+  // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata) - só o momento do Radar usa; falhou = momento como antes
+  let macro = null;
+  let buscandoMacro = null;
+  function carregarMacro() {
+    if (buscandoMacro || !getMacroImpl) return buscandoMacro || Promise.resolve();
+    buscandoMacro = carregarMacroMomento(token, { getMacroImpl, aoChegar: (m) => { macro = m; if (radarApi) radarApi.atualizarMomentos(); } })
+      .catch(() => null).finally(() => { buscandoMacro = null; });
+    return buscandoMacro;
+  }
+
   function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
@@ -2190,6 +2202,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
     radarApi = renderRadarOportunidades(doc, radarContainer, resposta.radar, {
       metas: metasDaDistribuicao(resposta),
       obterMetasObjetivos: () => (metasObjetivos && metasObjetivos.ok ? metasObjetivos.metas : null),
+      obterMacro: () => macro,
       slotDistrib: splitInternoContainer,
       buscarIntradia: buscarIntradiaRadar,
       onSalvarItem: async (tabela, item) => {
@@ -2252,7 +2265,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   // 03/10/2026: "Atualizar dados" (e o timer de 5 min) também atualiza as metas - em paralelo, sem esperar.
   let metasProntas = null;
   await mountRefreshControl(doc, refreshControlEl, () => {
-    metasProntas = carregarMetasObjetivos();
+    metasProntas = Promise.all([carregarMetasObjetivos(), carregarMacro()]).then(() => {});
     return carregarERedesenhar();
   }).atualizar();
   return { metasProntas: metasProntas || Promise.resolve() };

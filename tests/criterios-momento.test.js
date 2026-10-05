@@ -33,7 +33,9 @@ test('momento RF: título marcado Renda Emergencial e reserva com falta 800 -> "
   assert.ok(m.sinais.some((s) => s.tom === 'bom' && s.texto === 'Faltam R$ 800,00 pra meta "Reserva de emergência"; investir R$ 800,00 aqui completa a meta'));
   assert.ok(!m.sinais.some((s) => /Reserva de emergência abaixo da meta/.test(s.texto)), 'sem repetir a mesma informação');
   const noCarrinho = momentoAporte(titulo, 'rendaFixa', null, '2026-10-03', { metasObjetivos: [reserva(800)], valorSugerido: 200 });
-  assert.match(noCarrinho.sinais[0].texto, /investir R\$ 200,00 aqui avança 1% \(de 96% para 97%\)/);
+  assert.ok(noCarrinho.sinais.some((x) => /investir R\$ 200,00 aqui avança 1% \(de 96% para 97%\)/.test(x.texto)));
+  // 05/10/2026: IPCA+ na reserva oscila (marcação a mercado) - o título "não combina" com a meta, mesmo com a reserva abaixo do ideal
+  assert.ok(m.sinais.some((x) => x.tom === 'ruim' && /Não combina com a meta "Reserva de emergência": IPCA\+ oscila/.test(x.texto)));
   const atingida = momentoAporte(titulo, 'rendaFixa', null, '2026-10-03', { metasObjetivos: [reserva(0)] });
   assert.ok(atingida.sinais.some((s) => s.tom === 'neutro' && /já atingida - prefira outra meta/.test(s.texto)));
   const longo = momentoAporte({ ...titulo, categoria: 'Longo prazo' }, 'rendaFixa', null, '2026-10-03', { metasObjetivos: [reserva(800)] });

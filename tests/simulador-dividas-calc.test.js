@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   novaDivida, nperPrice, custoEfetivo, aliquotaIr, novaCarteira, premissas, cdiNoMes, trNoMes, taxaPercentualCdi,
   extraNoMes, ordemAlvo, simular, parametrosPadrao, dividasDoContexto, veredito, ESTRATEGIAS_VIDEO, REFERENCIAS,
-  valorParaMatarParcelas, parcelasQueOValorMata, minimoParaMatar, opcoesMatarParcelas, projetarMarco, valorNaLinha, proximoMilhao,
+  valorParaMatarParcelas, parcelasQueOValorMata, prazoCaixaSac, minimoParaMatar, opcoesMatarParcelas, projetarMarco, valorNaLinha, proximoMilhao,
 } from '../assets/js/pages/simulador-dividas-calc.js';
 
 const perto = (a, b, tol = 0.01) => assert.ok(Math.abs(a - b) <= tol, `${a} != ${b} (±${tol})`);
@@ -63,7 +63,10 @@ test('reduzir prazo x reduzir parcela: prazo termina antes e paga menos juros; p
   const base = { id: 'x', sistema: 'SAC', saldo: 120000, taxaMensal: 0.01, amortizacao: 1000 };
   const prazo = rodar(base, 500, { extras: { 1: { valor: 20000, modo: 'prazo' } } });
   const parcela = rodar(base, 500, { extras: { 1: { valor: 20000, modo: 'parcela' } } });
-  assert.equal(prazo.linhas.length, 100); // 120 − 20 meses
+  // 05/10/2026: no SAC a Caixa mantém a prestação (amort. + juros) e recalcula o prazo - cai mais que extra ÷ A
+  assert.equal(prazo.linhas.length, 1 + prazoCaixaSac(119000, 119, 0.01, 99000));
+  assert.ok(prazo.linhas.length < 100 && prazo.linhas.length > 70);
+  assert.ok(prazo.linhas[1].pagamento <= prazo.linhas[0].pagamento + 1e-6, 'a prestação seguinte não passa da anterior');
   assert.equal(parcela.linhas.length, 120);
   assert.ok(prazo.div.st.juros < parcela.div.st.juros);
   assert.ok(parcela.linhas[1].pagamento < prazo.linhas[1].pagamento);
@@ -203,12 +206,11 @@ test('parâmetros padrão a partir do contexto do patrimônio (dados inventados)
   };
   const p = parametrosPadrao(ctx);
   // 03/10/2026: o padrão é o mínimo que tira 2 parcelas por mês do apê (a mais cara):
-  // 2 × a amortização (R$ 1.000) corrigida pela TR do mês que vem, arredondado pra cima de 10 em 10
-  const tr1 = trNoMes(1, premissas(p.taxas));
-  perto(p.valorMinimo.exato, 2 * 1000 * (1 + tr1));
+  // 05/10/2026: pela regra da Caixa (menor prazo em que a prestação não sobe), bem menos que 2 × a amortização (R$ 1.000),
+  // arredondado pra cima de 10 em 10
+  assert.ok(p.valorMinimo.exato > 400 && p.valorMinimo.exato < 1000, `${p.valorMinimo.exato}`);
   assert.equal(p.valorMinimo.id, 'financiamento');
-  assert.equal(p.valor, Math.ceil((2000 * (1 + tr1)) / 10) * 10);
-  assert.equal(p.valor, 2010);
+  assert.equal(p.valor, Math.ceil(p.valorMinimo.exato / 10) * 10);
   assert.equal(p.valorSalario, 800); // a regra antiga (10% do líquido) continua guardada
   assert.equal(p.patrimonioBase, 123456);
   assert.equal(p.taxas.cdi, 0.11);
@@ -238,28 +240,55 @@ test('estratégias do vídeo e referências com link', () => {
 // é sempre o mínimo para matar ao menos duas parcelas, se eu amortizar")
 // ---------------------------------------------------------------------------
 
-test('matar parcelas no SAC: k × a amortização (com a TR do mês) e o prazo cai exatamente k', () => {
-  const d = { id: 'f', sistema: 'SAC', saldo: 120000, taxaMensal: 0.01, amortizacao: 1000 };
-  const m2 = valorParaMatarParcelas(d, 2);
-  assert.equal(m2.exato, 2000);
-  assert.equal(m2.valor, 2000);
-  assert.equal(m2.restantes, 119); // a parcela do mês sai antes
-  assert.equal(valorParaMatarParcelas(d, 4).exato, 4000);
-  // com TR: a amortização é corrigida antes -> 2 × 1000 × 1,002 = 2.004 -> R$ 2.010 (pra cima, de 10 em 10)
+test('matar parcelas no SAC (regra da Caixa): o menor prazo em que a prestação não sobe', () => {
+  // números inventados com a mesma mecânica do app da Caixa: 240 parcelas, saldo 300 mil, 0,8% ao mês
+  const d = { id: 'f', sistema: 'SAC', saldo: 300000, taxaMensal: 0.008, amortizacao: 1250 };
+  const m2 = valorParaMatarParcelas(d, 2, { passo: 0 });
+  assert.equal(m2.restantes, 239); // a parcela do mês sai antes
+  // não é 2 × amortização (2.500): a prestação 'segura' o prazo menor com bem menos
+  assert.ok(m2.exato > 700 && m2.exato < 1000, `${m2.exato}`);
+  perto(m2.porParcela, m2.exato / 2, 0.01);
+  const roda = (v) => { const x = novaDivida(d); x.mes(1); x.extra(1, v, 'prazo'); return x; };
+  assert.equal(roda(m2.exato).restante(), 237);
+  assert.equal(roda(m2.exato - 1).restante(), 238, 'R$ 1 a menos só tira 1 parcela');
+  assert.ok(roda(m2.exato).parcelaAtual() <= novaDivida(d).parcelaAtual() + 1e-6);
+  // arredonda pra cima de 10 em 10
+  assert.equal(valorParaMatarParcelas(d, 2).valor, Math.ceil(m2.exato / 10) * 10);
+  // juros pro rata dos dias desde o vencimento saem do valor pago: 'valor × i × dias/30' (a Caixa: R$ 900 - R$ 3,55)
+  const x = novaDivida(d); x.mes(1);
+  const s0 = x.saldo;
+  x.extra(1, 1000, 'prazo', { dias: 15 });
+  perto(s0 - x.saldo, 1000 - 1000 * 0.008 * 15 / 30, 1e-6);
+  const c = valorParaMatarParcelas(d, 2, { passo: 0, dias: 15 });
+  assert.ok(c.exato > m2.exato);
+  const y = novaDivida(d); y.mes(1); y.extra(1, c.exato, 'prazo', { dias: 15 });
+  assert.equal(y.restante(), 237);
+  // com TR o saldo corrige antes (a regra não muda: só a escala)
   const comTr = { ...d, tr: true };
-  const t = valorParaMatarParcelas(comTr, 2, { trMensal: 0.002 });
-  perto(t.exato, 2004);
-  assert.equal(t.valor, 2010);
-  assert.equal(valorParaMatarParcelas(comTr, 2, { trMensal: 0.002, passo: 0 }).valor, 2004);
-  // confere no motor do simulador: depois da parcela normal, o extra tira 2 do fim
-  const div = novaDivida(comTr);
-  div.mes(1, 0.002);
-  assert.equal(div.restante(), 119);
-  div.extra(1, t.exato, 'prazo');
-  assert.equal(div.restante(), 117);
-  // o contrário
-  perto(parcelasQueOValorMata(d, 1500), 1.5, 1e-9);
-  perto(parcelasQueOValorMata(comTr, 3006, { trMensal: 0.002 }), 3, 1e-9);
+  const t = valorParaMatarParcelas(comTr, 2, { trMensal: 0.002, passo: 0 });
+  assert.ok(t.exato > m2.exato);
+  const z = novaDivida(comTr); z.mes(1, 0.002); z.extra(1, t.exato, 'prazo');
+  assert.equal(z.restante(), 237);
+  // o contrário: a fração de parcelas que o valor tira (contínua, 2 no mínimo exato)
+  perto(parcelasQueOValorMata(d, m2.exato), 2, 0.01);
+  assert.ok(parcelasQueOValorMata(d, 500) < 1.2 && parcelasQueOValorMata(d, 500) > 0.8);
+});
+
+test('regra da Caixa: duas amortizações vizinhas dão 2 e 1 parcelas (mesma mecânica do print real, números inventados)', () => {
+  // saldo 250 mil, 200 a pagar, 0,75% ao mês (juros diários = valor × 0,75% × 15/30)
+  const d = { id: 'f', sistema: 'SAC', saldo: 250000, taxaMensal: 0.0075, amortizacao: 250000 / 200 };
+  const prazoCom = (v) => { const x = novaDivida(d); x.extra(1, v, 'prazo', { dias: 15 }); return x; };
+  const a = prazoCom(1020);
+  assert.equal(a.restante(), 198);
+  perto(250000 - a.saldo, 1020 - 1020 * 0.0075 * 15 / 30, 1e-6);
+  assert.equal(prazoCom(980).restante(), 199);
+  // novo saldo e nova prestação (amort. + juros) saem de saldo/prazo + saldo × i, sem passar da atual
+  assert.ok(a.amortizacao + a.saldo * 0.0075 <= 250000 / 200 + 250000 * 0.0075);
+  perto(a.amortizacao, a.saldo / 198, 1e-6);
+  // pagar tudo = o saldo + os juros pro rata
+  const q = novaDivida(d); const pago = q.extra(1, 1e9, 'prazo', { dias: 15 });
+  perto(pago, 250000 * (1 + 0.0075 * 15 / 30), 1e-6);
+  assert.equal(q.ativa, false);
 });
 
 test('matar parcelas na Price (FIES): o valor presente das k últimas parcelas', () => {
@@ -292,7 +321,7 @@ test('mínimo da dívida-alvo e as opções 2, 3, 4 parcelas (simulação leve) 
   const p = { ...PARAMS, taxas: FIXAS };
   const min = minimoParaMatar(p, 2, 'cara');
   assert.equal(min.id, 'financiamento');
-  assert.equal(min.exato, 2 * DIVIDAS.financiamento.amortizacao);
+  assert.ok(min.exato > 0 && min.exato < 2 * DIVIDAS.financiamento.amortizacao, 'a regra da Caixa pede menos que 2 × A');
   assert.equal(minimoParaMatar(p, 2, 'fies').id, 'fies');
   const ops = opcoesMatarParcelas(p);
   assert.deepEqual(ops.map((o) => o.id), ['financiamento', 'fies']);

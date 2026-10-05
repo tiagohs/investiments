@@ -210,7 +210,7 @@ function montarBlocoGraficosHtml_() {
   `;
 }
 
-function desenhar(doc, dados) {
+function desenhar(doc, dados, { historicoPendente = false } = {}) {
   const conteudoEl = doc.getElementById('rendaFixaConteudo');
   conteudoEl.innerHTML = `
     <div class="area-header"><h2>Renda Fixa</h2><span class="hint">longo prazo + reserva de emergência</span></div>
@@ -309,7 +309,10 @@ function desenhar(doc, dados) {
       ],
     });
   } else {
-    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
+    // 05/10/2026: o histórico (getHome) vem DEPOIS da carteira - enquanto não chega, os gráficos mostram "Carregando"
+    const semHistoricoHtml = historicoPendente
+      ? '<p class="hint">Carregando os gráficos…</p>'
+      : '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
     ['rfRentabTotalChart', 'rfRentabLongoChart', 'rfRentabEmergChart', 'rfEvolucaoTotalChart', 'rfEvolucaoLongoChart', 'rfEvolucaoEmergChart']
       .forEach((id) => { doc.getElementById(id).innerHTML = semHistoricoHtml; });
   }
@@ -402,29 +405,67 @@ export async function montarPaginaCarteirasRendaFixa(token, { doc = document, ge
   // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
   // compartilhado de carteiras-router.js, uma vez só)
   const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_RENDA_FIXA), lerCacheDados('home')]);
+  let historicoNaTela = cacheHome && cacheHome.dados ? cacheHome.dados.historico || null : null;
+  let mostrando = null; // 04/10/2026: o que está na tela (cache ou resposta) - um erro não apaga
   if (cacheCarteira) {
-    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null });
+    mostrando = cacheCarteira;
+    desenhar(doc, { ...cacheCarteira.dados, historico: historicoNaTela }, { historicoPendente: !historicoNaTela });
     preencherVideos(doc.getElementById('rendaFixaVideos'));
     loadingEl.hidden = true;
     conteudoEl.hidden = false;
   }
 
+  // 05/10/2026 (Tiago: "Renda Fixa demora muito pra carregar"): a carteira desenha assim que o back-end
+  // responde - o histórico da Início (getHome, bem mais pesado) é pedido em paralelo mas NÃO segura o
+  // desenho: os gráficos mostram "Carregando" (ou o histórico guardado) e são refeitos quando ele chega.
+  const mesmoHistorico = (a, b) => a === b || (!!a && !!b && a.length === b.length
+    && JSON.stringify(a[a.length - 1]) === JSON.stringify(b[b.length - 1]) && JSON.stringify(a[0]) === JSON.stringify(b[0]));
+
   async function carregarERedesenhar() {
-    const [resposta, respostaHome] = await Promise.all([getCarteirasRendaFixaImpl(token), getHomeImpl(token)]);
+    const promessaHome = Promise.resolve()
+      .then(() => getHomeImpl(token))
+      .catch((err) => ({ ok: false, etapa: 'home', erro: String(err) }));
+    const resposta = await getCarteirasRendaFixaImpl(token);
     loadingEl.hidden = true;
 
     if (!resposta.ok) {
       erroEl.hidden = false;
-      erroEl.textContent = `Não deu pra carregar Renda Fixa agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
+      const motivo = `${resposta.etapa || '?'}: ${resposta.erro || 'erro desconhecido'}`;
+      // 04/10/2026 (Tiago: "preciso conseguir atingir a tela mesmo com o erro... se der pra lidar com cache, melhor"):
+      // com dados guardados, a tela continua e o erro vira um aviso discreto
+      if (mostrando) {
+        const quando = mostrando.ts ? new Date(mostrando.ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+        erroEl.textContent = `Mostrando os dados guardados${quando ? ` de ${quando}` : ''} - não deu pra atualizar agora (${motivo}).`;
+        erroEl.classList.add('carteiras-erro-aviso');
+        conteudoEl.hidden = false;
+      } else {
+        erroEl.textContent = `Não deu pra carregar Renda Fixa agora (${motivo}).`;
+      }
       return;
     }
+    erroEl.classList.remove('carteiras-erro-aviso');
+    mostrando = { ts: Date.now(), dados: resposta.carteira };
+    gravarCacheDados(CHAVE_CACHE_RENDA_FIXA, resposta.carteira);
 
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null };
-    desenhar(doc, dados);
+    // carteira nova na tela já (com o histórico que houver guardado, ou "Carregando os gráficos…")
+    desenhar(doc, { ...resposta.carteira, historico: historicoNaTela }, { historicoPendente: !historicoNaTela });
     preencherVideos(doc.getElementById('rendaFixaVideos'));
-    gravarCacheDados(CHAVE_CACHE_RENDA_FIXA, resposta.carteira);
+
+    const respostaHome = await promessaHome;
+    if (respostaHome.ok && respostaHome.historico) {
+      // só refaz a tela se o histórico mudou em relação ao que já está desenhado
+      if (!mesmoHistorico(historicoNaTela, respostaHome.historico)) {
+        historicoNaTela = respostaHome.historico;
+        desenhar(doc, { ...resposta.carteira, historico: historicoNaTela });
+        preencherVideos(doc.getElementById('rendaFixaVideos'));
+      }
+    } else if (!historicoNaTela) {
+      // getHome falhou e não há histórico guardado: troca o "Carregando" pelo aviso
+      desenhar(doc, { ...resposta.carteira, historico: null });
+      preencherVideos(doc.getElementById('rendaFixaVideos'));
+    }
   }
 
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra

@@ -199,6 +199,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       // Favoritos.gs cria "Auxiliar_favoritos" no 1º salvamento).
       return {
         getLastRow: () => (fixtures[nome] ? fixtures[nome].lastRow : 0),
+        getMaxRows: () => (fixtures[nome] ? Math.max(1000, fixtures[nome].linhas.length) : 1000), // 05/10/2026 (Lancamentos.gs/Aportes.gs na prévia)
         getLastColumn: () => (fixtures[nome] ? Math.max(0, ...fixtures[nome].linhas.map((l) => (l || []).length)) : 0), // 24/09/2026 (Proventos.gs)
         clearContents() { if (fixtures[nome]) { fixtures[nome].linhas = []; fixtures[nome].lastRow = 0; } }, // 24/09/2026 (FnetProventos.gs)
         getRange(...args) {
@@ -214,6 +215,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     }
     return {
       getLastRow: () => dados.lastRow,
+      getMaxRows: () => Math.max(1000, dados.linhas.length), // 05/10/2026 (Lancamentos.gs/Aportes.gs na prévia)
       getLastColumn: () => Math.max(0, ...dados.linhas.map((l) => (l || []).length)), // 24/09/2026 (Proventos.gs)
       clearContents() { dados.linhas = []; dados.lastRow = 0; }, // 24/09/2026 (FnetProventos.gs)
       getRange(a, b, c, d) {
@@ -234,6 +236,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
             return out;
           },
           getValue() { const linhaReal = dados.linhas[row - 1] || []; return linhaReal[col - 1] ?? ''; },
+          setNumberFormat() { return this; }, // 05/10/2026: Gastos.gs/Salario.gs formatam colunas como texto (a prévia grava em memória)
           // 23/09/2026 #2: escrita em memória (só pra rodar backfills no
           // harness - nada é gravado em arquivo).
           setValues(valores) {

@@ -247,3 +247,91 @@ test('Simulações: herói (ritmo, primeiro milhão, viés, quitação) em cima 
   assert.notEqual(txt(doc.querySelector('#simulacoesHero .sm-vies')), antes);
   assert.equal(chamadas.patrimonio, 1);
 });
+
+// 05/10/2026 (Tiago, P3): "em Gastos e Despesas › Gastos, depois de importar e trocar de aba, a seção mostra o estado
+// vazio até dar reload". Reproduz o fluxo na página inteira: abre em Gastos (vazio), importa do Drive (servidor falso
+// com estado), troca de aba e volta, de novo e com "Atualizar dados".
+test('Gastos: depois de importar e trocar de aba (ida e volta) a seção continua com os gastos, sem precisar de reload', async () => {
+  const FATURA = [
+    'Esta é a sua fatura de', 'Data de vencimento: 10 MAR 2025', 'FATURA 10 MAR 2025', 'Total a pagar  R$ 190,00',
+    'Fatura anterior  R$ 0,00', 'Total de compras de todos os cartões, 01 FEV a 01 MAR  R$ 190,00',
+    'TRANSAÇÕES  DE 01 FEV A 01 MAR', '03 FEV  Mercado Exemplo  R$ 150,00', '10 FEV  NETFLIX.COM  R$ 40,00',
+  ];
+  const servidor = { lancamentos: [], arquivos: [], salvos: 0 };
+  const api = {
+    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: JSON.parse(JSON.stringify(servidor.arquivos)), regras: [] }),
+    getArquivosGastos: async () => ({ ok: true, configurado: true, arquivos: [{ id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', importado: servidor.arquivos.some((x) => x.id === 'd1') }] }),
+    getArquivoGastos: async (id) => ({ ok: true, id, base64: Buffer.from('%PDF-falso').toString('base64'), modificado: '2025-03-02T00:00:00.000Z' }),
+    salvarImportacaoGastos: async (arquivo, lancs) => {
+      servidor.salvos += 1;
+      servidor.lancamentos.push(...lancs.map((l) => ({ ...l, arquivo: arquivo.id })));
+      servidor.arquivos.push({ id: arquivo.id, nome: arquivo.nome, fonte: arquivo.fonte, meses: arquivo.meses, conferencia: arquivo.conferencia });
+      return { ok: true, gravados: lancs.length };
+    },
+    salvarRegraGastos: async () => ({ ok: true }), excluirArquivoGastos: async () => ({ ok: true }),
+  };
+  const { w, doc, pagina } = await montar('#despesas', { gastosOpcoes: { api, storage: null, carregarPdf: async () => ({}), lerPdf: async () => FATURA } });
+  await esperar(40);
+  assert.match(txt(doc.querySelector('#gsHero')), /Seus gastos aparecem aqui/);
+  await pagina.gastos.importarNovos();
+  await esperar(40);
+  assert.equal(servidor.salvos, 1);
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/, 'depois de importar aparece o gasto');
+  // troca de aba e volta (Renda, Simulações, Patrimônio, de novo Gastos)
+  for (const aba of ['renda', 'simulacoes', 'patrimonio', 'despesas']) { clique(w, doc.querySelector(`[data-aba="${aba}"]`)); await esperar(40); }
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/, 'ao voltar pra aba, os gastos continuam na tela');
+  assert.equal(doc.querySelector('#gsCorpo').hidden, false);
+  // e depois de "Atualizar dados" / recarregar
+  await pagina.gastos.recarregar();
+  await esperar(20);
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/);
+  assert.ok(pagina.carregadores.gastos.valor.lancamentos.length >= 2, 'a resposta compartilhada (painel Documentos) também está atualizada');
+});
+
+test('Gastos: se a releitura falhar depois de importar, o que entrou fica na tela (com aviso e nova tentativa) e uma resposta velha não apaga a tela', async () => {
+  const CSV = 'date,title,amount\n2025-08-03,Mercado Teste,150.00\n2025-08-10,Streaming Teste,40.00\n';
+  const servidor = { lancamentos: [], arquivos: [], falhar: false, fila: null };
+  const api = {
+    getGastos: async () => {
+      if (servidor.fila) return servidor.fila.shift()();
+      if (servidor.falhar) return { ok: false, etapa: 'network', erro: 'TypeError: Failed to fetch' };
+      return { ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: JSON.parse(JSON.stringify(servidor.arquivos)), regras: [] };
+    },
+    getArquivosGastos: async () => ({ ok: true, configurado: false, arquivos: [] }),
+    getArquivoGastos: async () => ({ ok: false, erro: 'teste' }),
+    salvarImportacaoGastos: async (arquivo, lancs) => {
+      servidor.lancamentos.push(...lancs.map((l) => ({ ...l, arquivo: arquivo.id })));
+      servidor.arquivos.push({ id: arquivo.id, nome: arquivo.nome, fonte: arquivo.fonte, meses: arquivo.meses });
+      if (servidor.falharDepois) servidor.falhar = true; // a releitura que vem logo depois de salvar falha (rede)
+      return { ok: true, gravados: lancs.length };
+    },
+    salvarRegraGastos: async () => ({ ok: true }), excluirArquivoGastos: async () => ({ ok: true }),
+  };
+  const { w, doc, pagina } = await montar('#despesas', { gastosOpcoes: { api, storage: null } });
+  await esperar(30);
+  assert.match(txt(doc.querySelector('#gsHero')), /Seus gastos aparecem aqui/);
+  assert.ok(doc.querySelector('#gsHero [data-acao="recarregar"]'), 'o vazio também oferece recarregar da planilha');
+  servidor.falharDepois = true;
+  await pagina.gastos.lerArquivos([new w.File([CSV], 'cartao_2025-09-10.csv', { type: 'text/csv' })]);
+  await esperar(40);
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/, 'o que acabou de entrar aparece mesmo com a releitura falhando');
+  assert.match(txt(doc.querySelector('#gsPainel')), /ainda não consegui confirmar com a planilha/);
+  // troca de aba e volta: a releitura é refeita (agora a rede voltou) e o aviso some
+  servidor.falhar = false;
+  for (const aba of ['renda', 'despesas']) { clique(w, doc.querySelector(`[data-aba="${aba}"]`)); await esperar(40); }
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/);
+  assert.doesNotMatch(txt(doc.querySelector('#gsPainel')), /ainda não consegui confirmar/);
+  // respostas fora de ordem: a mais velha (vazia) chega depois da nova e não apaga a tela
+  let soltarVelha;
+  const velha = new Promise((r) => { soltarVelha = r; });
+  const dadosCertos = { ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: JSON.parse(JSON.stringify(servidor.arquivos)), regras: [] };
+  servidor.fila = [() => velha, async () => dadosCertos];
+  const p1 = pagina.gastos.recarregar();
+  const p2 = pagina.gastos.recarregar();
+  await p2;
+  soltarVelha({ ok: true, lancamentos: [], arquivos: [], regras: [] });
+  await p1;
+  await esperar(20);
+  assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/, 'resposta velha ignorada');
+  servidor.fila = null;
+});

@@ -81,6 +81,9 @@ function doGet(e) {
   if (action === 'fundamentos') { // 03/10/2026: fundamentos já guardados de um ticker (Fundamentos.gs)
     return handleFundamentos(e, auth);
   }
+  if (action === 'macro') { // 05/10/2026: contexto de mercado pras análises - juros, Tesouro, bolsa cara/barata (Macro.gs)
+    return handleMacro(e, auth);
+  }
   if (action === 'videos') { // 25/09/2026: vídeos do YouTube por ativo/carteira (Videos.gs)
     return handleVideos(e, auth);
   }
@@ -110,6 +113,12 @@ function doGet(e) {
   }
   if (action === 'patrimonioIrArquivo') {
     return handleIrArquivoPatrimonio(e, auth);
+  }
+  if (action === 'holeritesArquivos') { // 05/10/2026: holerites em Documentos/Trabalho/<EMPRESA>/Holerite no Drive (Salario.gs)
+    return handleHoleritesArquivos(e, auth);
+  }
+  if (action === 'holeriteArquivo') {
+    return handleHoleriteArquivo(e, auth);
   }
   if (action === 'gastos') { // 02/10/2026: Organização Financeira - Gastos (Gastos.gs)
     return handleGastos(e, auth);
@@ -153,6 +162,12 @@ function doPost(e) {
   if (action === 'excluirAporte') {
     return handleExcluirAporte(e);
   }
+  if (action === 'salvarCaixaDolar') { // 05/10/2026: tela Transações - caixa em dólar das Ações EUA (Aportes.gs)
+    return handleSalvarCaixaDolar(e);
+  }
+  if (action === 'excluirCaixaDolar') {
+    return handleExcluirCaixaDolar(e);
+  }
   if (action === 'importarLancamentos') { // 26/09/2026: tela Transações - extratos B3/IBKR (Lancamentos.gs)
     return handleImportarLancamentos(e);
   }
@@ -167,6 +182,9 @@ function doPost(e) {
   }
   if (action === 'excluirPagamentoSalario') {
     return handleExcluirPagamentoSalario(e);
+  }
+  if (action === 'salvarHoleriteDrive') { // 05/10/2026: importa 1 holerite lido do Drive + registra o arquivo (Salario.gs)
+    return handleSalvarHoleriteDrive(e);
   }
   if (action === 'salvarDespesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleSalvarDespesas(e);

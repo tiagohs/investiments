@@ -428,6 +428,17 @@ a.at-dia:hover .at-dia-gf, a.at-dia:focus-visible .at-dia-gf{ color:var(--accent
 .at-an-ponto.tom-bom .at-an-ico{ background:var(--good-soft); color:var(--good-ink); }
 .at-an-ponto.tom-atencao .at-an-ico{ background:var(--warn-soft); color:var(--warn-ink); }
 .at-an-ponto.tom-ruim .at-an-ico{ background:var(--bad-soft); color:var(--bad-ink); }
+/* 05/10/2026: "Para o seu aporte" (metas + preço médio + contexto) e chips do contexto de mercado */
+.at-an-voce{ display:flex; flex-wrap:wrap; align-items:baseline; gap:3px 8px; margin:0 0 10px; padding:9px 11px; border-radius:12px; background:var(--surface-3); font-size:12px; line-height:1.45; color:var(--ink-muted); }
+.at-an-voce-t{ flex-basis:100%; font-style:normal; font-size:10.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-faint); }
+.at-an-voce strong{ font-family:var(--display); font-size:13px; font-weight:600; color:var(--ink); }
+.at-an-voce.nivel-bom{ background:var(--good-soft); } .at-an-voce.nivel-bom strong{ color:var(--good-ink); }
+.at-an-voce.nivel-ruim{ background:var(--warn-soft); } .at-an-voce.nivel-ruim strong{ color:var(--warn-ink); }
+.at-an-macro{ display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin:12px 0 0; padding-top:10px; border-top:1px solid var(--border); }
+.at-an-macro-t{ font-size:10.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-faint); margin-right:3px; }
+.at-an-macro .at-an-chip{ align-items:center; }
+.at-an-macro .ctx-i{ margin-left:2px; }
+.at-an-macro .ctx-i[open]{ flex-basis:100%; }
 .at-an-aviso{ margin:10px 0 0; padding:8px 10px; border-radius:10px; background:var(--warn-soft); color:var(--warn-ink); font-size:11.5px; line-height:1.45; }
 .at-an-todos, .at-an-faltam{ margin-top:12px; border-top:1px solid var(--border); padding-top:10px; }
 .at-an-todos > summary, .at-an-faltam > summary{ cursor:pointer; font-size:12px; font-weight:700; color:var(--ink-muted); list-style:none; display:flex; align-items:center; gap:6px; }

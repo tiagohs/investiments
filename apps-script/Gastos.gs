@@ -55,12 +55,19 @@ var PROP_GASTOS_EXTRATOS_ = 'GASTOS_PASTA_EXTRATOS';
 
 function handleGastos(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  // 05/10/2026 (Tiago, P3: depois de importar, a seção Gastos aparecia vazia até dar reload): a gravação reescreve a aba
+  // inteira (limpa e escreve); uma leitura no meio disso voltava SEM lançamentos. A leitura espera a gravação terminar.
+  var trava = LockService.getScriptLock();
+  var travou = false;
+  try { trava.waitLock(8000); travou = true; } catch (eL) { /* lê mesmo assim */ }
   try {
     var r = lerGastos_(SpreadsheetApp.getActiveSpreadsheet());
     r.ok = true;
     return jsonOut(r);
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'gastos', erro: String(erro) });
+  } finally {
+    if (travou) { try { trava.releaseLock(); } catch (eR) { /* ok */ } }
   }
 }
 

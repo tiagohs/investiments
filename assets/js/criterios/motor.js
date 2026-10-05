@@ -25,7 +25,23 @@
  * Também exporta os sinais de carteira que o "momento de aporte" usa
  * (sinalPrecoMedio, sinaisDeMetas) - a mesma conta nas duas telas.
  * Testes: tests/criterios-motor.test.js.
+ *
+ * 05/10/2026 (Tiago: "reavalie as análises, veja se dá pra ser mais
+ * inteligente, considere agora as metas e a classificação de um ativo em
+ * alguma meta, considere o macroeconômico... a situação daquele ativo"):
+ *  - situação do ativo (grupo 'situacao', ENTRA na nota, peso 1,5-2 de ~60):
+ *    lucro por ação e dividendos por ação em 12 meses; "preço caiu com
+ *    fundamentos intactos" (oportunidade) x "caiu junto com os fundamentos";
+ *  - renda fixa x meta (sinaisRendaFixaMeta): título adequado à meta? reserva
+ *    abaixo do ideal, vencendo em < 12 meses, IPCA+ longo pra meta curta...;
+ *  - contexto de mercado (macro.js; grupo 'contexto', FORA da nota): juro real,
+ *    termômetro da bolsa, prêmio da NTN-B;
+ *  - `leitura` ("Para o seu aporte"): metas + preço médio + contexto, com teto
+ *    de peso e sem nunca passar por cima de fundamentos fracos/eliminatório.
  */
+
+import { avaliarAtivoParaMeta, mesesEntre as mesesEntreMeta } from '../pages/metas-calc.js';
+import { sinaisMacro, LIMITE_PONTOS_MACRO } from './macro.js';
 
 import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './base-acoes.js';
 import { CRITERIOS_FIIS, REGRAS_FIIS, SEGMENTOS_FII, segmentoDoFii, classeDoSegmento } from './base-fiis.js';
@@ -135,7 +151,9 @@ export const GRUPOS = Object.freeze({
   credito_fii: 'Crédito (CRIs)',
   gestao_fii: 'Gestão e custos',
   desempenho_carteira: 'Desempenho',
+  situacao: 'Situação do ativo',
   carteira: 'Sua carteira e metas',
+  contexto: 'Contexto de mercado',
 });
 
 // ---------------------------------------------------------------------------
@@ -485,6 +503,31 @@ function montarValores(e, info) {
   const vpT = varia12(hist.vpCota, (a, b) => (b > 0 ? a / b - 1 : null));
   if (vpT != null) derivado('vpCotaTendencia', vpT);
 
+  // 7) 05/10/2026: situação do ativo - o lucro por ação e o dividendo por ação,
+  // hoje x 12 meses atrás (só ações; FII já tem rendimento real e VP/cota)
+  if (!ehFii) {
+    // lucro por ação ≈ preço ÷ P/L: hoje contra o mês de 12 meses atrás (foto mensal do P/L + preço do fim daquele mês)
+    const plFotos = (hist.pl || []).filter((p) => num(p.valor) > 0 && /^\d{4}-\d{2}/.test(p.data || '')).sort((a, b) => (a.data < b.data ? -1 : 1));
+    const mesAlvo = somarMeses(mesDe(hoje), -12);
+    const foto = [...plFotos].reverse().find((p) => mesDe(p.data) <= mesAlvo && mesDe(p.data) >= somarMeses(mesAlvo, -2));
+    if (foto && pl > 0 && preco > 0 && serie.length) {
+      const mesFoto = mesDe(foto.data);
+      const [lo, hi] = limiteSanidade('pl', false);
+      const pAnt = valorEm(serie, `${mesFoto}-31`);
+      if (pAnt && mesDe(pAnt.data) === mesFoto && foto.valor >= lo && foto.valor <= hi) derivado('lpaTendencia', (preco / pl) / (pAnt.v / foto.valor) - 1, { mes: mesFoto });
+    }
+    // dividendo por ação: soma dos 12 meses fechados x os 12 anteriores (precisa de 24 meses de histórico)
+    const ult = somarMeses(mesDe(hoje), -1);
+    const primeiroProv = mesesComDado[0];
+    const soma12 = (fim) => {
+      const ms = Array.from({ length: 12 }, (_, i) => somarMeses(fim, -i));
+      return ms.every((m) => m >= primeiroProv) ? ms.reduce((t, m) => t + (porMes[m] ? porMes[m].rend : 0), 0) : null;
+    };
+    const d1 = primeiroProv ? soma12(ult) : null;
+    const d0 = primeiroProv ? soma12(somarMeses(ult, -12)) : null;
+    if (d1 != null && d0 > 0) derivado('dpaTendencia', d1 / d0 - 1);
+  }
+
   return { valores, origem, extras, avisos, moeda };
 }
 
@@ -565,6 +608,53 @@ function vazio(motivo) {
   return { nota: null, notaPorGrupo: {}, veredito: { nivel: 'sem-analise', rotulo: 'Sem análise', texto: motivo }, pontos: [], eliminatoriosAcionados: [], dadosFaltantes: [], avisos: [], cobertura: { avaliados: 0, total: 0, peso: 0 }, valores: {} };
 }
 
+// ---------------------------------------------------------------------------
+// 05/10/2026: situação do ativo (Tiago: "a situação daquele ativo") - pontos
+// que ENTRAM na nota (peso 1,5 a 2, perto de 3% do total de uma ação)
+// ---------------------------------------------------------------------------
+
+const pontoSituacao = (id, nome, tom, texto, peso, valor) => ({
+  criterioId: id, nome, grupo: 'situacao', tom, texto, valor: valor == null ? null : valor, valorTexto: valor == null ? '' : `${valor >= 0 ? '+' : '−'}${br(Math.abs(valor) * 100, 0)}%`,
+  faixa: '', regua: '', fonte: null, fontes: [], peso, eliminatorio: false, informativo: false, combinacao: true,
+});
+const pctAbs = (x) => `${br(Math.abs(x) * 100, 0)}%`;
+
+/**
+ * Lucro/dividendo em queda, "caiu com fundamentos intactos" (oportunidade) e
+ * "caiu junto com os fundamentos" (cuidado). Usa só valores já derivados.
+ */
+function pontosDeSituacao(valores, ehFii, temEliminatorio) {
+  const out = [];
+  const lpa = valores.lpaTendencia; const dpa = valores.dpaTendencia;
+  if (lpa != null) {
+    if (lpa >= 0.1) out.push(pontoSituacao('situacao_lpa', 'Lucro por ação (12 meses)', 'bom', `Lucro por ação cresceu cerca de ${pctAbs(lpa)} em 12 meses (estimado por preço ÷ P/L).`, 1.5, lpa));
+    else if (lpa <= -0.15) out.push(pontoSituacao('situacao_lpa', 'Lucro por ação (12 meses)', 'ruim', `Lucro por ação caiu cerca de ${pctAbs(lpa)} em 12 meses (estimado por preço ÷ P/L): o P/L de hoje pode esconder um lucro em queda.`, 1.5, lpa));
+    else if (lpa <= -0.05) out.push(pontoSituacao('situacao_lpa', 'Lucro por ação (12 meses)', 'atencao', `Lucro por ação recuou cerca de ${pctAbs(lpa)} em 12 meses (estimado por preço ÷ P/L).`, 1.5, lpa));
+  }
+  if (dpa != null) {
+    if (dpa >= 0.1) out.push(pontoSituacao('situacao_dpa', 'Dividendos por ação (12 meses)', 'bom', `Dividendos por ação ${pctAbs(dpa)} acima dos 12 meses anteriores.`, 1.5, dpa));
+    else if (dpa <= -0.15) out.push(pontoSituacao('situacao_dpa', 'Dividendos por ação (12 meses)', 'ruim', `Dividendos por ação ${pctAbs(dpa)} abaixo dos 12 meses anteriores: confira se o corte é pontual ou tendência.`, 1.5, dpa));
+    else if (dpa <= -0.05) out.push(pontoSituacao('situacao_dpa', 'Dividendos por ação (12 meses)', 'atencao', `Dividendos por ação ${pctAbs(dpa)} abaixo dos 12 meses anteriores.`, 1.5, dpa));
+  }
+  const queda = valores.drawdownAtual;
+  if (queda != null && queda <= -0.15) {
+    // fundamentos "intactos": nenhum sinal de piora nos que a gente mede e sem eliminatório
+    const sinaisPiora = ehFii
+      ? [valores.vpCotaTendencia != null && valores.vpCotaTendencia < -0.03, valores.cortesRendimento != null && valores.cortesRendimento >= 2, valores.vacanciaTendencia != null && valores.vacanciaTendencia > 0.02]
+      : [lpa != null && lpa < -0.05, dpa != null && dpa < -0.05];
+    const medidos = ehFii
+      ? [valores.vpCotaTendencia, valores.cortesRendimento, valores.vacanciaTendencia].some((x) => x != null)
+      : (lpa != null || dpa != null);
+    const piorou = sinaisPiora.some(Boolean);
+    const fraseQueda = `Preço ${pctAbs(queda)} abaixo da máxima de 12 meses`;
+    if (!temEliminatorio && medidos && !piorou) out.push(pontoSituacao('situacao_oportunidade', 'Queda de preço x fundamentos', 'bom', `${fraseQueda} com os fundamentos que medimos intactos (${ehFii ? 'VP por cota, rendimento e vacância' : 'lucro e dividendos'}): possível oportunidade.`, 2, queda));
+    else if (piorou) out.push(pontoSituacao('situacao_queda_justificada', 'Queda de preço x fundamentos', 'atencao', `${fraseQueda} e ${ehFii ? 'os fundamentos do fundo também pioraram' : 'o lucro ou os dividendos também caíram'}: o desconto pode ser justificado.`, 1.5, queda));
+  } else if (queda != null && queda > -0.03 && valores.posicao52s != null && valores.posicao52s >= 0.9 && lpa != null && lpa <= -0.05) {
+    out.push(pontoSituacao('situacao_esticado', 'Preço x lucro', 'atencao', `Preço perto da máxima de 52 semanas enquanto o lucro por ação cai (${pctAbs(lpa)}): o preço anda mais rápido que o lucro.`, 1, lpa));
+  }
+  return out;
+}
+
 /**
  * Análise de um ativo. `classe` = 'acoes' | 'fiis' | 'acoesEua' (renda fixa
  * só ganha os pontos de carteira/metas). Valores em fração (0.085 = 8,5%).
@@ -577,6 +667,7 @@ export function avaliarAtivo(entrada = {}) {
     const r = vazio('Sem critérios de análise para esta classe.');
     pontosCarteira.forEach((p) => { p.relevancia = Math.round(p.peso * (RELEVANCIA_TOM[p.tom] || 0.5) * 80) / 100; });
     r.pontos = pontosCarteira.sort((x, y) => y.relevancia - x.relevancia);
+    r.leitura = leituraParaVoce(r.pontos, { ehRf: e.classe === 'rendaFixa' });
     return r;
   }
   const { valores, extras, avisos, moeda, origem } = montarValores(e, info);
@@ -637,9 +728,10 @@ export function avaliarAtivo(entrada = {}) {
     criterioId: p.id, nome: p.nome, grupo: p.grupo || 'valuation', tom: p.tom, texto: p.texto, valor: null, valorTexto: '', faixa: '', regua: '',
     fonte: p.fonte || null, fontes: p.fonte ? [p.fonte] : [], peso: p.peso || 1, eliminatorio: false, informativo: false, combinacao: true,
   }));
+  pontosDeSituacao(valores, info.ehFii, ctx.eliminatorios().length > 0).forEach((p) => pontos.push(p));
   pontosCarteira.forEach((p) => pontos.push(p));
 
-  // nota (ponderada; informativos e carteira ficam de fora)
+  // nota (ponderada; informativos, carteira e contexto de mercado ficam de fora)
   const contam = pontos.filter((p) => !p.informativo && p.grupo !== 'carteira');
   const somar = (ps) => {
     const peso = ps.reduce((s, p) => s + p.peso, 0);
@@ -664,8 +756,9 @@ export function avaliarAtivo(entrada = {}) {
   const cobertura = { avaliados, total: lista.filter((c) => !c.informativo).length, peso: pesoAvaliado };
   const veredito = vereditoDe(nota, cobertura, eliminatoriosAcionados, pontos);
   dadosFaltantes.sort((a, b) => b.peso - a.peso);
+  const leitura = leituraParaVoce(pontos, { nota: veredito.nivel === 'insuficiente' ? null : nota, eliminatorios: eliminatoriosAcionados.length });
   return {
-    nota: veredito.nivel === 'insuficiente' ? null : nota, notaBruta: nota, notaPorGrupo, veredito, pontos, eliminatoriosAcionados, dadosFaltantes, avisos, cobertura,
+    leitura, nota: veredito.nivel === 'insuficiente' ? null : nota, notaBruta: nota, notaPorGrupo, veredito, pontos, eliminatoriosAcionados, dadosFaltantes, avisos, cobertura,
     valores, classeBase: info.classeBase, setor: info.setor, segmento: info.segmento, regua: info.rotuloRegua,
   };
 }
@@ -702,9 +795,10 @@ export function sinalPrecoMedio({ precoAtual, precoMedio, quantidade, moeda = 'B
   if (!(p > 0) || !(pm > 0) || !((num(quantidade) || 0) > 0)) return null;
   const v = p / pm - 1;
   const pct = `${br(Math.abs(v) * 100, 1)}%`;
-  if (Math.abs(v) < 0.005) return { tom: 'neutro', peso: 0, variacao: v, texto: `Preço ${dinheiro(p, moeda)} praticamente igual ao seu preço médio (${dinheiro(pm, moeda)})` };
-  if (v < 0) return { tom: 'bom', peso: v <= -0.1 + 1e-9 ? 1.5 : 1, variacao: v, texto: `Preço ${dinheiro(p, moeda)} abaixo do seu preço médio ${dinheiro(pm, moeda)} (−${pct}): aporte baixa seu custo médio` };
-  return { tom: 'neutro', peso: 0, variacao: v, texto: `Preço ${dinheiro(p, moeda)} acima do seu preço médio ${dinheiro(pm, moeda)} (+${pct}): aporte sobe um pouco seu custo médio` };
+  const ajuda = 'Compara o preço de hoje com o preço médio que você pagou: abaixo dele, um aporte baixa o seu custo médio (ponto a favor, peso 1 a 1,5); acima, é só neutro.';
+  if (Math.abs(v) < 0.005) return { tom: 'neutro', peso: 0, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} praticamente igual ao seu preço médio (${dinheiro(pm, moeda)})` };
+  if (v < 0) return { tom: 'bom', peso: v <= -0.1 + 1e-9 ? 1.5 : 1, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} abaixo do seu preço médio ${dinheiro(pm, moeda)} (−${pct}): aporte baixa seu custo médio` };
+  return { tom: 'neutro', peso: 0, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} acima do seu preço médio ${dinheiro(pm, moeda)} (+${pct}): aporte sobe um pouco seu custo médio` };
 }
 
 const CLASSE_META = { acoes: 'acoes', fiis: 'fiis', acoesEua: 'usa', rendaFixa: 'rf' };
@@ -739,6 +833,24 @@ function faltaDaMeta(m) {
 }
 
 const pctInt = (x) => `${br(x * 100, 0)}%`;
+
+/**
+ * 05/10/2026 (Tiago: "reserva no ideal: neutro e sugerir onde mais faz falta"):
+ * a meta ativa, que não seja `excluirId`, onde um aporte novo mais faz falta -
+ * atrasada/prazo vencido primeiro, depois a que está mais longe (% do alvo).
+ * { meta, nome, falta, status } ou null.
+ */
+export function outraMetaQueFazFalta(metas, excluirId = null) {
+  const candidatas = (metas || []).filter((m) => m && m.calc && m.id !== excluirId && m.status !== 'arquivada' && m.status !== 'pausada' && m.tipo !== 'rendaPassiva')
+    .map((m) => ({ m, falta: faltaDaMeta(m), alvo: num(m.calc.alvoBRL) }))
+    .filter((x) => x.falta != null && x.falta > 0.5 && x.alvo > 0 && x.m.calc.status !== 'concluida' && x.m.calc.status !== 'saldo-ideal');
+  if (!candidatas.length) return null;
+  const urgencia = (st) => (st === 'vencida' ? 0 : (st === 'atrasada' ? 1 : (st === 'abaixo' || st === 'ideal-bruto' ? 2 : 3)));
+  candidatas.sort((a, b) => urgencia(a.m.calc.status) - urgencia(b.m.calc.status) || (b.falta / b.alvo) - (a.falta / a.alvo));
+  const x = candidatas[0];
+  const rotulo = { vencida: 'prazo passou', atrasada: 'atrasada', abaixo: 'abaixo do ideal', 'ideal-bruto': 'abaixo do ideal' }[x.m.calc.status] || '';
+  return { meta: x.m, nome: String(x.m.nome || 'Meta').trim(), falta: x.falta, status: x.m.calc.status, rotulo };
+}
 
 /**
  * Metas (Metas e Objetivos) que este aporte ajuda (Tiago: "falta 800 pra
@@ -787,7 +899,10 @@ export function sinaisDeMetas({ classe, ticker = '', ref = '', marca = '', metas
     if (falta <= 0.5 || c.status === 'concluida' || c.status === 'saldo-ideal') {
       // 03/10/2026 (revisão): viagem/conta com parcelas ainda correndo - o que faltava JUNTAR está guardado, mas a meta não está concluída
       const soParcelas = c.status !== 'concluida' && num(c.parcelasCorrendo) > 0;
-      out.push({ tom: 'neutro', peso: 0, ordem: 4, tipo: 'atingida', metaId: m.id, metaNome: nome, texto: soParcelas ? `Meta "${nome}": o que faltava juntar já está guardado (só restam as parcelas) - prefira outra meta pro próximo aporte` : `Meta "${nome}" já atingida - prefira outra meta pro próximo aporte` });
+      // 05/10/2026: diz ONDE faz mais falta (a meta mais atrasada)
+      const outra = outraMetaQueFazFalta(metas, m.id);
+      const onde = outra ? ` (mais falta em "${outra.nome}"${outra.rotulo ? `, ${outra.rotulo}` : ''}: faltam ${dinheiro(outra.falta)})` : '';
+      out.push({ tom: 'neutro', peso: 0, ordem: 4, tipo: 'atingida', metaId: m.id, metaNome: nome, outraMeta: outra ? outra.nome : null, texto: soParcelas ? `Meta "${nome}": o que faltava juntar já está guardado (só restam as parcelas) - prefira outra meta pro próximo aporte${onde}` : `Meta "${nome}" já atingida - prefira outra meta pro próximo aporte${onde}` });
       return;
     }
     let paraCompletar = falta / vinc.fator;
@@ -806,7 +921,87 @@ export function sinaisDeMetas({ classe, ticker = '', ref = '', marca = '', metas
     out.push({ tom: 'bom', peso: 1, ordem: 1, tipo: 'avanca', metaId: m.id, metaNome: nome,
       texto: `Faltam ${dinheiro(falta)} pra meta "${nome}"; investir ${dinheiro(sugeridoBrl)} aqui avança ${br(avanca * 100, avanca < 0.01 ? 1 : 0)}% (de ${pctInt(ja)} para ${pctInt(Math.min(1, ja + avanca))})` });
   });
-  return out.sort((a, b) => a.ordem - b.ordem).slice(0, max).map(({ ordem, ...s }) => s);
+  return out.sort((a, b) => a.ordem - b.ordem).slice(0, max).map(({ ordem, ...s }) => ({ ...s, ajuda: AJUDA_META[s.tipo] || '' }));
+}
+
+/** 05/10/2026: a explicação de 1 linha de cada tipo de sinal de meta (o "i" do momento e da análise). */
+const AJUDA_META = {
+  completa: 'Compara o que falta pra meta (líquido de IR, na reserva) com o valor que você pensa aportar: se cobre o que falta, completa a meta. Vale 1,5 ponto no momento e 2,5 na leitura da análise.',
+  avanca: 'Mostra quanto do alvo da meta este aporte cobre. Vale 1 ponto no momento de aporte.',
+  conta: 'A meta ainda está longe e este ativo está ligado a ela: cada aporte aqui conta pra ela. Peso pequeno (0,5).',
+  renda: 'Estima quanto de renda mensal o aporte acrescenta, pelo DY do ativo, para a meta de renda passiva. Peso pequeno (0,5).',
+  atingida: 'Meta já cumprida (ou, na reserva, no saldo ideal líquido): aportar mais aqui não aproxima você de nada. Peso zero; o texto diz onde faz mais falta.',
+  'sem-renda': 'O ativo não pagou proventos nos últimos 12 meses, então não ajuda a meta de renda passiva.',
+};
+const AJUDA_RF_META = {
+  'rf-adequado': 'Lê o tipo do título (Selic, IPCA+, prefixado, CDI, LCI/LCA), o vencimento e a liquidez contra o prazo da meta. Reserva abaixo do ideal + título de liquidez diária e pouca oscilação = a favor.',
+  'rf-atencao': 'IPCA+ e prefixado oscilam com a marcação a mercado: resgatar antes do vencimento pode render menos. Em meta curta ou reserva, isso pesa contra; vencer depois da data da meta também.',
+  'rf-vencendo': 'Título vencendo em menos de 12 meses sai da reserva: ela só continua no ideal se você reaplicar o dinheiro (o IR é cobrado no vencimento).',
+};
+
+// ---------------------------------------------------------------------------
+// 05/10/2026: renda fixa x meta (Tiago: "Tesouro Selic 2032 é positivo investir
+// se a renda emergencial estiver abaixo do ideal")
+// ---------------------------------------------------------------------------
+
+const indexadorDoTitulo = (t) => {
+  const txt = `${t.titulo || ''} ${t.descricao || ''} ${t.indexador || ''}`.toUpperCase();
+  if (/SELIC/.test(txt)) return 'SELIC';
+  if (/IPCA/.test(txt)) return 'IPCA';
+  if (/PREFIXAD|\bPR[EÉ]\b/.test(txt)) return 'PRE';
+  if (/CDI|CDB/.test(txt)) return 'CDI';
+  return String(t.indexador || '').toUpperCase();
+};
+
+const vencimentoEmMeses = (venc, hoje) => {
+  const s = String(venc || '');
+  let m = s.match(/^(\d{2})\/(\d{4})/);
+  const mes = m ? `${m[2]}-${m[1]}` : ((m = s.match(/^(\d{4})-(\d{2})/)) ? `${m[1]}-${m[2]}` : null);
+  return mes && hoje ? mesesEntreMeta(String(hoje).slice(0, 7), mes) : null;
+};
+
+/**
+ * Metas de Metas e Objetivos às quais este TÍTULO está vinculado (pelo título,
+ * pela marca Renda Emergencial/longo prazo ou pela classe Renda Fixa) lidas
+ * como "este título combina com a meta?": o veredito de metas-calc
+ * (avaliarAtivoParaMeta: Selic na reserva = bom; IPCA+/prefixado na reserva ou
+ * vencendo depois da meta = atenção/ruim; LCI/LCA sem liquidez...), mais:
+ *  - na reserva, título que vence em menos de 12 meses (atenção: sai da reserva);
+ *  - reserva abaixo do ideal + título adequado = a favor (o pedido do Tiago).
+ * `titulo` = { titulo, descricao, indexador, vencimento ('aaaa-mm-dd' | 'mm/aaaa') }.
+ * Devolve [{ tom, texto, peso, metaId, metaNome, tipo: 'rf-adequado'|'rf-atencao'|'rf-vencendo' }].
+ */
+export function sinaisRendaFixaMeta({ titulo = {}, ref = '', marca = '', metas = null, hoje = '' } = {}) {
+  if (!Array.isArray(metas) || !metas.length) return [];
+  const nomeTitulo = String(titulo.titulo || '').replace(/\s+/g, ' ').trim();
+  const alvo = { classeMeta: 'rf', ticker: nomeTitulo, ref, marca };
+  const out = [];
+  metas.forEach((m) => {
+    if (!m || !m.calc || m.status === 'arquivada' || m.status === 'pausada' || m.tipo === 'rendaPassiva') return;
+    const vinc = vinculoDoAtivo(m, alvo);
+    if (!vinc || !(vinc.fator > 0)) return;
+    const nome = String(m.nome || 'Meta').trim();
+    const reserva = m.tipo === 'reservaEmergencia';
+    const falta = faltaDaMeta(m);
+    const incompleta = falta != null && falta > 0.5 && m.calc.status !== 'concluida' && m.calc.status !== 'saldo-ideal';
+    // sem saber o tipo (Selic/IPCA+/prefixado/CDI/LCI/LCA), não opina sobre o encaixe (metas-calc trata "não-pós" como prefixado)
+    const tipoConhecido = !!indexadorDoTitulo(titulo) || /\b(LCI|LCA)\b/i.test(`${nomeTitulo} ${titulo.descricao || ''}`);
+    const av = tipoConhecido ? avaliarAtivoParaMeta({ classe: 'rf', nome: nomeTitulo, descricao: titulo.descricao || '', indexador: titulo.indexador || '', vencimento: titulo.vencimento || null }, m, m.calc) : { veredito: null, motivo: '' };
+    const motivo = String(av.motivo || '').replace(/\.\s*$/, '');
+    if (!tipoConhecido) { /* só a checagem de vencimento abaixo */ }
+    else if (av.veredito === 'bom') {
+      if (incompleta) out.push({ tom: 'bom', peso: reserva ? 1 : 0.5, tipo: 'rf-adequado', metaId: m.id, metaNome: nome, texto: `Meta "${nome}" ${reserva ? 'abaixo do ideal' : 'ainda não completa'} e este título combina com ela: ${motivo}` });
+      else out.push({ tom: 'neutro', peso: 0, tipo: 'rf-adequado', metaId: m.id, metaNome: nome, texto: `Meta "${nome}": ${motivo}` });
+    } else if (av.veredito === 'atencao') out.push({ tom: 'ruim', peso: -0.5, tipo: 'rf-atencao', metaId: m.id, metaNome: nome, texto: `Atenção com a meta "${nome}": ${motivo}` });
+    else out.push({ tom: 'ruim', peso: -1.2, tipo: 'rf-atencao', metaId: m.id, metaNome: nome, texto: `Não combina com a meta "${nome}": ${motivo}` });
+    if (reserva) {
+      const n = vencimentoEmMeses(titulo.vencimento, hoje);
+      if (n != null && n >= 0 && n < 12) {
+        out.push({ tom: 'ruim', peso: -0.8, tipo: 'rf-vencendo', metaId: m.id, metaNome: nome, texto: `Atenção: este título da reserva "${nome}" vence em ${n <= 1 ? 'menos de 1 mês' : `${n} meses`} e sai dela; reaplique num Tesouro Selic com vencimento longo para a reserva não encolher` });
+      }
+    }
+  });
+  return out.sort((a, b) => Math.abs(b.peso) - Math.abs(a.peso)).map((x) => ({ ...x, ajuda: AJUDA_RF_META[x.tipo] || '' }));
 }
 
 /** Pontos de carteira/metas na análise (grupo 'carteira', fora da nota). */
@@ -815,8 +1010,61 @@ function pontosDeCarteira(e) {
   const cart = e.carteira || {};
   const out = [];
   const pm = sinalPrecoMedio({ precoAtual: ind.precoAtual, precoMedio: num(cart.precoMedio) != null ? cart.precoMedio : ind.precoMedio, quantidade: cart.quantidade, moeda: e.moeda === 'USD' ? 'USD' : 'BRL' });
-  if (pm) out.push({ criterioId: 'carteira_preco_medio', nome: 'Preço x seu preço médio', grupo: 'carteira', tom: pm.tom, texto: `${pm.texto}.`, valor: pm.variacao, valorTexto: `${pm.variacao >= 0 ? '+' : '−'}${br(Math.abs(pm.variacao) * 100, 1)}%`, faixa: 'abaixo do preço médio', regua: '', fonte: null, fontes: [], peso: pm.tom === 'bom' ? 1.5 : 0.5, eliminatorio: false, informativo: true });
+  if (pm) out.push({ criterioId: 'carteira_preco_medio', nome: 'Preço x seu preço médio', grupo: 'carteira', tom: pm.tom, texto: `${pm.texto}.`, valor: pm.variacao, valorTexto: `${pm.variacao >= 0 ? '+' : '−'}${br(Math.abs(pm.variacao) * 100, 1)}%`, faixa: 'abaixo do preço médio', regua: '', fonte: null, fontes: [], peso: pm.tom === 'bom' ? 1.5 : 0.5, eliminatorio: false, informativo: true, ajuda: pm.ajuda });
   sinaisDeMetas({ classe: e.classe, ticker: e.ticker, ref: e.ref, marca: e.marca, metas: e.metas, valorSugerido: e.valorSugerido, moeda: e.moeda, cambio: e.cambio, dy: e.indicadores && e.indicadores.dy, max: 3 })
-    .forEach((s) => out.push({ criterioId: `meta_${s.tipo}`, nome: `Meta: ${s.metaNome}`, grupo: 'carteira', tom: s.tom, texto: `${s.texto}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: s.tipo === 'completa' ? 2.5 : (s.tom === 'bom' ? 1.5 : 0.5), eliminatorio: false, informativo: true, metaId: s.metaId }));
+    .forEach((s) => out.push({ criterioId: `meta_${s.tipo}`, nome: `Meta: ${s.metaNome}`, grupo: 'carteira', tom: s.tom, texto: `${s.texto}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: s.tipo === 'completa' ? 2.5 : (s.tom === 'bom' ? 1.5 : 0.5), eliminatorio: false, informativo: true, metaId: s.metaId, ajuda: s.ajuda }));
+  if (e.classe === 'rendaFixa') {
+    sinaisRendaFixaMeta({ titulo: e.titulo || { titulo: e.ticker, indexador: e.indexador, vencimento: e.vencimento, descricao: e.descricaoRf }, ref: e.ref, marca: e.marca, metas: e.metas, hoje: e.hoje })
+      .forEach((s) => out.push({ criterioId: `meta_${s.tipo}`, nome: `Meta: ${s.metaNome}`, grupo: 'carteira', tom: s.tom, texto: `${s.texto}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: Math.abs(s.peso) >= 1 ? 2 : 1, eliminatorio: false, informativo: true, metaId: s.metaId, ajuda: s.ajuda }));
+  }
+  // contexto de mercado (macro.js): fora da nota, no máximo 2 linhas, cada uma com o "i"
+  if (e.macro) {
+    const ind0 = e.classe === 'rendaFixa' ? indexadorDoTitulo({ titulo: e.ticker, descricao: e.descricaoRf, indexador: e.indexador }) : '';
+    sinaisMacro(e.macro, e.classe, { indexador: ind0 }).forEach((s) => out.push({
+      criterioId: `macro_${s.id}`, nome: 'Contexto de mercado', grupo: 'contexto', tom: s.tom === 'ruim' ? 'atencao' : s.tom, texto: s.texto.replace(/^Contexto de mercado:\s*/, '').replace(/^./, (c) => c.toUpperCase()),
+      valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: Math.abs(s.peso), pesoFirmado: s.peso, eliminatorio: false, informativo: true, macro: true, ajuda: s.ajuda,
+    }));
+  }
   return out;
+}
+
+const SINAL_TOM = { bom: 1, neutro: 0, atencao: -1, ruim: -1 };
+
+/**
+ * "Para o seu aporte" - leitura que junta as metas, o preço x preço médio e o
+ * contexto de mercado SEM mexer na nota de fundamentos:
+ *  - metas: soma limitada a [-2, +2,5] (completar uma meta = +2,5);
+ *  - preço abaixo do seu médio: +0,5; contexto de mercado: no máximo ±0,5;
+ *  - nunca "a favor" com eliminatório ou nota < 55 (renda fixa não tem nota:
+ *    vale a meta); nota < 45 limita a "neutro" no máximo.
+ * { nivel: 'favoravel'|'neutro'|'cautela', rotulo, texto, pontos, favor[], contra[] } ou null.
+ */
+export function leituraParaVoce(pontos, { nota = null, eliminatorios = 0, ehRf = false } = {}) {
+  const metaPts = pontos.filter((p) => p.grupo === 'carteira' && p.metaId);
+  const macroPts = pontos.filter((p) => p.grupo === 'contexto');
+  const pm = pontos.find((p) => p.criterioId === 'carteira_preco_medio');
+  if (!metaPts.length && !(pm && pm.tom === 'bom')) return null; // só o contexto de mercado não vira leitura (ele já aparece em linhas próprias)
+  const firmado = (p) => (SINAL_TOM[p.tom] || 0) * Math.min(p.peso, 2.5);
+  const meta = Math.max(-2, Math.min(2.5, metaPts.reduce((t, p) => t + firmado(p), 0)));
+  const macro = Math.max(-LIMITE_PONTOS_MACRO, Math.min(LIMITE_PONTOS_MACRO, macroPts.reduce((t, p) => t + (p.pesoFirmado || 0), 0)));
+  const preco = pm && pm.tom === 'bom' ? 0.5 : 0;
+  const total = Math.round((meta + macro + preco) * 10) / 10;
+  const fraco = !ehRf && typeof nota === 'number' && nota < 55;
+  let nivel = 'neutro';
+  if (eliminatorios > 0) nivel = 'cautela';
+  else if (total >= 2 && !fraco && (ehRf || typeof nota === 'number')) nivel = 'favoravel';
+  else if (total <= -1) nivel = 'cautela';
+  const favor = []; const contra = [];
+  metaPts.forEach((p) => { (SINAL_TOM[p.tom] > 0 ? favor : (SINAL_TOM[p.tom] < 0 ? contra : [])).push(p.nome.replace(/^Meta: /, 'meta ')); });
+  if (preco) favor.push('preço abaixo do seu médio');
+  const liquidoMacro = macroPts.reduce((t, p) => t + (p.pesoFirmado || 0), 0); // soma dos sinais: só o saldo aparece no texto
+  if (liquidoMacro > 0.05) favor.push('contexto de mercado'); else if (liquidoMacro < -0.05) contra.push('contexto de mercado');
+  const uniq = (xs) => xs.filter((x, i) => xs.indexOf(x) === i);
+  const partes = [];
+  if (favor.length) partes.push(`A favor: ${uniq(favor).join(', ')}.`);
+  if (contra.length) partes.push(`Atenção: ${uniq(contra).join(', ')}.`);
+  if (eliminatorios > 0) partes.push('Há critério eliminatório nos fundamentos.');
+  else if (fraco && total >= 2) partes.push('Fundamentos abaixo do ideal: as metas sozinhas não bastam.');
+  if (!partes.length) partes.push('Metas e contexto sem sinal forte.');
+  return { nivel, rotulo: { favoravel: 'Bom momento para o seu aporte', neutro: 'Momento neutro', cautela: 'Melhor esperar' }[nivel], texto: partes.join(' '), pontos: total, favor: uniq(favor), contra: uniq(contra) };
 }

@@ -48,7 +48,7 @@ import { renderAnalise } from '../analise-grafico.js';
 import {
   TIPOS_META, CATEGORIAS_ACUMULO, MOEDAS, STATUS_META, EXPLICACOES, aparenciaMeta, calcularMeta, serieProjecao, resumoMetas,
   metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, rotuloMes, rotuloDuracao,
-  mesesEntre, mesDe, cotacao, somarMeses, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor,
+  mesesEntre, mesDe, cotacao, somarMeses, taxaMensal, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor, resumoMarcos, fraseMarcos, velocidadeEntreMarcos,
   analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal, SUGESTOES_INVESTIMENTO, chaveSugestaoInvestimento,
   avaliarVinculos, destinoPadrao, contaAposentadoria, calcularViagem, explicarStatus,
   migrarMetaViagem, entradaPadrao, normalizarUrl, acharPais, paisPorCodigo, sugestaoTaxaTuristica, ehLinkWanderlog,
@@ -238,7 +238,18 @@ export function cardMetaHtml(meta, c) {
   <span class="mt-card-pct"><b>${pct(c.percentual)}</b>${c.vinculos.length ? ` · ${c.vinculos.length} ${c.vinculos.length === 1 ? 'vínculo' : 'vínculos'}` : ''}</span>
   <span class="mt-card-linhas">${linhas.map(([r, v]) => `<span><em>${r}</em><b>${v}</b></span>`).join('')}</span>
   ${aporte}
+  ${linhaMarcoCard(c)}
 </button>`;
+}
+
+/** 05/10/2026: 1 linha curta no card da lista ("1º milhão em 2031"; reserva: próximo vencimento de título). */
+function linhaMarcoCard(c) {
+  if (c.vencimentos && c.vencimentos.proximo) {
+    const e = c.vencimentos.proximo;
+    return `<span class="mt-card-marco ${e.tom === 'atencao' ? 'atencao' : ''}">${e.tom === 'atencao' ? '⚠ ' : ''}${escHtml(e.titulos[0].nome)}${e.titulos.length > 1 ? ` e +${e.titulos.length - 1}` : ''} vence em ${rotuloMes(e.mes)}${e.tom === 'atencao' ? ' - reserva cai abaixo do mínimo' : ''}</span>`;
+  }
+  if (c.marcoProximo) return `<span class="mt-card-marco">${iconeNum('marco', 12)} ${escHtml(c.marcoProximo.rotulo)} em <b>${c.marcoProximo.ano}</b></span>`;
+  return '';
 }
 
 // ---------------------------------------------------------------------------
@@ -677,7 +688,8 @@ export async function montarPaginaMetas(token, {
 
   // ---------------- detalhe ----------------
   function horizonteProjecao(c) {
-    const fim = Math.max(c.mesesRestantes || 0, Number.isFinite(c.mesesEstimados) ? Math.ceil(c.mesesEstimados) : 0);
+    const venc = c.vencimentos && c.vencimentos.eventos.length ? Math.max(...c.vencimentos.eventos.map((e) => e.em + 3)) : 0; // 05/10/2026: até o último vencimento
+    const fim = Math.max(c.mesesRestantes || 0, Number.isFinite(c.mesesEstimados) ? Math.ceil(c.mesesEstimados) : 0, venc);
     return Math.min(720, Math.max(12, fim || 12));
   }
 
@@ -711,9 +723,10 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
       <div class="mt-analise" id="mtRendaAnalise"></div></section>`;
     }
 
-    if (c.alvoBRL != null && !(c.status === 'concluida' || c.status === 'saldo-ideal')) {
+    html += vencimentosHtml(meta, c);
+    if (c.alvoBRL != null && (!(c.status === 'concluida' || c.status === 'saldo-ideal') || (c.vencimentos && c.vencimentos.eventos.length))) {
       html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Evolução projetada${infoHtml(EXPLICACOES.projecao)}</h3>${tabsPeriodoHtml(PERIODOS_PROJ, estado.periodos.proj, 'Horizonte da projeção')}</div>
-      <div class="mt-legenda"><i class="ritmo"></i>no seu ritmo${c.aporteNecessario != null ? '<i class="necessaria"></i>necessária' : ''}<i class="alvo"></i>alvo${marcosRitmo.some((m) => !m.ja && m.mes) ? '<i class="marco"></i>marcos' : ''}</div>
+      <div class="mt-legenda"><i class="ritmo"></i>no seu ritmo${c.aporteNecessario != null ? '<i class="necessaria"></i>necessária' : ''}<i class="alvo"></i>alvo${marcosRitmo.some((m) => !m.ja && m.mes) ? '<i class="marco"></i>marcos' : ''}${c.vencimentos && c.vencimentos.eventos.length ? '<i class="venc"></i>vencimento de título' : ''}</div>
       <div class="mt-grafico-caixa" id="mtGrafico"></div>
       <p class="mt-nota">${c.taxa ? `Rendimento de ${pct(meta.rendimentoAnual || 0, 1)} ao ano (${pct(c.taxa, 2)} ao mês), aportes no fim de cada mês.` : 'Sem rendimento informado - só a soma dos aportes.'}${meta.tipo === 'reservaEmergencia' ? ' Parte do valor líquido de hoje.' : ''}</p>
       <div class="mt-analise" id="mtProjAnalise"></div></section>`;
@@ -777,9 +790,30 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     }).join('');
     return `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Quanto tempo leva${infoHtml(EXPLICACOES.velocidade)}</h3><span class="mt-fraco">${vel.origem === 'ritmo' ? `base: seu ritmo de ${r0(c.aporteAtual)}/mês` : 'base: o prazo da meta'}</span></div>
   <div class="mt-vels">${cards}</div>
-  <p class="mt-nota">Para chegar em ${rotuloDuracao(vel.cenarios[1].meses)} (75% do tempo), aporte ${r0(vel.cenarios[1].aporte)}/mês; em ${rotuloDuracao(vel.cenarios[2].meses)} (metade), ${r0(vel.cenarios[2].aporte)}/mês - com o mesmo rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.${base.aporte > 0 && vel.origem === 'ritmo' ? '' : ''}</p>
-  ${dicas.length ? `<h4 class="mt-grupo">Como acelerar</h4><ul class="mt-dicas-acel">${dicas.slice(0, 5).map((d) => `<li><span class="mt-dica-ico ${d.mesesAMenos > 0 ? 'bom' : ''}">${iconeNum(d.mesesAMenos > 0 ? 'foguete' : 'moeda', 14)}</span><span>${escHtml(d.texto)}</span></li>`).join('')}</ul>` : ''}
+  <p class="mt-nota">Para chegar em ${rotuloDuracao(vel.cenarios[1].meses)} (75% do tempo), aporte ${r0(vel.cenarios[1].aporte)}/mês; em ${rotuloDuracao(vel.cenarios[2].meses)} (metade), ${r0(vel.cenarios[2].aporte)}/mês - com o mesmo rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.</p>
+  ${vel.cenarios.some((x) => x.comIsso) ? `<ul class="mt-comisso">${vel.cenarios.filter((x) => x.comIsso).map((x) => `<li><b>${x.fracao === 1 ? (vel.origem === 'ritmo' ? 'No seu ritmo' : 'Até o prazo') : `Em ${Math.round(x.fracao * 100)}% do tempo`}:</b> ${escHtml(x.comIsso)}${x.velocidadeMarcos ? ` <span class="mt-fraco">${escHtml(x.velocidadeMarcos)}</span>` : ''}</li>`).join('')}</ul>` : ''}
+  ${dicas.length ? `<h4 class="mt-grupo">Como acelerar</h4><ul class="mt-dicas-acel">${dicas.slice(0, 5).map((d) => `<li><span class="mt-dica-ico ${d.mesesAMenos > 0 ? 'bom' : ''}">${iconeNum(d.mesesAMenos > 0 ? 'foguete' : 'moeda', 14)}</span><span>${escHtml(d.texto)}${d.comIsso ? `<small class="mt-comisso-dica">${escHtml(d.comIsso)}</small>` : ''}</span></li>`).join('')}</ul>` : ''}
 </section>`;
+  }
+
+  /** 05/10/2026: reserva com títulos de renda fixa que vencem (IR cobrado, dinheiro cai na conta). */
+  function vencimentosHtml(meta, c) {
+    const v = c.vencimentos;
+    if (meta.tipo !== 'reservaEmergencia' || !v || !v.eventos.length) return '';
+    const itens = v.eventos.map((e) => `<li class="mt-venc ${e.tom}">
+    <div class="mt-venc-cab"><span class="mt-venc-data">${iconeNum('marco', 14)} ${rotuloMes(e.mes)}<small>${e.em > 0 ? `daqui a ${rotuloDuracao(e.em)}` : 'este mês'}</small></span>
+      <span class="mt-status ${e.tom === 'atencao' ? 'warn' : 'good'}">${e.tom === 'atencao' ? 'Atenção' : 'Reserva segue acima do mínimo'}</span></div>
+    <p class="mt-venc-txt">${escHtml(e.texto)}</p>
+    <dl class="mt-venc-nums">
+      <div><dt>Entram na conta (líquido)</dt><dd class="mono">${formatMoeda(e.liquido, 'BRL', { casas: 0 })}</dd></div>
+      <div><dt>IR cobrado no vencimento</dt><dd class="mono">${formatMoeda(e.ir, 'BRL', { casas: 0 })}</dd></div>
+      <div><dt>Reserva sem reaplicar</dt><dd class="mono ${e.acimaMinimo === false ? 'mt-ruim' : ''}">${formatMoeda(e.reservaSemReaplicar, 'BRL', { casas: 0 })}</dd></div>
+      <div><dt>Reserva reaplicando</dt><dd class="mono ${e.acimaReaplicando === false ? 'mt-ruim' : ''}">${formatMoeda(e.reservaReaplicando, 'BRL', { casas: 0 })}</dd></div>
+      ${e.falta > 0 ? `<div><dt>Falta pro mínimo</dt><dd class="mono mt-ruim">${formatMoeda(e.falta, 'BRL', { casas: 0 })}</dd></div>` : ''}
+    </dl></li>`).join('');
+    return `<section class="mt-bloco" id="mtVencimentos"><div class="mt-bloco-cab"><h3>Títulos que vencem${infoHtml(EXPLICACOES.vencimentos)}</h3><span class="mt-fraco">mínimo ${v.minimo != null ? formatMoeda(v.minimo, 'BRL', { casas: 0 }) : '-'} (líquido)</span></div>
+  <ul class="mt-vencs">${itens}</ul>
+  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta: deixa de ser o título e de contar na reserva, até você reaplicar. Valores projetados com ${c.taxa ? `rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.` : 'rendimento zero (informe o rendimento em Editar)'}, sem novos aportes.</p></section>`;
   }
 
   function marcosHtml(meta, c, marcosRitmo) {
@@ -790,7 +824,9 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const rendaBase = c.aposentadoria ? c.aposentadoria.renda : (c.renda ? c.renda.alvo : null);
     return `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Marcos até o alvo${infoHtml(EXPLICACOES.marcos)}</h3>${!num(meta.especificos && meta.especificos.anoNascimento) && meta.tipo === 'aposentadoria' ? '<span class="mt-fraco">informe o ano de nascimento em Editar pra ver a idade</span>' : ''}</div>
   <div class="mt-tabela-rolagem"><table class="mt-tabela"><thead><tr><th scope="col">Marco</th><th scope="col">No seu ritmo (${r0(c.aporteAtual)}/mês)</th>${marcosNec.length ? `<th scope="col">No necessário (${r0(c.aporteNecessario)}/mês)</th>` : ''}</tr></thead><tbody>${linhas}</tbody></table></div>
-  ${cen.length ? `<h4 class="mt-grupo">E se a renda fosse menor?</h4><div class="mt-cenarios">${cen.map((x) => `<div class="mt-cen"><span class="mt-cen-tit">Renda ${Math.round(x.reducao * 100)}% menor${x.renda ? ` (${r0(x.renda)}/mês)` : ''}</span><b>${r0(x.montante)}</b><span>precisaria juntar · <span class="mt-bom">−${r0(x.economia)}</span></span>${x.aporteNecessario != null ? `<span>aporte até o prazo: <b>${r0(x.aporteNecessario)}</b>/mês</span>` : ''}${x.data ? `<span>no seu ritmo: <b>${rotuloMes(x.data)}</b>${x.mesesAMenos > 0 ? ` (${rotuloDuracao(x.mesesAMenos)} antes)` : ''}</span>` : ''}</div>`).join('')}</div>
+  ${fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>No seu ritmo (${r0(c.aporteAtual)}/mês).</b> ${escHtml(fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosRitmo) ? ` Velocidade: ${escHtml(velocidadeEntreMarcos(marcosRitmo))}` : ''}</p>` : ''}
+  ${marcosNec.length && fraseMarcos(marcosNec, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>Com o aporte necessário (${r0(c.aporteNecessario)}/mês).</b> ${escHtml(fraseMarcos(marcosNec, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosNec) ? ` Velocidade: ${escHtml(velocidadeEntreMarcos(marcosNec))}` : ''}</p>` : ''}
+  ${cen.length ? `<h4 class="mt-grupo">E se a renda fosse menor?</h4><div class="mt-cenarios">${cen.map((x) => `<div class="mt-cen"><span class="mt-cen-tit">Renda ${Math.round(x.reducao * 100)}% menor${x.renda ? ` (${r0(x.renda)}/mês)` : ''}</span><b>${r0(x.montante)}</b><span>precisaria juntar · <span class="mt-bom">−${r0(x.economia)}</span></span>${x.aporteNecessario != null ? `<span>aporte até o prazo: <b>${r0(x.aporteNecessario)}</b>/mês</span>` : ''}${x.data ? `<span>no seu ritmo: <b>${rotuloMes(x.data)}</b>${x.mesesAMenos > 0 ? ` (${rotuloDuracao(x.mesesAMenos)} antes)` : ''}</span>` : ''}${x.comIsso ? `<span class="mt-fraco">${escHtml(x.comIsso)}</span>` : ''}</div>`).join('')}</div>
   <p class="mt-nota">Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : (meta.especificos && meta.especificos.dyAnual) || 0, 1)}${rendaBase ? `, a partir da renda de ${r0(rendaBase)}/mês` : ''}.</p>` : ''}
 </section>`;
   }
@@ -923,11 +959,13 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     ligarTooltipGrafico(caixa, (i) => {
       const p = pontos[i];
       const m = marcos.find((x) => x.mes === p.mes && !x.ja);
+      const venc = c.vencimentos ? c.vencimentos.eventos.find((e) => e.mes === p.mes) : null;
       return `<div class="mt-tt-data">${rotuloMes(p.mes)}${i ? ` · daqui a ${rotuloDuracao(mesesEntre(mesDe(estado.ctx.hoje), p.mes))}` : ' (hoje)'}</div>
         <div class="mt-tt-item"><i class="ritmo"></i>No seu ritmo<b>${formatMoeda(p.ritmo)}</b></div>
         ${p.necessaria != null ? `<div class="mt-tt-item"><i class="necessaria"></i>Necessária<b>${formatMoeda(p.necessaria)}</b></div>` : ''}
         ${c.alvoBRL ? `<div class="mt-tt-item">% do alvo (ritmo)<b>${pct(p.ritmo / c.alvoBRL)}</b></div>` : ''}
-        ${m ? `<div class="mt-tt-marco">★ ${escHtml(m.rotulo)}${m.idade ? ` · ${m.idade} anos` : ''}</div>` : ''}`;
+        ${m ? `<div class="mt-tt-marco">★ ${escHtml(m.rotulo)}${m.idade ? ` · ${m.idade} anos` : ''}</div>` : ''}
+        ${venc ? `<div class="mt-tt-marco">⏳ vence ${escHtml(venc.titulos.map((t) => t.nome).join(' e '))}: entram ${formatMoeda(venc.liquido, 'BRL', { casas: 0 })} líquidos</div>` : ''}`;
     });
     const anal = doc.getElementById('mtProjAnalise');
     if (anal) renderAnalise(doc, anal, analisarProjecaoMeta(c, { pontos, marcos, hoje: estado.ctx.hoje }), { titulo: 'Análise da projeção' });
@@ -989,14 +1027,20 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
         const meses = mesesEntre(mesDe(estado.ctx.hoje), s.data);
         if (meses == null) return 'Escolha o mês.';
         const r = simular({ alvo: alvoBRL, atual: s.atual || 0, rendimentoAnual: s.rendimento, meses: Math.max(0, meses) });
-        if (r.aporte === 0) return `Com <b>${formatMoeda(s.atual || 0)}</b> já guardados e rendimento de ${pct(s.rendimento, 1)} a.a., você alcança ${alvoTxt} até ${rotuloMes(s.data)} <b>sem aportar mais nada</b>.`;
-        return `Para alcançar <b>${alvoTxt}</b> até <b>${rotuloMes(s.data)}</b> com rendimento de ${pct(s.rendimento, 1)} a.a., aporte <b class="mt-destaque">${formatMoeda(r.aporte)}</b> por mês${meses > 0 ? ` (${rotuloDuracao(meses)}; ${formatMoeda(r.totalAportado, 'BRL', { casas: 0 })} de aportes + ${formatMoeda(r.rendimento, 'BRL', { casas: 0 })} de rendimento)` : ''}.`;
+        const comIsso = fraseSim({ alvo: alvoBRL, atual: s.atual || 0, aporte: r.aporte || 0, rendimento: s.rendimento });
+        if (r.aporte === 0) return `Com <b>${formatMoeda(s.atual || 0)}</b> já guardados e rendimento de ${pct(s.rendimento, 1)} a.a., você alcança ${alvoTxt} até ${rotuloMes(s.data)} <b>sem aportar mais nada</b>.${comIsso}`;
+        return `Para alcançar <b>${alvoTxt}</b> até <b>${rotuloMes(s.data)}</b> com rendimento de ${pct(s.rendimento, 1)} a.a., aporte <b class="mt-destaque">${formatMoeda(r.aporte)}</b> por mês${meses > 0 ? ` (${rotuloDuracao(meses)}; ${formatMoeda(r.totalAportado, 'BRL', { casas: 0 })} de aportes + ${formatMoeda(r.rendimento, 'BRL', { casas: 0 })} de rendimento)` : ''}.${comIsso}`;
       }
       const r = simular({ alvo: alvoBRL, atual: s.atual || 0, rendimentoAnual: s.rendimento, aporte: s.aporte || 0 });
       if (r.mesesAteAlvo === 0) return `Você já tem o suficiente pra ${alvoTxt}.`;
       if (!Number.isFinite(r.mesesAteAlvo)) return `Aportando ${formatMoeda(s.aporte || 0)} por mês você não chega em ${alvoTxt} - aumente o aporte ou o rendimento.`;
       const quando = somarMeses(mesDe(estado.ctx.hoje), Math.ceil(r.mesesAteAlvo));
-      return `Aportando <b>${formatMoeda(s.aporte || 0)}</b> por mês a ${pct(s.rendimento, 1)} a.a., você chega em <b>${alvoTxt}</b> em <b class="mt-destaque">${rotuloMes(quando)}</b> (${rotuloDuracao(r.mesesAteAlvo)}).`;
+      return `Aportando <b>${formatMoeda(s.aporte || 0)}</b> por mês a ${pct(s.rendimento, 1)} a.a., você chega em <b>${alvoTxt}</b> em <b class="mt-destaque">${rotuloMes(quando)}</b> (${rotuloDuracao(r.mesesAteAlvo)}).${fraseSim({ alvo: alvoBRL, atual: s.atual || 0, aporte: s.aporte || 0, rendimento: s.rendimento })}`;
+    };
+    // 05/10/2026: "Com isso, sua meta de X chega em ..., o 1º milhão em ..." (só pra alvo em milhões)
+    const fraseSim = ({ alvo, atual, aporte, rendimento }) => {
+      const rm = resumoMarcos(c, { hoje: estado.ctx.hoje, alvo, atual, aporte, taxa: taxaMensal(rendimento || 0), entradas: null });
+      return rm.frase ? ` <span class="mt-comisso-sim">${escHtml(rm.frase)}${rm.velocidade ? ` <em>${escHtml(rm.velocidade)}</em>` : ''}</span>` : '';
     };
     caixa.innerHTML = `<div class="mt-bloco-cab"><h3>Simulador</h3></div>
 <div class="filter-tabs mt-sim-modo"><button type="button" class="filter-tab ${s.modo === 'data' ? 'active' : ''}" data-sim-modo="data">Até uma data</button><button type="button" class="filter-tab ${s.modo === 'aporte' ? 'active' : ''}" data-sim-modo="aporte">Com um aporte</button></div>

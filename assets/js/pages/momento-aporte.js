@@ -11,9 +11,10 @@
  * critérios (criterios/motor.js) - ver aportes-calc.js!momentoAporte.
  */
 import { momentoAporte, totalRanking } from './aportes-calc.js';
-import { getMetas } from '../api-client.js';
+import { getMetas, getMacro } from '../api-client.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { metasComCalculo } from '../metas-card.js';
+import { montarMacro, ajudaHtml } from '../criterios/macro.js';
 
 /**
  * Metas de Metas e Objetivos pro momento (lista com `calc`), 1 busca por tela.
@@ -38,6 +39,29 @@ export function carregarMetasMomento(token, { getMetasImpl = getMetas, aoChegar 
   })();
 }
 
+/**
+ * 05/10/2026: contexto de mercado (Macro.gs) pro momento - 1 busca por tela, com o cache 'macro'
+ * (6h no servidor). `aoChegar(macro)` roda com o cache e com a resposta nova; falhou = null (o momento
+ * fica sem esse sinal). tesouroExtra = taxas do Tesouro que a tela já tem (Aportes: dados.tesouro).
+ */
+export function carregarMacroMomento(token, { getMacroImpl = getMacro, aoChegar = () => {}, lerCache = lerCacheDados, gravarCache = gravarCacheDados, tesouroExtra = null } = {}) {
+  return (async () => {
+    let macro = null;
+    try {
+      const c = await lerCache('macro');
+      if (c && c.dados && c.dados.ok) { macro = montarMacro(c.dados, { tesouroExtra }); if (macro) aoChegar(macro); }
+    } catch (e) { /* sem cache */ }
+    let r = null;
+    try { r = getMacroImpl ? await getMacroImpl(token) : null; } catch (e) { r = null; }
+    if (r && r.ok) {
+      try { gravarCache('macro', r); } catch (e) { /* ok */ }
+      macro = montarMacro(r, { tesouroExtra }) || macro;
+      if (macro) aoChegar(macro);
+    }
+    return macro;
+  })();
+}
+
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ICONE_SINAL = {
@@ -48,7 +72,7 @@ const ICONE_SINAL = {
 const TOM_TEXTO = { bom: 'a favor', ruim: 'contra', neutro: 'neutro' };
 
 function sinalHtml(x) {
-  return `<li class="momento-sinal ${x.tom}"><span class="momento-ico" title="${TOM_TEXTO[x.tom]}">${ICONE_SINAL[x.tom]}</span><span class="momento-txt">${esc(x.texto)}</span></li>`;
+  return `<li class="momento-sinal ${x.tom}${x.macro ? ' macro' : ''}"><span class="momento-ico" title="${TOM_TEXTO[x.tom]}">${ICONE_SINAL[x.tom]}</span><span class="momento-txt">${esc(x.texto)}${ajudaHtml(x.ajuda)}</span></li>`;
 }
 
 /**
@@ -57,13 +81,16 @@ function sinalHtml(x) {
  */
 export function momentoHtml(m, { visiveis = 3 } = {}) {
   if (!m || !m.sinais || !m.sinais.length) return '';
-  const primeiros = m.sinais.slice(0, visiveis);
-  const resto = m.sinais.slice(visiveis);
+  // 05/10/2026: o contexto de mercado (sinal macro) sempre aparece - 1 linha - mesmo com muitos outros sinais
+  const normais = m.sinais.filter((x) => !x.macro);
+  const macros = m.sinais.filter((x) => x.macro);
+  const primeiros = [...normais.slice(0, visiveis), ...macros.slice(0, 1)];
+  const resto = [...normais.slice(visiveis), ...macros.slice(1)];
   const mais = resto.length ? `
       <li class="momento-mais-li"><details class="momento-mais"><summary title="Ver os outros ${resto.length} sinais">+${resto.length}<span class="momento-sr"> sinais</span></summary><ul class="momento-sinais">${resto.map(sinalHtml).join('')}</ul></details></li>` : '';
   return `
     <div class="momento nivel-${m.nivel}">
-      <span class="momento-selo" title="Leitura dos seus critérios (preço-teto, % desejado, preço médio, metas) e da análise de fundamentos. Não é recomendação."><i aria-hidden="true"></i>${esc(m.rotulo)}</span>
+      <span class="momento-selo" title="Leitura dos seus critérios (preço-teto, % desejado, preço médio, metas), da análise de fundamentos e do contexto de mercado (peso pequeno). Não é recomendação."><i aria-hidden="true"></i>${esc(m.rotulo)}</span>
       <ul class="momento-sinais">${primeiros.map(sinalHtml).join('')}${mais}</ul>
     </div>`;
 }
@@ -122,8 +149,8 @@ export function metasDaDistribuicao(resposta) {
  * Momento de um item do Radar (tabela = acoesNacionais | acoesInternacionais | fiis).
  * itensDoBloco = o bloco inteiro (sem filtro de tipo de FII), pro "ranking X de N".
  */
-export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null, { metasObjetivos = null, cambio = null } = {}) {
+export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null, { metasObjetivos = null, cambio = null, macro = null } = {}) {
   return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas, '', {
-    totalRanking: totalRanking(itensDoBloco || [item]), metasObjetivos, cambio,
+    totalRanking: totalRanking(itensDoBloco || [item]), metasObjetivos, cambio, macro,
   });
 }

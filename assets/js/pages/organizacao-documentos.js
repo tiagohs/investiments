@@ -21,10 +21,10 @@
  *
  * USO (organizacao.js):
  *   const painel = montarPainelDocumentos(raiz, { doc, aoAcao });
- *   painel.atualizar({ patrimonio, salario, gastos, gastosDrive, hoje });
+ *   painel.atualizar({ patrimonio, salario, gastos, gastosDrive, holeritesDrive, hoje });
  *   // cada fonte: a resposta da API, null (não veio) ou undefined (carregando)
  *   // aoAcao(acao, extra): 'ir-drive' | 'pdfs' (extra = arquivos) |
- *   //   'holerite' (extra = arquivo) | 'gastos-novos' | 'gastos' | 'ir-sem-drive'
+ *   //   'holerite' (extra = arquivo) | 'holerite-drive' | 'gastos-novos' | 'gastos' | 'ir-sem-drive'
  *
  * 03/10/2026 (Tiago: "sempre dê a opção de enviar algum doc manualmente
  * também"): TODO item tem "Enviar arquivo" (mesmo os que chegam do Drive),
@@ -175,7 +175,29 @@ export function documentoB3(hoje) {
  * A lista inteira. Cada fonte: resposta da API, null (não veio) ou
  * undefined (ainda carregando - o item mostra "verificando…").
  */
-export function documentosOrganizacao({ patrimonio, salario, gastos, gastosDrive, hoje } = {}) {
+/**
+ * 05/10/2026 (Tiago: holerites em Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>/MES-ANO.pdf no Drive): com a pasta
+ * achada, o holerite passa a "Drive · 1 clique" (lê só os novos); sem ela, continua manual - e o envio manual
+ * ("Enviar arquivo") fica nos dois casos. `holeritesDrive` = resposta de holeritesArquivos (undefined enquanto carrega).
+ */
+export function documentoHolerite(base, holeritesDrive) {
+  if (!base) return null;
+  const arquivos = holeritesDrive && Array.isArray(holeritesDrive.arquivos) ? holeritesDrive.arquivos : [];
+  if (!holeritesDrive || !holeritesDrive.ok || holeritesDrive.configurado === false) {
+    return { ...base, como: 'PDF do holerite, lido aqui no navegador (Renda e Orçamentos → Orçamento do salário). Pra vir sozinho: guarde em Documentos/Trabalho/<EMPRESA>/Holerite/<ANO>/MES-ANO.pdf no Drive e rode 1 vez configurarPastaHoleritesDireto no Apps Script', acao: { id: 'holerite', rotulo: 'Importar holerite' } };
+  }
+  const novos = arquivos.filter((a) => a.novo);
+  const falhos = arquivos.filter((a) => a.situacao === 'erro').length;
+  const proximo = novos.length ? `${novos.length} ${novos.length === 1 ? 'novo' : 'novos'} no Drive - 1 clique lê` : base.proximo;
+  return {
+    ...base, automatico: 'clique', proximo,
+    como: `o site acha os PDFs em Documentos/Trabalho/<EMPRESA>/Holerite/<ANO> (${arquivos.length} no Drive${falhos ? `, ${falhos} que o leitor não entendeu` : ''}), lê no navegador só os novos e registra o que já importou; "Enviar arquivo" continua valendo`,
+    acao: { id: 'holerite-drive', rotulo: novos.length ? `Ler ${novos.length === 1 ? 'o novo' : `os ${novos.length} novos`} do Drive` : 'Ler do Drive' },
+    estado: novos.length && base.estado === 'ok' ? 'atencao' : base.estado,
+  };
+}
+
+export function documentosOrganizacao({ patrimonio, salario, gastos, gastosDrive, holeritesDrive, hoje } = {}) {
   const hojeIso = isoDe(hoje || (patrimonio && patrimonio.hoje) || new Date());
   const cfg = (patrimonio && patrimonio.config) || {};
   const carregandoRenda = patrimonio === undefined || salario === undefined;
@@ -189,7 +211,7 @@ export function documentosOrganizacao({ patrimonio, salario, gastos, gastosDrive
   const drive = !!(patrimonio && patrimonio.pastaIrConfigurada);
   const itens = [
     daRenda('ir', { acao: { id: drive ? 'ir-drive' : 'pdfs', rotulo: drive ? 'Ler do Drive' : 'Importar PDF' }, automatico: drive ? 'clique' : false }, patrimonio === undefined),
-    daRenda('holerite', { como: 'PDF do holerite, lido aqui no navegador (Renda e Orçamentos → Orçamento do salário). Dá pra automatizar como o IR: uma pasta "Holerites" no Drive', acao: { id: 'holerite', rotulo: 'Importar holerite' } }, salario === undefined),
+    (() => { const h = daRenda('holerite', {}, salario === undefined); return h && h.estado === 'carregando' ? { ...h, acao: { id: 'holerite', rotulo: 'Importar holerite' } } : documentoHolerite(h, holeritesDrive); })(),
     documentoGastos('faturas', { gastos, gastosDrive, hoje: hojeIso }),
     documentoGastos('extratos', { gastos, gastosDrive, hoje: hojeIso }),
     daRenda('fgts', { frequencia: 'a cada 6 meses (opcional)', como: 'PDF do app FGTS, um por empresa. O saldo anda sozinho com os 8% do salário; o extrato recalibra (juros, saques)', acao: { id: 'pdfs', rotulo: 'Importar PDFs' } }, patrimonio === undefined),

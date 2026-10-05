@@ -480,3 +480,30 @@ test('salvar: link de roteiro que não é http(s) é recusado ou descartado (nã
   if (r.ok) assert.ok(!r.meta.especificos.roteiroUrl || /^https?:/.test(r.meta.especificos.roteiroUrl));
   else assert.match(r.erro, /link|url/i);
 });
+
+test('IR no vencimento (05/10/2026): alíquota efetiva pelos dias de cada lote até vencer, ponderada pelo rendimento; principal = valor - rendimento; vencimento sem dia = dia 15', () => {
+  const sb = sandbox();
+  const hoje = new Date(2026, 9, 5); // 05/10/2026
+  // vence 01/2027 (15/01/2027 = 102 dias): lote antigo (400 dias + 102 = 502: 17,5%) e lote novo (50 + 102 = 152: 22,5%)
+  const pos = { isento: false, precisao: 'por-lote', impostoSeResgatasseHoje: 0, valorLiquidoSeResgatasseHoje: 2000,
+    detalhes: [{ diasCorridos: 400, rendimento: 300, aliquota: 0.175 }, { diasCorridos: 50, rendimento: 100, aliquota: 0.225 }] };
+  const v = semRealm(sb.irNoVencimentoMetas_(pos, '01/2027', 1000, 0.5, hoje));
+  assert.equal(v.mes, '2027-01');
+  assert.equal(v.dias, 102);
+  assert.equal(v.aliquota, 0.1875, '(300 x 17,5% + 100 x 22,5%) / 400');
+  assert.equal(v.principal, 800, '1000 - 400 de rendimento x 0,5 (metade da posição)');
+  // cruzando 720 dias: o lote de 650 dias passa a 15%
+  const v2 = semRealm(sb.irNoVencimentoMetas_({ detalhes: [{ diasCorridos: 650, rendimento: 50, aliquota: 0.175 }] }, '01/2027', 500, 1, hoje));
+  assert.equal(v2.aliquota, 0.15);
+  // isento (LCI/LCA), vencimento inválido, já vencido e sem posição
+  assert.equal(semRealm(sb.irNoVencimentoMetas_({ isento: true, detalhes: [] }, '03/2028', 500, 1, hoje)).aliquota, 0);
+  assert.equal(sb.irNoVencimentoMetas_(pos, '2027-01', 1000, 1, hoje), null);
+  assert.equal(sb.irNoVencimentoMetas_(pos, '05/2026', 1000, 1, hoje), null);
+  assert.equal(sb.irNoVencimentoMetas_(null, '01/2027', 1000, 1, hoje), null);
+  // sem lotes: alíquota desconhecida (o front estima)
+  const v3 = semRealm(sb.irNoVencimentoMetas_({ detalhes: [] }, '01/2027', 500, 1, hoje));
+  assert.equal(v3.aliquota, null);
+  // irResgateDoAtivo_ leva o campo junto quando o vencimento é conhecido
+  const r = semRealm(sb.irResgateDoAtivo_(pos, 1000));
+  assert.equal(r.vencimento, undefined, 'sem texto de vencimento não inventa');
+});

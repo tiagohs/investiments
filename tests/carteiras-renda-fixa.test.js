@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { montarPaginaCarteirasRendaFixa } from '../assets/js/pages/carteiras-renda-fixa.js';
+import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 
 function withFakeSessionStorage(run) {
   const store = new Map();
@@ -324,4 +325,54 @@ test('montarPaginaCarteirasRendaFixa(): tabela com imagem do título (igual às 
     assert.equal(novaAba.getAttribute('target'), '_blank');
     assert.equal(novaAba.getAttribute('href'), celTesouro.querySelector('b a.link-ativo').getAttribute('href'));
   });
+});
+
+// 05/10/2026 (Tiago: "Renda Fixa demora muito pra carregar"): o getHome (histórico, bem mais pesado) não pode
+// segurar o desenho da carteira - tabela/resumo aparecem assim que a carteira responde, e os gráficos são
+// refeitos quando o histórico chega.
+test('montarPaginaCarteirasRendaFixa(): a carteira desenha ANTES do getHome responder (gráficos "Carregando" até o histórico chegar)', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    let liberarHome;
+    const getHomeImpl = () => new Promise((resolve) => { liberarHome = () => resolve({ ok: true, historico: historicoRendaFixaExemplo() }); });
+    const pagina = montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: CARTEIRA_RF_EXEMPLO }), getHomeImpl });
+    for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(doc.getElementById('rendaFixaConteudo').hidden, false, 'conteúdo visível sem esperar o histórico');
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2, 'tabela já desenhada');
+    assert.match(doc.getElementById('rfRentabTotalChart').textContent, /Carregando os gráficos/);
+    assert.equal(doc.getElementById('rfRentabTotalChart').querySelector('svg'), null);
+
+    liberarHome();
+    await pagina;
+    assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'), 'gráficos desenhados quando o histórico chega');
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
+  });
+});
+
+test('montarPaginaCarteirasRendaFixa(): com carteira e histórico guardados, desenha tudo na hora (mesmo com o servidor lento)', async () => {
+  const store = new Map();
+  store.set('carteiras_renda_fixa_v2', JSON.stringify({ dados: CARTEIRA_RF_EXEMPLO, ts: Date.now() - 60000 }));
+  store.set('home', JSON.stringify({ dados: { historico: historicoRendaFixaExemplo() }, ts: Date.now() - 60000 }));
+  usarMemoriaNoCacheDados(store);
+  try {
+    await withFakeSessionStorage(async () => {
+      const doc = makeDom();
+      let liberar;
+      const lenta = new Promise((resolve) => { liberar = resolve; });
+      const pagina = montarPaginaCarteirasRendaFixa('token-fake', {
+        doc,
+        getCarteirasRendaFixaImpl: async () => { await lenta; return { ok: false, etapa: 'carteirasRendaFixa', erro: 'timeout' }; },
+        getHomeImpl: async () => { await lenta; return { ok: false, etapa: 'home', erro: 'timeout' }; },
+      });
+      for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 0));
+      assert.equal(doc.getElementById('rendaFixaConteudo').hidden, false);
+      assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2, 'tabela vinda do cache, sem esperar a rede');
+      assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'), 'gráficos vindos do histórico guardado');
+      liberar();
+      await pagina;
+      assert.match(doc.getElementById('rendaFixaErro').textContent, /Mostrando os dados guardados/);
+      assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
+    });
+  } finally { usarMemoriaNoCacheDados(null); }
 });

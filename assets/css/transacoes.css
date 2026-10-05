@@ -602,3 +602,94 @@ table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width
   .tx-prateleira tbody tr.no-carrinho + tr.tx-momento-tr td:first-child{ box-shadow:none; }
   .tx-prateleira tbody tr.no-carrinho + tr.tx-momento-tr{ box-shadow:inset 3px 0 0 var(--acoes); }
 }
+
+/* ================= 05/10/2026: Renda Fixa por valor/quantidade, carrinho em merge,
+   fluxo das Ações EUA ================= */
+
+/* tipo (Renda fixa / Renda emergencial) ao lado da instituição */
+.tx-tipo-rf{ display:inline-block; margin-left:6px; padding:0 7px; border-radius:100px; font:700 9.5px var(--body-f); text-transform:uppercase; letter-spacing:.04em;
+  background:var(--surface-3); color:var(--ink-muted); vertical-align:1px; }
+.tx-tipo-rf.emergencial{ background:var(--good-soft); color:var(--good-ink); }
+.tx-ativo-nome small:has(.tx-tipo-rf){ overflow:visible; max-width:none; white-space:normal; }
+.tx-prateleira-rf td[data-rot="Na classe"] b{ font-weight:600; }
+
+/* Tesouro: valor ou quantidade + mínimo do dia */
+.tx-rf-aplicar{ display:grid; grid-template-columns:auto auto auto; align-items:center; justify-content:end; gap:6px 8px; text-align:right; max-width:290px; margin-left:auto; }
+.tx-rf-aplicar .tx-rf-info{ grid-column:1 / -1; }
+.tx-rf-ou{ font-size:10.5px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.04em; }
+.tx-campo-pos{ font-family:var(--mono); font-size:11px; color:var(--ink-faint); }
+.tx-rf-aplicar .tx-campo{ flex:none; }
+.tx-rf-aplicar .tx-campo input{ width:70px; flex:none; }
+.tx-rf-info{ display:block; font-size:10.5px; color:var(--ink-muted); line-height:1.4; white-space:normal; text-align:right; }
+.tx-rf-info b{ color:var(--ink); font-family:var(--mono); }
+.tx-rf-min{ color:var(--ink-faint); }
+.tx-rf-abaixo{ color:var(--bad-ink); font-weight:700; }
+.tx-rf-novo-info{ flex:1 1 100%; text-align:left; }
+.tx-nota-tesouro{ margin:2px 0 0; }
+.tx-prateleira-rf td.tx-td-qtd{ width:auto; white-space:normal; min-width:290px; }
+.tx-prateleira-rf td[data-rot="Cotação"] small{ white-space:nowrap; }
+
+/* merge: outro carrinho no mesmo dia soma no aporte aguardando */
+.tx-recibo-mescla{ margin:0; padding:8px 10px; border-radius:10px; background:var(--acoes-soft); color:var(--ink); font-size:11.5px; line-height:1.45; }
+.tx-aviso-juntar{ flex-wrap:wrap; justify-content:space-between; margin-bottom:10px; }
+
+/* ---- Ações EUA em 2 etapas ---- */
+.tx-eua{ display:flex; flex-direction:column; gap:10px; }
+.tx-eua-intro{ margin:0; font-size:12.5px; color:var(--ink-muted); line-height:1.5; }
+.tx-eua-passos{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; align-items:start; }
+.tx-eua-passo{ display:flex; flex-direction:column; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px; min-width:0; }
+.tx-eua-cab{ display:flex; align-items:center; gap:10px; }
+.tx-eua-cab h3{ font-size:16px; margin:0; }
+.tx-eua-cab small{ font-size:11px; color:var(--ink-muted); }
+.tx-eua-cab .tx-etapa-n{ background:var(--usa); color:#fff; border-color:var(--usa); }
+.tx-eua-modo{ align-self:flex-start; }
+.tx-rotulo .tx-campo{ padding:0 10px; }
+.tx-rotulo .tx-campo input{ border:none; background:none; padding:8px 0; border-radius:0; text-align:right; }
+.tx-rotulo .tx-campo input:focus{ border:none; }
+.tx-eua-passo .tx-campo input{ width:100%; flex:1 1 auto; }
+.tx-eua-conta{ margin:0; display:flex; flex-direction:column; gap:5px; font-size:12px; }
+.tx-eua-conta > div{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.tx-eua-conta dt{ color:var(--ink-muted); }
+.tx-eua-conta dd{ margin:0; font:600 12.5px var(--mono); font-variant-numeric:tabular-nums; text-align:right; }
+.tx-eua-conta dd small{ font-weight:500; color:var(--ink-faint); }
+.tx-eua-conta-chave{ padding-bottom:5px; border-bottom:1px dashed var(--border); }
+.tx-eua-conta-chave.destaque dt{ color:var(--ink); font-weight:700; }
+.tx-eua-conta-chave.destaque dd{ font-size:18px; color:var(--usa); }
+.tx-eua-vazio{ margin:0; font-size:12px; color:var(--ink-muted); padding:10px 0; }
+.tx-eua-taxas{ border:1px dashed var(--border); border-radius:10px; padding:8px 10px; }
+.tx-eua-taxas summary{ cursor:pointer; font-size:12px; font-weight:700; color:var(--ink-muted); }
+.tx-eua-taxas summary small{ font-weight:500; color:var(--ink-faint); }
+.tx-eua-taxas .tx-nota{ margin:8px 0; }
+.tx-eua-taxas-campos{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-bottom:6px; }
+.tx-eua-registrar{ display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.tx-eua-registrar .tx-rotulo{ flex:1 1 130px; }
+.tx-eua-registrar .btn{ flex:1 1 auto; justify-content:center; }
+.tx-eua-caixa{ display:flex; flex-direction:column; gap:2px; padding:10px 12px; border-radius:12px; background:var(--surface-2); }
+.tx-eua-caixa .tx-card-valor{ color:var(--usa); }
+.tx-eua-sugestao{ display:flex; flex-direction:column; gap:6px; }
+.tx-eua-sugestao ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+.tx-eua-sugestao li{ display:grid; grid-template-columns:auto minmax(0,1fr); gap:2px 10px; align-items:baseline; font-size:12px; }
+.tx-eua-sugestao li span{ font-family:var(--mono); text-align:right; }
+.tx-eua-sugestao li small{ grid-column:1 / -1; color:var(--ink-faint); font-size:10.5px; }
+.tx-eua-necessidade{ display:flex; flex-direction:column; gap:6px; align-items:flex-start; padding:10px 12px; border-radius:12px; font-size:12px; line-height:1.45; }
+.tx-eua-necessidade.falta{ background:var(--warn-soft); color:var(--warn-ink); }
+.tx-eua-necessidade.ok{ background:var(--good-soft); color:var(--good-ink); }
+.tx-recibo .tx-eua-necessidade{ font-size:11.5px; }
+.tx-eua-movs{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; border-top:1px dashed var(--border); }
+.tx-eua-mov{ display:grid; grid-template-columns:minmax(0,1fr) auto 22px; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:12px; }
+.tx-eua-mov span{ display:flex; flex-direction:column; min-width:0; }
+.tx-eua-mov small{ font-size:10.5px; color:var(--ink-faint); }
+.tx-eua-mov.saida .tx-mono{ color:var(--bad-ink); } .tx-eua-mov.entrada .tx-mono{ color:var(--good-ink); }
+.tx-eua-ajuste{ display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
+.tx-eua-ajuste .tx-rotulo{ flex:1 1 200px; }
+@media (max-width:900px){ .tx-eua-passos{ grid-template-columns:minmax(0,1fr); } }
+@media (max-width:760px){
+  .tx-eua-taxas-campos{ grid-template-columns:minmax(0,1fr); }
+  .tx-rf-aplicar{ justify-content:stretch; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); text-align:left; }
+  .tx-rf-aplicar{ max-width:none; }
+  .tx-rf-aplicar .tx-campo{ min-width:0; }
+  .tx-rf-aplicar .tx-campo input{ width:100%; flex:1 1 0; min-width:0; text-align:left; }
+  .tx-rf-info{ text-align:left; }
+  .tx-prateleira-rf td.tx-td-qtd{ min-width:0; }
+  .tx-prateleira-rf td[data-rot="Cotação"], .tx-prateleira-rf td[data-rot="Na classe"]{ grid-column:auto; }
+}

@@ -22,6 +22,8 @@
 import { serieProjecao, rotuloMes } from './metas-calc.js';
 import { formatMoeda } from '../metas-card.js';
 
+const escSvg = (t) => String(t == null ? '' : t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 
 /** "1,2 mi" / "35 mil" / "820" (eixo Y). */
@@ -125,6 +127,14 @@ export function graficoProjecaoSvg(c, { largura = 640, altura = 230, hoje, ponto
     const yy = y(pts[i].ritmo);
     return `<g class="mt-g-marco"><circle cx="${x(i).toFixed(1)}" cy="${yy.toFixed(1)}" r="5"/>${mc.rotulo === 'Alvo' ? '' : `<text x="${x(i).toFixed(1)}" y="${(yy - 9).toFixed(1)}" text-anchor="middle">${mc.rotulo.replace(/º milhão/, ' mi').replace(/% do alvo/, '%')}</text>`}</g>`;
   }).join('');
+  // 05/10/2026: reserva - um marcador no mês em que cada título vence (o IR é cobrado e o dinheiro cai na conta)
+  const vencs = ((c.vencimentos && c.vencimentos.eventos) || []).filter((e) => idxMes.has(e.mes)).map((e, k) => {
+    const i = idxMes.get(e.mes);
+    const xx = x(i);
+    const ancora = xx > L - 110 ? 'end' : 'start';
+    const dx = ancora === 'end' ? -4 : 4;
+    return `<g class="mt-g-venc"><line x1="${xx.toFixed(1)}" x2="${xx.toFixed(1)}" y1="${m.t}" y2="${H - m.b}"/><path d="M${(xx - 4.5).toFixed(1)},${m.t} h9 l-4.5,7 z"/><text x="${(xx + dx).toFixed(1)}" y="${m.t + 20 + (k % 3) * 11}" text-anchor="${ancora}">vence ${escSvg(e.titulos[0].nome)}${e.titulos.length > 1 ? ` +${e.titulos.length - 1}` : ''}</text></g>`;
+  }).join('');
   return `${abreSvg('mt-g-projecao', L, H, m, pts.length, `Evolução projetada: no seu ritmo chega a ${formatMoeda(ultimo.ritmo)} em ${rotuloMes(ultimo.mes)}; alvo ${formatMoeda(c.alvoBRL)}`)}
   ${gradeY(esc, y, m, L)}
   ${ticksXHtml(pts, x, H, w)}
@@ -133,6 +143,7 @@ export function graficoProjecaoSvg(c, { largura = 640, altura = 230, hoje, ponto
   ${prazo}
   ${pts[0].necessaria != null ? `<path d="${caminho(pts, 'necessaria', x, y)}" class="mt-g-necessaria"/>` : ''}
   <path d="${caminho(pts, 'ritmo', x, y)}" class="mt-g-ritmo"/>
+  ${vencs}
   ${bolas}
   <circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(ultimo.ritmo).toFixed(1)}" r="3.5" class="mt-g-ponto"/>
   ${camadaHover(m, L, H, pts.length, 'Passe o mouse ou toque para ver cada mês')}

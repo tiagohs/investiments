@@ -130,11 +130,13 @@ test('aportes: carrinho - stepper e digitação, EUA em dólar, renda fixa por v
   doc.getElementById('txRfNovoInst').value = 'CORRETORA X';
   doc.getElementById('txRfNovoValor').value = '100,50';
   doc.getElementById('txRfNovo').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
-  assert.match(txt(doc.querySelector('.tx-recibo-total')), /R\$ 675,50/);
+  // 05/10/2026: Tesouro (tem PU de hoje na lista): 100,50 / 2.610 = 0,03 título -> R$ 78,30 de verdade
+  assert.match(txt(doc.querySelector('.tx-recibo-total')), /R\$ 653,30/);
+  assert.match(txt(doc.querySelector('#txCarrinho')), /0,03 título × R\$ 2\.610,00/);
   const guardado = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
   assert.equal(Object.keys(guardado.itens).length, 4);
   clique(w, doc.querySelector('[data-tirar="acoesEua:AAA"]'));
-  assert.match(txt(doc.querySelector('.tx-recibo-total')), /R\$ 600,50/);
+  assert.match(txt(doc.querySelector('.tx-recibo-total')), /R\$ 578,30/);
 });
 
 test('aportes: confirmar -> aguardando valores finais -> ajustar preço -> concluir; quantidade 0 sai', async () => {
@@ -324,7 +326,8 @@ test('aportes: mapa de compras - quadrado com preço e ×qtd, clicar abre o deta
   const { doc, w } = await montar();
   const secao = doc.getElementById('txMapaCompras');
   assert.ok(secao, 'Aportes realizados fica na aba Aportes');
-  assert.ok(secao.compareDocumentPosition(doc.getElementById('txNovoAporte')) & 4, 'acima de "Novo aporte"');
+  // 05/10/2026: "Aportes realizados" vai pra BAIXO de "Novo aporte" (ocupa muito espaço)
+  assert.ok(doc.getElementById('txNovoAporte').compareDocumentPosition(secao) & 4, 'abaixo de "Novo aporte"');
   assert.ok(doc.querySelector('[data-mapa-classe="fiis"]').classList.contains('active'));
   assert.match(txt(secao.querySelector('thead')), /set\/26 em andamento/);
   const cel = doc.querySelector('[data-mapa-cel="TEST11|2026-09"]');
@@ -370,4 +373,261 @@ test('lançamentos: tipo em tag, ativo com a classe, "Em reais" nas compras em d
   digitar(w, doc.getElementById('txListaAtivo'), '', 'change');
   const usa = [...doc.querySelectorAll('.tx-lista-linha')].find((l) => /AAA/.test(txt(l)));
   assert.match(txt(usa), /AAA Ações EUA Compra ×1 US\$ 10,00 US\$ 10,00 R\$ 50,00 câmbio 5,00/);
+});
+
+// ---------------------------------------------------------------------------
+// 05/10/2026: Renda Fixa por valor/quantidade, carrinho em merge, expiração e o fluxo das Ações EUA
+// ---------------------------------------------------------------------------
+
+const dadosRf = () => {
+  const d = structuredClone(DADOS);
+  d.classes.rendaFixa[0].valorInvestido = 600;
+  d.classes.rendaFixa[1].valorInvestido = 700;
+  d.classes.rendaFixa[1].cotacao = { pu: 2610, puVenda: 2600, data: '2026-09-24' };
+  d.tesouro = [{ nome: 'Tesouro Selic 2032', pu: 20142, puVenda: 20100, data: '2026-09-24' }, { nome: 'Tesouro IPCA+ 2035', pu: 2610, data: '2026-09-24' }];
+  return d;
+};
+
+test('renda fixa: tabela como as outras classes - tipo junto da instituição, Cotação (PU), Na classe (investido e %), CDB sem PU', async () => {
+  const { doc, w } = await montar({ getTransacoesImpl: async () => dadosRf() });
+  clique(w, doc.querySelector('[data-classe="rendaFixa"]'));
+  const cab = [...doc.querySelectorAll('.tx-prateleira-rf thead th')].map((th) => th.textContent);
+  assert.deepEqual(cab, ['Título', 'Cotação', 'Na classe', 'Último aporte', 'Vencimento', 'Aplicar']);
+  const linhas = [...doc.querySelectorAll('.tx-prateleira-rf tbody tr[data-linha]')];
+  const selic = linhas.find((l) => /Selic 2029/.test(l.textContent));
+  const ipca = linhas.find((l) => /IPCA\+ 2035/.test(l.textContent));
+  assert.match(txt(selic.querySelector('td.esq')), /Tesouro Selic 2029 CORRETORA X Renda emergencial/);
+  assert.ok(selic.querySelector('.tx-tipo-rf.emergencial'));
+  assert.match(txt(ipca.querySelector('td.esq')), /CORRETORA X Renda fixa/);
+  assert.match(txt(ipca.querySelector('[data-rot="Cotação"]')).replace(/ /g, ' '), /R\$ 2\.610,00 PU · 24\/09/);
+  assert.match(txt(selic.querySelector('[data-rot="Cotação"]')).replace(/ /g, ' '), /^— atualizado R\$ 1\.000,00/, 'sem PU: traço e o valor atualizado');
+  // % da classe pelo valor atualizado (1000 de 1800 = 55,6%), embaixo do valor investido
+  assert.match(txt(selic.querySelector('[data-rot="Na classe"]')).replace(/ /g, ' '), /^R\$ 600,00 55,6%/);
+  assert.match(txt(ipca.querySelector('[data-rot="Na classe"]')).replace(/ /g, ' '), /^R\$ 700,00 44,4%/);
+  assert.equal(selic.querySelector('[data-rf-qtd]'), null, 'CDB/sem PU: só valor, livre');
+});
+
+test('renda fixa: Tesouro por valor OU por quantidade (2 casas), mostra o mínimo do dia (1% do PU) e avisa abaixo dele', async () => {
+  const { doc, w } = await montar({ getTransacoesImpl: async () => dadosRf() });
+  clique(w, doc.querySelector('[data-classe="rendaFixa"]'));
+  const k = 'rendaFixa:Tesouro IPCA+ 2035|CORRETORA X';
+  const valor = doc.querySelector(`[data-rf="${k}"]`);
+  const qtd = doc.querySelector(`[data-rf-qtd="${k}"]`);
+  const info = () => txt(doc.querySelector(`[data-rf-info="${k}"]`)).replace(/ /g, ' ');
+  assert.equal(info(), 'mínimo hoje R$ 26,10 (1% do PU de R$ 2.610,00)');
+  digitar(w, valor, '500');
+  assert.equal(qtd.value, '0,19', 'valor ÷ PU, 2 casas pra baixo');
+  assert.match(info(), /= 0,19 título · R\$ 495,90 \(sobram R\$ 4,10/);
+  assert.match(txt(doc.querySelector('#txCarrinho')).replace(/ /g, ' '), /Tesouro IPCA\+ 2035 0,19 título × R\$ 2\.610,00/);
+  assert.match(txt(doc.querySelector('.tx-recibo-total')).replace(/ /g, ' '), /R\$ 495,90/, 'o carrinho leva o que o Tesouro cobra de verdade');
+  digitar(w, qtd, '0,02');
+  assert.equal(valor.value, '52,20', 'quantidade × PU');
+  assert.match(txt(doc.querySelector('.tx-recibo-total')).replace(/ /g, ' '), /R\$ 52,20/);
+  digitar(w, valor, '20');
+  assert.match(info(), /abaixo do mínimo de R\$ 26,10/);
+  assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 0, 'abaixo do mínimo não vai pro carrinho');
+  const guardado = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
+  assert.deepEqual(guardado.itens, {});
+  digitar(w, valor, '26,10');
+  assert.equal(qtd.value, '0,01', 'exatamente o mínimo');
+  const g2 = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
+  assert.deepEqual(g2.itens[k], { classe: 'rendaFixa', ativo: 'Tesouro IPCA+ 2035', instituicao: 'CORRETORA X', moeda: 'BRL', valor: 26.1, qtd: 0.01, pu: 2610 });
+});
+
+test('renda fixa: título novo do Tesouro pela lista de hoje (mínimo R$ 201,42 = 1% de R$ 20.142) e confirmar guarda quantidade e PU', async () => {
+  const { doc, w, chamadas } = await montar({ getTransacoesImpl: async () => dadosRf() });
+  clique(w, doc.querySelector('[data-classe="rendaFixa"]'));
+  assert.ok([...doc.querySelectorAll('#txTitulosNovos option')].some((o) => o.value === 'Tesouro Selic 2032'), 'o que o Tesouro vende hoje entra nas sugestões');
+  const novo = doc.getElementById('txRfNovo');
+  const info = () => txt(doc.getElementById('txRfNovoInfo')).replace(/ /g, ' ');
+  digitar(w, doc.getElementById('txRfNovoTitulo'), 'tesouro selic 2032');
+  assert.equal(info(), 'mínimo hoje R$ 201,42 (1% do PU de R$ 20.142,00)');
+  doc.getElementById('txRfNovoInst').value = 'XP';
+  digitar(w, doc.getElementById('txRfNovoValor'), '150');
+  assert.match(info(), /abaixo do mínimo de R\$ 201,42/);
+  novo.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 0, 'abaixo do mínimo não entra');
+  digitar(w, doc.getElementById('txRfNovoValor'), '410');
+  novo.dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  assert.match(txt(doc.querySelector('#txCarrinho')).replace(/ /g, ' '), /Tesouro Selic 2032 0,02 títulos? × R\$ 20\.142,00 · XP R\$ 402,84/);
+  clique(w, doc.querySelector('[data-acao="confirmar-carrinho"]'));
+  await esperar();
+  assert.deepEqual(chamadas.salvar[0].itens, [{ classe: 'rendaFixa', ativo: 'Tesouro Selic 2032', instituicao: 'XP', moeda: 'BRL', valorPlanejado: 402.84, qtdPlanejada: 0.02, precoPlanejado: 20142 }]);
+});
+
+test('carrinho: "Aportes realizados" fica abaixo de "Novo aporte"; mudar o carrinho guarda o dólar e avisa o header (carrinho:mudou)', async () => {
+  const { doc, w } = await montar();
+  const ordem = [...doc.querySelectorAll('#txPainel-aportes > section')].map((s) => s.id);
+  assert.ok(ordem.indexOf('txNovoAporte') < ordem.indexOf('txMapaCompras'));
+  const eventos = [];
+  w.addEventListener('carrinho:mudou', (ev) => eventos.push(ev.detail.origem));
+  digitar(w, doc.querySelector('[data-qtd="acoes:ABCD3"]'), '3');
+  assert.deepEqual(eventos, ['pagina']);
+  const guardado = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
+  assert.equal(guardado.cambio, 5, 'o header precisa do dólar pra somar o que está em US$');
+});
+
+test('carrinho: o header descarta ("Não comprei") e a tela esvazia o carrinho; "#carrinho" abre o carrinho; carrinho de dia passado não ganha cotação nova', async () => {
+  const { doc, w } = await montar();
+  digitar(w, doc.querySelector('[data-qtd="acoes:ABCD3"]'), '3');
+  assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 1);
+  w.localStorage.removeItem('transacoes.carrinho.v1');
+  w.dispatchEvent(new w.CustomEvent('carrinho:mudou', { detail: { origem: 'header' } }));
+  assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 0);
+  assert.equal(doc.querySelector('[data-qtd="acoes:ABCD3"]').value, '');
+  // "Ir para Transações" do header: abre o carrinho na tela
+  w.dispatchEvent(new w.CustomEvent('carrinho:abrir'));
+  assert.ok(doc.getElementById('txCarrinho').classList.contains('aberto'));
+});
+
+test('carrinho: abrir com "#carrinho" e com carrinho de ontem (preços congelados no dia dele, confirma com a data dele)', async () => {
+  const ontem = { editandoId: null, data: '2026-09-25', observacao: '', perguntadoEm: '2026-09-26', itens: { 'acoes:ABCD3': { classe: 'acoes', ativo: 'ABCD3', moeda: 'BRL', qtd: 5, preco: 19 } } };
+  const { dom, doc, w } = montarDom('#carrinho');
+  const { montarPaginaTransacoes } = await import('../assets/js/pages/transacoes.js');
+  w.localStorage.setItem('transacoes.carrinho.v1', JSON.stringify(ontem));
+  const salvos = [];
+  await montarPaginaTransacoes('tk', { doc, getTransacoesImpl: async () => structuredClone(DADOS), salvarAporteImpl: async (t, ap) => { salvos.push(ap); return { ok: true, id: 'AP-9', aportes: [{ ...ap, id: 'AP-9', itens: ap.itens }] }; } });
+  assert.ok(doc.getElementById('txCarrinho').classList.contains('aberto'), '#carrinho abre o carrinho');
+  assert.match(txt(doc.querySelector('.tx-recibo-linha')).replace(/ /g, ' '), /ABCD3 5 × R\$ 19,00/, 'a cotação de hoje (R$ 20,00) não troca o preço do dia dele');
+  assert.equal(doc.getElementById('txDataAporte').value, '2026-09-25');
+  clique(w, doc.querySelector('[data-acao="confirmar-carrinho"]'));
+  await esperar();
+  assert.equal(salvos[0].data, '2026-09-25');
+  assert.equal(salvos[0].itens[0].precoPlanejado, 19);
+  dom.window.close();
+});
+
+test('carrinho: outro carrinho no MESMO dia soma no aporte que já está aguardando (sem duplicar o confirmado); Editar continua', async () => {
+  const { doc, w, chamadas } = await montar();
+  digitar(w, doc.querySelector('[data-qtd="acoes:ABCD3"]'), '10');
+  digitar(w, doc.querySelector('[data-qtd="acoes:EFGH3"]'), '5');
+  clique(w, doc.querySelector('[data-acao="confirmar-carrinho"]'));
+  await esperar();
+  assert.equal(doc.querySelectorAll('.tx-andamento').length, 1);
+  // segundo carrinho do mesmo dia: mais ABCD3 (mesmo ativo) e um FII novo
+  digitar(w, doc.querySelector('[data-qtd="acoes:ABCD3"]'), '2');
+  clique(w, doc.querySelector('[data-classe="fiis"]'));
+  digitar(w, doc.querySelector('[data-qtd="fiis:TEST11"]'), '1');
+  assert.match(txt(doc.querySelector('.tx-recibo-mescla')), /Já existe um aporte de 26\/09\/2026 aguardando valores finais.*somado a ele, sem duplicar/);
+  assert.match(txt(doc.querySelector('[data-acao="confirmar-carrinho"]')), /Somar ao aporte do dia/);
+  assert.ok(doc.querySelector('.tx-recibo-mescla [data-acao="editar"]'), 'o botão Editar do aporte existente continua');
+  clique(w, doc.querySelector('[data-acao="confirmar-carrinho"]'));
+  await esperar();
+  const m = chamadas.salvar[1];
+  assert.equal(m.id, 'AP-1', 'regrava o mesmo aporte');
+  assert.equal(m.status, 'aguardando');
+  assert.deepEqual(m.itens.map((i) => [i.ativo, i.qtdPlanejada, i.valorPlanejado]), [['ABCD3', 12, 240], ['EFGH3', 5, 50], ['TEST11', 1, 100]]);
+  assert.deepEqual(chamadas.excluir, [], 'ninguém foi apagado');
+  assert.equal(doc.querySelectorAll('.tx-andamento').length, 1, 'continua um card só lá em cima');
+  assert.match(txt(doc.querySelector('.tx-aviso')), /somado.*aporte de 26\/09\/2026/);
+});
+
+test('carrinho: dois aportes aguardando no mesmo dia (já duplicados) -> "Juntar" num só', async () => {
+  const d = structuredClone(DADOS);
+  d.aportes = [
+    { id: 'AP-B', data: '2026-09-26', status: 'aguardando', observacao: 'segundo', criadoEm: '2026-09-26T15:00:00Z', atualizadoEm: '', itens: [{ classe: 'acoes', ativo: 'ABCD3', instituicao: '', moeda: 'BRL', qtdPlanejada: 2, precoPlanejado: 20, valorPlanejado: 40 }, { classe: 'fiis', ativo: 'TEST11', instituicao: '', moeda: 'BRL', qtdPlanejada: 1, precoPlanejado: 100, valorPlanejado: 100 }] },
+    { id: 'AP-A', data: '2026-09-26', status: 'aguardando', observacao: 'primeiro', criadoEm: '2026-09-26T13:00:00Z', atualizadoEm: '', itens: [{ classe: 'acoes', ativo: 'ABCD3', instituicao: '', moeda: 'BRL', qtdPlanejada: 10, precoPlanejado: 20, valorPlanejado: 200 }] },
+    ...d.aportes,
+  ];
+  const { doc, w, chamadas } = await montar({ getTransacoesImpl: async () => structuredClone(d) });
+  assert.match(txt(doc.querySelector('.tx-aviso-juntar')), /Há 2 aportes de 26\/09\/2026 aguardando valores finais/);
+  clique(w, doc.querySelector('[data-acao="juntar-dia"]'));
+  await esperar();
+  assert.equal(chamadas.salvar.length, 1);
+  assert.equal(chamadas.salvar[0].id, 'AP-A', 'junta no mais antigo');
+  assert.deepEqual(chamadas.salvar[0].itens.map((i) => [i.ativo, i.qtdPlanejada, i.valorPlanejado]), [['ABCD3', 12, 240], ['TEST11', 1, 100]]);
+  assert.equal(chamadas.salvar[0].observacao, 'primeiro · segundo');
+  assert.deepEqual(chamadas.excluir, ['AP-B']);
+  assert.equal(doc.querySelectorAll('.tx-andamento').length, 1);
+  assert.equal(doc.querySelector('.tx-aviso-juntar'), null);
+});
+
+test('ações EUA: etapa 1 estima os dólares da Remessa (R$ -> US$ e o inverso) com taxas editáveis; registrar manda o envio pro caixa', async () => {
+  const caixa = { saldoUsd: 0, movimentos: [] };
+  const envios = [];
+  const { doc, w } = await montar({
+    getTransacoesImpl: async () => ({ ...structuredClone(DADOS), caixaDolar: structuredClone(caixa) }),
+    salvarCaixaDolarImpl: async (t, mov) => {
+      envios.push(mov);
+      caixa.movimentos.unshift({ id: `CX-${envios.length}`, aporteId: '', observacao: '', ...mov });
+      caixa.saldoUsd += mov.usd;
+      return { ok: true, id: `CX-${envios.length}`, caixaDolar: structuredClone(caixa) };
+    },
+    excluirCaixaDolarImpl: async (t, id) => {
+      const i = caixa.movimentos.findIndex((m) => m.id === id);
+      caixa.saldoUsd -= caixa.movimentos[i].usd;
+      caixa.movimentos.splice(i, 1);
+      return { ok: true, caixaDolar: structuredClone(caixa) };
+    },
+  });
+  clique(w, doc.querySelector('[data-classe="acoesEua"]'));
+  assert.match(txt(doc.getElementById('txEuaFluxo')), /2 etapas.*1 Enviar dólares.*2 Comprar ações/);
+  assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 0,00/);
+  digitar(w, doc.getElementById('txRemValor'), '350');
+  const res = () => txt(doc.getElementById('txRemResultado')).replace(/ /g, ' ');
+  // dólar comercial do site: R$ 5,00; taxa de conversão 1,13% e encargos 1,10% (padrões)
+  assert.match(res(), /Você envia R\$ 350,00 Chegam US\$ 68,46 Dólar comercial R\$ 5,0000 Taxa de conversão \(1,13%\) R\$ 3,87/);
+  assert.match(res(), /Valor efetivo por US\$ \(VET\) R\$ 5,1121/);
+  // taxas editáveis
+  digitar(w, doc.getElementById('txRemConv'), '0,5');
+  digitar(w, doc.getElementById('txRemEnc'), '0');
+  assert.match(res(), /Chegam US\$ 69,65/);
+  assert.deepEqual(JSON.parse(w.localStorage.getItem('transacoes.remessa.v1')), { conversao: 0.005, encargos: 0 }, 'as taxas do Tiago ficam guardadas');
+  digitar(w, doc.getElementById('txRemCom'), '5,10');
+  assert.match(res(), /Dólar comercial R\$ 5,1000/);
+  // caminho inverso: quero US$ 100 -> quantos R$ enviar
+  clique(w, doc.querySelector('[data-rem-modo="dolares"]'));
+  digitar(w, doc.getElementById('txRemValor'), '100');
+  assert.match(res(), /Você precisa enviar R\$ 512,55 Você recebe US\$ 100,00/);
+  clique(w, doc.querySelector('[data-acao="rem-registrar"]'));
+  await esperar();
+  assert.equal(envios.length, 1);
+  assert.deepEqual([envios[0].tipo, envios[0].usd, envios[0].reais, envios[0].data, envios[0].comercial], ['envio', 100, 512.55, '2026-09-26', 5.1]);
+  assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 100,00/);
+  assert.match(txt(doc.querySelector('.tx-eua-movs')).replace(/ /g, ' '), /Envio 26\/09\/2026 · R\$ 512,55 · Remessa Online \(estimativa\) \+US\$ 100,00/);
+  assert.match(txt(doc.querySelector('.tx-aviso')), /Envio registrado: US\$ 100,00 no caixa em dólar/);
+  clique(w, doc.querySelector('[data-acao="rem-excluir"]'));
+  await esperar();
+  assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 0,00/);
+});
+
+test('ações EUA: etapa 2 sugere a divisão do caixa pelos alvos e põe no carrinho; escolher as ações mostra quantos US$ faltam e leva pro envio', async () => {
+  const d = structuredClone(DADOS);
+  d.classes.acoesEua = [
+    { ticker: 'AAA', nome: 'Aaa Corp', moeda: 'USD', precoAtual: 10, quantidade: 5, precoTeto: 12, vies: 'Comprar', totalAtualizado: 50, peso: 0.5, ultimoPago: null, radar: { percentualDesejado: 0.5, percentualAtual: 0.2 } },
+    { ticker: 'BBB', nome: 'Bbb Corp', moeda: 'USD', precoAtual: 25, quantidade: 2, precoTeto: 30, vies: 'Comprar', totalAtualizado: 50, peso: 0.5, ultimoPago: null, radar: { percentualDesejado: 0.3, percentualAtual: 0.3 } },
+  ];
+  d.caixaDolar = { saldoUsd: 100, movimentos: [{ id: 'CX-1', data: '2026-09-25', tipo: 'envio', usd: 100, reais: 520, aporteId: '', observacao: '' }] };
+  const { doc, w } = await montar({ getTransacoesImpl: async () => structuredClone(d) });
+  clique(w, doc.querySelector('[data-classe="acoesEua"]'));
+  clique(w, doc.querySelector('[data-acao="eua-sugerir"]'));
+  assert.equal(doc.querySelector('[data-qtd="acoesEua:AAA"]').value, '10', 'só a que está abaixo do alvo recebe: US$ 100 em ações de US$ 10');
+  assert.equal(doc.querySelector('[data-qtd="acoesEua:BBB"]').value, '');
+  assert.match(txt(doc.getElementById('txEuaSugestao')).replace(/ /g, ' '), /Divisão sugerida.*AAA 10 × US\$ 10,00 = US\$ 100,00 20,0% de 50,0% desejado no Radar.*Usa US\$ 100,00; sobra US\$ 0,00/);
+  assert.match(txt(doc.getElementById('txEuaNecessidade')).replace(/ /g, ' '), /O caixa cobre: sobram US\$ 0,00/);
+  // caminho inverso: quero mais ações do que o caixa cobre
+  digitar(w, doc.querySelector('[data-qtd="acoesEua:BBB"]'), '2');
+  const nec = txt(doc.getElementById('txEuaNecessidade')).replace(/ /g, ' ');
+  assert.match(nec, /Ações no carrinho: US\$ 150,00 · caixa em dólar: US\$ 100,00 Faltam US\$ 50,00 no caixa → enviar ≈ R\$ 255,61 \(VET 5,1121\)/);
+  assert.match(txt(doc.querySelector('#txCarrinho .tx-eua-necessidade')).replace(/ /g, ' '), /Faltam US\$ 50,00/, 'também no carrinho');
+  clique(w, doc.querySelector('#txEuaNecessidade [data-acao="eua-preparar-envio"]'));
+  assert.equal(doc.getElementById('txRemValor').value, '50,00');
+  assert.ok(doc.querySelector('[data-rem-modo="dolares"]').classList.contains('active'));
+  assert.match(txt(doc.getElementById('txRemResultado')).replace(/ /g, ' '), /Você precisa enviar R\$ 255,61 Você recebe US\$ 50,00/);
+});
+
+test('ações EUA: o ajuste de saldo manda a diferença como "ajuste"', async () => {
+  const d = structuredClone(DADOS);
+  d.caixaDolar = { saldoUsd: 30, movimentos: [{ id: 'CX-1', data: '2026-09-25', tipo: 'envio', usd: 30, reais: 150, aporteId: '', observacao: '' }] };
+  const movs = [];
+  const { doc, w } = await montar({
+    getTransacoesImpl: async () => structuredClone(d),
+    salvarCaixaDolarImpl: async (t, mov) => { movs.push(mov); return { ok: true, id: 'CX-2', caixaDolar: { saldoUsd: 75, movimentos: [{ id: 'CX-2', aporteId: '', observacao: '', ...mov }, ...d.caixaDolar.movimentos] } }; },
+  });
+  clique(w, doc.querySelector('[data-classe="acoesEua"]'));
+  doc.getElementById('txEuaAjusteValor').value = '75';
+  doc.getElementById('txEuaAjuste').dispatchEvent(new w.Event('submit', { bubbles: true, cancelable: true }));
+  await esperar();
+  assert.deepEqual([movs[0].tipo, movs[0].usd], ['ajuste', 45]);
+  assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 75,00/);
 });

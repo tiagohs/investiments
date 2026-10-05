@@ -60,42 +60,31 @@ function aliquotaIRRendaFixa_(diasCorridos) {
   return 0.15;
 }
 
-function montarIRRendaFixa_() {
+/**
+ * 05/10/2026: `leitura` (opcional) = { carteira, lotes } - as linhas JÁ LIDAS de "Carteira Renda Fixa" (A..L, a
+ * partir da linha 9) e de "RF Contratada - Lotes" (A..F, a partir da 2): montarCarteirasRendaFixa_ lê as duas 1 vez
+ * só e reaproveita aqui. Sem `leitura`, lê sozinho (Metas.gs, ação irRendaFixa) - mesma assinatura de antes.
+ */
+function montarIRRendaFixa_(leitura) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var hoje = new Date();
 
   // ---- pré-carrega os lotes reais (Tesouro), agrupados por título+instituição ----
-  var abaLotes = ss.getSheetByName(ABA_LOTES_RF_IR);
+  var dadosLotes = leitura && leitura.lotes ? leitura.lotes : lerLinhasAbaPequenaRf_(ss, ABA_LOTES_RF_IR, LINHA_DADOS_LOTES_RF_IR, 6);
   var lotesPorChave = {};
-  if (abaLotes) {
-    var ultimaLoteLinha = abaLotes.getLastRow();
-    if (ultimaLoteLinha >= LINHA_DADOS_LOTES_RF_IR) {
-      var dadosLotes = abaLotes.getRange(
-        LINHA_DADOS_LOTES_RF_IR, 1,
-        ultimaLoteLinha - LINHA_DADOS_LOTES_RF_IR + 1, 6
-      ).getValues();
-      dadosLotes.forEach(function (linha) {
-        var titulo = linha[0], instituicao = linha[1], data = linha[2],
-          quantidade = linha[3], valorInvestido = linha[5];
-        if (!titulo || !data) return;
-        var chave = normalizarChaveRfIr_(titulo, instituicao);
-        if (!lotesPorChave[chave]) lotesPorChave[chave] = [];
-        lotesPorChave[chave].push({ data: data, valorInvestido: valorInvestido, quantidade: quantidade });
-      });
-    }
-  }
+  dadosLotes.forEach(function (linha) {
+    var titulo = linha[0], instituicao = linha[1], data = linha[2],
+      quantidade = linha[3], valorInvestido = linha[5];
+    if (!titulo || !data) return;
+    var chave = normalizarChaveRfIr_(titulo, instituicao);
+    if (!lotesPorChave[chave]) lotesPorChave[chave] = [];
+    lotesPorChave[chave].push({ data: data, valorInvestido: valorInvestido, quantidade: quantidade });
+  });
 
   // ---- percorre as posições de Carteira Renda Fixa ----
-  var abaCarteira = ss.getSheetByName(ABA_CARTEIRA_RF_IR);
-  if (!abaCarteira) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_IR);
-  var ultimaLinha = abaCarteira.getLastRow();
   var resultado = [];
-  if (ultimaLinha < LINHA_DADOS_CARTEIRA_RF_IR) return resultado;
-
-  var dados = abaCarteira.getRange(
-    LINHA_DADOS_CARTEIRA_RF_IR, 1,
-    ultimaLinha - LINHA_DADOS_CARTEIRA_RF_IR + 1, 12
-  ).getValues();
+  var dados = leitura && leitura.carteira ? leitura.carteira : lerLinhasCarteiraRf_(ss);
+  if (!dados.length) return resultado;
 
   dados.forEach(function (linha) {
     var codigo = linha[0], nome = linha[2], tipo = linha[3],

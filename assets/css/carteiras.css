@@ -469,3 +469,7 @@ body.na-aberto{ overflow:hidden; }
    geral (sem meta ainda) saía com a cor/sublinhado padrão do navegador. */
 .vg-meta-renda-convite a{ color:var(--acoes); font-weight:600; text-decoration:none; }
 .vg-meta-renda-convite a:hover{ text-decoration:underline; }
+
+/* 04/10/2026: erro de atualização com dados guardados na tela - aviso discreto em vez do bloco grande */
+.carteiras-erro.carteiras-erro-aviso{ flex-direction:row; padding:8px 12px; margin:0 0 12px; font-size:.82rem;
+  color:var(--muted, inherit); border:1px dashed var(--border, currentColor); border-radius:10px; text-align:left; min-height:0; }

@@ -39,8 +39,10 @@
  */
 import {
   mesDe, somarMeses, saldoFinanciamento, extrasFinanciamento, saldoFies, mesesRestantesFies, saqueAniversario, salarioEm, saldoFgtsEm,
-  projetarAposentadoria,
+  projetarAposentadoria, prazoCaixaSac, prazoCaixaSacExato,
 } from './patrimonio-calc.js';
+
+export { prazoCaixaSac, prazoCaixaSacExato };
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -245,19 +247,36 @@ export function novaDivida(d) {
       quitar(t);
       return { pagamento, juros, seguro, amortizacao: amort, correcao };
     },
-    /** Amortização extra no fim do mês t. modo 'prazo' mantém a parcela; 'parcela' mantém o prazo. */
-    extra(t, valor, modo = 'prazo') {
+    /**
+     * Amortização extra no fim do mês t (depois da parcela).
+     * 05/10/2026 (Tiago, prints da Caixa): modo 'prazo' no SAC NÃO deixa a
+     * amortização A parada - a Caixa recalcula o prazo pra que a prestação
+     * (amortização + juros) não passe da atual: acha o menor prazo n' com
+     * s'·(1/n' + i) <= s·(1/n + i) e refaz A = s'/n'. É por isso que ~R$ 440
+     * já tiram 1 parcela (e não os ~R$ 1.330 de uma amortização). Na Price
+     * (FIES) a parcela fica e o prazo cai (nper). 'parcela' mantém o prazo.
+     * dias: dias de juros pro rata desde o vencimento (a Caixa cobra
+     * valor × i × dias/30 em cima do valor pago; o resto é a amortização
+     * efetiva). Devolve o valor pago que foi usado (inclui esses juros).
+     */
+    extra(t, valor, modo = 'prazo', { dias = 0 } = {}) {
       if (!(valor > 0) || s <= EPS) return 0;
       const n = restante();
-      const v = Math.min(valor, s);
-      s -= v;
-      st.extras += v;
-      st.pago += v;
-      if (s > EPS && modo === 'parcela' && Number.isFinite(n) && n > 0) {
-        if (A != null) A = s / n; else P = pmt(s, i, n);
+      const f = i > 0 && dias > 0 ? (i * dias) / 30 : 0;
+      const quitacao = s * (1 + f);
+      const pago = Math.min(valor, quitacao);
+      const efetiva = pago >= quitacao - EPS ? s : pago * (1 - f);
+      const s0 = s;
+      s -= efetiva;
+      st.extras += efetiva;
+      st.juros += pago - efetiva;
+      st.pago += pago;
+      if (s > EPS && Number.isFinite(n) && n > 0) {
+        if (modo === 'parcela') { if (A != null) A = s / n; else P = pmt(s, i, n); }
+        else if (A != null) A = s / prazoCaixaSac(s0, n, i, s);
       }
       quitar(t);
-      return v;
+      return pago;
     },
     parcelaAtual(trM = 0) {
       if (s <= EPS) return 0;
@@ -550,8 +569,13 @@ const NOMES_DIVIDA_CURTO = { financiamento: 'Apê', fies: 'FIES' };
  * para matar ao menos duas parcelas, se eu amortizar"): quanto pagar a mais
  * no mês que vem, no modo "reduzir prazo", pro contrato perder `k` parcelas
  * do fim.
- *  - SAC: cada parcela a menos é uma amortização constante -> k × A, com A já
- *    corrigida pela TR do mês (a Caixa corrige o saldo E a amortização pela TR).
+ *  - SAC (corrigido em 05/10/2026 com os prints da Caixa: R$ 900 tiram 2
+ *    parcelas, R$ 860 só 1 - não são k × A): o prazo novo é o menor n' em que
+ *    a prestação (amortização + juros) não passa da atual (ver
+ *    prazoCaixaSac). Pra n' = n − k a amortização EFETIVA mínima é
+ *    s·(1/n' − 1/n)/(1/n' + i) (~R$ 440 por parcela com 261 a pagar); o valor
+ *    a pagar soma os juros pro rata dos `dias` desde o vencimento
+ *    (valor × i × dias/30, a Caixa desconta isso do valor).
  *  - Price (FIES): o principal das k últimas parcelas = o valor presente
  *    delas hoje: P × [(1+i)^−(n−k) − (1+i)^−n] / i, n = parcelas que faltam
  *    depois da do mês.
@@ -561,7 +585,7 @@ const NOMES_DIVIDA_CURTO = { financiamento: 'Apê', fies: 'FIES' };
  * cima de `passo` em `passo` reais), porParcela, restantes, saldo, sistema }
  * ou null. Pedir k >= o que falta = quitar (valor = saldo).
  */
-export function valorParaMatarParcelas(divida, k = 2, { trMensal = 0, passo = 10 } = {}) {
+export function valorParaMatarParcelas(divida, k = 2, { trMensal = 0, passo = 10, dias = 0 } = {}) {
   if (!divida || !(divida.saldo > EPS) || !(k > 0)) return null;
   const d = novaDivida({ id: divida.id, ...divida });
   d.mes(1, divida.tr ? trMensal : 0);
@@ -570,38 +594,43 @@ export function valorParaMatarParcelas(divida, k = 2, { trMensal = 0, passo = 10
   if (!Number.isFinite(n) || n <= 0) return null;
   const s = d.saldo;
   const i = divida.taxaMensal || 0;
+  const f = i > 0 && dias > 0 ? (i * dias) / 30 : 0;
   const kk = Math.min(k, n);
   let exato;
-  if (kk >= n) exato = s;
-  else if (divida.sistema === 'SAC') exato = kk * d.amortizacao;
-  else exato = i > 0 ? (d.parcela * ((1 + i) ** -(n - kk) - (1 + i) ** -n)) / i : kk * d.parcela;
-  exato = Math.min(Math.ceil(exato * 100 - 1e-6) / 100, s);
+  if (kk >= n) exato = s * (1 + f);
+  else if (divida.sistema === 'SAC') exato = ((s * (1 / (n - kk) - 1 / n)) / (1 / (n - kk) + i)) / (1 - f);
+  else exato = i > 0 ? (d.parcela * ((1 + i) ** -(n - kk) - (1 + i) ** -n)) / i / (1 - f) : kk * d.parcela / (1 - f);
+  const teto = s * (1 + f);
+  exato = Math.min(Math.ceil(exato * 100 - 1e-6) / 100, teto);
   // confere no próprio motor (arredondamento de ponto flutuante na fronteira): sobe de centavo em centavo
-  const tira = (v) => { const x = novaDivida({ id: divida.id, ...divida }); x.mes(1, divida.tr ? trMensal : 0); x.extra(1, v, 'prazo'); return n - x.restante(); };
-  for (let k2 = 0; k2 < 5 && exato < s && tira(exato) < kk; k2 += 1) exato = r2(exato + 0.01);
+  const tira = (v) => { const x = novaDivida({ id: divida.id, ...divida }); x.mes(1, divida.tr ? trMensal : 0); x.extra(1, v, 'prazo', { dias }); return n - x.restante(); };
+  for (let k2 = 0; k2 < 5 && exato < teto && tira(exato) < kk; k2 += 1) exato = r2(exato + 0.01);
   exato = r2(exato);
-  const valor = passo > 0 ? Math.min(Math.ceil(exato / passo - 1e-9) * passo, Math.ceil(s)) : exato;
+  const valor = passo > 0 ? Math.min(Math.ceil(exato / passo - 1e-9) * passo, Math.ceil(teto)) : exato;
   return { k: kk, exato, valor, porParcela: r2(exato / kk), restantes: n, saldo: r2(s), sistema: divida.sistema };
 }
 
 /**
  * O contrário: quantas parcelas (com fração) um extra de `valor` tira do fim
- * no mês que vem. SAC: valor ÷ A; Price: n(saldo) − n(saldo − valor), com o n
- * contínuo da Price.
+ * no mês que vem. SAC: n − n'(contínuo da regra da Caixa, prazoCaixaSacExato);
+ * Price: n(saldo) − n(saldo − valor), com o n contínuo da Price. `dias`:
+ * juros pro rata que saem do valor (como em valorParaMatarParcelas).
  */
-export function parcelasQueOValorMata(divida, valor, { trMensal = 0 } = {}) {
+export function parcelasQueOValorMata(divida, valor, { trMensal = 0, dias = 0 } = {}) {
   if (!divida || !(divida.saldo > EPS) || !(valor > 0)) return 0;
   const d = novaDivida({ id: divida.id, ...divida });
   d.mes(1, divida.tr ? trMensal : 0);
   if (!d.ativa) return 0;
   const s = d.saldo;
-  if (valor >= s - EPS) return d.restante();
-  if (divida.sistema === 'SAC') return valor / d.amortizacao;
   const i = divida.taxaMensal || 0;
+  const f = i > 0 && dias > 0 ? (i * dias) / 30 : 0;
+  if (valor >= s * (1 + f) - EPS) return d.restante();
+  const ef = valor * (1 - f);
+  if (divida.sistema === 'SAC') return d.restante() - prazoCaixaSacExato(s, d.restante(), i, s - ef);
   const P = d.parcela;
-  if (!(i > 0)) return valor / P;
+  if (!(i > 0)) return ef / P;
   const nf = (x) => -Math.log(1 - (x * i) / P) / Math.log(1 + i);
-  return nf(s) - nf(s - valor);
+  return nf(s) - nf(s - ef);
 }
 
 /** A dívida que o extra paga primeiro (a escolhida, ou a mais cara) e o mínimo pra matar k parcelas nela. */
