@@ -30,6 +30,9 @@
  *                       (03/10/2026: Fundamentus/Yahoo 1x/dia, SEC 1x/semana, CVM
  *                       1x/mês; para em ~4,5 min e a nova tentativa continua de
  *                       onde parou - o que já está fresco é pulado)
+ *                    7. Portfólio dos FIIs       — PortfolioFii.gs!atualizarPortfolioFii_
+ *                       (05/10/2026: só reprocessa o FII com informe novo da CVM ou
+ *                       fato relevante novo; mapa: cache permanente, ~1 req/s)
  *     Deu certo -> agenda a próxima etapa pra daqui a 1 min. Falhou ->
  *     agenda NOVA TENTATIVA da mesma etapa pra daqui a 10 min (até 3
  *     tentativas por etapa — reagendar em vez de esperar dentro da
@@ -98,7 +101,8 @@ var AGENDA_ETAPAS_ = [
   { id: 'snapshotResumo', nome: 'Snapshot do resumo diário', principal: false },
   { id: 'proventosFnet', nome: 'Proventos FNet', principal: false },
   { id: 'informesFnet', nome: 'Informes FNet', principal: false },
-  { id: 'fundamentos', nome: 'Fundamentos', principal: false } // 03/10/2026 (Fundamentos.gs)
+  { id: 'fundamentos', nome: 'Fundamentos', principal: false }, // 03/10/2026 (Fundamentos.gs)
+  { id: 'portfolioFii', nome: 'Portfólio dos FIIs', principal: false } // 05/10/2026 (PortfolioFii.gs): depois dos informes do FNet (lê os fatos relevantes de lá)
 ];
 
 // ---------------------------------------------------------------------------
@@ -298,6 +302,13 @@ function agendaRodarJob_(id, est) {
     // Uma fonte fora do ar ("Atenção") não repete: amanhã tem de novo.
     var fu = atualizarFundamentos_('Automático'); // Fundamentos.gs
     return { ok: fu.status !== 'Erro' && !fu.porTempo, detalhe: fu.status + ' — ' + fu.detalhe };
+  }
+  if (id === 'portfolioFii') {
+    // 05/10/2026: secundária. Faltou tempo/limite de consultas do mapa -> conta como
+    // falha pra agenda tentar de novo em 10 min (continua de onde parou; as coordenadas
+    // já achadas ficam no cache). "Atenção" (CVM/Nominatim fora do ar) não repete.
+    var pf = atualizarPortfolioFii_('Automático'); // PortfolioFii.gs
+    return { ok: pf.status !== 'Erro' && !pf.porTempo, detalhe: pf.status + ' — ' + pf.detalhe };
   }
   throw new Error('etapa desconhecida: ' + id);
 }

@@ -17,7 +17,7 @@
  * conta própria (uma falha não derruba o resto).
  */
 
-import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia } from '../api-client.js';
+import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getFiiPortfolio, salvarCoordenadasFiiPortfolio } from '../api-client.js';
 import {
   formatBRL, formatBRLCompacto, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints,
   formatDateBR, formatRelativeTime,
@@ -43,6 +43,8 @@ import { carregarMacroMomento } from './momento-aporte.js';
 import { metasComCalculo } from '../metas-card.js';
 import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
+// 05/10/2026: aba "Patrimônio" dos FIIs (imóveis, CRI com indexador, mapa) - ativo-patrimonio.js
+import { criarControladorPatrimonio, patrimonioPlaceholderHtml } from './ativo-patrimonio.js';
 
 const VERSAO_CACHE = 'v1';
 const chaveCache = (ref) => `ativo_${VERSAO_CACHE}:${ref}`;
@@ -87,6 +89,17 @@ function carregarEstaticosPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetc
       .then(([sobre, ir]) => ({ sobre, ir }));
   }
   return estaticosEmCurso;
+}
+
+/** 05/10/2026: curadoria da aba Patrimônio (assets/data/fii-portfolio-manual.json) - 1 fetch, só quando a aba abre. */
+let manualPatrimonioEmCurso = null;
+function carregarManualPatrimonioPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetch : null) {
+  if (!manualPatrimonioEmCurso) {
+    manualPatrimonioEmCurso = fetchImpl
+      ? fetchImpl(new URL('assets/data/fii-portfolio-manual.json', resolveSiteRootUrl()).href).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      : Promise.resolve(null);
+  }
+  return manualPatrimonioEmCurso;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,19 +383,22 @@ export function preencherGraficoDia(raiz, chave, serie, { agora = new Date() } =
 const ICONES_ABA = {
   visao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
   extrato: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg>',
+  patrimonio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V8l8-5 8 5v13"/><path d="M9 21v-6h6v6M8 11h.01M12 11h.01M16 11h.01"/></svg>',
   sobre: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>',
 };
 
-/** Aba a partir do endereço ("#extrato", "#sobre"; qualquer outra coisa = visão geral). */
+/** Aba a partir do endereço ("#extrato", "#patrimonio", "#sobre"; qualquer outra coisa = visão geral). */
 export function abaDoHash(hash) {
   const h = String(hash || '').replace(/^#/, '');
-  return h === 'extrato' || h === 'sobre' ? h : 'visao';
+  return h === 'extrato' || h === 'sobre' || h === 'patrimonio' ? h : 'visao';
 }
 
 function abasHtml(ctx, ativa) {
   const abas = [
     ['visao', 'Visão geral'],
     ['extrato', 'Extrato'],
+    // 05/10/2026 (Tiago: "nova aba no FII, antes de 'Sobre'"): imóveis, CRI/indexador e mapa - só FIIs
+    ...(ctx.classe === 'fiis' ? [['patrimonio', 'Patrimônio']] : []),
     ['sobre', ctx.ehRf ? 'Imposto de renda' : 'Sobre e IR'],
   ];
   return `<nav class="at-abas" role="tablist" aria-label="Seções do ativo">${abas.map(([id, rotulo]) => `
@@ -1821,6 +1837,7 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
       ${painel('extrato', `
         <section class="at-bloco" id="at-mensal">${mensalHtml(ctx)}</section>
         ${extratoHtml(ctx)}`)}
+      ${ehFii ? painel('patrimonio', `<div id="atPatrimonio">${patrimonioPlaceholderHtml()}</div>`) : ''}
       ${painel('sobre', `
         ${sobreHtml(ctx)}
         ${irHtml(ctx)}`)}
@@ -1902,9 +1919,10 @@ function ligarBarras(doc, ctx) {
   }
 }
 
-function desenhar(doc, conteudoEl, ctx) {
+function desenhar(doc, conteudoEl, ctx, patrimonio = null) {
   const janela = doc.defaultView;
-  conteudoEl.innerHTML = paginaHtml(ctx, { aba: abaDoHash(janela && janela.location ? janela.location.hash : '') });
+  const abaInicial = abaDoHash(janela && janela.location ? janela.location.hash : '');
+  conteudoEl.innerHTML = paginaHtml(ctx, { aba: abaInicial });
   doc.title = `${ctx.ticker} · Patrimônio`;
   wirePointerTooltipCarteiras_(doc, conteudoEl);
   ligarBarras(doc, ctx);
@@ -1913,7 +1931,15 @@ function desenhar(doc, conteudoEl, ctx) {
   ligarTese(doc.getElementById('atTeseConteudo'));
   ligarCopiarIr(doc, conteudoEl);
   ligarNoticias(conteudoEl);
-  ligarAbas(doc, conteudoEl, { aoMostrar: (id) => { if (id === 'extrato') desenharGraficoMensal(doc, ctx); } });
+  ligarAbas(doc, conteudoEl, { aoMostrar: (id) => {
+    if (id === 'extrato') desenharGraficoMensal(doc, ctx);
+    if (id === 'patrimonio' && patrimonio) patrimonio.mostrar(); // 05/10/2026: carrega só quando a aba abre
+  } });
+  const slotPatrimonio = patrimonio && doc.getElementById('atPatrimonio');
+  if (slotPatrimonio) {
+    patrimonio.desenhar(slotPatrimonio);
+    if (abaInicial === 'patrimonio') patrimonio.mostrar();
+  }
 }
 
 /**
@@ -1933,6 +1959,9 @@ export async function montarPaginaAtivo(token, {
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
   getMacroImpl = getMacro, // 05/10/2026: contexto de mercado da Análise (Macro.gs)
+  getFiiPortfolioImpl = getFiiPortfolio, // 05/10/2026: aba Patrimônio do FII (PortfolioFii.gs)
+  salvarCoordsImpl = salvarCoordenadasFiiPortfolio,
+  carregarManualPatrimonioImpl = carregarManualPatrimonioPadrao,
   agora = () => new Date(),
 } = {}) {
   const loadingEl = doc.getElementById('ativoLoading');
@@ -2036,7 +2065,13 @@ export async function montarPaginaAtivo(token, {
     loadingEl.hidden = true;
     erroEl.hidden = true;
     conteudoEl.hidden = false;
-    desenhar(doc, conteudoEl, estado.ctx);
+    if (estado.ctx.classe === 'fiis' && !estado.patrimonio) {
+      estado.patrimonio = criarControladorPatrimonio({
+        doc, token, ticker: estado.ctx.ticker, getFiiPortfolioImpl, salvarCoordsImpl,
+        carregarManualImpl: carregarManualPatrimonioImpl, lerCache: lerCacheDados, gravarCache: gravarCacheDados,
+      });
+    }
+    desenhar(doc, conteudoEl, estado.ctx, estado.patrimonio || null);
     aplicarIntradia();
     pedirIntradia();
     pedirMetas();

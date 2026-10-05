@@ -463,6 +463,19 @@ export async function getNoticiasAtivo(token, { ticker, nome = '', classe = '' }
 }
 
 /**
+ * 05/10/2026: aba "Patrimônio" do FII - portfólio (imóveis, CRI/CRA com indexador,
+ * cotas de outros FIIs) já guardado na aba aux_fii-portfolio (PortfolioFii.gs).
+ */
+export async function getFiiPortfolio(token, ticker) {
+  return request('GET', 'fiiPortfolio', token, { ticker });
+}
+
+/** 05/10/2026: coordenadas do mapa achadas no navegador (Nominatim recusou o servidor) - o Apps Script guarda no cache permanente. */
+export async function salvarCoordenadasFiiPortfolio(token, ticker, coords) {
+  return request('POST', 'fiiPortfolioCoords', token, { ticker, coords: JSON.stringify(coords || []) });
+}
+
+/**
  * 25/09/2026: vídeos do YouTube dos canais cadastrados (apps-script/Videos.gs).
  * `termos` (tela do ativo): ticker e apelidos; `carteira` (página de uma
  * carteira): acoes, fiis, acoesEua ou rendaFixa.

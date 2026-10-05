@@ -53,14 +53,14 @@ const UtilitiesFalso = (DateSb) => ({
 
 // --- sandbox --------------------------------------------------------------
 /**
- * jobs: { ativos, rendaFixaIndices, snapshotResumo, proventosFnet, informesFnet, fundamentos }
+ * jobs: { ativos, rendaFixaIndices, snapshotResumo, proventosFnet, informesFnet, fundamentos, portfolioFii }
  * cada um uma função (n = nº da chamada, args) => retorno (ou lança).
  */
 function montar(agoraIso, jobs = {}) {
   const props = {};
   const gatilhos = [];
   let uid = 0;
-  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [] };
+  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [], portfolioFii: [] };
   const registro = [];
   const emails = [];
   const relogio = { ms: Date.parse(agoraIso) };
@@ -90,6 +90,7 @@ function montar(agoraIso, jobs = {}) {
     proventosFnet: () => ({ status: 'Sucesso', detalhe: 'ok' }),
     informesFnet: () => ({ status: 'Sucesso', detalhe: 'ok' }),
     fundamentos: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 03/10/2026 (Fundamentos.gs)
+    portfolioFii: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 05/10/2026 (PortfolioFii.gs)
   };
   const job = (id) => (...args) => { chamadas[id].push(args); return (jobs[id] || padrao[id])(chamadas[id].length, ...args); };
 
@@ -104,6 +105,7 @@ function montar(agoraIso, jobs = {}) {
     atualizarProventosAnunciadosFii_: job('proventosFnet'),
     atualizarInformesFiiFnet_: job('informesFnet'),
     atualizarFundamentos_: job('fundamentos'),
+    atualizarPortfolioFii_: job('portfolioFii'),
     gravarRegistroControle_: (...a) => registro.push(a),
     notificarFalhaSincronizacao_: (...a) => emails.push(a),
   };
@@ -171,14 +173,14 @@ test('Agenda: domingo não agenda nada', () => {
 test('Agenda: dia normal roda tudo na ordem, principal às 10:01, e não sobra one-shot', () => {
   const a = montar('2026-10-02T11:40:00Z');
   const ordem = [];
-  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_', fundamentos: 'atualizarFundamentos_' };
+  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_', fundamentos: 'atualizarFundamentos_', portfolioFii: 'atualizarPortfolioFii_' };
   for (const [id, fn] of Object.entries(nomes)) {
     const orig = a.sb[fn];
     a.sb[fn] = (...x) => { ordem.push([id, a.relogio.ms]); return orig(...x); };
   }
   a.sb.despertadorAgendaDiaria();
   a.rodarFila();
-  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet', 'fundamentos']);
+  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet', 'fundamentos', 'portfolioFii']);
   assert.equal(ordem[0][1], utc('2026-10-02T13:01:00Z'), 'ativos começa exatamente às 10:01 SP');
   assert.equal(ordem[1][1], utc('2026-10-02T13:02:00Z'), 'RF + índices logo depois (+1 min)');
   assert.deepEqual(plain(a.chamadas.ativos[0]), ['Automático', null]);
@@ -435,4 +437,31 @@ test('Agenda: estado de hoje gravado pela versão sem a etapa Fundamentos não q
   assert.equal(e.situacao, 'concluida');
   assert.equal(e.etapas.fundamentos.status, 'ok');
   assert.equal(a.chamadas.fundamentos.length, 1);
+});
+
+// 05/10/2026: etapa "Portfólio dos FIIs" (PortfolioFii.gs) - secundária, vem por último
+test('Agenda: Portfólio dos FIIs repete se faltou tempo/consultas do mapa, e não repete com "Atenção" (Nominatim/CVM fora)', () => {
+  const a = montar('2026-10-02T11:40:00Z', {
+    portfolioFii: (n) => (n === 1
+      ? { status: 'Sucesso', detalhe: 'ficou pra próxima (tempo/limite de consultas)', porTempo: true }
+      : { status: 'Atenção', detalhe: 'Nominatim recusou o servidor (HTTP 403)', porTempo: false }),
+  });
+  a.sb.despertadorAgendaDiaria();
+  a.rodarFila();
+  const e = a.estado();
+  assert.equal(a.chamadas.portfolioFii.length, 2, 'repetiu só porque sobrou trabalho; "Atenção" não repete');
+  assert.deepEqual(plain(a.chamadas.portfolioFii[0]), ['Automático']);
+  assert.equal(e.etapas.portfolioFii.status, 'ok');
+  assert.match(e.etapas.portfolioFii.detalhe, /Nominatim/);
+});
+
+test('Agenda: estado de hoje gravado sem a etapa Portfólio dos FIIs não quebra a fila', () => {
+  const a = montar('2026-10-02T11:40:00Z');
+  a.sb.despertadorAgendaDiaria();
+  const velho = a.estado();
+  delete velho.etapas.portfolioFii;
+  a.props.AGENDA_DIARIA_ESTADO = JSON.stringify(velho);
+  a.rodarFila();
+  assert.equal(a.estado().etapas.portfolioFii.status, 'ok');
+  assert.equal(a.chamadas.portfolioFii.length, 1);
 });

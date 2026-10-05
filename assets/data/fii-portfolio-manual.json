@@ -1,0 +1,28 @@
+{
+  "_comoUsar": [
+    "CURADORIA MANUAL da aba Patrimônio dos FIIs. O site já traz sozinho (da CVM) a lista de imóveis, a carteira de CRI/CRA com indexador e as cotas de outros FIIs; este arquivo COMPLEMENTA e SOBREPÕE o automático. Só dado PÚBLICO dos fundos (nomes, links oficiais, fotos de fonte pública) - este repositório é público.",
+    "Adicionar um LINK do fundo: em fiis > TICKER > links ponha { \"rotulo\": \"Site do gestor\", \"url\": \"https://...\" }. Só https. Aparece no rodapé da aba.",
+    "Adicionar uma FOTO de um imóvel: em fiis > TICKER > imoveis > \"NOME EXATO DO IMÓVEL NA CVM\" ponha \"foto\": { \"url\": \"https://...\", \"legenda\": \"...\", \"credito\": \"Autor/site\", \"licenca\": \"CC BY-SA 4.0\" }. Use só foto do site oficial do fundo/gestora (com o link da fonte) ou de licença livre (ex.: Wikimedia Commons, com autor e licença). Não use foto de outro site sem permissão. Foto do fundo todo: \"fotoFundo\", mesmo formato.",
+    "Link oficial de um imóvel: \"link\": \"https://...\" no mesmo bloco do imóvel (vira 'Site oficial' no card).",
+    "Corrigir segmento ou posição no mapa: no bloco do imóvel, \"segmento\": \"Shopping\" e/ou \"lat\": -22.90, \"lon\": -47.06. \"ocultar\": true esconde um imóvel já vendido. \"nome\": \"...\" troca o nome exibido (a chave continua sendo o nome da CVM).",
+    "Imóvel que a CVM ainda não lista (comprado depois do último informe): em fiis > TICKER > imoveisExtras ponha { \"nome\": \"...\", \"cidade\": \"...\", \"uf\": \"SP\", \"area\": 12000, \"pctReceita\": 0.05, \"segmento\": \"Logística\", \"lat\": -23.5, \"lon\": -46.6, \"link\": \"https://...\", \"foto\": { ... } }.",
+    "Papel: se o informe da securitizadora não identificou o indexador de parte da carteira, em fiis > TICKER > indexadores ponha a divisão que você conferiu no relatório gerencial: [ { \"indexador\": \"IPCA\", \"pct\": 0.62 }, { \"indexador\": \"CDI\", \"pct\": 0.38 } ] (pct de 0 a 1; \"valor\" em R$ é opcional). Isso troca a divisão automática.",
+    "Fato relevante conferido: o aviso 'fato relevante novo - conferir' some quando você põe fiis > TICKER > conferidoEm: \"AAAA-MM-DD\" (a data de hoje) - ou sozinho, quando a CVM publicar o informe trimestral seguinte.",
+    "Outros campos: \"tipo\" (tijolo, papel, hibrido ou fof) corrige a classificação automática; \"observacao\" mostra um texto curto no topo da aba.",
+    "Depois de editar, confira se o JSON continua válido (vírgulas!) e envie o arquivo pro GitHub; a tela lê este arquivo a cada visita."
+  ],
+  "versao": 1,
+  "atualizadoEm": "2026-10-05",
+  "fiis": {
+    "BTLG11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/btlg11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "GARE11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/gare11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "PMLL11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/pmll11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "VGIP11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/vgip11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "TRXF11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/trxf11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "RECR11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/recr11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "RBRY11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/rbry11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "KNUQ11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/knuq11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "HGRU11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/hgru11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] },
+    "XPML11": { "links": [{ "rotulo": "Funds Explorer", "url": "https://www.fundsexplorer.com.br/funds/xpml11" }], "fotoFundo": null, "conferidoEm": "", "imoveis": {}, "imoveisExtras": [] }
+  }
+}

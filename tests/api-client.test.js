@@ -340,6 +340,24 @@ test('getAtivo()/getNoticiasAtivo()/getTesesAtivo() fazem GET com a action e os 
   assert.ok(urls.every((u) => u.searchParams.get('token') === 'tok'));
 });
 
+// 05/10/2026: aba Patrimônio do FII (apps-script/PortfolioFii.gs)
+test('getFiiPortfolio() faz GET e salvarCoordenadasFiiPortfolio() faz POST com as coordenadas em JSON', async (t) => {
+  const { getFiiPortfolio, salvarCoordenadasFiiPortfolio } = await import('../assets/js/api-client.js');
+  const vistos = [];
+  t.mock.method(globalThis, 'fetch', async (url, opcoes) => {
+    const params = opcoes && opcoes.body ? opcoes.body : new URL(url).searchParams;
+    vistos.push({ metodo: opcoes.method, params });
+    return jsonResponse({ ok: true });
+  });
+  await getFiiPortfolio('tk', 'TEST11');
+  await salvarCoordenadasFiiPortfolio('tk', 'TEST11', [{ k: 'a', lat: -23.5, lon: -46.6 }]);
+  await salvarCoordenadasFiiPortfolio('tk', 'TEST11', null);
+  assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [['GET', 'fiiPortfolio'], ['POST', 'fiiPortfolioCoords'], ['POST', 'fiiPortfolioCoords']]);
+  assert.equal(vistos[0].params.get('ticker'), 'TEST11');
+  assert.deepEqual(JSON.parse(vistos[1].params.get('coords')), [{ k: 'a', lat: -23.5, lon: -46.6 }]);
+  assert.equal(vistos[2].params.get('coords'), '[]');
+});
+
 // 25/09/2026: login -> sessão de vários dias (Auth.gs!handleCriarSessao)
 test('criarSessao() faz POST com o token do Google; resposta "autenticação" recusada esquece o token guardado', async (t) => {
   const { criarSessao, getAtivo: getAtivo2 } = await import('../assets/js/api-client.js');

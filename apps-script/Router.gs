@@ -81,6 +81,9 @@ function doGet(e) {
   if (action === 'fundamentos') { // 03/10/2026: fundamentos já guardados de um ticker (Fundamentos.gs)
     return handleFundamentos(e, auth);
   }
+  if (action === 'fiiPortfolio') { // 05/10/2026: aba Patrimônio do FII - imóveis, CRI e indexadores já guardados (PortfolioFii.gs)
+    return handleFiiPortfolio(e, auth);
+  }
   if (action === 'macro') { // 05/10/2026: contexto de mercado pras análises - juros, Tesouro, bolsa cara/barata (Macro.gs)
     return handleMacro(e, auth);
   }
@@ -227,6 +230,9 @@ function doPost(e) {
   }
   if (action === 'sincronizarVideos') { // 25/09/2026: botão "Vídeos" (Videos.gs)
     return handleSincronizarVideos(e);
+  }
+  if (action === 'fiiPortfolioCoords') { // 05/10/2026: coordenadas do mapa achadas no navegador (PortfolioFii.gs)
+    return handleFiiPortfolioCoords(e);
   }
   if (action === 'sincronizarInformesFnet') { // 25/09/2026: botão "Informes dos FIIs" (FnetInformesFii.gs)
     return handleSincronizarInformesFnet(e);
