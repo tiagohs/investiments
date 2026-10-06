@@ -142,6 +142,35 @@ export function relogioNoFusoParaUtcMs_(tz, y, mo, d, h, mi, s) {
   return palpite;
 }
 
+// 06/10/2026 (A-75): fixtures.json (~11 MB) era relido e parseado em TODO sandbox - e há testes que montam 5-7 por arquivo.
+// Agora é lido 1 vez por processo (cache por caminho + mtime). O objeto devolvido é COMPARTILHADO: trate como somente
+// leitura (o sandbox nunca o altera - copia cada aba ao montar; escrita da planilha falsa vai pra cópia).
+const _cacheFixturesRaw_ = new Map();
+export function lerFixturesRaw_(fixturesPath = FIXTURES_PATH) {
+  const mtimeMs = fs.statSync(fixturesPath).mtimeMs;
+  const emCache = _cacheFixturesRaw_.get(fixturesPath);
+  if (emCache && emCache.mtimeMs === mtimeMs) return emCache.raw;
+  const raw = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
+  _cacheFixturesRaw_.set(fixturesPath, { mtimeMs, raw });
+  return raw;
+}
+
+/**
+ * 06/10/2026 (A-72): congela o relógio do sandbox (`new Date()` e `Date.now()` dentro dos .gs) num instante - os
+ * testes de coerência entre telas usam o dia em que fixtures.json foi extraído (_meta.extraidoEm), senão a janela
+ * de 12 meses, o "hoje" do câmbio etc. andariam com o relógio e o teste mudaria de resultado sem a planilha mudar.
+ */
+export function congelarRelogioSandbox_(sandbox, agoraMs) {
+  new vm.Script(`(function (MS) {
+    class DateFixa extends Date {
+      constructor(...a) { if (a.length === 0) super(MS); else super(...a); }
+      static now() { return MS; }
+    }
+    globalThis.Date = DateFixa;
+  })(${Number(agoraMs)})`).runInContext(sandbox);
+}
+
+const _memoDataXlsx_ = new Map(); // "2026-10-05T16:56:00" (relógio da planilha) -> ms UTC (a conversão por Intl era o grosso do custo de montar o sandbox)
 export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   const scriptCacheStore = new Map();
   const scriptCache = {
@@ -178,16 +207,32 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     // dia etc.) segue no fuso do projeto, igual o Apps Script faz.
     const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
     if (!m) return new sandbox.Date(iso);
-    const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
-    return new sandbox.Date(relogioNoFusoParaUtcMs_(FUSO_PLANILHA_XLSX, y, mo, d, h, mi, s));
+    const chave = iso.slice(0, 19);
+    let ms = _memoDataXlsx_.get(chave);
+    if (ms === undefined) {
+      const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
+      ms = relogioNoFusoParaUtcMs_(FUSO_PLANILHA_XLSX, y, mo, d, h, mi, s);
+      _memoDataXlsx_.set(chave, ms);
+    }
+    return new sandbox.Date(ms);
   }
   function revive(v) {
     if (v && typeof v === 'object' && typeof v.__date__ === 'string') return reviveDate(v.__date__);
     return v;
   }
+  // 06/10/2026 (A-75): cada aba só é copiada/convertida (datas -> Date do sandbox) quando alguém a lê pela 1ª vez - a maioria
+  // dos testes não toca em aux_gastos (6,6 mil linhas), nas Transações (10,8 mil) etc. A atribuição (insertSheet/setValues) continua valendo.
   const fixtures = {};
-  for (const [nome, { linhas, lastRow }] of Object.entries(fixturesRaw).filter(([k]) => !k.startsWith('_'))) { // "_meta" etc. não são abas
-    fixtures[nome] = { lastRow, linhas: linhas.map((linha) => linha.map(revive)) };
+  for (const [nome, bruta] of Object.entries(fixturesRaw).filter(([k]) => !k.startsWith('_'))) { // "_meta" etc. não são abas
+    Object.defineProperty(fixtures, nome, {
+      configurable: true, enumerable: true,
+      get() {
+        const pronta = { lastRow: bruta.lastRow, linhas: bruta.linhas.map((linha) => linha.map(revive)) };
+        Object.defineProperty(fixtures, nome, { value: pronta, writable: true, configurable: true, enumerable: true });
+        return pronta;
+      },
+      set(v) { Object.defineProperty(fixtures, nome, { value: v, writable: true, configurable: true, enumerable: true }); },
+    });
   }
 
   const propriedadesFalsas = (() => {
@@ -257,6 +302,8 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
             });
             dados.lastRow = Math.max(dados.lastRow, row + valores.length - 1);
           },
+          // 06/10/2026 (Controle 17): a sincronização da Carteira Renda Fixa grava célula a célula (setValue) quando a planilha difere do cálculo
+          setValue(valor) { this.setValues([[valor]]); return this; },
           clearContent() {
             for (let r = 0; r < numRows; r += 1) {
               const linhaReal = dados.linhas[row - 1 + r];
@@ -313,17 +360,33 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   return sandbox;
 }
 
-export async function carregarSerieComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH } = {}) {
-  const fixturesRaw = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
-  const sandbox = { console };
+/**
+ * 06/10/2026 (A-75): monta o sandbox (planilha falsa + todos os .gs) - o trecho que os 3 carregar*ComDadosReais e a
+ * prévia repetiam. `agora` (ms ou ISO): congela o relógio dos .gs. `silencioso`: console.log dos .gs some.
+ */
+export function criarSandboxGs({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH, agora = null, silencioso = false } = {}) {
+  const fixturesRaw = lerFixturesRaw_(fixturesPath);
+  const sandbox = { console: silencioso ? { ...console, log() {} } : console };
   vm.createContext(sandbox);
-  montarSandboxComFixtures_(fixturesRaw, sandbox);
-
-  const arquivos = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
-  for (const f of arquivos) {
-    new vm.Script(fs.readFileSync(path.join(gasDir, f), 'utf8'), { filename: f }).runInContext(sandbox);
+  if (agora != null) {
+    new vm.Script('this.Date = Date;').runInContext(sandbox);
+    congelarRelogioSandbox_(sandbox, typeof agora === 'number' ? agora : Date.parse(agora));
   }
+  montarSandboxComFixtures_(fixturesRaw, sandbox);
+  const arquivos = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
+  for (const f of arquivos) new vm.Script(fs.readFileSync(path.join(gasDir, f), 'utf8'), { filename: f }).runInContext(sandbox);
+  return { sandbox, fixturesRaw, arquivos };
+}
 
+/** Quando fixtures.json foi extraído da planilha (ms) - o "agora" dos testes de coerência. */
+export function instanteDasFixtures(fixturesPath = FIXTURES_PATH) {
+  const meta = lerFixturesRaw_(fixturesPath)._meta || {};
+  const t = Date.parse(meta.extraidoEm || '');
+  return Number.isFinite(t) ? t : fs.statSync(fixturesPath).mtimeMs;
+}
+
+export async function carregarSerieComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH } = {}) {
+  const { sandbox, arquivos } = criarSandboxGs({ gasDir, fixturesPath });
   const serie = sandbox.montarSerieHistoricoInicio_();
   return { serie, sandbox, arquivosCarregados: arquivos };
 }
@@ -339,16 +402,7 @@ export async function carregarSerieComDadosReais({ gasDir = GAS_DIR, fixturesPat
  * qual o Apps Script real).
  */
 export async function carregarCarteirasComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH } = {}) {
-  const fixturesRaw = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
-  const sandbox = { console };
-  vm.createContext(sandbox);
-  montarSandboxComFixtures_(fixturesRaw, sandbox);
-
-  const arquivos = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
-  for (const f of arquivos) {
-    new vm.Script(fs.readFileSync(path.join(gasDir, f), 'utf8'), { filename: f }).runInContext(sandbox);
-  }
-
+  const { sandbox, arquivos } = criarSandboxGs({ gasDir, fixturesPath });
   const serie = sandbox.montarSerieHistoricoInicio_();
   const home = sandbox.montarHome_();
   const carteirasHome = sandbox.montarCarteirasHome_();
@@ -370,15 +424,18 @@ export async function carregarCarteirasComDadosReais({ gasDir = GAS_DIR, fixture
  * as respostas das rotas próprias de cada tela de Carteiras. Nada é
  * remontado "à mão" aqui - se handleHome mudar, isso muda junto.
  */
-export async function carregarTodasAsTelasComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH } = {}) {
-  const fixturesRaw = JSON.parse(fs.readFileSync(fixturesPath, 'utf8'));
-  const sandbox = { console: { ...console, log() {} } };
-  vm.createContext(sandbox);
-  montarSandboxComFixtures_(fixturesRaw, sandbox);
-  const arquivos = fs.readdirSync(gasDir).filter((f) => f.endsWith('.gs')).sort();
-  for (const f of arquivos) {
-    new vm.Script(fs.readFileSync(path.join(gasDir, f), 'utf8'), { filename: f }).runInContext(sandbox);
-  }
+// 06/10/2026 (A-75): `compartilhar: true` devolve o MESMO resultado a quem pedir de novo no processo (1 sandbox em vez de N);
+// só use em teste que apenas LÊ o resultado (não chama função do sandbox que grava/muda a planilha falsa).
+const _telasCompartilhadas_ = new Map();
+export async function carregarTodasAsTelasComDadosReais({ gasDir = GAS_DIR, fixturesPath = FIXTURES_PATH, compartilhar = false, agora = null } = {}) {
+  const chaveCompartilhada = `${gasDir}|${fixturesPath}|${agora}`;
+  if (compartilhar && _telasCompartilhadas_.has(chaveCompartilhada)) return _telasCompartilhadas_.get(chaveCompartilhada);
+  const pronta = await carregarTodasAsTelasComDadosReais_({ gasDir, fixturesPath, agora });
+  if (compartilhar) _telasCompartilhadas_.set(chaveCompartilhada, pronta);
+  return pronta;
+}
+async function carregarTodasAsTelasComDadosReais_({ gasDir, fixturesPath, agora }) {
+  const { sandbox, fixturesRaw } = criarSandboxGs({ gasDir, fixturesPath, agora, silencioso: true });
   const home = JSON.parse(sandbox.handleHome({ parameter: {} }, { ok: true }).getContent());
   return {
     home,

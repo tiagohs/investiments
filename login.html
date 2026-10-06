@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qs7N6i7jLI/i7VsF8slY7/rc0b6k2rGS8clL/FDEJ1k=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://accounts.google.com/gsi/style; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br https://accounts.google.com/gsi/; frame-src https://www.youtube-nocookie.com https://drive.google.com https://accounts.google.com/gsi/; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qs7N6i7jLI/i7VsF8slY7/rc0b6k2rGS8clL/FDEJ1k=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br https://accounts.google.com/gsi/; frame-src https://www.youtube-nocookie.com https://drive.google.com https://accounts.google.com/gsi/; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Entrar · Patrimônio</title>
 
@@ -16,13 +16,20 @@
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 06/10/2026: fontes servidas pelo próprio site (assets/fonts, licença OFL; @font-face em m3-tokens.css, font-display: swap). Preload só dos subsets latin do caminho crítico (o login não usa a Roboto Mono). -->
+<link rel="preload" href="assets/fonts/readex-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
 <link rel="stylesheet" href="assets/css/m3-tokens.css">
 <link rel="stylesheet" href="assets/css/shell.css">
 <link rel="stylesheet" href="assets/css/components.css">
 <link rel="stylesheet" href="assets/css/login.css">
+<!-- modulepreload (gerado por scripts/gerar-modulepreload.mjs; não edite à mão) -->
+<link rel="modulepreload" href="assets/js/api-client.js">
+<link rel="modulepreload" href="assets/js/auth-ui.js">
+<link rel="modulepreload" href="assets/js/auth.js">
+<link rel="modulepreload" href="assets/js/config.js">
+<link rel="modulepreload" href="assets/js/pages/login.js">
+<!-- /modulepreload -->
 </head>
 <body class="login-body">
 

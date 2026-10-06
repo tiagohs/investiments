@@ -134,55 +134,23 @@
 .pt-duas{ display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:14px; align-items:start; }
 .pt-duas .pt-grafico{ padding:12px 0 0; }
 
-/* ---- Meta ---- */
-.pt-meta-conta > p{ margin:0; font-size:13px; line-height:1.6; color:var(--ink-muted); max-width:100ch; }
-.pt-meta-conta > p:first-child b{ color:var(--ink); font-family:var(--mono); }
-.pt-meta-conta em{ font-style:normal; font-weight:700; color:var(--ink); }
-.pt-meta-conta a{ color:var(--acoes); font-weight:600; }
-.pt-meta-passos{ list-style:none; margin:12px 0 0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-.pt-meta-passos li{ display:flex; flex-direction:column; gap:4px; padding:12px 14px; border-radius:12px; background:var(--surface-3); min-width:0; }
-.pt-meta-passos li > span{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); }
-.pt-meta-passos code{ background:none; padding:0; font-size:12px; color:var(--ink-muted); overflow-wrap:anywhere; }
-.pt-meta-passos li > b{ font:600 19px var(--mono); font-variant-numeric:tabular-nums; }
-.pt-meta-passos small{ font-size:12px; color:var(--ink-muted); }
-.pt-meta-passos small b{ font-family:var(--mono); color:var(--ink); }
-.pt-meta-final{ background:var(--acoes-soft) !important; }
-.pt-meta-final > b{ color:var(--acoes); }
-.pt-descontar{ margin-top:12px; font-size:12.5px; }
-.pt-descontar summary{ cursor:pointer; font-weight:600; color:var(--acoes); }
-.pt-descontar .pt-chk-lista{ margin-top:10px; }
 
-/* ---- Futuro ---- */
-.pt-fut{ display:grid; grid-template-columns:300px minmax(0,1fr); }
-.pt-fut-ctl{ padding:16px 18px; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:14px; }
 .pt-ctl{ display:flex; flex-direction:column; gap:6px; font-size:12px; font-weight:600; color:var(--ink-muted); }
 .pt-ctl-row{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
 .pt-ctl-row b{ font:600 13px var(--mono); color:var(--ink); }
 .pt-ctl input[type=range]{ width:100%; accent-color:var(--pt-inv); }
 .pt-ctl .pt-input{ align-self:flex-start; }
-.pt-ctl-dica{ font-weight:400; font-size:12px; color:var(--ink-faint); font-family:var(--mono); }
 .pt-chk{ display:flex; align-items:flex-start; gap:8px; font-size:12px; color:var(--ink-muted); line-height:1.45; }
 .pt-chk input{ margin-top:2px; accent-color:var(--pt-inv); }
 .pt-chk b{ color:var(--ink); }
-.pt-fut-res{ padding:16px 20px; display:flex; flex-direction:column; gap:12px; min-width:0; }
-.pt-fut-res .pt-grafico{ padding:0; }
 
-/* ---- Como acelerar ---- */
-.pt-dicas{ display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:12px; }
-.pt-dica{ padding:14px 16px; border-radius:14px; border:1px solid var(--border); background:var(--surface); }
-.pt-dica p{ margin:0; font-size:12.5px; line-height:1.55; color:var(--ink-muted); }
-.pt-dica b{ color:var(--ink); }
-.pt-dica-t{ display:block; font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px; }
-.pt-dica.hl{ border-color:color-mix(in srgb, var(--pt-inv) 50%, var(--border)); }
-.pt-dica.hl .pt-dica-t{ color:var(--acoes); }
 
 /* ---- Simulador ---- */
 
 .pt-aviso{ display:block; margin-top:6px; }
 
 @media (max-width:900px){
-  .pt-hero, .pt-fut, .pt-bal, .pt-duas, .pt-meta-passos{ grid-template-columns:minmax(0,1fr); }
-  .pt-fut-ctl{ border-right:none; border-bottom:1px solid var(--border); }
+  .pt-hero, .pt-bal, .pt-duas{ grid-template-columns:minmax(0,1fr); }
   .pt-bal > div + div{ border-left:none; border-top:1px solid var(--border); }
 }
 @media (max-width:560px){
@@ -305,3 +273,7 @@
 @media (max-width:560px){
   .pt-kpis-3 .kpi-valor, .rd-tiles-2 .kpi-valor{ font-size:1.125rem; line-height:1.25; }
 }
+
+/* 06/10/2026: link discreto no lugar da área de aposentadoria (agora é a meta de Aposentadoria em Metas) */
+.pt-ver-meta{ margin:4px 0 0; text-align:right; }
+.pt-ver-meta .pt-link{ font-size:var(--md-sys-typescale-body-small-size); }

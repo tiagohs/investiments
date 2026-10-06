@@ -31,7 +31,7 @@ export function criarKpi(el, op = {}) {
   const raiz = no(doc, ':article', { class: 'chart-kpi', 'aria-labelledby': `${id}r` }, el);
   const topo = no(doc, ':div', { class: 'chart-kpi-topo' }, raiz);
   no(doc, ':span', { class: 'chart-kpi-rot', id: `${id}r`, texto: op.rotulo || '' }, topo);
-  if (op.info) { const i = no(doc, ':span', { class: 'chart-kpi-info', title: op.info, role: 'img', 'aria-label': op.info, tabindex: '0' }, topo); i.appendChild(iconeSvg(doc, 'info', 18)); }
+  if (op.info) { const i = no(doc, ':span', { class: 'chart-kpi-info', 'data-info': op.info, role: 'img', 'aria-label': op.info, tabindex: '0' }, topo); i.appendChild(iconeSvg(doc, 'info', 18)); }
   const valorEl = no(doc, ':div', { class: 'chart-kpi-val' }, raiz);
   const deltaEl = no(doc, ':div', { class: 'chart-kpi-delta', hidden: true }, raiz);
   const sparkEl = op.spark ? no(doc, ':div', { class: 'chart-kpi-spark' }, raiz) : null;

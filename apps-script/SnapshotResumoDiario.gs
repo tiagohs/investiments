@@ -202,37 +202,3 @@ function obterUltimoSnapshotPregao_() {
   return ultimo;
 }
 
-/**
- * Semeadura manual, ÚNICA VEZ, pra não esperar o próximo gatilhoDiario
- * automático (Sync.gs, ~10h de amanhã) pra ter um "ontem" já disponível -
- * rodar direto no editor (mesmo padrão de testarHomeDireto/
- * testarHistoricoInicioDireto). 18/09/2026 é um dia especial (pedido do
- * Tiago): semeia ONTEM (17/09) E hoje (18/09) de uma vez, já que o
- * gatilhoDiario de hoje já rodou de manhã, ANTES desse código existir -
- * a partir de segunda (21/09) o fluxo normal (gatilhoDiario, todo dia)
- * assume sozinho. Os valores abaixo são PLACEHOLDER - confirmar os
- * números certos antes de rodar isso. Idempotente por data, então rodar
- * de novo com valores corrigidos simplesmente sobrescreve a mesma linha.
- */
-function semearSnapshotManual17E18Setembro_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var abaAuxiliar = ss.getSheetByName(ABA_AUXILIAR_APP_SNAPSHOT);
-  if (!abaAuxiliar) throw new Error('aba não encontrada: ' + ABA_AUXILIAR_APP_SNAPSHOT);
-
-  // TODO(Tiago): confirmar os 8 valores (2 dias x 4 campos) antes de rodar esta função.
-  var ontem = gravarLinhaSnapshot_(abaAuxiliar, '2026-09-17',
-    /* total */ 0,
-    /* longoPrazo */ 0,
-    /* nacional */ 0,
-    /* rendaEmergencial */ 0,
-    /* pregao */ true);
-  Logger.log('Semeado 17/09: ' + JSON.stringify(ontem));
-
-  var hoje = gravarLinhaSnapshot_(abaAuxiliar, '2026-09-18',
-    /* total */ 0,
-    /* longoPrazo */ 0,
-    /* nacional */ 0,
-    /* rendaEmergencial */ 0,
-    /* pregao */ true);
-  Logger.log('Semeado 18/09: ' + JSON.stringify(hoje));
-}

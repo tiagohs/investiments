@@ -5,6 +5,8 @@
   "description": "Front-end do app pessoal de controle de investimentos (ver docs/plano-implementacao.html). package.json existe so como ferramenta de dev (testes) - nunca e servido pelo GitHub Pages.",
   "scripts": {
     "test": "node --test",
+    "test:estrito": "CI_ESTRITO=1 node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./tests/harness/reporter-estrito.mjs --test-reporter-destination=stderr",
+    "test:afetados": "node tests/harness/pre-commit-testes.mjs --arquivos",
     "verificar": "node tests/harness/verificar.mjs",
     "vigiar": "node tests/harness/verificar.mjs --vigiar",
     "relatorio": "node tests/harness/relatorio-telas.mjs",

@@ -105,7 +105,7 @@ var METAS_ABA_ = 'aux_metas';
 var METAS_MAX_JSON_ = 49000;
 var METAS_CACHE_CAMBIO_ = 'metas_cambio_v1';
 var METAS_CAMBIO_SEGUNDOS_ = 6 * 60 * 60;
-var METAS_TIPOS_ = ['rendaPassiva', 'viagemInternacional', 'viagemNacional', 'casa', 'carro', 'reservaEmergencia', 'aposentadoria', 'acumulo'];
+var METAS_TIPOS_ = ['rendaPassiva', 'viagemInternacional', 'viagemNacional', 'casa', 'carro', 'reservaEmergencia', 'aposentadoria', 'acumulo', 'distribuicaoCarteira'];
 var METAS_CATEGORIAS_ = ['projetos', 'educacao', 'equipamentos', 'empreendedorismo', 'hobbies', 'pets', 'eventos', 'assinaturas', 'saude', 'mudancaPais', 'casamento', 'veiculosLazer', 'outros'];
 // 04/10/2026: todas as moedas dos países de assets/data/paises.json (a moeda padrão de cada destino)
 var METAS_MOEDAS_ = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY',
@@ -118,10 +118,12 @@ var METAS_MOEDAS_ = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY',
   'TOP', 'TRY', 'TTD', 'TWD', 'TZS', 'UAH', 'UGX', 'UYU', 'UZS', 'VES', 'VND', 'VUV', 'WST', 'XAF', 'XCD', 'XOF', 'XPF', 'YER', 'ZAR', 'ZMW'];
 var METAS_ABA_CAMBIO_ = 'aux_cambio';
 var METAS_ABA_BOLSA_USA_ = 'Bolsa USA >>>';
+var METAS_ABA_DM_ = 'Distribuição e Metas'; // 06/10/2026: onde a meta salva no site sobrescreve a planilha (celulasPlanilhaDaMeta_)
 /** Faixa plausível (reais por 1 unidade) pra conferir a cotação lida da aba Bolsa USA >>>. */
 var METAS_FAIXA_CAMBIO_ = { USD: [2, 15], EUR: [2, 16], GBP: [3, 18], CHF: [2, 16] };
 /** Posição de cada moeda na aba Bolsa USA >>> (o Tiago: D8 dólar, D9 libra, D10 franco, D11 euro). */
 var METAS_CELULAS_BOLSA_USA_ = { 8: 'USD', 9: 'GBP', 10: 'CHF', 11: 'EUR' };
+var METAS_AVISOS_IGNORAVEIS_ = ['sobreposicao'];
 var METAS_TIPOS_ENTRADA_ = ['decimo13', 'fgts', 'plr', 'outra'];
 var METAS_DINHEIRO_MAX_ = 1e10;
 var METAS_CACHE_HIST_RESUMO_ = 'metas_hist_resumo_v1';
@@ -203,11 +205,22 @@ function chaveCacheRespostaMetas_(ss, agora) {
     [METAS_ABA_, 'Auxiliar_ativos'].map(linhas).join('_');
 }
 
+/**
+ * 06/10/2026: só no cache miss - (1) a meta "Distribuição da carteira" nasce dos % da planilha na 1ª leitura (DistribuicoesMetas.gs,
+ * idempotente) e (2) a resposta leva `distribuicaoAtual` (R$ por tipo, como a planilha calcula). Resposta quente não lê a planilha.
+ */
+function montarTelaMetasComDistribuicao_(ss, agora) {
+  try { if (typeof garantirMetaDistribuicao_ === 'function') garantirMetaDistribuicao_(ss, agora); } catch (eDist) { console.log('garantirMetaDistribuicao_: ' + eDist); }
+  var r = montarTelaMetas_(ss, agora);
+  try { if (typeof montarDistribuicaoAtual_ === 'function') r.distribuicaoAtual = montarDistribuicaoAtual_(); } catch (eDA) { console.log('montarDistribuicaoAtual_: ' + eDA); }
+  return r;
+}
+
 function montarTelaMetasComCache_(ss, agora) {
   var chave = null;
   try { chave = chaveCacheRespostaMetas_(ss, agora); } catch (eK) { chave = null; }
-  if (!chave || typeof cacheDeResposta_ !== 'function') return montarTelaMetas_(ss, agora);
-  return cacheDeResposta_('metas_resposta', chave, METAS_RESPOSTA_SEGUNDOS_, function () { return montarTelaMetas_(ss, agora); });
+  if (!chave || typeof cacheDeResposta_ !== 'function') return montarTelaMetasComDistribuicao_(ss, agora);
+  return cacheDeResposta_('metas_resposta', chave, METAS_RESPOSTA_SEGUNDOS_, function () { return montarTelaMetasComDistribuicao_(ss, agora); });
 }
 
 function handleSalvarMeta(e) {
@@ -288,7 +301,7 @@ function novoIdMeta_() {
   return 'm' + Date.now().toString(36) + aleatorio;
 }
 
-function salvarMeta_(ss, metaJson, agora) {
+function salvarMeta_(ss, metaJson, agora, opcoes) {
   if (metaJson === undefined || metaJson === null || String(metaJson).trim() === '') return { ok: false, etapa: 'metas', erro: 'meta vazia' };
   var bruta;
   try { bruta = JSON.parse(metaJson); } catch (eJ) { return { ok: false, etapa: 'metas', erro: 'meta inválida (JSON)' }; }
@@ -303,6 +316,12 @@ function salvarMeta_(ss, metaJson, agora) {
     meta.id = novoIdMeta_();
     meta.criadaEm = isoDiaMeta_(agora || new Date());
   }
+  // 06/10/2026: "Distribuição da carteira" - uma só ativa; o site manda: os pesos vão pras células da planilha (antes de gravar a meta)
+  if (meta.tipo === 'distribuicaoCarteira') {
+    var jaTem = linhas.some(function (x) { return x.meta.tipo === meta.tipo && x.meta.id !== meta.id && x.meta.status !== 'arquivada'; });
+    if (jaTem && meta.status !== 'arquivada') return { ok: false, etapa: 'metas', erro: 'já existe uma meta de distribuição da carteira - edite a que existe' };
+    if (!(opcoes && opcoes.semPlanilha)) gravarPesosPlanilhaDistribuicao_(ss, meta.especificos.pesos);
+  }
   mesclarHistoricoSaldos_(meta, existente ? existente.meta : null, agora || new Date());
   var id = meta.id;
   var copia = JSON.parse(JSON.stringify(meta));
@@ -312,8 +331,56 @@ function salvarMeta_(ss, metaJson, agora) {
   var aba = garantirAbaMetas_(ss);
   var linha = existente ? existente.linha : Math.max(aba.getLastRow(), 1) + 1;
   aba.getRange(linha, 1, 1, 3).setValues([[id, texto, agora || new Date()]]);
+  var planilha = sincronizarPlanilhaMeta_(ss, meta); // 06/10/2026: o site é a fonte da verdade - sobrescreve as células correspondentes
   if (SpreadsheetApp.flush) SpreadsheetApp.flush();
-  return { ok: true, id: id, meta: meta, metas: lerMetas_(ss) };
+  return { ok: true, id: id, meta: meta, metas: lerMetas_(ss), planilha: planilha };
+}
+
+/**
+ * 06/10/2026 (Tiago, Metas > Patrimônio: "não precisa me lembrar que está diferente na planilha; agora o que vale é o que está
+ * no site (sobrescreva na planilha se eu mudar no site)"): células da aba 'Distribuição e Metas' que a meta salva no site
+ * sobrescreve - as MESMAS que a leitura usa (Despesas.gs!lerDespesasOrganizacao_ / montarTelaMetas_ referencias):
+ *   reserva de emergência: L11 meses, L12 sobra de segurança (margem);
+ *   aposentadoria:         K18 extra, L18 % de reinvestimento, M18 rendimento (taxa de retirada);
+ *                          M19 renda desejada (só no modo "renda") e N18 patrimônio desejado (só no modo "montante").
+ * Só campos preenchidos na meta (vazio = "seguir a planilha": não toca) e só de meta ativa. Devolve [{ celula, rotulo, linha, coluna, valor }].
+ */
+function celulasPlanilhaDaMeta_(meta) {
+  if (!meta || meta.status !== 'ativa') return [];
+  var e = meta.especificos || {};
+  var n = function (v) { return typeof v === 'number' && isFinite(v) ? v : null; };
+  var out = [];
+  var add = function (celula, rotulo, linha, coluna, valor) { if (valor !== null) out.push({ celula: celula, rotulo: rotulo, linha: linha, coluna: coluna, valor: valor }); };
+  if (meta.tipo === 'reservaEmergencia') {
+    add('L11', 'meses de reserva', 11, 12, n(e.meses));
+    add('L12', 'sobra de segurança', 12, 12, n(e.margem));
+  } else if (meta.tipo === 'aposentadoria') {
+    add('K18', 'extra por mês', 18, 11, n(e.extra));
+    add('L18', '% de reinvestimento', 18, 12, n(e.reinvestimento));
+    add('M18', 'taxa de retirada', 18, 13, n(e.taxaRetirada));
+    if (e.modoAlvo === 'renda') add('M19', 'renda desejada', 19, 13, n(e.rendaDesejada));
+    if (e.modoAlvo === 'montante') add('N18', 'patrimônio desejado', 18, 14, n(meta.valorAlvo));
+  }
+  return out;
+}
+
+/** Grava as células de celulasPlanilhaDaMeta_ na planilha (só as que mudaram). Nunca lança: devolve { atualizadas: [{ celula, rotulo, antes, depois }], erro? }. */
+function sincronizarPlanilhaMeta_(ss, meta) {
+  var r = { atualizadas: [] };
+  try {
+    var celulas = celulasPlanilhaDaMeta_(meta);
+    if (!celulas.length) return r;
+    var dm = ss.getSheetByName(METAS_ABA_DM_);
+    if (!dm) { r.erro = 'aba não encontrada: ' + METAS_ABA_DM_; return r; }
+    celulas.forEach(function (c) {
+      var rg = dm.getRange(c.linha, c.coluna, 1, 1);
+      var antes = rg.getValues()[0][0];
+      if (typeof antes === 'number' && Math.abs(antes - c.valor) < 1e-9) return;
+      rg.setValues([[c.valor]]);
+      r.atualizadas.push({ celula: c.celula, rotulo: c.rotulo, antes: antes === '' ? null : antes, depois: c.valor });
+    });
+  } catch (erro) { r.erro = String(erro && erro.message ? erro.message : erro); }
+  return r;
 }
 
 function arquivarMeta_(ss, id, restaurar, agora) {
@@ -508,6 +575,12 @@ function normalizarMeta_(v) {
     meta.especificos = { valorCarro: d(e.valorCarro, 'valorCarro'), entradaPct: numMeta_(e.entradaPct, 0, 1, 'entradaPct') };
   } else if (tipo === 'reservaEmergencia') {
     meta.especificos = { meses: numMeta_(e.meses, 0, 120, 'meses'), margem: numMeta_(e.margem, 0, 2, 'margem'), despesaMensal: d(e.despesaMensal, 'despesaMensal'), usarDespesasPlanilha: e.usarDespesasPlanilha !== false };
+  } else if (tipo === 'distribuicaoCarteira') {
+    // 06/10/2026: a distribuição desejada da carteira (pesos por grupo: Ações/FIIs/Renda Fixa e as divisões de cada um) - ver
+    // DistribuicoesMetas.gs. Cada grupo precisa somar 100%; sem valor alvo, prazo nem vínculos (olha a carteira inteira).
+    if (typeof normalizarPesosDistribuicao_ !== 'function') throw new Error('DistribuicoesMetas.gs desatualizado: faltam as funções da distribuição da carteira');
+    meta.especificos = { pesos: normalizarPesosDistribuicao_(e.pesos) };
+    meta.vinculos = [];
   } else if (tipo === 'aposentadoria') {
     // 03/10/2026: a conta da planilha (Distribuição e Metas K17:N19) fica
     // editável: base = despesas essenciais + extra; + % de reinvestimento =
@@ -521,6 +594,10 @@ function normalizarMeta_(v) {
     };
   }
   // 04/10/2026: links (qualquer meta) e entradas programadas (13º, FGTS, PLR...)
+  // 06/10/2026 (Tiago: "me dê a opção de ignorar esse aviso"): avisos que o usuário mandou ignorar nesta meta
+  if (Array.isArray(v.ignorarAvisos)) {
+    meta.ignorarAvisos = v.ignorarAvisos.filter(function (x) { return METAS_AVISOS_IGNORAVEIS_.indexOf(x) >= 0; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
+  }
   if (Array.isArray(v.links)) {
     meta.links = v.links.slice(0, 10).map(function (l) {
       if (!l || typeof l !== 'object') return null;
@@ -668,7 +745,7 @@ function ativosParaMetas_(ss) {
   // 03/10/2026: IR (+ IOF) se resgatasse hoje, por título - RendaFixaIR.gs
   var irPorChave = {};
   try {
-    montarIRRendaFixa_().forEach(function (p) { irPorChave[String(p.titulo || '').trim().toUpperCase() + '|' + String(p.instituicao || '').trim().toUpperCase()] = p; });
+    montarIRRendaFixa_().forEach(function (p) { irPorChave[chaveTituloRf_(p.titulo, p.instituicao)] = p; });
   } catch (eIr) { irPorChave = null; }
   montarMeusAtivos_().forEach(function (a) {
     var valor = null;
@@ -693,7 +770,7 @@ function ativosParaMetas_(ss) {
       valorBRL: Math.round(valor * 100) / 100
     };
     if (a.classe === 'rf' && irPorChave) {
-      var chaveIr = String(a.nome || a.tipoInvestimento || a.ticker || '').trim().toUpperCase() + '|' + String(a.instituicao || '').trim().toUpperCase();
+      var chaveIr = chaveTituloRf_(a.nome || a.tipoInvestimento || a.ticker, a.instituicao);
       item.irResgate = irResgateDoAtivo_(irPorChave[chaveIr], item.valorBRL, a.vencimento);
     }
     out.push(item);
@@ -937,14 +1014,35 @@ var METAS_PRIORIDADE_TIPOS_ = ['reservaEmergencia', 'rendaPassiva', 'aposentador
 
 /**
  * 05/10/2026 (A-11): calcula `progresso` de TODAS as metas ativas com alocação exclusiva por prioridade
- * (cada ativo conta numa meta só). Mesmo critério do front (metas-calc.js!alocarMetas).
+ * (cada ativo conta numa meta só; 06/10/2026: exceto Reserva de emergência x Aposentadoria, que podem contar os mesmos ativos). Mesmo critério do front (metas-calc.js!alocarMetas).
  */
 function alocarMetasVinculos_(metas, ativos, cambio) {
   var ocupado = {};
+  var usoReserva = {}; // 06/10/2026: o que a reserva pegou de cada ativo
   var peso = function (m) { var k = METAS_PRIORIDADE_TIPOS_.indexOf(m.tipo); return k < 0 ? METAS_PRIORIDADE_TIPOS_.length : k; };
+  var chaves = function (o) { return Object.keys(o); };
   metas.map(function (m, i) { return { m: m, i: i }; })
     .sort(function (a, b) { return peso(a.m) - peso(b.m) || a.i - b.i; })
-    .forEach(function (x) { x.m.progresso = progressoVinculosMeta_(x.m, ativos, cambio, ocupado); });
+    .forEach(function (x) {
+      var m = x.m;
+      if (m.tipo === 'reservaEmergencia') {
+        var antes = {}; chaves(ocupado).forEach(function (id) { antes[id] = ocupado[id]; });
+        m.progresso = progressoVinculosMeta_(m, ativos, cambio, ocupado);
+        chaves(ocupado).forEach(function (id) { usoReserva[id] = (usoReserva[id] || 0) + (ocupado[id] - (antes[id] || 0)); });
+      } else if (m.tipo === 'aposentadoria' && chaves(usoReserva).length) {
+        // 06/10/2026 (Tiago: "a única exceção de ter os mesmos ativos em duas metas seria Renda Emergencial e Patrimônio"):
+        // a aposentadoria não vê o que a reserva pegou; só a parte que passa do uso da reserva ocupa de novo (igual a metas-calc-plano.js!alocarMetas)
+        var visao = {}; chaves(ocupado).forEach(function (id) { visao[id] = Math.max(0, ocupado[id] - (usoReserva[id] || 0)); });
+        var antesV = {}; chaves(visao).forEach(function (id) { antesV[id] = visao[id]; });
+        m.progresso = progressoVinculosMeta_(m, ativos, cambio, visao);
+        chaves(visao).forEach(function (id) {
+          var uso = visao[id] - (antesV[id] || 0);
+          ocupado[id] = (Number(ocupado[id]) || 0) + Math.max(0, uso - (usoReserva[id] || 0));
+        });
+      } else {
+        m.progresso = progressoVinculosMeta_(m, ativos, cambio, ocupado);
+      }
+    });
 }
 
 /** Reais por 1 unidade da moeda ({ EUR: 6 } ou { EUR: { valor: 6 } }); BRL = 1; sem cotação = null. */
@@ -1259,19 +1357,7 @@ function partesIdRfMetas_(id) {
   return { nome: barra >= 0 ? corpo.slice(0, barra).trim() : corpo.trim(), instituicao: barra >= 0 ? corpo.slice(barra + 1).trim() : '', marca: marca };
 }
 
-function instRfMetas_(inst) {
-  return typeof normalizarInstituicaoRF_ === 'function' ? normalizarInstituicaoRF_(inst) : String(inst || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-/** Mesmo produto? (Tesouro: nome igual; LCI/LCA/CDB: tipo + instituição - como Ativo.gs). */
-function casaTituloRfMetas_(nomeAtivo, instAtivoNorm, produto, inst) {
-  if (instRfMetas_(inst) !== instAtivoNorm) return false;
-  var a = String(nomeAtivo || '').trim().toUpperCase(), b = String(produto || '').trim().toUpperCase();
-  if (!a || !b) return false;
-  if (a === b) return true;
-  var tipo = a.split(/[\s-]/)[0];
-  return ['LCI', 'LCA', 'CDB'].indexOf(tipo) >= 0 && b.split(/[\s-]/)[0] === tipo;
-}
+// 06/10/2026 (A-71): instRfMetas_/casaTituloRfMetas_ saíram - a regra única é casaTituloRf_/chaveTituloRf_ (RendaFixaIR.gs).
 
 /**
  * opcoes (testes): { id, serieInicio: [...], linhasPatrimonio: [[...]], linhasRf: [[...]],
@@ -1323,7 +1409,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
   vinculos.forEach(function (v) {
     if (v.tipo !== 'ativo' || !v.id) return;
     var rf = partesIdRfMetas_(v.id);
-    if (rf) titulosRf.push({ id: v.id, nome: rf.nome, inst: instRfMetas_(rf.instituicao), marca: rf.marca });
+    if (rf) titulosRf.push({ id: v.id, nome: rf.nome, inst: normalizarInstituicaoChaveRf_(rf.instituicao), marca: rf.marca });
     else tickers[String(v.id).replace(/#\d+$/, '').toUpperCase()] = true;
   });
   var rvMes = {};
@@ -1391,7 +1477,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
         var emerg = String(l[4] || '') === 'Renda Emergencial';
         titulosRf.forEach(function (tt) {
           if (tt.marca && (tt.marca === 'emergencial') !== emerg) return;
-          if (!casaTituloRfMetas_(tt.nome, tt.inst, l[1], l[2])) return;
+          if (!casaTituloRf_(tt.nome, tt.inst, l[1], l[2])) return;
           var m = porDia[tt.id] || (porDia[tt.id] = {});
           m[dia] = (m[dia] || 0) + l[5];
         });
@@ -1414,7 +1500,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
         var dia = diaIsoMetas_(l[1]);
         if (!sinal || !isFinite(valor) || !dia || dia > hoje) return;
         titulosRf.forEach(function (tt) {
-          if (!casaTituloRfMetas_(tt.nome, tt.inst, l[0], l[4])) return;
+          if (!casaTituloRf_(tt.nome, tt.inst, l[0], l[4])) return;
           var m = rfMes[tt.id] || (rfMes[tt.id] = {});
           var x = m[dia.slice(0, 7)] || (m[dia.slice(0, 7)] = { valor: null, fluxo: 0 });
           x.fluxo += sinal * valor;

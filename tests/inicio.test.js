@@ -11,7 +11,6 @@ import {
   resolverVisao,
   calcularDistribuicaoPorClasse,
   calcularDistribuicaoRendaEmergencial,
-  renderDistribuicao,
   filtrarHistoricoPorPeriodo,
   normalizarSerieRentabilidade,
   renderGraficoRentabilidade,
@@ -212,143 +211,7 @@ test('calcularDistribuicaoRendaEmergencial() agrupa por tipo de investimento, ma
   assert.equal(distrib[1].valor, 10000);
 });
 
-test('renderDistribuicao() desenha uma fatia (arco do donut + item de legenda) por entrada', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Ações', cor: 'var(--acoes)', valor: 60 },
-    { label: 'FIIs', cor: 'var(--fiis)', valor: 40 },
-  ]);
-  assert.equal(container.querySelectorAll('.distrib-arco').length, 2);
-  assert.equal(container.querySelectorAll('.distrib-item').length, 2);
-  assert.match(container.textContent, /60,0%/);
-  assert.match(container.textContent, /40,0%/);
-});
-
-// 18/09/2026: dot+nome e valor+%+ícone agrupados em 2 wrappers
-// (.distrib-nome-wrap/.distrib-valores) - min-width:0 sozinho não
-// bastou num celular de verdade (Tiago testou e ainda vazava, mesmo
-// depois do card virar item de grid com min-width:0); com os 2 grupos,
-// .distrib-item empilha em 2 linhas abaixo de 480px (CSS), então cada
-// linha só precisa caber sozinha.
-test('renderDistribuicao() agrupa dot+nome (.distrib-nome-wrap) e valor+%+ícone (.distrib-valores) - permite empilhar em 2 linhas no mobile', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Ações', cor: 'var(--acoes)', valor: 60 },
-  ]);
-  const item = container.querySelector('.distrib-item');
-  const nomeWrap = item.querySelector('.distrib-nome-wrap');
-  const valores = item.querySelector('.distrib-valores');
-  assert.ok(nomeWrap);
-  assert.ok(valores);
-  assert.ok(nomeWrap.querySelector('.distrib-dot'));
-  assert.ok(nomeWrap.querySelector('.distrib-nome'));
-  assert.ok(valores.querySelector('.distrib-valor'));
-  assert.ok(valores.querySelector('.distrib-pct'));
-  assert.ok(valores.querySelector('.info-icon'));
-  // os 2 grupos são filhos diretos de .distrib-item, nessa ordem.
-  assert.deepEqual(Array.from(item.children).map((el) => el.className), ['distrib-nome-wrap', 'distrib-valores']);
-});
-
-test('renderDistribuicao() mostra o valor em R$ de cada fatia, além da porcentagem (Tiago pediu os dois de volta na legenda)', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Ações', cor: 'var(--acoes)', valor: 60000 },
-    { label: 'FIIs', cor: 'var(--fiis)', valor: 40000 },
-  ]);
-  const valores = Array.from(container.querySelectorAll('.distrib-valor')).map((el) => el.textContent);
-  assert.deepEqual(valores, ['R$\xa060.000,00', 'R$\xa040.000,00']);
-  assert.match(container.textContent, /60,0%/);
-  assert.match(container.textContent, /40,0%/);
-});
-
-// 16/09/2026: pedido do Tiago - a fatia de Ações EUA (tem valorUsd)
-// mostra USD com o equivalente em R$ entre parênteses, menor - as
-// outras fatias (sem valorUsd) continuam só em R$, sem mudança.
-test('renderDistribuicao() com valorUsd numa fatia mostra USD com o equivalente em R$ numa 2ª linha (Ações EUA)', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Ações', cor: 'var(--acoes)', valor: 60000 },
-    { label: 'Ações EUA', cor: 'var(--usa)', valor: 27500, valorUsd: 5000 },
-  ]);
-  const valores = Array.from(container.querySelectorAll('.distrib-valor'));
-  assert.match(valores[0].textContent, /R\$/);
-  assert.equal(valores[0].textContent.includes('$5'), false);
-  assert.match(valores[1].textContent, /\$5,000\.00|US\$/);
-  assert.match(valores[1].textContent, /27\.500,00/);
-  // 17/09/2026: o equivalente em R$ virou uma 2ª linha (.distrib-valor-abaixo)
-  // embaixo do valor em dólar, em vez de ficar do lado na mesma linha
-  // (.moeda-conv) - estourava a largura do card no mobile.
-  const abaixo = valores[1].querySelector('.distrib-valor-abaixo');
-  assert.ok(abaixo, 'equivalente em R$ vem numa span separada (menor/apagada), numa 2ª linha');
-  assert.match(abaixo.textContent, /27\.500,00/);
-});
-
-test('renderDistribuicao() mostra um aviso (sem lançar) quando não há dado suficiente', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  assert.doesNotThrow(() => renderDistribuicao(doc, container, []));
-  assert.match(container.textContent, /Sem dado/);
-});
-
-test('renderDistribuicao() põe um ícone "i" clicável (dataset.tooltip) com nome completo e % com 2 casas em cada item da legenda', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Renda Fixa - Tesouro Selic e afins', cor: 'var(--rf)', valor: 1 },
-    { label: 'FIIs', cor: 'var(--fiis)', valor: 2 },
-  ]);
-  const [item1, item2] = container.querySelectorAll('.distrib-item');
-  assert.equal(item1.classList.contains('info-alvo'), true);
-  assert.ok(item1.querySelector('.info-icon'));
-  assert.match(item1.dataset.tooltip, /Renda Fixa - Tesouro Selic e afins/);
-  assert.match(item1.dataset.tooltip, /33,33%/);
-  assert.match(item2.dataset.tooltip, /66,67%/);
-});
-
-// 19/09/2026 #6 (pedido do Tiago pro donut "Por setor" de Ações EUA, em
-// carteiras-classe-comum.js!renderDistribuicaoGrupoCarteiras: "por
-// default, mostra em dolar aqui, e no i, mantenha a versao em reais") -
-// `formatarValor`/`formatarValorTooltip` deixam o valor principal da
-// legenda (.distrib-valor) e o valor entre parênteses da tooltip usarem
-// moedas/formatadores diferentes do padrão (formatBRL nos dois) - sem
-// passar nada, comportamento idêntico a antes (ver os testes acima).
-test('renderDistribuicao() com `formatarValor` mostra o valor principal nessa moeda (mantendo o padrão pra quem não passa nada)', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  const formatarValor = (v) => `US$ ${v.toFixed(2)}`;
-  renderDistribuicao(doc, container, [
-    { label: 'Financeiro', valor: 1835.11 },
-  ], { formatarValor });
-  assert.equal(container.querySelector('.distrib-valor').textContent, 'US$ 1835.11');
-});
-
-test('renderDistribuicao() sem `formatarValorTooltip` explícito usa o mesmo `formatarValor` também na tooltip', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  const formatarValor = (v) => `US$ ${v.toFixed(2)}`;
-  renderDistribuicao(doc, container, [
-    { label: 'Financeiro', valor: 1835.11 },
-  ], { formatarValor });
-  assert.match(container.querySelector('.distrib-item').dataset.tooltip, /US\$ 1835\.11/);
-});
-
-test('renderDistribuicao() com `formatarValor` e `formatarValorTooltip` diferentes mostra 1 moeda na legenda e outra na tooltip', () => {
-  const doc = makeDom('<div id="distrib"></div>');
-  const container = doc.getElementById('distrib');
-  renderDistribuicao(doc, container, [
-    { label: 'Financeiro', valor: 1835.11 },
-  ], {
-    formatarValor: (v) => `US$ ${v.toFixed(2)}`,
-    formatarValorTooltip: (v) => `R$ ${(v * 5).toFixed(2)}`,
-  });
-  assert.equal(container.querySelector('.distrib-valor').textContent, 'US$ 1835.11');
-  assert.match(container.querySelector('.distrib-item').dataset.tooltip, /R\$ 9175\.55/);
-  assert.equal(container.querySelector('.distrib-valor').textContent.includes('R$'), false);
-});
+// 06/10/2026 (A-79): os testes de renderDistribuicao() saíram com a função (nenhuma tela a chamava).
 
 
 
@@ -1478,7 +1341,7 @@ function makePaginaDom() {
       <div id="refreshControlInicio"></div>
       <div class="avisos-banner" id="inicioAvisos" hidden></div>
       <div class="mkt-faixa" id="faixaMercado"></div>
-      <div id="resumoPatrimonio"></div>
+      <div id="resumoDistribuicao"></div>
       <div class="filter-tabs" id="periodoTabs">
         <button class="filter-tab" data-periodo="30d">30 dias</button>
         <button class="filter-tab active" data-periodo="12m">12 meses</button>
@@ -1507,7 +1370,7 @@ test('montarPaginaInicio() renders every section and hides the loading state on 
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
   assert.equal(doc.getElementById('faixaMercado').querySelectorAll('.mkt').length, 3); // ibovespa + usd + eur
-  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.rc-visao-total .chart-kpi-val'));
+  assert.equal(doc.querySelectorAll('.rc-kpi, .chart-kpi').length, 0, '06/10/2026: sem os cartões KPI de total por carteira');
   assert.equal(doc.getElementById('inicioErro').hidden, true);
 });
 
@@ -1534,7 +1397,6 @@ test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e a 
 
   assert.ok(doc.getElementById('rentabChartNacional').querySelector('svg'), 'painel de Rentabilidade Nacional precisa desenhar de cara, igual aos outros 3');
   assert.match(doc.getElementById('rentabInfoNacional').textContent, /Patrimônio Nacional/);
-  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.rc-kpi').length, 4);
   // 03/10/2026 (revisão do pedido "Patrimônio total: incluir o índice IPCA"):
   // a linha do IPCA entra só no Patrimônio total
   assert.match(doc.getElementById('rentabLegendaTotal').textContent, /IPCA/);

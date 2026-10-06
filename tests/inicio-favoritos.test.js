@@ -80,13 +80,16 @@ test('favoritos: id "classe:ref" (código do título na Renda Fixa), alternar, m
 });
 
 // --- layout ---
-test('Início: faixa de mercado -> Favoritos -> Minha carteira -> Rentabilidade (com Proventos e Meus ativos na coluna lateral); Rentabilidade = Total, depois Longo Prazo | Nacional, depois Ações Internacionais | Renda Emergencial', () => {
+test('Início: faixa de mercado -> Favoritos -> Rentabilidade -> Distribuição | Proventos (50%/50% na área principal); coluna lateral só com Meus ativos; Rentabilidade = Total, depois Longo Prazo | Nacional, depois Ações Internacionais | Renda Emergencial', () => {
   const { doc } = paginaInicio();
-  const ordem = [...doc.querySelectorAll('#faixaMercado, #favoritosSecao, #resumoPatrimonio, #periodoTabs, #proventosSecao, #meusAtivosGrid')].map((e) => e.id);
-  assert.deepEqual(ordem, ['faixaMercado', 'favoritosSecao', 'resumoPatrimonio', 'periodoTabs', 'proventosSecao', 'meusAtivosGrid']);
+  const ordem = [...doc.querySelectorAll('#faixaMercado, #favoritosSecao, #periodoTabs, #resumoDistribuicao, #proventosSecao, #meusAtivosGrid')].map((e) => e.id);
+  assert.deepEqual(ordem, ['faixaMercado', 'favoritosSecao', 'periodoTabs', 'resumoDistribuicao', 'proventosSecao', 'meusAtivosGrid']);
+  assert.equal(doc.getElementById('resumoPatrimonio'), null, 'sem os 4 cartões KPI de total por carteira');
+  const par = doc.querySelector('.home-principal > .home-dist-prov');
+  assert.ok(par && par.contains(doc.getElementById('resumoDistribuicao')) && par.contains(doc.getElementById('proventosSecao')), 'Distribuição e Proventos lado a lado, logo abaixo da Rentabilidade');
+  assert.equal(doc.querySelector('.home-lateral').contains(doc.getElementById('proventosSecao')), false, 'a coluna da direita fica só com Ativos');
   const lateral = doc.querySelector('.home-colunas > aside.home-lateral');
   assert.ok(lateral, 'coluna lateral ao lado dos gráficos');
-  assert.ok(lateral.contains(doc.getElementById('proventosSecao')));
   assert.ok(lateral.contains(doc.getElementById('meusAtivosGrid')));
   assert.ok(doc.querySelector('.home-colunas > .home-principal').contains(doc.getElementById('periodoTabs')));
   // 06/10/2026 (Onda 3): o Total fica sozinho em cima; as outras 4 visões moram num <details> ("Por visão"), 2 a 2

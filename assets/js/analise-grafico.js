@@ -85,6 +85,7 @@ import { formatBRL, formatNumeroBR, formatDateBR, formatNumeroPt, formatPctSinal
 import { ehPeriodoPersonalizado, garantirEstilosComponentesGrafico } from './periodo-personalizado.js';
 import { BENCHMARK_POR_CLASSE, criterio, familiaDaClasse, classificar, mesesParaJulgar } from './criterios/base-rentabilidade.js';
 import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
+import { aliquotaIrPorDias } from './ir-renda-fixa.js'; // 06/10/2026 (A-82): IR/IOF únicos
 
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -717,7 +718,8 @@ function regraComparacaoClasse(ctx) {
   return { tipo: 'comparacao', tom, texto, resumo, peso: 60, criterios: ['retorno_twr_cota', ...criterios] };
 }
 
-function aliquotaIr(dias) { return dias <= 180 ? 0.225 : dias <= 360 ? 0.2 : dias <= 720 ? 0.175 : 0.15; }
+// 06/10/2026 (A-82): a tabela regressiva de IR agora é a do módulo único ir-renda-fixa.js
+const aliquotaIr = aliquotaIrPorDias;
 
 // ---------------------------------------------------------------------------
 // Movimento brusco (com causa provável)

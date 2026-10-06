@@ -191,31 +191,16 @@ var RE_TICKER_BR_ = /^[A-Z]{4}\d{1,2}$/;
 var RE_TICKER_USA_ = /^[A-Z]{1,5}(\.[A-Z])?$/;
 
 /**
- * Acrescenta às listas fixas de Sync.gs (TICKERS_ACOES_BR, TICKERS_FIIS_BR,
- * TICKERS_BR, TICKERS_USA) os ativos cadastrados em Auxiliar_ativos. Mexe
- * nos próprios arrays (quem já guardou a referência enxerga). 1x por execução.
+ * Preenche as listas de Sync.gs (TICKERS_ACOES_BR, TICKERS_FIIS_BR, TICKERS_BR, TICKERS_USA - hoje vazias no código) com os
+ * ativos de Auxiliar_ativos (Sync.gs!carregarTickersDaPlanilha_, com cache). Mexe nos próprios arrays (quem já guardou a
+ * referência enxerga). 1x por execução (zerar _listasTickersCarregadas_ força reler).
  */
 function carregarListasTickersDaPlanilha_(ss) {
   if (_listasTickersCarregadas_) return;
   _listasTickersCarregadas_ = true;
-  if (typeof TICKERS_BR === 'undefined' || typeof TICKERS_USA === 'undefined') return;
-  try {
-    var aba = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName('Auxiliar_ativos');
-    if (!aba || aba.getLastRow() < 2) return;
-    var fora = typeof TICKERS_FORA_DO_HISTORICO !== 'undefined' ? TICKERS_FORA_DO_HISTORICO : [];
-    aba.getRange(2, 1, aba.getLastRow() - 1, 2).getValues().forEach(function (l) {
-      var classe = String(l[0] || '').trim();
-      var t = String(l[1] || '').trim().toUpperCase();
-      if (!t || fora.indexOf(t) !== -1) return;
-      if (classe === 'Ações EUA') {
-        if (RE_TICKER_USA_.test(t) && TICKERS_USA.indexOf(t) === -1) TICKERS_USA.push(t);
-        return;
-      }
-      if ((classe !== 'Ações' && classe !== 'FIIs') || !RE_TICKER_BR_.test(t) || TICKERS_BR.indexOf(t) !== -1) return;
-      TICKERS_BR.push(t);
-      if (classe === 'FIIs') TICKERS_FIIS_BR.push(t); else TICKERS_ACOES_BR.push(t);
-    });
-  } catch (e) { Logger.log('carregarListasTickersDaPlanilha_: ' + e); }
+  // 06/10/2026: as listas nascem vazias em Sync.gs e são lidas da Auxiliar_ativos (com cache) por carregarTickersDaPlanilha_
+  if (typeof carregarTickersDaPlanilha_ !== 'function') return;
+  try { carregarTickersDaPlanilha_(ss); } catch (e) { Logger.log('carregarListasTickersDaPlanilha_: ' + e); }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,4 +354,14 @@ function liberarTravasForcado() {
   });
   Logger.log('Travas liberadas: ' + (soltas.join(', ') || 'nenhuma'));
   return soltas;
+}
+
+/**
+ * 06/10/2026 (A-80): `opcoesTeste` (modo de teste de ImportB3.gs/Sync.gs) só pode apontar pra uma aba
+ * cujo nome COMECE com "aux_tests" - nunca pra uma aba real. Devolve o nome ou lança erro.
+ */
+function nomeAbaTesteValido_(nome) {
+  var n = String(nome == null || nome === '' ? 'aux_tests' : nome);
+  if (n.indexOf('aux_tests') !== 0) throw new Error('opcoesTeste: o nome da aba de teste precisa começar com "aux_tests" (recebido: ' + n + ')');
+  return n;
 }

@@ -8,14 +8,11 @@ import { getCarteirasAcoes, getHome } from '../api-client.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
-import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira, definirFonteProventos } from './carteiras-proventos.js';
 import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
 import { criarGraficosCarteira } from './carteiras-graficos.js';
-import {
-  proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
-  wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, statusVies, seloViesHtml, variacaoHtml, celulaAtivoHtml, linhaTotalHtml,
-  contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
-} from './carteiras-classe-comum.js';
+import { proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel, wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, seloViesHtml, variacaoHtml, celulaAtivoHtml, linhaTotalHtml, contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras } from './carteiras-classe-comum.js';
+import { statusVies } from './carteiras-pecas.js';
 
 const CHAVE_CACHE_ACOES = 'carteiras_acoes_v2';
 
@@ -86,7 +83,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   const estadoSecoes = lerEstadoSecoes(conteudoEl);
   conteudoEl.innerHTML = esqueletoClasseHtml({
     prefixo: 'acoes', links: linksRelevantesHtml(LINKS_RELEVANTES_ACOES), tituloDistribuicao: 'Por setor', tituloLista: 'Ativos', contagem: contagemTexto(dados.resumo.quantidadeAtivos),
-    extrasAposLista: `${secaoProventosCarteiraHtml('acoesProventos')}${secaoRecolhivelHtml({ nome: 'videos', id: 'acoesVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('acoesVideos') })}`,
+    proventosHtml: secaoProventosCarteiraHtml('acoesProventos', { navegacao: true }),
+    extrasAposLista: `${secaoRecolhivelHtml({ nome: 'videos', id: 'acoesVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('acoesVideos') })}`,
   });
   const $ = (id) => doc.getElementById(id);
 
@@ -127,7 +125,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   aplicarEstadoSecoes(doc, conteudoEl, estadoSecoes);
 }
 
-export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome, getVideosImpl = undefined, getProventosImpl = undefined } = {}) {
+  definirFonteProventos(token, getProventosImpl); // 06/10/2026: meses anteriores dos proventos (ação "proventos" existente)
   const preencherVideos = criarCarregadorVideos(token, { carteira: 'acoes' }, getVideosImpl ? { getVideosImpl } : {});
   return montarPaginaClasseCarteiras(token, {
     doc, prefixo: 'acoes', tela: 'Carteira de Ações', chaveCache: CHAVE_CACHE_ACOES, buscarCarteira: getCarteirasAcoesImpl, getHomeImpl, desenhar,

@@ -106,6 +106,7 @@ function montarTelaTransacoes_() {
   var abas = lerAbasLanc_(ss, Object.keys(LANC_ABAS)); // Lancamentos.gs
   var aportes = lerAportes_(ss);
   var cambioHist = mapaCambioHistoricoAporte_(ss);
+  var compras = comprasInvestidoComCache_(ss, abas, cambioHist);
   var classes = ativosParaAporte_(ss, abas, aportes, cambioHist);
   var contexto = null;
   try { contexto = enriquecerMomentoAporte_(ss, classes); } catch (eM) { Logger.log('enriquecerMomentoAporte_: ' + eM); }
@@ -119,7 +120,10 @@ function montarTelaTransacoes_() {
     caixaDolar: lerCaixaDolar_(ss), // 05/10/2026: dólares enviados aguardando compra
     aportes: aportes,
     aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, abas), // 05/10/2026 (A-24): aporte concluído (B3/RF) sem lançamento
-    resumo: resumoInvestidoComCache_(ss, abas, cambioHist),
+    resumo: resumoDeCompras_(compras),
+    // 06/10/2026: "Aportes concluídos" reflete o "Investido por mês": os meses anteriores ao site, DERIVADOS das abas de transações
+    // (nada é gravado), saem das MESMAS compras que somam o resumo - os totais batem.
+    historicoPlanilha: historicoInvestido_(compras, aportes),
     lancamentos: listaLancamentosTela_(ss, abas, cambioHist)
   };
 }
@@ -254,47 +258,142 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
 // Resumo: quanto foi investido por mês (transações de verdade)
 // ---------------------------------------------------------------------------
 
-function resumoInvestidoComCache_(ss, abas, cambioHist) {
-  var chave = 'tx_resumo_v1_' + chaveDiaISOInicio_(new Date()) + '_' +
+function comprasInvestidoComCache_(ss, abas, cambioHist) {
+  var chave = 'tx_compras_v2_' + chaveDiaISOInicio_(new Date()) + '_' +
     ['transacoes', 'transacoesUsa', 'rendaFixa'].map(function (d) { return abas[d].itens.length; }).join('_');
-  var cache = null;
-  try { cache = CacheService.getScriptCache(); var v = cache.get(chave); if (v) return JSON.parse(v); } catch (e) { cache = null; }
-  var r = resumoInvestido_(ss, abas, cambioHist);
-  try { if (cache) cache.put(chave, JSON.stringify(r), 21600); } catch (e2) { /* só otimização */ }
-  return r;
+  // 06/10/2026: a lista de compras (uma por linha das abas) passa de 100 KB: o cache em pedaços (CacheRespostas.gs) cuida disso
+  if (typeof cacheDeResposta_ === 'function') return cacheDeResposta_('tx_compras', chave, 21600, function () { return comprasDaPlanilha_(ss, abas, cambioHist); });
+  return comprasDaPlanilha_(ss, abas, cambioHist);
+}
+
+/** Compat.: o resumo por mês com cache. */
+function resumoInvestidoComCache_(ss, abas, cambioHist) {
+  return resumoDeCompras_(comprasInvestidoComCache_(ss, abas, cambioHist));
 }
 
 /** { 'aaaa-mm': { acoes, fiis, acoesEua, acoesEuaUsd, rendaFixa, total } } - só compras/aplicações. */
 function resumoInvestido_(ss, abas, cambioHist) {
-  var meses = {};
-  var somar = function (data, classe, valor, usd) {
+  return resumoDeCompras_(comprasDaPlanilha_(ss, abas, cambioHist));
+}
+
+/**
+ * 06/10/2026: UMA fonte pro "Investido por mês" e pros "Aportes concluídos" derivados: as compras/aplicações das abas
+ * Transações, Transações - USA (US$ x câmbio do dia da compra) e Transações Renda Fixa, uma por linha:
+ * [{ d: 'aaaa-mm-dd', c: classe, a: ativo, i: instituição (RF), q: qtd, v: valor em R$, u: valor em US$ (EUA) }].
+ */
+function comprasDaPlanilha_(ss, abas, cambioHist) {
+  var out = [];
+  var add = function (data, classe, ativo, inst, qtd, valor, usd) {
     if (!data || !(valor > 0)) return;
-    var m = data.slice(0, 7);
-    var r = meses[m] || (meses[m] = { acoes: 0, fiis: 0, acoesEua: 0, acoesEuaUsd: 0, rendaFixa: 0, total: 0 });
-    r[classe] += valor;
-    r.total += valor;
-    if (usd) r.acoesEuaUsd += usd;
+    out.push({ d: data, c: classe, a: ativo, i: inst || '', q: qtd > 0 ? qtd : 0, v: valor, u: usd || 0 });
   };
   var classes = typeof classesDaCarteiraParaProventos_ === 'function' ? classesDaCarteiraParaProventos_(ss) : {};
   abas.transacoes.itens.forEach(function (it) {
     if (!/compra/i.test(it.tipo)) return;
     var classe = classes[it.ticker] === 'fiis' || (!classes[it.ticker] && /11$/.test(it.ticker)) ? 'fiis' : 'acoes';
-    somar(it.data, classe, (it.preco || 0) * (it.qtd || 0) + (it.taxa || 0));
+    add(it.data, classe, it.ticker, '', it.qtd, (it.preco || 0) * (it.qtd || 0) + (it.taxa || 0), 0);
   });
   var ch = cambioHist || mapaCambioHistoricoAporte_(ss);
   abas.transacoesUsa.itens.forEach(function (it) {
     if (!/compra/i.test(it.tipo)) return;
     var usd = (it.preco || 0) * (it.qtd || 0) + (it.taxa || 0);
     var cambio = cambioNaDataAporte_(ch, it.data);
-    somar(it.data, 'acoesEua', usd * (cambio || 0), usd);
+    add(it.data, 'acoesEua', it.ticker, '', it.qtd, usd * (cambio || 0), usd);
   });
   abas.rendaFixa.itens.forEach(function (it) {
-    if (/compra|aplica/i.test(it.movimentacao)) somar(it.data, 'rendaFixa', it.valor || 0);
+    if (/compra|aplica/i.test(it.movimentacao)) add(it.data, 'rendaFixa', it.produto, it.instituicao, 0, it.valor || 0, 0);
+  });
+  return out;
+}
+
+function resumoDeCompras_(compras) {
+  var meses = {};
+  compras.forEach(function (c) {
+    var m = c.d.slice(0, 7);
+    var r = meses[m] || (meses[m] = { acoes: 0, fiis: 0, acoesEua: 0, acoesEuaUsd: 0, rendaFixa: 0, total: 0 });
+    r[c.c] += c.v;
+    r.total += c.v;
+    if (c.u) r.acoesEuaUsd += c.u;
   });
   Object.keys(meses).forEach(function (m) {
     Object.keys(meses[m]).forEach(function (k) { meses[m][k] = Math.round(meses[m][k] * 100) / 100; });
   });
   return meses;
+}
+
+/**
+ * 06/10/2026: "Aportes concluídos" derivado das transações. Tira das compras da planilha a parte que um aporte concluído
+ * do site já cobre (mesmo critério do "a confirmar": mesmo ativo, lançamento de 2 dias antes a 10 depois da data do
+ * aporte, o aporte mais antigo consome primeiro) e agrupa o resto por dia e classe.
+ * -> { dias: [{ data, classe, valor, usd, itens: [{ ativo, inst, qtd, valor, usd }] }] (mais novo primeiro),
+ *      cobertoSite: { 'aaaa-mm': valor que os aportes do site já cobrem } }
+ * dias + cobertoSite = o "Investido por mês" de cada mês (o teste confere). Não grava nada.
+ */
+function historicoInvestido_(compras, aportes) {
+  var arr = function (v) { return Math.round(v * 100) / 100; };
+  var lista = compras.map(function (c) {
+    var rf = c.c === 'rendaFixa';
+    var medida = rf ? c.v : c.q;
+    return {
+      c: c, rf: rf, medida: medida, resta: medida, dia: diaDaChaveAporte_(c.d),
+      destino: rf ? 'rendaFixa' : (c.c === 'acoesEua' ? 'transacoesUsa' : 'transacoes'),
+      chave: rf ? normTextoLanc_(c.a) : String(c.a).trim().toUpperCase(), inst: rf ? normalizarInstituicaoRF_(c.i) : ''
+    };
+  });
+  lista.sort(function (a, b) { return a.dia - b.dia; });
+  var pedidos = [];
+  (aportes || []).forEach(function (a) {
+    if (a.status !== 'concluido') return;
+    (a.itens || []).forEach(function (it) {
+      if (it.classe === 'rendaFixa') {
+        var valor = it.valorFinal > 0 ? it.valorFinal : it.valorPlanejado;
+        if (valor > 0) pedidos.push({ data: a.data, destino: 'rendaFixa', chave: normTextoLanc_(it.ativo), inst: normalizarInstituicaoRF_(it.instituicao), medida: valor });
+      } else if (it.classe === 'acoes' || it.classe === 'fiis' || it.classe === 'acoesEua') {
+        var qtd = it.qtdFinal > 0 ? it.qtdFinal : it.qtdPlanejada;
+        if (qtd > 0) pedidos.push({ data: a.data, destino: it.classe === 'acoesEua' ? 'transacoesUsa' : 'transacoes', chave: String(it.ativo).trim().toUpperCase(), medida: qtd });
+      }
+    });
+  });
+  pedidos.sort(function (x, y) { return x.data < y.data ? -1 : (x.data > y.data ? 1 : 0); });
+  pedidos.forEach(function (p) {
+    var dia = diaDaChaveAporte_(p.data);
+    var coberto = 0;
+    lista.forEach(function (l) {
+      if (coberto >= p.medida || l.resta <= 0 || l.destino !== p.destino || l.chave !== p.chave) return;
+      if (!(l.dia >= dia - ACONFIRMAR_DIAS_ANTES && l.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
+      if (p.destino === 'rendaFixa' && l.inst && p.inst && l.inst !== p.inst) return;
+      var usa = Math.min(l.resta, p.medida - coberto);
+      l.resta -= usa;
+      coberto += usa;
+    });
+  });
+  var cobertoSite = {};
+  var grupos = {};
+  lista.forEach(function (l) {
+    var c = l.c;
+    var fracao = l.medida > 0 ? Math.max(0, l.resta) / l.medida : 1;
+    var coberto = c.v * (1 - fracao);
+    if (coberto > 0.0049) cobertoSite[c.d.slice(0, 7)] = (cobertoSite[c.d.slice(0, 7)] || 0) + coberto;
+    if (fracao <= 0.0001) return;
+    var gk = c.d + '|' + c.c;
+    var g = grupos[gk] || (grupos[gk] = { data: c.d, classe: c.c, valor: 0, usd: 0, mapa: {}, itens: [] });
+    var ik = l.chave + '|' + l.inst;
+    var it = g.mapa[ik];
+    if (!it) { it = g.mapa[ik] = { ativo: c.a, inst: c.i || '', qtd: 0, valor: 0, usd: 0 }; g.itens.push(it); }
+    it.qtd += c.q * fracao; it.valor += c.v * fracao; it.usd += c.u * fracao;
+    g.valor += c.v * fracao; g.usd += c.u * fracao;
+  });
+  var ordemClasse = { acoes: 0, fiis: 1, acoesEua: 2, rendaFixa: 3 };
+  var dias = Object.keys(grupos).map(function (k) { return grupos[k]; });
+  dias.sort(function (a, b) { return a.data < b.data ? 1 : (a.data > b.data ? -1 : ordemClasse[a.classe] - ordemClasse[b.classe]); });
+  dias.forEach(function (g) {
+    delete g.mapa;
+    g.valor = arr(g.valor); g.usd = arr(g.usd);
+    g.itens.forEach(function (it) { it.qtd = Math.round(it.qtd * 1e6) / 1e6; it.valor = arr(it.valor); it.usd = arr(it.usd); });
+    g.itens.sort(function (a, b) { return b.valor - a.valor; });
+  });
+  Object.keys(cobertoSite).forEach(function (m) { cobertoSite[m] = arr(cobertoSite[m]); });
+  return { dias: dias, cobertoSite: cobertoSite };
 }
 
 // ---------------------------------------------------------------------------

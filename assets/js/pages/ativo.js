@@ -26,7 +26,8 @@ import { esc } from '../util/html.js'; // 05/10/2026 (A-68)
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js';
 import { canalDoAtivo, familiaTesouro, parametrosCanalVideos } from '../canais-youtube.js';
 import { chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
-import { logoCirculoHtml, logoCirculoRendaFixaHtml, renderTabelaAtivosCarteiras, botaoInfoHtml, seloViesHtml, variacaoHtml, wirePointerTooltipCarteiras_, lerEstadoSecoes, aplicarEstadoSecoes } from './carteiras-classe-comum.js';
+import { logoCirculoHtml, logoCirculoRendaFixaHtml } from './carteiras-pecas.js';
+import { renderTabelaAtivosCarteiras, botaoInfoHtml, seloViesHtml, variacaoHtml, wirePointerTooltipCarteiras_, lerEstadoSecoes, aplicarEstadoSecoes } from './carteiras-classe-comum.js';
 import { criarGraficosCarteira, montarKpis, lembrarGrafico, destruirGraficos, corDoToken, sinalDe } from './carteiras-graficos.js';
 import { criarGraficoBarras, criarAnelProgresso } from '../charts/index.js';
 import { montarCabecalhoPagina, definirTituloPagina, mostrarErroCarga, mostrarEstadoVazio } from '../ui/index.js';
@@ -41,12 +42,11 @@ import { avaliarAtivo, GRUPOS } from '../criterios/motor.js';
 import { getMetas, getMacro } from '../api-client.js';
 // 05/10/2026: contexto de mercado na Análise (criterios/macro.js, Macro.gs)
 import { ajudaHtml, resumoMacro } from '../criterios/macro.js';
-import { carregarMacroMomento } from './momento-aporte.js';
-import { metasComCalculo } from '../metas-card.js';
+import { carregarMacroMomento } from './momento-carga.js';
 import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
 // 05/10/2026: aba "Patrimônio" dos FIIs (imóveis, CRI com indexador, mapa) - ativo-patrimonio.js
-import { criarControladorPatrimonio, patrimonioPlaceholderHtml } from './ativo-patrimonio.js';
+import { patrimonioPlaceholderHtml } from './ativo-patrimonio-esqueleto.js'; // o controlador (ativo-patrimonio.js, 45 KB) só é importado quando o ativo é um FII
 
 const VERSAO_CACHE = 'v1';
 const chaveCache = (ref) => `ativo_${VERSAO_CACHE}:${ref}`;
@@ -150,6 +150,12 @@ export function montarContexto(resposta, { sobre = null, ir = null, metas = null
     canal: canalDoAtivo({ ticker: resposta.ticker, classe, ativo: resposta.ativo || null, ehRf: resposta.tipo === 'rf' }),
     chaveIntradia: chaveIntradiaAtivo({ ticker: resposta.ticker, classe, ehRf: resposta.tipo === 'rf' }),
   };
+}
+
+/** 06/10/2026 (A-42): o cartão de metas (calcularMeta, viagem, patrimônio-calc ≈ 200 KB) só é carregado quando as metas chegam. */
+async function metasComCalculo(dados) {
+  const { metasComCalculo: calcular } = await import('../metas-card.js');
+  return calcular(dados);
 }
 
 /** 03/10/2026: a análise do motor de critérios - nunca derruba a página (erro = sem análise). */
@@ -1959,13 +1965,13 @@ export async function montarPaginaAtivo(token, {
     (async () => {
       try {
         const emCache = await lerCacheDados('metas');
-        if (emCache && emCache.dados && emCache.dados.ok && !estado.metas) { estado.metas = metasComCalculo(emCache.dados); aplicarMetas(); }
+        if (emCache && emCache.dados && emCache.dados.ok && !estado.metas) { estado.metas = await metasComCalculo(emCache.dados); aplicarMetas(); }
       } catch (_) { /* sem cache */ }
       let r = null;
       try { r = await getMetasImpl(token); } catch (_) { r = null; }
       if (r && r.ok) {
         gravarCacheDados('metas', r);
-        estado.metas = metasComCalculo(r);
+        estado.metas = await metasComCalculo(r);
         aplicarMetas();
       }
     })();
@@ -1978,7 +1984,9 @@ export async function montarPaginaAtivo(token, {
     erroEl.hidden = true;
     conteudoEl.hidden = false;
     if (estado.ctx.classe === 'fiis' && !estado.patrimonio) {
-      estado.patrimonio = criarControladorPatrimonio({
+      estado.patrimonioModulo = estado.patrimonioModulo || import('./ativo-patrimonio.js'); // 06/10/2026 (A-42): só FII baixa a aba Patrimônio
+      const { criarControladorPatrimonio } = await estado.patrimonioModulo;
+      if (!estado.patrimonio) estado.patrimonio = criarControladorPatrimonio({
         doc, token, ticker: estado.ctx.ticker, getFiiPortfolioImpl, salvarCoordsImpl,
         carregarManualImpl: carregarManualPatrimonioImpl, lerCache: lerCacheDados, gravarCache: gravarCacheDados,
       });

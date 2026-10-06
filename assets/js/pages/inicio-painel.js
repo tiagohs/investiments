@@ -20,11 +20,11 @@ import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { logoCirculoHtml, iniciaisDe } from './logo-circulo.js';
 import { htmlBotaoFavorito, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import {
-  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao, CAMPO_PRINCIPAL_POR_VISAO,
-} from './inicio.js';
+  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao,
+} from './inicio-calc.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 // 06/10/2026 (Onda 3, kit): KPI com contagem + sparkline, anel de composição e abas sublinhadas vêm da biblioteca/ui do kit.
-import { criarKpi, criarAnel } from '../charts/index.js';
+import { criarAnel } from '../charts/index.js';
 import { criarTabs } from '../ui/index.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -124,25 +124,6 @@ export function numerosDaVisao(visaoId, patrimonio, ontem) {
   };
 }
 
-/** Textos do KPI de uma visão (valor, variação desde o último fechamento) - os mesmos números de antes. */
-function textoDeltaVisao_(n, { compacto = false } = {}) {
-  if (!num(n.variacao)) return null;
-  const nulo = variacaoNula(n.variacao, { fracao: true }); // 05/10/2026 (A-04): 0,00% = neutro
-  const sobe = n.variacao >= 0;
-  const dia = n.dataOntem ? `${n.dataOntem.slice(8, 10)}/${n.dataOntem.slice(5, 7)}` : '';
-  const pct = formatPercentFromFraction(Math.abs(n.variacao)).replace(/^\+/, '');
-  const dif = formatBRL(Math.abs(n.diferenca));
-  const sinal = nulo ? 0 : (sobe ? 1 : -1);
-  return { sinal, texto: `${compacto ? '' : `${sobe ? '+' : '−'}${dif} · `}${pct}${dia ? ` desde ${dia}` : ''}` };
-}
-
-const INFO_VISAO = {
-  total: 'Tudo o que você tem investido hoje (Ações, FIIs, Renda Fixa e Ações EUA), com a variação desde o último fechamento.',
-  longoPrazo: 'O patrimônio total sem a reserva de emergência.',
-  nacional: 'O longo prazo sem as Ações EUA: só o que está no Brasil.',
-  rendaEmergencial: 'A reserva de emergência (Renda Fixa marcada como emergencial).',
-};
-
 /** Cor (nº da paleta categórica, ordem fixa do site) de cada classe / rampa pros tipos de título da reserva. */
 const COR_NUM_CLASSE = { 'Ações': 1, FIIs: 2, 'Renda Fixa': 3, 'Ações EUA': 4 };
 const COR_NUM_TIPOS = [3, 2, 4, 1, 5, 6, 7, 8];
@@ -157,21 +138,14 @@ export function fatiasParaAnel(fatias) {
   }));
 }
 
-/** Últimos pontos da série da visão (sparkline do KPI). */
-function serieSpark_(historico, visaoId, n = 45) {
-  const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId];
-  if (!campo || !Array.isArray(historico)) return [];
-  return historico.slice(-n).map((p) => p && p[campo]).filter(num);
-}
-
 /**
- * 06/10/2026 (Onda 3, kit - dashboard com KPIs): as 4 visões do patrimônio viram 4 cartões KPI (rótulo, valor com
- * contagem, variação desde o último fechamento com ícone, sparkline da série do período) + um cartão "Distribuição" com
- * ANEL (composição) e abas SUBLINHADAS pra trocar a visão mostrada (= recorte dentro da tela). A aba escolhida e os
- * gráficos sobrevivem a "Atualizar dados": só os números mudam (o valor conta do antigo pro novo, o anel morfa).
- * `distribuicaoEl` (opcional) é onde mora o cartão de distribuição; sem ele, vai logo abaixo dos KPIs no `container`.
+ * 06/10/2026 (revisão do Tiago): os 4 cartões KPI de total por carteira SAÍRAM (a informação já aparece nos gráficos de
+ * Rentabilidade e no centro do anel). Fica só o cartão "Distribuição": ANEL (composição) + abas SUBLINHADAS pra trocar a visão
+ * (= recorte dentro da tela). `container` é onde mora o cartão (#resumoDistribuicao). A aba escolhida e o anel sobrevivem a
+ * "Atualizar dados": só os números mudam (o anel morfa). O 4º argumento (`distribuicaoEl`) é aceito por compatibilidade.
  */
 export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambio, ontem, historico } = {}, { distribuicaoEl = null } = {}) {
+  container = distribuicaoEl || container;
   if (!container) return;
   if (!patrimonio) {
     destruirResumo_(container);
@@ -181,15 +155,9 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
   const escolhida = VISOES_RESUMO.some((v) => v.id === container._visao) ? container._visao : 'total';
   container._visao = escolhida;
   let rc = container._rc;
-  if (!rc || !container.querySelector('.rc-kpis')) {
+  if (!rc || !container.querySelector('.rc-distrib-card')) {
     destruirResumo_(container);
     container.textContent = '';
-    const raiz = doc.createElement('div');
-    raiz.className = 'rc';
-    raiz.innerHTML = `<div class="grid-kpi rc-kpis">${VISOES_RESUMO.map((v) => `<div class="card card-kpi rc-kpi rc-visao-${v.id}" data-visao="${v.id}"></div>`).join('')}</div>`;
-    container.appendChild(raiz);
-    let alvoDistrib = distribuicaoEl;
-    if (!alvoDistrib) { alvoDistrib = doc.createElement('div'); alvoDistrib.className = 'rc-distrib-slot'; raiz.appendChild(alvoDistrib); }
     const cartao = doc.createElement('section');
     cartao.className = 'card rc-distrib-card';
     cartao.setAttribute('aria-label', 'Distribuição do patrimônio');
@@ -200,9 +168,8 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
       </header>
       <div class="rc-tabs"></div>
       <div class="rc-distrib" id="rcDistrib" role="tabpanel" aria-labelledby="rcTitulo"></div>`;
-    alvoDistrib.textContent = '';
-    alvoDistrib.appendChild(cartao);
-    rc = { kpis: new Map(), anel: null, tabs: null, cartao, raiz };
+    container.appendChild(cartao);
+    rc = { anel: null, tabs: null, cartao };
     container._rc = rc;
     container._rcLigado = true;
     rc.tabs = criarTabs(cartao.querySelector('.rc-tabs'), {
@@ -212,30 +179,6 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
     });
   }
   container._dadosResumo = { patrimonio, ativos, cambio, ontem, historico };
-  VISOES_RESUMO.forEach((v) => {
-    const n = numerosDaVisao(v.id, patrimonio, ontem);
-    const delta = textoDeltaVisao_(n, { compacto: v.id !== 'total' });
-    const spark = serieSpark_(historico, v.id);
-    const slot = rc.raiz.querySelector(`.rc-kpi[data-visao="${v.id}"]`);
-    const kpi = rc.kpis.get(v.id);
-    const dados = { valor: num(n.valor) ? n.valor : null, delta: delta || null, spark: { valores: spark } };
-    if (kpi) kpi.atualizar(dados);
-    else {
-      const novo = criarKpi(slot, {
-        rotulo: v.rotulo, formatar: formatBRL, info: INFO_VISAO[v.id], ...dados,
-        spark: { valores: spark, referencia: 'inicio', altura: 40 },
-      });
-      rc.kpis.set(v.id, novo);
-    }
-    const sp = slot.querySelector('.chart-kpi-spark');
-    if (sp) sp.hidden = spark.length < 2;
-    const vv = slot.querySelector('.chart-kpi-val');
-    if (vv && !num(n.valor)) vv.textContent = '—';
-    if (!delta) { const d = slot.querySelector('.chart-kpi-delta'); if (d) d.hidden = true; }
-    // 06/10/2026 (Onda 3): o cartão compacto só mostra o %; o R$ da variação ("ontem era") fica na dica do ícone/texto (title)
-    const dEl = slot.querySelector('.chart-kpi-delta');
-    if (dEl) { const cheio = textoDeltaVisao_(n); if (cheio) dEl.title = cheio.texto; else dEl.removeAttribute('title'); }
-  });
   if (rc.tabs.obterAtivo() !== escolhida) rc.tabs.selecionar(escolhida);
   desenharDistribuicao_(doc, container, container._dadosResumo);
 }
@@ -243,7 +186,6 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
 function destruirResumo_(container) {
   const rc = container._rc;
   if (!rc) return;
-  rc.kpis.forEach((k) => k.destruir());
   if (rc.anel) rc.anel.destruir();
   container._rc = null;
 }

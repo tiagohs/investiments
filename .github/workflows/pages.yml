@@ -1,0 +1,78 @@
+# 06/10/2026 (pedido do Tiago: "tests/ publicado no GitHub Pages"): publica o site pelo GitHub Actions copiando SÓ o que o
+# site usa. Antes o Pages servia a branch inteira, então tests/, scripts/, apps-script/ e docs/ ficavam acessíveis na web.
+#
+# NÃO QUEBRA NADA ENQUANTO O TIAGO NÃO TROCAR: com Settings > Pages > Source = "Deploy from a branch" (como está hoje) o
+# job "publicar" não consegue publicar - ele está com continue-on-error, então o workflow termina verde e o site continua
+# saindo da branch como sempre. O job "montar" roda sempre e confere o conteúdo (tests/pages-workflow.test.js tem o mesmo contrato).
+# Passo único do Tiago (docs/guia-desenvolvimento.md, "Publicação no GitHub Pages"): Settings > Pages > Build and deployment >
+# Source: GitHub Actions. Depois disso cada push na branch principal publica o site pelo workflow.
+#
+# PÁGINA NOVA em pasta nova? Acrescente a pasta em PASTAS_DE_PAGINAS (o teste tests/pages-workflow.test.js avisa se faltar).
+name: Publicar site (GitHub Pages)
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  # arquivos soltos na raiz que o site usa (todo *.html da raiz entra também)
+  ARQUIVOS_RAIZ: "favicon.ico manifest.json sw.js"
+  # pastas que o site usa: assets/ (css, js, fontes, imagens, dados, partials) e as páginas em pasta
+  PASTAS_DE_PAGINAS: "assets ativo carteiras organizacao proventos transacoes"
+
+jobs:
+  montar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copiar só o que o site usa para _site/
+        run: |
+          set -euo pipefail
+          rm -rf _site && mkdir _site
+          cp ./*.html _site/
+          for f in $ARQUIVOS_RAIZ; do cp "$f" _site/; done
+          for d in $PASTAS_DE_PAGINAS; do cp -r "$d" _site/; done
+          touch _site/.nojekyll
+          # nada de teste/rascunho dentro das pastas copiadas
+          find _site -name '*.test.js' -o -name '*.test.mjs' -o -name '*.bak' -o -name '.DS_Store' | xargs -r rm -f
+
+      - name: Conferir (o que não é do site não pode ir; o que o site precisa tem que ir)
+        run: |
+          set -euo pipefail
+          for proibido in tests docs scripts apps-script node_modules .github .githooks package.json package-lock.json; do
+            if [ -e "_site/$proibido" ]; then echo "ERRO: _site/$proibido não deve ser publicado"; exit 1; fi
+          done
+          for obrigatorio in index.html login.html sw.js manifest.json favicon.ico assets/css/m3-tokens.css assets/js/shell.js assets/fonts/readex-latin.woff2; do
+            if [ ! -e "_site/$obrigatorio" ]; then echo "ERRO: _site/$obrigatorio faltando"; exit 1; fi
+          done
+          echo "Arquivos publicados: $(find _site -type f | wc -l)"; du -sh _site
+
+      - uses: actions/configure-pages@v5
+        continue-on-error: true   # ainda no Pages "por branch": este passo avisa, não derruba
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  publicar:
+    needs: montar
+    runs-on: ubuntu-latest
+    # Source ainda = branch: o deploy falha por não haver Pages via Actions - tudo bem, o site continua pela branch.
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

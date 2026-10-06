@@ -164,10 +164,6 @@ export function lerCarrinhoLocal(storage = (typeof globalThis !== 'undefined' ? 
   try { return JSON.parse(storage.getItem(CHAVE_CARRINHO) || 'null'); } catch (e) { return null; }
 }
 
-export function gravarCarrinhoLocal(carrinho, storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : null)) {
-  try { storage.setItem(CHAVE_CARRINHO, JSON.stringify(carrinho)); } catch (e) { /* só conveniência */ }
-}
-
 // ---------------------------------------------------------------------------
 // Horários (Brasília = UTC-3, sem horário de verão desde 2019)
 // ---------------------------------------------------------------------------

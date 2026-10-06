@@ -14,7 +14,7 @@ import { garantirEstilosCharts } from './estilos.js';
  *   rotulo       texto pequeno em cima ("Evolução")
  *   valor        texto grande (ou número + formatarValor)
  *   formatarValor (n)=>string, usado se `valor` for número
- *   delta        { texto, sinal: 1|-1|0 } -> chip de tendência (ícone + cor); opcional
+ *   delta        { texto, sinal: 1|-1|0, info? } -> chip de tendência (ícone + cor) + "i" com `info`; opcional
  *   icone        elemento/ícone à esquerda do título (logo do ativo): string de HTML NÃO aceita; passe um Node
  *   menu         [{ rotulo, aoClicar }] itens do menu "•••" (se vazio e sem tabela, o botão não aparece)
  *   periodos     [{ id, rotulo }] seletor segmentado; `periodo` = id ativo
@@ -66,6 +66,8 @@ export function criarCardGrafico(el, op = {}) {
         deltaEl.className = `chart-card-delta is-${s}`;
         deltaEl.appendChild(iconeSvg(doc, s === 'up' ? 'sobe' : s === 'down' ? 'desce' : 'igual', 16));
         no(doc, ':span', { texto: d.texto }, deltaEl);
+        /* 06/10/2026: "i" opcional ao lado da variação (dica por CSS via data-info, sem title nativo) */
+        if (d.info) { const i = no(doc, ':span', { class: 'chart-kpi-info', 'data-info': d.info, role: 'img', 'aria-label': d.info, tabindex: '0' }, deltaEl); i.appendChild(iconeSvg(doc, 'info', 16)); }
       }
     }
     if (c.icone !== undefined) {

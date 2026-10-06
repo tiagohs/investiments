@@ -334,3 +334,30 @@ body.na-aberto{ overflow:hidden; }
   .na-rodape .btn{ flex:1 1 auto; justify-content:center; }
 }
 @media (prefers-reduced-motion: reduce){ .na-spin{ animation-duration:2s; } }
+
+/* ================= 06/10/2026 (pedido do Tiago): "por setor/tipo" ao lado dos proventos, abaixo da tabela ================= */
+.cc-lado-a-lado{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:16px; align-items:start; min-width:0; }
+.cc-lado-a-lado > .cc-recolhivel[hidden]{ display:none; }
+/* anel compacto em cima, lista de setores/tipos embaixo (uma linha por item, com valor e %) */
+.cc-por-grupo .cc-distribuicao .chart--anel .chart-corpo{ justify-content:center; }
+.cc-por-grupo .cc-distribuicao .chart-wrap{ margin-inline:auto; }
+.cc-por-grupo .chart-legenda{ flex-direction:column; align-items:stretch; flex-wrap:nowrap; gap:2px; margin-top:12px; }
+.cc-por-grupo .chart-leg-item{ width:100%; border-radius:12px; min-height:32px; flex-wrap:wrap; row-gap:0; padding-block:4px; }
+.cc-por-grupo .chart-leg-item > .chart-leg-nome{ flex:1 1 auto; overflow-wrap:break-word; }
+.cc-por-grupo .chart-leg-val{ flex:0 0 auto; white-space:nowrap; margin-left:auto; }
+.cc-por-grupo .chart-leg-val{ text-align:right; font-family:var(--mono); font-size:var(--md-sys-typescale-label-medium-size); }
+.cc-por-grupo .chart-tabbtn{ margin:4px auto 0; }
+.cc-por-grupo .cc-distribuicao .chart-anel-valor{ font-size:var(--md-sys-typescale-title-small-size); }
+/* navegação por meses dos proventos */
+.cc-prov-nav{ display:flex; align-items:center; gap:8px; margin:0 0 12px; flex-wrap:wrap; }
+.cc-prov-nav .cc-prov-mes{ flex:1 1 180px; min-width:0; }
+.cc-prov-nav .select{ width:100%; }
+.cc-prov-prox .ico{ transform:scaleX(-1); }
+.cc-prov-nav .icon-btn:disabled{ opacity:.4; cursor:default; }
+.cc-prov-vazio{ margin:8px 0; padding:16px 4px; text-align:center; }
+/* Composição (Visão geral): anel grande, centralizado na vertical e na horizontal dentro do card */
+.vg-composicao .cc-distribuicao{ align-items:center; justify-content:center; padding-bottom:8px; }
+.vg-composicao .cc-distribuicao .chart{ margin:auto; }
+.vg-composicao .cc-distribuicao .chart-wrap{ margin-inline:auto; }
+.vg-composicao .cc-distribuicao .chart-anel-valor{ font-size:var(--md-sys-typescale-title-large-size); }
+.cc-prov-nav [hidden]{ display:none; }

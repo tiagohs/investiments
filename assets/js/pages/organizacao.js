@@ -37,7 +37,7 @@
  */
 import {
   getDespesas, salvarDespesas, getPatrimonio, getSalario, getArquivosHolerites, getGastos, getArquivosGastos, getArquivoGastos,
-  salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos,
+  salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos, getMacro,
 } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { montarCabecalhoPagina, criarTabs, mostrarErroCarga, definirTituloPagina } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas em pílula e erro de carga padrão do kit
@@ -743,6 +743,8 @@ export async function montarPaginaOrganizacao(token, {
     documentos: doc.getElementById('ogDocumentos'),
   };
   const hojeIso = () => hoje || (pat.valor && pat.valor.hoje) || (dados && dados.hoje) || null;
+  // 06/10/2026 (A-78): taxas do contexto de mercado (Macro.gs) pro simulador e pra tabela de IPCA da Renda; só na página real (nos testes, doc não é o document global)
+  const getMacroPagina = (token && doc === globalThis.document) ? (() => getMacro(token)) : null;
 
   // respostas compartilhadas
   const api = {
@@ -813,7 +815,7 @@ export async function montarPaginaOrganizacao(token, {
     if (!ctx) return;
     try {
       if (!simulacoes) {
-        simulacoes = montarAbaSimulacoes({ hero: el.simHero, simulador: el.simulador }, { ctx, doc, hoje: hojeIso(), ...simuladorOpcoes });
+        simulacoes = montarAbaSimulacoes({ hero: el.simHero, simulador: el.simulador }, { ctx, doc, hoje: hojeIso(), getMacro: getMacroPagina, ...simuladorOpcoes });
         simulador = simulacoes.simulador;
         // #simulador antes de os dados chegarem: o herói empurrou o simulador pra baixo - rola de novo
         if (rolarDepois && visivel('simulacoes')) { const alvo = doc.getElementById(rolarDepois); if (alvo) setTimeout(() => rolarAte(alvo), 0); }
@@ -854,7 +856,7 @@ export async function montarPaginaOrganizacao(token, {
     const fontes = { patrimonio: pat.valor || null, salario: sal.valor || null, hoje: hojeIso() || new Date() };
     if (!rendaMontada) {
       rendaMontada = true;
-      const comum = { ...fontes, doc, token, aoAcao: aoAcaoRenda, aoAtualizarPatrimonio: (resp) => { if (resp && resp.config && pat.valor) { pat.valor.config = resp.config; if (resp.atualizado) pat.valor.atualizado = resp.atualizado; ctxPat = null; pat.definir(pat.valor); } }, ...rendaOpcoes };
+      const comum = { ...fontes, doc, token, aoAcao: aoAcaoRenda, getMacro: getMacroPagina, aoAtualizarPatrimonio: (resp) => { if (resp && resp.config && pat.valor) { pat.valor.config = resp.config; if (resp.atualizado) pat.valor.atualizado = resp.atualizado; ctxPat = null; pat.definir(pat.valor); } }, ...rendaOpcoes };
       if (el.rendaTopo) renda.topo = montarSecaoRenda(el.rendaTopo, { ...comum, secoes: ['hero', 'salario'] });
       if (el.rendaInv) renda.inv = montarSecaoRenda(el.rendaInv, { ...comum, secoes: ['investimento'], buscarIpca: false });
       if (el.rendaContas) renda.contas = montarSecaoRenda(el.rendaContas, { ...comum, secoes: ['contas'], buscarIpca: false });

@@ -222,10 +222,10 @@ test('setupNavDrawer: ☰ abre/fecha, Esc fecha por cima, estado lembrado só no
 test('setupConta: avatar/nome a partir do token (sem chamada de rede) e link da planilha', () => {
   const { dom, doc } = novoDoc(SHELL_FALSO);
   const payload = Buffer.from(JSON.stringify({ email: 'maria.souza@exemplo.test' })).toString('base64').replace(/=+$/, '');
-  setupConta(doc, { token: `x.${payload}.y`, spreadsheetUrl: 'https://planilha.test/abc' });
+  setupConta(doc, { token: `x.${payload}.y`, spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/abc/edit' });
   assert.equal(doc.getElementById('contaAvatar').textContent, 'MS');
   assert.equal(doc.getElementById('contaSub').textContent, 'maria.souza@exemplo.test');
-  assert.equal(doc.getElementById('planilhaLink').getAttribute('href'), 'https://planilha.test/abc');
+  assert.equal(doc.getElementById('planilhaLink').getAttribute('href'), 'https://docs.google.com/spreadsheets/d/abc/edit');
   setupConta(doc, { token: null });
   assert.equal(doc.getElementById('contaAvatar').textContent, 'P');
   dom.window.close();

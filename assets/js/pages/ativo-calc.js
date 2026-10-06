@@ -18,7 +18,7 @@
  *   indiceCdi/indiceIpca/ibovespa/ifix/sp500 - índices do dia (os da Início)
  */
 
-import { normalizarSerieRentabilidade } from './inicio.js';
+import { normalizarSerieRentabilidade } from './inicio-calc.js';
 import { formatNumeroPt, formatDMA } from '../format.js'; // 05/10/2026 (A-68)
 
 export const CLASSES_ATIVO = {

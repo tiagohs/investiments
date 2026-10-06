@@ -248,3 +248,56 @@ test('Transações: lista do Tesouro de hoje (PU de compra) e cotação por tít
   assert.deepEqual(selic.cotacao, { pu: 15613.45, puVenda: 15600, data: '2026-10-02' });
   assert.deepEqual(tela.caixaDolar, { saldoUsd: 0, movimentos: [] });
 });
+
+// 06/10/2026 (Tiago, print 13): "Aportes concluídos" reflete o "Investido por mês": os meses de antes do site saem das abas de
+// transações (derivado na leitura, nada gravado), agrupados por dia e classe; o que um aporte concluído do site já cobre sai da lista
+// (vai pra `cobertoSite`) e a conta por mês continua fechando com a barra do gráfico.
+test('Aportes concluídos derivados: dias por classe das transações, sem duplicar o que o site já cobre, e a soma de cada mês = barra', () => {
+  const ss = planilhaBase();
+  const { sb } = sandbox(ss);
+  const antesLinhas = ['Transações', 'Transações - USA', 'Transações Renda Fixa', 'aux_aportes'].map((n) => (ss.getSheetByName(n) ? ss.getSheetByName(n)._dados.length : -1));
+  const confere = (tela) => {
+    const { dias, cobertoSite } = tela.historicoPlanilha;
+    const porMes = {};
+    dias.forEach((d) => { porMes[d.data.slice(0, 7)] = (porMes[d.data.slice(0, 7)] || 0) + d.valor; });
+    Object.entries(cobertoSite).forEach(([m, v]) => { porMes[m] = (porMes[m] || 0) + v; });
+    Object.keys(tela.resumo).forEach((m) => assert.ok(Math.abs((porMes[m] || 0) - tela.resumo[m].total) < 0.011, `${m}: ${porMes[m]} x ${tela.resumo[m].total}`));
+  };
+  let tela = plain(sb.montarTelaTransacoes_());
+  const dia12 = tela.historicoPlanilha.dias.filter((d) => d.data === '2026-08-12');
+  assert.equal(dia12.length, 1, 'duas linhas do mesmo dia e classe viram um cartão');
+  assert.deepEqual([dia12[0].classe, dia12[0].valor, dia12[0].itens.length], ['fiis', 201, 1]);
+  assert.deepEqual([dia12[0].itens[0].ativo, dia12[0].itens[0].qtd, dia12[0].itens[0].valor], ['TEST11', 2, 201], 'as 2 cotas somadas num ativo só');
+  const eua = tela.historicoPlanilha.dias.find((d) => d.classe === 'acoesEua');
+  assert.deepEqual([eua.data, eua.valor, eua.usd], ['2026-04-09', 82.8, 16.56], 'EUA pelo dólar do dia da compra, com o valor em US$');
+  const rf = tela.historicoPlanilha.dias.find((d) => d.classe === 'rendaFixa');
+  assert.deepEqual([rf.data, rf.valor, rf.itens[0].ativo], ['2025-01-06', 1500, 'Tesouro Selic 2029']);
+  assert.deepEqual(tela.historicoPlanilha.cobertoSite, {}, 'sem aporte do site, nada é coberto');
+  assert.equal(tela.historicoPlanilha.dias.length, 4, 'ABCD3 (10/08), TEST11 (12/08), AAA (09/04) e a RF');
+  confere(tela);
+
+  // um aporte concluído no site que cobre a compra de ABCD3 de 10/08: some do histórico e a barra continua fechando
+  sb.salvarAporte_({ data: '2026-08-10', status: 'concluido', itens: [{ classe: 'acoes', ativo: 'ABCD3', qtdPlanejada: 10, precoPlanejado: 20, qtdFinal: 10, precoFinal: 20, valorFinal: 200 }] });
+  tela = plain(sb.montarTelaTransacoes_());
+  assert.ok(!tela.historicoPlanilha.dias.some((d) => d.data === '2026-08-10'), 'já está no aporte do site');
+  assert.deepEqual(tela.historicoPlanilha.cobertoSite, { '2026-08': 200 });
+  confere(tela);
+
+  // cobertura parcial (aporte de 4 das 10): sobra o resto no histórico
+  const ss2 = planilhaBase();
+  const { sb: sb2 } = sandbox(ss2);
+  sb2.salvarAporte_({ data: '2026-08-11', status: 'concluido', itens: [{ classe: 'acoes', ativo: 'ABCD3', qtdFinal: 4, precoFinal: 20, valorFinal: 80 }] });
+  const t2 = plain(sb2.montarTelaTransacoes_());
+  const resto = t2.historicoPlanilha.dias.find((d) => d.data === '2026-08-10');
+  assert.deepEqual([resto.itens[0].qtd, resto.valor], [6, 120]);
+  assert.equal(t2.historicoPlanilha.cobertoSite['2026-08'], 80);
+  confere(t2);
+
+  // aporte aguardando (ainda não concluído) não cobre nada; e a leitura não gravou nas abas de transações
+  const ss3 = planilhaBase();
+  const { sb: sb3 } = sandbox(ss3);
+  sb3.salvarAporte_({ data: '2026-08-10', status: 'aguardando', itens: [{ classe: 'acoes', ativo: 'ABCD3', qtdPlanejada: 10, precoPlanejado: 20 }] });
+  assert.ok(plain(sb3.montarTelaTransacoes_()).historicoPlanilha.dias.some((d) => d.data === '2026-08-10'));
+  const depoisLinhas = ['Transações', 'Transações - USA', 'Transações Renda Fixa', 'aux_aportes'].map((n) => (ss.getSheetByName(n) ? ss.getSheetByName(n)._dados.length : -1));
+  assert.ok(depoisLinhas.slice(0, 3).every((n, i) => n === antesLinhas[i]), 'derivado na leitura: nenhuma linha nova nas transações');
+});

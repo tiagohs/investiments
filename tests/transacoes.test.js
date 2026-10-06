@@ -714,3 +714,96 @@ test('Onda 3: KPIs do topo (carrinho, aguardando, concluídos, investido no mês
   assert.ok(doc.querySelectorAll('#txResumoGrafico .chart-barra, #txResumoGrafico rect').length > 0, 'barras do gráfico');
   w.close();
 });
+
+// 06/10/2026 (Tiago, print 13): "Aportes concluídos" reflete o "Investido por mês": aportes do site + meses de antes do site derivados
+// das transações (dados.historicoPlanilha, vindo de Aportes.gs), com filtros (período, classe, origem, busca), meses recolhidos
+// com o total do mês (= a barra do gráfico) e "Carregar mais" por ano.
+const HIST = {
+  dias: [
+    { data: '2026-09-23', classe: 'fiis', valor: 350, usd: 0, itens: [{ ativo: 'TEST11', inst: '', qtd: 2, valor: 200, usd: 0 }, { ativo: 'ZZZZ11', inst: '', qtd: 1, valor: 150, usd: 0 }] },
+    { data: '2026-09-10', classe: 'acoesEua', valor: 50, usd: 10, itens: [{ ativo: 'AAA', inst: '', qtd: 1, valor: 50, usd: 10 }] },
+    { data: '2026-08-12', classe: 'acoes', valor: 400, usd: 0, itens: [{ ativo: 'ABCD3', inst: '', qtd: 20, valor: 400, usd: 0 }] },
+    { data: '2025-12-02', classe: 'rendaFixa', valor: 1000, usd: 0, itens: [{ ativo: 'Tesouro Selic 2029', inst: 'CORRETORA X', qtd: 0, valor: 1000, usd: 0 }] },
+    { data: '2025-03-05', classe: 'acoes', valor: 300, usd: 0, itens: [{ ativo: 'ABCD3', inst: '', qtd: 15, valor: 300, usd: 0 }] },
+  ],
+  cobertoSite: { '2026-08': 196 },
+};
+const RESUMO_HIST = {
+  '2026-09': { acoes: 0, fiis: 350, acoesEua: 50, acoesEuaUsd: 10, rendaFixa: 0, total: 400 },
+  '2026-08': { acoes: 400, fiis: 196, acoesEua: 0, acoesEuaUsd: 0, rendaFixa: 0, total: 596 },
+  '2025-12': { acoes: 0, fiis: 0, acoesEua: 0, acoesEuaUsd: 0, rendaFixa: 1000, total: 1000 },
+  '2025-03': { acoes: 300, fiis: 0, acoesEua: 0, acoesEuaUsd: 0, rendaFixa: 0, total: 300 },
+};
+const montarHist = () => montar({ getTransacoesImpl: async () => ({ ...structuredClone(DADOS), resumo: structuredClone(RESUMO_HIST), historicoPlanilha: structuredClone(HIST) }) });
+const mesesHist = (doc) => [...doc.querySelectorAll('#txHistLista details[data-hist-mes]')];
+
+test('Aportes concluídos: meses recolhidos (só o mês atual aberto), total do cabeçalho = barra do mês, origem site x histórico, só o ano mais novo até "Carregar mais"', async () => {
+  const { doc, w } = await montarHist();
+  const meses = mesesHist(doc);
+  assert.deepEqual(meses.map((m) => m.getAttribute('data-hist-mes')), ['2026-09', '2026-08'], 'só 2026 de início; 2025 espera o "Carregar mais"');
+  assert.equal(meses[0].open, true, 'o mês atual (setembro) abre');
+  assert.equal(meses[1].open, false, 'os outros ficam recolhidos');
+  assert.match(txt(meses[0].querySelector('summary')), /setembro 2026 2 dias do histórico R\$ 400,00 investido/);
+  assert.match(txt(meses[1].querySelector('summary')), /agosto 2026 1 dia do histórico · 1 do site R\$ 596,00 investido/, 'barra = histórico (400) + coberto pelo site (196)');
+  assert.equal(meses[0].querySelectorAll('details.tx-hist-planilha').length, 2);
+  assert.match(txt(meses[0].querySelector('details.tx-hist-planilha')), /23\/09 2026 FIIs Histórico 2 ativos · TEST11, ZZZZ11 R\$ 350,00/);
+  assert.match(txt(meses[0].querySelectorAll('details.tx-hist-planilha')[1]), /Ações EUA.*R\$ 50,00 US\$ 10,00/);
+  assert.equal(doc.querySelectorAll('#txHistLista details.tx-hist[data-hist]').length, 1, 'o aporte do site (agosto) segue com repetir/excluir');
+  assert.match(txt(doc.querySelector('#txHistorico .tx-dica')), /1 pelo site · 5 dias do histórico/);
+  clique(w, doc.querySelector('[data-hist-mais]'));
+  assert.deepEqual(mesesHist(doc).map((m) => m.getAttribute('data-hist-mes')), ['2026-09', '2026-08', '2025-12', '2025-03']);
+  assert.equal(doc.querySelector('[data-hist-mais]'), null, 'acabaram os anos');
+  // abrir um mês fica guardado ao redesenhar a lista
+  clique(w, doc.querySelector('[data-hist-mes="2025-12"] > summary'));
+  clique(w, doc.querySelector('[data-hist-classe="rendaFixa"]'));
+  assert.deepEqual(mesesHist(doc).map((m) => m.getAttribute('data-hist-mes')), ['2025-12']);
+});
+
+test('Aportes concluídos: filtros de período, classe, origem e busca por ticker', async () => {
+  const { doc, w } = await montarHist();
+  const chaves = () => mesesHist(doc).map((m) => m.getAttribute('data-hist-mes'));
+  clique(w, doc.querySelector('[data-hist-origem="historico"]'));
+  assert.match(txt(mesesHist(doc)[1].querySelector('summary')), /agosto 2026 1 dia do histórico R\$ 400,00 no filtro/, 'só o histórico: o total passa a ser o do filtro');
+  clique(w, doc.querySelector('[data-hist-origem="site"]'));
+  assert.deepEqual(chaves(), ['2026-08']);
+  clique(w, doc.querySelector('[data-hist-origem="todas"]'));
+  clique(w, doc.querySelector('[data-hist-classe="acoesEua"]'));
+  assert.deepEqual(chaves(), ['2026-09']);
+  assert.match(txt(mesesHist(doc)[0].querySelector('summary')), /R\$ 50,00 investido/, 'com classe, a barra da classe');
+  clique(w, doc.querySelector('[data-hist-classe="todas"]'));
+  digitar(w, doc.querySelector('#txHistBusca'), 'abcd');
+  assert.deepEqual(chaves(), ['2026-08', '2025-03'], 'busca percorre todos os anos e abre os meses');
+  assert.ok(mesesHist(doc).every((m) => m.open));
+  assert.match(txt(mesesHist(doc)[1].querySelector('summary')), /R\$ 300,00 no filtro/);
+  digitar(w, doc.querySelector('#txHistBusca'), 'xyz');
+  assert.match(txt(doc.querySelector('#txHistLista')), /Nada neste filtro/);
+  digitar(w, doc.querySelector('#txHistBusca'), '');
+  clique(w, doc.querySelector('#txHistPeriodo [data-periodo="ano"]'));
+  assert.deepEqual(chaves(), ['2026-09', '2026-08'], '"No ano" = 2026');
+  clique(w, doc.querySelector('#txHistPeriodo [data-periodo="tudo"]'));
+  assert.ok(doc.querySelector('#txHistPeriodo .fp-chip'), '"Escolher período" no filtro');
+});
+
+test('aportes-historico-calc: mesesDoHistorico, período e paginação por ano', async () => {
+  const { mesesDoHistorico, paginaPorAno, intervaloDoPeriodo, PERIODOS_HISTORICO } = await import('../assets/js/pages/aportes-historico-calc.js');
+  assert.deepEqual(PERIODOS_HISTORICO, ['ano', '1a', '3a', '5a', 'tudo'], 'ids canônicos de PERIODOS');
+  assert.deepEqual(intervaloDoPeriodo('ano', '2026-09-26'), { inicio: '2026-01-01', fim: '2026-09-26' });
+  assert.deepEqual(intervaloDoPeriodo('1a', '2026-09-26'), { inicio: '2025-10-01', fim: '2026-09-26' });
+  assert.equal(intervaloDoPeriodo('tudo', '2026-09-26'), null);
+  const meses = mesesDoHistorico({ aportes: DADOS.aportes, historicoPlanilha: HIST, resumo: RESUMO_HIST, aConfirmar: [], hoje: '2026-09-26' });
+  // cada mês: total = barra do gráfico; sem filtro nenhum todo mês bate com resumo
+  meses.forEach((m) => assert.equal(m.total, RESUMO_HIST[m.chave].total));
+  // histórico + coberto pelo site = barra (a regra que o Aportes.gs garante)
+  meses.forEach((m) => {
+    const hist = m.cartoes.filter((c) => c.tipo === 'historico').reduce((s, c) => s + c.valor, 0);
+    assert.equal(Math.round((hist + (HIST.cobertoSite[m.chave] || 0)) * 100) / 100, m.barra);
+  });
+  const pag = paginaPorAno(meses, 1);
+  assert.deepEqual(pag.visiveis.map((m) => m.chave), ['2026-09', '2026-08']);
+  assert.equal(pag.proximo.ano, 2025);
+  assert.equal(pag.proximo.meses, 2);
+  assert.equal(paginaPorAno(meses, 2).proximo, null);
+  // aguardando lançamento: aporte concluído no site ainda sem a transação
+  const comAguardo = mesesDoHistorico({ aportes: [], historicoPlanilha: { dias: [], cobertoSite: {} }, resumo: {}, aConfirmar: [{ data: '2026-09-25', classe: 'fiis', valor: 120 }], hoje: '2026-09-26' }, {});
+  assert.deepEqual(comAguardo, []); // sem cartões o mês nem aparece
+});

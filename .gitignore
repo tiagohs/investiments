@@ -24,3 +24,5 @@ documents/
 # 25/09/2026: informes de rendimentos em PDF (têm CPF e valores reais) - o
 # repositório é PÚBLICO, nunca commitar PDF de assets/imgs
 assets/imgs/*.pdf
+__pycache__/
+*.pyc

@@ -20,7 +20,7 @@ Arquitetura:
 index.html                — página Início (dashboard): índices/câmbio, resumo de patrimônio, gráfico de Rentabilidade, grade Meus Ativos
 login.html                 — página de login dedicada (Google Identity Services)
 distribuicoes-metas.html   — página Distribuições e Metas: Objetivos da Carteira, Radar de oportunidades, Metas da Carteira
-teste.html                 — scaffold de testes (login, sincronização, testes de Registro de Controle e de gravação em lote) — não faz parte do app final
+tests/manual/teste.html              — scaffold de testes (login, sincronização, testes de Registro de Controle e de gravação em lote) — não faz parte do app final
 manifest.json               — manifesto da PWA (ícones, tema, nome "Patrimônio")
 sw.js                        — service worker (cache da PWA)
 package.json / package-lock.json — só ferramenta de dev (node --test), nunca servido pelo GitHub Pages
@@ -224,7 +224,7 @@ Como o Tiago sobrescreveu `aux_tests` com uma cópia de Transações (pros teste
 
 ## Estrutura final dos arquivos do Apps Script
 
-- **Auth.gs**: constantes (`AUTHORIZED_EMAIL`, `CLIENT_ID`), `verificarToken()` (valida token do Google direto no endpoint `tokeninfo`, sem lib extra), `jsonOut()`, `handlePing()`.
+- **Auth.gs**: constante `CLIENT_ID`, e-mail autorizado na propriedade `EMAIL_AUTORIZADO` (`configurarEmailAutorizado()`, A-27), `verificarToken()` (valida token do Google direto no endpoint `tokeninfo`, sem lib extra), `jsonOut()`, `handlePing()`.
 - **Router.gs**: `doGet`/`doPost` — únicos pontos de entrada do Web App. Autenticação checada UMA vez aqui, centralizada, antes de despachar pra qualquer handler. Ações hoje: `ping`, `syncStatus`, `home`, `historico_inicio`, `meusAtivos`, `distribuicoesMetas` (GET); `importarTransacoesB3`, `sincronizarAgora`, `salvarMetaRendaPassiva`, `salvarMetaPatrimonio`, `salvarMesesRendaEmergencial`, `salvarObjetivosCarteira`, `salvarRadarItem` (POST).
 - **Sync.gs**: sincronização do histórico de patrimônio de Renda Variável + Registro de Controle (`atualizarHistorico`, `handleSincronizarAgora`, `handleSyncStatus`, `gatilhoDiario`, backfill via GOOGLEFINANCE, etc). Contém o bug do câmbio corrigido descrito acima.
 - **ImportB3.gs**: importação de extrato da B3 (`importarTransacoesB3_`) — recebe lote já validado no navegador (SheetJS lê o .xlsx), confere ticker de novo no servidor como segunda camada de segurança, escreve nas colunas A-F da primeira linha vazia de Transações. (Só Renda Variável — o extrato de Renda Fixa é colado manualmente pelo Tiago em `Transações Renda Fixa`, sem handler dedicado ainda.)
@@ -249,7 +249,7 @@ Depois de colar qualquer mudança no editor do Apps Script, é preciso **implant
 
 Uso pessoal (1 usuário, algumas ações manuais por dia + 2 gatilhos diários) fica muito abaixo de qualquer um desses limites — não há custo envolvido, Apps Script é gratuito nessa faixa de uso.
 
-## `teste.html` — o que ele cobre hoje
+## `tests/manual/teste.html` — o que ele cobre hoje
 
 Não faz parte do app final — só uma página de testes, pode ser apagada quando o front-end real estiver pronto. Cobre:
 
@@ -280,7 +280,7 @@ Construído entre 13 e 14/09/2026 (antes disso só existia o placeholder documen
 
 ### Login (`login.html` / `auth.js` / `auth-ui.js`)
 
-Virou página própria em 13/09/2026 (antes era um card dentro da própria Início). `auth.js` só guarda/lê/decodifica o token (memória como fonte de verdade durante a sessão da aba, espelhado em `sessionStorage` pra um F5 não forçar novo login — best-effort, nunca lança); `auth-ui.js` liga o Google Identity Services de verdade (botão "Entrar com Google", callback que chama `setToken()`) — antes disso só existia como rascunho em `teste.html`.
+Virou página própria em 13/09/2026 (antes era um card dentro da própria Início). `auth.js` só guarda/lê/decodifica o token (memória como fonte de verdade durante a sessão da aba, espelhado em `sessionStorage` pra um F5 não forçar novo login — best-effort, nunca lança); `auth-ui.js` liga o Google Identity Services de verdade (botão "Entrar com Google", callback que chama `setToken()`) — antes disso só existia como rascunho em `tests/manual/teste.html`.
 
 ### PWA (`manifest.json` / `sw.js`)
 
@@ -313,7 +313,7 @@ Ordem das 3 seções definida pelo Tiago: **Objetivos da Carteira → Radar de o
 
 ## Fase 02–06/10/2026 — Organização, Metas, critérios de análise, carrinho e auditoria
 
-> Fase conduzida em 3 grandes pedidos do Tiago (02/10 — "não deixe nada de fora", 03/10 — critérios de análise e Metas v2, 05/10 — Caixa/FGTS, Renda Fixa e carrinho) e fechada em 06/10 com uma auditoria geral (ver `docs/auditoria-2026-10.md`). Foi feita com **agentes paralelos**, cada um num escopo de arquivos, seguindo as regras de `docs/guia-desenvolvimento.md` (comentários datados citando o pedido, nenhum dado real no repositório, `.gs` listados para o Tiago implantar). Números do fim da fase: 1.403 testes (`node --test`), 42 arquivos `.gs` (~20 mil linhas), mais de 40 mil linhas de JS no front, 9 páginas HTML no app (mais o `teste.html`).
+> Fase conduzida em 3 grandes pedidos do Tiago (02/10 — "não deixe nada de fora", 03/10 — critérios de análise e Metas v2, 05/10 — Caixa/FGTS, Renda Fixa e carrinho) e fechada em 06/10 com uma auditoria geral (ver `docs/auditoria-2026-10.md`). Foi feita com **agentes paralelos**, cada um num escopo de arquivos, seguindo as regras de `docs/guia-desenvolvimento.md` (comentários datados citando o pedido, nenhum dado real no repositório, `.gs` listados para o Tiago implantar). Números do fim da fase: 1.403 testes (`node --test`), 42 arquivos `.gs` (~20 mil linhas), mais de 40 mil linhas de JS no front, 9 páginas HTML no app (mais o `tests/manual/teste.html`).
 
 ### Menu e navegação (após a fase)
 
@@ -389,7 +389,38 @@ Três auditores (dados/cálculos, UI/mobile, desempenho/sincronização/código)
 - **Onda 1 (bugs e cálculos)**: painéis do header clicáveis no celular; USD em "US$ 1.234,56"; financiamento sem data de início estimado desde a compra (FGTS de jan/2026 aparece); prazo/saldo contando só parcelas vencidas; alocação exclusiva das metas por prioridade (cada ativo conta uma vez); reserva em base líquida; IR/IOF por lote; tabela única de aliases de ticker; janela única de "proventos 12 meses" com confirmado × presumido; "hoje" sempre no fuso de São Paulo; aporte concluído de ação/FII/RF aparece em Transações como **"a confirmar"** até a importação da B3 (derivado, nada gravado na planilha; EUA fora); YouTube 404/lista vazia = "sem vídeos disponíveis".
 - **Onda 2 (desempenho e sincronização)**: leitura só até a última linha real (células lidas caem 3–5×), caches com carimbo de escrita, N+1 eliminados, Gastos por janela de 12 meses, cache de resposta de Metas/Macro, Organização sem chamadas duplicadas, Carteiras pinta a tabela antes dos gráficos, logout limpa os dados locais, CSP nas páginas; trava por recurso no lugar do lock global, Agenda com etapas independentes e recuperação, calendário B3, Registro de Controle estruturado com heartbeat, disjuntor persistente de fontes (`Fontes.gs`), FNet em lote, fundamentos válidos por 7 dias.
 - **Onda 3 (UI)**: migração para Material Design 3 seguindo o kit Figma "Material You Design System & UI Kit" (fonte Readex Pro, neutros slate e primary oliva/lima do logo), trilho + gaveta recolhível, top bar com busca, abas em pílula/sublinhadas e breadcrumb, componentes em `assets/js/ui/` (confirmar, toast, erro de carga, abas), biblioteca única de gráficos animados em `assets/js/charts/`, formatação e escape centralizados (`format.js`, `util/html.js`), períodos canônicos. Logo novo no header e nos ícones (favicon/PWA). Catálogos vivos em `docs/componentes-m3.html` e `docs/graficos-m3.html`; guia em `docs/guia-ui-m3.md`.
-- **Ficou para depois**: A-42 (build com bundling e hash) e a Onda 4 (dívida técnica), A-56 (snapshot diário de preço — só projetado), mapa coroplético da biblioteca de gráficos, e o e-mail autorizado/ID da planilha ainda versionados (A-27, parte).
+- **Ficou para depois**: o build com bundling e hash do A-42 (a carga por tela foi feita sem build, ver "Onda 4, parte carga do front") e o resto da Onda 4 (dívida técnica), A-56 (snapshot diário de preço — só projetado), mapa coroplético da biblioteca de gráficos, e o e-mail autorizado/ID da planilha ainda versionados (A-27, parte).
+
+### Onda 4, parte "carga do front" — A-42 e A-76 (06/10/2026)
+Objetivo: cada tela carrega só o que usa, **sem mudar o deploy** (GitHub Pages direto da branch: nada de bundler, etapa de build nem pasta `dist`).
+- **Rotas lazy** (`assets/js/router.js`): Início, Acompanhamento e Metas são importadas com `import()` na 1ª visita (`ROUTES[].carregar`); o HTML da aba Metas virou `pages/metas-template.js` para o router injetar o markup sem baixar a tela. O `<main>` novo só aparece depois que o código **e o CSS** da aba chegaram (até lá a aba anterior continua na tela); URL, menu e título mudam na hora do clique. Subabas: Carteiras importa cada uma das 5 subpáginas ao abrir (`carteiras-router.js`); Transações importa Aportes/Lançamentos sob demanda (a aba à vista antes do 1º desenho, a outra em segundo plano); a aba Patrimônio do FII só é importada para FII; o cartão de metas (`metas-card.js`) só entra no Ativo quando as metas chegam.
+- **Divisão de arquivos (A-76), com reexport de compatibilidade no módulo antigo**: `inicio.js` → `inicio-calc.js` (contas puras), `inicio-rentabilidade.js`, `inicio-ativos.js` (Carteiras, Ativo e o painel lateral importavam `inicio.js` só pelas contas e arrastavam a tela inteira; o ciclo `inicio` ↔ `inicio-painel` acabou; saiu `wirePointerTooltipDistrib_`, função morta com bug latente); `metas-calc.js` → `metas-calc-nucleo.js` (o motor de critérios só precisa dele: 5 KB em vez de 135 KB), `-plano`, `-viagem`, `-analise` (`metas-calc.js` virou barril); `carteiras-classe-comum.js` → `carteiras-pecas.js` (logos e viés: Proventos e Transações não carregam mais gráficos e rentabilidade); `momento-aporte.js` → `momento-carga.js`; `ativo-patrimonio-esqueleto.js`. `distribuicoes-metas.js`, `metas.js`, `ativo.js` e `analise-grafico.js` **não** foram divididos: são telas inteiras, nenhuma outra tela os importa e dividi-los não tiraria nada de nenhuma carga.
+- **CSS por aba**: `index.html`, `distribuicoes-metas.html` e `metas.html` linkam só o CSS da aba de entrada (antes os três linkavam as folhas das três); as outras entram com o `import()` da aba (`ROUTES[].css`, `carregarCssDaRota`). As peças que as 3 abas dividiam e moravam em `inicio.css` (aviso de falha parcial, gráfico do dia em slot, `.moeda-conv`, `.info-*`) foram para `comum-telas.css`; `.dm-kpi` foi para `distribuicoes-metas.css`. Conferido por captura de tela (1280 e 390 px, entrada direta e navegação entre as 3 abas): 0 pixel de diferença para o site anterior.
+- **`<link rel="modulepreload">`** do caminho crítico em cada HTML (fecho dos imports do `<script>` inline + a tela de entrada), gerado por `node scripts/gerar-modulepreload.mjs` (o script inline não mudou: hashes da CSP intactos) e conferido por `tests/carga-telas.test.js`; `preconnect` também a `fonts.gstatic.com`. `scripts/grafo-imports.mjs` imprime módulos/KB por HTML.
+- **`sw.js` v6**: CSS e imagens em stale-while-revalidate (o CSS bloqueia a 1ª pintura; na visita seguinte sai do cache), fontes cache-first, HTML network-first com *navigation preload*. **JS continua network-first com revalidação** de propósito: sem hash no nome do arquivo, servir módulo velho do cache e atualizar depois pode juntar versões diferentes na mesma carga (A novo importando um nome que o B velho não exporta). A cascata que isso custava foi atacada pelo `modulepreload` (todos os módulos saem em paralelo).
+- **Medição** (`tests/harness/medir-carga.py`: prévia local + Playwright, contexto novo = cache frio, sem service worker, 1280 px; só código do site, sem imagens/JSON):
+
+| Tela | JS antes → depois (módulos · KB) | CSS antes → depois (arquivos · KB) |
+|---|---|---|
+| Início | 64 · 1.536 → 54 · 787 (−49%) | 8 · 251 → 7 · 172 (−31%) |
+| Acompanhamento de Ativos | 64 · 1.536 → 54 · 882 (−43%) | 8 · 251 → 7 · 217 (−14%) |
+| Metas | 64 · 1.536 → 50 · 958 (−38%) | 8 · 251 → 8 · 230 (−8%) |
+| Carteiras | 63 · 1.144 → 57 · 957 (−16%) | 7 · 228 → 7 · 228 |
+| Ativo (ação) | 67 · 1.504 → 62 · 1.287 (−14%) | 8 · 221 → 8 · 221 |
+| Transações (Lançamentos entra em 2º plano; caminho crítico = 54 · 782) | 72 · 1.523 → 62 · 1.023 (−33%) | 6 · 204 → 6 · 204 |
+| Proventos | 52 · 883 → 43 · 641 (−27%) | 6 · 160 → 6 · 160 |
+| Organização (não mexida) | 61 · 1.411 → 63 · 1.391 | 10 · 229 → 10 · 229 |
+| Login | 5 · 46 → 5 · 46 | 4 · 114 → 4 · 114 |
+
+  Trocar de aba depois da 1ª: Início → Acompanhamento baixa +14 módulos (541 KB) e +2 CSS (80 KB); Início → Metas, +9 módulos (386 KB) e +2 CSS. Visitar as três na mesma sessão carrega a união (72 módulos, 1,5 MB), igual a antes — o ganho é não pagar pelas que você não abre. Orçamento por tela agora é teste (`tests/carga-telas.test.js`).
+- **Não feito**: build com hash/minificação (fora do deploy atual), fontes hospedadas no próprio site (as 3 ainda vêm do Google Fonts, só com `preconnect`), shell inline no HTML, Organização por aba (o orquestrador monta as 4 abas de forma síncrona), `base-rentabilidade`/`base-acoes`/`base-fiis` sob demanda (o motor e a Análise os usam de forma síncrona em toda tela que os importa). Achado fora do escopo: logos PNG de 170 KB (`assets/imgs/acoes/AXIA7.png`) pedidos 3x na Transações.
+
+### Onda 4, parte "identidade e limpeza" (06/10/2026)
+- **A-71**: uma só identidade de título de Renda Fixa em `RendaFixaIR.gs` (`chaveTituloRf_`, `casaTituloRf_`, `idsEstaveisCarteiraRf_`; a normalização de instituição segue em `normalizarInstituicaoRF_`). Substituiu as 4 regras antigas (BackfillRendaFixa, Ativo, Metas, MeusAtivos/CarteirasRendaFixa). O id estável (ISIN da coluna A + instituição) sai em `idEstavel` em MeusAtivos e Carteiras RF; o casamento entre abas (Transações, Lotes, Resumo, Histórico) continua por título+instituição normalizados porque essas abas não têm coluna de código. Teste: `tests/harness/o4-chave-rf.test.js` (regras antigas × nova nas fixtures: mesmos casamentos).
+- **A-77/A-78**: CDI 12m único (`BackfillIndices.gs!cdiAcumulado12m_`, usado por Macro e pela tela do ativo); mês do IPCA pela chave ISO do fuso do projeto; `macro.juros.ipcaMensal` alimenta a tabela de IPCA da Renda e `macro.juros` (Selic/IPCA 12m) as taxas do simulador; os valores fixos viram fallback rotulado "(premissa)".
+- **A-82**: `assets/js/ir-renda-fixa.js` (IR/IOF, espelho do GS; teste dia a dia contra o `.gs`).
+- **A-79**: removidos `.gs` sem uso (handleBackfillRendaFixa, handleBackfillIndices, repararDataResgateSelic2027Marco2026_, semearSnapshotManual17E18Setembro_, agendaEhDomingo_, listarDocumentosFnet_, baixarDocumentoFnet_, limparCacheGeracao_) e, no front, `renderDistribuicao` (+ `.distrib-*`), `botoesPeriodoHtml`, `gravarCarrinhoLocal`, `getConsolidacao`.
+- **A-80/A-27**: `teste.html` foi para `tests/manual/`; `opcoesTeste` só aceita abas `aux_tests*`; o e-mail autorizado fica na propriedade `EMAIL_AUTORIZADO` (editor: `configurarEmailAutorizado()`) e o link da planilha vem da API (`planilhaUrl` em syncHistorico/syncStatus/ping).
 
 ## Status geral (atualizado em 06/10/2026)
 
@@ -397,12 +428,12 @@ Três auditores (dados/cálculos, UI/mobile, desempenho/sincronização/código)
 - **Qualidade**: 1.403 testes (`node --test`; com a planilha "Controle 16" 3 falham só por suposição de aba vazia — ver A-73), relatório de conferência das telas contra um oráculo independente e prévia com dados reais.
 - **Pendente (auditoria de 06/10)**: backlog de 82 itens em 4 ondas (`docs/auditoria-2026-10.md`): Onda 1 bugs/cálculos/UX mobile crítica, Onda 2 desempenho e sincronização, Onda 3 padronização de UI, Onda 4 dívida técnica e testes. Decisão do Tiago ainda aberta: confirmar o compartilhamento da planilha e anonimizar o que o repositório público ainda carrega (A-27).
 - **Ideias de produto** derivadas do que já existe: `docs/ideias-produtos.md`.
-- O `teste.html` (scaffold de Fase 0) segue publicado; A-80 propõe retirá-lo do deploy.
+- O `tests/manual/teste.html` (scaffold de Fase 0) saiu da raiz do site em 06/10/2026 (A-80); `opcoesTeste` só aceita abas `aux_tests*`. Atenção: o GitHub Pages ainda serve a pasta `tests/` se o deploy for "da branch"; para tirar de verdade, publicar por GitHub Actions excluindo `tests/` e `docs/`.
 
 ### Status em 14/09/2026 (histórico — mantido para contexto)
 
 
-- **Fase 0 (validação de dados/backend) concluída** para Renda Variável: login, leitura da planilha, backfill completo dos 29 ativos, sincronização incremental, Registro de Controle (3 estados + retry seletivo), gravação em lote da B3 — todos testados via `teste.html` contra a planilha real (em modo teste, sem tocar dado real).
+- **Fase 0 (validação de dados/backend) concluída** para Renda Variável: login, leitura da planilha, backfill completo dos 29 ativos, sincronização incremental, Registro de Controle (3 estados + retry seletivo), gravação em lote da B3 — todos testados via `tests/manual/teste.html` contra a planilha real (em modo teste, sem tocar dado real).
 - **Histórico de Renda Fixa reconstruído e sincronizando**: 14 posições desde 2020, extrato B3 unificado, classificação por produto+instituição+indexador validada, backfill completo e incremental funcionando.
 - **Histórico de Índices (Ibovespa) criado e sincronizando**: 1422 dias de histórico via GOOGLEFINANCE, backfill completo e incremental funcionando (gotcha de locale pt-BR resolvido).
 - **`HistoricoInicio.gs` combinando os 3 históricos**: testado, 2090 dias, números conferidos batendo (soma Longo Prazo + Renda Emergencial = Patrimônio, benchmarks em faixas plausíveis).
@@ -410,7 +441,7 @@ Três auditores (dados/cálculos, UI/mobile, desempenho/sincronização/código)
 - Backend reorganizado em arquivos finais de produção (ver estrutura acima) — 13 arquivos `.gs` ao todo.
 - **Front-end real construído e funcionando**: Início (dashboard completo — índices/câmbio, resumo de patrimônio, distribuição por classe, gráfico de Rentabilidade com TWR de verdade, grade Meus Ativos) e Distribuições e Metas (Objetivos da Carteira, Radar de oportunidades e Metas da Carteira, todos editáveis com escrita de volta na planilha) — ver a seção "Front-end real" acima pra todo o detalhe. Login virou página dedicada e a PWA (manifest + service worker) já é instalável. 256 testes (`node --test` + jsdom) cobrindo shell/tema/auth/format/api-client e as 2 páginas.
 - Preferência de trabalho do Tiago (mantida em toda tela nova construída): antes de qualquer HTML/UI ser construído, ele quer ver os dados/valores reais (função só-leitura + `testarXDireto()` rodada por ele no editor, JSON colado de volta no chat) pra confirmar que estão corretos antes do trabalho de UI prosseguir.
-- Próximo passo ainda não combinado com o Tiago: as telas restantes do mapa original (`docs/mapa-paginas.html`) — Carteiras e Detalhe do Ativo (`ativo.html?ref=&classe=`, já referenciado pelos cartões clicáveis da Início e de Meus Ativos, mas sem rota construída ainda) — e decidir o destino de `teste.html` (aposentar quando as telas reais cobrirem tudo que ele testa hoje).
+- Próximo passo ainda não combinado com o Tiago: as telas restantes do mapa original (`docs/mapa-paginas.html`) — Carteiras e Detalhe do Ativo (`ativo.html?ref=&classe=`, já referenciado pelos cartões clicáveis da Início e de Meus Ativos, mas sem rota construída ainda) — e decidir o destino de `tests/manual/teste.html` (aposentar quando as telas reais cobrirem tudo que ele testa hoje).
 
 ## Fluxo de trabalho estabelecido (Claude + repositório)
 

@@ -25,6 +25,8 @@ function montar(linhas) {
   };
   const sb = { console, Logger: { log() {} }, SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => aba }), flush() {} } };
   vm.createContext(sb);
+  // 06/10/2026: o começo do histórico de índices vem de Sync.gs!dataInicioHistoricoIndices_ (1 dia antes da 1ª transação da planilha)
+  new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', 'Sync.gs'), 'utf8'), { filename: 'Sync.gs' }).runInContext(sb);
   new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', 'BackfillIndices.gs'), 'utf8'), { filename: 'BackfillIndices.gs' }).runInContext(sb);
   return { sb, cel };
 }

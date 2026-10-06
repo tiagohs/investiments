@@ -11,11 +11,15 @@ nada nele. Ver comentário no topo do harness.
 Uso:
   python3 tests/harness/extrair-fixtures.py "/caminho/Investimentos - Controle NN.xlsx" [saida.json]
 
+Extrai a lista fixa SHEETS + toda aba que apps-script/*.gs usa (varredura do texto; ver abas_usadas_no_codigo).
+Aba que o código usa e não existe no .xlsx sai como AVISO e em _meta.abasAusentesNaPlanilha.
+
 Precisa de openpyxl (`pip install openpyxl --break-system-packages` se
 não tiver).
 """
 import sys
 import os
+import re
 import json
 import datetime
 
@@ -67,6 +71,49 @@ SHEETS = [
 ]
 
 
+# 06/10/2026 (A-74): a lista acima envelhecia (8 abas já usadas pelo código não estavam nela e a prévia devolvia ok:true
+# vazio em silêncio). Agora o extrator também varre apps-script/*.gs e extrai TODA aba que o código usa: constantes
+# `var ...ABA... = '...'`, getSheetByName('...'), insertSheet('...') e `aba: '...'` (LANC_ABAS). Mesma varredura do
+# teste tests/harness/abas-contrato.test.js (fixtures-exigidas.mjs!abasDoCodigo) - mantenha as duas em sincronia.
+GS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'apps-script')
+
+
+def _sem_comentarios(texto):
+    texto = re.sub(r'/\*[\s\S]*?\*/', '', texto)
+    return re.sub(r"(^|[^:'\"\\])//.*$", r'\1', texto, flags=re.M)
+
+
+def abas_usadas_no_codigo(gs_dir=GS_DIR):
+    """{nome_da_aba: {'arquivos': [...], 'criadaPeloCodigo': bool}} lido do texto dos .gs."""
+    achadas = {}
+    if not os.path.isdir(gs_dir):
+        return achadas
+    for arq in sorted(os.listdir(gs_dir)):
+        if not arq.endswith('.gs'):
+            continue
+        with open(os.path.join(gs_dir, arq), encoding='utf-8') as f:
+            codigo = _sem_comentarios(f.read())
+        constantes = {m.group(1): m.group(2) for m in re.finditer(r"\b(?:var|const|let)\s+([A-Z][A-Z0-9_]*)\s*=\s*'([^'\n]+)'", codigo)}
+        def registrar(nome, cria=False):
+            if not nome or nome.startswith('http'):
+                return
+            d = achadas.setdefault(nome, {'arquivos': [], 'criadaPeloCodigo': False})
+            if arq not in d['arquivos']:
+                d['arquivos'].append(arq)
+            d['criadaPeloCodigo'] = d['criadaPeloCodigo'] or cria
+        for nome_const, valor in constantes.items():
+            if 'ABA' in nome_const or 'SHEET' in nome_const:
+                registrar(valor)
+        for m in re.finditer(r"\b(?:getSheetByName|insertSheet)\(\s*('([^'\n]+)'|([A-Z][A-Z0-9_]*))\s*\)", codigo):
+            nome = m.group(2) or constantes.get(m.group(3))
+            registrar(nome, cria='insertSheet' in m.group(0))
+        for m in re.finditer(r"\baba:\s*'([^'\n]+)'", codigo):
+            registrar(m.group(1))
+    # nomes só de teste/instrução (aux_tests é a aba-sandbox do modo teste da importação B3)
+    achadas.pop('aux_tests', None)
+    return achadas
+
+
 def serialize(v):
     if isinstance(v, datetime.datetime):
         return {'__date__': v.isoformat()}
@@ -88,10 +135,16 @@ def main():
 
     wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
 
+    usadas = abas_usadas_no_codigo()
+    todas = list(SHEETS) + [n for n in sorted(usadas) if n not in SHEETS]
+    ausentes = []
     out = {}
-    for nome in SHEETS:
+    for nome in todas:
         if nome not in wb.sheetnames:
-            print(f'AVISO: aba "{nome}" não encontrada na planilha - pulando (fixture ficará ausente).', file=sys.stderr)
+            quem = ', '.join(usadas[nome]['arquivos']) if nome in usadas else 'lista SHEETS deste script'
+            criada = ' (o código cria a aba no 1º uso - normal se ela ainda não existe)' if usadas.get(nome, {}).get('criadaPeloCodigo') else ''
+            print(f'AVISO: aba "{nome}" usada em {quem} não está na planilha - pulando (fixture ficará ausente){criada}.', file=sys.stderr)
+            ausentes.append(nome)
             continue
         ws = wb[nome]
         linhas = [[serialize(c) for c in row] for row in ws.iter_rows(values_only=True)]
@@ -110,6 +163,9 @@ def main():
         'arquivo': os.path.basename(xlsx_path),
         'arquivoModificadoEm': datetime.datetime.fromtimestamp(os.path.getmtime(xlsx_path), datetime.timezone.utc).isoformat(),
         'extraidoEm': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        # 06/10/2026 (A-74): o teste de contrato (abas-contrato.test.js) diz QUAL aba falta e por quê
+        'abasUsadasNoCodigo': sorted(usadas),
+        'abasAusentesNaPlanilha': sorted(ausentes),
     }
 
     with open(out_path, 'w', encoding='utf-8') as f:

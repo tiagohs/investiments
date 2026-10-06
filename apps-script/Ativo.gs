@@ -258,20 +258,15 @@ function montarBaseAtivo_(ss, ticker, classeConhecida) {
 }
 
 /**
- * 25/09/2026 (conclusões dos indicadores): CDI dos últimos 12 meses (%), pra
- * comparar com o DY - da série da Início (mesma régua dos gráficos).
+ * 25/09/2026 (conclusões dos indicadores): CDI dos últimos 12 meses (%), pra comparar com o DY.
+ * 06/10/2026 (A-77): mesma fonte do Macro (cdiAcumulado12m_, BackfillIndices.gs) - antes vinha da série da Início
+ * (outra janela/base) e os dois valores divergiam.
  */
 function referenciasDeMercado_() {
-  var serie = [];
-  try { serie = memoAtivo_('serieInicio', function () { return montarSerieHistoricoInicio_(); }); } catch (e) { return {}; }
-  var pts = serie.filter(function (p) { return typeof p.indiceCdi === 'number' && p.indiceCdi > 0; });
-  if (pts.length < 2) return {};
-  var ult = pts[pts.length - 1];
-  var alvo = somarDiasChaveAtivo_(ult.data, -365);
-  var base = null;
-  for (var i = pts.length - 1; i >= 0; i--) { if (pts[i].data <= alvo) { base = pts[i]; break; } }
-  if (!base) return {};
-  return { cdi12m: Math.round((ult.indiceCdi / base.indiceCdi - 1) * 10000) / 100, cdi12mAte: ult.data };
+  var r = null;
+  try { r = cdiAcumulado12m_(SpreadsheetApp.getActiveSpreadsheet(), new Date()); } catch (e) { return {}; }
+  if (!r) return {};
+  return { cdi12m: Math.round(r.fracao * 10000) / 100, cdi12mAte: r.ate };
 }
 
 /**
@@ -410,8 +405,9 @@ function montarTelaAtivoRendaFixa_(chave) {
   var nome = String(partes[0] || '').trim();
   var inst = normalizarInstituicaoRF_(partes[1] || '');
   var carteira = memoAtivo_('carteiraRf', function () { return montarCarteirasRendaFixa_(); });
+  var chaveTitulo = chaveTituloRf_(nome, partes[1] || ''); // 06/10/2026 (A-71): chave única do título
   var ativo = (carteira.ativos || []).filter(function (a) {
-    return String(a.nomePersonalizado || '').trim().toUpperCase() === nome.toUpperCase() && normalizarInstituicaoRF_(a.instituicao) === inst;
+    return chaveTituloRf_(a.nomePersonalizado, a.instituicao) === chaveTitulo;
   })[0] || null;
   var casa = function (produto, instituicao) { return casaTituloRf_(nome, inst, produto, instituicao); };
 
@@ -455,21 +451,7 @@ function montarTelaAtivoRendaFixa_(chave) {
   };
 }
 
-/**
- * O título da Carteira Renda Fixa é o mesmo produto do histórico/Transações?
- * Tesouro: mesmo nome + mesma instituição. LCI/LCA/CDB: na Carteira o nome é
- * livre ("LCI - BANCO INTER S/A") e nas Transações é o código
- * ("LCI - 26I02621944") - casa pelo tipo + instituição, igual a
- * custoPepsDoTituloRf_ (CarteirasRendaFixa.gs).
- */
-function casaTituloRf_(nomeCarteira, instCarteiraNorm, produto, instituicao) {
-  if (normalizarInstituicaoRF_(instituicao) !== instCarteiraNorm) return false;
-  var a = String(nomeCarteira || '').trim().toUpperCase(), b = String(produto || '').trim().toUpperCase();
-  if (!a || !b) return false;
-  if (a === b) return true;
-  var tipo = a.split(/[\s-]/)[0];
-  return ['LCI', 'LCA', 'CDB'].indexOf(tipo) >= 0 && b.split(/[\s-]/)[0] === tipo;
-}
+// 06/10/2026 (A-71): casaTituloRf_ (Tesouro pelo nome, LCI/LCA/CDB pelo tipo + instituição) agora é única, em RendaFixaIR.gs.
 
 // ---------------------------------------------------------------------------
 // Notícias (Google Notícias - RSS público), 2h de cache por ticker

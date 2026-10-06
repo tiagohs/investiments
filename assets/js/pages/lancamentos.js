@@ -25,7 +25,7 @@ import { DESTINOS, TIPOS_ARQUIVO, lerArquivos, valorDoItem } from './lancamentos
 import { MESES_LONGOS } from './aportes-calc.js';
 import { classePorTicker, todasAsCompras } from './aportes-mapa-calc.js';
 import { renderGraficoCompras } from './aportes-grafico.js';
-import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
+import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-pecas.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 import { ligarFiltroPeriodo, botoesSegmentadoHtml, recortarPorIntervalo, ehPeriodoPersonalizado } from '../periodo-personalizado.js'; // 06/10/2026 (Onda 3): período canônico do gráfico
 import { confirmar, toast, mostrarErroCarga, ligarMenu } from '../ui/index.js';

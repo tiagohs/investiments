@@ -14,14 +14,11 @@ import { getCarteirasAcoesEua, getHome } from '../api-client.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatUSD, formatComConversao, formatPercentFromFraction, formatNumeroBR, formatPercentFromPoints } from '../format.js';
 import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
-import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira, definirFonteProventos } from './carteiras-proventos.js';
 import { criarGraficosCarteira } from './carteiras-graficos.js';
-import {
-  somaCampoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
-  wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, equivalenteBrlHtml_, statusVies, seloViesHtml, variacaoHtml, linhaTotalHtml,
-  contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
-} from './carteiras-classe-comum.js';
-import { comCamposUsdAcoesEua, historicoTemCambioUsd } from './inicio.js';
+import { somaCampoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel, wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, equivalenteBrlHtml_, seloViesHtml, variacaoHtml, linhaTotalHtml, contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras } from './carteiras-classe-comum.js';
+import { statusVies } from './carteiras-pecas.js';
+import { comCamposUsdAcoesEua, historicoTemCambioUsd } from './inicio-calc.js';
 
 // 24/09/2026 (Tiago: "em Ações EUA, me dê a opção de ver em reais ou em
 // dólar"): botão R$ | US$ no topo da página - troca o resumo em destaque e
@@ -143,7 +140,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
           <button type="button" data-moeda="USD" aria-pressed="false">US$</button>
         </div>
       </div>`,
-    extrasAposLista: `${secaoProventosCarteiraHtml('acoesEuaProventos')}${secaoRecolhivelHtml({ nome: 'videos', id: 'acoesEuaVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('acoesEuaVideos') })}`,
+    proventosHtml: secaoProventosCarteiraHtml('acoesEuaProventos', { navegacao: true }),
+    extrasAposLista: `${secaoRecolhivelHtml({ nome: 'videos', id: 'acoesEuaVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('acoesEuaVideos') })}`,
   });
   const $ = (id) => doc.getElementById(id);
   wirePointerTooltipCarteiras_(doc, conteudoEl);
@@ -255,7 +253,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   aplicarEstadoSecoes(doc, conteudoEl, estadoSecoes);
 }
 
-export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+export async function montarPaginaCarteirasAcoesEua(token, { doc = document, getCarteirasAcoesEuaImpl = getCarteirasAcoesEua, getHomeImpl = getHome, getVideosImpl = undefined, getProventosImpl = undefined } = {}) {
+  definirFonteProventos(token, getProventosImpl); // 06/10/2026: meses anteriores dos proventos (ação "proventos" existente)
   const preencherVideos = criarCarregadorVideos(token, { carteira: 'acoesEua' }, getVideosImpl ? { getVideosImpl } : {});
   return montarPaginaClasseCarteiras(token, {
     doc, prefixo: 'acoesEua', tela: 'Carteira de Ações Internacionais', chaveCache: CHAVE_CACHE_ACOES_EUA, buscarCarteira: getCarteirasAcoesEuaImpl, getHomeImpl, desenhar,

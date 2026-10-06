@@ -53,52 +53,23 @@ var NOME_ABA_REGISTRO = 'Registro de Controle';
 var CELULA_RASCUNHO = 'Auxiliar_app!AZ1';
 var CELULA_RASCUNHO_SAIDA = 'Auxiliar_app!AZ1:BA4000'; // ~15+ anos de pregões — margem de segurança pro backfill completo
 
-// 20/09/2026 (bug real, achado com dados reais do Tiago — Controle 30.xlsx):
-// TICKERS_BR era 1 array só, misturando Ações e FIIs sem preservar QUAL É
-// QUAL — e faltava AXIA3 (a ON da Axia Energia; só a AXIA7/PNC estava na
-// lista), então aux_historico-patrimonio NUNCA teve 1 linha sequer de
-// AXIA3 desde a 1ª compra (12/06/2025) — confirmado direto na planilha
-// real (0 linhas). Isso sozinho já subestimava "Ações" (e o patrimônio
-// total) em todo gráfico/rentabilidade/TWR que depende do histórico.
-// Separado agora em TICKERS_ACOES_BR/TICKERS_FIIS_BR (com AXIA3 incluída)
-// — TICKERS_BR continua existindo como a UNIÃO dos dois, pra não quebrar
-// nada que já usava a lista combinada (o loop de sincronização em si não
-// precisa saber Ações x FII, só HistoricoInicio.gs precisa — ver
-// classePorTicker lá, que agora usa TICKERS_FIIS_BR pra essa distinção
-// em vez de confiar na coluna "Classe" da aba, que só guarda 'BR'/'USA',
-// nunca 'FII' — a MESMA causa raiz do bug de "gráfico de Ações somando
-// Ações+FIIs juntos" que o Tiago reportou).
-// AXIA15G (direito de subscrição, recebido 13/09/2026, ainda sem preço/
-// histórico nenhum) foi DELIBERADAMENTE deixado de fora por enquanto —
-// confirmar com o Tiago se a GOOGLEFINANCE cota esse ticker antes de
-// adicionar (valor irrisório hoje, não vale o risco de testar às cegas
-// num job que roda sozinho todo dia).
-var TICKERS_ACOES_BR = ['WIZC3', 'VAMO3', 'SEER3', 'TUPY3', 'AXIA3', 'AXIA7', 'AGRO3', 'B3SA3', 'BBAS3', 'BBSE3', 'EGIE3', 'PETR4', 'VALE3'];
-var TICKERS_FIIS_BR = ['BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11', 'RBRY11', 'KNUQ11', 'HGRU11', 'XPML11'];
-// 23 ativos BR = 13 Ações (12 + AXIA3, que faltava) + 10 FIIs.
-var TICKERS_BR = TICKERS_ACOES_BR.concat(TICKERS_FIIS_BR);
-// 7 ativos USA (confirmado — Carteira Ações USA tem 7, não 8).
-// 20/09/2026 (bug real, achado com dados reais do Tiago - mesmo padrão
-// do AXIA3 que faltava em TICKERS_ACOES_BR, ver comentário acima): STR
-// tem Compra registrada em "Transações - USA" desde 11/06/2025 mas nunca
-// esteve nesta lista, então nunca foi sincronizado nem 1 dia em
-// aux_historico-patrimonio - ficava de fora de TODO o patrimônio
-// Internacional/Total (não é como AXIA15G, que é direito de subscrição
-// com preço 0 - STR tem preço/qtd normais, parece só esquecimento).
-// 20/09/2026 (bug real - STR virou fantasma no backfill, ver
-// tests/harness/carteiras-real.test.js!'ticker fantasma' e relatorio
-// enviado ao Tiago): Sitio Royalties (STR) foi incorporada pela Viper
-// Energy (VNOM) num merge all-stock fechado em 19/08/2025 (razao
-// 0,4855 VNOM por 1 STR) - a posicao ja foi migrada corretamente pro
-// ticker VNOM em "Transacoes - USA", entao STR NUNCA MAIS deveria
-// aparecer aqui (senao o sync diario continua gravando "preco" pra um
-// papel delistado em aux_historico-patrimonio, e o backfill
-// (HistoricoInicio.gs) soma esse valor fantasma JUNTO com o VNOM real,
-// dobrando a posicao no grafico "Evolucao do patrimonio"). Se ALGUM
-// ticker daqui for incorporado/trocar de nome/deslistar de novo no
-// futuro, o mesmo cuidado se aplica: tirar da lista abaixo E fechar a
-// posicao fantasma no historico (ver README/relatorio pra como).
-var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
+// 06/10/2026 (pedido do Tiago: "tirar a lista de tickers e a data da 1ª compra do código" - o repositório é PÚBLICO e a lista
+// de ativos é a carteira dele): as 4 listas abaixo nascem VAZIAS e são preenchidas da planilha por carregarTickersDaPlanilha_
+// (mais abaixo; chamada por quem precisa antes de usá-las - atualizarHistorico, HistoricoInicio, Proventos, Consolidação...
+// via carregarListasTickersDaPlanilha_ em Planilha.gs, que agora só delega pra cá). Fonte = aba "Auxiliar_ativos" (os "Meus
+// Ativos": Classe em A, Ticker em B): "Ações" -> TICKERS_ACOES_BR, "FIIs" -> TICKERS_FIIS_BR, "Ações EUA" -> TICKERS_USA;
+// TICKERS_BR = as duas listas BR juntas (a mesma união de antes). A Classe 'BR'/'USA' de aux_historico-patrimonio nunca guarda
+// 'FII' - quem precisa separar FII de Ação (HistoricoInicio/FluxoCaixaInicio/Proventos) usa TICKERS_FIIS_BR.
+// Só entra ticker de formato válido (RE_TICKER_BR_/RE_TICKER_USA_ em Planilha.gs): código de direito de subscrição (ex.: AXIA15G)
+// segue de fora até confirmar que o GOOGLEFINANCE cota - e TICKERS_FORA_DO_HISTORICO (abaixo) tira o que foi incorporado/deslistado.
+// Histórico dos bugs que a lista fixa causou (20/09/2026): ticker que faltava na lista nunca era sincronizado (AXIA3 e STR ficaram
+// de fora do patrimônio); ticker incorporado que continuava na lista (STR -> VNOM) dobrava a posição. Agora o ativo entra/sai
+// junto com a linha da Auxiliar_ativos. Se algum ativo for incorporado/trocar de nome/deslistar, tire-o da Auxiliar_ativos OU
+// ponha em TICKERS_FORA_DO_HISTORICO, e feche a posição fantasma no histórico (ver README/relatório).
+var TICKERS_ACOES_BR = [];
+var TICKERS_FIIS_BR = [];
+var TICKERS_BR = [];
+var TICKERS_USA = [];
 
 // 23/09/2026 (investigação a fundo com o "Controle 7" - Tiago: "os
 // cálculos dos gráficos continuam incorretos... eu não consigo confiar na
@@ -125,6 +96,99 @@ var TICKERS_USA = ['GPRK', 'CHTR', 'SIRI', 'EWBC', 'PAM', 'PROSY', 'VNOM'];
 // Ignorar STR nos dois lugares deixa só a VNOM - preço real, quantidade
 // real (bate com a Interactive Brokers) e aportes reais.
 var TICKERS_FORA_DO_HISTORICO = ['STR'];
+
+// ---------------------------------------------------------------------------
+// 06/10/2026: tickers e 1ª data de transação LIDOS DA PLANILHA (nada disso fica no código; ver comentário das listas acima).
+// ---------------------------------------------------------------------------
+var CACHE_TICKERS_PLANILHA_ = 'SYNC_TICKERS_PLANILHA_V1';
+var CACHE_TICKERS_PLANILHA_TTL_S_ = 10 * 60;      // ativo cadastrado/removido à mão na Auxiliar_ativos aparece em até 10 min
+var CACHE_PRIMEIRA_TRANSACAO_ = 'SYNC_PRIMEIRA_TRANSACAO_V1';
+var CACHE_PRIMEIRA_TRANSACAO_TTL_S_ = 6 * 60 * 60; // só muda se alguém lançar uma transação mais antiga que todas
+var ABAS_TRANSACOES_PRIMEIRA_DATA_ = ['Transações', 'Transações - USA', 'Transações Renda Fixa']; // data na coluna B, a partir da linha 7
+var _tickersPlanilhaLeituras_ = 0;
+
+function cacheScriptSync_() {
+  try { return typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null; } catch (e) { return null; }
+}
+
+/** Lê "Auxiliar_ativos" (A = Classe, B = Ticker) 1 vez e separa em { acoes, fiis, usa }, sem repetidos e sem TICKERS_FORA_DO_HISTORICO. */
+function lerTickersAuxiliarAtivos_(ss) {
+  var r = { acoes: [], fiis: [], usa: [] };
+  var aba = ss.getSheetByName('Auxiliar_ativos');
+  if (!aba || aba.getLastRow() < 2) return r;
+  aba.getRange(2, 1, aba.getLastRow() - 1, 2).getValues().forEach(function (l) {
+    var classe = String(l[0] || '').trim();
+    var t = String(l[1] || '').trim().toUpperCase();
+    if (!t || TICKERS_FORA_DO_HISTORICO.indexOf(t) !== -1) return;
+    if (classe === 'Ações EUA') {
+      if (RE_TICKER_USA_.test(t) && r.usa.indexOf(t) === -1) r.usa.push(t);
+    } else if ((classe === 'Ações' || classe === 'FIIs') && RE_TICKER_BR_.test(t) && r.acoes.indexOf(t) === -1 && r.fiis.indexOf(t) === -1) {
+      (classe === 'FIIs' ? r.fiis : r.acoes).push(t);
+    }
+  });
+  return r;
+}
+
+/**
+ * Preenche TICKERS_ACOES_BR / TICKERS_FIIS_BR / TICKERS_BR / TICKERS_USA (os MESMOS arrays: quem guardou a referência enxerga)
+ * a partir da Auxiliar_ativos. Cache de 10 min (CacheService) na 1ª leitura da execução; as leituras seguintes da MESMA execução
+ * (quem cadastrou/consolidou um ativo e zerou _listasTickersCarregadas_ pra reler) ignoram o cache e o renovam.
+ * Devolve { acoes, fiis, usa } (cópias).
+ */
+function carregarTickersDaPlanilha_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var forcar = _tickersPlanilhaLeituras_ > 0;
+  _tickersPlanilhaLeituras_++;
+  var cache = cacheScriptSync_();
+  var lista = null;
+  if (!forcar && cache) {
+    try { var bruto = cache.get(CACHE_TICKERS_PLANILHA_); lista = bruto ? JSON.parse(bruto) : null; } catch (eCache) { lista = null; }
+    if (lista && !(lista.acoes && lista.fiis && lista.usa)) lista = null;
+  }
+  if (!lista) {
+    lista = lerTickersAuxiliarAtivos_(ss);
+    try { if (cache) cache.put(CACHE_TICKERS_PLANILHA_, JSON.stringify(lista), CACHE_TICKERS_PLANILHA_TTL_S_); } catch (ePut) { /* só otimização */ }
+  }
+  TICKERS_ACOES_BR.length = 0; TICKERS_FIIS_BR.length = 0; TICKERS_BR.length = 0; TICKERS_USA.length = 0;
+  lista.acoes.forEach(function (t) { TICKERS_ACOES_BR.push(t); TICKERS_BR.push(t); });
+  lista.fiis.forEach(function (t) { TICKERS_FIIS_BR.push(t); TICKERS_BR.push(t); });
+  lista.usa.forEach(function (t) { TICKERS_USA.push(t); });
+  return { acoes: lista.acoes.slice(), fiis: lista.fiis.slice(), usa: lista.usa.slice() };
+}
+
+/**
+ * Menor data de transação da planilha inteira (Transações, Transações - USA e Transações Renda Fixa; coluna B desde a linha 7;
+ * a aba tem fórmula até ~10.800, então só células de Data contam), ou null se não há nenhuma. Cache de 6 h. É a "data da 1ª
+ * compra" que o código usava como constante.
+ */
+function primeiraDataTransacao_(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var cache = cacheScriptSync_();
+  try {
+    var bruto = cache ? cache.get(CACHE_PRIMEIRA_TRANSACAO_) : null;
+    if (bruto) { var ms = Number(bruto); if (ms > 0) return new Date(ms); }
+  } catch (eCache) { /* sem cache: lê */ }
+  var menor = null;
+  ABAS_TRANSACOES_PRIMEIRA_DATA_.forEach(function (nome) {
+    var aba = ss.getSheetByName(nome);
+    if (!aba || aba.getLastRow() < 7) return;
+    aba.getRange(7, 2, aba.getLastRow() - 6, 1).getValues().forEach(function (l) {
+      if (l[0] instanceof Date && !isNaN(l[0].getTime()) && (!menor || l[0] < menor)) menor = l[0];
+    });
+  });
+  if (menor) { try { if (cache) cache.put(CACHE_PRIMEIRA_TRANSACAO_, String(menor.getTime()), CACHE_PRIMEIRA_TRANSACAO_TTL_S_); } catch (ePut) { /* ok */ } }
+  return menor;
+}
+
+/**
+ * Começo do histórico de índices (BackfillIndices.gs): 1 dia antes da 1ª transação da planilha - a mesma regra do backfill de
+ * preços (1ª sincronização de um ticker começa 1 dia antes da 1ª transação dele). Sem nenhuma transação: 5 anos atrás.
+ */
+function dataInicioHistoricoIndices_(ss) {
+  var primeira = primeiraDataTransacao_(ss);
+  if (!primeira) { var h = new Date(); return new Date(h.getFullYear() - 5, h.getMonth(), h.getDate()); }
+  return new Date(primeira.getFullYear(), primeira.getMonth(), primeira.getDate() - 1);
+}
 
 /**
  * 02/10/2026 (Tiago: "Sync: Horário fixo de execução: ativos, renda fixa e
@@ -202,7 +266,7 @@ function handleSincronizarAgora(e) {
     if (e.parameter.opcoesTeste) {
       var opcoesTeste = JSON.parse(e.parameter.opcoesTeste);
       opcoes = {
-        abaHistoricoNome: opcoesTeste.abaHistoricoNome || 'aux_tests',
+        abaHistoricoNome: nomeAbaTesteValido_(opcoesTeste.abaHistoricoNome), // A-80: só abas aux_tests*
         tickersParaFalhar: opcoesTeste.tickersParaFalhar || []
       };
       origem = 'Teste';
@@ -347,6 +411,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
 
   carregarListasTickersDaPlanilha_(ss); // 26/09/2026: + ativos novos de Auxiliar_ativos (Planilha.gs)
   var todosTickers = TICKERS_BR.concat(TICKERS_USA);
+  if (!todosTickers.length && !(tickersEspecificos && tickersEspecificos.length)) throw new Error('Nenhum ativo em "Auxiliar_ativos" (colunas Classe/Ticker) - a lista de tickers sai de lá desde 06/10/2026.');
   var tickers = (tickersEspecificos && tickersEspecificos.length) ? tickersEspecificos : todosTickers;
 
   var ontem = new Date();
@@ -1196,7 +1261,7 @@ function heartbeatRegistroControle(agoraOpcional) {
  * ninguém tinha como saber antes disso sem ir olhar o Registro de
  * Controle manualmente. Só dispara pra origem === 'Automático' (o botão
  * manual e o modo Teste já mostram o erro na hora, na própria tela — ver
- * handleSincronizarAgora/teste.html). Best-effort: uma falha ao ENVIAR o
+ * handleSincronizarAgora/tests/manual/teste.html). Best-effort: uma falha ao ENVIAR o
  * e-mail (cota do Gmail, por exemplo) nunca pode mascarar/derrubar o
  * resto da execução, por isso o try/catch próprio, que só loga.
  */
@@ -1208,7 +1273,7 @@ function notificarFalhaSincronizacao_(origem, detalhe, assunto) {
       subject: assunto || 'Investimentos: sincronização diária falhou',
       body: 'A sincronização automática do histórico de patrimônio (aux_historico-patrimonio) falhou hoje.\n\n' +
         detalhe +
-        '\n\nEnquanto isso não for resolvido, o histórico fica desatualizado — o que afeta o gráfico de Rentabilidade da Início (compara com um "hoje" que não é o de verdade). Abra teste.html no site e clique em "Sincronizar tudo (29 ativos)" pra rodar manualmente, ou confira "Execuções" no editor do Apps Script pra mais detalhes do erro.'
+        '\n\nEnquanto isso não for resolvido, o histórico fica desatualizado — o que afeta o gráfico de Rentabilidade da Início (compara com um "hoje" que não é o de verdade). Abra tests/manual/teste.html no site e clique em "Sincronizar tudo (29 ativos)" pra rodar manualmente, ou confira "Execuções" no editor do Apps Script pra mais detalhes do erro.'
     });
   } catch (erroEmail) {
     console.log('notificarFalhaSincronizacao_: falhou ao enviar e-mail (' + erroEmail + ') — segue sem notificar.');
@@ -1216,9 +1281,14 @@ function notificarFalhaSincronizacao_(origem, detalhe, assunto) {
 }
 
 /** Handler chamado pelo Router (doGet). Alimenta o badge/painel de sincronização no topo do site. */
+/** 06/10/2026 (A-27): URL da planilha ativa, devolvida ao site (o ID não mora mais no repositório). */
+function urlPlanilhaAtiva_() {
+  try { return SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { return null; }
+}
+
 function handleSyncStatus(e) {
   try {
-    return jsonOut({ ok: true, resultado: lerUltimoRegistroControle_() });
+    return jsonOut({ ok: true, resultado: lerUltimoRegistroControle_(), planilhaUrl: urlPlanilhaAtiva_() });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }
@@ -1246,7 +1316,7 @@ function handleSyncHistorico(e) {
     // 26/09/2026: + o aviso "Consolidação necessária" (Consolidacao.gs) - o topo do site já busca isto em toda página
     var consolidacao = null;
     try { if (typeof resumoConsolidacao_ === 'function') consolidacao = resumoConsolidacao_(); } catch (eC) { consolidacao = null; }
-    return jsonOut({ ok: true, resultado: lerRegistroControle_(limite), consolidacao: consolidacao });
+    return jsonOut({ ok: true, resultado: lerRegistroControle_(limite), consolidacao: consolidacao, planilhaUrl: urlPlanilhaAtiva_() });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }
@@ -1331,6 +1401,7 @@ function repararHistoricoDuplicatasECambio_() {
 
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    carregarListasTickersDaPlanilha_(ss); // 06/10/2026: TICKERS_USA vem da Auxiliar_ativos
     var aba = ss.getSheetByName(NOME_ABA_HISTORICO);
     if (!aba) throw new Error('Aba "' + NOME_ABA_HISTORICO + '" não encontrada.');
 

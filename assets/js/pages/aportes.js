@@ -26,7 +26,7 @@
 // compra, vindo de Aportes.gs!ativosParaAporte_ -> ultimoPago.cambioDia).
 
 import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDM, formatDMA, formatPercentFromPoints } from '../format.js';
-import { logoAtivoHtml, logoRendaFixaHtml, statusVies } from './carteiras-classe-comum.js';
+import { logoAtivoHtml, logoRendaFixaHtml, statusVies } from './carteiras-pecas.js';
 import { urlAtivoTicker } from '../link-ativo.js';
 import {
   CLASSES_APORTE, NOME_CLASSE_APORTE, MESES_CURTOS, MESES_LONGOS,
@@ -49,6 +49,7 @@ import { ligarFiltroPeriodo, botoesSegmentadoHtml, ehPeriodoPersonalizado, rotul
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 import { criarKpi, criarGraficoBarras, garantirEstilosCharts } from '../charts/index.js'; // 06/10/2026 (Onda 3, kit Figma)
 import { confirmar, toast } from '../ui/index.js';
+import { estadoInicialHistorico, historicoHtml as historicoSecaoHtml, montarFiltroPeriodoHistorico, ligarHistorico } from './aportes-historico.js'; // 06/10/2026: Aportes concluídos = Investido por mês
 import { ic, corClasse, chipTom, ativoCelHtml, estadoVazioHtml, secaoHtml, textoDeHtml, ehCelular } from './transacoes-ui.js';
 
 
@@ -691,21 +692,16 @@ function cambioDoDia(dados, data) {
   return melhor ? melhor.cambio : null;
 }
 
-function historicoHtml(estado, dados) {
-  const lista = dados.aportes.filter((a) => a.status === 'concluido');
-  const porMes = {};
-  lista.forEach((a) => { (porMes[a.data.slice(0, 7)] = porMes[a.data.slice(0, 7)] || []).push(a); });
-  const meses = Object.keys(porMes).sort().reverse();
-  const visiveis = estado.historicoTodos ? meses : meses.slice(0, 3);
-  const cartao = (a) => {
-    const cambioAporte = a.itens.some((it) => it.moeda === 'USD') ? (cambioDoDia(dados, a.data) || dados.cambio) : dados.cambio;
-    const pago = totalAporte(a, 'final', cambioAporte);
-    const planejado = totalAporte(a, 'planejado', cambioAporte);
-    return `
+/** Cartão de um aporte concluído pelo site (repetir/excluir); a lista com meses, filtros e o histórico da planilha vem de aportes-historico.js. */
+function cartaoAporteSiteHtml(estado, dados, a) {
+  const cambioAporte = a.itens.some((it) => it.moeda === 'USD') ? (cambioDoDia(dados, a.data) || dados.cambio) : dados.cambio;
+  const pago = totalAporte(a, 'final', cambioAporte);
+  const planejado = totalAporte(a, 'planejado', cambioAporte);
+  return `
       <details class="tx-hist"${estado.abertos[a.id] ? ' open' : ''} data-hist="${esc(a.id)}">
         <summary>
           <span class="tx-hist-data"><b>${formatDM(a.data)}</b><small>${a.data.slice(0, 4)}</small></span>
-          <span class="tx-hist-info"><span class="tx-classes">${classesDoAporte(a).map((c) => `${dotHtml(c)}${NOME_CLASSE_APORTE[c]}`).join(' · ')}</span><small>${a.itens.length} ativo${a.itens.length > 1 ? 's' : ''}${a.observacao ? ` · ${esc(a.observacao)}` : ''}</small></span>
+          <span class="tx-hist-info"><span class="tx-classes">${classesDoAporte(a).map((c) => `${dotHtml(c)}${NOME_CLASSE_APORTE[c]}`).join(' · ')}<span class="chip chip-tonal tx-origem" title="Aporte feito pelo site">Site</span></span><small>${a.itens.length} ativo${a.itens.length > 1 ? 's' : ''}${a.observacao ? ` · ${esc(a.observacao)}` : ''}</small></span>
           <span class="tx-hist-valor"><b>${formatBRL(pago)}</b>${Math.abs(pago - planejado) >= 0.01 ? `<small>planejado ${formatBRL(planejado)}</small>` : ''}</span>
           ${ic('expand-more', 'ico tx-sec-seta')}
         </summary>
@@ -719,15 +715,10 @@ function historicoHtml(estado, dados) {
           </div>
         </div>
       </details>`;
-  };
-  const corpo = lista.length ? `${visiveis.map((m) => `
-        <div class="tx-hist-mes">
-          <h3>${MESES_LONGOS[Number(m.slice(5, 7)) - 1]} <small>${m.slice(0, 4)}</small></h3>
-          ${porMes[m].map(cartao).join('')}
-        </div>`).join('')}
-      ${meses.length > visiveis.length ? `<button type="button" class="btn btn-outlined tx-mais" data-acao="historico-todos">Ver todos os ${meses.length} meses</button>` : ''}`
-    : estadoVazioHtml({ icone: 'savings', titulo: 'Nenhum aporte concluído ainda', texto: 'Eles aparecem aqui depois do passo "Concluir compra".', acao: { rotulo: 'Montar um aporte', atributos: 'data-rolar="txNovoAporte"' } });
-  return secaoHtml({ id: 'txHistorico', chave: 'hist', titulo: 'Aportes concluídos', dica: `${lista.length} no planejamento`, aberta: estado.secoes.hist, corpo });
+}
+
+function historicoHtml(estado, dados) {
+  return historicoSecaoHtml(estado, dados, (a) => cartaoAporteSiteHtml(estado, dados, a));
 }
 
 // ---------------------------------------------------------------------------
@@ -741,7 +732,7 @@ export function estadoInicialAportes(dados, carrinho) {
     // outro; ele só serve pra responder "Você comprou?" e confirmar com os preços do dia dele)
     carrinho: carrinho && carrinho.data && carrinho.data < dados.hoje ? carrinho : atualizarPrecos(carrinho, dados.classes), carrinhoAberto: false,
     eua: estadoInicialEua(dados, typeof globalThis !== 'undefined' ? globalThis.localStorage : null),
-    digitados: {}, confirmando: null, abertos: {}, historicoTodos: false,
+    digitados: {}, confirmando: null, abertos: {}, hist: estadoInicialHistorico(),
     periodo: 'ano', mesSel: dados.hoje.slice(0, 7), // 06/10/2026 (A-67): período canônico do "Investido por mês" (era o ano, com setas)
 
     mensagem: null, ocupado: false, mapa: estadoInicialMapa(),
@@ -768,11 +759,12 @@ export function renderAportes(ctx) {
     ${resumoHtml(estado, dados)}`;
   montarKpis(ctx);
   montarGraficoMeses(ctx);
+  montarFiltroPeriodoHistorico(ctx, (a) => cartaoAporteSiteHtml(ctx.estado, ctx.dados, a));
   avisarMensagem(ctx);
   // os eventos ficam no contêiner (delegados) e são ligados UMA vez; cada
   // redesenho só troca o contexto que eles leem
   el._txCtx = ctx;
-  if (!el._txAportesLigado) { el._txAportesLigado = true; ligarAportes(el); }
+  if (!el._txAportesLigado) { el._txAportesLigado = true; ligarAportes(el); ligarHistorico(el, (a) => cartaoAporteSiteHtml(el._txCtx.estado, el._txCtx.dados, a)); }
   aposDesenharMapa(ctx);
   garantirMetasMomento(ctx);
 }
@@ -1165,7 +1157,6 @@ function ligarAportes(el) {
     }
     if (acao === 'esvaziar') { mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'descartar-edicao') { estado.carrinhoAberto = false; mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
-    if (acao === 'historico-todos') { estado.historicoTodos = true; redesenhar(); return; }
     if (acao === 'cancelar' || acao === 'excluir') {
       // 06/10/2026 (A-62): confirmação no diálogo do kit (antes era uma faixa dentro do cartão)
       const cancelar = acao === 'cancelar';

@@ -1,0 +1,35 @@
+/**
+ * comum-telas.css - 06/10/2026 (A-42): peças que as 3 abas do router (Início, Acompanhamento de Ativos, Metas) compartilham e que
+ * moravam em inicio.css (faixa de aviso de falha parcial, gráfico do dia em slot, moeda convertida e ícone "i" + tooltip).
+ * Antes cada HTML linkava as 3 folhas das abas só por causa disto; agora cada aba carrega a sua + esta (ROUTES[].css em
+ * assets/js/router.js, tests/carga-telas.test.js).
+ */
+
+/* ---- aviso de falha parcial (pages/avisos-parciais.js) ---- */
+.avisos-banner{ display:flex; align-items:flex-start; gap:12px; margin:0 0 16px; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium);
+  background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-body-medium-size); line-height:20px; }
+.avisos-banner[hidden]{ display:none; }
+.avisos-banner b{ font-weight:600; }
+.avisos-ico{ flex:none; width:24px; height:24px; fill:currentColor; }
+.avisos-corpo{ min-width:0; }
+.avisos-corpo p{ margin:0; }
+.avisos-detalhe{ margin-top:6px; font-size:var(--md-sys-typescale-body-small-size); }
+.avisos-detalhe summary{ cursor:pointer; min-height:32px; display:flex; align-items:center; }
+.avisos-detalhe pre{ margin:4px 0 0; padding:8px 12px; border-radius:var(--md-sys-shape-corner-small); background:var(--surface); color:var(--ink);
+  font:12px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; }
+
+/* ---- gráfico do dia (sparkline da biblioteca) em slots ---- */
+.intradia-slot{ position:relative; display:block; min-width:0; }
+.intradia-slot .chart-spark{ display:block; width:100%; height:100%; }
+.intradia-slot .intradia-dia{ position:absolute; top:0; left:0; font-size:12px; font-weight:500; color:var(--ink-faint); line-height:1; }
+
+/* moeda convertida ao lado do valor (format.js!formatComConversao) */
+.moeda-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); }
+
+/* ícone "i" + tooltip genérico (legenda de distribuição, tabelas) */
+.info-alvo{ cursor:pointer; }
+.info-icon{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:6px; border-radius:50%; background:var(--md-sys-color-surface-container-high);
+  border:1px solid var(--md-sys-color-outline-variant); font-size:12px; font-style:italic; font-family:var(--body-f); color:var(--ink-muted); vertical-align:middle; flex:none; }
+.info-alvo:hover .info-icon, .info-icon:hover{ color:var(--ink); border-color:var(--md-sys-color-outline); }
+.info-tooltip{ position:fixed; pointer-events:none; z-index:var(--z-popover, 50); max-width:280px; padding:10px 14px; border-radius:var(--md-sys-shape-corner-medium);
+  background:var(--md-sys-color-inverse-surface); color:var(--md-sys-color-inverse-on-surface); box-shadow:var(--md-sys-elevation-level3); font-size:var(--md-sys-typescale-body-small-size); line-height:1.5; white-space:pre-line; }

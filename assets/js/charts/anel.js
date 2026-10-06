@@ -9,7 +9,7 @@ import {
 } from './base.js';
 import { criarCasca, ligarTeclado } from './casca.js';
 import { criarCardGrafico } from './card.js';
-import { formatPct } from '../format.js';
+import { formatPct, formatNumeroBR } from '../format.js';
 import { garantirEstilosCharts } from './estilos.js';
 
 const TAU = Math.PI * 2;
@@ -67,12 +67,72 @@ export function criarAnel(el, opcoes) {
   const ocultos = new Set();
   let modelo = null; let anim = null; let destruido = false; let ativo = -1;
 
+  /* 06/10/2026 (pedido do Tiago, print 12): texto do centro que NÃO CABE no furo do anel é reduzido (até 12px) e, se ainda assim não
+   * couber, abreviado ("3,2 mil"); o detalhe (parênteses do formatador, ex.: "US$ 3.196,57 (R$ 15.981,25)", ou o texto completo) vai
+   * pro ícone "i" no furo, que abre a tooltip do próprio gráfico. */
+  const larguraMaxCentro = Math.max(24, 2 * (rIn - 8));
+  const infoBtn = no(doc, ':button', { type: 'button', class: 'chart-anel-info', hidden: true, style: `left:50%;top:${r1(((cy + Math.min(rIn * 0.5, 36)) / S) * 100)}%` }, casca.wrap);
+  no(doc, ':span', { class: 'chart-anel-info-i', 'aria-hidden': 'true', texto: 'i' }, infoBtn);
+  let infoTexto = '';
+  function definirInfo(texto) {
+    infoTexto = texto || '';
+    infoBtn.hidden = !infoTexto;
+    if (infoTexto) infoBtn.setAttribute('aria-label', `Mais detalhes: ${infoTexto}`); else infoBtn.removeAttribute('aria-label');
+  }
+  const mostrarInfo = () => { if (infoTexto) casca.tip.mostrar({ linhas: [{ valor: infoTexto }] }, cx, cy + Math.min(rIn * 0.5, 36) - 4, { largura: S }); };
+  casca.ouvir(infoBtn, 'pointerenter', mostrarInfo); casca.ouvir(infoBtn, 'focus', mostrarInfo);
+  casca.ouvir(infoBtn, 'pointerleave', () => { if (ativo < 0) casca.tip.ocultar(); }); casca.ouvir(infoBtn, 'blur', () => { if (ativo < 0) casca.tip.ocultar(); });
+  casca.ouvir(infoBtn, 'click', () => { if (casca.tip.visivel) casca.tip.ocultar(); else mostrarInfo(); });
+
+  /** "US$ 3.196,57" / "R$ 1.250.000,00" -> "US$ 3,2 mil" / "R$ 1,25 mi" (só o 1º número do texto; sem número devolve o próprio texto). */
+  function abreviarValor(t) {
+    const m = String(t).match(/^(\D*?)(\d{1,3}(?:\.\d{3})*(?:,\d+)?)(\D*)$/);
+    if (!m) return t;
+    const n = Number(m[2].replace(/\./g, '').replace(',', '.'));
+    if (!Number.isFinite(n) || n < 1000) return t;
+    const [d, un] = n >= 1e9 ? [1e9, 'bi'] : n >= 1e6 ? [1e6, 'mi'] : [1e3, 'mil'];
+    return `${m[1]}${formatNumeroBR(n / d, 1)} ${un}${m[3]}`;
+  }
+  function medirCentro() {
+    let w = 0;
+    try { w = tGrande.getComputedTextLength(); } catch (e) { w = 0; }
+    if (w > 0) return w;
+    let px = 22; try { px = parseFloat(win.getComputedStyle(tGrande).fontSize) || 22; } catch (e) { px = 22; }
+    return String(tGrande.textContent).length * px * 0.6;
+  }
+  /** Ajusta o tamanho da fonte do valor central; devolve true se precisou abreviar. */
+  function ajustarCentro(compacto) {
+    tGrande.style.fontSize = '';
+    let base = 22; try { base = parseFloat(win.getComputedStyle(tGrande).fontSize) || 22; } catch (e) { base = 22; }
+    const w = medirCentro();
+    if (w <= larguraMaxCentro) return false;
+    const tam = Math.floor((base * larguraMaxCentro) / w);
+    if (tam >= 12) { tGrande.style.fontSize = `${tam}px`; return false; }
+    tGrande.style.fontSize = '12px';
+    if (medirCentro() <= larguraMaxCentro) return false;
+    if (!compacto) {
+      const abrev = abreviarValor(tGrande.textContent);
+      if (abrev !== tGrande.textContent) { tGrande.textContent = abrev; ajustarCentro(true); return true; }
+    }
+    return false;
+  }
+
   function textoCentro(id = null) {
     const f = id ? op.fatias.find((q) => q.id === id) : null;
-    if (f && modelo) { const a = modelo.itens.find((q) => q.id === id); tGrande.textContent = formatPct(a ? a.frac : 0, 1); tPeq.textContent = f.nome.length > 18 ? `${f.nome.slice(0, 17)}…` : f.nome; return; }
+    if (f && modelo) {
+      const a = modelo.itens.find((q) => q.id === id); tGrande.textContent = formatPct(a ? a.frac : 0, 1); tPeq.textContent = f.nome.length > 18 ? `${f.nome.slice(0, 17)}…` : f.nome;
+      definirInfo(null); ajustarCentro(true); return;
+    }
     const c = op.centro || {};
-    tGrande.textContent = c.valor != null ? String(c.valor) : (modelo && modelo.total > 0 ? op.formatarValor(modelo.total) : '—');
-    tPeq.textContent = c.rotulo != null ? String(c.rotulo) : 'Total';
+    let valor = c.valor != null ? String(c.valor) : (modelo && modelo.total > 0 ? op.formatarValor(modelo.total) : '—');
+    const rotulo = c.rotulo != null ? String(c.rotulo) : 'Total';
+    const completo = valor;
+    let detalhe = c.info ? String(c.info) : '';
+    const par = valor.match(/^(.*?\S)\s*\((.+)\)\s*$/); // "US$ 3.196,57 (R$ 15.981,25)": o parêntese vai pro "i"
+    if (par) { valor = par[1]; if (!detalhe) detalhe = `${rotulo}: ${completo}`; }
+    tGrande.textContent = valor; tPeq.textContent = rotulo;
+    if (ajustarCentro(false) && !detalhe) detalhe = `${rotulo}: ${completo}`;
+    definirInfo(detalhe);
   }
 
   function desenhar(itens, sweep = 1) {
@@ -204,8 +264,7 @@ export function criarAnelProgresso(el, opcoes = {}) {
   const S = op.tamanho; const c = S / 2;
   const id = uid('anp');
   const raiz = no(doc, ':div', { class: 'chart chart--anel-prog', style: `width:${S}px;max-width:100%` }, el);
-  const svg = no(doc, 'svg', { class: 'chart-svg', viewBox: `0 0 ${S} ${S}`, width: S, height: S, role: 'img', 'aria-labelledby': `${id}t` }, raiz);
-  const titulo = no(doc, 'title', { id: `${id}t` }, svg);
+  const svg = no(doc, 'svg', { class: 'chart-svg', viewBox: `0 0 ${S} ${S}`, width: S, height: S, role: 'img', 'aria-label': op.aria || 'Progresso' }, raiz);
   const rA = S / 2 - op.espessura / 2 - 1; const rB = rA - op.espessura - 4;
   no(doc, 'circle', { class: 'chart-anel-trilho', cx: c, cy: c, r: rA, fill: 'none', 'stroke-width': op.espessura }, svg);
   const arco = no(doc, 'path', { class: 'chart-anel-arco', fill: 'none', 'stroke-width': op.espessura, 'stroke-linecap': 'round' }, svg);
@@ -233,7 +292,7 @@ export function criarAnelProgresso(el, opcoes = {}) {
     }
     tGrande.textContent = op.rotulo != null ? String(op.rotulo) : op.formatar(op.valor || 0);
     tPeq.textContent = op.subrotulo != null ? String(op.subrotulo) : '';
-    titulo.textContent = `${op.aria || ''} ${tGrande.textContent} ${tPeq.textContent}`.trim();
+    svg.setAttribute('aria-label', `${op.aria || ''} ${tGrande.textContent} ${tPeq.textContent}`.trim()); /* 06/10/2026: aria-label, não <title> (tooltip nativo duplicado) */
   }
   function ir(entrada) {
     if (destruido) return;

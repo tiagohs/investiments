@@ -397,10 +397,12 @@ function montarTelaPatrimonio_(ss, hoje, opcoes) {
   } catch (eD) { avisos.despesas = String(eD); }
 
   try {
-    var rec = (montarTelaProventosComCache_().recebidos) || [];
-    var corte = new Date(hoje.getFullYear() - 1, hoje.getMonth(), hoje.getDate());
-    var corteIso = dataIsoPatrimonio_(corte);
-    r.proventos12m = Math.round(rec.reduce(function (s, x) { return s + (String(x.data || '') > corteIso ? (Number(x.valor) || 0) : 0); }, 0) * 100) / 100;
+    // 06/10/2026 (A-17): mesma janela e mesma base das outras telas (12 meses FECHADOS,
+    // com os presumidos) - antes eram 365 dias corridos só com os lançados (até ~6% de diferença).
+    var telaProv = montarTelaProventosComCache_();
+    var j12 = somarProventosJanela_(recebidosComPresumidos_(telaProv), hojeSP_(), 'fechados', 12);
+    r.proventos12m = j12.total;
+    r.proventos12mJanela = { rotulo: j12.rotulo, inicio: j12.inicio, fim: j12.fim, confirmado: j12.confirmado, presumido: j12.presumido };
   } catch (eP) { avisos.proventos = String(eP); }
 
   try { r.cdi = buscarCdiSelicAnualizadosHoje_().cdi; } catch (eC) { r.cdi = null; }

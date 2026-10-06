@@ -81,7 +81,7 @@ export function resumirProventosAReceber(itens, { hoje = new Date() } = {}) {
   return { esteMes: r.aReceberEsteMes, depois: r.aReceberDepois };
 }
 
-function linhaHtml_(p, { modo = 'receber' } = {}) {
+export function linhaHtml_(p, { modo = 'receber' } = {}) { // 06/10/2026: exportada pra navegação por meses das Carteiras (carteiras-proventos.js)
   const q = typeof p.quantidade === 'number' && p.quantidade > 0 ? p.quantidade : null;
   const cotas = q != null && p.valorPorCota
     // 25/09/2026: até 4 casas no valor por cota (R$ 0,0022 aparecia "R$ 0,00")

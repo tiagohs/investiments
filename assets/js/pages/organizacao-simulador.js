@@ -127,6 +127,8 @@ export function opcoesDividas(anos) {
 // ---------------------------------------------------------------------------
 
 const seg = (grupo, itens, atual) => `<div class="segmented" role="group" data-sd-seg="${grupo}">${itens.map(([v, rot, title]) => `<button type="button" data-v="${esc(v)}"${title ? ` title="${esc(title)}"` : ''} class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
+/** 06/10/2026 (A-78): " (premissa)" quando a taxa é só o valor fixo do site (nem do patrimônio, nem do contexto de mercado, nem digitada). */
+const rotuloPremissa = (p, k) => (p && p.origemTaxas && p.origemTaxas[k] === 'premissa' ? ' (premissa)' : '');
 const campoPct = (id, rot, valor, casas = 2, dica = '') => `<label class="pt-campo" for="${id}">${esc(rot)}<span class="pt-input"><input id="${id}" data-sd-taxa inputmode="decimal" value="${esc(num(valor) ? formatNumeroBR(valor * 100, casas) : '')}"><i>%</i></span>${dica ? `<small>${esc(dica)}</small>` : ''}</label>`;
 
 export function htmlFormulario(p, pr) {
@@ -143,7 +145,7 @@ export function htmlFormulario(p, pr) {
       <label class="pt-ctl" for="sdHorizonte"><span class="pt-ctl-row">Por</span><select id="sdHorizonte" class="sd-select">${[5, 10, 15, 20, 25, 30].map((a) => `<option value="${a}"${p.horizonteAnos === a ? ' selected' : ''}>${a} anos</option>`).join('')}</select></label>
     </div>
     <p class="sd-valor-nota" id="sdValorNota">${htmlValorNota(p)}</p>
-    <details class="sd-prem"${p._premAberta ? ' open' : ''}><summary>Premissas: taxas e opções <span class="pt-hint">CDI ${esc(formatPct(pr.cdi, 2))} → ${esc(formatPct(pr.cdiLongo, 1))} em ${esc(pr.anosTransicao)} anos · IPCA ${esc(formatPct(pr.ipca, 1))} · TR ${esc(formatPct(pr.trMensal, 3))}/mês</span></summary>
+    <details class="sd-prem"${p._premAberta ? ' open' : ''}><summary>Premissas: taxas e opções <span class="pt-hint">CDI ${esc(formatPct(pr.cdi, 2))}${esc(rotuloPremissa(p, 'cdi'))} → ${esc(formatPct(pr.cdiLongo, 1))} em ${esc(pr.anosTransicao)} anos · IPCA ${esc(formatPct(pr.ipca, 1))}${esc(rotuloPremissa(p, 'ipca'))} · TR ${esc(formatPct(pr.trMensal, 3))}/mês${esc(rotuloPremissa(p, 'trMensal'))}</span></summary>
       <div class="pt-campos sd-campos">
         ${campoPct('sdCdi', 'CDI hoje (a.a.)', pr.cdi)}
         ${campoPct('sdCdiLongo', 'CDI de longo prazo', pr.cdiLongo, 2, 'IPCA + juro neutro (~5%)')}
@@ -316,7 +318,7 @@ export function htmlEstrategias(sim) {
 
 export function htmlReferencias() {
   return `<ul class="sd-refs">${REFERENCIAS.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.nome)}</a></li>`).join('')}</ul>
-  <p class="pt-nota">Taxas padrão quando o site não tem o número: CDI ${esc(formatPct(PADROES.cdi, 2))} (BCB, 01/10/2026), IPCA ${esc(formatPct(PADROES.ipca, 1))} em 12 meses, TR ${esc(formatPct(PADROES.trMensal, 3))} ao mês. É uma simulação: taxas futuras são suposições - confira a regra de amortização no app da Caixa antes de pagar.</p>`;
+  <p class="pt-nota">CDI e IPCA vêm do patrimônio e do contexto de mercado do site; só quando nenhum dos dois tem o número valem as premissas fixas (marcadas "premissa"): CDI ${esc(formatPct(PADROES.cdi, 2))} (BCB, 01/10/2026), IPCA ${esc(formatPct(PADROES.ipca, 1))} em 12 meses, TR ${esc(formatPct(PADROES.trMensal, 3))} ao mês. É uma simulação: taxas futuras são suposições - confira a regra de amortização no app da Caixa antes de pagar.</p>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -363,10 +365,11 @@ export function valorSalvoEhManual(salvo, padrao) {
 /**
  * Monta a seção em `raiz`. Opções: ctx (contexto do patrimônio), doc,
  * hoje ('aaaa-mm-dd'; padrão ctx.d.hoje), storage (padrão localStorage -
- * guarda só as escolhas da tela neste navegador).
+ * guarda só as escolhas da tela neste navegador), getMacro (opcional, () => Promise<{ ok, macro }>: CDI/IPCA do contexto
+ * de mercado no lugar das premissas fixas - A-78).
  * Devolve { atualizar(novoCtx), get simulacao(), get params() }.
  */
-export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocument, hoje = null, storage = undefined, aoMudar = null } = {}) {
+export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocument, hoje = null, storage = undefined, aoMudar = null, getMacro = null } = {}) {
   const win = doc && doc.defaultView;
   let store = storage;
   if (store === undefined) { try { store = win && win.localStorage; } catch (e) { store = null; } }
@@ -391,10 +394,10 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
   function iniciar() {
     padrao = parametrosPadrao(contexto || {}, hoje || (contexto && contexto.d && contexto.d.hoje));
     const s = lerSalvo();
-    p = { ...padrao, taxas: { ...padrao.taxas } };
+    p = { ...padrao, taxas: { ...padrao.taxas }, origemTaxas: { ...(padrao.origemTaxas || {}) } };
     ESCOLHAS.forEach((k) => {
       if (k === 'valor' || k === 'valorManual') return;
-      if (k === 'usarFgts') { if (p.fgts && typeof s.usarFgts === 'boolean') p.fgts = { ...p.fgts, usar: s.usarFgts }; } else if (k === 'taxas' && s.taxas) p.taxas = { ...p.taxas, ...s.taxas }; else if (s[k] !== undefined) p[k] = s[k];
+      if (k === 'usarFgts') { if (p.fgts && typeof s.usarFgts === 'boolean') p.fgts = { ...p.fgts, usar: s.usarFgts }; } else if (k === 'taxas' && s.taxas) { p.taxas = { ...p.taxas, ...s.taxas }; Object.keys(s.taxas).forEach((t) => { if (t in p.origemTaxas) p.origemTaxas[t] = 'manual'; }); } else if (s[k] !== undefined) p[k] = s[k];
     });
     if (p.alvo !== 'cara' && !p.dividas[p.alvo]) p.alvo = 'cara';
     // 03/10/2026: o valor salvo só vale se foi o Tiago que escolheu; senão, o mínimo pra 2 parcelas
@@ -550,6 +553,7 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
         mudar(() => {
           const k = TAXAS[t.id];
           p.taxas = { ...p.taxas, [k]: num(v) ? v / 100 : null };
+          if (k in (p.origemTaxas || {})) p.origemTaxas = { ...p.origemTaxas, [k]: 'manual' };
           // o CDI de longo prazo segue o IPCA enquanto não for digitado
           if (k === 'ipca' && !(p.taxas.cdiLongoManual)) p.taxas.cdiLongo = null;
           if (k === 'cdiLongo') p.taxas.cdiLongoManual = num(v);
@@ -569,8 +573,20 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
   ligar();
   desenhar();
 
+  // 06/10/2026 (A-78): CDI/IPCA do contexto de mercado (Macro.gs) no lugar das premissas fixas, quando a página sabe buscar
+  let macroAtual = (contexto && contexto.macro) || null;
+  if (typeof getMacro === 'function' && !macroAtual) {
+    Promise.resolve().then(() => getMacro()).then((resp) => {
+      const macro = resp && resp.ok !== false ? (resp.macro || null) : null;
+      if (!macro || !macro.juros) return;
+      macroAtual = macro;
+      contexto = { ...(contexto || {}), macro };
+      opcoes = null; iniciar(); desenhar();
+    }).catch(() => { /* sem o contexto de mercado: ficam as premissas (rotuladas) */ });
+  }
+
   return {
-    atualizar(novoCtx) { contexto = novoCtx; opcoes = null; iniciar(); desenhar(); },
+    atualizar(novoCtx) { contexto = macroAtual && novoCtx && !novoCtx.macro ? { ...novoCtx, macro: macroAtual } : novoCtx; opcoes = null; iniciar(); desenhar(); },
     aplicar,
     get simulacao() { return sim; },
     get params() { return p; },

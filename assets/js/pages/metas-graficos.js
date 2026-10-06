@@ -14,7 +14,8 @@
  * Tudo que é número vem formatado por metas-card!formatMoeda / format.js; texto de dado só entra por textContent (a biblioteca cuida).
  */
 
-import { serieProjecao, rotuloMes } from './metas-calc.js';
+import { serieProjecao } from './metas-calc-plano.js';
+import { rotuloMes } from './metas-calc-nucleo.js';
 import { formatMoeda } from '../metas-card.js';
 import { formatPct, MESES_CURTOS } from '../format.js';
 import { criarGraficoLinha, criarGraficoBarras } from '../charts/index.js';

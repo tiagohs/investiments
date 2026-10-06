@@ -89,7 +89,7 @@ function montarIRRendaFixa_(leitura) {
     var titulo = linha[0], instituicao = linha[1], data = linha[2],
       quantidade = linha[3], valorInvestido = linha[5];
     if (!titulo || !data) return;
-    var chave = normalizarChaveRfIr_(titulo, instituicao);
+    var chave = chaveTituloRf_(titulo, instituicao);
     if (!lotesPorChave[chave]) lotesPorChave[chave] = [];
     lotesPorChave[chave].push({ data: data, valorInvestido: valorInvestido, quantidade: quantidade });
   });
@@ -106,7 +106,7 @@ function montarIRRendaFixa_(leitura) {
   var agrupadas = [];
   var indicePorChave = {};
   dados.forEach(function (linha) {
-    var chaveG = normalizarChaveRfIr_(String(linha[2] || linha[3] || '').trim(), linha[5]);
+    var chaveG = chaveTituloRf_(String(linha[2] || linha[3] || '').trim(), linha[5]);
     if (!(linha[0] || linha[3]) || indicePorChave[chaveG] === undefined) {
       if (linha[0] || linha[3]) indicePorChave[chaveG] = agrupadas.length;
       agrupadas.push(linha.slice());
@@ -129,7 +129,7 @@ function montarIRRendaFixa_(leitura) {
     var precoAtual = (quantidade && valorAtualizado) ? (valorAtualizado / quantidade) : null;
 
     var nomeLimpo = String(nome || tipo || '').trim();
-    var chave = normalizarChaveRfIr_(nomeLimpo, instituicao);
+    var chave = chaveTituloRf_(nomeLimpo, instituicao);
     var lotesReais = lotesPorChave[chave];
     var usouLotesReais = !!lotesReais;
     var lotes = lotesReais || [{ data: dataEmissao, valorInvestido: valorInvestidoTotal, quantidade: quantidade }];
@@ -185,8 +185,67 @@ function montarIRRendaFixa_(leitura) {
   return resultado;
 }
 
-function normalizarChaveRfIr_(titulo, instituicao) {
-  return String(titulo || '').trim().toUpperCase() + '|' + String(instituicao || '').trim().toUpperCase();
+/**
+ * 06/10/2026 (A-71): UMA identidade de título de Renda Fixa pro projeto inteiro (antes havia 4 regras:
+ * substring em BackfillRendaFixa.gs, casaTituloRf_ em Ativo.gs, casaTituloRfMetas_ em Metas.gs e o nome
+ * cru em MeusAtivos.gs). Duas formas, as duas de chaveTituloRf_:
+ *  - casamento entre abas (Transações, Lotes, Resumo, Histórico - nenhuma tem o código): chaveTituloRf_(título,
+ *    instituição) = NOME NORMALIZADO | INSTITUIÇÃO NORMALIZADA. Nome: caixa alta, tab/quebra de linha/espaços
+ *    repetidos viram 1 espaço ("\t\nTesouro Selic 2029" = "Tesouro Selic 2029"). Instituição:
+ *    normalizarInstituicaoRF_ (BackfillRendaFixa.gs) - ignora pontuação ("S/A" = "S.A." = "S/A."), tab/quebra e
+ *    agrupa as grafias da mesma corretora (XP, Rico, NU, Inter).
+ *  - id estável da posição (Carteira Renda Fixa, coluna A = ISIN/código): chaveTituloRf_(título, instituição,
+ *    código) = ID:CÓDIGO | INSTITUIÇÃO - sobrevive a renomear o título (o ISIN é igual em instituições
+ *    diferentes, por isso entra a instituição).
+ * Sem `codigo`, o resultado é exatamente a chave de nome usada nas telas.
+ */
+function normalizarNomeRf_(nome) {
+  return String(nome == null ? '' : nome).replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function normalizarInstituicaoChaveRf_(instituicao) {
+  return typeof normalizarInstituicaoRF_ === 'function'
+    ? normalizarInstituicaoRF_(instituicao)
+    : String(instituicao == null ? '' : instituicao).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function chaveTituloRf_(titulo, instituicao, codigo) {
+  var cod = String(codigo == null ? '' : codigo).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return (cod ? 'ID:' + cod : normalizarNomeRf_(titulo)) + '|' + normalizarInstituicaoChaveRf_(instituicao);
+}
+
+/**
+ * O título da Carteira Renda Fixa é o mesmo produto do histórico/Transações/Lotes? Tesouro: mesmo nome +
+ * mesma instituição. LCI/LCA/CDB: na Carteira o nome é livre ("LCI - BANCO INTER S/A") e nas Transações é o
+ * código ("LCI - 26I02621944") - casa pelo tipo + instituição. `instCarteiraNorm` já vem normalizada.
+ * (Era casaTituloRf_ em Ativo.gs e casaTituloRfMetas_ em Metas.gs.)
+ */
+function casaTituloRf_(nomeCarteira, instCarteiraNorm, produto, instituicao) {
+  if (normalizarInstituicaoChaveRf_(instituicao) !== instCarteiraNorm) return false;
+  var a = normalizarNomeRf_(nomeCarteira), b = normalizarNomeRf_(produto);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  var tipo = a.split(/[\s-]/)[0];
+  return ['LCI', 'LCA', 'CDB'].indexOf(tipo) >= 0 && b.split(/[\s-]/)[0] === tipo;
+}
+
+/**
+ * Id estável de cada linha da Carteira RF: o mesmo título (nome+instituição) numa 2ª linha (outra marca)
+ * herda o código da 1ª que o tiver, então Renda Emergencial e Longo Prazo do mesmo título têm o MESMO id
+ * mesmo se o código só foi preenchido numa delas. `linhas` = linhas A..F (código, marca, nome, tipo,
+ * indexador, instituição) -> array paralelo de ids.
+ */
+function idsEstaveisCarteiraRf_(linhas) {
+  var codigoPorNome = {};
+  (linhas || []).forEach(function (l) {
+    var cod = String(l[0] == null ? '' : l[0]).trim();
+    var k = chaveTituloRf_(l[2] || l[3], l[5]);
+    if (cod && !codigoPorNome[k]) codigoPorNome[k] = cod;
+  });
+  return (linhas || []).map(function (l) {
+    var k = chaveTituloRf_(l[2] || l[3], l[5]);
+    return chaveTituloRf_(l[2] || l[3], l[5], l[0] || codigoPorNome[k] || '');
+  });
 }
 
 function arredondarIR_(valor) {

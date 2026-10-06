@@ -13,17 +13,19 @@
  * de linha saíram daqui: moram em carteiras-graficos.js (criarGraficosCarteira). A CONTA continua a mesma de antes.
  */
 
-import { formatBRL, formatUSD, formatPercentFromFraction, formatDiaHoraBR, variacaoNula } from '../format.js';
-import { LOGOS_ATIVOS } from '../logos-ativos.js';
-import { resolveSiteRootUrl } from '../shell.js';
+import { formatBRL, formatDiaHoraBR, formatPercentFromFraction, formatUSD, variacaoNula } from '../format.js';
+import { comHistoricoAcumuladoClasse_, desenharAnelDistribuicao, destruirGraficos, iconeMaterial, montarKpis } from './carteiras-graficos.js';
 import { esc } from '../util/html.js';
-import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js';
-import { abrirFolha } from '../ui/confirmar.js';
 import { icone as iconeUi } from '../ui/dom.js';
-import { mountRefreshControl } from '../shell.js';
-import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { logoCirculoHtml, statusVies } from './carteiras-pecas.js';
+import { linkAtivoComNovaAbaHtml, urlAtivoTicker } from '../link-ativo.js';
+import { abrirFolha } from '../ui/confirmar.js';
+import { gravarCacheDados, lerCacheDados } from '../cache-dados.js';
 import { mostrarErroCarga } from '../ui/erro-carga.js';
-import { montarKpis, desenharAnelDistribuicao, iconeMaterial, comHistoricoAcumuladoClasse_, destruirGraficos } from './carteiras-graficos.js';
+import { mountRefreshControl } from '../shell.js';
+
+// Compatibilidade (A-76, 06/10/2026): estes nomes moraram aqui; agora vivem nos módulos abaixo e continuam exportados daqui.
+export { logoAtivoHtml, logoCirculoHtml, logoCirculoRendaFixaHtml, logoRendaFixaHtml, statusVies } from './carteiras-pecas.js';
 
 export { comHistoricoAcumuladoClasse_ };
 
@@ -118,61 +120,8 @@ export function renderDistribuicaoGrupoCarteiras(doc, container, distribuicao, {
   if (!container) return null;
   const fatias = (distribuicao || []).map((d) => ({ nome: d.grupo, valor: d.totalAtualizado }));
   const formatarValor = typeof cambio === 'number' ? (v) => `${formatUSD(v)} (${formatBRL(v * cambio)})` : formatBRL;
-  return desenharAnelDistribuicao(doc, container, fatias, { formatarValor, aria: 'Composição por grupo', tamanho: 200, dono });
-}
-
-// ---------------------------------------------------------------------------
-// Logos
-// ---------------------------------------------------------------------------
-/**
- * Logo redondo do ativo (LOGOS_ATIVOS, gerado por scripts/gerar-logos-ativos.mjs). HTML-string porque as listas montam a linha
- * inteira via innerHTML: a <img> tem onerror inline que remove ela mesma se a imagem falhar, revelando o fallback de iniciais
- * que já está por baixo. (Versão `.cc-logo`, usada por Aportes/Lançamentos/Proventos; a tabela de Carteiras usa `.logo-circulo`.)
- */
-export function logoAtivoHtml(ticker) {
-  const iniciais = (ticker || '?').slice(0, 2).toUpperCase();
-  const caminho = LOGOS_ATIVOS[ticker];
-  if (!caminho) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
-  const url = new URL(caminho, resolveSiteRootUrl()).href;
-  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
-}
-
-// 25/09/2026 (Tiago, ponto 6): 3 imagens genéricas pra renda fixa, por tipo de título (não por ticker).
-function imagemRendaFixa_(a) {
-  const indexador = String(a.indexador || '').toUpperCase();
-  const tipo = String(a.tipoInvestimento || '').toUpperCase();
-  const instituicao = String(a.instituicao || '').toUpperCase();
-  if (indexador.includes('SELIC')) return 'assets/imgs/tesouro-selic.webp';
-  if (indexador.includes('IPCA')) return 'assets/imgs/tesouro-direto.webp';
-  if (tipo.includes('LCI') && instituicao.includes('INTER')) return 'assets/imgs/banco-inter.png';
-  return null;
-}
-const iniciaisRendaFixa_ = (a) => String(a.instituicao || '').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || 'RF';
-
-export function logoRendaFixaHtml(a) {
-  const imagem = imagemRendaFixa_(a);
-  const iniciais = iniciaisRendaFixa_(a);
-  if (!imagem) return `<span class="cc-logo cc-logo-fallback">${iniciais}</span>`;
-  const url = new URL(imagem, resolveSiteRootUrl()).href;
-  return `<span class="cc-logo"><img src="${url}" alt="" loading="lazy" onerror="this.remove()"><span class="cc-logo-fallback">${iniciais}</span></span>`;
-}
-
-/** Logo no formato do kit (`.logo-circulo`, 40px) - ação/FII/ETF por ticker. */
-export function logoCirculoHtml(ticker) {
-  const iniciais = esc((ticker || '?').slice(0, 2).toUpperCase());
-  const caminho = LOGOS_ATIVOS[ticker];
-  if (!caminho) return `<span class="logo-circulo" aria-hidden="true">${iniciais}</span>`;
-  const url = new URL(caminho, resolveSiteRootUrl()).href;
-  return `<span class="logo-circulo" aria-hidden="true"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove()">${iniciais}</span>`;
-}
-
-/** Logo `.logo-circulo` de um título de renda fixa. */
-export function logoCirculoRendaFixaHtml(a) {
-  const imagem = imagemRendaFixa_(a);
-  const iniciais = esc(iniciaisRendaFixa_(a));
-  if (!imagem) return `<span class="logo-circulo" aria-hidden="true">${iniciais}</span>`;
-  const url = new URL(imagem, resolveSiteRootUrl()).href;
-  return `<span class="logo-circulo" aria-hidden="true"><img src="${esc(url)}" alt="" loading="lazy" onerror="this.remove()">${iniciais}</span>`;
+  // 06/10/2026: anel compacto (190) com a lista de setores/tipos ABAIXO dele (legenda 'baixo'); centro só com o total (o R$ vai no "i")
+  return desenharAnelDistribuicao(doc, container, fatias, { formatarValor, aria: 'Composição por grupo', tamanho: 190, espessura: 22, legenda: 'baixo', dono });
 }
 
 // ---------------------------------------------------------------------------
@@ -485,14 +434,6 @@ function abrirDetalheLinha_(doc, ativo, colunas, { titulo, acao }) {
   abrirFolha({ titulo, conteudo: dl, doc, acoes: [{ id: 'fechar', rotulo: 'Fechar', classe: 'btn-text', valor: true, foco: true }] });
 }
 
-/** "Comprar" (good) / "Aguardar" (warn) / sem dado (—) — Auxiliar_ativos guarda o texto bruto, então compara sem diferenciar maiúsculas. */
-export function statusVies(vies) {
-  const v = (vies || '').toLowerCase();
-  if (v === 'comprar') return { texto: 'Comprar', classe: 'good' };
-  if (v === 'aguardar') return { texto: 'Aguardar', classe: 'warn' };
-  return { texto: '—', classe: '' };
-}
-
 /** Conta quantos ativos estão "Comprar" vs "Aguardar" - alimenta a faixa comprar/aguardar do card "Ativos na carteira". */
 export function contarVies_(ativos) {
   let comprar = 0, aguardar = 0;
@@ -600,20 +541,26 @@ export function montarTabelaFiltravel(doc, { filtrosEl, tabelaEl, ativos, coluna
   return { renderizar };
 }
 
-/** Esqueleto das 4 subpáginas de classe (ids `${p}Resumo|Benchmarks|Graficos|Distribuicao|Filtros|Tabela`). */
-export function esqueletoClasseHtml({ prefixo: p, links = '', tituloDistribuicao, tituloLista, contagem, extrasAposLista = '', antesDoResumo = '' }) {
+/**
+ * Esqueleto das 4 subpáginas de classe (ids `${p}Resumo|Benchmarks|Graficos|Distribuicao|Filtros|Tabela`).
+ * 06/10/2026 (Tiago): com `proventosHtml` (Ações, FIIs, Ações EUA), o "por setor/tipo" sai de cima da tabela e vai pra baixo dela,
+ * LADO A LADO com os proventos (anel compacto acima da lista); sem ele (Renda Fixa) fica como era, acima da tabela.
+ */
+export function esqueletoClasseHtml({ prefixo: p, links = '', tituloDistribuicao, tituloLista, contagem, extrasAposLista = '', antesDoResumo = '', proventosHtml = '' }) {
+  const distribuicao = secaoRecolhivelHtml({ nome: 'distribuicao', id: `${p}DistribuicaoSecao`, titulo: tituloDistribuicao, classe: proventosHtml ? 'cc-por-grupo' : '', corpoHtml: `<div class="cc-distribuicao" id="${p}Distribuicao"></div>` });
   return `
     ${links}
     ${antesDoResumo}
     <div id="${p}Resumo"></div>
     <div id="${p}Benchmarks" class="cc-benchmarks"></div>
     <div id="${p}Graficos" class="cc-graficos"></div>
-    ${secaoRecolhivelHtml({ nome: 'distribuicao', id: `${p}DistribuicaoSecao`, titulo: tituloDistribuicao, corpoHtml: `<div class="cc-distribuicao" id="${p}Distribuicao"></div>` })}
+    ${proventosHtml ? '' : distribuicao}
     <section class="cc-ativos" aria-labelledby="${p}AtivosTitulo">
       <div class="cc-secao-cab"><h2 id="${p}AtivosTitulo">${esc(tituloLista)}</h2><span class="hint">${esc(contagem)}</span></div>
       <div id="${p}Filtros"></div>
       <div id="${p}Tabela"></div>
     </section>
+    ${proventosHtml ? `<div class="cc-lado-a-lado">${distribuicao}${proventosHtml}</div>` : ''}
     ${extrasAposLista}
   `;
 }

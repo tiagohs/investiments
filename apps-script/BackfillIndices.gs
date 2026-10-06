@@ -79,7 +79,7 @@ var ABA_HISTORICO_INDICES = 'aux_historico-indices';
 var ABA_AUXILIAR_APP = 'Auxiliar_app';
 var CELULA_RASCUNHO_GOOGLEFINANCE = 'AZ1';
 var DIAS_POR_PEDACO_INDICE = 180;
-var DATA_INICIO_HISTORICO_INDICES = new Date(2020, 11, 22); // mesmo início do restante do histórico (aux_historico-renda-fixa começa 22/12/2020)
+// 06/10/2026: o começo do histórico de índices (era a constante 22/12/2020) vem da planilha: 1 dia antes da 1ª transação (Sync.gs!dataInicioHistoricoIndices_)
 var INDICES_TAXA_BCB = { CDI: 12, SELIC: 11, IPCA: 433 }; // nome persistido -> código da série SGS/BCB (IPCA: variação mensal, série 433 — mesma que buscarIpcaAcumulado12Meses_ já usa pro "hoje")
 var TICKERS_INDICES_GOOGLEFINANCE = { Ibovespa: 'INDEXBVMF:IBOV', IFIX: 'INDEXBVMF:IFIX', 'S&P 500': 'INDEXSP:.INX', IVVB11: 'BVMF:IVVB11' }; // nome persistido -> ticker GOOGLEFINANCE (confirmado com Tiago via planilha real, 19/09/2026: Auxiliar_app!B9 e B15)
 // 03/10/2026 (base de critérios de rentabilidade): IVVB11 = ETF do S&P 500
@@ -130,15 +130,6 @@ function rodarBackfillIndicesDireto() {
   Logger.log(JSON.stringify(executarBackfillIndices_(), null, 2));
 }
 
-function handleBackfillIndices(e) {
-  var auth = verificarToken(e.parameter.token);
-  if (!auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
-  try {
-    return jsonOut({ ok: true, resultado: executarBackfillIndices_() });
-  } catch (err) {
-    return jsonOut({ ok: false, etapa: 'backfillIndices', erro: String(err) });
-  }
-}
 
 /**
  * Handler chamado pelo Router (doPost) — ação SEPARADA de
@@ -247,7 +238,7 @@ function rodarBackfillSp500Direto() {
  * Regrava as taxas/índices de CDI, SELIC e IPCA (Índice = 'CDI'/'SELIC'/'IPCA',
  * Valor = taxa % do dia (CDI/SELIC) ou variação % do mês (IPCA, série 433),
  * do jeito que a API do BCB devolve) em aux_historico-indices, do zero, de
- * 22/12/2020 até ontem — uso manual, rodar 1x (rodarBackfillTaxasBcbDireto())
+ * 1 dia antes da 1ª transação da planilha até ontem — uso manual, rodar 1x (rodarBackfillTaxasBcbDireto())
  * depois de colar este arquivo pra já deixar a Início rápida na 1ª chamada
  * (e os gráficos de Rentabilidade acumulada × IPCA, 19/09/2026, com dado
  * disponível). Preserva as linhas de Ibovespa/IFIX/S&P 500 (ou qualquer
@@ -274,7 +265,7 @@ function executarBackfillTaxasBcb_() {
 
   var linhasNovas = [];
   Object.keys(INDICES_TAXA_BCB).forEach(function (nome) {
-    linhasNovas = linhasNovas.concat(buscarTaxasBcbComoLinhas_(nome, DATA_INICIO_HISTORICO_INDICES, ontem));
+    linhasNovas = linhasNovas.concat(buscarTaxasBcbComoLinhas_(nome, dataInicioHistoricoIndices_(ss), ontem));
   });
 
   var linhasMantidas = lerTodasLinhasIndices_(abaIndices).filter(function (linha) {
@@ -713,7 +704,7 @@ function atualizarIndicesIncremental_(mapaUltimasDatasCache) {
  * última data salva de cada índice até ontem) — usado pelo gatilho diário,
  * junto com Renda Fixa e os 3 índices do GOOGLEFINANCE. Se ainda não
  * existir nenhuma linha de um deles (1ª vez), faz o backfill completo dele
- * desde 22/12/2020 automaticamente — não PRECISA rodar
+ * desde 1 dia antes da 1ª transação da planilha automaticamente — não PRECISA rodar
  * rodarBackfillTaxasBcbDireto() manual antes, mas rodar manualmente uma vez
  * (fora do horário do gatilho) é mais rápido pra ver o resultado sem
  * esperar o próximo disparo das 11h.
@@ -739,7 +730,7 @@ function atualizarTaxasBcbIncremental_(mapaUltimasDatasCache) {
     var ultimaData = ultimaDataIndiceSalvo_(abaIndices, nome, mapaUltimasDatasCache);
     var inicio = ultimaData
       ? new Date(ultimaData.getFullYear(), ultimaData.getMonth(), ultimaData.getDate() + 1)
-      : new Date(DATA_INICIO_HISTORICO_INDICES);
+      : dataInicioHistoricoIndices_(ss);
 
     if (inicio > ontem) {
       detalhe.push(nome + ': já em dia');
@@ -910,13 +901,50 @@ function ipca12MesesDaAba_() {
 
 /** 05/10/2026: o miolo de ipca12MesesDaAba_ sobre linhas JÁ LIDAS (A=Data, B=Índice, C=Valor %) - a Renda Fixa lê a aba 1x só. */
 function ipca12MesesDeLinhas_(linhas) {
+  return ipca12MesesDeValores_(ipcaMensalDeLinhas_(linhas).map(function (x) { return x.valor; }));
+}
+
+/** 06/10/2026 (A-78): IPCA mensal (%) já salvo, [{ mes: 'aaaa-mm', valor }] em ordem; 1 valor por mês (a última linha vence). Mês pela chave ISO do fuso do projeto. */
+function ipcaMensalDeLinhas_(linhas) {
   var porMes = {};
-  linhas.forEach(function (l) {
+  (linhas || []).forEach(function (l) {
     if (l[1] !== 'IPCA' || !(l[0] instanceof Date) || typeof l[2] !== 'number') return;
-    porMes[Utilities.formatDate(l[0], 'America/Sao_Paulo', 'yyyy-MM')] = l[2];
+    porMes[chaveDiaISOInicio_(l[0]).slice(0, 7)] = l[2];
   });
-  var meses = Object.keys(porMes).sort();
-  return ipca12MesesDeValores_(meses.map(function (m) { return porMes[m]; }));
+  return Object.keys(porMes).sort().map(function (m) { return { mes: m, valor: porMes[m] }; });
+}
+
+function ipcaMensalDaAba_(ss) {
+  var aba = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName(ABA_HISTORICO_INDICES);
+  if (!aba || aba.getLastRow() < 2) return [];
+  return ipcaMensalDeLinhas_(lerAbaUmaVez_(aba, 2, aba.getLastRow() - 1, 3));
+}
+
+/**
+ * 06/10/2026 (A-77): ÚNICA fonte do "CDI dos últimos 12 meses" (Macro.gs!macroCdi12m_ e a referência de mercado da
+ * tela do ativo - Ativo.gs!referenciasDeMercado_ - usavam janelas e bases diferentes). Compõe o CDI diário (% ao
+ * dia) de aux_historico-indices nos últimos 365 dias até `agora`, 1 valor por dia (linha repetida não conta duas
+ * vezes); menos de 200 dias com dado = sem resposta (null). Devolve { fracao (4 casas), ate: 'aaaa-mm-dd' (último
+ * dia usado), dias } ou null. Os dias são chaves ISO no fuso do projeto (chaveDiaISOInicio_), nunca mês/dia crus.
+ */
+function cdiAcumulado12mDeLinhas_(linhas, agora) {
+  agora = agora || new Date();
+  var limite = new Date(agora.getTime() - 365 * 86400000);
+  var porDia = {};
+  (linhas || []).forEach(function (l) {
+    if (l[1] !== 'CDI' || !(l[0] instanceof Date) || l[0] < limite || l[0] > agora || typeof l[2] !== 'number') return;
+    porDia[chaveDiaISOInicio_(l[0])] = l[2];
+  });
+  var dias = Object.keys(porDia).sort();
+  if (dias.length < 200) return null;
+  var fator = dias.reduce(function (f, d) { return f * (1 + porDia[d] / 100); }, 1);
+  return { fracao: Math.round((fator - 1) * 10000) / 10000, ate: dias[dias.length - 1], dias: dias.length };
+}
+
+function cdiAcumulado12m_(ss, agora) {
+  var aba = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName(ABA_HISTORICO_INDICES);
+  if (!aba || aba.getLastRow() < 2) return null;
+  return cdiAcumulado12mDeLinhas_(lerAbaUmaVez_(aba, 2, aba.getLastRow() - 1, 3), agora);
 }
 
 /** Taxa diária do BCB (formato "% do dia", ex.: 0.043) -> taxa anualizada (252 dias úteis, fração). */

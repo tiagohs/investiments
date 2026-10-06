@@ -191,14 +191,14 @@ export function htmlHeroi(h) {
  * (contextoPatrimonio), doc, hoje, storage (do simulador).
  * Devolve { atualizar(ctx), simulador, resumo }.
  */
-export function montarAbaSimulacoes({ hero, simulador }, { ctx, doc = (hero || simulador).ownerDocument, hoje = null, storage = undefined } = {}) {
+export function montarAbaSimulacoes({ hero, simulador }, { ctx, doc = (hero || simulador).ownerDocument, hoje = null, storage = undefined, getMacro = null } = {}) {
   let contexto = ctx;
   let resumo = null;
   const desenharHeroi = (sim, p) => {
     if (!hero) return;
     try { resumo = resumoHeroi(contexto, sim, p); hero.innerHTML = htmlHeroi(resumo); } catch (e) { mostrarErroCarga(hero, { tela: 'Resumo das simulações', erro: e, aoTentar: () => desenharHeroi(sim, p), doc }); } // 06/10/2026 (A-60/A-61)
   };
-  const sec = montarSimuladorDividas(simulador, { ctx, doc, hoje, storage, aoMudar: (sim, p) => desenharHeroi(sim, p) });
+  const sec = montarSimuladorDividas(simulador, { ctx, doc, hoje, storage, getMacro, aoMudar: (sim, p) => desenharHeroi(sim, p) });
   return {
     atualizar(novoCtx) { contexto = novoCtx; sec.atualizar(novoCtx); },
     get simulador() { return sec; },

@@ -6,6 +6,7 @@
 import { no, esvaziar, corSerie, corRampa, ehNum, limitar, reconciliador } from './base.js';
 import { formatPct } from '../format.js';
 import { garantirEstilosCharts } from './estilos.js';
+import { criarTooltip } from './casca.js';
 
 const pct = (v) => `${Math.round(limitar(v, 0, 1) * 10000) / 100}%`;
 
@@ -46,6 +47,16 @@ export function criarBarraComposicao(el, op = {}) {
   const leg = op.legenda === false ? null : no(doc, ':div', { class: 'chart-legenda', role: 'group', 'aria-label': 'Legenda' }, raiz);
   const rec = reconciliador(faixa, () => no(doc, ':span', { class: 'chart-comp-seg' }));
   const fmt = op.formatarValor || ((v) => String(v));
+  /* 06/10/2026: nosso tooltip em vez do atributo title nativo (o navegador mostrava os dois). */
+  raiz.style.position = 'relative';
+  const tip = criarTooltip(doc, raiz);
+  const mostrarTip = (s) => {
+    const nome = s.getAttribute('data-nome'); if (!nome) return;
+    const r = raiz.getBoundingClientRect(); const q = s.getBoundingClientRect();
+    tip.mostrar({ titulo: nome, linhas: [{ valor: s.getAttribute('data-valor') || '', forte: true }] }, q.left - r.left + q.width / 2, q.top - r.top, { largura: r.width });
+  };
+  faixa.addEventListener('pointerover', (e) => { const s = e.target.closest && e.target.closest('.chart-comp-seg'); if (s) mostrarTip(s); });
+  faixa.addEventListener('pointerleave', () => tip.ocultar());
   function pintar(fatias, entrar) {
     const lista = (fatias || []).filter((f) => ehNum(f.valor) && f.valor > 0);
     const total = lista.reduce((s, f) => s + f.valor, 0);
@@ -54,7 +65,8 @@ export function criarBarraComposicao(el, op = {}) {
       s.style.width = entrar ? '0%' : pct(total ? f.valor / total : 0);
       s.style.background = typeof f.cor === 'string' ? f.cor : (op.tons === 'rampa' ? corRampa(i, lista.length) : corSerie(f.cor, i));
       s.style.transitionDelay = entrar ? '' : `${i * 20}ms`;
-      s.setAttribute('title', `${f.nome}: ${fmt(f.valor)} (${formatPct(total ? f.valor / total : 0, 1)})`);
+      s.setAttribute('data-nome', String(f.nome));
+      s.setAttribute('data-valor', `${fmt(f.valor)} (${formatPct(total ? f.valor / total : 0, 1)})`);
     });
     rec.limpar();
     faixa.setAttribute('aria-label', lista.map((f) => `${f.nome} ${formatPct(total ? f.valor / total : 0, 1)}`).join(', ') || 'Sem dados');

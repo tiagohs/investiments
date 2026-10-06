@@ -39,7 +39,8 @@ function sandboxAuth() {
   };
   vm.createContext(sb);
   new vm.Script(fs.readFileSync(path.join(GAS_DIR, 'Auth.gs'), 'utf8'), { filename: 'Auth.gs' }).runInContext(sb);
-  sb.EMAIL = vm.runInContext('AUTHORIZED_EMAIL', sb); // const do .gs não vira propriedade do global
+  sb.EMAIL = 'dono@exemplo.test'; // A-27: o e-mail autorizado vem da propriedade EMAIL_AUTORIZADO, não do código
+  props.set('EMAIL_AUTORIZADO', sb.EMAIL);
   return { sb, props };
 }
 

@@ -96,11 +96,6 @@ export function rotuloPeriodo(id) {
   return achado ? achado.rotulo : (ROTULOS_ESPECIAIS[id] || String(id));
 }
 
-/** Botões `.filter-tab[data-periodo]` com os rótulos canônicos, na ordem de `ids` (os ids são os que a tela já usa). */
-export function botoesPeriodoHtml(ids, ativo = ids[0]) {
-  return ids.map((id) => `<button class="filter-tab${id === ativo ? ' active' : ''}" type="button" data-periodo="${id}">${rotuloPeriodo(id)}</button>`).join('');
-}
-
 /**
  * 06/10/2026 (Onda 3, kit): o mesmo conjunto de períodos como SEGMENTADO do kit ("1 mês | ✓ 6 meses | 1 ano", charts.css:
  * .chart-seg/.chart-seg-btn, ✓ no ativo). Ponha o resultado dentro do contêiner que vai pra ligarFiltroPeriodo - o chip

@@ -10,10 +10,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { gerarRelatorioTelas, FIXTURES_PATH } from './relatorio-telas.mjs';
 
 const TEM_FIXTURES = fs.existsSync(FIXTURES_PATH);
-const rel = TEM_FIXTURES ? await gerarRelatorioTelas() : null;
+// 06/10/2026 (A-75): o teste não grava mais em tests/harness/relatorio/ (suíte rodando 2x ao mesmo tempo, ou em outra
+// máquina, não mexe no relatório do Tiago): gera numa pasta temporária. O relatório "de verdade" sai de `npm run relatorio`
+// / `npm run verificar`.
+const rel = TEM_FIXTURES ? await gerarRelatorioTelas({ saidaDir: fs.mkdtempSync(path.join(os.tmpdir(), 'relatorio-telas-')) }) : null;
 
 if (!rel) {
   test('[RELATÓRIO] conferência das telas', (t) => t.skip('tests/harness/fixtures.json ausente - ver tests/harness/README.md'));

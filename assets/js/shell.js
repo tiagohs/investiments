@@ -51,7 +51,6 @@ import { initTheme, toggleTheme } from './theme.js';
 import { getToken, clearToken, decodeTokenPayload } from './auth.js';
 import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico, consolidar } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
-import { SPREADSHEET_URL } from './config.js';
 import { limparCacheDados, lerCacheDados } from './cache-dados.js';
 import { montarBuscaGlobal } from './ui/busca.js'; // 05/10/2026: busca em pílula na top bar (ativos do cache local + telas)
 // 05/10/2026: helpers de UI M3 (confirmar/toast/erro de carga/abas...) também saem daqui, pra páginas que já importam o shell
@@ -342,7 +341,7 @@ export function iniciaisDe(texto) {
 /**
  * 05/10/2026: avatar/nome da conta (a partir do token da sessão, sem chamada nova) e links da planilha.
  */
-export function setupConta(doc, { token = null, spreadsheetUrl = SPREADSHEET_URL } = {}) {
+export function setupConta(doc, { token = null, spreadsheetUrl = null } = {}) {
   const payload = token ? decodeTokenPayload(token) : null;
   const email = payload && typeof payload.email === 'string' ? payload.email : '';
   const nome = payload && typeof payload.name === 'string' && payload.name ? payload.name : (email ? email.split('@')[0] : 'Minha conta');
@@ -350,10 +349,22 @@ export function setupConta(doc, { token = null, spreadsheetUrl = SPREADSHEET_URL
   [['contaAvatar', ini], ['contaAvatar2', ini]].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
   [['contaNome', nome], ['contaNome2', nome]].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
   [['contaSub', email || 'Patrimônio'], ['contaSub2', email || 'Patrimônio']].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
-  ['planilhaLink', 'planilhaDrawer'].forEach((id) => {
+  if (spreadsheetUrl) aplicarLinkPlanilha(doc, spreadsheetUrl);
+}
+
+/**
+ * 06/10/2026 (A-27): a URL da planilha deixou de morar no repositório
+ * (config.js); a API (syncHistorico/syncStatus) devolve `planilhaUrl` e este
+ * helper aponta os 3 links ("Abrir a planilha" do menu e da gaveta + "ver
+ * todas" do popover de sincronização). Só aceita URL do Google Planilhas.
+ */
+export function aplicarLinkPlanilha(doc, url) {
+  if (typeof url !== 'string' || !/^https:\/\/docs\.google\.com\/spreadsheets\//.test(url)) return false;
+  ['planilhaLink', 'planilhaDrawer', 'syncSheetLink'].forEach((id) => {
     const a = doc.getElementById(id);
-    if (a && spreadsheetUrl) a.setAttribute('href', spreadsheetUrl);
+    if (a) a.setAttribute('href', url);
   });
+  return true;
 }
 
 /**
@@ -608,18 +619,18 @@ export function renderSyncLog(doc, lista) {
  * de Controle" - ver Sync.gs!handleSyncStatus) no badge + popover do
  * topbar. `resultado` é null quando a chamada falhou (rede/token) - aí
  * o popover mantém o texto neutro em vez de fingir que sabe o status.
- * O link "Ver todas as sincronizações" é sempre a mesma URL real da
- * planilha (config.js!SPREADSHEET_URL) - a API só devolve a última
- * linha, então "quantas sincronizações foram feitas" só dá pra ver lá.
+ * O link "Ver todas as sincronizações" aponta pra planilha (URL vinda da
+ * API, ver aplicarLinkPlanilha) - "quantas sincronizações foram feitas" só
+ * dá pra ver lá.
  */
-export function renderSyncStatus(doc, resultado, agora = new Date()) {
+export function renderSyncStatus(doc, resultado, agora = new Date(), planilhaUrl = null) {
   const badge = doc.getElementById('syncBadgeBtn');
   const log = doc.getElementById('syncLog');
   const link = doc.getElementById('syncSheetLink');
   const refreshPill = doc.getElementById('refreshPill');
   const refreshLabel = doc.getElementById('refreshLabel');
 
-  if (link) link.href = SPREADSHEET_URL;
+  if (planilhaUrl) aplicarLinkPlanilha(doc, planilhaUrl);
 
   const semDados = !resultado || !resultado.status || resultado.status === 'Sem dados';
   const classeAtual = !semDados ? STATUS_CLASSE_SYNC[resultado.status] : null;
@@ -695,7 +706,7 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
     let guardado = null;
     try { guardado = st ? JSON.parse(st.getItem(CHAVE_RESUMO_SYNC) || 'null') : null; } catch (e) { guardado = null; }
     if (guardado && typeof guardado.ts === 'number' && agora() - guardado.ts < VALIDADE_RESUMO_SYNC_MS) {
-      renderSyncStatus(doc, guardado.ultima || null);
+      renderSyncStatus(doc, guardado.ultima || null, new Date(), guardado.planilhaUrl || null);
       if ('consolidacao' in guardado) renderConsolidacao(doc, guardado.consolidacao);
       return;
     }
@@ -708,12 +719,12 @@ export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = ge
     // sincronização ainda) e falha de rede caem no mesmo estado neutro,
     // igual antes (ver renderSyncStatus).
     const ultima = lista && lista.length ? lista[0] : null;
-    renderSyncStatus(doc, ultima);
+    renderSyncStatus(doc, ultima, new Date(), resposta.ok ? resposta.planilhaUrl : null);
     if (!leve) renderSyncLog(doc, lista);
     // 26/09/2026: aviso "Consolidação necessária" (Consolidacao.gs) vem junto
     if (resposta.ok && 'consolidacao' in resposta) renderConsolidacao(doc, resposta.consolidacao);
     if (resposta.ok && st) {
-      try { st.setItem(CHAVE_RESUMO_SYNC, JSON.stringify({ ts: agora(), ultima: ultima ? { timestamp: ultima.timestamp, origem: ultima.origem, status: ultima.status } : null, consolidacao: 'consolidacao' in resposta ? resposta.consolidacao : null })); } catch (e) { /* só conveniência */ }
+      try { st.setItem(CHAVE_RESUMO_SYNC, JSON.stringify({ ts: agora(), planilhaUrl: typeof resposta.planilhaUrl === 'string' ? resposta.planilhaUrl : null, ultima: ultima ? { timestamp: ultima.timestamp, origem: ultima.origem, status: ultima.status } : null, consolidacao: 'consolidacao' in resposta ? resposta.consolidacao : null })); } catch (e) { /* só conveniência */ }
     }
   } catch (error) {
     console.error('shell.js: falha ao carregar o status de sincronização', error);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-aO4Y7Pr1XZkJI+GoLtUSusgpg8yYKcLPxFIsuhkGwMo=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br; frame-src https://www.youtube-nocookie.com https://drive.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-aO4Y7Pr1XZkJI+GoLtUSusgpg8yYKcLPxFIsuhkGwMo=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self'; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br; frame-src https://www.youtube-nocookie.com https://drive.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Início · Patrimônio</title>
 
@@ -19,21 +19,75 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Patrimônio">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 06/10/2026: fontes servidas pelo próprio site (assets/fonts, licença OFL; @font-face em m3-tokens.css, font-display: swap). Preload só dos subsets latin do caminho crítico. -->
+<link rel="preload" href="assets/fonts/readex-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/robotomono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
 <link rel="stylesheet" href="assets/css/m3-tokens.css">
 <link rel="stylesheet" href="assets/css/shell.css">
 <link rel="stylesheet" href="assets/css/components.css">
-<!-- 16/09/2026: as folhas das 3 "abas" que o router monta no mesmo documento (Início, Acompanhamento de Ativos, Metas) carregam
-     nos arquivos de entrada de todas (assets/js/router.js: dá pra trocar de aba sem recarregar). 06/10/2026 (Onda 3): + biblioteca de
-     gráficos (charts.css). Mesmo conjunto em index.html e distribuicoes-metas.html. -->
+<!-- 06/10/2026 (A-42): só as folhas desta aba. As outras abas do router (assets/js/router.js: ROUTES[].css) entram com o import() delas, na 1ª visita.
+     Ao mudar o CSS de uma aba, mude também ROUTES[].css (tests/carga-telas.test.js confere). -->
 <link rel="stylesheet" href="assets/css/charts.css">
-<link rel="stylesheet" href="assets/css/inicio.css">
-<!-- 02/10/2026: "Escolher período" e card de Análise dos gráficos (periodo-personalizado.js / analise-grafico.js) -->
 <link rel="stylesheet" href="assets/css/componentes-grafico.css">
-<link rel="stylesheet" href="assets/css/distribuicoes-metas.css">
-<link rel="stylesheet" href="assets/css/metas.css">
+<link rel="stylesheet" href="assets/css/comum-telas.css">
+<link rel="stylesheet" href="assets/css/inicio.css">
+<!-- modulepreload (gerado por scripts/gerar-modulepreload.mjs; não edite à mão) -->
+<link rel="modulepreload" href="assets/js/shell.js">
+<link rel="modulepreload" href="assets/js/router.js">
+<link rel="modulepreload" href="assets/js/analise-grafico.js">
+<link rel="modulepreload" href="assets/js/api-client.js">
+<link rel="modulepreload" href="assets/js/auth.js">
+<link rel="modulepreload" href="assets/js/cache-dados.js">
+<link rel="modulepreload" href="assets/js/carrinho-global.js">
+<link rel="modulepreload" href="assets/js/carrinho-header.js">
+<link rel="modulepreload" href="assets/js/charts/anel.js">
+<link rel="modulepreload" href="assets/js/charts/barras.js">
+<link rel="modulepreload" href="assets/js/charts/base.js">
+<link rel="modulepreload" href="assets/js/charts/card.js">
+<link rel="modulepreload" href="assets/js/charts/casca.js">
+<link rel="modulepreload" href="assets/js/charts/estilos.js">
+<link rel="modulepreload" href="assets/js/charts/icones.js">
+<link rel="modulepreload" href="assets/js/charts/index.js">
+<link rel="modulepreload" href="assets/js/charts/kpi.js">
+<link rel="modulepreload" href="assets/js/charts/progresso.js">
+<link rel="modulepreload" href="assets/js/charts/sparkline.js">
+<link rel="modulepreload" href="assets/js/charts/xy.js">
+<link rel="modulepreload" href="assets/js/config.js">
+<link rel="modulepreload" href="assets/js/criterios/base-rentabilidade.js">
+<link rel="modulepreload" href="assets/js/format.js">
+<link rel="modulepreload" href="assets/js/ir-renda-fixa.js">
+<link rel="modulepreload" href="assets/js/link-ativo.js">
+<link rel="modulepreload" href="assets/js/logos-ativos.js">
+<link rel="modulepreload" href="assets/js/pages/avisos-parciais.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-ativos.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-calc.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-comparativo.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-favoritos.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-intradia.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-painel.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-proventos.js">
+<link rel="modulepreload" href="assets/js/pages/inicio-rentabilidade.js">
+<link rel="modulepreload" href="assets/js/pages/inicio.js">
+<link rel="modulepreload" href="assets/js/pages/logo-circulo.js">
+<link rel="modulepreload" href="assets/js/pages/metas-template.js">
+<link rel="modulepreload" href="assets/js/pages/proventos-calc.js">
+<link rel="modulepreload" href="assets/js/periodo-personalizado.js">
+<link rel="modulepreload" href="assets/js/theme.js">
+<link rel="modulepreload" href="assets/js/ui/breadcrumb.js">
+<link rel="modulepreload" href="assets/js/ui/busca.js">
+<link rel="modulepreload" href="assets/js/ui/confirmar.js">
+<link rel="modulepreload" href="assets/js/ui/dom.js">
+<link rel="modulepreload" href="assets/js/ui/erro-carga.js">
+<link rel="modulepreload" href="assets/js/ui/index.js">
+<link rel="modulepreload" href="assets/js/ui/menu.js">
+<link rel="modulepreload" href="assets/js/ui/pagina.js">
+<link rel="modulepreload" href="assets/js/ui/progresso.js">
+<link rel="modulepreload" href="assets/js/ui/switch.js">
+<link rel="modulepreload" href="assets/js/ui/tabs.js">
+<link rel="modulepreload" href="assets/js/ui/toast.js">
+<link rel="modulepreload" href="assets/js/util/html.js">
+<!-- /modulepreload -->
 </head>
 <body data-section="inicio">
 

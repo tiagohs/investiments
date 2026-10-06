@@ -8,24 +8,25 @@
  * "Adicionar ativo". O document.title acompanha a aba ("Ações · Carteiras · Patrimônio").
  */
 
-import { montarPaginaCarteirasVisaoGeral } from './pages/carteiras-visao-geral.js';
-import { montarPaginaCarteirasAcoes } from './pages/carteiras-acoes.js';
-import { montarPaginaCarteirasFiis } from './pages/carteiras-fiis.js';
-import { montarPaginaCarteirasAcoesEua } from './pages/carteiras-acoes-eua.js';
-import { montarPaginaCarteirasRendaFixa } from './pages/carteiras-renda-fixa.js';
 import { getHome } from './api-client.js';
 import { criarGetHomeCompartilhado } from './cache-dados.js';
 import { montarCabecalhoPagina, definirTituloPagina } from './ui/pagina.js';
 import { criar, icone } from './ui/dom.js';
 
+/**
+ * 06/10/2026 (A-42): cada subpágina só é importada quando é aberta (a Visão geral não baixa o código de Ações/FIIs/EUA/Renda Fixa,
+ * e vice-versa). `mount` continua sendo (token, opções) => Promise - o router só chama quando a aba aparece pela 1ª vez.
+ */
+const lazy = (carregar, nome) => async (token, opcoes) => (await carregar())[nome](token, opcoes);
+
 export const SECAO_CARTEIRAS = 'Carteiras';
 
 export const CARTEIRAS_PAGINAS = [
-  { key: 'visao-geral', titulo: 'Visão geral', refreshId: 'refreshControlVisaoGeral', subtitulo: 'Tudo o que você tem investido, numa tela só.', mount: montarPaginaCarteirasVisaoGeral },
-  { key: 'acoes', titulo: 'Ações', refreshId: 'refreshControlAcoes', subtitulo: 'Suas ações brasileiras: posição, viés de compra e proventos.', mount: montarPaginaCarteirasAcoes },
-  { key: 'fiis', titulo: 'FIIs', refreshId: 'refreshControlFiis', subtitulo: 'Seus fundos imobiliários: posição, rendimentos e viés de compra.', mount: montarPaginaCarteirasFiis },
-  { key: 'acoes-eua', titulo: 'Ações Internacionais', refreshId: 'refreshControlAcoesEua', subtitulo: 'Suas ações nos EUA, em dólar e em reais.', mount: montarPaginaCarteirasAcoesEua },
-  { key: 'renda-fixa', titulo: 'Renda Fixa', refreshId: 'refreshControlRendaFixa', subtitulo: 'Seus títulos de renda fixa: carteira de longo prazo e reserva de emergência.', mount: montarPaginaCarteirasRendaFixa },
+  { key: 'visao-geral', titulo: 'Visão geral', refreshId: 'refreshControlVisaoGeral', subtitulo: 'Tudo o que você tem investido, numa tela só.', mount: lazy(() => import('./pages/carteiras-visao-geral.js'), 'montarPaginaCarteirasVisaoGeral') },
+  { key: 'acoes', titulo: 'Ações', refreshId: 'refreshControlAcoes', subtitulo: 'Suas ações brasileiras: posição, viés de compra e proventos.', mount: lazy(() => import('./pages/carteiras-acoes.js'), 'montarPaginaCarteirasAcoes') },
+  { key: 'fiis', titulo: 'FIIs', refreshId: 'refreshControlFiis', subtitulo: 'Seus fundos imobiliários: posição, rendimentos e viés de compra.', mount: lazy(() => import('./pages/carteiras-fiis.js'), 'montarPaginaCarteirasFiis') },
+  { key: 'acoes-eua', titulo: 'Ações Internacionais', refreshId: 'refreshControlAcoesEua', subtitulo: 'Suas ações nos EUA, em dólar e em reais.', mount: lazy(() => import('./pages/carteiras-acoes-eua.js'), 'montarPaginaCarteirasAcoesEua') },
+  { key: 'renda-fixa', titulo: 'Renda Fixa', refreshId: 'refreshControlRendaFixa', subtitulo: 'Seus títulos de renda fixa: carteira de longo prazo e reserva de emergência.', mount: lazy(() => import('./pages/carteiras-renda-fixa.js'), 'montarPaginaCarteirasRendaFixa') },
 ];
 
 export async function mountCarteirasRouter(doc, { token, paginas = CARTEIRAS_PAGINAS, getHomeImpl = getHome } = {}) {

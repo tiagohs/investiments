@@ -15,11 +15,8 @@ import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { urlAtivo, refAtivo, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: título -> tela do ativo
 import { esc } from '../util/html.js';
 import { criarGraficosCarteira } from './carteiras-graficos.js';
-import {
-  somaCampoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
-  wirePointerTooltipCarteiras_, logoCirculoRendaFixaHtml, celulaAtivoHtml, linhaTotalHtml, esqueletoClasseHtml, linksRelevantesHtml,
-  contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
-} from './carteiras-classe-comum.js';
+import { somaCampoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel, wirePointerTooltipCarteiras_, celulaAtivoHtml, linhaTotalHtml, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras } from './carteiras-classe-comum.js';
+import { logoCirculoRendaFixaHtml } from './carteiras-pecas.js';
 
 const CHAVE_CACHE_RENDA_FIXA = 'carteiras_renda_fixa_v2';
 

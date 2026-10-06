@@ -40,7 +40,7 @@
  *    de peso e sem nunca passar por cima de fundamentos fracos/eliminatório.
  */
 
-import { avaliarAtivoParaMeta, mesesEntre as mesesEntreMeta } from '../pages/metas-calc.js';
+import { avaliarAtivoParaMeta, mesesEntre as mesesEntreMeta } from '../pages/metas-calc-nucleo.js';
 import { sinaisMacro, LIMITE_PONTOS_MACRO } from './macro.js';
 
 import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './base-acoes.js';

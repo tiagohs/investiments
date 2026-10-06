@@ -103,6 +103,12 @@
 .chart-anel-valor { font-weight: 600; font-size: 22px; font-family: inherit; font-variant-numeric: tabular-nums; }
 .chart-anel-rot { font-weight: 400; font-size: 12px; font-family: inherit; fill: var(--_ink2); }
 .chart--anel-prog .chart-anel-valor { font-size: 20px; }
+/* 06/10/2026: "i" no furo do anel (detalhe do centro que não cabe: conversão em R$, valor completo); alvo de toque 24px, bolinha 16px */
+.chart-anel-info { position: absolute; transform: translate(-50%, -50%); width: 24px; height: 24px; padding: 0; margin: 0; border: 0; background: none; cursor: help; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+.chart-anel-info[hidden] { display: none; }
+.chart-anel-info-i { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--_ink2); color: var(--_ink2); font-size: 11px; font-weight: 600; font-style: italic; font-family: inherit; line-height: 1; }
+.chart-anel-info:hover .chart-anel-info-i, .chart-anel-info:focus-visible .chart-anel-info-i { background: var(--_ink); color: var(--_surf, var(--md-sys-color-surface)); border-color: var(--_ink); }
+.chart-anel-info:focus-visible { outline: 2px solid var(--_prim); outline-offset: 1px; }
 .chart--anel-prog { display: inline-block; }
 
 /* tooltip escuro multilinha */
@@ -228,6 +234,9 @@ svg.chart-spark .chart-spark-fim { fill: currentColor; stroke: var(--_surf); str
 .chart-kpi-rot { font-weight: 500; font-size: 12px; line-height: 16px; font-family: inherit; color: var(--_ink2); letter-spacing: .02em; }
 .chart-kpi-info { display: inline-grid; place-items: center; color: var(--_axis); border-radius: 50%; }
 .chart-kpi-info:focus-visible { outline: 2px solid var(--_prim); outline-offset: 2px; }
+/* 06/10/2026: dica do "i" por CSS (data-info), sem atributo title (evita o tooltip nativo duplicado). */
+.chart-kpi-info { position: relative; cursor: help; }
+.chart-kpi-info:is(:hover, :focus-visible)::after { content: attr(data-info); position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--z-tooltip, 30); width: max-content; max-width: min(260px, 70vw); padding: 8px 12px; border-radius: 12px; background: var(--_tt-bg); color: var(--_tt-fg); font-size: 12px; line-height: 16px; font-weight: 400; text-align: left; white-space: normal; pointer-events: none; }
 .chart-kpi-val { font-weight: 500; font-size: 28px; line-height: 36px; font-family: inherit; color: var(--_ink); overflow-wrap: anywhere; }
 .chart-kpi-delta { display: inline-flex; align-items: center; gap: 4px; font-weight: 500; font-size: 12px; line-height: 16px; font-family: inherit; }
 .chart-kpi-delta[hidden] { display: none; }

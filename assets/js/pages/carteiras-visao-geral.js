@@ -25,12 +25,10 @@ import { mostrarErroCarga } from '../ui/erro-carga.js';
 import { sparklineHtml } from '../charts/index.js';
 import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
 import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
-import { calcularResumoRentabilidade, CAMPO_PRINCIPAL_POR_VISAO } from './inicio.js';
+import { calcularResumoRentabilidade, CAMPO_PRINCIPAL_POR_VISAO } from './inicio-calc.js';
 import { carregarMetasParaCard, cardMetaRendaPassiva, urlMetas } from '../metas-card.js'; // 02/10/2026: meta de renda passiva
 import { criarGraficosCarteira, montarKpis, desenharAnelDistribuicao, destruirGraficos, corDoToken } from './carteiras-graficos.js';
-import {
-  renderBenchmarksClasseCarteiras, variacaoHtml, mostrarAvisoDadosGuardados, lerEstadoSecoes, aplicarEstadoSecoes,
-} from './carteiras-classe-comum.js';
+import { renderBenchmarksClasseCarteiras, variacaoHtml, mostrarAvisoDadosGuardados, lerEstadoSecoes, aplicarEstadoSecoes } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_VISAO_GERAL = 'carteiras_visao_geral_v2';
 const PONTOS_SPARK = 60;
@@ -262,7 +260,7 @@ function desenhar(doc, { carteiras: carteirasApi, home }, { homePendente = false
   const fatias = carteiras.cards.map((card) => ({
     nome: card.nome, valor: card.totalAtualizado, cor: corDoToken(CORES_CARD[card.nome] || '--acoes'),
   }));
-  desenharAnelDistribuicao(doc, $('vgDonut'), fatias, { aria: 'Composição das carteiras', tamanho: 260, legenda: 'baixo', dono: conteudoEl });
+  desenharAnelDistribuicao(doc, $('vgDonut'), fatias, { aria: 'Composição das carteiras', tamanho: 320, espessura: 34, legenda: 'baixo', dono: conteudoEl });
 
   renderCardsClasse(doc, $('vgCardsGrid'), carteiras.cards, historico, pendente);
 

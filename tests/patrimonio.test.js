@@ -87,34 +87,25 @@ test('Aba Patrimônio: herói (tem − deve = líquido), balanço com apê pelo 
   assert.equal(el.querySelector('#ptFontesTopo').hidden, false, 'sem IR ainda: "Monte o seu patrimônio" aparece no topo');
 });
 
-test('Aba Patrimônio: histórico (gráfico + tabela), meta sem as parcelas explicada e projeção com tiles', async () => {
+test('Aba Patrimônio: histórico (gráfico + tabela); a área de aposentadoria saiu (06/10/2026) mas as contas seguem no contexto', async () => {
   const { el, aba } = await montar();
   assert.ok(el.querySelector('#ptGHist svg'), 'gráfico do histórico');
   assert.equal(el.querySelectorAll('#ptTHist tbody tr').length, aba.contexto.hist.length);
   assert.match(txt(el.querySelector('#ptTHist')), /Hoje/);
-  const meta = txt(el.querySelector('#ptMeta'));
-  assert.match(meta, /Parcela do apê/);
-  assert.match(meta, /Sem as parcelas/);
+  // 06/10/2026 (Tiago): "toda a área de aposentadoria pra baixo e os cards... pode remover daqui" (vive na meta de Aposentadoria, em Metas)
+  ['#ptMeta', '#ptCtl', '#ptTiles', '#ptGProj', '#ptDicas', '#ptReserva', '[data-seg]', '.pt-dica'].forEach((sel) => assert.equal(el.querySelector(sel), null, `${sel} saiu`));
+  assert.doesNotMatch(txt(el), /Como acelerar|quanto, quando e o que muda o prazo/);
+  // o que Simulações e o simulador de dívidas usam continua calculado
   assert.ok(aba.contexto.meta.rendaSem < aba.contexto.meta.rendaDM);
-  assert.match(txt(el.querySelector('#ptTiles')), /Você chega lá/);
-  assert.ok(el.querySelector('#ptGProj svg'));
-  assert.ok(el.querySelectorAll('#ptDicas .pt-dica').length >= 5, 'cards de "Como acelerar"');
-  assert.ok(el.querySelector('#ptDicas [data-dica="amortizar"]'));
+  assert.ok(aba.contexto.proj && aba.contexto.alvo > 0);
 });
 
-test('Aba Patrimônio: preferências (taxa de saque, reserva, parcelas) recalculam e são salvas', async () => {
-  const { el, w, aba, salvos } = await montar();
+test('contextoPatrimonio (usado por Simulações): taxa de saque e reserva ainda recalculam a meta e o ponto de partida', async () => {
+  const { aba } = await montar();
+  const { contextoPatrimonio } = await import('../assets/js/pages/organizacao-patrimonio.js');
   const antes = aba.contexto.alvo;
-  clique(w, el.querySelector('[data-seg="taxaSaque"] [data-v="0.04"]'));
-  assert.ok(aba.contexto.alvo > antes, 'sacar 4% pede mais patrimônio');
-  const reserva = el.querySelector('#ptReserva');
-  reserva.checked = true;
-  reserva.dispatchEvent(new w.Event('change', { bubbles: true }));
-  assert.equal(aba.contexto.inicial, 120000, 'com a reserva: longo prazo + reserva');
-  await esperar(5);
-  const prefs = salvos.filter((s) => s.chave === 'preferencias').pop();
-  assert.equal(prefs.valor.taxaSaque, 0.04);
-  assert.equal(prefs.valor.incluirReservaNaAposentadoria, true);
+  assert.ok(contextoPatrimonio(aba.dados, { taxaSaque: 0.04 }).alvo > antes, 'sacar 4% pede mais patrimônio');
+  assert.equal(contextoPatrimonio(aba.dados, { incluirReservaNaAposentadoria: true }).inicial, 120000, 'com a reserva: longo prazo + reserva');
 });
 
 test('Aba Patrimônio: editar o apê (valor manual) salva e redesenha', async () => {
@@ -193,8 +184,9 @@ test('Aba Patrimônio (03/10/2026): sem simulador de dívidas nem Carreira/FGTS;
   const secoes = [...el.children].map((x) => x.id).filter(Boolean);
   assert.ok(secoes.indexOf('ptInflacao') === secoes.indexOf('ptSecHist') + 1, 'inflação logo depois do histórico');
   assert.match(txt(el.querySelector('#ptInflacao')), /Patrimônio vs\. inflação/);
-  assert.ok(el.querySelector('a[href="../metas.html"]'), 'link pra Metas e Objetivos');
-  assert.match(el.querySelector('#ptDicas [data-dica="amortizar"]').innerHTML, /href="#simulador"/, 'a dica leva pro simulador novo');
+  const ver = el.querySelector('.pt-ver-meta a[href="../metas.html"]');
+  assert.ok(ver, 'link discreto pra meta de Aposentadoria em Metas');
+  assert.match(txt(ver), /Ver na meta de Aposentadoria/);
 });
 
 test('Aba Patrimônio: filtro de período no histórico (gráfico + tabela) e no "de onde veio o crescimento"', async () => {

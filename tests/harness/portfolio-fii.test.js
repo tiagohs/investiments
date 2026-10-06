@@ -91,7 +91,9 @@ function montar({ informes = [], nominatim = null, extraAtivo = null, zipsExtra 
     }
     if (/dados\.cvm\.gov\.br/.test(url)) {
       const nome = url.replace(/^.*\//, '');
-      if (metodo === 'head') return resp(nome in zips ? 200 : 404, '', null, { ETag: estado.etag, 'Content-Length': '123', 'Last-Modified': 'x' });
+      // 06/10/2026: igual ao UrlFetchApp real, 'head' não é método aceito (erro de verdade no Apps Script)
+      if (metodo === 'head') throw new Error('Exception: Attribute provided with invalid value: method');
+      if (op && op.headers && op.headers.Range === 'bytes=0-0') return resp(nome in zips ? 206 : 404, '', null, { ETag: estado.etag, 'Content-Range': 'bytes 0-0/123', 'Last-Modified': 'x' });
       const z = zips[nome];
       return z ? resp(200, '', z) : resp(404, 'não achou');
     }
@@ -180,9 +182,10 @@ test('Portfólio FII: segmento só pelo NOME e marcado como estimado; nome sem p
 test('Portfólio FII: monta o JSON de um fundo de tijolo (imóveis, vacância, % da receita, segmento estimado) e de um de papel (indexador, tipo de ativo, cotas)', () => {
   const t = montar({ nominatim: () => ({ getResponseCode: () => 403, getContentText: () => 'bloqueado' }) });
   const r = plain(t.sb.atualizarPortfolioFii_('Teste'));
-  assert.equal(r.status, 'Atenção', 'Nominatim recusou: aviso, mas o resto sai');
+  assert.equal(r.status, 'Sucesso', 'Nominatim recusar o servidor do Google é esperado: nota, não Atenção; o resto sai');
   assert.deepEqual(r.atualizados.sort(), ['ZZPP11', 'ZZSH11']);
-  assert.match(r.detalhe, /Nominatim recusou o servidor \(HTTP 403\)/);
+  assert.match(r.detalhe, /endereços novos do mapa ficam para o navegador \(Nominatim: HTTP 403\)/);
+  assert.doesNotMatch(r.detalhe, /CVM \(/, 'assinatura do informe pela CVM sem erro (GET com Range, não HEAD)');
   const l = plain(t.linhas());
 
   const sh = l.ZZSH11.json;
@@ -256,11 +259,11 @@ test('Portfólio FII: só reprocessa com informe novo da CVM (HEAD barato) ou fa
   assert.equal(plain(t.linhas()).ZZSH11.frVisto, '2026-08-20|111', 'o fato relevante que já existia na 1ª montagem não vira alerta');
   assert.equal(plain(t.linhas()).ZZSH11.conferir, '');
 
-  // 2ª execução, nada mudou: só o HEAD (sem baixar zip, sem Nominatim, sem reescrever)
+  // 2ª execução, nada mudou: só a checagem de 1 byte (sem baixar zip, sem Nominatim, sem reescrever)
   t.chamadas.length = 0;
   const r2 = plain(t.sb.atualizarPortfolioFii_('Teste'));
   assert.deepEqual(r2.atualizados, []);
-  assert.deepEqual(t.chamadas, ['head https://dados.cvm.gov.br/dados/FII/DOC/INF_TRIMESTRAL/DADOS/inf_trimestral_fii_2026.zip']);
+  assert.deepEqual(t.chamadas, ['get https://dados.cvm.gov.br/dados/FII/DOC/INF_TRIMESTRAL/DADOS/inf_trimestral_fii_2026.zip']);
 
   // a CVM mudou o arquivo (ETag), mas o informe dos fundos é o mesmo: baixa, compara e NÃO reprocessa
   t.estado.etag = '"v2"';

@@ -2,7 +2,7 @@
  * metas.css - 02/10/2026: tela Metas e Objetivos (metas.html / pages/metas.js)
  * e o card de renda passiva que outras telas mostram (metas-card.js).
  * Tokens, .btn, .filter-tabs e .hint vêm de shell.css; .skel e .avisos-banner
- * de inicio.css. Números em mono (tabular), como no resto do site.
+ * de comum-telas.css. Números em mono (tabular), como no resto do site.
  * --mt-cor / --mt-cor-soft: cor do tipo da meta (definidas inline por card).
  */
 
@@ -17,9 +17,9 @@
 .mt-carregando[hidden], .mt-erro[hidden], .avisos-banner[hidden]{ display:none; }
 .mt-dec{ font-size:.62em; opacity:.7; }
 .mt-fraco{ color:var(--ink-faint); font-weight:500; }
-.mt-ruim{ color:var(--bad-ink); }
+.mt-ruim{ color:var(--ink-muted); } /* 06/10/2026: "falta"/custo = em progresso (cinza); vermelho só pra erro/grave */
 .mt-eyebrow{ font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--ink-faint); font-weight:700; }
-.mt-alerta{ margin:0; background:var(--warn-soft); color:var(--warn-ink); border-radius:10px; padding:9px 12px; font-size:12px; line-height:1.45; }
+.mt-alerta{ margin:0; background:var(--md-sys-color-surface-container-low); color:var(--ink-muted); border:1px solid var(--border); border-left:3px solid var(--mt-am-ink); border-radius:10px; padding:9px 12px; font-size:12px; line-height:1.45; } /* 06/10/2026: neutro com filete amarelo (era faixa marrom) */
 .mt-nota{ margin:8px 0 0; font-size:12px; color:var(--ink-faint); line-height:1.45; }
 .mt-link{ all:unset; cursor:pointer; color:var(--acoes); font-size:12px; font-weight:700; }
 .mt-link:hover{ text-decoration:underline; }
@@ -35,7 +35,7 @@
 .mt-status{ display:inline-block; font-size:12px; font-weight:700; padding:2px 9px; border-radius:100px; white-space:nowrap; flex:none; }
 .mt-status.good{ background:var(--good-soft); color:var(--good-ink); }
 .mt-status.bad{ background:var(--bad-soft); color:var(--bad-ink); }
-.mt-status.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+.mt-status.warn{ background:var(--mt-am-bg); color:var(--mt-am-ink); }
 .mt-status.na{ background:var(--na-soft); color:var(--ink-muted); }
 
 /* barra de progresso fina (só o card de renda passiva que a Carteiras mostra; a Metas usa charts/criarBarraProgresso) */
@@ -82,7 +82,7 @@
 .mt-aporte{ display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; font-size:12px; border-radius:10px; padding:7px 10px; background:var(--surface-3); }
 .mt-aporte b{ font-family:var(--mono); font-size:13px; }
 .mt-aporte.ok b{ color:var(--good-ink); }
-.mt-aporte.baixo b{ color:var(--bad-ink); }
+.mt-aporte.baixo b{ color:var(--mt-am-ink); }
 .mt-aporte > span:first-child{ color:var(--ink-muted); font-weight:600; }
 
 /* ---- estado vazio / sugestões ---- */
@@ -233,8 +233,9 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 .mt-card-rp-numeros{ display:flex; justify-content:space-between; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 .mt-card-rp-numeros > div{ display:flex; flex-direction:column; gap:2px; }
 .mt-card-rp-numeros .mt-dir{ text-align:right; }
-.mt-card-rp .mt-barra > span{ background:var(--fiis); }
-.mt-card-rp .mt-barra.good > span{ background:var(--good); }
+.mt-card-rp .mt-barra > span{ background:var(--chart-axis); }
+.mt-card-rp .mt-barra.quase > span{ background:var(--warn); }
+.mt-card-rp .mt-barra.good > span{ background:var(--chart-up); }
 .mt-card-rp-sub{ margin:0; font-size:12px; color:var(--ink-faint); }
 .mt-card-rp-sub b{ color:var(--ink-muted); font-family:var(--mono); font-weight:600; }
 .mt-card-rp-link{ align-self:flex-start; display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:700; color:var(--acoes); text-decoration:none; }
@@ -309,7 +310,7 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 /* resumo do topo com cor */
 .mt-rot svg{ vertical-align:-3px; margin-right:5px; color:var(--ink-faint); }
 .mt-sub b.mt-bom{ color:var(--good-ink); }
-.mt-sub b.mt-ruim{ color:var(--bad-ink); }
+.mt-sub b.mt-ruim{ color:var(--ink-muted); } /* 06/10/2026: "falta"/custo = em progresso (cinza); vermelho só pra erro/grave */
 
 /* herói v2 */
 .mt-heroi-v2{ position:relative; overflow:hidden; }
@@ -319,28 +320,25 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 .mt-hnum-rot{ display:flex; align-items:center; gap:5px; font-size:12px; font-weight:600; color:var(--ink-muted); }
 .mt-hnum-rot > svg{ color:var(--mt-cor, var(--acoes)); flex:none; }
 .mt-hnum.bom .mt-hnum-rot > svg{ color:var(--good); }
-.mt-hnum.ruim .mt-hnum-rot > svg{ color:var(--bad); }
+.mt-hnum.ruim .mt-hnum-rot > svg{ color:var(--ink-faint); }
 .mt-hnum-val{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:21px; font-weight:600; letter-spacing:-.02em; color:var(--ink); line-height:1.15; overflow-wrap:anywhere; }
 .mt-hnum-val small{ font-family:var(--body-f); font-size:12px; color:var(--ink-faint); margin-left:2px; letter-spacing:0; }
 .mt-hnum-sub{ font-size:12px; color:var(--ink-faint); line-height:1.45; }
 .mt-hnum-sub b{ font-family:var(--mono); font-weight:600; color:var(--ink-muted); }
 .mt-chip-delta{ display:inline-block; font-family:var(--mono); font-size:12px; font-weight:600; padding:1px 7px; border-radius:100px; white-space:nowrap; }
 .mt-chip-delta.bom{ background:var(--good-soft); color:var(--good-ink); }
-.mt-chip-delta.ruim{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-chip-delta.ruim{ background:var(--mt-am-bg); color:var(--mt-am-ink); }
 .mt-heroi-ritmo{ margin:0; display:flex; align-items:flex-start; gap:8px; font-size:13px; line-height:1.5; color:var(--ink-muted);
   background:var(--surface-3); border-radius:10px; padding:9px 12px; }
 .mt-heroi-ritmo > svg{ flex:none; margin-top:2px; color:var(--ink-faint); }
 .mt-heroi-ritmo.bom{ background:var(--good-soft); color:var(--good-ink); }
 .mt-heroi-ritmo.bom > svg{ color:var(--good); }
-.mt-heroi-ritmo.ruim{ background:var(--bad-soft); color:var(--bad-ink); }
-.mt-heroi-ritmo.ruim > svg{ color:var(--bad); }
+.mt-heroi-ritmo.ruim, .mt-heroi-ritmo.atencao{ background:var(--mt-am-bg); color:var(--mt-am-ink); }
+.mt-heroi-ritmo.ruim > svg, .mt-heroi-ritmo.atencao > svg{ color:var(--mt-am-ink); }
 .mt-heroi-ritmo b{ font-family:var(--mono); }
 .mt-heroi-ritmo em{ font-style:normal; opacity:.8; font-size:12px; }
-.mt-heroi-ritmo .mt-bom, .mt-heroi-ritmo .mt-ruim{ font-weight:700; }
+.mt-heroi-ritmo .mt-bom, .mt-heroi-ritmo .mt-ruim, .mt-heroi-ritmo .mt-atencao{ font-weight:700; }
 .mt-heroi-legenda{ margin:-6px 0 0; font-size:12px; color:var(--ink-faint); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-.mt-heroi-legenda i{ display:inline-block; width:12px; height:4px; border-radius:2px; margin-left:4px; }
-.mt-heroi-legenda i.liq{ background:var(--mt-cor); height:6px; }
-.mt-heroi-legenda i.bru{ background:var(--ink-faint); }
 
 /* blocos: cabeçalho com controles */
 .mt-bloco h3{ display:flex; align-items:center; gap:2px; }
@@ -567,8 +565,8 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 .mt-apagar .mt-fixos li .mt-v-nome{ flex:1 1 180px; }
 .mt-sit{ display:inline-block; font-size:12px; font-weight:700; padding:2px 8px; border-radius:100px; white-space:nowrap; }
 .mt-sit.ok{ background:var(--good-soft); color:var(--good-ink); }
-.mt-sit.pend{ background:var(--warn-soft); color:var(--warn-ink); }
-.mt-sit.juntar{ background:var(--bad-soft); color:var(--bad-ink); }
+.mt-sit.pend{ background:var(--mt-am-bg); color:var(--mt-am-ink); }
+.mt-sit.juntar{ background:var(--na-soft); color:var(--ink-muted); }
 
 /* detalhe: a juntar */
 .mt-conta-viagem li > span{ display:flex; flex-direction:column; min-width:0; }
@@ -609,7 +607,7 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 /* 05/10/2026: milhões nas simulações e títulos que vencem (reserva) */
 .mt-card-marco{ display:flex; align-items:center; gap:5px; font-size:12px; color:var(--ink-muted); margin-top:2px; line-height:1.35; }
 .mt-card-marco b{ color:var(--ink); font-family:var(--mono); }
-.mt-card-marco.atencao{ color:var(--warn-ink); font-weight:600; }
+.mt-card-marco.atencao{ color:var(--mt-am-ink); font-weight:600; }
 .mt-comisso{ list-style:none; margin:10px 0 0; padding:0; display:grid; gap:7px; font-size:12px; color:var(--ink-muted); line-height:1.45; }
 .mt-comisso li{ padding:8px 10px; border-radius:10px; background:var(--surface-3); }
 .mt-comisso li b{ color:var(--ink); }
@@ -619,8 +617,8 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 .mt-comisso-sim{ display:block; margin-top:6px; padding:7px 10px; border-radius:10px; background:var(--surface-3); font-size:12.5px; line-height:1.45; }
 .mt-comisso-sim em{ display:block; margin-top:3px; font-style:normal; color:var(--ink-muted); font-size:12px; }
 .mt-vencs{ list-style:none; margin:0; padding:0; display:grid; gap:10px; }
-.mt-venc{ border:1px solid var(--border); border-radius:12px; padding:11px 12px; }
-.mt-venc.atencao{ border-color:var(--warn); background:var(--warn-soft); }
+.mt-venc{ border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:var(--md-sys-color-surface-container-low); }
+.mt-venc.atencao{ border-left:3px solid var(--mt-am-ink); }
 .mt-venc-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .mt-venc-data{ display:inline-flex; align-items:center; gap:6px; font-weight:700; font-family:var(--mono); }
 .mt-venc-data small{ font-weight:400; color:var(--ink-faint); font-family:inherit; }
@@ -706,3 +704,45 @@ body.mt-dialogo-aberto{ overflow:hidden; }
 .mt-rec > summary::after{ content:""; flex:none; width:10px; height:10px; margin-left:auto; border-right:2px solid var(--ink-muted); border-bottom:2px solid var(--ink-muted); transform:rotate(45deg); transition:transform var(--md-sys-motion-duration-short3, 150ms); }
 .mt-rec[open] > summary::after{ transform:rotate(-135deg); }
 .mt-rec[open] > summary{ margin-bottom:10px; }
+
+/* ===========================================================================
+   06/10/2026 - semântica de cor das metas (Tiago: "sucesso = verde; quase lá = amarelo; em progresso = cinza. Vermelho só pra
+   erro ou algo grave"), títulos que vencem, anel da reserva, excedente e custo total da viagem.
+   --mt-am-bg/--mt-am-ink = amarelo legível nos dois temas (o --warn-soft escuro era marrom).
+   =========================================================================== */
+:root{ --mt-am-bg:var(--warn-soft); --mt-am-ink:var(--warn-ink); }
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --mt-am-bg:color-mix(in srgb, var(--warn) 16%, var(--surface)); --mt-am-ink:var(--warn); }
+}
+:root[data-theme="dark"]{ --mt-am-bg:color-mix(in srgb, var(--warn) 16%, var(--surface)); --mt-am-ink:var(--warn); }
+.mt-atencao{ color:var(--mt-am-ink); }
+.mt-alerta-acao{ display:flex; align-items:center; justify-content:space-between; gap:8px 12px; flex-wrap:wrap; }
+.mt-alerta-acao > span{ flex:1 1 280px; min-width:0; }
+.mt-alerta-acao .btn{ flex:none; }
+
+/* anel de progresso: um só, maior, número menor (a cor é a do estado: verde / amarelo / cinza) */
+.mt-anel .chart-anel-valor{ font-size:22px; }
+.mt-anel .chart-anel-rot{ font-size:12px; }
+
+/* títulos que vencem: lista neutra com chip de estado; só o alerta (<12 meses) ganha filete amarelo */
+.mt-venc-cab{ display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:6px 14px; }
+.mt-venc-cab > .mt-status{ margin-left:auto; }
+.mt-venc-nome{ flex:1 1 140px; min-width:0; font-size:13px; }
+.mt-venc-liq{ font-size:13px; color:var(--ink); white-space:nowrap; }
+.mt-venc-liq small{ color:var(--ink-faint); font-family:inherit; }
+.mt-venc-det{ margin-top:6px; }
+.mt-venc-det > summary{ cursor:pointer; font-size:12px; color:var(--ink-faint); width:max-content; }
+.mt-venc-det[open] > summary{ margin-bottom:2px; }
+.mt-venc-nums dd{ font-weight:600; }
+
+/* excedente da reserva */
+.mt-exc-nums{ margin:0 0 10px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+.mt-exc-nums > div{ background:var(--md-sys-color-surface-container-low); border-radius:var(--md-sys-shape-corner-large); padding:10px 12px; }
+.mt-exc-nums dt{ font-size:12px; color:var(--ink-faint); }
+.mt-exc-nums dd{ margin:2px 0 0; font-size:16px; font-weight:600; color:var(--ink); }
+.mt-exc-acoes{ margin:12px 0 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+/* viagem: o custo total é o número principal (linha inteira) */
+.mt-hnum.principal{ grid-column:1 / -1; background:var(--md-sys-color-surface-container); }
+.mt-hnum.principal .mt-hnum-val{ font-size:var(--md-sys-typescale-headline-medium-size, 28px); }
+@media (max-width:560px){ .mt-heroi-corpo > .mt-anel{ align-self:center; } }

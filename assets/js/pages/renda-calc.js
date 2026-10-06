@@ -89,6 +89,29 @@ export function mesclarIpca(tabela, serieBcb) {
   return out;
 }
 
+/**
+ * 06/10/2026 (A-78): a tabela fixa IPCA_MENSAL é só o ponto de partida/fallback. Quando a resposta do contexto de
+ * mercado (Macro.gs: macro.juros.ipcaMensal = [{ mes: 'aaaa-mm', valor: % }]) traz meses, eles entram por cima da
+ * tabela. Devolve { tabela, origem: 'macro' | 'premissa', ate } - 'premissa' = só a tabela embutida no site
+ * (rotulada assim na tela, ver rotuloOrigemIpca).
+ */
+export function mesclarIpcaMacro(tabela, macro) {
+  const meses = macro && macro.juros && Array.isArray(macro.juros.ipcaMensal) ? macro.juros.ipcaMensal : [];
+  const serie = meses
+    .map((m) => { const x = String(m && m.mes || '').match(/^(\d{4})-(\d{2})$/); return x && num(Number(m.valor)) ? { data: `01/${x[2]}/${x[1]}`, valor: String(m.valor) } : null; })
+    .filter(Boolean);
+  if (!serie.length) return { tabela, origem: 'premissa', ate: ultimoMesIpca(tabela) };
+  const nova = mesclarIpca(tabela, serie);
+  return { tabela: nova, origem: 'macro', ate: ultimoMesIpca(nova) };
+}
+
+/** Texto curto da origem do IPCA ('' quando veio da API; "premissa" quando é só a tabela fixa do site). */
+export function rotuloOrigemIpca(origem, ate = null) {
+  if (origem !== 'premissa') return '';
+  const m = String(ate || '').match(/^(\d{4})-(\d{2})$/);
+  return `IPCA: tabela fixa do site (premissa)${m ? `, até ${m[2]}/${m[1]}` : ''} - sem o dado mais novo do Banco Central`;
+}
+
 /** Último mês com IPCA na tabela ('aaaa-mm'). */
 export function ultimoMesIpca(tabela = IPCA_MENSAL) {
   const anos = Object.keys(tabela).map(Number).filter((a) => (tabela[a] || []).length).sort((a, b) => a - b);

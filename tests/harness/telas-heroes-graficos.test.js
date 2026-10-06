@@ -163,26 +163,20 @@ const r2 = (v) => Math.round(v * 100) / 100;
 // valor, variação (▲/▼ + R$ no title + %) e a distribuição da aba escolhida
 // (Ações EUA mostram US$ na legenda, com o R$ no title do item).
 function lerResumoCompactoInicio(dom, doc) {
-  // 06/10/2026 (Onda 3): o resumo é uma grade de 4 KPIs (.rc-kpi[data-visao]: valor .chart-kpi-val, variação .chart-kpi-delta com o R$ no title)
-  // + um cartão "Distribuição" com abas sublinhadas (.rc-tabs [data-tab]) e o anel (legenda .chart-leg-item).
-  const box = doc.getElementById('resumoPatrimonio');
-  const distrib = doc.getElementById('resumoDistribuicao'); // o cartão "Distribuição" mora na coluna ao lado dos KPIs
+  // 06/10/2026: os 4 cartões KPI de total por carteira SAÍRAM da Início (pedido do Tiago). O valor de cada visão agora é lido do centro do
+  // anel do cartão "Distribuição" (abas sublinhadas [data-tab]); "ontem era"/variação ficam só nos cartões de Rentabilidade (null aqui).
+  const distrib = doc.getElementById('resumoDistribuicao');
   const clicarAba = (v) => distrib.querySelector(`.rc-tabs [data-tab="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   const out = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].map((visao) => {
     clicarAba(visao);
-    const b = box.querySelector(`.rc-kpi[data-visao="${visao}"]`);
-    const delta = b.querySelector('.chart-kpi-delta');
-    const sinal = delta.classList.contains('is-down') ? -1 : 1;
-    const valor = lerBRL(b.querySelector('.chart-kpi-val').textContent);
-    const dif = delta.getAttribute('title') ? sinal * Math.abs(lerBRL(delta.getAttribute('title'))) : null;
-    const pct = lerPct(delta.textContent);
+    const valor = lerBRL(distrib.querySelector('.chart-anel-valor').textContent);
     const itens = [...distrib.querySelectorAll('.rc-distrib .chart-leg-item')];
     return {
       visao,
-      label: b.querySelector('.chart-kpi-rot').textContent.trim(),
+      label: distrib.querySelector(`.rc-tabs [data-tab="${visao}"]`).textContent.trim(),
       valor,
-      ontem: dif == null ? null : Math.round((valor - dif) * 100) / 100,
-      varPct: pct == null ? null : sinal * Math.abs(pct),
+      ontem: null,
+      varPct: null,
       fatias: itens.map((li) => lerBRL(li.querySelector('.chart-leg-val').textContent)),
       distribTexto: itens.map((li) => `${li.querySelector('.chart-leg-nome').textContent} ${li.querySelector('.chart-leg-val').textContent}`).join(' · '),
     };
@@ -618,8 +612,8 @@ test('Início: cards do resumo - valor = ao vivo e "ontem era" = fechamento do �
     const varEsperada = r2((vHoje / vOntem - 1) * 100);
     t.diagnostic(`${visaoId}: hoje ${valorTela} | ontem era ${ontemTela} (${ontem.data}) | ${varTela}%`);
     if (Math.abs(valorTela - r2(vHoje)) > 0.011) erros.push(`${visaoId}: valor ${valorTela} != ${r2(vHoje)}`);
-    if (Math.abs(ontemTela - r2(vOntem)) > 0.011) erros.push(`${visaoId}: ontem ${ontemTela} != ${r2(vOntem)}`);
-    if (Math.abs(varTela - varEsperada) > 0.011) erros.push(`${visaoId}: variação ${varTela} != ${varEsperada}`);
+    if (ontemTela != null && Math.abs(ontemTela - r2(vOntem)) > 0.011) erros.push(`${visaoId}: ontem ${ontemTela} != ${r2(vOntem)}`);
+    if (varTela != null && Math.abs(varTela - varEsperada) > 0.011) erros.push(`${visaoId}: variação ${varTela} != ${varEsperada}`);
     // 23/09/2026 #3: as fatias por classe da distribuição somam o valor da
     // visão (antes a fatia "Ações EUA" ficava alguns centavos diferente do resto)
     if (visaoId !== 'rendaEmergencial') {
@@ -967,11 +961,12 @@ test('Carteiras > Visão geral, Ações, FIIs, Ações EUA e Renda Fixa: em cima
         const variacao = hoje - ini;
         const vE = lerBRL(infoE.querySelector('.chart-card-val').textContent);
         const deltaTxt = semMinusUnicode(infoE.querySelector('.chart-card-delta').textContent.trim());
-        const mD = deltaTxt.match(new RegExp(`^([+-])(${MOEDA_RE}) no período$`));
+        const mD = deltaTxt.match(new RegExp(`^([+-])(${MOEDA_RE}) ganho no período$`));
         const ganhoE = mD ? (mD[1] === '-' ? -1 : 1) * lerBRL(mD[2]) : null;
         if (Math.abs(vE - r2(hoje)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - valor ${vE} != hoje ${r2(hoje)}`);
-        if (ganhoE == null || Math.abs(ganhoE - r2(variacao)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - "${deltaTxt}" != fim − começo da linha ${r2(variacao)}`);
-        if (infoE.querySelector('.chart-card-delta').classList.contains(variacao >= 0 ? 'is-down' : 'is-up')) erros.push(`${visaoId}/${periodoId}: Evolução - cor trocada`);
+        // 06/10/2026: o delta da Evolução é o GANHO do período (sem aportes) = o mesmo R$ da Rentabilidade (oráculo), não fim − começo da linha
+        if (ganhoE == null || Math.abs(ganhoE - r2(o.ganho)) > 0.011) erros.push(`${visaoId}/${periodoId}: Evolução - "${deltaTxt}" != ganho do período (Rentabilidade) ${r2(o.ganho)}`);
+        if (infoE.querySelector('.chart-card-delta').classList.contains(o.ganho >= 0 ? 'is-down' : 'is-up')) erros.push(`${visaoId}/${periodoId}: Evolução - cor trocada`);
         const sub = semMinusUnicode(textoDe(painelE.querySelector('.cg-nota')));
         if (comAplicado) {
           const aplicadoTotal = s.reduce((a, x) => a + (num(x[aplicado]) || 0), 0);

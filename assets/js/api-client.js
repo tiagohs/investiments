@@ -90,7 +90,7 @@ export async function getHome(token) {
 /**
  * Runs "sincronizarAgora", automatically resuming rounds until
  * `naoProcessados` is empty (or a round fails outright) — this is the
- * round-accumulation logic that used to live inside teste.html's
+ * round-accumulation logic that used to live inside tests/manual/teste.html's
  * `executarSincronizacao`.
  *
  * @param {string} token
@@ -575,11 +575,6 @@ export async function removerAtivo(token, classe, ticker) {
  */
 export async function getIntradia(token, chaves) {
   return request('GET', 'intradia', token, { simbolos: (chaves || []).join(',') });
-}
-
-/** 26/09/2026: estado do aviso "Consolidação necessária" (Consolidacao.gs). */
-export async function getConsolidacao(token) {
-  return request('GET', 'consolidacao', token);
 }
 
 /**

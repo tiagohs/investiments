@@ -94,7 +94,7 @@ test('filtros de período: presets redesenham; o "Escolher período" é acrescen
   tabs.querySelector('[data-periodo="5a"]').click();
   assert.equal(raiz.querySelectorAll('#rdTabela tbody tr').length, 4);
   const inv = raiz.querySelector('#rdSecInv .filter-tabs');
-  const contar = () => raiz.querySelector('#rdGInv svg.chart-svg title').textContent;
+  const contar = () => raiz.querySelector('#rdGInv svg.chart-svg').getAttribute('aria-label'); // 06/10: sem <title> (tooltip duplo)
   const antes = contar();
   inv.querySelector('[data-periodo="6m"]').click();
   assert.notEqual(contar(), antes, 'o gráfico foi atualizado para os 6 meses');

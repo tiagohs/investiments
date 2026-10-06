@@ -26,7 +26,8 @@ import { getMetas } from './api-client.js';
 import { formatBRL, formatNumeroPt, formatMoeda, formatPct } from './format.js';
 import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único (era esc exportado daqui)
 import { resolveSiteRootUrl } from './shell.js';
-import { calcularMeta, alocarMetas, aparenciaMeta, rotuloMes, STATUS_META, TIPOS_META, explicarStatus } from './pages/metas-calc.js';
+import { calcularMeta, alocarMetas } from './pages/metas-calc-plano.js';
+import { aparenciaMeta, rotuloMes, STATUS_META, TIPOS_META, explicarStatus, classeStatusVisual } from './pages/metas-calc-nucleo.js';
 
 /** Ícones (traço 1.8, viewBox 24) - um por tipo/categoria de meta. */
 const ICONES = {
@@ -77,11 +78,12 @@ export function valorGrandeHtml(valor, moeda = 'BRL') {
 /** "37%" */
 export const pct = (fracao, casas = 0) => formatPct(fracao, casas);
 
-export function statusPillHtml(status, meta = null) {
+export function statusPillHtml(status, meta = null, percentual = null) {
   const s = STATUS_META[status] || STATUS_META['sem-prazo'];
+  const classe = classeStatusVisual(status, percentual); // 06/10/2026: verde atingida, amarelo quase lá (90%+), cinza em progresso
   // 03/10/2026: a explicação do status vai no title (hover) - a tela de Metas usa statusComDicaHtml (toque/teclado)
   const exp = meta ? explicarStatus(status, meta) : (s.explicacao || '');
-  return `<span class="mt-status ${s.classe}"${exp ? ` title="${esc(exp)}"` : ''}>${s.rotulo}</span>`;
+  return `<span class="mt-status ${classe}"${exp ? ` title="${esc(exp)}"` : ''}>${s.rotulo}</span>`;
 }
 
 /**
@@ -95,9 +97,9 @@ export function infoHtml(texto, { rotulo = 'O que é isso?' } = {}) {
 }
 
 /** Status + o "i" com a explicação (o texto da renda passiva é próprio). */
-export function statusComDicaHtml(status, meta = {}) {
+export function statusComDicaHtml(status, meta = {}, percentual = null) {
   const s = STATUS_META[status] || STATUS_META['sem-prazo'];
-  return `<span class="mt-status-dica">${statusPillHtml(status, meta)}${infoHtml(explicarStatus(status, meta), { rotulo: `O que significa "${s.rotulo}"?` })}</span>`;
+  return `<span class="mt-status-dica">${statusPillHtml(status, meta, percentual)}${infoHtml(explicarStatus(status, meta), { rotulo: `O que significa "${s.rotulo}"?` })}</span>`;
 }
 
 /** Endereço do detalhe de uma meta (funciona de qualquer pasta do site). */
@@ -197,13 +199,13 @@ export function cardMetaRendaPassiva(meta, { raizSite } = {}) {
   <header class="mt-card-rp-cab">
     ${seloMetaHtml(meta, { tamanho: 32 })}
     <div class="mt-card-rp-tit"><span class="mt-eyebrow">Meta de renda passiva</span><strong>${esc(meta.nome)}</strong></div>
-    ${statusPillHtml(c.status, meta)}
+    ${statusPillHtml(c.status, meta, c.percentual)}
   </header>
   <div class="mt-card-rp-numeros">
     <div><span class="mt-rot">Renda média (12 meses)</span><span class="mt-num">${valorGrandeHtml(r.atual)}<small>/mês</small></span></div>
     <div class="mt-dir"><span class="mt-rot">Meta</span><span class="mt-num mt-num-sm">${formatMoeda(r.alvo)}<small>/mês</small></span></div>
   </div>
-  <div class="mt-barra ${p >= 1 ? 'good' : ''}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="width:${(p * 100).toFixed(1)}%"></span></div>
+  <div class="mt-barra ${p >= 1 ? 'good' : (p >= 0.9 ? 'quase' : '')}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="width:${(p * 100).toFixed(1)}%"></span></div>
   <p class="mt-card-rp-sub"><b>${pct(r.percentual)}</b> da meta${falta > 0 ? ` · faltam <b>${formatMoeda(falta)}</b>/mês` : ''}${c.alvoBRL ? ` · patrimônio necessário <b>${formatMoeda(c.alvoBRL, 'BRL', { casas: 0 })}</b>` : ''}${c.dataAlvo ? ` até ${rotuloMes(c.dataAlvo)}` : ''}</p>
   <a class="mt-card-rp-link" href="${esc(url)}">Ver meta <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
 </article>`;

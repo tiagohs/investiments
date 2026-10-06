@@ -124,7 +124,8 @@ function lerTopoRentab(el) {
 function lerTopoEvolucao(el) {
   if (!el || !el.querySelector('.chart-card-val')) return null;
   const dt = texto(el.querySelector('.chart-card-delta'));
-  const md = dt.match(/^([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2})) no período$/);
+  // 06/10/2026: a Evolução mostra o GANHO do período (sem os aportes) = mesmo número da Rentabilidade
+  const md = dt.match(/([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))\s*(?:ganho\s+)?no período/);
   const sub = texto(el.querySelector('.cg-nota'));
   const ma = sub.match(/Valor aplicado:\s*((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))\s*·\s*([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))/);
   return {
@@ -431,26 +432,20 @@ function legenda(doc, id) {
 // valor, variação (▲/▼ + R$ no title + %) e a distribuição da aba escolhida
 // (Ações EUA mostram US$ na legenda, com o R$ no title do item).
 function lerResumoCompactoInicio(dom, doc) {
-  // 06/10/2026 (Onda 3): o resumo é uma grade de 4 KPIs (.rc-kpi[data-visao]: valor .chart-kpi-val, variação .chart-kpi-delta com o R$ no title)
-  // + um cartão "Distribuição" com abas sublinhadas (.rc-tabs [data-tab]) e o anel (legenda .chart-leg-item).
-  const box = doc.getElementById('resumoPatrimonio');
-  const distrib = doc.getElementById('resumoDistribuicao'); // o cartão "Distribuição" mora na coluna ao lado dos KPIs
+  // 06/10/2026: os 4 cartões KPI de total por carteira SAÍRAM da Início (pedido do Tiago). O valor de cada visão agora é lido do centro do
+  // anel do cartão "Distribuição" (abas sublinhadas [data-tab]); "ontem era"/variação ficam só nos cartões de Rentabilidade (null aqui).
+  const distrib = doc.getElementById('resumoDistribuicao');
   const clicarAba = (v) => distrib.querySelector(`.rc-tabs [data-tab="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   const out = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].map((visao) => {
     clicarAba(visao);
-    const b = box.querySelector(`.rc-kpi[data-visao="${visao}"]`);
-    const delta = b.querySelector('.chart-kpi-delta');
-    const sinal = delta.classList.contains('is-down') ? -1 : 1;
-    const valor = lerBRL(b.querySelector('.chart-kpi-val').textContent);
-    const dif = delta.getAttribute('title') ? sinal * Math.abs(lerBRL(delta.getAttribute('title'))) : null;
-    const pct = lerPct(delta.textContent);
+    const valor = lerBRL(distrib.querySelector('.chart-anel-valor').textContent);
     const itens = [...distrib.querySelectorAll('.rc-distrib .chart-leg-item')];
     return {
       visao,
-      label: b.querySelector('.chart-kpi-rot').textContent.trim(),
+      label: distrib.querySelector(`.rc-tabs [data-tab="${visao}"]`).textContent.trim(),
       valor,
-      ontem: dif == null ? null : Math.round((valor - dif) * 100) / 100,
-      varPct: pct == null ? null : sinal * Math.abs(pct),
+      ontem: null,
+      varPct: null,
       fatias: itens.map((li) => lerBRL(li.querySelector('.chart-leg-val').textContent)),
       distribTexto: itens.map((li) => `${li.querySelector('.chart-leg-nome').textContent} ${li.querySelector('.chart-leg-val').textContent}`).join(' · '),
     };
@@ -632,7 +627,7 @@ function checar(D, s, p, u) {
       const c = t.cards[i];
       if (!c) { e.push(`card ${N[v]} sumiu`); return; }
       if (!perto(c.valor, r2(D.vivo[v]))) e.push(`${N[v]}: card ${c.valor} x ao vivo ${r2(D.vivo[v])}`);
-      if (D.ontemOraculo) {
+      if (D.ontemOraculo && c.ontem != null) { // 06/10/2026: sem os cartões KPI, "ontem era" não é mais lido aqui
         if (!perto(c.ontem, r2(D.ontemOraculo[v]))) e2.push(`${N[v]}: "ontem era" ${c.ontem} x último pregão + ajuste ${r2(D.ontemOraculo[v])}`);
         if (!perto(c.varPct, r2((D.vivo[v] / D.ontemOraculo[v] - 1) * 100))) e2.push(`${N[v]}: variação ${c.varPct}%`);
       }
@@ -796,7 +791,7 @@ function checar(D, s, p, u) {
       }
       if (!evol) { e4.push(`${N[v]}/${NOMES_PERIODO[per]}: sem o valor em cima da Evolução`); return; }
       if (!perto(evol.valor, r2(D.vivo[v]))) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - valor ${evol.valor} x ao vivo ${r2(D.vivo[v])}`);
-      if (ev && !perto(evol.variacao, r2(ev.valorFim - ev.valorIni), 0.02)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - variação ${evol.variacao} x fim − começo da linha ${r2(ev.valorFim - ev.valorIni)}`);
+      if (o && !perto(evol.variacao, o.ganho, 0.02)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - ganho no período ${evol.variacao} x ganho da Rentabilidade (oráculo) ${o.ganho}`);
       if (COM_APLICADO.has(v)) {
         if (!perto(evol.aplicado, r2(D.aplicado[v]), 0.005)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - Valor aplicado ${evol.aplicado} x fim da linha ${r2(D.aplicado[v])}`);
         if (!perto(evol.difAplicado, r2(D.vivo[v] - D.aplicado[v]), 0.02)) e4.push(`${N[v]}/${NOMES_PERIODO[per]}: Evolução - distância pro aplicado ${evol.difAplicado} x ${r2(D.vivo[v] - D.aplicado[v])}`);
@@ -810,7 +805,7 @@ function checar(D, s, p, u) {
       }
     }
     for (const per of PERIODOS) if (D.telas.vg.porPeriodo[per]) conferirTopo('total', per, undefined, D.telas.vg.porPeriodo[per].topoEvolucao);
-    add('Carteiras · subpáginas', 'valores em cima dos gráficos (Visão geral e as 4 subpáginas, 6 períodos): Rentabilidade = valor de hoje e ganho/% do oráculo; Evolução = valor de hoje, fim − começo da linha e distância pro "Valor aplicado"', e4);
+    add('Carteiras · subpáginas', 'valores em cima dos gráficos (Visão geral e as 4 subpáginas, 6 períodos): Rentabilidade = valor de hoje e ganho/% do oráculo; Evolução = valor de hoje, ganho no período (= Rentabilidade) e distância pro "Valor aplicado"', e4);
     // 24/09/2026: Ações EUA em dólar
     const e5 = [];
     const ed = sub.acoesEua.emDolar;
@@ -823,7 +818,7 @@ function checar(D, s, p, u) {
         const t = ed.topos[per], o = U.porPeriodo[per];
         if (!t || !o) { e5.push(`${NOMES_PERIODO[per]}: sem dado em US$`); continue; }
         if (!t.rentab || !perto(t.rentab.valor, U.resumo.totalAtualizado) || !perto(t.rentab.ganho, o.ganho) || !perto(t.rentab.pct, o.pct)) e5.push(`${NOMES_PERIODO[per]}: Rentabilidade em US$ ${JSON.stringify(t.rentab)} x oráculo ${o.ganho} (${o.pct}%)`);
-        if (!t.evolucao || !perto(t.evolucao.valor, U.resumo.totalAtualizado) || !perto(t.evolucao.variacao, o.variacao, 0.02) || !perto(t.evolucao.aplicado, U.resumo.totalInvestido)) e5.push(`${NOMES_PERIODO[per]}: Evolução em US$ ${JSON.stringify(t.evolucao)} x valor ${U.resumo.totalAtualizado}, variação ${o.variacao}, aplicado ${U.resumo.totalInvestido}`);
+        if (!t.evolucao || !perto(t.evolucao.valor, U.resumo.totalAtualizado) || !perto(t.evolucao.variacao, o.ganho, 0.02) || !perto(t.evolucao.aplicado, U.resumo.totalInvestido)) e5.push(`${NOMES_PERIODO[per]}: Evolução em US$ ${JSON.stringify(t.evolucao)} x valor ${U.resumo.totalAtualizado}, variação ${o.variacao}, aplicado ${U.resumo.totalInvestido}`);
         o.bench.forEach((b, i) => {
           const d = ed.legendas[per] && ed.legendas[per][i] ? ed.legendas[per][i].delta : null;
           if (b.diff != null && !perto(d, b.diff, 0.02)) e5.push(`${NOMES_PERIODO[per]} ${b.campo}: legenda em US$ ${d} x ${b.diff}`);

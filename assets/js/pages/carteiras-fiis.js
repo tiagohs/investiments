@@ -8,14 +8,11 @@ import { getCarteirasFiis, getHome } from '../api-client.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
 import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
-import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
+import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira, definirFonteProventos } from './carteiras-proventos.js';
 import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
 import { criarGraficosCarteira } from './carteiras-graficos.js';
-import {
-  proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
-  wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, statusVies, seloViesHtml, variacaoHtml, linhaTotalHtml,
-  contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
-} from './carteiras-classe-comum.js';
+import { proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel, wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, seloViesHtml, variacaoHtml, linhaTotalHtml, contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras } from './carteiras-classe-comum.js';
+import { statusVies } from './carteiras-pecas.js';
 
 const CHAVE_CACHE_FIIS = 'carteiras_fiis_v2';
 
@@ -81,7 +78,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   const estadoSecoes = lerEstadoSecoes(conteudoEl);
   conteudoEl.innerHTML = esqueletoClasseHtml({
     prefixo: 'fiis', links: linksRelevantesHtml(LINKS_RELEVANTES_FIIS), tituloDistribuicao: 'Por tipo', tituloLista: 'Ativos', contagem: contagemTexto(dados.resumo.quantidadeAtivos),
-    extrasAposLista: `${secaoProventosCarteiraHtml('fiisProventos')}${secaoRecolhivelHtml({ nome: 'videos', id: 'fiisVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('fiisVideos') })}`,
+    proventosHtml: secaoProventosCarteiraHtml('fiisProventos', { navegacao: true }),
+    extrasAposLista: `${secaoRecolhivelHtml({ nome: 'videos', id: 'fiisVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('fiisVideos') })}`,
   });
   const $ = (id) => doc.getElementById(id);
   wirePointerTooltipCarteiras_(doc, conteudoEl);
@@ -125,7 +123,8 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   aplicarEstadoSecoes(doc, conteudoEl, estadoSecoes);
 }
 
-export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
+export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome, getVideosImpl = undefined, getProventosImpl = undefined } = {}) {
+  definirFonteProventos(token, getProventosImpl); // 06/10/2026: meses anteriores dos proventos (ação "proventos" existente)
   const preencherVideos = criarCarregadorVideos(token, { carteira: 'fiis' }, getVideosImpl ? { getVideosImpl } : {});
   return montarPaginaClasseCarteiras(token, {
     doc, prefixo: 'fiis', tela: 'Carteira de FIIs', chaveCache: CHAVE_CACHE_FIIS, buscarCarteira: getCarteirasFiisImpl, getHomeImpl, desenhar,

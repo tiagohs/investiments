@@ -4,7 +4,7 @@
  * (funções puras, testáveis sem DOM); quem desenha é organizacao-patrimonio.js via metas-graficos!montarGrafico.
  *  - opcoesHistoricoPatrimonio  patrimônio líquido de cada fim de ano (linha + área) e, embaixo, a composição
  *                               (ativos acima do zero, dívidas abaixo, barras empilhadas)
- *  - opcoesProjecaoPatrimonio   investimentos x meta; marcos e "chega em" aparecem no título do balão do mês
+ *  (06/10/2026: opcoesProjecaoPatrimonio saiu - a projeção da aposentadoria vive na meta, em Metas)
  *  - opcoesSalarios             salário contratual no tempo (degraus mês a mês); empresa e aumento no balão
  *  - barrasDivergentes          barras horizontais (positivo/negativo) - HTML marcador + montarBarrasDivergentes(raiz)
  * Removidos: SVG/balão/CSS antigos (.pt-svg, .pt-hit, .pt-tt, .pt-barras).
@@ -63,46 +63,6 @@ export function opcoesHistoricoPatrimonio(linhas) {
       modo: 'empilhadas', categorias: eixoX, formatarX: tituloDoItem, formatarValor: (v) => brl0(Math.abs(v)), formatarY: eixoMil, altura: 250, tons: 'categorica',
       series: comp.map((sr) => ({ id: sr.id, nome: sr.nome, cor: sr.cor, valores: linhas.map((l) => (sr.lado < 0 ? -(l[sr.id] || 0) : (l[sr.id] || 0))) })),
       aria: 'Composição: o que você tinha (acima do zero) e o que devia (abaixo)',
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Projeção até a meta, com marcos
-// ---------------------------------------------------------------------------
-
-/**
- * pontos [{m, v}] (m = meses a partir de hoje); `quando(m)` -> { rotulo, ano, idade };
- * marcos [{ m, titulo, texto }]. -> spec de montarGrafico ({ tipo:'linha', opcoes }) ou null.
- */
-export function opcoesProjecaoPatrimonio({ pontos, alvo, chegou, marcos = [], fim, quando }) {
-  const pts = (pontos || []).filter((p) => p.m <= fim);
-  if (pts.length < 2) return null;
-  const marcosPorM = new Map();
-  marcos.filter((mk) => mk.m > 0 && mk.m < fim).forEach((mk) => {
-    const p = pts.reduce((a, b) => (Math.abs(b.m - mk.m) < Math.abs(a.m - mk.m) ? b : a));
-    if (!marcosPorM.has(p.m)) marcosPorM.set(p.m, []);
-    marcosPorM.get(p.m).push(mk);
-  });
-  const passoAnos = fim / 12 > 30 ? 10 : 5;
-  const eixoX = pts.map((p) => {
-    const q = quando(p.m);
-    const partes = [`${q.rotulo}${q.idade != null ? ` · ${q.idade} anos` : ''}`];
-    (marcosPorM.get(p.m) || []).forEach((mk) => partes.push(`marco: ${mk.titulo}${mk.texto ? ` (${mk.texto})` : ''}`));
-    if (chegou != null && p.m === pts.reduce((a, b) => (Math.abs(b.m - chegou) < Math.abs(a.m - chegou) ? b : a)).m) partes.push('chega na meta');
-    return { rotulo: p.m % 12 === 0 && q.ano % passoAnos === 0 ? String(q.ano) : '', titulo: partes.join(' · ') };
-  });
-  const q = chegou != null ? quando(chegou) : null;
-  return {
-    tipo: 'linha',
-    opcoes: {
-      series: [
-        { id: 'inv', nome: 'Seus investimentos', valores: pts.map((p) => p.v), principal: true, area: true, cor: 1, largura: 3 },
-        { id: 'alvo', nome: 'Patrimônio necessário', valores: pts.map(() => alvo), pontilhada: true, cor: 'var(--chart-axis)', largura: 1.5 },
-      ],
-      eixoX, formatarX: tituloDoItem, formatarValor: (v) => mil(v), formatarY: eixoMil, altura: 280, zero: true,
-      tooltipExtra: (i) => (alvo ? [{ nome: 'Da meta', valor: `${formatNumeroBR((pts[i].v / alvo) * 100, 0)}%` }] : []),
-      aria: `Projeção dos investimentos até a meta de ${mil(alvo)}${q ? `: chega em ${q.ano}` : ': não chega no período'}`,
     },
   };
 }

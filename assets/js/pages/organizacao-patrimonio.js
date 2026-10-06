@@ -14,8 +14,9 @@
  *  - Histórico (31/12 de cada ano, pelo IR) com filtro de período e o card
  *    de análise + de onde veio o crescimento (também com filtro).
  *  - Patrimônio vs. inflação (patrimonio-inflacao.js).
- *  - Aposentadoria: a meta SEM as parcelas das dívidas, explicada; ritmo x
- *    meta; projeção com marcos; "Como acelerar".
+ *  - (06/10/2026: a área "Aposentadoria" e os cards "Como acelerar" saíram daqui, Tiago: "agora que existe a meta de aposentadoria em Metas,
+ *    pode remover daqui". Só a apresentação: contextoPatrimonio e as contas em patrimonio-calc.js continuam, pois Simulações e o
+ *    simulador de dívidas usam. Sobrou um link discreto "Ver na meta de Aposentadoria".)
  *  - Documentos: PDFs lidos no navegador (patrimonio-import.js) - só o que a
  *    tela usa vai pra planilha (Patrimonio.gs, aba aux_patrimonio).
  * 03/10/2026 (Tiago: "Patrimônio: mover a área de simulação de pagamento das
@@ -38,12 +39,11 @@ import {
   identificarDocumento, lerDeclaracaoIr, lerExtratoFgts, lerCtps, lerExtratoCaixaHabitacao, lerExtratoFies, contaFgtsParaSalvar, GRUPOS_IR, MOTIVOS_SAQUE_FGTS,
 } from './patrimonio-import.js';
 import {
-  mesDe, somarMeses, difMeses, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, idadeEm,
-  liberacoesDividas, resumoFgts, projetarFgts, linhaSalarios, salarioEm, crescimentoSalario, origemCrescimento, parametrosDivida,
-  amortizarOuInvestir, cronogramaDivida, saldoFinanciamento, extrasFinanciamento, financiamentoEfetivo, mesesRestantesFinanciamento, mesesRestantesFies,
-  valorImovel, METODOS_IMOVEL, projetarFgtsMensal,
+  mesDe, somarMeses, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, idadeEm,
+  liberacoesDividas, resumoFgts, linhaSalarios, salarioEm, crescimentoSalario, origemCrescimento, mesesRestantesFinanciamento, mesesRestantesFies,
+  valorImovel, METODOS_IMOVEL,
 } from './patrimonio-calc.js';
-import { opcoesHistoricoPatrimonio, opcoesProjecaoPatrimonio, opcoesSalarios, barrasDivergentes, montarBarrasDivergentes, mil, brl0, mesAno } from './patrimonio-graficos.js';
+import { opcoesHistoricoPatrimonio, opcoesSalarios, barrasDivergentes, montarBarrasDivergentes, mil, brl0, mesAno } from './patrimonio-graficos.js';
 import { montarGrafico, limparGrafico } from './metas-graficos.js'; // 06/10/2026 (Onda 3): gerenciador de gráficos da biblioteca (cria e morfa)
 import { mostrarErroCarga } from '../ui/index.js';
 import { compAttr, montarComposicoes, kpiHtml, chipHtml, tornarRecolhiveis } from './organizacao-ui.js';
@@ -52,8 +52,6 @@ import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const dataBR = (iso) => formatDMA(iso, '') || (/^\d{4}-\d{2}$/.test(String(iso || '')) ? mesAno(iso) : '');
-const anosTxt = (a) => (a == null ? '—' : `${formatNumeroBR(Math.abs(a), Math.abs(a) < 10 ? 1 : 0)} ${Math.abs(a) >= 2 || Math.abs(a) < 1 ? 'anos' : 'ano'}`);
-const mesesTxt = (m) => (m == null ? '—' : m >= 24 ? `${formatNumeroBR(m / 12, 1)} anos` : `${m} ${m === 1 ? 'mês' : 'meses'}`);
 const numCampo = (v, casas = 2) => (num(v) ? formatNumeroBR(v, casas) : '');
 
 export const PREFS_PADRAO = {
@@ -102,121 +100,6 @@ export function contextoPatrimonio(d, prefs = {}) {
     fgts: resumoFgts(cfg.fgts, d.hoje, { nascimento: nasc, depositoMensal: num(salarioEm(cfg.carreira, d.hoje)) ? salarioEm(cfg.carreira, d.hoje) * 0.08 : null }),
     origem: origemCrescimento(d, 12),
   };
-}
-
-/** Quanto cada ajuste antecipa (ou atrasa) a chegada na meta - os cards de "Como acelerar". */
-export function dicasAcelerar(ctx) {
-  const { d, cfg, p, meta, rendimento, alvo, inicial, aporte, liberacoes, proj, libs } = ctx;
-  const base = proj.chegou;
-  const rodar = (o = {}) => projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes, ...o }).chegou;
-  const ganho = (outro) => (base != null && outro != null ? (base - outro) / 12 : null);
-  const dicas = [];
-  const g500 = ganho(rodar({ aporte: aporte + 500 }));
-  dicas.push({
-    id: 'aporte', titulo: 'Aporte', destaque: true,
-    html: `<b>+R$ 500 por mês</b> antecipa <b>${esc(anosTxt(g500))}</b>.${num(ctx.aporteMeta) && num(ctx.ritmo) ? ` Sua meta de aporte (${esc(brl0(ctx.aporteMeta))}) está ${ctx.aporteMeta >= ctx.ritmo ? `<b>${esc(brl0(ctx.aporteMeta - ctx.ritmo))} acima</b>` : `${esc(brl0(ctx.ritmo - ctx.aporteMeta))} abaixo`} do que você aportou em média nos últimos 12 meses no longo prazo (${esc(brl0(ctx.ritmo))}).` : ''}`,
-  });
-  const cresc = crescimentoSalario(cfg.carreira, d.hoje, 5);
-  const g3 = ganho(rodar({ crescimentoAporte: 0.03 }));
-  dicas.push({
-    id: 'aumentos', titulo: 'Aumentos de salário', destaque: false,
-    html: `${cresc ? `Seu salário cresceu <b>${esc(formatPct(cresc.taxa, 1))} ao ano</b> nos últimos ${cresc.anos} anos. ` : ''}Se o aporte subir junto, <b>3% acima da inflação</b> por ano, você chega <b>${esc(anosTxt(g3))} antes</b>. Regra simples: metade de cada aumento vai pro aporte.`,
-  });
-  const g1 = ganho(rodar({ rendimentoReal: rendimento + 0.01 }));
-  dicas.push({
-    id: 'rendimento', titulo: 'Rendimento', destaque: false,
-    html: `<b>+1 ponto</b> de rendimento real ao ano antecipa <b>${esc(anosTxt(g1))}</b>. É onde pesam taxas, dinheiro parado em conta e quanto de IPCA+ alto você consegue travar.`,
-  });
-  if (libs.length) {
-    const sem = projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes: [] }).chegou;
-    const com = projetarAposentadoria({ inicial, aporte, rendimentoReal: rendimento, alvo, liberacoes: libs }).chegou;
-    const dif = sem != null && com != null ? (sem - com) / 12 : null;
-    dicas.push({
-      id: 'parcelas', titulo: 'Parcelas que viram aporte', destaque: !p.parcelasViramAporte,
-      html: `${libs.map((l) => `${esc(l.nome.replace(' quitado', ''))} acaba em <b>${esc(mesAno(somarMeses(d.hoje, l.mes)))}</b>${l.usosFgts && l.usosFgts.length ? ` (com o FGTS amortizando no prazo a cada 2 anos: ${esc(String(l.usosFgts.length))} ${l.usosFgts.length === 1 ? 'uso' : 'usos'}, ${esc(mesesTxt(l.semFgts - l.mes))} antes)` : ''} e libera <b>${esc(brl0(l.valor))}/mês</b>`).join('; ')}. Continuar investindo esse valor ${p.parcelasViramAporte ? 'já está na conta e ' : ''}antecipa <b>${esc(anosTxt(dif))}</b>${p.parcelasViramAporte ? '' : ' - ligue "as parcelas viram aporte" pra ver'}.`,
-    });
-  }
-  // FGTS no financiamento a cada 2 anos (descontando os saques-aniversário do caminho)
-  const fg = ctx.fgts;
-  const temFin = cfg.financiamento && num(cfg.financiamento.saldo);
-  const par = temFin ? parametrosDivida('financiamento', financiamentoEfetivo(cfg), d.hoje) : null;
-  const efeitoAmortizar = (valor, mesAlvo) => {
-    const faltam = Math.max(0, difMeses(d.hoje, mesAlvo));
-    const finEf = financiamentoEfetivo(cfg);
-    const saldoLa = saldoFinanciamento(finEf, mesAlvo, extrasFinanciamento(finEf, cfg.fgts));
-    const mesesLa = Math.max(1, (par.meses || 0) - faltam);
-    const base2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa });
-    const com2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa, extras: { 0: valor } });
-    return { meses: base2.length - com2.length, juros: base2.reduce((s, l) => s + l.juros, 0) - com2.reduce((s, l) => s + l.juros, 0) };
-  };
-  if (fg && temFin) {
-    const mesProx = fg.proximaAmortizacao < mesDe(d.hoje) ? mesDe(d.hoje) : fg.proximaAmortizacao;
-    const salario = salarioEm(cfg.carreira, d.hoje);
-    const deposito = num(salario) ? salario * 0.08 : 0;
-    const aniv = fg.aniversario || {};
-    const base = fg.contaAtiva && fg.contaAtiva.dataSaldo ? mesDe(fg.contaAtiva.dataSaldo) : mesDe(d.hoje);
-    const proj = projetarFgtsMensal(fg.saldo, deposito, base, mesProx, { mesAniversario: aniv.ativo ? aniv.mesAniversario : null });
-    const ef = efeitoAmortizar(proj.saldo, mesProx);
-    const saiu = proj.saques.reduce((s, x) => s + x.valor, 0);
-    dicas.push({
-      id: 'fgts', titulo: 'FGTS no financiamento', destaque: true,
-      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Amortizando no prazo (a Caixa recalcula o prazo e a prestação não sobe), isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(formatPct(cfg.financiamento.taxaAnual, 2))} + TR.`,
-    });
-  }
-  const aniv = fg && fg.aniversario;
-  if (aniv && aniv.ativo && aniv.proximo) {
-    const hoje = aniv.comSaldoDeHoje;
-    const est = aniv.estimado;
-    const valor = est ? est.valor : hoje.valor;
-    const ef = temFin ? efeitoAmortizar(valor, aniv.proximo) : null;
-    const faixa = (x) => `${formatNumeroBR(x.aliquota * 100, 0)}% do saldo + ${formatBRL(x.adicional)}`;
-    const mudaFaixa = est && est.aliquota !== hoje.aliquota;
-    dicas.push({
-      id: 'aniversario', titulo: 'Saque-aniversário', destaque: true,
-      html: `Cai em <b>${esc(mesAno(aniv.proximo))}</b> (do 1º dia útil até o fim de ${esc(mesAno(aniv.ate))}). Com o saldo de hoje (${esc(formatBRL(hoje.saldo))}) dá <b>${esc(formatBRL(hoje.valor))}</b> (${esc(faixa(hoje))}) - é o que o app do FGTS simula. Mas o valor é calculado com o saldo do dia do saque${est ? `: com os depósitos e o juro que entram até lá, o saldo vai a ~${esc(brl0(est.saldo))}${mudaFaixa ? ', passa pra faixa de cima' : ''} e o saque fica em <b>~${esc(brl0(est.valor))}</b> (${esc(faixa(est))})` : ''}. ${ef ? `Mande direto pro financiamento como amortização extra (com dinheiro não tem a espera de 2 anos): tira <b>${esc(mesesTxt(ef.meses))}</b> e <b>${esc(mil(ef.juros))} de juros</b>.` : 'Invista ou amortize - não deixe na conta.'} <b>Não antecipe</b> (os bancos cobram ~1,3% ao mês). O preço dessa modalidade: numa demissão sem justa causa você saca só a multa de 40%, o saldo fica preso (pra moradia continua valendo), e voltar pro saque-rescisão leva 25 meses. Com a sua reserva de ${esc(num(d.investimentos && d.investimentos.reserva) && d.despesas && d.despesas.totalComFolga ? formatNumeroBR(d.investimentos.reserva / d.despesas.totalComFolga, 1) : '?')} meses e o FGTS indo pro apê de qualquer jeito, ficar vale a pena - desde que o dinheiro vá pro financiamento.`,
-    });
-  }
-  // amortizar ou investir: dívidas
-  const cdiLiq = num(d.cdi) ? d.cdi * 0.85 : null;
-  if (cfg.fies && num(cfg.fies.saldo) && num(cfg.fies.taxaMensal)) {
-    const taxaAno = (1 + cfg.fies.taxaMensal) ** 12 - 1;
-    dicas.push({
-      id: 'fies', titulo: 'FIES: não precisa antecipar', destaque: false,
-      html: `O FIES custa <b>~${esc(formatPct(taxaAno, 1))} ao ano</b>${cdiLiq ? `, bem menos que o CDI líquido de hoje (~${esc(formatPct(cdiLiq, 1))})` : ''}: investir o dinheiro rende mais do que quitar antes. Deixe ele terminar no prazo (${esc(mesAno(cfg.fies.fim || ''))}).`,
-    });
-  }
-  if (cfg.financiamento && num(cfg.financiamento.saldo)) {
-    const r = amortizarOuInvestir(parametrosDivida('financiamento', financiamentoEfetivo(cfg), d.hoje), { valor: 10000, rendimentoAnual: cdiLiq || 0.1 });
-    if (r && r.taxaEmpate) {
-      dicas.push({
-        id: 'amortizar', titulo: 'Financiamento: amortizar ou investir?', destaque: false,
-        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(formatPct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(formatPct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule na aba Simulações ›</a>`,
-      });
-    }
-  }
-  const alvo4 = (meta.rendaSem * 12) / 0.04;
-  const c4 = rodar({ alvo: alvo4 });
-  dicas.push({
-    id: 'saque', titulo: 'Quanto sacar por ano', destaque: false,
-    html: `A meta usa <b>${esc(formatPct(meta.taxa, 0))} ao ano</b> (o rendimento da aba Distribuição e Metas da planilha). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
-  });
-  if (num(ctx.coast)) {
-    dicas.push({
-      id: 'coast', titulo: 'Coast FI', destaque: false,
-      html: `Com <b>${esc(mil(ctx.coast))}</b> investidos você já poderia parar de aportar e ainda chegar na meta aos ${esc(p.idadeAlvo)} (só com o rendimento). Hoje você tem <b>${esc(formatPct(inicial / ctx.coast, 0))}</b> disso.`,
-    });
-  }
-  const inv = d.investimentos || {};
-  const metaRes = d.metas && d.metas.reservaMeta;
-  if (num(inv.reserva) && num(metaRes) && inv.reserva > metaRes * 1.05) {
-    const exc = inv.reserva - metaRes;
-    const gr = ganho(rodar({ inicial: inicial + exc }));
-    dicas.push({
-      id: 'reserva', titulo: 'Reserva acima da meta', destaque: true,
-      html: `A reserva (${esc(mil(inv.reserva))}) está <b>${esc(mil(exc))} acima da meta</b> (${esc(mil(metaRes))}). Esse excedente no longo prazo antecipa <b>${esc(anosTxt(gr))}</b>.`,
-    });
-  }
-  return dicas;
 }
 
 // ---------------------------------------------------------------------------
@@ -431,58 +314,6 @@ export function montarCarreiraFgts(raiz, { doc = raiz && raiz.ownerDocument, aoA
     erro(msg) { raiz.querySelectorAll('#ptCarreira, #ptFgts').forEach((e) => { e.innerHTML = `<p class="pt-nota">${esc(msg)}</p>`; }); },
     get contexto() { return ctx; },
   };
-}
-
-export function htmlMeta(ctx) {
-  const { meta, p, libs, d } = ctx;
-  const fmtp = (v) => formatNumeroBR(v, 2);
-  const marcados = meta.itens.filter((i) => i.descontar);
-  const opcoes = meta.itens.map((i) => `<label class="pt-chk-item"><input type="checkbox" data-descontar="${esc(i.nome)}"${i.descontar ? ' checked' : ''}><span>${esc(i.nome)}</span><b>${esc(formatBRL(i.mensal))}</b></label>`).join('');
-  const quita = libs.map((l) => `${l.id === 'fies' ? 'o FIES' : 'o apê'} em ${mesAno(somarMeses(d.hoje, l.mes))}`).join(' e ');
-  return `
-    <div class="pt-meta-conta">
-      <p>A meta da planilha (aba Distribuição e Metas) parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(formatBRL(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
-      <ol class="pt-meta-passos">
-        <li><span>Planilha hoje</span><code>(${esc(fmtp(meta.custoComFolga))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaDM))}/mês</b><small>precisa de ${esc(mil(meta.patrimonioDM))}</small></li>
-        <li class="pt-meta-final"><span>Sem as parcelas</span><code>(${esc(fmtp(meta.custoComFolga))} − ${esc(fmtp(meta.parcelas))} × ${esc(formatNumeroBR(1 + meta.folga, 2))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaSem))}/mês</b><small>precisa de <b>${esc(mil(meta.patrimonioSem))}</b></small></li>
-      </ol>
-      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(formatPct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(formatPct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da aba Distribuição e Metas da planilha)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - quem acompanha a meta é a tela <a href="../metas.html">Metas e Objetivos</a>.</p>
-    </div>
-    <details class="pt-descontar"><summary>O que conta como parcela de dívida (${marcados.length})</summary><div class="pt-chk-lista">${opcoes}</div></details>`;
-}
-
-export function htmlFuturoControles(ctx) {
-  const { p, meta, ritmo, aporteMeta, aporte, rendimento } = ctx;
-  const seg = (grupo, itens, atual) => `<div class="segmented" role="group" data-seg="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
-  const taxa = p.taxaSaque || meta.rendimento;
-  return `
-    <label class="pt-ctl"><span class="pt-ctl-row">Quanto sacar por ano <b>${esc(formatPct(taxa, 0))}</b></span>
-      ${seg('taxaSaque', [['0.04', '4%'], ['0.05', '5%'], ['', `${formatNumeroBR(meta.rendimento * 100, 0)}% (planilha)`]], p.taxaSaque ? String(p.taxaSaque) : '')}</label>
-    <label class="pt-ctl" for="ptRend"><span class="pt-ctl-row">Rendimento real ao ano <b id="ptRendV">${esc(formatPct(rendimento, 1))}</b></span>
-      <input type="range" id="ptRend" min="0.02" max="0.09" step="0.005" value="${rendimento}"></label>
-    <label class="pt-ctl" for="ptAporte"><span class="pt-ctl-row">Aporte por mês <b id="ptAporteV">${esc(brl0(aporte))}</b></span>
-      ${seg('aporteModo', [['ritmo', 'Seu ritmo (12m)'], ['meta', 'Sua meta']], p.aporteModo)}
-      <small class="pt-ctl-dica">ritmo ${esc(num(ritmo) ? brl0(ritmo) : '—')} · meta ${esc(num(aporteMeta) ? brl0(aporteMeta) : '—')}</small>
-      <input type="range" id="ptAporte" min="0" max="15000" step="50" value="${Math.round(aporte)}"></label>
-    <label class="pt-chk"><input type="checkbox" id="ptParcelas"${p.parcelasViramAporte ? ' checked' : ''}><span>Quando o FIES e o apê acabarem, as parcelas <b>viram aporte</b></span></label>
-    <label class="pt-chk"><input type="checkbox" id="ptReserva"${p.incluirReservaNaAposentadoria ? ' checked' : ''}><span>A reserva de emergência <b>conta</b> pra aposentadoria</span></label>
-    <label class="pt-ctl" for="ptIdade"><span class="pt-ctl-row">Idade pra comparar (Coast FI)</span><span class="pt-input"><input id="ptIdade" inputmode="numeric" value="${esc(p.idadeAlvo)}"><i>anos</i></span></label>`;
-}
-
-export function htmlFuturoTiles(ctx) {
-  const { proj, quando, alvo, inicial, meta, d, p } = ctx;
-  const q = quando(proj.chegou);
-  const passiva = num(d.proventos12m) ? d.proventos12m / 12 : null;
-  return [
-    kpiHtml({ classe: 'pt-kpi-dest', rotulo: 'Você chega lá', valorHtml: esc(proj.chegou == null ? 'não chega' : proj.chegou === 0 ? 'já chegou' : q.ano), subHtml: proj.chegou ? `${q.idade != null ? `aos ${esc(q.idade)} anos · ` : ''}em ${esc(anosTxt(proj.chegou / 12))}` : 'em 50 anos, com esses números' }),
-    kpiHtml({ rotulo: 'Precisa ter', valorHtml: esc(mil(alvo)), subHtml: `${esc(brl0(meta.rendaSem))}/mês sacando ${esc(formatPct(p.taxaSaque || meta.rendimento, 0))} ao ano` }),
-    kpiHtml({ rotulo: 'Hoje você tem', valorHtml: esc(formatPct(alvo ? inicial / alvo : null, 1)), subHtml: `${esc(mil(inicial))} investidos${p.incluirReservaNaAposentadoria ? ' (com a reserva)' : ' (sem a reserva; o apê onde você mora não paga a aposentadoria)'}` }),
-    kpiHtml({ rotulo: 'Renda passiva hoje', valorHtml: esc(passiva != null ? `${brl0(passiva)}/mês` : '—'), subHtml: passiva != null ? `${esc(formatPct(passiva / meta.rendaSem, 1))} da renda que você quer · proventos de 12 meses` : '' }),
-  ].join('');
-}
-
-export function htmlDicas(dicas) {
-  return dicas.map((x) => `<article class="pt-dica${x.destaque ? ' hl' : ''}" data-dica="${esc(x.id)}"><span class="pt-dica-t">${esc(x.titulo)}</span><p>${x.html}</p></article>`).join('');
 }
 
 export function htmlFontes(ctx, { driveConfigurado = false } = {}) {
@@ -803,7 +634,7 @@ function base64ParaBytes(b64) {
  */
 export function montarAbaPatrimonio({
   doc, el, token, getPatrimonioImpl = getPatrimonio, salvarImpl = salvarPatrimonio, getArquivosIrImpl = getArquivosIrPatrimonio,
-  getArquivoIrImpl = getArquivoIrPatrimonio, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf, atrasoPrefsMs = 700,
+  getArquivoIrImpl = getArquivoIrPatrimonio, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf,
   aoMudarDados = null,
 }) {
   let dados = null;
@@ -811,7 +642,6 @@ export function montarAbaPatrimonio({
   const est = {
     prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '', perHist: 'tudo', perOrigem: '12m',
   };
-  let timerPrefs = null;
   let inflacao = null;
   const filtros = {};
   const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados, ctx); } catch (e) { /* a aba continua */ } } };
@@ -830,10 +660,7 @@ export function montarAbaPatrimonio({
           <div class="tabela-wrap" id="ptTHist"></div><p class="pt-nota pt-nota-pad" id="ptNotaHist"></p></div>
         <div class="card pt-card pt-pad"><div class="pt-card-cab pt-card-cab-filtro"><h3>De onde veio o crescimento</h3><span class="pt-hint" id="ptOrigemHint"></span>${tabsPeriodo(PERIODOS_ORIGEM, 'ptFiltroOrigem', 'Período de "de onde veio o crescimento"')}</div><div id="ptOrigem"></div></div></section>
       <div id="ptInflacao" class="pt-inflacao"></div>
-      <section class="pt-sec"><div class="pt-sec-cab"><h2>Aposentadoria: quanto, quando e o que muda o prazo</h2><span class="pt-hint">em dinheiro de hoje (rendimento acima da inflação)</span><a class="pt-link pt-sec-link" href="../metas.html">Ver ou criar a meta de aposentadoria em Metas e Objetivos ›</a></div>
-        <div class="card pt-card pt-pad" id="ptMeta"></div>
-        <div class="card pt-card pt-fut"><div class="pt-fut-ctl" id="ptCtl"></div><div class="pt-fut-res"><div class="grid-kpi" id="ptTiles"></div><div class="pt-grafico" id="ptGProj"></div></div></div></section>
-      <section class="pt-sec"><div class="pt-sec-cab"><h2>Como acelerar</h2><span class="pt-hint">calculado com os seus números - quanto cada coisa muda o prazo</span></div><div class="pt-dicas" id="ptDicas"></div></section>
+      <p class="pt-nota pt-ver-meta"><a class="pt-link" href="../metas.html">Ver na meta de Aposentadoria ›</a></p>
       <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números · importe aqui o IR, o FGTS, a Carteira de Trabalho e os extratos do financiamento e do FIES</span></div><div class="card pt-card pt-pad" id="ptFontes"></div></section>
       <input type="file" id="ptArquivo" accept="application/pdf,.pdf" multiple hidden>`;
     tornarRecolhiveis(el, { seletor: ':scope > .pt-sec', cabecalho: '.pt-sec-cab', doc });
@@ -904,25 +731,6 @@ export function montarAbaPatrimonio({
 
   function recalcular() { ctx = contextoPatrimonio(dados, est.prefs); }
 
-  function desenharFuturo({ controles = true } = {}) {
-    if (controles) el.querySelector('#ptCtl').innerHTML = htmlFuturoControles(ctx);
-    else {
-      el.querySelector('#ptRendV').textContent = formatPct(ctx.rendimento, 1);
-      el.querySelector('#ptAporteV').textContent = brl0(ctx.aporte);
-    }
-    el.querySelector('#ptTiles').innerHTML = htmlFuturoTiles(ctx);
-    const { proj, alvo, quando, libs } = ctx;
-    const fim = Math.min(600, Math.max(proj.chegou != null ? proj.chegou + 36 : 360, ...libs.map((l) => l.mes + 12), 120));
-    const marcos = libs.map((l) => ({ m: l.mes, titulo: l.nome, texto: mesAno(somarMeses(dados.hoje, l.mes)) }));
-    const cruza = (lim) => { const p = proj.pontos.find((x) => x.v >= lim); return p ? p.m : null; };
-    [5e5, 1e6, 2e6].filter((lim) => lim < alvo * 0.95).forEach((lim) => { const m = cruza(lim); if (m) marcos.push({ m, titulo: mil(lim), texto: quando(m).rotulo }); });
-    if (num(ctx.coast)) { const m = cruza(ctx.coast); if (m && (proj.chegou == null || m < proj.chegou)) marcos.push({ m, titulo: 'Coast FI', texto: `daí pra frente, sem aportar, chega na meta aos ${ctx.p.idadeAlvo}` }); }
-    const caixaProj = el.querySelector('#ptGProj');
-    const specProj = opcoesProjecaoPatrimonio({ pontos: proj.pontos, alvo, chegou: proj.chegou, marcos, fim, quando });
-    if (specProj) montarGrafico(caixaProj, specProj); else { limparGrafico(caixaProj); caixaProj.innerHTML = '<p class="pt-nota pt-nota-pad">Sem dados pra projetar.</p>'; }
-    el.querySelector('#ptDicas').innerHTML = htmlDicas(dicasAcelerar(ctx));
-  }
-
   function desenharPainel() {
     const painel = el.querySelector('#ptPainel');
     let html = '';
@@ -952,8 +760,6 @@ export function montarAbaPatrimonio({
     desenharOrigem();
     atualizarLimitesFiltros();
     desenharInflacao();
-    el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
-    desenharFuturo();
     desenharPainel();
     if (dados.avisos) {
       const av = Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ');
@@ -972,28 +778,6 @@ export function montarAbaPatrimonio({
     } catch (e) {
       box.innerHTML = `<p class="pt-nota">Não deu pra montar "Patrimônio vs. inflação": ${esc(e.message || e)}</p>`;
     }
-  }
-
-  function salvarPrefsDepois() {
-    if (timerPrefs) clearTimeout(timerPrefs);
-    const salvar = async () => {
-      timerPrefs = null;
-      const valor = { ...PREFS_PADRAO, ...((dados.config && dados.config.preferencias) || {}), ...est.prefs };
-      let r;
-      try { r = await salvarImpl(token, 'preferencias', valor); } catch (e) { r = null; }
-      if (r && r.ok && r.config) { dados.config = r.config; est.prefs = {}; }
-    };
-    if (!atrasoPrefsMs) { salvar(); return; }
-    timerPrefs = setTimeout(salvar, atrasoPrefsMs);
-  }
-
-  function mudarPrefs(novo, { controles = false, meta = false } = {}) {
-    Object.assign(est.prefs, novo);
-    recalcular();
-    if (meta) el.querySelector('#ptMeta').innerHTML = htmlMeta(ctx);
-    desenharFuturo({ controles });
-    salvarPrefsDepois();
-    avisar();
   }
 
   async function salvarBloco(chave, valor) {
@@ -1082,14 +866,6 @@ export function montarAbaPatrimonio({
 
   function ligar() {
     el.addEventListener('click', async (ev) => {
-      const seg = ev.target.closest('[data-seg] [data-v]');
-      if (seg) {
-        const grupo = seg.closest('[data-seg]').dataset.seg;
-        const v = seg.dataset.v;
-        if (grupo === 'taxaSaque') mudarPrefs({ taxaSaque: v ? Number(v) : null }, { controles: true, meta: true });
-        else if (grupo === 'aporteModo') mudarPrefs({ aporteModo: v }, { controles: true });
-        return;
-      }
       const b = ev.target.closest('[data-acao]');
       if (!b || !el.contains(b)) return;
       const acao = b.dataset.acao;
@@ -1134,21 +910,8 @@ export function montarAbaPatrimonio({
     el.addEventListener('change', async (ev) => {
       const t = ev.target;
       if (t.id === 'ptArquivo') { const arqs = [...(t.files || [])]; t.value = ''; if (arqs.length) await lerArquivos(arqs); return; }
-      if (t.id === 'ptParcelas') mudarPrefs({ parcelasViramAporte: t.checked });
-      else if (t.id === 'ptReserva') mudarPrefs({ incluirReservaNaAposentadoria: t.checked });
-      else if (t.dataset && t.dataset.descontar !== undefined) {
-        const nomes = [...el.querySelectorAll('[data-descontar]')].filter((c) => c.checked).map((c) => c.dataset.descontar);
-        mudarPrefs({ descontar: nomes }, { meta: true, controles: true });
-      } else if (t.dataset && t.dataset.imp !== undefined) { est.importacao.itens[Number(t.dataset.imp)].incluir = t.checked; desenharPainel(); }
+      if (t.dataset && t.dataset.imp !== undefined) { est.importacao.itens[Number(t.dataset.imp)].incluir = t.checked; desenharPainel(); }
       else if (t.dataset && t.dataset.drive !== undefined) { est.drive.arquivos[Number(t.dataset.drive)].marcado = t.checked; desenharPainel(); }
-      else if (t.id === 'ptRend' || t.id === 'ptAporte') salvarPrefsDepois();
-      else if (t.id === 'ptIdade') { const v = lerValorBR(t.value); if (num(v) && v >= 30 && v <= 90) mudarPrefs({ idadeAlvo: Math.round(v) }); }
-    });
-
-    el.addEventListener('input', (ev) => {
-      const t = ev.target;
-      if (t.id === 'ptRend') { Object.assign(est.prefs, { rendimentoReal: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); }
-      else if (t.id === 'ptAporte') { Object.assign(est.prefs, { aporteModo: 'manual', aporteManual: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); el.querySelectorAll('[data-seg="aporteModo"] button').forEach((x) => x.classList.remove('on')); }
     });
   }
 

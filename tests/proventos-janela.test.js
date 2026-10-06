@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hojeSP } from '../assets/js/format.js';
-import { hojeSaoPaulo, resumoConsolidado } from '../assets/js/pages/proventos-calc.js';
+import { hojeSaoPaulo, resumoConsolidado, ultimoMesFechado, mesesFechadosDoPeriodo } from '../assets/js/pages/proventos-calc.js';
 import { separarPorDataInicio, resumirProventosDoMes } from '../assets/js/pages/inicio-proventos.js';
 
 test('hojeSP: é o dia de São Paulo - às 22h de SP o UTC já é o dia seguinte e NÃO vale', () => {
@@ -47,4 +47,21 @@ test('resumoConsolidado: o recebido do mês separa confirmado e presumido (o tot
   assert.equal(r.renda12mPresumido, 12.5);
   assert.equal(r.mediaRotulo, 'meses fechados');
   assert.equal(r.media12m, 0.83); // só setembro (10) ÷ 12, o mês corrente fica fora da média
+});
+
+// 06/10/2026 (Tiago, Metas > Renda passiva): espelho do front de janelaProventos_ 'fechados'
+test('ultimoMesFechado / mesesFechadosDoPeriodo: 12 meses até o último mês fechado; o mês de hoje conta no seu último dia', () => {
+  const j = (hoje) => { const m = mesesFechadosDoPeriodo('12m', hoje); return `${m[0]}..${m[m.length - 1]}(${m.length})`; };
+  assert.equal(ultimoMesFechado('2026-10-04'), '2026-09');
+  assert.equal(j('2026-10-04'), '2025-10..2026-09(12)');
+  assert.equal(j('2026-10-01'), '2025-10..2026-09(12)', 'dia 1');
+  assert.equal(j('2026-10-30'), '2025-10..2026-09(12)', 'dia 30 de mês de 31');
+  assert.equal(j('2026-10-31'), '2025-11..2026-10(12)', 'dia 31');
+  assert.equal(j('2026-02-28'), '2025-03..2026-02(12)', 'fev de 28 dias');
+  assert.equal(j('2028-02-28'), '2027-02..2028-01(12)', 'fev bissexto, dia 28 ainda não é o último');
+  assert.equal(j('2028-02-29'), '2027-03..2028-02(12)', 'fev bissexto, dia 29');
+  assert.equal(j('2026-12-31'), '2026-01..2026-12(12)', '31/dez');
+  assert.equal(j('2027-01-01'), '2026-01..2026-12(12)', '1/jan');
+  assert.deepEqual(mesesFechadosDoPeriodo('ano', '2026-10-31').slice(-1), ['2026-10']);
+  assert.deepEqual(mesesFechadosDoPeriodo('ano', '2026-10-30').slice(-1), ['2026-09']);
 });

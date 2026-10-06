@@ -144,12 +144,29 @@ function hojeSP_() {
 }
 
 /**
+ * 06/10/2026 (Tiago, Metas > Renda passiva: "a conta é sempre dos últimos 12
+ * meses a partir do último mês fechado. Se estou em 4 de outubro: [...]
+ * setembro/2026. Se já é 31 de outubro: [...] outubro/2026"): o último mês
+ * FECHADO é o mês passado - EXCETO no último dia do mês corrente, quando o
+ * próprio mês corrente já conta como fechado (dia 31/out, 30/nov, 28 ou 29/fev
+ * etc.). Recebe 'yyyy-MM-dd' (hojeSP_) e devolve 'yyyy-MM'. Par no front:
+ * assets/js/pages/proventos-calc.js!ultimoMesFechado.
+ */
+function ultimoMesFechadoProventos_(hoje) {
+  var a = Number(String(hoje).slice(0, 4)), m = Number(String(hoje).slice(5, 7)), d = Number(String(hoje).slice(8, 10));
+  var ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate(); // dia 0 do mês seguinte = último dia deste mês
+  var t = a * 12 + (m - 1) + (d >= ultimoDia ? 0 : -1);
+  return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
+}
+
+/**
  * 05/10/2026 (auditoria A-17): UMA função de janela para "proventos em 12
  * meses". Havia 3 definições (12 meses fechados, 12 meses com o mês corrente
  * e janela rolante de 365 dias) que davam ~4% de diferença entre telas sem
  * dizer qual era qual. Agora toda janela sai daqui, com o rótulo junto:
- *  - 'fechados'    : os N meses que terminam no mês passado (o mês de hoje
- *                    ainda não acabou) - a régua da meta de Renda Passiva, da
+ *  - 'fechados'    : os N meses que terminam no último mês fechado (o mês
+ *                    passado; o mês de hoje só conta no seu ÚLTIMO dia -
+ *                    06/10/2026, ver ultimoMesFechadoProventos_) - a régua da meta de Renda Passiva, da
  *                    média mensal da tela Proventos e da tela do Ativo;
  *  - 'comMesAtual' : os N meses que terminam no mês de hoje (inclusive, em
  *                    curso) - o total "12 meses" da tela Proventos e das
@@ -164,7 +181,7 @@ function janelaProventos_(hoje, modo, meses) {
     return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
   };
   var fechados = modo !== 'comMesAtual';
-  var fim = fechados ? mais(hoje.slice(0, 7), -1) : hoje.slice(0, 7);
+  var fim = fechados ? ultimoMesFechadoProventos_(hoje) : hoje.slice(0, 7);
   var inicio = mais(fim, -(n - 1));
   return {
     modo: fechados ? 'fechados' : 'comMesAtual', meses: n, inicio: inicio, fim: fim,

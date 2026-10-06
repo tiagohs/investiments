@@ -639,3 +639,38 @@ table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width
   .tx-prateleira tbody tr.no-carrinho + tr.tx-momento-tr > td:first-child{ box-shadow:none; }
   .tx-prateleira tbody tr.no-carrinho + tr.tx-momento-tr{ box-shadow:inset 3px 0 0 var(--md-sys-color-primary); background:color-mix(in srgb, var(--md-sys-color-primary-container) 55%, transparent); }
 }
+
+/* ---- 06/10/2026: Aportes concluídos = Investido por mês (aportes-historico.js): filtros, meses recolhidos, histórico da planilha ---- */
+.tx-hist-filtros{ display:flex; flex-direction:column; gap:12px; margin-bottom:12px; }
+.tx-hist-linha{ display:flex; align-items:center; gap:8px 16px; flex-wrap:wrap; }
+.tx-hist-chips{ display:flex; gap:8px; flex-wrap:wrap; }
+.tx-hist-chips .chip{ display:inline-flex; align-items:center; gap:6px; }
+.tx-hist-linha .tx-busca{ flex:1 1 200px; min-width:0; max-width:320px; }
+.tx-hist-lista{ display:flex; flex-direction:column; gap:8px; }
+.tx-hist-mes-d{ margin:0; border:1px solid var(--tx-borda); border-radius:16px; background:var(--md-sys-color-surface); }
+.tx-hist-mes-d > summary{ display:grid; grid-template-columns:minmax(0,1fr) auto 24px; align-items:center; gap:12px; padding:10px 16px; min-height:56px; cursor:pointer; list-style:none; }
+.tx-hist-mes-d > summary::-webkit-details-marker{ display:none; }
+.tx-hist-mes-d[open] > summary{ border-bottom:1px solid var(--tx-borda); }
+.tx-hist-mes-d[open] > summary .tx-sec-seta{ transform:rotate(180deg); }
+.tx-hist-mes-nome{ display:flex; flex-direction:column; min-width:0; }
+.tx-hist-mes-nome h3{ margin:0; font-size:var(--md-sys-typescale-title-small-size); font-weight:600; color:var(--ink); text-transform:capitalize; }
+.tx-hist-mes-nome h3 small{ font-weight:400; color:var(--tx-muted); }
+.tx-hist-mes-nome small, .tx-hist-mes-total small{ font-size:var(--md-sys-typescale-body-small-size); color:var(--tx-muted); }
+.tx-hist-mes-total{ display:flex; flex-direction:column; align-items:flex-end; text-align:right; }
+.tx-hist-mes-total b{ font:600 16px var(--mono); }
+.tx-hist-mes-corpo{ display:flex; flex-direction:column; gap:8px; padding:12px; }
+.tx-hist-lista .tx-mais{ align-self:center; margin-top:4px; }
+.tx-origem{ margin-left:8px; font-size:12px; min-height:20px; padding:0 8px; vertical-align:middle; }
+.tx-hist-planilha{ background:var(--md-sys-color-surface-container-lowest, var(--md-sys-color-surface)); }
+@media (max-width:599.98px){
+  .tx-hist-filtros .tx-periodo{ max-width:100%; overflow-x:auto; scrollbar-width:none; }
+  .tx-hist-filtros .chart-seg{ width:max-content; }
+  .tx-hist-filtros .chart-seg-btn{ white-space:nowrap; }
+  .tx-hist-mes-d > summary{ padding:10px 12px; gap:8px; }
+  .tx-hist-mes-corpo{ padding:8px; }
+  .tx-hist-linha{ flex-direction:column; align-items:stretch; }
+  .tx-hist-linha .tx-busca{ max-width:none; flex-basis:auto; width:100%; }
+  .tx-hist-chips{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -2px; padding:0 2px; }
+  .tx-hist-chips .chip{ flex:0 0 auto; }
+  .tx-origem{ display:none; }
+}

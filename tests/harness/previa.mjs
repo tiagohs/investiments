@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { montarSandboxComFixtures_ } from './gas-vm-harness.mjs';
+import { criarSandboxGs } from './gas-vm-harness.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -36,15 +36,10 @@ const payload = Buffer.from(JSON.stringify({ email: 'previa@exemplo.test', exp: 
 export const TOKEN_FALSO = `x.${payload}.y`;
 export const TOKEN_FALSO_JS = `try { localStorage.setItem('investiments_auth_token', '${TOKEN_FALSO}'); } catch (e) {}`;
 
-export function montarSandboxPrevia() {
-  const raw = JSON.parse(fs.readFileSync(FIXTURES, 'utf8'));
-  const sb = { console: { ...console, log() {} } };
-  vm.createContext(sb);
-  montarSandboxComFixtures_(raw, sb);
+// 06/10/2026 (A-75): usa criarSandboxGs (fixtures.json lido 1x por processo); `agora` congela o relógio dos .gs.
+export function montarSandboxPrevia({ agora = null } = {}) {
+  const { sandbox: sb } = criarSandboxGs({ fixturesPath: FIXTURES, agora, silencioso: true });
   if (!sb.SpreadsheetApp.flush) sb.SpreadsheetApp.flush = () => {};
-  for (const f of fs.readdirSync(path.join(ROOT, 'apps-script')).filter((x) => x.endsWith('.gs')).sort()) {
-    new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
-  }
   sb.verificarToken = () => ({ ok: true, email: 'previa@exemplo.test' });
   return sb;
 }

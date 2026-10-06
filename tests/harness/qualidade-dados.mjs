@@ -247,6 +247,154 @@ export const CHECAGENS_QUALIDADE = [
       return msgs;
     },
   },
+  // ------------------------------------------------------------------------------------------------------------------
+  // 06/10/2026 (A-81): 5 checagens novas - as 12 de cima passavam com lote duplicado, P/VP absurdo e fonte 100% em 403/404.
+  // `r.fixtures._meta.extraidoEm` é o "hoje" das checagens com prazo (dia em que a planilha foi exportada), pra o resultado
+  // não mudar com o relógio.
+  // ------------------------------------------------------------------------------------------------------------------
+  {
+    id: 'loteRfDuplicado',
+    titulo: 'Renda Fixa: nenhum lote lançado em dobro (mesmo título, datas a até 3 dias e mesmo valor) em "Transações Renda Fixa" e "RF Contratada - Lotes"',
+    // C16-08/A-28: duas compras do mesmo Tesouro Selic no mesmo dia, uma com a instituição "S/A" e outra "S/A." - o valor
+    // aplicado fica ~0,2% maior e o IR/rentabilidade deslocados. A instituição fica FORA da chave de propósito (a grafia varia).
+    rodar: ({ fixtures }) => {
+      const msgs = [];
+      const dia = (d) => (d && d.__date__ ? Date.parse(d.__date__.slice(0, 10)) / 86400000 : NaN);
+      const achar = (itens, aba, descreve) => {
+        const grupos = new Map();
+        itens.forEach((it) => { const k = `${it.produto}|${it.mov || ''}`; if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(it); });
+        for (const lista of grupos.values()) {
+          for (let i = 0; i < lista.length; i += 1) {
+            for (let j = i + 1; j < lista.length; j += 1) {
+              const a = lista[i], b = lista[j];
+              if (Math.abs(a.dia - b.dia) <= 3 && Math.abs(a.valor - b.valor) <= 0.005) {
+                msgs.push(`"${aba}": ${descreve(a, b)} - linhas ${a.linha} e ${b.linha} (${a.produto}${a.mov ? `, ${a.mov}` : ''}, R$ ${a.valor.toFixed(2)} em ${fmtBr(new Date(a.dia * 86400000).toISOString().slice(0, 10))} e ${fmtBr(new Date(b.dia * 86400000).toISOString().slice(0, 10))}) - confira no extrato; se foi lançamento em dobro, apague a linha sobrando`);
+              }
+            }
+          }
+        }
+      };
+      const norm = (v) => String(v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      const transacoes = (fixtures['Transações Renda Fixa']?.linhas || []).map((l, i) => ({ l, linha: i + 1 })).slice(6)
+        .filter(({ l }) => l[0] && l[1] && l[1].__date__ && Number(l[7]) > 0)
+        .map(({ l, linha }) => ({ produto: norm(l[0]), mov: norm(l[2]), dia: dia(l[1]), valor: Number(l[7]), linha }));
+      achar(transacoes, 'Transações Renda Fixa', () => 'lançamento repetido');
+      const lotes = (fixtures['RF Contratada - Lotes']?.linhas || []).map((l, i) => ({ l, linha: i + 1 })).slice(1)
+        .filter(({ l }) => l[0] && l[2] && l[2].__date__ && Number(l[5]) > 0)
+        .map(({ l, linha }) => ({ produto: norm(l[0]), mov: '', dia: dia(l[2]), valor: Number(l[5]), linha }));
+      achar(lotes, 'RF Contratada - Lotes', () => 'lote repetido');
+      return msgs;
+    },
+  },
+  {
+    id: 'fundamentosFaixa',
+    titulo: 'P/VP e P/L dentro de uma faixa plausível e sem fonte discordando mais de 3x das outras (aux_fundamentos: planilha/Yahoo/CVM; Auxiliar_ativos)',
+    // Ex. achado em 06/10/2026: P/L de um ativo americano em 302 numa fonte e 10,6 no Yahoo; P/VP 31 x 1,98. Quase sempre é
+    // a fórmula do Google Finance puxando o campo errado (ou ticker trocado) - o app mostra o "Viés" em cima desse número.
+    rodar: ({ fixtures }) => {
+      const valores = new Map(); // `${ticker}|${pl|pvp}` -> { fonte: valor }
+      const poe = (ticker, metrica, fonte, v) => {
+        if (!ticker || typeof v !== 'number' || !Number.isFinite(v)) return;
+        const k = `${ticker}|${metrica}`;
+        if (!valores.has(k)) valores.set(k, {});
+        valores.get(k)[fonte] = v;
+      };
+      for (const l of (fixtures['aux_fundamentos']?.linhas || []).slice(1)) {
+        if (!l || !l[0] || !l[2]) continue;
+        let v; try { v = JSON.parse(l[2]).valores || {}; } catch { continue; }
+        poe(String(l[0]).trim().toUpperCase(), 'pl', String(l[1]), v.pl);
+        poe(String(l[0]).trim().toUpperCase(), 'pvp', String(l[1]), v.pvp);
+      }
+      for (const l of (fixtures['Auxiliar_ativos']?.linhas || []).slice(1)) {
+        if (!l || !l[1]) continue;
+        poe(String(l[1]).trim().toUpperCase(), 'pvp', 'Auxiliar_ativos', l[11]);
+        poe(String(l[1]).trim().toUpperCase(), 'pl', 'Auxiliar_ativos', l[13]);
+      }
+      const MAXIMO = { pl: 200, pvp: 25 };
+      const nome = { pl: 'P/L', pvp: 'P/VP' };
+      const msgs = [];
+      for (const [k, porFonte] of valores) {
+        const [ticker, metrica] = k.split('|');
+        const lista = Object.entries(porFonte);
+        const fora = lista.filter(([, v]) => v > MAXIMO[metrica]);
+        const positivos = lista.filter(([, v]) => v > 0);
+        const razao = positivos.length >= 2 ? Math.max(...positivos.map(([, v]) => v)) / Math.min(...positivos.map(([, v]) => v)) : 1;
+        if (fora.length || razao > 3) {
+          const fontes = lista.map(([f, v]) => `${f} ${Math.round(v * 100) / 100}`).join(' · ');
+          msgs.push(`${ticker} ${nome[metrica]}: ${fontes}${fora.length ? ` - acima de ${MAXIMO[metrica]}` : ''}${razao > 3 ? ` - fontes discordam ${razao.toFixed(1)}x` : ''} - confira a fórmula/ticker dessa fonte`);
+        }
+      }
+      return msgs;
+    },
+  },
+  {
+    id: 'tickerErroProventos',
+    titulo: 'Proventos e Proventos - USA: nenhuma linha com Ticker "Erro" (a fórmula não achou o ativo)',
+    rodar: ({ fixtures }) => {
+      const msgs = [];
+      for (const aba of ['Proventos', 'Proventos - USA']) {
+        (fixtures[aba]?.linhas || []).forEach((l, i) => {
+          if (i < 7 || !l || typeof l[2] !== 'string' || l[2].trim().toLowerCase() !== 'erro') return;
+          const quando = l[1] && l[1].__date__ ? ` com pagamento em ${fmtBr(l[1].__date__.slice(0, 10))}` : '';
+          msgs.push(`"${aba}": linha ${i + 1}${quando}${typeof l[6] === 'number' ? ` (R$ ${l[6].toFixed(2)})` : ''} com Ticker "Erro" - o provento não entra em nenhum ativo; corrija o ticker`);
+        });
+      }
+      return msgs;
+    },
+  },
+  {
+    id: 'aporteSemLancamento',
+    titulo: 'Aportes "Concluído" têm o lançamento correspondente em até 10 dias (Transações / Transações Renda Fixa; Ações EUA fora)',
+    // A-24: o app já mostra o aporte como "a confirmar" enquanto a importação da B3 não traz a compra; passados 10 dias
+    // (ACONFIRMAR_DIAS_DEPOIS, Aportes.gs) a compra deveria ter entrado - senão o patrimônio está sem ela.
+    rodar: ({ fixtures, sandbox }) => {
+      const hoje = String((fixtures._meta && fixtures._meta.extraidoEm) || new Date().toISOString()).slice(0, 10);
+      const limite = Date.parse(hoje) / 86400000 - 10;
+      const ss = sandbox.SpreadsheetApp.getActiveSpreadsheet();
+      return Array.from(sandbox.lancamentosAConfirmarDaPlanilha_(ss))
+        .filter((p) => Date.parse(p.data) / 86400000 < limite)
+        .map((p) => `Aporte de ${fmtBr(p.data)} concluído sem lançamento: ${p.ativo}${p.destino === 'rendaFixa' ? ` (${p.inst || 'sem instituição'}), R$ ${p.valor}` : `, ${p.qtd} cota(s)`} - lance em "${p.destino === 'rendaFixa' ? 'Transações Renda Fixa' : 'Transações'}" (ou importe o extrato da B3) ou apague o aporte`);
+    },
+  },
+  {
+    id: 'registroFontesComProblema',
+    titulo: 'Registro de Controle: nenhuma fonte só com "Atenção"/"Erro" nos últimos 7 dias (3+ execuções) nem 3+ "Erro" na semana',
+    // A-81 / C16-10/11: o YouTube, o FNet de informes e os Fundamentos chegaram a 100% de 403/404 sem ninguém notar, porque
+    // cada execução isolada só vira "Atenção". Aqui a conta é por fonte (texto antes do ":" do Detalhe), nos 7 dias até o
+    // registro mais recente, e diz quantas execuções foram de cada status.
+    rodar: ({ fixtures }) => {
+      const linhas = (fixtures['Registro de Controle']?.linhas || []).slice(1).filter((l) => l && l[0] && l[0].__date__);
+      if (!linhas.length) return [];
+      const ts = (l) => Date.parse(l[0].__date__);
+      const ultimo = Math.max(...linhas.map(ts));
+      const fonteDe = (detalhe) => {
+        const d = String(detalhe || '').trim();
+        const m = d.match(/^([^:]{1,45}):/);
+        const bruta = m ? m[1] : d.split(' — ')[0].replace(/\d+/g, '#').slice(0, 40);
+        return bruta.replace(/\s+falhou$/i, '').trim() || '(sem texto)';
+      };
+      const porFonte = new Map();
+      for (const l of linhas) {
+        if (ultimo - ts(l) >= 7 * 86400000) continue;
+        if (/^Já existe uma sincronização/i.test(String(l[3] || ''))) continue; // trava de execução simultânea: por desenho, não é falha da fonte
+        const f = fonteDe(l[3]);
+        const c = porFonte.get(f) || { Sucesso: 0, Atenção: 0, Erro: 0, ultimoDetalhe: '' };
+        const st = ['Sucesso', 'Atenção', 'Erro'].includes(l[2]) ? l[2] : 'Atenção';
+        c[st] += 1;
+        if (st !== 'Sucesso' && !c.ultimoDetalhe) c.ultimoDetalhe = String(l[3] || '').slice(0, 110);
+        porFonte.set(f, c);
+      }
+      const msgs = [];
+      for (const [f, c] of porFonte) {
+        const total = c.Sucesso + c['Atenção'] + c.Erro;
+        const semSucesso = c.Sucesso === 0 && total >= 3;
+        if (semSucesso || c.Erro >= 3) {
+          msgs.push(`${f}: ${total} execução(ões) nos últimos 7 dias - ${c.Sucesso} sucesso, ${c['Atenção']} atenção, ${c.Erro} erro${semSucesso ? ' (nenhuma deu certo)' : ''}. Último problema: "${c.ultimoDetalhe}"`);
+        }
+      }
+      return msgs;
+    },
+  },
 ];
 
 /** Roda todas as checagens: [{ id, titulo, msgs }]. */

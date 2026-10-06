@@ -115,6 +115,22 @@ function somaPorClasse(obj, classe) {
  * - aReceber: tudo o que está anunciado; aReceberEsteMes: com pagamento neste mês.
  */
 /**
+ * 06/10/2026 (Tiago: "a conta é sempre dos últimos 12 meses a partir do último
+ * mês fechado. Se estou em 4 de outubro: [...] setembro/2026. Se já é 31 de
+ * outubro: [...] outubro/2026"): último mês FECHADO ('yyyy-MM') = o mês
+ * passado, salvo no ÚLTIMO dia do mês, quando o próprio mês de hoje já conta.
+ * Espelho de apps-script/Proventos.gs!ultimoMesFechadoProventos_ (a base de
+ * janelaProventos_ 'fechados'). `hoje` = 'yyyy-MM-dd' (hojeSP).
+ */
+export function ultimoMesFechado(hoje) {
+  const a = Number(hoje.slice(0, 4));
+  const m = Number(hoje.slice(5, 7));
+  const d = Number(hoje.slice(8, 10));
+  const ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate(); // dia 0 do mês seguinte
+  return d >= ultimoDia ? hoje.slice(0, 7) : somarMeses(hoje.slice(0, 7), -1);
+}
+
+/**
  * Meses FECHADOS pra média mensal (o mês de hoje ainda não acabou - contar
  * ele puxaria a média pra baixo no começo do mês e pra cima no fim):
  * 12/24/36 meses = os N meses que terminam no mês passado; "No ano" =
@@ -124,14 +140,14 @@ function somaPorClasse(obj, classe) {
  */
 export function mesesFechadosDoPeriodo(periodoId, hoje, primeiraData = null) {
   const mesHoje = hoje.slice(0, 7);
+  const fim = ultimoMesFechado(hoje); // 06/10/2026: o mês de hoje conta no seu último dia
   // 02/10/2026: no intervalo personalizado, os meses dele que já fecharam
   // (só o mês de hoje, se o intervalo for só ele)
   if (ehIntervalo(periodoId)) {
     const meses = mesesDoIntervalo(periodoId, hoje);
-    const fechados = meses.filter((m) => m < mesHoje);
+    const fechados = meses.filter((m) => m <= fim);
     return fechados.length ? fechados : meses;
   }
-  const fim = somarMeses(mesHoje, -1);
   let inicio;
   if (periodoId === 'ano') inicio = `${hoje.slice(0, 4)}-01`;
   else if (periodoId === 'inicio') inicio = primeiraData ? primeiraData.slice(0, 7) : fim;

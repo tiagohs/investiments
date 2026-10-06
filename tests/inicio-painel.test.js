@@ -119,16 +119,12 @@ test('numerosDaVisao(): diferença e variação desde o último fechamento', () 
   assert.equal(numerosDaVisao('total', PATRIMONIO, null).variacao, null);
 });
 
-test('renderResumoCompacto(): 4 KPIs (1 por visão), distribuição em anel com abas sublinhadas; a visão escolhida sobrevive ao redesenho', () => {
+test('renderResumoCompacto(): sem cartões KPI (06/10/2026), só a distribuição em anel com abas sublinhadas; a visão escolhida sobrevive ao redesenho', () => {
   const doc = makeDoc('<div id="r"></div><div id="d"></div>');
   const r = doc.getElementById('r');
   const dados = { patrimonio: PATRIMONIO, ativos: ATIVOS, cambio: { usd: 5 }, ontem: ONTEM, historico: [{ data: '2026-09-23', patrimonio: 2900 }, { data: '2026-09-24', patrimonio: 3100 }] };
   renderResumoCompacto(doc, r, dados, { distribuicaoEl: doc.getElementById('d') });
-  const kpis = [...r.querySelectorAll('.rc-kpi')];
-  assert.deepEqual(kpis.map((b) => b.dataset.visao), ['total', 'longoPrazo', 'nacional', 'rendaEmergencial']);
-  assert.match(espacos(kpis[0].querySelector('.chart-kpi-val').textContent), /3\.000/);
-  assert.match(espacos(kpis[0].textContent), /−R\$\s*100,00 · 3,23% desde 24\/09/);
-  assert.match(espacos(kpis[1].textContent), /5,26% desde 24\/09/);
+  assert.equal(r.querySelectorAll('.rc-kpi, .chart-kpi').length, 0, 'os 4 cartões KPI de total por carteira saíram (pedido do Tiago)');
   const d = doc.getElementById('d');
   assert.match(d.querySelector('.rc-distrib-cab').textContent, /Patrimônio total/);
   assert.ok(d.querySelectorAll('.chart-anel svg .chart-fatia, .chart--anel svg .chart-fatia').length >= 3, 'anel com as fatias');
@@ -141,7 +137,7 @@ test('renderResumoCompacto(): 4 KPIs (1 por visão), distribuição em anel com 
 
   renderResumoCompacto(doc, r, { ...dados, patrimonio: { ...PATRIMONIO, total: 3200 } }, { distribuicaoEl: d });
   assert.equal(d.querySelector('.tab[aria-selected="true"]').dataset.tab, 'nacional', 'Atualizar dados não volta pra aba Total');
-  assert.equal(r.querySelectorAll('.rc-kpi').length, 4, 'os cartões são os mesmos (só os números mudam)');
+  assert.equal(d.querySelectorAll('.rc-distrib-card').length, 1, 'o cartão é o mesmo (só os números mudam)');
   renderResumoCompacto(doc, r, {});
   assert.match(r.textContent, /Sem dado de patrimônio/);
 });

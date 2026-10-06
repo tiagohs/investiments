@@ -42,6 +42,7 @@ import {
   projetarAposentadoria, prazoCaixaSac, prazoCaixaSacExato,
 } from './patrimonio-calc.js';
 import { MESES_CURTOS, formatMesAno, formatBRLMil, formatPct } from '../format.js'; // 05/10/2026 (A-68)
+import { aliquotaIrPorMeses } from '../ir-renda-fixa.js'; // 06/10/2026 (A-82): IR/IOF únicos
 
 export { prazoCaixaSac, prazoCaixaSacExato };
 
@@ -86,11 +87,7 @@ export const PERFIS = {
 
 /** IR regressivo da renda fixa (Lei 11.033/2004, art. 1º) pela idade da aplicação em meses. */
 export function aliquotaIr(meses) {
-  const dias = meses * 30.4375;
-  if (dias <= 180) return 0.225;
-  if (dias <= 360) return 0.2;
-  if (dias <= 720) return 0.175;
-  return 0.15;
+  return aliquotaIrPorMeses(meses); // 06/10/2026 (A-82): a tabela mora em ir-renda-fixa.js (espelho do GS)
 }
 
 /** Percentual do CDI -> taxa ao ano (o percentual incide sobre a taxa diária, 252 dias úteis). */
@@ -795,10 +792,16 @@ export function parametrosPadrao(ctx, hoje = null) {
       proximoUso: fg.proximaAmortizacao && fg.proximaAmortizacao > mesHoje ? fg.proximaAmortizacao : somarMeses(mesHoje, 1), intervalo: 24, usar: true,
     };
   }
+  // 06/10/2026 (A-78): CDI/IPCA do contexto (patrimônio) -> da resposta de macro (Macro.gs) -> só então os PADROES
+  // fixos, que ficam rotulados "premissa" em origemTaxas ('dados' | 'macro' | 'premissa').
+  const jm = (ctx && ctx.macro && (ctx.macro.juros || (ctx.macro.macro && ctx.macro.macro.juros))) || {};
   const taxas = {};
-  if (num(d.cdi) && d.cdi > 0) taxas.cdi = d.cdi;
-  if (num(d.ipca)) taxas.ipca = d.ipca;
-  if (num(d.trMensal)) taxas.trMensal = d.trMensal;
+  const origemTaxas = { cdi: 'premissa', ipca: 'premissa', trMensal: 'premissa' };
+  if (num(d.cdi) && d.cdi > 0) { taxas.cdi = d.cdi; origemTaxas.cdi = 'dados'; }
+  else if (num(jm.selic) && jm.selic > 0) { taxas.cdi = Math.round((jm.selic - 0.001) * 10000) / 10000; origemTaxas.cdi = 'macro'; } // CDI ~ Selic meta - 0,10 p.p.
+  if (num(d.ipca)) { taxas.ipca = d.ipca; origemTaxas.ipca = 'dados'; }
+  else if (num(jm.ipca12m)) { taxas.ipca = jm.ipca12m; origemTaxas.ipca = 'macro'; }
+  if (num(d.trMensal)) { taxas.trMensal = d.trMensal; origemTaxas.trMensal = 'dados'; }
   const inv = d.investimentos || {};
   const b = (ctx && ctx.b) || {};
   const dividas = dividasDoContexto(cfg, h);
@@ -808,7 +811,7 @@ export function parametrosPadrao(ctx, hoje = null) {
     dividas, fgts,
     valor: minimo ? minimo.valor : valor, valorSalario: valor, valorMinimo: minimo,
     frequencia: 'mensal', alvo: 'cara', modo: 'prazo', reinvestirDiferenca: true,
-    perfil: 'cdi100', reinvestirProventos: true, horizonteAnos: 10, fracMisto: 0.5, taxas,
+    perfil: 'cdi100', reinvestirProventos: true, horizonteAnos: 10, fracMisto: 0.5, taxas, origemTaxas,
     reserva: { atual: num(inv.reserva) ? inv.reserva : null, meta: num(metas.reservaMeta) ? metas.reservaMeta : null, custoMensal: d.despesas && num(d.despesas.totalComFolga) ? d.despesas.totalComFolga : null },
     salarioLiquido: sal,
   };

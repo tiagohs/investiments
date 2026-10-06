@@ -47,7 +47,7 @@ import { mil, brl0, mesAno, eixoMil, barrasOp, montarBarrasOp } from './patrimon
 import { montarGrafico, limparGrafico } from './metas-graficos.js'; // 06/10/2026 (Onda 3): gráficos da biblioteca (criam e morfam)
 import { kpiHtml, chipHtml, tornarRecolhiveis } from './organizacao-ui.js';
 import {
-  IPCA_MENSAL, URL_IPCA_BCB, mesclarIpca, ultimoMesIpca, serieRendaAnual, recortarAnos, linhaInflacao, cagrSalario, salarioAtual,
+  IPCA_MENSAL, URL_IPCA_BCB, mesclarIpca, mesclarIpcaMacro, rotuloOrigemIpca, ultimoMesIpca, serieRendaAnual, recortarAnos, linhaInflacao, cagrSalario, salarioAtual,
   investimentoDoSalario, recortarMeses, contasDoIr, documentosRenda, analisarSalario,
 } from './renda-calc.js';
 import { renderAnalise } from '../analise-grafico.js'; // 03/10/2026: card de Análise embaixo do gráfico do salário
@@ -375,6 +375,7 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     salario: opcoes.salario || null,
     hoje: opcoes.hoje || new Date(),
     ipca: IPCA_MENSAL,
+    ipcaOrigem: 'premissa', // 06/10/2026 (A-78): 'premissa' (tabela fixa) | 'bcb' | 'macro'
     perSal: '10a',
     perInv: '12m',
     descontarProventos: lerLocal(storage, CHAVE_PROVENTOS) !== '0',
@@ -387,7 +388,7 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
   // IPCA guardado no navegador (atualizado da API do BC no máximo 1x por semana)
   try {
     const salvo = JSON.parse(lerLocal(storage, CHAVE_IPCA) || 'null');
-    if (salvo && salvo.tabela) est.ipca = mesclarIpca(IPCA_MENSAL, Object.entries(salvo.tabela).flatMap(([a, l]) => l.map((v, i) => ({ data: `01/${String(i + 1).padStart(2, '0')}/${a}`, valor: String(v) }))));
+    if (salvo && salvo.tabela) { est.ipcaOrigem = 'bcb'; est.ipca = mesclarIpca(IPCA_MENSAL, Object.entries(salvo.tabela).flatMap(([a, l]) => l.map((v, i) => ({ data: `01/${String(i + 1).padStart(2, '0')}/${a}`, valor: String(v) })))); }
   } catch (e) { /* ok */ }
 
   function esqueleto() {
@@ -395,7 +396,7 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
       hero: '<section class="rd-hero" id="rdHero" aria-label="Resumo da renda"></section>',
       salario: `<section class="pt-sec" id="rdSecSalario"><div class="pt-sec-cab"><h2>Como seu salário cresceu</h2><span class="pt-hint">holerite › Carteira de Trabalho › declaração do IR · contra a inflação (IPCA)</span></div>
           <div class="card pt-card"><div class="rd-graf-cab">${tabsHtml(PERIODOS_SALARIO, est.perSal, 'Período do gráfico do salário')}</div>
-            <div class="pt-grafico" id="rdGSal"></div>${htmlLegendaSalario()}<div class="ag-slot pt-analise" id="rdAnaliseSal" hidden></div></div>
+            <div class="pt-grafico" id="rdGSal"></div>${htmlLegendaSalario()}<p class="pt-nota pt-nota-pad rd-nota-graf" id="rdNotaIpca" hidden></p><div class="ag-slot pt-analise" id="rdAnaliseSal" hidden></div></div>
           <div class="rd-duas"><div class="card pt-card pt-pad" id="rdTabela"></div><div class="card pt-card pt-pad" id="rdCarga"></div></div></section>`,
       investimento: `<section class="pt-sec" id="rdSecInv"><div class="pt-sec-cab"><h2>Quanto do salário você investe por mês</h2><span class="pt-hint">aportes − resgates do mês ÷ salário líquido do mês</span></div>
           <div class="card pt-card"><div class="rd-inv-topo" id="rdInvTiles"></div>
@@ -439,6 +440,8 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     let analise = null;
     try { analise = r.linhas.length ? analisarSalario(recorte, est.ipca) : null; } catch (e) { analise = null; }
     renderAnalise(doc, raiz.querySelector('#rdAnaliseSal'), analise);
+    const notaIpca = raiz.querySelector('#rdNotaIpca');
+    if (notaIpca) { const t = rotuloOrigemIpca(est.ipcaOrigem, ultimoMesIpca(est.ipca)); notaIpca.textContent = t; notaIpca.hidden = !t; }
     raiz.querySelector('#rdTabela').innerHTML = htmlCrescimentoTabela(recorte);
     raiz.querySelector('#rdCarga').innerHTML = htmlCargaImpostos(r);
     montarBarrasOp(raiz.querySelector('#rdCarga'));
@@ -601,11 +604,25 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
         if (t) win.clearTimeout(t);
         if (!Array.isArray(serie) || !serie.length) return;
         const antes = ultimoMesIpca(est.ipca);
+        const origemAntes = est.ipcaOrigem;
         est.ipca = mesclarIpca(est.ipca, serie);
+        if (est.ipcaOrigem === 'premissa') est.ipcaOrigem = 'bcb';
         gravarLocal(storage, CHAVE_IPCA, JSON.stringify({ em: Date.now(), tabela: est.ipca }));
-        if (ultimoMesIpca(est.ipca) !== antes) desenhar();
+        if (ultimoMesIpca(est.ipca) !== antes || est.ipcaOrigem !== origemAntes) desenhar();
       }).catch(() => { if (t) win.clearTimeout(t); });
     }
+  }
+
+  // 06/10/2026 (A-78): IPCA do contexto de mercado (Macro.gs) por cima da tabela fixa, quando a página sabe buscar
+  if (typeof opcoes.getMacro === 'function') {
+    Promise.resolve().then(() => opcoes.getMacro()).then((resp) => {
+      const macro = resp && resp.ok !== false ? (resp.macro || resp) : null;
+      const m = mesclarIpcaMacro(est.ipca, macro);
+      if (m.origem !== 'macro') return;
+      est.ipca = m.tabela;
+      est.ipcaOrigem = 'macro';
+      desenhar();
+    }).catch(() => { /* sem o contexto de mercado: fica a tabela (premissa) */ });
   }
 
   return {

@@ -46,9 +46,11 @@ test('alocarMetas: reserva -> renda passiva -> aposentadoria; cada ativo conta u
   const ca = calcularMeta(apos, ctx);
   assert.equal(cr.valorVinculado, 8000, 'reserva: o título emergencial');
   assert.equal(cp.valorVinculado, 15000, 'renda passiva: os FIIs');
-  assert.equal(ca.valorVinculado, 32000, 'aposentadoria: só o que sobrou (longo prazo + ações)');
-  assert.ok(cr.valorVinculado + cp.valorVinculado + ca.valorVinculado <= TOTAL + 0.01);
-  assert.ok(ca.avisos.some((a) => /já está em/.test(a) && /Reserva/.test(a)), 'aviso dentro da meta diz quem ficou com o dinheiro');
+  // 06/10/2026: exceção do Tiago - a reserva e a aposentadoria PODEM contar os mesmos ativos (o título emergencial conta nas duas)
+  assert.equal(ca.valorVinculado, 40000, 'aposentadoria: o título da reserva + longo prazo + ações (os FIIs são da renda passiva)');
+  assert.ok(cr.valorVinculado + cp.valorVinculado + (ca.valorVinculado - cr.valorVinculado) <= TOTAL + 0.01, 'sem contar em dobro fora da exceção');
+  assert.ok(ca.sobreposicao && /já está em Renda \(/.test(ca.sobreposicao.texto), 'o aviso (objeto, com "ignorar") cita só quem ficou com os FIIs: a renda passiva');
+  assert.equal(calcularMeta({ ...apos, ignorarAvisos: ['sobreposicao'] }, ctx).sobreposicao, null, 'ignorar este aviso (persistido na meta) some com ele');
   // sem a alocação (antes), a aposentadoria via 100% do patrimônio
   assert.equal(calcularMeta(apos, { ...ctx, ocupadoPorMeta: {} }).valorVinculado, TOTAL);
 });
@@ -56,7 +58,7 @@ test('alocarMetas: reserva -> renda passiva -> aposentadoria; cada ativo conta u
 test('líquido de IR/IOF segue a fração que a meta realmente conta do ativo', () => {
   const ctx = { ativos: ATIVOS, cambio: {}, referencias: {}, hoje: '2026-10-05', ocupadoPorMeta: alocarMetas([reserva, apos], ATIVOS, {}).ocupadoPorMeta };
   assert.equal(calcularMeta(reserva, ctx).liquido.ir, 200, 'reserva paga o IR do título inteiro');
-  assert.equal(calcularMeta(apos, ctx).liquido.ir, 0, 'aposentadoria não conta o título da reserva, então não conta o IR dele');
+  assert.equal(calcularMeta(apos, ctx).liquido.ir, 200, 'aposentadoria também conta o título da reserva (exceção de 06/10/2026), então conta o IR dele');
 });
 
 test('resumoMetas: "patrimônio alocado" nunca maior que o patrimônio vinculável', () => {
@@ -97,7 +99,7 @@ test('A-14: vínculo a ticker antigo acha o ativo atual pelo alias; sem alias vi
   assert.deepEqual(ctx.aliases, { ANTG3: 'NOVO3' });
 });
 
-test('A-12: meta nova segue a planilha (nada congelado); cópia antiga que difere da planilha avisa "congelado em dd/mm"', () => {
+test('A-12: meta nova segue a planilha (nada congelado); cópia que difere da planilha vale (sem aviso de "congelado"/"difere")', () => {
   const ref = { reserva: { custoDeVida: 2000, meses: 6, sobra: 0.1 }, patrimonio: { extra: 4000, reinvestimento: 0.25, rendimento: 0.05, desejado: 1000000 } };
   const nova = metaPadrao('reservaEmergencia', { referencias: ref, hoje: '2026-10-05' });
   assert.equal(nova.especificos.meses, null);
@@ -112,13 +114,14 @@ test('A-12: meta nova segue a planilha (nada congelado); cópia antiga que difer
   // cópia antiga congelada
   const velha = { ...nova, nome: 'R', atualizadoEm: '2026-09-20T10:00:00.000Z', especificos: { ...nova.especificos, meses: 6 } };
   const c2 = calcularMeta(velha, { ...ctx, referencias: { ...ref, reserva: { ...ref.reserva, meses: 8 } } });
-  assert.equal(c2.congelados.length, 1);
-  assert.ok(c2.avisos.some((a) => /congelado em 20\/09/.test(a) && /6/.test(a) && /8/.test(a)));
+  // 06/10/2026: o site é a fonte da verdade - sem aviso "congelado em dd/mm" nem "difere da planilha"; o valor salvo na meta manda
+  assert.equal(c2.avisos.length, 0);
+  assert.equal(c2.alvoBRL, 13200, 'a leitura prefere o que está salvo na meta (6 meses), não a planilha (8)');
   // aposentadoria: alvo da planilha x alvo da meta, com a taxa de retirada exposta
   const ap = metaPadrao('aposentadoria', { referencias: ref, hoje: '2026-10-05' });
   const ca = calcularMeta({ ...ap, nome: 'A', especificos: { ...ap.especificos, taxaRetirada: 0.04 } }, ctx);
   assert.equal(ca.taxaRetirada, 0.04);
-  assert.ok(ca.avisos.some((a) => /difere do patrimônio desejado da planilha/.test(a)));
+  assert.ok(!ca.avisos.some((a) => /difere do patrimônio desejado da planilha/.test(a)));
 });
 
 test('A-15: ritmo de aporte <= 0 tem sinal próprio (não vira "nunca" calado)', () => {

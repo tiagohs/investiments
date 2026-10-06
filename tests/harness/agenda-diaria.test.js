@@ -60,7 +60,7 @@ function montar(agoraIso, jobs = {}) {
   const props = {};
   const gatilhos = [];
   let uid = 0;
-  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [], portfolioFii: [], preAquecer: [] };
+  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [], portfolioFii: [], preAquecer: [], snapshotPrecos: [] };
   const registro = [];
   const emails = [];
   const relogio = { ms: Date.parse(agoraIso) };
@@ -92,6 +92,7 @@ function montar(agoraIso, jobs = {}) {
     fundamentos: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 03/10/2026 (Fundamentos.gs)
     portfolioFii: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 05/10/2026 (PortfolioFii.gs)
     preAquecer: () => ({ ativos: 3, calculados: 3, jaEmCache: 0, faltaramPorTempo: 0, falhas: [], ms: 1 }), // 05/10/2026 (A-53, Ativo.gs)
+    snapshotPrecos: () => ({ dia: '2026-10-02', gravados: 3, ignorados: [], regravou: false, detalhe: '3 preço(s) gravado(s)' }), // 06/10/2026 (A-56, SnapshotPrecos.gs)
   };
   const job = (id) => (...args) => { chamadas[id].push(args); return (jobs[id] || padrao[id])(chamadas[id].length, ...args); };
 
@@ -108,6 +109,7 @@ function montar(agoraIso, jobs = {}) {
     atualizarFundamentos_: job('fundamentos'),
     atualizarPortfolioFii_: job('portfolioFii'),
     preAquecerCacheAtivos_: job('preAquecer'),
+    gravarSnapshotPrecosHoje_: job('snapshotPrecos'),
     gravarRegistroControle_: (...a) => registro.push(a),
     notificarFalhaSincronizacao_: (...a) => emails.push(a),
   };
@@ -199,6 +201,37 @@ test('Agenda: dia normal roda tudo na ordem, principal às 10:01, e não sobra o
   // nenhum one-shot sobrando (nem disparado, nem pendente); só o que não é da agenda
   assert.equal(a.gatilhos.filter((g) => g.handler === 'etapaAgendaDiaria').length, 0);
   assert.equal(a.registro.length, 0, 'agenda não grava Registro de Controle quando dá tudo certo (cada rotina já grava o seu)');
+});
+
+// 06/10/2026 (A-56, modo sombra): o snapshot de preços é a última etapa e só roda DEPOIS das 18:30 de SP (21:30 UTC)
+test('Agenda (A-56): snapshotPrecos espera as 18:30 de SP (one-shot), roda 1x, e o dia só conclui depois dele', () => {
+  const a = montar('2026-10-02T11:40:00Z');
+  a.sb.despertadorAgendaDiaria();
+  // roda a fila até só sobrar o one-shot das 18:30
+  while (a.pendentes().length && a.pendentes()[0].at < utc('2026-10-02T21:00:00Z')) {
+    const g = a.pendentes()[0];
+    a.relogio.ms = Math.max(a.relogio.ms, g.at); g.disparado = true; a.sb[g.handler]({ triggerUid: g.id });
+  }
+  assert.equal(a.chamadas.snapshotPrecos.length, 0, 'nada de snapshot durante a manhã');
+  for (const id of ['ativos', 'rendaFixaIndices', 'preAquecer']) assert.equal(a.chamadas[id].length, 1, id);
+  assert.equal(a.pendentes().length, 1);
+  assert.equal(a.pendentes()[0].at, utc('2026-10-02T21:30:00Z'), 'one-shot às 18:30 SP');
+  assert.equal(a.estado().situacao, 'agendada');
+  assert.equal(a.estado().proximaExecucao, '2026-10-02 18:30:00');
+  assert.equal(a.estado().etapas.snapshotPrecos.status, 'pendente');
+  a.rodarFila();
+  assert.equal(a.chamadas.snapshotPrecos.length, 1);
+  assert.equal(a.relogio.ms, utc('2026-10-02T21:30:00Z'));
+  assert.equal(a.estado().situacao, 'concluida');
+  assert.equal(a.estado().etapas.snapshotPrecos.status, 'ok');
+});
+
+test('Agenda (A-56): snapshotPrecos depende dos preços (se "ativos" falha, é pulada)', () => {
+  const a = montar('2026-10-02T11:40:00Z', { ativos: () => { throw new Error('HTTP 503'); } });
+  a.sb.despertadorAgendaDiaria();
+  a.rodarFila();
+  assert.equal(a.chamadas.snapshotPrecos.length, 0);
+  assert.equal(a.estado().etapas.snapshotPrecos.status, 'pulada');
 });
 
 test('Agenda: ativos com retry - falha 2x e acerta na 3ª, reagendando +10 min e só com os tickers pendentes', () => {
@@ -639,7 +672,7 @@ test('Agenda (A-54): as linhas que a rotina grava saem rotuladas com a etapa e a
   a.sb.despertadorAgendaDiaria();
   a.rodarFila();
   assert.deepEqual(vistos.slice(0, 4), [{ etapa: 'ativos', tentativa: 1 }, null, { etapa: 'rendaFixaIndices', tentativa: 1 }, null]);
-  assert.equal(vistos.filter(Boolean).length, 8);
+  assert.equal(vistos.filter(Boolean).length, 9); // 8 + snapshotPrecos (A-56)
 });
 
 // A-55: calendário B3

@@ -96,23 +96,14 @@ function macroJson_(url, avisos, rotulo, validar) {
 /** Resposta do Olinda (BCB): { value: [...] }. */
 function macroValidaOlinda_(d) { return !!d && typeof d === 'object' && Array.isArray(d.value); }
 
-/** CDI dos últimos 365 dias: composição do CDI diário (% ao dia) de aux_historico-indices. Fração; null sem 200+ dias. */
+/** CDI dos últimos 365 dias (fração; null sem 200+ dias). 06/10/2026 (A-77): fonte única = cdiAcumulado12m_ (BackfillIndices.gs). */
 function macroCdi12m_(ss, agora) {
-  var aba = ss.getSheetByName(typeof ABA_HISTORICO_INDICES !== 'undefined' ? ABA_HISTORICO_INDICES : 'aux_historico-indices');
-  if (!aba || aba.getLastRow() < 2) return null;
-  var limite = new Date(agora.getTime() - 365 * 86400000);
-  var porDia = {};
-  aba.getRange(2, 1, aba.getLastRow() - 1, 3).getValues().forEach(function (l) {
-    if (l[1] !== 'CDI' || !(l[0] instanceof Date) || l[0] < limite || l[0] > agora || typeof l[2] !== 'number') return;
-    porDia[fundChaveDia_(l[0])] = l[2]; // 1 por dia (linha repetida não conta duas vezes)
-  });
-  var dias = Object.keys(porDia);
-  if (dias.length < 200) return null;
-  return macroArred_(dias.reduce(function (f, d) { return f * (1 + porDia[d] / 100); }, 1) - 1, 4);
+  var r = cdiAcumulado12m_(ss, agora);
+  return r ? macroArred_(r.fracao, 4) : null;
 }
 
 function macroJuros_(ss, agora, avisos) {
-  var j = { selic: null, cdi12m: null, ipca12m: null, ipcaEsperado12m: null, selicEsperadaAnoSeguinte: null };
+  var j = { selic: null, cdi12m: null, ipca12m: null, ipcaMensal: [], ipcaEsperado12m: null, selicEsperadaAnoSeguinte: null };
   var s = macroJson_('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json', avisos, 'Selic meta (BCB)');
   var meta = s && s.length ? macroNum_(s[s.length - 1].valor) : null;
   if (meta != null && meta > 0 && meta < 60) j.selic = macroArred_(meta / 100, 4);
@@ -123,6 +114,8 @@ function macroJuros_(ss, agora, avisos) {
   try { j.cdi12m = macroCdi12m_(ss, agora); } catch (e2) { j.cdi12m = null; }
   if (j.cdi12m == null) avisos.push('CDI 12m indisponível (aux_historico-indices com menos de 200 dias).');
   try { j.ipca12m = buscarIpcaAcumulado12Meses_(); } catch (e3) { j.ipca12m = null; }
+  // 06/10/2026 (A-78): IPCA mensal dos últimos 36 meses (BCB 433, já salvo na aba) - alimenta a tabela de inflação da Renda
+  try { j.ipcaMensal = ipcaMensalDaAba_(ss).slice(-36); } catch (e4) { j.ipcaMensal = []; }
   if (j.ipca12m == null) avisos.push('IPCA 12m indisponível.');
   var ano = Number(fundChaveDia_(agora).slice(0, 4));
   var f1 = macroJson_('https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoInflacao12Meses?$top=1&$orderby=Data%20desc&$filter=Indicador%20eq%20%27IPCA%27%20and%20Suavizada%20eq%20%27S%27%20and%20baseCalculo%20eq%200&$format=json', avisos, 'Focus IPCA (BCB)', macroValidaOlinda_);

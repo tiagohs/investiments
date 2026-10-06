@@ -189,7 +189,7 @@ test('Visão Geral/Ações/FIIs/Renda Fixa: diferença entre o card do topo (liv
 // 19/08/2025 - a conversão já está corretamente registrada em
 // "Transações - USA" (linhas de VNOM na razão 0,4855), mas 'STR' ficou
 // esquecido em TICKERS_USA até esta correção.
-const TICKERS_FIIS_BR = ['BTLG11', 'GARE11', 'PMLL11', 'VGIP11', 'TRXF11', 'RECR11', 'RBRY11', 'KNUQ11', 'HGRU11', 'XPML11']; // cópia de apps-script/Sync.gs!TICKERS_FIIS_BR - manter em sincronia se a lista mudar lá
+// 06/10/2026: a lista de FIIs não mora mais em Sync.gs (vem de Auxiliar_ativos, Classe 'FIIs'): derivada das fixtures dentro do teste.
 
 test('fonte da verdade: todo ticker comprado e nunca vendido aparece na Carteira/Auxiliar_ativos da classe correspondente (dados reais)', async (t) => {
   if (!TEM_FIXTURES) {
@@ -197,6 +197,7 @@ test('fonte da verdade: todo ticker comprado e nunca vendido aparece na Carteira
     return;
   }
   const fixturesRaw = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf8'));
+  const TICKERS_FIIS_BR = (fixturesRaw['Auxiliar_ativos']?.linhas || []).slice(1).filter((l) => l && l[0] === 'FIIs').map((l) => String(l[1]).trim().toUpperCase());
   const { carteirasAcoes, carteirasFiis, carteirasAcoesEua, sandbox } = await carregarCarteirasComDadosReais({ fixturesPath: FIXTURES_PATH });
   // 23/09/2026: tickers que o próprio app ignora de propósito no histórico
   // (Sync.gs!TICKERS_FORA_DO_HISTORICO - hoje só STR, ver o motivo lá) não

@@ -1,17 +1,19 @@
 #!/bin/sh
-# .githooks/pre-commit - 23/09/2026 #4 (pedido do Tiago: testes e relatório
-# das telas sempre rodados quando o código muda). Roda tests/harness/verificar.mjs:
-# todos os testes + relatório (tests/harness/relatorio/conferencia-telas.html).
-# Bloqueia o commit só se o CÓDIGO quebrou; alerta de dado da planilha não bloqueia.
+# .githooks/pre-commit - 23/09/2026 #4 (pedido do Tiago: testes sempre rodados quando o código muda).
+# 06/10/2026 (A-75): antes rodava a suíte INTEIRA (verificar.mjs, ~3-5 min) a cada commit. Agora roda só:
+#   - checagens rápidas (dado real no commit, `node --check`, JSON válido) e
+#   - os testes dos arquivos afetados (tests/harness/pre-commit-testes.mjs escolhe pelo que mudou).
+# A suíte completa fica pro `npm test` (ou `npm run verificar`, que ainda regera o relatório das telas);
+# `PRE_COMMIT_COMPLETO=1 git commit` roda tudo no commit. Alerta de dado da planilha não bloqueia.
 # Pular uma vez: git commit --no-verify
 # Ativado por `npm install` (script "prepare") ou: git config core.hooksPath .githooks
 cd "$(git rev-parse --show-toplevel)" || exit 0
 if ! command -v node >/dev/null 2>&1; then
-  echo "pre-commit: node não encontrado no PATH - testes não rodaram (rode npm run verificar no terminal)"
+  echo "pre-commit: node não encontrado no PATH - testes não rodaram (rode npm test no terminal)"
   exit 0
 fi
 if [ ! -d node_modules ]; then
   echo "pre-commit: sem node_modules - rode npm install (testes não rodaram)"
   exit 0
 fi
-node tests/harness/verificar.mjs
+node tests/harness/pre-commit-testes.mjs

@@ -69,14 +69,6 @@ function gravarCacheGeracao_(familia, chave, valor, ttlSegundos) {
   return gravarSerieHistoricoCache_(chave, valor, ttlSegundos, familia);
 }
 
-/** Apaga a geração atual de uma família (ex.: ao gravar no que ela guarda). */
-function limparCacheGeracao_(familia) {
-  var g = cacheLerGeracao_(familia);
-  if (!g) return false;
-  cacheRemoverChave_(g.chave, g.pedacos);
-  try { PropertiesService.getScriptProperties().deleteProperty(CACHE_PROP_GERACAO_ + familia); } catch (e) { /* ok */ }
-  return true;
-}
 
 // ---------------------------------------------------------------------------
 // Cache da resposta de uma ação

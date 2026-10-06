@@ -88,3 +88,28 @@ test('classeProventoSemHistorico_: ticker antigo (renomeado/incorporado) herda a
   assert.equal(sb.classeProventoSemHistorico_('OLDB3', {}), 'BR');
   assert.equal(sb.classeProventoSemHistorico_('OLDC11', {}), '');
 });
+
+// 06/10/2026 (Tiago, Metas > Renda passiva): 12 meses terminando no último mês FECHADO; o mês corrente só conta no seu último dia
+test('janelaProventos_ fechados: o mês de hoje conta como fechado só no ÚLTIMO dia (bordas: dia 1, dia 30 de mês de 31, fev 28/29, 31/dez)', () => {
+  const sb = sandbox();
+  const j = (hoje) => { const r = plain(sb.janelaProventos_(hoje, 'fechados', 12)); return `${r.inicio}..${r.fim}`; };
+  assert.equal(j('2026-10-04'), '2025-10..2026-09');
+  assert.equal(j('2026-10-01'), '2025-10..2026-09', 'dia 1: o mês passado');
+  assert.equal(j('2026-10-30'), '2025-10..2026-09', 'dia 30 de um mês de 31 dias ainda é o mês em curso');
+  assert.equal(j('2026-10-31'), '2025-11..2026-10', 'dia 31: outubro já fechou');
+  assert.equal(j('2026-11-29'), '2025-11..2026-10');
+  assert.equal(j('2026-11-30'), '2025-12..2026-11', 'dia 30 de novembro (último)');
+  assert.equal(j('2026-02-27'), '2025-02..2026-01');
+  assert.equal(j('2026-02-28'), '2025-03..2026-02', 'fev/2026 (28 dias): dia 28 é o último');
+  assert.equal(j('2028-02-28'), '2027-02..2028-01', 'fev/2028 (bissexto): dia 28 ainda não é o último');
+  assert.equal(j('2028-02-29'), '2027-03..2028-02', 'fev/2028 (bissexto): dia 29 é o último');
+  assert.equal(j('2026-12-30'), '2025-12..2026-11');
+  assert.equal(j('2026-12-31'), '2026-01..2026-12', '31/dez: o ano inteiro');
+  assert.equal(j('2027-01-01'), '2026-01..2026-12', '1/jan: dezembro passou');
+  // 'comMesAtual' não muda
+  assert.equal(plain(sb.janelaProventos_('2026-10-31', 'comMesAtual', 12)).fim, '2026-10');
+  // a soma acompanha a janela: no dia 31 os proventos do próprio mês entram
+  const rec = [{ data: '2026-10-10', valor: 10 }, { data: '2025-10-10', valor: 5 }, { data: '2026-09-10', valor: 1 }];
+  assert.equal(sb.somarProventosJanela_(rec, '2026-10-30', 'fechados', 12).total, 6);
+  assert.equal(sb.somarProventosJanela_(rec, '2026-10-31', 'fechados', 12).total, 11);
+});

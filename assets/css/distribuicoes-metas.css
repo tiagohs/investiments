@@ -2,8 +2,8 @@
  * distribuicoes-metas.css - "Acompanhamento de Ativos" (Objetivos | Radar | Metas).
  *
  * 06/10/2026 (Onda 3, kit Material 3): reescrito só com tokens (m3-tokens.css), sem hex. O que a base já cobre vem de
- * components.css (.card, .btn, .chip-*, .input, .skel, .grid-kpi, abas em pílula) e de inicio.css (.avisos-banner,
- * .info-icon/.info-tooltip, .moeda-conv, .skel-header) - aqui só o que é específico desta tela. Gráficos (anel das
+ * components.css (.card, .btn, .chip-*, .input, .skel, .grid-kpi, abas em pílula) e de comum-telas.css (.avisos-banner,
+ * .info-icon/.info-tooltip, .moeda-conv) - aqui só o que é específico desta tela. Gráficos (anel das
  * metas, barras de progresso/composição, sparkline do dia) são da biblioteca assets/js/charts (charts.css).
  */
 
@@ -22,6 +22,9 @@
 .metas-erro{ padding:24px 0; }
 
 .dm-kpis{ margin-bottom:24px; }
+/* 06/10/2026 (A-42): vinham de inicio.css (regra dividida com .rc-kpi) - o cartão KPI da biblioteca dentro do slot */
+.dm-kpi{ display:flex; min-width:0; padding:0; border:0; background:transparent; }
+.dm-kpi > .chart-kpi{ flex:1; padding:var(--pad-card); border:1px solid var(--md-ext-color-card-border); background:var(--md-ext-color-card); border-radius:var(--r-card); }
 .dm-painel[hidden]{ display:none; }
 .dm-dica{ margin:0 0 16px; max-width:72ch; font-size:var(--md-sys-typescale-body-medium-size); line-height:20px; color:var(--ink-muted); }
 
@@ -321,3 +324,64 @@
   .radar-intradia{ min-width:0; }
   .radar-intradia-slot{ min-height:60px; }
 }
+
+/* ---- 06/10/2026: meta "Distribuição da carteira" (pages/metas-distribuicao.js) - card, detalhe e assistente em Metas e Objetivos ---- */
+.md-resumo, .md-resumo-ok{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.md-resumo-ok{ flex-direction:row !important; align-items:center; gap:6px !important; font-size:var(--md-sys-typescale-label-large-size); font-weight:600; color:var(--good-ink); }
+.md-resumo-ok .ico{ width:16px; height:16px; }
+.md-aporte{ font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:22px; font-weight:600; letter-spacing:-.02em; color:var(--ink); }
+.md-resumo small{ font-size:12px; color:var(--ink-muted); }
+.md-linhas{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+.md-linha{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+.md-linha-cab{ display:flex; align-items:center; gap:8px; min-width:0; }
+.md-dot{ flex:none; width:8px; height:8px; border-radius:50%; }
+.md-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--md-sys-typescale-body-medium-size); font-weight:500; color:var(--ink); }
+.md-pcts{ flex:none; font-family:var(--mono); font-size:var(--md-sys-typescale-body-medium-size); color:var(--ink-muted); white-space:nowrap; }
+.md-pcts b{ color:var(--ink); font-weight:600; }
+.md-barra{ position:relative; display:block; height:8px; border-radius:100px; background:var(--md-sys-color-surface-container-highest); }
+.md-fill{ position:absolute; inset:0 auto 0 0; border-radius:100px; min-width:2px; }
+.md-marca{ position:absolute; top:-4px; bottom:-4px; width:2px; margin-left:-1px; border-radius:2px; background:var(--ink); }
+.md-linha-pe{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.md-valor{ font-family:var(--mono); font-size:12px; color:var(--ink-muted); }
+.md-badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 10px; border-radius:100px; font-size:12px; font-weight:600; white-space:nowrap; max-width:100%; }
+.md-badge .ico{ width:14px; height:14px; }
+.md-badge.good{ background:var(--good-soft); color:var(--good-ink); }
+.md-badge.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+.md-badge.na{ background:var(--na-soft); color:var(--ink-muted); }
+.md-vazio{ font-size:13px; color:var(--ink-muted); }
+.md-kpis{ display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; margin-top:14px; }
+.md-kpi{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium); background:var(--md-sys-color-surface-container); }
+.md-kpi em{ font-style:normal; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); }
+.md-kpi b{ font-family:var(--mono); font-size:24px; font-weight:600; color:var(--ink); }
+.md-kpi small{ font-size:12px; color:var(--ink-muted); }
+.md-kpi .md-ok{ color:var(--good-ink); font-family:var(--body-f); font-size:var(--md-sys-typescale-title-medium-size); }
+.md-nota{ margin:12px 0; }
+.md-grade{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px; }
+.md-grupo-bloco{ display:flex; flex-direction:column; gap:12px; min-width:0; padding:16px; border-radius:var(--r-card); border:1px solid var(--border); background:var(--md-ext-color-card); }
+.md-grupo-cab{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; min-width:0; }
+.md-grupo-cab h4{ margin:0; font-size:var(--md-sys-typescale-title-small-size); font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.md-total{ flex:none; font-family:var(--mono); font-size:13px; color:var(--ink-muted); }
+.md-comp{ display:flex; flex-direction:column; gap:6px; }
+.md-comp-linha{ display:grid; grid-template-columns:36px minmax(0,1fr); align-items:center; gap:8px; }
+.md-comp-linha em{ font-style:normal; font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); }
+.md-comp-barra{ display:flex; gap:2px; height:12px; }
+.md-comp-barra i{ min-width:0; border-radius:100px; }
+.md-comp-meta{ opacity:.5; }
+.md-fieldset{ margin:0 0 14px; padding:12px 14px 14px; border:1px solid var(--border); border-radius:var(--md-sys-shape-corner-medium); }
+.md-fieldset legend{ padding:0 6px; font-size:var(--md-sys-typescale-label-large-size); font-weight:600; color:var(--ink); }
+.md-soma{ margin-left:6px; font-family:var(--mono); font-weight:600; }
+.md-soma.ok{ color:var(--good-ink); }
+.md-soma.ruim{ color:var(--warn-ink); }
+@media (max-width:900px){ .md-grade{ grid-template-columns:minmax(0,1fr); } }
+@media (max-width:640px){
+  .md-grade{ grid-template-columns:minmax(0,1fr); }
+  .md-grupo-bloco{ padding:12px; }
+  .md-aporte{ font-size:20px; }
+}
+
+/* 06/10/2026: aba Metas do Acompanhamento - cabeçalho da meta "Distribuição da carteira" (blocos atual x meta com o visual de sempre) */
+.dm-dist-cab{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0 0 12px; }
+.dm-dist-cab h3{ flex:1 1 auto; min-width:0; margin:0; font-size:var(--md-sys-typescale-title-medium-size); font-weight:600; color:var(--ink); }
+#distribuicaoMetaGrid:not(:empty){ margin-bottom:28px; }
+.dm-dist-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+@media (max-width:900px){ .dm-dist-grid{ grid-template-columns:minmax(0,1fr); } }

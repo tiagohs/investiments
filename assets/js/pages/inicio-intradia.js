@@ -63,7 +63,7 @@ export function rotuloDiaIntradia(serie, hojeISO) {
  * Desenha (ou atualiza) o gráfico do dia dentro de `el` com a sparkline da biblioteca. Devolve true se desenhou,
  * false se a série não serve (o chamador mostra o estado vazio). `altura` em px.
  */
-export function desenharIntradia(el, serie, { altura = 44, titulo = 'Variação do dia' } = {}) {
+export function desenharIntradia(el, serie, { altura = 32, titulo = 'Variação do dia' } = {}) {
   const v = valoresIntradia(serie);
   if (!v) {
     if (el._spark) { el._spark.destruir(); el._spark = null; }

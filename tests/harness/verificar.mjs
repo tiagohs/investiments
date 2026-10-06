@@ -30,16 +30,17 @@ function rodarTestes() {
     filho.stdout.on('data', (d) => { saida += d; });
     filho.stderr.on('data', (d) => { saida += d; });
     filho.on('close', () => {
-      const ok = [], falhas = [], pulados = [];
+      const ok = [], falhas = [], pulados = [], pendentes = [];
       for (const linha of saida.split('\n')) {
         const m = linha.match(/^(not ok|ok) \d+ - (.*)$/); // só testes de nível de arquivo (sem indentação)
         if (!m) continue;
         const nome = m[2].replace(/\s+#\s*SKIP.*$/, '');
         if (/#\s*SKIP/.test(m[2])) pulados.push(nome);
+        else if (/#\s*TODO/.test(m[2])) pendentes.push(m[2].replace(/\s+#\s*TODO\s*/, ' - pendente: ')); // 06/10/2026: achado conhecido (node:test `todo`) - não reprova
         else if (m[1] === 'ok') ok.push(nome);
         else falhas.push(nome);
       }
-      resolve({ ok, falhas, pulados, saida, segundos: ((Date.now() - inicio) / 1000).toFixed(1) });
+      resolve({ ok, falhas, pulados, pendentes, saida, segundos: ((Date.now() - inicio) / 1000).toFixed(1) });
     });
   });
 }
@@ -55,16 +56,32 @@ function detalheDaFalha(saida, nome) {
     .slice(0, 12).map((l) => `      ${l.trim()}`).join('\n');
 }
 
+// 06/10/2026 (A-75): relatorio-telas.test.js passou a gerar numa pasta temporária (teste não grava no repositório); o
+// relatório de verdade (tests/harness/relatorio/conferencia-telas.html) é regerado aqui, depois dos testes.
+function gerarRelatorioDeVerdade() {
+  if (!fs.existsSync(path.join(__dirname, 'fixtures.json'))) return Promise.resolve();
+  return new Promise((resolve) => {
+    const filho = spawn(process.execPath, [path.join(__dirname, 'relatorio-telas.mjs')], { cwd: ROOT, stdio: 'ignore' });
+    filho.on('close', () => resolve());
+    filho.on('error', () => resolve());
+  });
+}
+
 async function verificar() {
   const hora = new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' });
   console.log(`\n[${hora}] rodando os testes e gerando o relatório das telas...`);
   const r = await rodarTestes();
+  await gerarRelatorioDeVerdade();
   const falhasCodigo = r.falhas.filter((n) => !n.startsWith(PREFIXO_DADO));
   const alertasDado = r.falhas.filter((n) => n.startsWith(PREFIXO_DADO));
-  console.log(`${r.ok.length} ok · ${falhasCodigo.length} falha(s) de código · ${alertasDado.length} alerta(s) de dado da planilha · ${r.pulados.length} pulado(s) · ${r.segundos}s`);
+  console.log(`${r.ok.length} ok · ${falhasCodigo.length} falha(s) de código · ${alertasDado.length} alerta(s) de dado da planilha · ${r.pulados.length} pulado(s) · ${r.pendentes.length} pendente(s) · ${r.segundos}s`);
   if (falhasCodigo.length) {
     console.log('\n✗ FALHAS DE CÓDIGO (corrigir antes de subir):');
     for (const n of falhasCodigo) console.log(`  ✗ ${n}\n${detalheDaFalha(r.saida, n)}`);
+  }
+  if (r.pendentes.length) {
+    console.log('\n~ achados conhecidos em aberto (test `todo`; não bloqueiam - somem quando corrigidos):');
+    for (const n of r.pendentes) console.log(`  ~ ${n}`);
   }
   if (alertasDado.length) {
     console.log('\n! alertas de dado da planilha (não bloqueiam; detalhe no relatório):');

@@ -15,10 +15,9 @@
  * EXPLICACOES (metas-calc.js).
  */
 
-import {
-  EXPLICACOES, TIPOS_ENTRADA, MOEDAS_COMUNS, paisPorCodigo, cidadesDoPais, normalizarNome, caminhoBandeira, sugestaoTaxaTuristica,
-  taxaTuristicaDestino, expandirEntradas, ehLinkWanderlog, rotuloMes,
-} from './metas-calc.js';
+import { EXPLICACOES } from './metas-calc-plano.js';
+import { TIPOS_ENTRADA, paisPorCodigo, cidadesDoPais, normalizarNome, caminhoBandeira, sugestaoTaxaTuristica, taxaTuristicaDestino, expandirEntradas, ehLinkWanderlog } from './metas-calc-viagem.js';
+import { MOEDAS_COMUNS, rotuloMes } from './metas-calc-nucleo.js';
 import { formatMoeda, infoHtml, pct } from '../metas-card.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68)
 import { resolveSiteRootUrl } from '../shell.js';

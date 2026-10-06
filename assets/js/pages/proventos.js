@@ -26,7 +26,7 @@ import { mountRefreshControl } from '../shell.js';
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado, botoesSegmentadoHtml } from '../periodo-personalizado.js'; // 02/10/2026: "Escolher período"
 import { renderAnalise, analisarRendaPassiva, complementarAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise embaixo do Histórico mensal
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { logoAtivoHtml } from './carteiras-classe-comum.js';
+import { logoAtivoHtml } from './carteiras-pecas.js';
 import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026
 import { criarGraficoBarras, criarKpi, garantirEstilosCharts } from '../charts/index.js'; // 06/10/2026 (Onda 3)
 import { montarCabecalhoPagina, criarTabs, confirmar, abrirFolha, toast, mostrarErroCarga, mostrarEstadoVazio, ligarMenu, criar as criarUi, icone as iconeUi } from '../ui/index.js'; // 06/10/2026 (Onda 3)

@@ -29,6 +29,10 @@
  *                    do cache das telas de ativo era um gatilho a cada 2 h, 12
  *                    execuções/dia reconferindo cache já quente; agora é 1 etapa
  *                    depois da sync e dos informes).
+ *                    06/10/2026 (A-56, modo sombra): snapshotPrecos — grava o preço do dia em
+ *                    aux_snapshot-precos (SnapshotPrecos.gs) e só roda DEPOIS DAS 18:30 (SP): a
+ *                    etapa declara `depoisDe`, e a agenda a trata como uma espera (one-shot às
+ *                    18:30) em vez de rodar logo depois das outras. Não muda a série atual.
  *  3) 05/10/2026 (A-47): ESTÁGIOS INDEPENDENTES. Cada etapa declara de quem
  *     depende (AGENDA_ETAPAS_[].depende) e o que é erro transitório
  *     (agendaErroTransitorio_). A falha de uma etapa só atrasa/pula quem
@@ -136,7 +140,10 @@ var AGENDA_ETAPAS_ = [
   { id: 'informesFnet', nome: 'Informes FNet', principal: false, depende: [], recuperavel: true },
   { id: 'fundamentos', nome: 'Fundamentos', principal: false, depende: [], recuperavel: false }, // 03/10/2026 (Fundamentos.gs)
   { id: 'portfolioFii', nome: 'Portfólio dos FIIs', principal: false, depende: ['informesFnet'], recuperavel: false }, // 05/10/2026 (PortfolioFii.gs): lê os fatos relevantes dos informes
-  { id: 'preAquecer', nome: 'Pré-aquecimento das telas de ativo', principal: false, depende: ['ativos'], recuperavel: false } // 05/10/2026 (A-53, Ativo.gs)
+  { id: 'preAquecer', nome: 'Pré-aquecimento das telas de ativo', principal: false, depende: ['ativos'], recuperavel: false }, // 05/10/2026 (A-53, Ativo.gs)
+  // 06/10/2026 (A-56, MODO SOMBRA): snapshot diário de PREÇO em aux_snapshot-precos (SnapshotPrecos.gs), sem mexer na série atual.
+  // `depoisDe`: não roda antes dessa hora (SP) - a agenda espera (one-shot às 18:30) pra pegar o preço de fechamento. Última da fila.
+  { id: 'snapshotPrecos', nome: 'Snapshot de preços (sombra, A-56)', principal: false, depende: ['ativos'], recuperavel: false, depoisDe: '18:30' }
 ];
 
 // ---------------------------------------------------------------------------
@@ -426,6 +433,11 @@ function agendaRodarJob_(id, est) {
         (extra ? ' | ' + extra.detalhe : '')
     };
   }
+  if (id === 'snapshotPrecos') {
+    // 06/10/2026 (A-56, modo sombra): grava o preço do dia (1 getValues + 1 setValues). Só escreve em aux_snapshot-precos.
+    var sp = gravarSnapshotPrecosHoje_(); // SnapshotPrecos.gs (lança erro se não há preço nenhum)
+    return { ok: true, detalhe: sp.detalhe };
+  }
   throw new Error('etapa desconhecida: ' + id);
 }
 
@@ -503,6 +515,10 @@ function agendaProximoPasso_(estado, agora) {
       }
       if (bloqueada) continue;
       if (est.status === 'aguardando nova tentativa' && est.quandoMs > agora.getTime()) { esperas.push(est.quandoMs); continue; }
+      if (d.depoisDe && estado.dia) { // 06/10/2026 (A-56): etapa com "não antes de HH:mm" espera como uma nova tentativa agendada
+        var liberaMs = agendaHorarioDoDia_(estado.dia, d.depoisDe).getTime();
+        if (liberaMs > agora.getTime()) { esperas.push(liberaMs); continue; }
+      }
       return { def: d };
     }
     if (!mudou) return esperas.length ? { def: null, esperarAte: Math.min.apply(null, esperas) } : null;
@@ -731,8 +747,6 @@ function agendaDiaSemana_(chaveDia) {
   return new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2]))).getUTCDay();
 }
 
-/** Domingo a partir da chave do dia (calendário puro, sem fuso). */
-function agendaEhDomingo_(chaveDia) { return agendaDiaSemana_(chaveDia) === 0; }
 
 /** 'aaaa-mm-dd' de uma célula da aba de feriados (Date, 'aaaa-mm-dd' ou 'dd/mm/aaaa'); '' se não for data. */
 function agendaNormalizarData_(v) {
@@ -774,6 +788,13 @@ function agendaClassificarDia_(chaveDia) {
 /** Instante de "chaveDia 10:01:00" em São Paulo. */
 function agendaHorarioPrincipal_(chaveDia) {
   return Utilities.parseDate(chaveDia + ' ' + AGENDA_HORARIO_PRINCIPAL_, AGENDA_FUSO_, 'yyyy-MM-dd HH:mm:ss');
+}
+
+/** Instante de "chaveDia HH:mm" (ou HH:mm:ss) em São Paulo (A-56: etapas com `depoisDe`). */
+function agendaHorarioDoDia_(chaveDia, hhmm) {
+  var h = String(hhmm);
+  if (h.split(':').length < 3) h += ':00';
+  return Utilities.parseDate(chaveDia + ' ' + h, AGENDA_FUSO_, 'yyyy-MM-dd HH:mm:ss');
 }
 
 // ---------------------------------------------------------------------------

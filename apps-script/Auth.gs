@@ -3,11 +3,15 @@
  * token direto com o Google) e o helper de resposta JSON, compartilhados
  * por todos os handlers do projeto (Router.gs, Sync.gs, ImportB3.gs).
  *
- * Single-user app: só aceita o e-mail configurado em AUTHORIZED_EMAIL —
- * não há gestão de múltiplos usuários.
+ * Single-user app: só aceita o e-mail guardado na propriedade EMAIL_AUTORIZADO
+ * do script (PropertiesService) — não há gestão de múltiplos usuários.
+ *
+ * 06/10/2026 (A-27): o e-mail saiu do código (repositório público). Rode
+ * configurarEmailAutorizado() UMA vez no editor ANTES de implantar esta versão
+ * (sem parâmetro, grava o e-mail de quem está rodando o script).
  */
 
-const AUTHORIZED_EMAIL = 'tiago.hsilva.prof@gmail.com';
+var PROP_EMAIL_AUTORIZADO = 'EMAIL_AUTORIZADO';
 const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com';
 
 /**
@@ -23,6 +27,29 @@ const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleuser
  */
 var SESSAO_DIAS = 7;
 var PROP_SEGREDO_SESSAO = 'SESSAO_SEGREDO';
+
+/** E-mail autorizado (propriedade EMAIL_AUTORIZADO); '' se ainda não configurado. */
+function emailAutorizado_() {
+  return String(PropertiesService.getScriptProperties().getProperty(PROP_EMAIL_AUTORIZADO) || '').trim().toLowerCase();
+}
+
+/** Confere `email` contra o autorizado; sem e-mail configurado, NINGUÉM entra (falha fechada). */
+function emailConfere_(email) {
+  var autorizado = emailAutorizado_();
+  return !!autorizado && String(email || '').trim().toLowerCase() === autorizado;
+}
+
+/**
+ * Função de editor (rodar 1x ANTES de implantar o Auth.gs novo): grava o e-mail
+ * autorizado nas propriedades do script. Sem parâmetro usa o e-mail de quem
+ * executa (Session.getEffectiveUser()); como o app roda "como o dono", é o seu.
+ */
+function configurarEmailAutorizado(email) {
+  var e = String(email || Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
+  if (!e || e.indexOf('@') < 1) throw new Error('Não consegui descobrir o e-mail: chame configurarEmailAutorizado("seu@email.com").');
+  PropertiesService.getScriptProperties().setProperty(PROP_EMAIL_AUTORIZADO, e);
+  Logger.log('E-mail autorizado gravado: ' + e + ' — agora pode implantar a nova versão.');
+}
 
 function segredoSessao_() {
   var props = PropertiesService.getScriptProperties();
@@ -68,7 +95,7 @@ function verificarTokenSessao_(token, agoraMs) {
     return { ok: false, erro: 'sessão inválida' };
   }
   if (!(payload.exp * 1000 > (agoraMs || Date.now()))) return { ok: false, erro: 'sessão expirada' };
-  if (payload.email !== AUTHORIZED_EMAIL) return { ok: false, erro: 'e-mail não autorizado: ' + payload.email };
+  if (!emailConfere_(payload.email)) return { ok: false, erro: 'e-mail não autorizado: ' + payload.email };
   return { ok: true, email: payload.email, tipo: 'sessao' };
 }
 
@@ -111,7 +138,7 @@ function verificarToken(token) {
     var payload = JSON.parse(resp.getContentText());
     if (payload.error) return { ok: false, erro: 'token inválido: ' + payload.error };
     if (payload.aud !== CLIENT_ID) return { ok: false, erro: 'client ID não confere (token de outro app?)' };
-    if (payload.email !== AUTHORIZED_EMAIL) return { ok: false, erro: 'e-mail não autorizado: ' + payload.email };
+    if (!emailConfere_(payload.email)) return { ok: false, erro: 'e-mail não autorizado: ' + payload.email };
     return { ok: true, email: payload.email, tipo: 'google' };
   } catch (err) {
     return { ok: false, erro: String(err) };
@@ -124,13 +151,13 @@ function jsonOut(obj) {
 
 /**
  * Handler de "ping" — confirma login + conexão com a planilha. Usado pelo
- * teste.html logo após o login Google, antes de liberar os outros cards.
+ * tests/manual/teste.html logo após o login Google, antes de liberar os outros cards.
  * Auth já foi checada pelo Router antes de chegar aqui.
  */
 function handlePing(auth) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    return jsonOut({ ok: true, autenticado_como: auth.email, planilha: ss.getName() });
+    return jsonOut({ ok: true, autenticado_como: auth.email, planilha: ss.getName(), planilhaUrl: ss.getUrl() });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }

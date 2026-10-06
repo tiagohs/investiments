@@ -67,12 +67,12 @@ export function semVideosCanaisHtml(resposta) {
   return nomes.length ? `<p class="hint vd-sem-videos">${nomes.map((n) => `<span>${esc(n)}: sem vídeos disponíveis</span>`).join(' · ')}</p>` : '';
 }
 
-export function videosHtml(resposta, agora = new Date()) {
-  const html = videosHtmlBase(resposta, agora);
+export function videosHtml(resposta, agora = new Date(), pagina = 0) {
+  const html = videosHtmlBase(resposta, agora, pagina);
   return resposta && resposta.ok ? html + semVideosCanaisHtml(resposta) : html;
 }
 
-function videosHtmlBase(resposta, agora) {
+function videosHtmlBase(resposta, agora, pagina = 0) {
   if (!resposta) return `<div class="vd-grade">${'<div class="vd-card"><span class="skel vd-thumb"></span><span class="skel" style="height:14px"></span><span class="skel" style="height:14px;width:60%"></span></div>'.repeat(3)}</div>`;
   if (!resposta.ok) return `<p class="hint">Não deu pra buscar os vídeos agora (${esc(resposta.erro || resposta.etapa || 'erro')}).</p>`;
   // 02/10/2026: sem canais cadastrados, mas com vídeos do canal oficial do ativo -> mostra os do oficial
@@ -101,12 +101,57 @@ function videosHtmlBase(resposta, agora) {
       </article>`;
   };
   const grade = (itens) => `<div class="vd-grade">${itens.map(cartao).join('')}</div>`;
+  // 06/10/2026 (Tiago: "os vídeos pegam muito espaço: exibe de 3 em 3, com paginação, carregando aos poucos (performance), e eu conseguir
+  // ver a lista inteira"): só a página atual vai pro DOM (miniaturas loading="lazy"; o iframe só nasce no clique), a lista inteira
+  // fica navegável pelo paginador. Com 2 grupos (ativos x tema) a ordem é a mesma, o título do grupo aparece na página onde ele entra.
   const doAtivo = lista.filter((v) => v.motivo !== 'tema');
   const doTema = lista.filter((v) => v.motivo === 'tema');
-  if (!resposta.carteira || !doAtivo.length || !doTema.length) return grade(lista);
+  const agrupar = !!resposta.carteira && doAtivo.length > 0 && doTema.length > 0;
+  const ordem = agrupar ? [...doAtivo, ...doTema] : lista;
+  const total = ordem.length;
+  const paginas = Math.max(1, Math.ceil(total / VIDEOS_POR_PAGINA));
+  const atual = Math.min(Math.max(0, Number(pagina) || 0), paginas - 1);
+  const ini = atual * VIDEOS_POR_PAGINA;
+  const fatia = ordem.slice(ini, ini + VIDEOS_POR_PAGINA);
+  let corpo;
+  if (!agrupar) corpo = grade(fatia);
+  else {
+    const noAtivos = fatia.filter((x) => x.motivo !== 'tema');
+    const noTema = fatia.filter((x) => x.motivo === 'tema');
+    corpo = (noAtivos.length ? `<div class="vd-grupo"><h3 class="vd-grupo-titulo">Citam seus ativos</h3>${grade(noAtivos)}</div>` : '')
+      + (noTema.length ? `<div class="vd-grupo"><h3 class="vd-grupo-titulo">Sobre o tema da carteira</h3>${grade(noTema)}</div>` : '');
+  }
+  return corpo + paginadorHtml(atual, paginas, total);
+}
+
+/** Quantos vídeos por página (06/10/2026). */
+export const VIDEOS_POR_PAGINA = 3;
+
+/** Páginas visíveis do paginador: todas se couberem; senão a 1ª, a última e a vizinhança da atual (com "…"). */
+export function paginasVisiveis(atual, paginas) {
+  if (paginas <= 7) return Array.from({ length: paginas }, (_, i) => i);
+  const set = new Set([0, paginas - 1, atual - 1, atual, atual + 1]);
+  const out = [];
+  [...set].filter((p) => p >= 0 && p < paginas).sort((x, y) => x - y).forEach((p, i, arr) => { if (i && p - arr[i - 1] > 1) out.push('…'); out.push(p); });
+  return out;
+}
+
+function paginadorHtml(atual, paginas, total) {
+  if (paginas <= 1) return '';
+  const de = atual * VIDEOS_POR_PAGINA + 1;
+  const ate = Math.min(total, (atual + 1) * VIDEOS_POR_PAGINA);
+  const botoes = paginasVisiveis(atual, paginas).map((p) => (p === '…'
+    ? '<span class="vd-pag-reticencias" aria-hidden="true">…</span>'
+    : `<button type="button" class="vd-pag${p === atual ? ' on' : ''}" data-pagina="${p}" aria-label="Página ${p + 1}"${p === atual ? ' aria-current="page"' : ''}>${p + 1}</button>`)).join('');
   return `
-    <div class="vd-grupo"><h3 class="vd-grupo-titulo">Citam seus ativos</h3>${grade(doAtivo)}</div>
-    <div class="vd-grupo"><h3 class="vd-grupo-titulo">Sobre o tema da carteira</h3>${grade(doTema)}</div>`;
+    <nav class="vd-pager" aria-label="Páginas de vídeos">
+      <span class="vd-pag-info" aria-live="polite">${de}–${ate} de ${total}</span>
+      <span class="vd-pag-botoes">
+        <button type="button" class="vd-pag vd-pag-nav" data-pagina="${atual - 1}"${atual === 0 ? ' disabled' : ''}>Anteriores</button>
+        ${botoes}
+        <button type="button" class="vd-pag vd-pag-nav vd-pag-mais" data-pagina="${atual + 1}"${atual >= paginas - 1 ? ' disabled' : ''}>Mais vídeos</button>
+      </span>
+    </nav>`;
 }
 
 /** Miniatura -> player (delegado; o conteúdo chega depois). */
@@ -114,6 +159,20 @@ export function ligarPlayerVideos(raiz) {
   if (!raiz || raiz._videosLigados) return;
   raiz._videosLigados = true;
   raiz.addEventListener('click', (ev) => {
+    // 06/10/2026: paginador (3 por vez) - redesenha só a página pedida a partir da resposta guardada em .vd-conteudo
+    const pag = ev.target.closest && ev.target.closest('.vd-pag[data-pagina]');
+    if (pag && !pag.disabled) {
+      const alvo = pag.closest('.vd-conteudo');
+      if (alvo && alvo._vdResposta) {
+        const n = Number(pag.dataset.pagina);
+        alvo.innerHTML = videosHtml(alvo._vdResposta, alvo._vdAgora || new Date(), n);
+        const novo = alvo.querySelector(`.vd-pag[data-pagina="${n}"]:not(.vd-pag-nav)`) || alvo.querySelector('.vd-pag.on');
+        if (novo && novo.focus) novo.focus({ preventScroll: true });
+        const topo = alvo.closest('.vd-secao');
+        if (topo && topo.scrollIntoView && topo.getBoundingClientRect().top < 0) topo.scrollIntoView({ block: 'start' });
+      }
+      return;
+    }
     const btn = ev.target.closest && ev.target.closest('.vd-thumb[data-video]');
     if (!btn || !idValido(btn.dataset.video)) return;
     const doc = btn.ownerDocument;
@@ -148,7 +207,7 @@ export function criarCarregadorVideos(token, params, { getVideosImpl = getVideos
     if (!secaoEl) return;
     const alvo = secaoEl.querySelector('.vd-conteudo');
     ligarPlayerVideos(secaoEl);
-    const desenhar = () => buscar().then((r) => { if (alvo.isConnected) alvo.innerHTML = videosHtml(r, agora()); });
+    const desenhar = () => buscar().then((r) => { if (alvo.isConnected) { alvo._vdResposta = r; alvo._vdAgora = agora(); alvo.innerHTML = videosHtml(r, alvo._vdAgora); } });
     const janela = secaoEl.ownerDocument.defaultView;
     if (promessa) { desenhar(); return; }
     if (!janela || typeof janela.IntersectionObserver !== 'function') return; // sem IO (testes): não busca sozinho

@@ -36,6 +36,10 @@ test('Patrimônio (planilha real): investimentos da Início, investido por mês 
     new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
   }
   const ss = sb.SpreadsheetApp.getActiveSpreadsheet();
+  // 06/10/2026 (Controle 17): a planilha real já tem a aba aux_patrimonio-indices PREENCHIDA (o app gravou a série do FipeZap/IVG-R em
+  // 27/09), e o código a usa em vez de buscar - o teste de "gravar e ler os índices falsos" parte de uma aba vazia, como na Controle 16.
+  const abaIndices = ss.getSheetByName('aux_patrimonio-indices');
+  if (abaIndices && typeof abaIndices.clearContents === 'function') abaIndices.clearContents();
   const r = semRealm(sb.montarTelaPatrimonio_(ss, new sb.Date(), { buscarIndices: INDICES_FALSOS }));
   const erros = [];
   const home = semRealm(sb.montarHome_());

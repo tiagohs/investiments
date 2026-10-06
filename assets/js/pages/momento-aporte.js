@@ -10,60 +10,12 @@
  * tela, com o cache 'metas'), preço x preço médio e sinais do motor de
  * critérios (criterios/motor.js) - ver aportes-calc.js!momentoAporte.
  */
+import { esc } from '../util/html.js';
+import { ajudaHtml } from '../criterios/macro.js';
 import { momentoAporte, totalRanking } from './aportes-calc.js';
-import { getMetas, getMacro } from '../api-client.js';
-import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { metasComCalculo } from '../metas-card.js';
-import { montarMacro, ajudaHtml } from '../criterios/macro.js';
-import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
-
-/**
- * Metas de Metas e Objetivos pro momento (lista com `calc`), 1 busca por tela.
- * aoChegar(metas) roda com o cache (na hora) e de novo com a resposta nova;
- * falhou = null (o momento fica sem sinal de meta). Devolve a promessa.
- */
-export function carregarMetasMomento(token, { getMetasImpl = getMetas, aoChegar = () => {}, lerCache = lerCacheDados, gravarCache = gravarCacheDados } = {}) {
-  return (async () => {
-    let metas = null;
-    try {
-      const c = await lerCache('metas');
-      if (c && c.dados && c.dados.ok) { metas = metasComCalculo(c.dados); aoChegar(metas); }
-    } catch (e) { /* sem cache */ }
-    let r = null;
-    try { r = getMetasImpl ? await getMetasImpl(token) : null; } catch (e) { r = null; }
-    if (r && r.ok) {
-      try { gravarCache('metas', r); } catch (e) { /* ok */ }
-      metas = metasComCalculo(r);
-      aoChegar(metas);
-    }
-    return metas;
-  })();
-}
-
-/**
- * 05/10/2026: contexto de mercado (Macro.gs) pro momento - 1 busca por tela, com o cache 'macro'
- * (6h no servidor). `aoChegar(macro)` roda com o cache e com a resposta nova; falhou = null (o momento
- * fica sem esse sinal). tesouroExtra = taxas do Tesouro que a tela já tem (Aportes: dados.tesouro).
- */
-export function carregarMacroMomento(token, { getMacroImpl = getMacro, aoChegar = () => {}, lerCache = lerCacheDados, gravarCache = gravarCacheDados, tesouroExtra = null } = {}) {
-  return (async () => {
-    let macro = null;
-    try {
-      const c = await lerCache('macro');
-      if (c && c.dados && c.dados.ok) { macro = montarMacro(c.dados, { tesouroExtra }); if (macro) aoChegar(macro); }
-    } catch (e) { /* sem cache */ }
-    let r = null;
-    try { r = getMacroImpl ? await getMacroImpl(token) : null; } catch (e) { r = null; }
-    if (r && r.ok) {
-      try { gravarCache('macro', r); } catch (e) { /* ok */ }
-      macro = montarMacro(r, { tesouroExtra }) || macro;
-      if (macro) aoChegar(macro);
-    }
-    return macro;
-  })();
-}
-
+// Compatibilidade (A-76, 06/10/2026): estes nomes moraram aqui; agora vivem nos módulos abaixo e continuam exportados daqui.
+export { carregarMacroMomento, carregarMetasMomento } from './momento-carga.js';
 
 const ICONE_SINAL = {
   bom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
@@ -141,7 +93,7 @@ export function metasDaDistribuicao(resposta) {
     rendaFixa: meta(achar(geral, /^renda fixa/i)),
     rfEmergencial: meta(achar(rf, /emergencial/i)),
     rfLongoPrazo: meta(achar(rf, /^renda fixa/i)),
-    acoes: meta(achar(acoes, /dividendo/i)),
+    acoes: meta(achar(acoes, /dividendo|nacion/i)), // 06/10/2026: "Dividendos" virou "Nacionais"
     acoesEua: meta(achar(acoes, /internacion/i)),
   };
 }

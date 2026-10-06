@@ -5,7 +5,7 @@
 > Este arquivo é o backlog único: achados repetidos entre os relatórios foram **juntados** e ganharam IDs novos (`A-01`…). A coluna "Origem" mantém os IDs dos relatórios (D-, C16-, T-, UI-, PERF-, SYNC-, SEG-, COD-, SW-) para quem quiser ir à fonte. Para como trabalhar nas correções, ver `docs/guia-desenvolvimento.md`.
 
 ## 0. Andamento (06/10/2026)
-Ondas 1, 2 e 3 concluídas (ver `docs/historico-projeto.md`, seção "Ondas 1, 2 e 3"). Pendentes: A-42 (build/bundling), A-56 (só projetado), Onda 4 inteira, e a parte de A-27 que tira do repositório o e-mail autorizado e o ID da planilha. A-16 resolvido na planilha pelo Tiago (com defesa no código). A-24 implementado como "a confirmar" derivado.
+Ondas 1, 2 e 3 concluídas (ver `docs/historico-projeto.md`, seção "Ondas 1, 2 e 3"). A-42 (carga por tela, sem bundler: `import()` por rota/subaba, `modulepreload`, CSS por aba, SW v6) e A-76 (arquivos divididos onde o `import()` precisava) feitos em 06/10/2026 — ver `docs/historico-projeto.md`, "Onda 4, parte carga do front"; ficaram de fora o build com hash e as fontes próprias. Pendentes: A-56 (só projetado), Onda 4 inteira, e a parte de A-27 que tira do repositório o e-mail autorizado e o ID da planilha. A-16 resolvido na planilha pelo Tiago (com defesa no código). A-24 implementado como "a confirmar" derivado.
 
 ## 1. Resumo executivo
 

@@ -44,10 +44,8 @@ const ICONE_MAPA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 // HTML
 // ---------------------------------------------------------------------------
 
-/** Aba vazia (antes de abrir): o controlador preenche. */
-export function patrimonioPlaceholderHtml() {
-  return '<div class="pf-raiz" id="pfRaiz" aria-live="polite"><div class="pf-carregando"><span class="skel pf-esq-resumo"></span><span class="skel pf-esq-bloco"></span></div></div>';
-}
+import { patrimonioPlaceholderHtml } from './ativo-patrimonio-esqueleto.js';
+export { patrimonioPlaceholderHtml };
 
 // 06/10/2026 (Onda 3): o donut e a faixa de composição são da biblioteca de gráficos (charts/anel.js, charts/progresso.js). O HTML só reserva
 // o espaço (data-pf-graf) e guarda os dados em GRAFICOS_DA_RENDER; montarGraficosPatrimonio() desenha depois do innerHTML.

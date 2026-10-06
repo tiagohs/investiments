@@ -149,7 +149,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
   leitura.resumo.forEach(function (linha) {
     var titulo = linha[0], instituicao = linha[1];
     if (!titulo) return;
-    resumoPorChave[normalizarChaveRfSubpagina_(titulo, instituicao)] = {
+    resumoPorChave[chaveTituloRf_(titulo, instituicao)] = {
       indice: linha[2],
       numeroDeLotes: linha[3],
       rentabilidadeContratadaTexto: linha[6]
@@ -159,7 +159,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
   // ---- pré-carrega o IR se resgatasse hoje (já calcula por posição) - reaproveita as leituras ----
   var irPorChave = {};
   montarIRRendaFixa_({ carteira: leitura.carteira, lotes: leitura.lotes }).forEach(function (posicaoIr) {
-    irPorChave[normalizarChaveRfSubpagina_(posicaoIr.titulo, posicaoIr.instituicao)] = posicaoIr;
+    irPorChave[chaveTituloRf_(posicaoIr.titulo, posicaoIr.instituicao)] = posicaoIr;
   });
 
   // ---- 23/09/2026 #2: "Valor aplicado" = custo PEPS das Transações ----
@@ -176,7 +176,8 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
   var somaComprado = 0, somaAtualizado = 0;
 
   if (leitura.carteira.length) {
-    leitura.carteira.forEach(function (linha) {
+    var idsEstaveis = idsEstaveisCarteiraRf_(leitura.carteira); // 06/10/2026 (A-71): ISIN + instituição
+    leitura.carteira.forEach(function (linha, iLinha) {
       var codigo = linha[0], marca = linha[1], nome = linha[2], tipo = linha[3],
         indexador = linha[4], instituicao = linha[5], quantidade = linha[6],
         valorInvestido = linha[8], vencimento = linha[10], valorAtualizado = linha[11];
@@ -187,7 +188,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
       // sem arredondar aqui (só na saída) - arredondar título a título fazia o
       // total sair 1 centavo diferente do card/gráfico (23/09/2026 #3)
       if (custo != null) valorInvestido = custo;
-      var chave = normalizarChaveRfSubpagina_(nomeLimpo, instituicao);
+      var chave = chaveTituloRf_(nomeLimpo, instituicao);
       var rentabilidadeContratada = resumoPorChave[chave] || null;
       var ir = irPorChave[chave] || null;
 
@@ -198,6 +199,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
 
       ativos.push({
         codigo: codigo || null,
+        idEstavel: idsEstaveis[iLinha] || null,
         nomePersonalizado: nomeLimpo || null,
         tipoInvestimento: tipo || null,
         indexador: indexador || null,
@@ -295,10 +297,6 @@ function benchmarksRendaFixaSemRede_(ss) {
     }
   }
   return { cdi: cdi, selic: selic, ipca: ipca };
-}
-
-function normalizarChaveRfSubpagina_(titulo, instituicao) {
-  return String(titulo || '').trim().toUpperCase() + '|' + String(instituicao || '').trim().toUpperCase();
 }
 
 /** 23/09/2026 #3: custo PEPS de um título da "Carteira Renda Fixa" dentro

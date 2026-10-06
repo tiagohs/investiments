@@ -5,10 +5,10 @@
  *
  * Duas partes:
  *  1) INÍCIO: faixa de mercado, favoritos/cartões de ativo, grade principal + lateral, rentabilidade, meus ativos, proventos.
- *  2) COMPARTILHADO (ainda usado por Carteiras/Ativo/Transações/Metas): .avisos-banner, .rentab-card-* (a "info"
- *     de renderInfoRentabilidade), .cmp-*, .moeda-conv, .info-*, .distrib-* (só renderDistribuicao, que nenhuma tela chama mais:
- *     candidato a sair junto com a função). 06/10/2026: saíram o SVG/tooltip antigo (.rentab-chart, .rentab-tooltip*), .chart-legend2,
- *     .area-header e .skel-header - nenhuma tela os usa.
+ *  2) COMPARTILHADO (ainda usado por Carteiras/Ativo/Transações/Metas): .rentab-card-* (a "info"
+ *     de renderInfoRentabilidade), .cmp-*. 06/10/2026 (A-42): .avisos-*, .intradia-slot, .moeda-conv e .info-* foram para comum-telas.css
+ *     (as 3 abas do router). 06/10/2026: saíram o SVG/tooltip antigo (.rentab-chart, .rentab-tooltip*), .chart-legend2,
+ *     .area-header e .skel-header - nenhuma tela os usa - e (A-79) .distrib-*, do renderDistribuicao removido.
  */
 
 /* ===================== 1) INÍCIO ===================== */
@@ -26,41 +26,27 @@
 .skel-colunas{ display:grid; grid-template-columns:minmax(0,1fr) var(--coluna-lateral); gap:24px; }
 .skel-colunas .skel-bloco{ height:420px; }
 .inicio-erro{ padding:24px 0; }
-.avisos-banner{ display:flex; align-items:flex-start; gap:12px; margin:0 0 16px; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium);
-  background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-body-medium-size); line-height:20px; }
-.avisos-banner[hidden]{ display:none; }
-.avisos-banner b{ font-weight:600; }
-.avisos-ico{ flex:none; width:24px; height:24px; fill:currentColor; }
-.avisos-corpo{ min-width:0; }
-.avisos-corpo p{ margin:0; }
-.avisos-detalhe{ margin-top:6px; font-size:var(--md-sys-typescale-body-small-size); }
-.avisos-detalhe summary{ cursor:pointer; min-height:32px; display:flex; align-items:center; }
-.avisos-detalhe pre{ margin:4px 0 0; padding:8px 12px; border-radius:var(--md-sys-shape-corner-small); background:var(--surface); color:var(--ink);
-  font:12px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; }
 
-/* ---- gráfico do dia (sparkline da biblioteca) em slots ---- */
-.intradia-slot{ position:relative; display:block; min-width:0; }
-.intradia-slot .chart-spark{ display:block; width:100%; height:100%; }
-.intradia-slot .intradia-dia{ position:absolute; top:0; left:0; font-size:12px; font-weight:500; color:var(--ink-faint); line-height:1; }
+/* gráfico do dia nos cartões da faixa de mercado (o slot base está em comum-telas.css) */
 .mkt-spark .intradia-dia{ display:none; }
 
 /* ---- faixa de mercado: índices e câmbio ---- */
 .mkt-secao{ margin-bottom:24px; }
 .mkt-faixa{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
 .mkt{ display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome var" "valor spark"; align-items:center; gap:4px 12px; min-width:0;
-  min-height:72px; padding:12px 16px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card); background:var(--surface);
+  min-height:56px; padding:8px 14px; gap:2px 12px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card); background:var(--surface);
   color:var(--ink); text-decoration:none; transition:background-color 150ms var(--md-sys-motion-easing-standard, ease); }
 .mkt:hover{ background:var(--md-ext-color-card-hover); }
 .mkt:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
 .mkt-nome{ grid-area:nome; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.mkt-valor{ grid-area:valor; font-family:var(--mono); font-size:16px; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
-.mkt-valor .dec{ font-size:12px; opacity:.65; }
+.mkt-valor{ grid-area:valor; font-family:var(--mono); font-size:14px; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mkt-valor .dec{ font-size:11px; opacity:.65; }
 .mkt-valor small{ font-size:12px; color:var(--ink-faint); font-weight:500; }
 .mkt-var{ grid-area:var; justify-self:end; display:inline-flex; align-items:center; gap:2px; font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; min-height:24px; }
 .mkt-var.chip-tonal{ padding:2px 8px 2px 6px; }
 .mkt-var .ico{ width:14px; height:14px; fill:currentColor; }
 .mkt-var.na{ color:var(--ink-faint); padding:0; }
-.mkt-spark{ grid-area:spark; width:72px; height:28px; }
+.mkt-spark{ grid-area:spark; width:64px; height:22px; }
 .chip-tonal.chip-good{ background:var(--good-soft); color:var(--good-ink); }
 .chip-tonal.chip-bad{ background:var(--bad-soft); color:var(--bad-ink); }
 @media (max-width:1099.98px){ .mkt-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } .skel-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
@@ -72,32 +58,32 @@
 }
 
 /* ---- cartões de ativo (Favoritos): kit "watchlist" ---- */
-.ativos-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
-.ativo-card{ display:flex; flex-direction:column; gap:4px; min-width:0; padding:16px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card);
+.ativos-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
+.ativo-card{ display:flex; flex-direction:column; gap:4px; min-width:0; padding:12px 14px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card);
   background:var(--surface); color:var(--ink); text-decoration:none; transition:background-color 150ms ease; }
 .ativo-card:hover{ background:var(--md-ext-color-card-hover); }
 .ativo-card:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
-.ativo-card-top{ display:flex; align-items:center; gap:12px; min-width:0; }
+.ativo-card-top{ display:flex; align-items:center; gap:8px; min-width:0; }
 .ativo-id{ display:flex; flex-direction:column; min-width:0; flex:1; line-height:1.25; }
-.ativo-ticker{ font-weight:600; font-size:var(--md-sys-typescale-title-small-size, 14px); color:var(--ink); overflow-wrap:anywhere; }
+.ativo-ticker{ font-weight:600; font-size:var(--md-sys-typescale-title-small-size, 14px); color:var(--ink); overflow-wrap:normal; word-break:normal; }
 .ativo-classe{ font-size:12px; color:var(--ink-muted); }
 .vies-badge{ flex:none; white-space:nowrap; }
-.ativo-price{ margin-top:8px; font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; }
-.ativo-price .dec{ font-size:14px; opacity:.65; }
+.ativo-price{ margin-top:4px; font-family:var(--mono); font-size:16px; font-weight:600; font-variant-numeric:tabular-nums; }
+.ativo-price .dec{ font-size:12px; opacity:.65; }
 .ativo-price:empty{ display:none; }
 .ativo-price-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); margin-left:4px; }
-.ativo-delta{ display:inline-flex; align-items:center; gap:4px; font-size:var(--md-sys-typescale-label-large-size); font-weight:600; font-variant-numeric:tabular-nums; }
+.ativo-delta{ display:inline-flex; align-items:center; gap:4px; font-size:var(--md-sys-typescale-label-medium-size, 12px); font-weight:600; font-variant-numeric:tabular-nums; }
 .ativo-delta .ico{ width:18px; height:18px; fill:currentColor; }
 .ativo-delta.good{ color:var(--good-ink); } .ativo-delta.bad{ color:var(--bad-ink); } .ativo-delta.na{ color:var(--ink-faint); }
 .ativo-delta .dim{ color:var(--ink-faint); font-weight:500; }
 .ativo-detalhe{ font-size:12px; color:var(--ink-muted); }
-.ativo-intradia{ height:56px; margin:8px 0 0; }
-.ativo-intradia:has(.intradia-dia){ height:68px; padding-top:14px; }
+.ativo-intradia{ height:36px; margin:4px 0 0; }
+.ativo-intradia:has(.intradia-dia){ height:48px; padding-top:14px; }
 .ativo-intradia.sem-dado{ height:0; margin-top:0; }
 .ativo-card.com-intradia .ativo-detalhe{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.ativo-card-acoes{ display:flex; justify-content:flex-end; align-items:center; gap:4px; margin-top:auto; padding-top:8px; }
+.ativo-card-acoes{ display:flex; justify-content:flex-end; align-items:center; gap:4px; margin-top:auto; padding-top:2px; }
 /* ações do cartão: botões redondos de 36px (alvo de toque de 44px com a margem do ::after) */
-.ativo-info-icon, .ativo-grafico-icon, .ativo-fav-btn{ position:relative; display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px;
+.ativo-info-icon, .ativo-grafico-icon, .ativo-fav-btn{ position:relative; display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px;
   border-radius:50%; color:var(--ink-muted); flex:none; cursor:pointer; -webkit-tap-highlight-color:transparent; }
 .ativo-info-icon::after, .ativo-grafico-icon::after, .ativo-fav-btn::after{ content:''; position:absolute; inset:-4px; }
 .ativo-info-icon:hover, .ativo-grafico-icon:hover, .ativo-fav-btn:hover{ background:color-mix(in srgb, var(--ink) 8%, transparent); color:var(--ink); }
@@ -151,14 +137,13 @@
 .ativo-grafico-periodo .chart-seg{ width:max-content; }
 .ativo-grafico-chart-wrap{ position:relative; }
 
-/* ---- 4 cartões KPI (1 por visão do patrimônio) ---- */
-.home-carteira{ margin-bottom:24px; }
-.rc-kpi, .dm-kpi{ display:flex; min-width:0; padding:0; border:0; background:transparent; }
-.rc-kpi > .chart-kpi, .dm-kpi > .chart-kpi{ flex:1; padding:var(--pad-card); border:1px solid var(--md-ext-color-card-border); background:var(--md-ext-color-card); border-radius:var(--r-card); }
-.rc-distrib-card{ padding:20px; }
+/* ---- Distribuição (06/10/2026: os 4 cartões KPI de total por carteira saíram) ---- */
+.rc-distrib-card{ padding:20px; height:100%; }
 .rc-distrib-cab{ margin-bottom:8px; }
 .rc-distrib-por{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); white-space:nowrap; }
-.rc-tabs{ margin:0 -4px 12px; }
+.rc-tabs{ margin:0 -4px 12px; overflow-x:auto; scrollbar-width:none; }
+.rc-tabs::-webkit-scrollbar{ display:none; }
+.rc-tabs > *{ min-width:max-content; }
 .rc-distrib{ min-height:120px; }
 .rc-distrib .chart-anel-valor{ font-size:16px; }
 .rc-distrib > .hint{ margin:0; padding:24px 0; text-align:center; }
@@ -166,6 +151,11 @@
 /* ---- grade principal + lateral ---- */
 .home-principal{ min-width:0; display:flex; flex-direction:column; }
 .home-lateral{ display:flex; flex-direction:column; gap:24px; min-width:0; }
+/* 06/10/2026: Distribuição e Proventos lado a lado (50%/50%) abaixo da Rentabilidade; sem Proventos (oculto), a Distribuição ocupa a linha; celular empilhado */
+.home-dist-prov{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:24px; align-items:stretch; }
+.home-dist-prov > *{ min-width:0; }
+.home-dist-prov:has(> #proventosSecao[hidden]){ grid-template-columns:minmax(0,1fr); }
+@media (max-width:899.98px){ .home-dist-prov{ grid-template-columns:minmax(0,1fr); gap:16px; } }
 .rentab-cab{ gap:12px 16px; }
 .rentab-periodo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0; max-width:100%; }
 .rentab-grid{ display:flex; flex-direction:column; gap:24px; }
@@ -237,10 +227,7 @@
 .prov-card{ padding:12px 16px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card); background:var(--surface); }
 
 @media (max-width:599.98px){
-  /* KPIs em carrossel (4 cartões empilhados ocupariam uma tela inteira) e período segmentado rolável */
-  .rc-kpis{ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding-inline:16px; gap:12px; margin:0 -16px; padding:2px 16px 6px; scrollbar-width:none; }
-  .rc-kpis::-webkit-scrollbar{ display:none; }
-  .rc-kpis > .rc-kpi{ flex:0 0 min(300px, 82vw); scroll-snap-align:start; }
+  /* período segmentado rolável */
   .rentab-periodo{ width:100%; overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; padding-bottom:2px; }
   .rentab-periodo > *{ flex:none; }
   .rentab-periodo .chart-seg{ width:max-content; max-width:none; }
@@ -286,29 +273,4 @@
 .cmp-var.bad{ color:var(--bad-ink); }
 .rentab-card:not(.rentab-card-full) .cmp-meses{ padding-left:0; border-left:none; }
 @media (max-width:599.98px){ .cmp-meses{ padding-left:0; border-left:none; } .rentab-cmp, .cmp-meses{ gap:4px 12px; } }
-
-/* moeda convertida ao lado do valor (format.js!formatComConversao) */
-.moeda-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); }
-
-/* ícone "i" + tooltip genérico (legenda de distribuição, tabelas) */
-.info-alvo{ cursor:pointer; }
-.info-icon{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:6px; border-radius:50%; background:var(--md-sys-color-surface-container-high);
-  border:1px solid var(--md-sys-color-outline-variant); font-size:12px; font-style:italic; font-family:var(--body-f); color:var(--ink-muted); vertical-align:middle; flex:none; }
-.info-alvo:hover .info-icon, .info-icon:hover{ color:var(--ink); border-color:var(--md-sys-color-outline); }
-.info-tooltip{ position:fixed; pointer-events:none; z-index:var(--z-popover, 50); max-width:280px; padding:10px 14px; border-radius:var(--md-sys-shape-corner-medium);
-  background:var(--md-sys-color-inverse-surface); color:var(--md-sys-color-inverse-on-surface); box-shadow:var(--md-sys-elevation-level3); font-size:var(--md-sys-typescale-body-small-size); line-height:1.5; white-space:pre-line; }
-
-/* distribuição em donut desenhado a mão (renderDistribuicao, usado em Carteiras) */
-.distrib{ display:flex; align-items:flex-start; gap:16px; margin-top:16px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant); }
-.distrib-donut{ width:64px; height:64px; flex:none; margin-top:2px; }
-.distrib-legenda{ display:flex; flex-direction:column; gap:8px; min-width:0; flex:1; }
-.distrib-item{ display:flex; flex-wrap:wrap; align-items:center; column-gap:8px; row-gap:2px; font-size:12px; color:var(--ink-muted); }
-.distrib-nome-wrap{ display:flex; align-items:center; gap:8px; flex:1 1 auto; min-width:72px; }
-.distrib-valores{ display:flex; align-items:center; flex:none; margin-left:auto; }
-.distrib-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
-.distrib-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.distrib-valor{ font-family:var(--mono); color:var(--ink-muted); white-space:nowrap; flex:none; display:flex; flex-direction:column; align-items:flex-end; line-height:1.3; }
-.distrib-valor-abaixo{ font-size:12px; font-weight:500; color:var(--ink-faint); }
-.distrib-pct{ padding-left:8px; font-family:var(--mono); font-weight:600; color:var(--ink); white-space:nowrap; flex:none; }
-@media (max-width:479.98px){ .distrib{ gap:12px; } .distrib-donut{ width:48px; height:48px; } }
 

@@ -147,13 +147,14 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
       abaRF, LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS,
       ultimaLinhaRF - LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS + 1, 12
     );
+    var idsEstaveisRf = idsEstaveisCarteiraRf_(dadosRF); // 06/10/2026 (A-71): ISIN + instituição, igual em todas as telas
     dadosRF.forEach(function (linha, i) {
       var codigo = linha[0];
       var tipoInvestimento = linha[3];
       if (!codigo && !tipoInvestimento) return; // linha em branco no fim da aba
 
       var marca = linha[1];       // 'Renda Emergencial' | 'Renda Fixa' (a nossa "Longo Prazo")
-      var nome = linha[2] || null; // C: Nome personalizado (coluna nova, 18/09/2026)
+      var nome = String(linha[2] == null ? '' : linha[2]).replace(/\s+/g, ' ').trim() || null; // C: Nome personalizado (coluna nova, 18/09/2026); 06/10/2026 (A-71): sem o "\t\n" que a planilha põe na frente
       var indexador = linha[4];
       var instituicao = linha[5]; // Instituição (mesma coluna que Transações Renda Fixa usa)
       var vencimento = linha[10];
@@ -161,7 +162,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         ? formatarMesAnoAtivos_(vencimento)
         : (vencimento || null);
 
-      var instituicaoNorm = normalizarInstituicaoRF_(instituicao);
+      var instituicaoNorm = normalizarInstituicaoRF_(instituicao); // regra única de instituição (A-71)
       var chaveVariacao = chaveVariacaoRF_(tipoInvestimento, instituicaoNorm, indexador, vencimento);
 
       lista.push({
@@ -175,6 +176,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         // no payload pra quem quiser usar.
         ticker: (tipoInvestimento || codigo) + (vencimentoTexto ? ' · ' + vencimentoTexto : ''),
         codigo: codigo || null,
+        idEstavel: idsEstaveisRf[i] || null,
         nome: nome,
         instituicao: instituicao || null, // 25/09/2026: ref da tela do ativo (rf:<nome>|<instituição>)
         marca: marca === 'Renda Emergencial' ? 'emergencial' : 'longo-prazo',

@@ -38,18 +38,30 @@
  *     network fetch runs untouched. Financial data must always be
  *     fresh, never served from this cache.
  *
+ * 06/10/2026 (A-42, v6): estratégias por tipo -
+ *   - JS: continua network-first com revalidação ('no-cache'). Não vira stale-while-revalidate: os módulos ES do site não têm hash
+ *     no nome (o site é publicado direto da branch, sem build), então servir cada módulo do cache e atualizar depois pode juntar
+ *     módulos de versões diferentes numa mesma carga (A novo importando um nome que o B antigo não exporta = página quebrada até
+ *     recarregar). A cascata de módulos que isso custava foi atacada no HTML (<link rel="modulepreload">: todos os módulos do
+ *     caminho crítico saem em paralelo, ~1 RTT) e na divisão por rota (import() lazy).
+ *   - CSS e imagens/manifest: stale-while-revalidate - o CSS bloqueia a 1ª pintura, então na visita seguinte vem do cache na hora e
+ *     é atualizado em segundo plano (a mudança aparece na carga seguinte). Mudou muito um CSS e quer que apareça já? Suba CACHE_VERSION.
+ *   - Fontes: cache-first (não mudam). HTML: network-first, com navigation preload (a requisição da página sai em paralelo
+ *     com a partida do worker).
+ *
  * CACHE_VERSION bumped to v2 in the same change (13/09/2026) - forces a
  * one-time cleanup of whatever got stuck under v1's cache-first CSS/JS
  * (the activate handler below already deletes any cache name that
  * doesn't match the current CACHE_NAME).
  */
 
-const CACHE_VERSION = 'v5'; // v5: Onda 3 M3 (06/10/2026) - m3-tokens.css, components.css, charts.css, assets/js/ui/*, assets/js/charts/*; v4: logo novo (05/10/2026)
+const CACHE_VERSION = 'v8'; // v8: fontes servidas pelo próprio site (assets/fonts, 06/10/2026) - sem Google Fonts; v6: A-42 (06/10/2026) - divisão por rota (import() lazy), comum-telas.css, SWR de CSS/imagens; v5: Onda 3 M3 (06/10/2026) - m3-tokens.css, components.css, charts.css, assets/js/ui/*, assets/js/charts/*; v4: logo novo (05/10/2026)
 const CACHE_NAME = `patrimonio-shell-${CACHE_VERSION}`;
 
 // Requests whose `destination` marks them as the static shell rather
 // than a page navigation or a data call.
-const STATIC_DESTINATIONS = new Set(['image', 'font', 'manifest']);
+const STATIC_DESTINATIONS = new Set(['font']); // cache-first
+const REVALIDATE_DESTINATIONS = new Set(['image', 'manifest', 'style']); // stale-while-revalidate (06/10/2026, A-42)
 
 self.addEventListener('install', (event) => {
   // Activate this version as soon as it finishes installing, instead of
@@ -68,6 +80,10 @@ self.addEventListener('activate', (event) => {
           .filter((name) => name.startsWith('patrimonio-shell-') && name !== CACHE_NAME)
           .map((name) => caches.delete(name)),
       );
+      // 06/10/2026 (A-42): a requisição da página sai junto com a partida do worker (event.preloadResponse, usado em networkFirst)
+      if (self.registration && self.registration.navigationPreload) {
+        try { await self.registration.navigationPreload.enable(); } catch (error) { /* só otimização */ }
+      }
       await self.clients.claim();
     })(),
   );
@@ -84,14 +100,34 @@ async function cacheFirst(request) {
   return response;
 }
 
+// 06/10/2026 (A-42): responde do cache na hora e atualiza em segundo plano (a versão nova vale da carga seguinte). Sem cópia
+// no cache, vai à rede (revalidando, como CSS/JS sempre foram). `event.waitUntil` mantém o worker vivo até o cache atualizar.
+async function staleWhileRevalidate(event, request) {
+  const cached = await caches.match(request);
+  const atualizar = (async () => {
+    const response = await fetch(request, { cache: 'no-cache' });
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  })();
+  if (cached) {
+    if (typeof event.waitUntil === 'function') event.waitUntil(atualizar.catch(() => {}));
+    return cached;
+  }
+  return atualizar;
+}
+
 // 26/09/2026 (v3): CSS/JS vão com cache 'no-cache' - o fetch do worker também
 // passa pelo cache HTTP do navegador, e o GitHub Pages manda max-age=600: sem
 // isso, logo depois de um deploy, um JS novo podia rodar com um CSS (ou outro
 // módulo) de até 10 min atrás. Navegação não aceita RequestInit (TypeError),
 // então ela segue como antes.
-async function networkFirst(request, { revalidar = false } = {}) {
+async function networkFirst(request, { revalidar = false, preload = null } = {}) {
   try {
-    const response = await (revalidar ? fetch(request, { cache: 'no-cache' }) : fetch(request));
+    const doPreload = preload ? await preload : null; // navigation preload (undefined/null quando não há)
+    const response = doPreload || await (revalidar ? fetch(request, { cache: 'no-cache' }) : fetch(request));
     if (response.ok) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, response.clone());
@@ -118,11 +154,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigations (HTML pages) AND now CSS/JS too (destination style/
-  // script) - both go network-first, see the header comment above.
+  // CSS, imagens e manifest: stale-while-revalidate (ver o cabeçalho). Navegações e JS: network-first, abaixo.
+  if (REVALIDATE_DESTINATIONS.has(request.destination) && request.mode !== 'navigate') {
+    event.respondWith(staleWhileRevalidate(event, request));
+    return;
+  }
+
+  // Navigations (HTML pages) AND JS (destination script) - both go network-first, see the header comment above.
   if (request.mode === 'navigate' || request.destination === 'document') {
-    event.respondWith(networkFirst(request));
-  } else if (request.destination === 'style' || request.destination === 'script') {
+    event.respondWith(networkFirst(request, { preload: event.preloadResponse }));
+  } else if (request.destination === 'script') {
     event.respondWith(networkFirst(request, { revalidar: true }));
   }
   // Anything else same-origin (e.g. a fetch() with no `destination`,

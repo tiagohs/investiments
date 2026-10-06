@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { videosHtml, criarCarregadorVideos, secaoVideosHtml, carregarApelidosPadrao, canalOficialHtml } from '../assets/js/videos.js';
+import { videosHtml, criarCarregadorVideos, secaoVideosHtml, carregarApelidosPadrao, canalOficialHtml, ligarPlayerVideos, paginasVisiveis } from '../assets/js/videos.js';
 
 const agora = new Date('2026-09-26T12:00:00Z');
 const v = (id, extra) => ({ id: id.padEnd(11, 'x'), canal: 'Canal', titulo: `Vídeo ${id}`, publicado: '2026-09-25T12:00:00Z', ...extra });
@@ -91,4 +91,44 @@ test('Vídeos (05/10/2026): canal sem vídeos (404/lista vazia) mostra "sem víd
   assert.equal(ok.window.document.querySelector('.vd-sem-videos'), null);
   const erro = new JSDOM(`<div>${videosHtml({ ok: false, erro: 'x' }, agora)}</div>`);
   assert.equal(erro.window.document.querySelector('.vd-sem-videos'), null);
+});
+
+// 06/10/2026 (Tiago: "exibe de 3 em 3, com paginação, carregando aos poucos, e eu conseguir ver a lista inteira")
+test('Vídeos: 3 por página, só a página atual entra no DOM (miniaturas lazy, sem iframe) e o paginador navega a lista inteira', () => {
+  const videos = Array.from({ length: 8 }, (_, i) => v(`p${i}`, { motivo: 'ativo', ativos: [] }));
+  const dom = new JSDOM('<body>' + secaoVideosHtml('sec') + '</body>');
+  const d = dom.window.document;
+  const alvo = d.querySelector('.vd-conteudo');
+  const resposta = { ok: true, configurado: true, videos };
+  alvo._vdResposta = resposta; alvo._vdAgora = agora;
+  alvo.innerHTML = videosHtml(resposta, agora);
+  ligarPlayerVideos(d.getElementById('sec'));
+  assert.equal(alvo.querySelectorAll('.vd-card').length, 3, 'só 3 cartões na 1ª página');
+  assert.equal(alvo.querySelectorAll('iframe').length, 0, 'nenhum iframe montado');
+  assert.ok([...alvo.querySelectorAll('.vd-thumb img')].every((i) => i.getAttribute('loading') === 'lazy'));
+  assert.equal(alvo.querySelector('.vd-pag-info').textContent, '1–3 de 8');
+  assert.equal(alvo.querySelectorAll('.vd-pag[data-pagina]:not(.vd-pag-nav)').length, 3, '3 páginas numeradas (8 vídeos)');
+  assert.ok(alvo.querySelector('.vd-pag-nav[data-pagina="-1"]').disabled);
+  const todos = new Set();
+  for (let p = 0; p < 3; p += 1) {
+    alvo.querySelectorAll('.vd-thumb[data-video]').forEach((b) => todos.add(b.dataset.video));
+    const prox = alvo.querySelector('.vd-pag-mais');
+    if (!prox.disabled) prox.dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  }
+  assert.equal(todos.size, 8, 'navegando, a lista inteira é alcançável');
+  assert.equal(alvo.querySelector('.vd-pag-info').textContent, '7–8 de 8');
+  assert.equal(alvo.querySelectorAll('.vd-card').length, 2);
+  assert.ok(alvo.querySelector('.vd-pag-mais').disabled);
+  // até 3 vídeos: sem paginador
+  assert.doesNotMatch(videosHtml({ ok: true, configurado: true, videos: videos.slice(0, 3) }, agora), /vd-pager/);
+  assert.deepEqual(paginasVisiveis(0, 5), [0, 1, 2, 3, 4]);
+  assert.deepEqual(paginasVisiveis(5, 12), [0, '…', 4, 5, 6, '…', 11]);
+});
+
+test('Vídeos (carteira, 2 grupos): o título do grupo aparece na página onde ele entra', () => {
+  const lista = [...[1, 2, 3, 4].map((i) => v(`a${i}`, { motivo: 'ativo', ativos: [] })), ...[1, 2].map((i) => v(`t${i}`, { motivo: 'tema', ativos: [] }))];
+  const r = { ok: true, configurado: true, carteira: 'acoes', videos: lista };
+  const titulos = (html) => [...new JSDOM(`<body>${html}</body>`).window.document.querySelectorAll('.vd-grupo-titulo')].map((h) => h.textContent);
+  assert.deepEqual(titulos(videosHtml(r, agora, 0)), ['Citam seus ativos']);
+  assert.deepEqual(titulos(videosHtml(r, agora, 1)), ['Citam seus ativos', 'Sobre o tema da carteira']);
 });

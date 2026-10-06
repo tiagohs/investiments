@@ -35,10 +35,26 @@
  * então seus links continuam sendo navegação normal do navegador.
  */
 
-import { montarPaginaInicio } from './pages/inicio.js';
-import { montarPaginaDistribuicoesMetas } from './pages/distribuicoes-metas.js';
-import { montarPaginaMetas, TEMPLATE_METAS } from './pages/metas.js'; // 02/10/2026: Metas e Objetivos
+import { TEMPLATE_METAS } from './pages/metas-template.js'; // só o HTML da aba Metas (o código da tela é lazy, ver rotaLazy)
 import { markActiveSection } from './shell.js';
+
+/**
+ * 06/10/2026 (A-42, carga por tela): a tela de cada aba (pages/*.js, 100-150 KB cada + o que ela arrasta) só é importada - com
+ * import() - quando a aba é aberta pela primeira vez; antes o router importava as 3 estaticamente e qualquer uma das 3 URLs
+ * baixava o código das outras duas (37-70 módulos). O CSS da tela (assets/css/<nome>.css) vem junto com o import(): o HTML de
+ * entrada só linka o CSS da própria aba (ver tests/carga-telas.test.js) e as outras folhas entram aqui, na primeira visita
+ * (o <main> só aparece depois que a folha carregou, pra não piscar sem estilo).
+ *
+ * Campos extras de uma rota lazy: `carregar()` -> import() do módulo da tela, `css` -> folhas da tela (relativas a assets/css/),
+ * `mount` -> importa o módulo (se ainda não veio) e chama a função de montagem. `mount` continua sendo o contrato do router.
+ */
+function rotaLazy({ carregar, montar, ...resto }) {
+  return {
+    ...resto,
+    carregar,
+    mount: async (token, opcoes) => (await carregar())[montar](token, opcoes),
+  };
+}
 
 /**
  * Uma entrada por "aba" que o router sabe montar sem reload. `href` tem
@@ -48,34 +64,72 @@ import { markActiveSection } from './shell.js';
  * especial) - é também o valor usado em history.pushState.
  */
 export const ROUTES = [
-  {
+  rotaLazy({
     key: 'inicio',
     href: 'index.html',
     title: 'Início · Patrimônio', // 06/10/2026 (A-69): "<Subaba> · <Seção> · Patrimônio"
     containerId: 'page-inicio',
     templateId: 'page-inicio-template',
-    mount: montarPaginaInicio,
-  },
-  {
+    css: ['charts.css', 'componentes-grafico.css', 'comum-telas.css', 'inicio.css'],
+    carregar: () => import('./pages/inicio.js'),
+    montar: 'montarPaginaInicio',
+  }),
+  rotaLazy({
     key: 'distribuicoes',
     href: 'distribuicoes-metas.html',
     title: 'Acompanhamento de Ativos · Patrimônio', // 02/10/2026: era "Distribuições e Metas" (Tiago renomeou o menu); 06/10/2026 (A-69): formato do título
     containerId: 'page-distribuicoes',
     templateId: 'page-distribuicoes-template',
-    mount: montarPaginaDistribuicoesMetas,
-  },
+    css: ['charts.css', 'comum-telas.css', 'distribuicoes-metas.css'],
+    carregar: () => import('./pages/distribuicoes-metas.js'),
+    montar: 'montarPaginaDistribuicoesMetas',
+  }),
   // 02/10/2026: menu "Metas e Objetivos" (pages/metas.js). O conteúdo vem de
   // TEMPLATE_METAS (templateHtml) em vez de assets/partials/pages.html.
-  {
+  rotaLazy({
     key: 'metas',
     href: 'metas.html',
     title: 'Metas e Objetivos',
     containerId: 'page-metas',
     templateId: 'page-metas-template',
     templateHtml: TEMPLATE_METAS,
-    mount: montarPaginaMetas,
-  },
+    css: ['charts.css', 'componentes-grafico.css', 'comum-telas.css', 'distribuicoes-metas.css', 'metas.css'],
+    carregar: () => import('./pages/metas.js'),
+    montar: 'montarPaginaMetas',
+  }),
 ];
+
+/** URL absoluta de uma folha em assets/css/ (relativa a ESTE arquivo: funciona na raiz e num subpath do GitHub Pages). */
+export function urlCss(nome) {
+  return new URL(`../css/${nome}`, import.meta.url).href;
+}
+
+/**
+ * Garante que as folhas da rota estão no <head> e carregadas. As que o HTML de entrada já linka (href igual) contam como
+ * presentes; as outras viram <link rel="stylesheet"> e a promessa só resolve no `load` (ou `error`, ou em `limiteMs` - nunca
+ * trava a aba por causa de uma folha).
+ */
+export function carregarCssDaRota(rota, doc, { limiteMs = 4000 } = {}) {
+  const nomes = (rota && rota.css) || [];
+  if (!nomes.length || !doc || !doc.head) return Promise.resolve();
+  const existentes = new Map([...doc.querySelectorAll('link[rel="stylesheet"]')].map((l) => [l.href, l]));
+  return Promise.all(nomes.map((nome) => new Promise((resolve) => {
+    const href = urlCss(nome);
+    let link = existentes.get(href);
+    if (link && (link.sheet || link.dataset.cssPronto === '1' || !link.dataset.cssLazy)) { resolve(); return; }
+    if (!link) {
+      link = doc.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.cssLazy = '1';
+      doc.head.appendChild(link);
+    }
+    const pronto = () => { link.dataset.cssPronto = '1'; resolve(); };
+    link.addEventListener('load', pronto, { once: true });
+    link.addEventListener('error', pronto, { once: true });
+    setTimeout(pronto, limiteMs);
+  })));
+}
 
 /**
  * O partial sempre mora em assets/partials/pages.html relativo a ESTE
@@ -188,22 +242,43 @@ export async function mountRouter(doc, {
   const montado = new Set();
   let chaveAtual = null;
 
+  let sequencia = 0;
+
+  /** Mostra só o <main> da rota (e atualiza menu, título e URL). */
+  function mostrar(rota, empilharHistorico) {
+    routes.forEach((r) => {
+      const el = doc.getElementById(r.containerId);
+      if (el) el.hidden = r.key !== rota.key;
+    });
+    if (empilharHistorico && winImpl && winImpl.history) {
+      winImpl.history.pushState({ routeKey: rota.key }, '', rota.href);
+    }
+  }
+
   async function ativar(key, { empilharHistorico = true } = {}) {
     const rota = routes.find((r) => r.key === key);
     if (!rota) return;
     if (key === chaveAtual) return; // já está na aba - clique redundante, nada a fazer
 
-    routes.forEach((r) => {
-      const el = doc.getElementById(r.containerId);
-      if (el) el.hidden = r.key !== key;
-    });
+    const minhaVez = ++sequencia;
+    chaveAtual = key;
     markActiveSection(doc, key);
     doc.body.dataset.section = key;
     doc.title = rota.title;
-    chaveAtual = key;
-
-    if (empilharHistorico && winImpl && winImpl.history) {
-      winImpl.history.pushState({ routeKey: key }, '', rota.href);
+    // URL e menu mudam na hora do clique; o <main> novo só aparece quando o código e o CSS da aba chegaram (1ª visita) -
+    // até lá a aba anterior continua na tela em vez de um esqueleto sem estilo.
+    const primeiraVisita = !montado.has(key);
+    if (primeiraVisita && (rota.carregar || (rota.css && rota.css.length))) {
+      if (empilharHistorico && winImpl && winImpl.history) winImpl.history.pushState({ routeKey: key }, '', rota.href);
+      try {
+        await Promise.all([carregarCssDaRota(rota, doc), rota.carregar ? rota.carregar() : null]);
+      } catch (error) {
+        console.error(`router.js: falha ao carregar a aba "${key}"`, error);
+      }
+      if (minhaVez !== sequencia) return; // o usuário já foi pra outra aba enquanto esta carregava
+      mostrar(rota, false);
+    } else {
+      mostrar(rota, empilharHistorico);
     }
 
     if (!montado.has(key)) {

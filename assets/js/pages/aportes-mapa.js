@@ -27,7 +27,7 @@
 // posição do popover) ficam em aportes.js!ligarAportes, que já escuta a aba.
 
 import { formatBRL, formatNumeroBR, formatUSD as usd, formatDM, formatDMAcurto, formatMesAno, formatPctSinal } from '../format.js';
-import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
+import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-pecas.js';
 import { CLASSES_APORTE, MESES_CURTOS } from './aportes-calc.js';
 import {
   classePorTicker, todasAsCompras, ultimosMeses, ativosDaClasseMapa, celulaMapa, mesesSemComprar,

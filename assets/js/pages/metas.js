@@ -46,14 +46,10 @@ import { urlAtivo } from '../link-ativo.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js';
 import { renderAnalise } from '../analise-grafico.js';
-import {
-  TIPOS_META, CATEGORIAS_ACUMULO, MOEDAS, STATUS_META, EXPLICACOES, aparenciaMeta, calcularMeta, serieProjecao, resumoMetas,
-  metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, vinculosOrfaos, rotuloMes, rotuloDuracao,
-  mesesEntre, mesDe, cotacao, somarMeses, taxaMensal, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor, resumoMarcos, fraseMarcos, velocidadeEntreMarcos,
-  analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal, SUGESTOES_INVESTIMENTO, chaveSugestaoInvestimento,
-  avaliarVinculos, destinoPadrao, contaAposentadoria, calcularViagem, explicarStatus,
-  migrarMetaViagem, entradaPadrao, normalizarUrl, acharPais, paisPorCodigo, sugestaoTaxaTuristica, ehLinkWanderlog,
-} from './metas-calc.js';
+import { TIPOS_META, CATEGORIAS_ACUMULO, MOEDAS, STATUS_META, tomProgresso, ultimoMesFechadoMetas, aparenciaMeta, rotuloMes, rotuloDuracao, mesesEntre, mesDe, cotacao, somarMeses, chaveSugestaoInvestimento, avaliarVinculos, explicarStatus } from './metas-calc-nucleo.js';
+import { EXPLICACOES, calcularMeta, serieProjecao, resumoMetas, metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, ignoraAvisoSobreposicao, LIMITE_ALERTA_VENCIMENTO_MESES, vinculosOrfaos, taxaMensal, marcosProjecao, SUGESTOES_INVESTIMENTO, destinoPadrao, contaAposentadoria } from './metas-calc-plano.js';
+import { velocidadeMeta, dicasAcelerar, cenariosRendaMenor, resumoMarcos, fraseMarcos, velocidadeEntreMarcos, analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal } from './metas-calc-analise.js';
+import { calcularViagem, migrarMetaViagem, entradaPadrao, normalizarUrl, acharPais, paisPorCodigo, sugestaoTaxaTuristica, ehLinkWanderlog } from './metas-calc-viagem.js';
 import {
   bandeiraHtml, bandeirasViagemHtml, opcoesPaisesHtml, opcoesCidadesHtml, destinosEditorHtml, fixosEditorHtml, entradasEditorHtml,
   resumoViagemHtml, resumoEntradaHtml, totalDestinoTexto, notaTaxaHtml, porMesHtml, botaoRoteiroHtml, viagemDetalheHtml,
@@ -69,24 +65,17 @@ import {
 } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas, breadcrumb, confirmar, toast e erro de carga padrão do kit
 import { criarAnelProgresso, criarBarraProgresso } from '../charts/index.js';
 import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
+// 06/10/2026: tipo "Distribuição da carteira" (os objetivos da carteira) - cálculo e HTML em metas-distribuicao.js
+import {
+  TIPO_DISTRIBUICAO, ehMetaDistribuicao, pesosDaMeta, atuaisDeResposta, calcularDistribuicao, cardDistribuicaoHtml, detalheDistribuicaoHtml,
+  tileDistribuicaoHtml, passoDadosDistribuicaoHtml, atualizarSomasDistribuicao, previaDistribuicaoHtml, erroPassoDistribuicao,
+  revisarDistribuicaoHtml, passoVinculosDistribuicaoHtml,
+} from './metas-distribuicao.js';
 
 export { opcoesProjecao, opcoesHistorico, opcoesRenda };
 
-/** Conteúdo do <main> da aba (o router injeta - ver router.js, rota "metas"). */
-export const TEMPLATE_METAS = `
-<div class="mt-pagina">
-  <!-- 06/10/2026 (Onda 3): cabeçalho padrão (título + subtítulo + Atualizar + Nova meta) montado por montarCabecalhoPagina -->
-  <header id="mtCabecalho"></header>
-  <div class="mt-carregando" id="mtCarregando" aria-hidden="true">
-    <div class="grid-kpi"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
-    <div class="mt-grade"><span class="skel" style="height:210px"></span><span class="skel" style="height:210px"></span><span class="skel" style="height:210px"></span></div>
-  </div>
-  <div class="mt-erro" id="mtErro" hidden></div>
-  <div class="avisos-banner" id="mtAvisos" hidden></div>
-  <div id="mtTela" hidden></div>
-</div>
-<div class="mt-dialogo-fundo" id="mtDialogo" hidden></div>
-`;
+import { TEMPLATE_METAS } from './metas-template.js'; // 06/10/2026 (A-42): o router precisa só do HTML, sem carregar a tela inteira
+export { TEMPLATE_METAS };
 
 // ---------------------------------------------------------------------------
 // Números digitados (pt-BR)
@@ -206,32 +195,35 @@ export function montarProgressos(raiz) {
     const v = Number(el.dataset.prog);
     const meta = el.dataset.meta != null && el.dataset.meta !== '' ? Number(el.dataset.meta) : undefined;
     criarBarraProgresso(el, {
-      valor: Number.isFinite(v) ? v : 0, meta, cor: v >= 1 ? 'up' : (COR_CHART[el.dataset.cor] || 1), rotulo: el.dataset.rotulo || 'Progresso',
+      valor: Number.isFinite(v) ? v : 0, meta, cor: COR_TOM_PROGRESSO[tomProgresso(v)], rotulo: el.dataset.rotulo || 'Progresso',
     });
     el.removeAttribute('data-prog');
   });
 }
 
+/** 06/10/2026: cor do progresso pela semântica de metas - verde atingida, amarelo quase lá (90%+), cinza em progresso. */
+/** 06/10/2026: o mês "em curso" (parcial) - null no último dia do mês, quando ele já conta como fechado. */
+const mesEmCurso = (hoje) => { const mes = mesDe(hoje); return mes && mes <= ultimoMesFechadoMetas(hoje) ? null : mes; };
+const COR_TOM_PROGRESSO = { bom: 'var(--chart-up)', quase: 'var(--warn)', neutro: 'var(--chart-axis)' };
+
 /**
  * Anel de progresso: `p` 0-1; `p2` (opcional) = anel fino de fora (ex. bruto da reserva). 06/10/2026 (Onda 3): só o espaço
  * (com os dados em data-*); `montarAneis` troca pelo anel da biblioteca de gráficos (varre no sentido horário, texto no meio).
  */
-export function anelProgressoHtml(p, { tamanho = 104, tom = 'meta', p2 = null, rotulo = 'da meta', cor = 'acoes' } = {}) {
+export function anelProgressoHtml(p, { tamanho = 148, tom = null, rotulo = 'da meta', cor = 'acoes' } = {}) {
   const v = Math.max(0, Math.min(1, p || 0));
-  const v2 = p2 == null ? '' : String(Math.max(0, Math.min(1, p2)));
-  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;min-height:${tamanho}px" data-anel="${v}" data-anel2="${v2}" data-tom="${tom}" data-cor="${esc(cor)}" data-tamanho="${tamanho}" data-rotulo="${esc(rotulo)}" data-texto="${esc(pct(p))}"></div>`;
+  tom = tom || tomProgresso(v); // 06/10/2026: um anel só, na cor do estado (o bruto da reserva virou texto secundário)
+  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;min-height:${tamanho}px" data-anel="${v}" data-tom="${tom}" data-cor="${esc(cor)}" data-tamanho="${tamanho}" data-rotulo="${esc(rotulo)}" data-texto="${esc(pct(p))}"></div>`;
 }
 
 /** Monta os anéis (`.mt-anel[data-anel]`) com `criarAnelProgresso`. */
 export function montarAneis(raiz) {
   if (!raiz) return;
   raiz.querySelectorAll('.mt-anel[data-anel]').forEach((el) => {
-    const tom = el.dataset.tom;
-    const cor = tom === 'bom' ? 'var(--chart-up)' : tom === 'ruim' ? 'var(--chart-down)' : (COR_CHART[el.dataset.cor] || 1);
-    const v2 = el.dataset.anel2;
+    const cor = COR_TOM_PROGRESSO[el.dataset.tom] || COR_TOM_PROGRESSO.neutro;
     criarAnelProgresso(el, {
-      valor: Number(el.dataset.anel), valor2: v2 === '' ? undefined : Number(v2), tamanho: Number(el.dataset.tamanho) || 104, espessura: 11,
-      cor, cor2: 'var(--chart-axis)', rotulo: el.dataset.texto, subrotulo: el.dataset.rotulo, aria: 'Progresso da meta:',
+      valor: Number(el.dataset.anel), tamanho: Number(el.dataset.tamanho) || 148, espessura: 12,
+      cor, rotulo: el.dataset.texto, subrotulo: el.dataset.rotulo, aria: 'Progresso da meta:',
     });
     el.removeAttribute('data-anel');
   });
@@ -280,7 +272,7 @@ export function cardMetaHtml(meta, c) {
   <span class="mt-card-cab">
     ${seloMetaHtml(meta)}
     <span class="mt-card-tit"><strong>${esc(meta.nome)}</strong><span>${c.viagem ? bandeirasViagemHtml(meta, { tamanho: 15 }) : ''}${esc(ap.rotulo)}${meta.contribuicao === 'recorrente' ? ' · pagamento recorrente' : ''}</span></span>
-    ${meta.status === 'arquivada' ? '<span class="mt-status na">Arquivada</span>' : statusPillHtml(c.status, meta)}
+    ${meta.status === 'arquivada' ? '<span class="mt-status na">Arquivada</span>' : statusPillHtml(c.status, meta, c.percentual)}
   </span>
   <span class="mt-card-valor">${linhaValor}</span>
   <span class="mt-prog" data-prog="${p.toFixed(4)}" data-cor="${esc(ap.cor)}" data-rotulo="${esc(`${pct(c.percentual)} de ${meta.nome}`)}"></span>
@@ -322,15 +314,42 @@ export function fraseRitmo(meta, c) {
     let tom = 'neutro';
     if (c.mesesRestantes != null) {
       const dif = Math.ceil(c.mesesEstimados) - c.mesesRestantes;
-      tom = dif <= 0 ? 'bom' : 'ruim';
-      quando += dif <= 0 ? ` - <span class="mt-bom">${rotuloDuracao(-dif) === 'agora' ? 'bem no prazo' : `${rotuloDuracao(-dif)} antes do prazo`}</span>` : ` - <span class="mt-ruim">${rotuloDuracao(dif)} depois do prazo</span>`;
+      tom = dif <= 0 ? 'bom' : 'atencao'; // 06/10/2026: atraso é amarelo (vermelho só pra erro/grave)
+      quando += dif <= 0 ? ` - <span class="mt-bom">${rotuloDuracao(-dif) === 'agora' ? 'bem no prazo' : `${rotuloDuracao(-dif)} antes do prazo`}</span>` : ` - <span class="mt-atencao">${rotuloDuracao(dif)} depois do prazo</span>`;
     }
     return { tom, html: `Nesse ritmo você chega em ${quando}${aporteTxt ? `, aportando ${aporteTxt}` : ' só com o rendimento'}.` };
   }
   // 05/10/2026 (A-15): ritmo <= 0 (aporte real zero ou só resgates) tem mensagem própria, em vez de "nunca" sem explicação
-  if (c.ritmoSemAporte) return { tom: 'ruim', html: `Nos últimos meses você não aportou nessa meta (ritmo médio ${formatMoeda(c.aporteReal, 'BRL', { casas: 0 })}/mês): sem aporte não dá pra projetar quando chega. Informe um aporte em Editar ou veja o aporte necessário e as simulações abaixo.` };
+  if (c.ritmoSemAporte) return { tom: 'atencao', html: `Nos últimos meses você não aportou nessa meta (ritmo médio ${formatMoeda(c.aporteReal, 'BRL', { casas: 0 })}/mês): sem aporte não dá pra projetar quando chega. Informe um aporte em Editar ou veja o aporte necessário e as simulações abaixo.` };
   if (c.aporteOrigem === 'nenhum') return { tom: 'neutro', html: 'Ainda não dá pra saber o seu ritmo: vincule investimentos (o aporte real sai do histórico deles) ou informe um aporte mensal em Editar.' };
-  return { tom: 'ruim', html: `No ritmo de hoje (${aporteTxt || 'sem aporte'}) a meta não chega no alvo - veja as simulações abaixo.` };
+  return { tom: 'atencao', html: `No ritmo de hoje (${aporteTxt || 'sem aporte'}) a meta não chega no alvo - veja as simulações abaixo.` };
+}
+
+/**
+ * 06/10/2026 (Tiago: "se já passei da meta, quanto eu poderia resgatar (considerando IR) e destinar a outro objetivo (ações, FIIs)
+ * sem diminuir a meta da renda emergencial"): bloco "Excedente da reserva" - bruto a resgatar, IR/IOF estimado, líquido liberado,
+ * de quais títulos tirar (menor imposto primeiro) e pra onde (Radar / Aportes). Vazio se a reserva não passou da meta.
+ */
+export function excedenteHtml(meta, c, { raizSite = null } = {}) {
+  const ex = c && c.excedente;
+  if (meta.tipo !== 'reservaEmergencia' || !ex) return '';
+  let raiz = raizSite;
+  if (!raiz) { try { raiz = resolveSiteRootUrl(); } catch (_) { raiz = 'http://localhost/'; } }
+  const radar = new URL('distribuicoes-metas.html', raiz).href;
+  const aportes = new URL('transacoes/index.html#aportes', raiz).href;
+  const m0 = (v) => formatMoeda(v, 'BRL', { casas: 0 });
+  const linhas = ex.titulos.map((t) => `<tr><th scope="row">${esc(t.nome)}${t.vencimento ? `<small class="mt-fraco"> vence ${rotuloMes(t.vencimento)}</small>` : ''}</th><td class="num">${m0(t.bruto)}</td><td class="num">${t.imposto > 0.5 ? `−${m0(t.imposto)}` : '—'}</td><td class="num">${m0(t.liquido)}</td><td>${t.total ? 'resgate total' : 'resgate parcial'}</td></tr>`).join('');
+  return `<section class="mt-bloco mt-excedente" id="mtExcedente"><div class="mt-bloco-cab"><h3>Excedente da reserva${infoHtml('A reserva (líquida, já sem IR/IOF) passou do saldo ideal. Esse excedente está parado sem necessidade: dá pra resgatar e direcionar a outro objetivo (ações, FIIs) sem baixar a reserva abaixo da meta. A sugestão tira primeiro os títulos que pagam MENOS imposto (os mais antigos e os isentos). Resgate parcial: o imposto é proporcional (estimativa; a corretora ou o Tesouro confirmam no resgate).', { rotulo: 'Como o excedente é calculado?' })}</h3><span class="mt-fraco">acima do saldo ideal: <b class="mono">${m0(ex.excedenteLiquido)}</b> (líquido)</span></div>
+  ${ex.semTitulos ? '<p class="mt-nota">Não há títulos de renda fixa vinculados com saldo para sugerir o resgate: o excedente está em outros ativos ou em saldo em conta.</p>' : `<dl class="mt-exc-nums">
+    <div><dt>Resgatar (bruto)</dt><dd class="mono">${m0(ex.brutoResgatar)}</dd></div>
+    <div><dt>IR/IOF estimado</dt><dd class="mono">${ex.imposto > 0.5 ? `−${m0(ex.imposto)}` : 'isento'}</dd></div>
+    <div><dt>Líquido liberado</dt><dd class="mono mt-bom">${m0(ex.liquidoLiberado)}</dd></div>
+    <div><dt>Reserva depois (líquida)</dt><dd class="mono">${m0(ex.reservaDepois)}</dd></div>
+  </dl>
+  <div class="card card-flat"><div class="tabela-wrap"><table class="tabela tabela-baixa mt-tabela"><thead><tr><th scope="col">De qual título</th><th scope="col" class="num">Bruto</th><th scope="col" class="num">IR/IOF</th><th scope="col" class="num">Líquido</th><th scope="col">Resgate</th></tr></thead><tbody>${linhas}</tbody></table></div></div>
+  ${ex.faltaTitulos > 0.5 ? `<p class="mt-nota">Os títulos vinculados cobrem ${m0(ex.liquidoLiberado)} do excedente; os outros ${m0(ex.faltaTitulos)} estão em ativos que não são renda fixa.</p>` : ''}
+  ${ex.estimado ? '<p class="mt-nota">Algum título está sem estimativa de IR (tratado como sem imposto): confira antes de resgatar.</p>' : ''}`}
+  <p class="mt-exc-acoes"><span class="mt-fraco">Pra onde levar:</span> <a class="btn btn-tonal mt-btn-sm" href="${esc(radar)}">Ver no Radar de oportunidades</a> <a class="btn btn-text mt-btn-sm" href="${esc(aportes)}">Registrar o aporte</a></p></section>`;
 }
 
 export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
@@ -357,6 +376,12 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     // 04/10/2026 (Tiago: "quero saber quanto tenho que pagar por mês, e quanto tenho que aportar e guardar pro futuro"):
     // o herói olha só o que falta JUNTAR; o que já foi comprado no cartão aparece à parte ("A pagar")
     const est = c.moeda !== 'BRL' && c.alvoMoeda != null;
+    // 06/10/2026 (Tiago: "falta a maior [informação]: quanto de fato a viagem está custando"): o número principal
+    if (c.custoTotal) {
+      const ct = c.custoTotal;
+      const detalhe = `Detalhe: compras já feitas ${formatMoeda(ct.comprasBRL, 'BRL', { casas: 0 })}${ct.comprasPendenteBRL > 0.5 ? ` (${formatMoeda(ct.comprasPendenteBRL, 'BRL', { casas: 0 })} ainda a confirmar nas faturas)` : ''} + já guardado ${formatMoeda(ct.guardadoBRL, 'BRL', { casas: 0 })} + falta guardar ${formatMoeda(ct.faltaBRL, 'BRL', { casas: 0 })} = ${formatMoeda(ct.totalBRL, 'BRL', { casas: 0 })}.`;
+      nums.push(numHeroi({ icone: 'conta', rotulo: 'Custo total da viagem', valor: valorGrandeHtml(ct.totalBRL), tom: 'principal', sub: `compras <b>${r0(ct.comprasBRL)}</b> + guardado <b>${r0(ct.guardadoBRL)}</b> + falta guardar <b>${r0(ct.faltaBRL)}</b>`, dica: `${EXPLICACOES.custoTotal} ${detalhe}` }));
+    }
     nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já guardado', valor: valorGrandeHtml(c.ja), sub: `de <b>${c.total != null ? r0(c.total) : '—'}</b> a juntar${est ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })} a ${formatMoeda(c.cotacao, 'BRL', { casas: 2 })})` : ''}`, dica: EXPLICACOES.aJuntar }));
     const subEntradas = c.entradasTotal > 0 && c.decomposicao ? `− <b>${r0(c.entradasTotal)}</b> de entradas programadas = <b>${r0(c.decomposicao.restante)}</b> a aportar` : (c.falta > 0 ? 'falta guardar até a viagem' : `${pct(c.percentual)} concluído`);
     nums.push(numHeroi({ icone: 'falta', rotulo: 'Falta juntar', valor: c.falta > 0 ? `<span class="mt-ruim">${valorGrandeHtml(c.falta)}</span>` : '<span class="mt-bom">nada</span>', tom: c.falta > 0 ? 'ruim' : 'bom', sub: subEntradas, dica: EXPLICACOES.entradas }));
@@ -387,7 +412,7 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   }
   const ritmo = fraseRitmo(meta, c);
   const p = c.percentual || 0;
-  const tomAnel = ['concluida', 'saldo-ideal'].includes(c.status) ? 'bom' : (['atrasada', 'vencida'].includes(c.status) ? 'ruim' : 'meta');
+  const tomAnel = tomProgresso(p, { atingida: ['concluida', 'saldo-ideal'].includes(c.status) }); // 06/10/2026: verde/amarelo/cinza
   const viagemInfo = meta.especificos && meta.especificos.destino ? ` · ${esc(meta.especificos.destino)}` : '';
   const destinosTxt = c.viagem && c.viagem.destinos.length ? ` · ${c.viagem.destinos.map((d) => esc(d.cidade || d.pais)).join(', ')}` : '';
   const bandeiras = c.viagem ? bandeirasViagemHtml(meta, { tamanho: 18 }) : '';
@@ -395,20 +420,21 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   <div class="mt-heroi-cab">
     ${seloMetaHtml(meta, { tamanho: 46 })}
     <div class="mt-heroi-tit"><span class="mt-eyebrow">${bandeiras}${esc(ap.rotulo)}${viagemInfo}${destinosTxt}${c.dataAlvo ? ` · até ${rotuloMes(c.dataAlvo)}` : ''}</span><h2>${esc(meta.nome)}</h2></div>
-    ${arquivada ? '<span class="mt-status na">Arquivada</span>' : statusComDicaHtml(c.status, meta)}
+    ${arquivada ? '<span class="mt-status na">Arquivada</span>' : statusComDicaHtml(c.status, meta, c.percentual)}
     <div class="mt-heroi-acoes">
       ${botaoRoteiroHtml(meta)}
       ${arquivada ? '<button class="btn btn-ghost mt-btn-sm" type="button" data-restaurar>Restaurar</button><button class="btn btn-ghost mt-btn-sm mt-btn-perigo" type="button" data-excluir-definitivo>Excluir definitivamente</button>' : '<button class="btn btn-ghost mt-btn-sm" type="button" data-editar>Editar</button><button class="btn btn-ghost mt-btn-sm" type="button" data-arquivar>Arquivar</button>'}
     </div>
   </div>
   <div class="mt-heroi-corpo">
-    ${anelProgressoHtml(p, { tom: tomAnel, cor: ap.cor, p2: reserva && c.liquido.impostoBRL > 0 ? c.percentualBruto : null, rotulo: reserva ? 'líquido' : 'da meta' })}
+    ${anelProgressoHtml(p, { tom: tomAnel, cor: ap.cor, rotulo: reserva ? 'líquido' : 'da meta' })}
     <div class="mt-heroi-numeros">${nums.join('')}</div>
   </div>
   ${c.viagem ? porMesHtml(c) : ''}
-  ${reserva && c.liquido.impostoBRL > 0 ? `<p class="mt-heroi-legenda"><i class="liq"></i>líquido ${pct(c.percentual)} <i class="bru"></i>bruto ${pct(c.percentualBruto)} do saldo ideal</p>` : ''}
+  ${reserva && c.liquido.impostoBRL > 0 ? `<p class="mt-heroi-legenda">${pct(c.percentual)} do saldo ideal no líquido · bruto (antes do IR/IOF) ${pct(c.percentualBruto)}</p>` : ''}
   <p class="mt-heroi-ritmo ${ritmo.tom}">${iconeNum(ritmo.tom === 'bom' ? 'foguete' : 'relogio', 16)}<span>${ritmo.html}</span>${infoHtml(EXPLICACOES.noSeuRitmo, { rotulo: 'Como o ritmo é calculado?' })}</p>
   ${meta.notas ? `<p class="mt-notas">${esc(meta.notas)}</p>` : ''}
+  ${c.sobreposicao && !arquivada ? `<p class="mt-alerta mt-alerta-acao"><span>${esc(c.sobreposicao.texto)}</span><button type="button" class="btn btn-text mt-btn-sm" data-ignorar-sobreposicao>Ignorar este aviso</button></p>` : ''}
   ${c.avisos.length ? `<p class="mt-alerta">${c.avisos.map(esc).join(' · ')}</p>` : ''}
 </section>`;
 }
@@ -682,7 +708,8 @@ export async function montarPaginaMetas(token, {
     const r = estado.resposta;
     const ativas = r.metas || [];
     const calcs = ativas.map((m) => ({ meta: m, c: calcDe(m) }));
-    const res = resumoMetas(calcs.map((x) => x.c), { patrimonioVinculavel: estado.ctx && estado.ctx.alocacao ? estado.ctx.alocacao.patrimonioVinculavel : null });
+    const res = resumoMetas(calcs.filter((x) => !ehMetaDistribuicao(x.meta)).map((x) => x.c), { // 06/10/2026: a distribuição da carteira não tem alvo em R$ (não entra nos totais)
+      patrimonioVinculavel: estado.ctx && estado.ctx.alocacao ? estado.ctx.alocacao.patrimonioVinculavel : null });
     const arquivadas = (r.arquivadas || []).map((m) => ({ meta: m, c: calcDe(m) }));
     const base = estado.filtroStatus === 'arquivadas' ? arquivadas : calcs;
     const tiposPresentes = [...new Map(base.map(({ meta }) => [chaveTipo(meta), meta])).entries()];
@@ -692,9 +719,9 @@ export async function montarPaginaMetas(token, {
     const aporteReal = calcs.reduce((s, x) => s + (x.c.aporteAtual || 0), 0);
 
     let html = '';
-    if (ativas.length) {
+    if (ativas.some((m) => !ehMetaDistribuicao(m))) {
       const faltaAporte = res.aporteNecessario - aporteReal;
-      const infoPatrimonio = 'Cada investimento conta numa meta só: se duas metas vinculam o mesmo ativo, fica com a de maior prioridade (reserva de emergência, depois renda passiva, depois aposentadoria, depois as demais). Por isso este total nunca passa do patrimônio que você tem investido.';
+      const infoPatrimonio = 'Cada investimento conta numa meta só: se duas metas vinculam o mesmo ativo, fica com a de maior prioridade (reserva de emergência, depois renda passiva, depois aposentadoria, depois as demais) - exceto Reserva de emergência e Aposentadoria, que podem contar os mesmos ativos. Por isso este total nunca passa do patrimônio que você tem investido.';
       const kpiIcone = (nome) => `<svg class="ico mt-kpi-ico" aria-hidden="true"><use href="#ico-${nome}"/></svg>`;
       // 06/10/2026 (Onda 3): cartões KPI do kit (rótulo pequeno + info, número grande, tendência com ícone - nunca só cor)
       html += `<section class="grid-kpi mt-resumo" aria-label="Resumo das metas">
@@ -723,7 +750,10 @@ export async function montarPaginaMetas(token, {
         return `${nomes} ${lista.length === 1 ? 'conta' : 'contam'} em <b>${esc(metas)}</b> (${r0(lista.reduce((t, s) => t + s.comprometido - s.valorBRL, 0))} a mais do que existe)`;
       });
       // 05/10/2026 (A-11): o progresso já conta cada ativo numa meta só (prioridade: reserva, renda passiva, aposentadoria, demais)
-      html += `<p class="mt-alerta">O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Cada ativo conta numa meta só - fica com a de maior prioridade (reserva, depois renda passiva, depois aposentadoria) e as outras contam só o que sobra. Use uma fração ou um valor fixo nos vínculos para repartir.</p>`;
+      // 06/10/2026: a exceção (Reserva x Aposentadoria podem contar os mesmos ativos) e o "ignorar este aviso" (persistido nas metas)
+      const nomesSobre = new Set(sobre.flatMap((x) => x.metas));
+      const idsSobre = ativas.filter((m) => nomesSobre.has(m.nome) && m.id).map((m) => m.id).join(',');
+      html += `<p class="mt-alerta mt-alerta-acao"><span>O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Cada ativo conta numa meta só - fica com a de maior prioridade (reserva, depois renda passiva, depois aposentadoria) e as outras contam só o que sobra; a única exceção é Reserva de emergência e Aposentadoria, que podem contar os mesmos ativos. Use uma fração ou um valor fixo nos vínculos para repartir.</span><button type="button" class="btn btn-text mt-btn-sm" data-ignorar-sobreposicao="${esc(idsSobre)}">Ignorar este aviso</button></p>`;
     }
     // 05/10/2026 (A-14): vínculo a ativo que não existe mais (vendido ou com outro ticker) - antes sumia em silêncio
     const orfaos = vinculosOrfaos(ativas, estado.ctx.ativos, estado.ctx.cambio, estado.ctx.aliases);
@@ -741,12 +771,12 @@ export async function montarPaginaMetas(token, {
       html += '<p class="mt-nota mt-nota-arq">Metas arquivadas não contam nos totais. Abra uma para <b>restaurar</b> ou <b>excluir definitivamente</b> (apaga a linha da aba aux_metas - não tem volta).</p>';
     }
     if (visiveis.length) {
-      html += `<div class="mt-grade">${visiveis.map(({ meta, c }) => cardMetaHtml(meta, c)).join('')}</div>`;
+      html += `<div class="mt-grade">${visiveis.map(({ meta, c }) => (ehMetaDistribuicao(meta) ? cardDistribuicaoHtml(meta, distribuicaoDe(meta), { seloHtml: seloMetaHtml(meta, { tamanho: 38 }), arquivada: meta.status === 'arquivada' }) : cardMetaHtml(meta, c))).join('')}</div>`;
     } else if (ativas.length || arquivadas.length) {
       html += '<div class="mt-vazio-filtro" id="mtVazioFiltro"></div>';
     }
     const sugestoes = sugestoesMetas({ referencias: estado.ctx.referencias, hoje: estado.ctx.hoje, existentes: ativas });
-    if (!ativas.length) {
+    if (!ativas.some((m) => !ehMetaDistribuicao(m))) {
       html += `<section class="mt-vazio">
   <div class="mt-vazio-cab">${iconeMetaSvg('alvo', { tamanho: 28 })}<div><h2>Comece por uma meta</h2><p>Escolha uma sugestão (já vem com os números da sua planilha) ou monte a sua do zero. Dá pra editar tudo depois.</p></div></div>
   <div class="mt-sugestoes">${sugestoes.map((s, i) => sugestaoHtml(s, i)).join('')}</div>
@@ -796,7 +826,19 @@ export async function montarPaginaMetas(token, {
     return Math.min(720, Math.max(12, fim || 12));
   }
 
+  /** 06/10/2026: atual x meta da meta "Distribuição da carteira" (o atual vem da planilha: GET metas -> distribuicaoAtual). */
+  function distribuicaoDe(meta) {
+    return calcularDistribuicao(pesosDaMeta(meta), atuaisDeResposta(estado.resposta && estado.resposta.distribuicaoAtual));
+  }
+  /** A meta de distribuição ativa (só existe uma: os pesos dela vão pra planilha). */
+  function distribuicaoExistente() { return ((estado.resposta && estado.resposta.metas) || []).find((x) => ehMetaDistribuicao(x)) || null; }
+  function desenharDetalheDistribuicao(meta) {
+    el.tela.innerHTML = detalheDistribuicaoHtml(meta, distribuicaoDe(meta), { seloHtml: seloMetaHtml(meta, { tamanho: 46 }), arquivada: meta.status === 'arquivada' });
+    definirTituloPagina({ subaba: meta.nome, secao: 'Metas e Objetivos' }, doc);
+  }
+
   function desenharDetalhe(meta) {
+    if (ehMetaDistribuicao(meta)) { desenharDetalheDistribuicao(meta); return; }
     const c = calcDe(meta);
     const arquivada = meta.status === 'arquivada';
     const hoje = estado.ctx.hoje;
@@ -824,6 +866,7 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
       <div class="mt-analise" id="mtRendaAnalise"></div></section>`;
     }
 
+    html += excedenteHtml(meta, c);
     html += vencimentosHtml(meta, c);
     if (c.alvoBRL != null && (!(c.status === 'concluida' || c.status === 'saldo-ideal') || (c.vencimentos && c.vencimentos.eventos.length))) {
       html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Evolução projetada${infoHtml(EXPLICACOES.projecao)}</h3>${tabsPeriodoHtml(PERIODOS_PROJ, estado.periodos.proj, 'Horizonte da projeção')}</div>
@@ -901,24 +944,35 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 </section>`;
   }
 
-  /** 05/10/2026: reserva com títulos de renda fixa que vencem (IR cobrado, dinheiro cai na conta). */
+  /**
+   * 05/10/2026: reserva com títulos de renda fixa que vencem (IR cobrado, dinheiro cai na conta).
+   * 06/10/2026 (Tiago: "muito poluído com essas mensagens de atenção; o background não precisa ser dessa cor. Considere sempre o
+   * alerta só se algum título vencer em menos de um ano"): lista neutra com chip de estado; o alerta (amarelo) só aparece pra
+   * título que vence em menos de 12 meses com a reserva caindo abaixo do mínimo; os demais ficam como informação discreta e o
+   * texto longo fica recolhido em "detalhes".
+   */
   function vencimentosHtml(meta, c) {
     const v = c.vencimentos;
     if (meta.tipo !== 'reservaEmergencia' || !v || !v.eventos.length) return '';
-    const itens = v.eventos.map((e) => `<li class="mt-venc ${e.tom}">
-    <div class="mt-venc-cab"><span class="mt-venc-data">${iconeNum('marco', 14)} ${rotuloMes(e.mes)}<small>${e.em > 0 ? `daqui a ${rotuloDuracao(e.em)}` : 'este mês'}</small></span>
-      <span class="mt-status ${e.tom === 'atencao' ? 'warn' : 'good'}">${e.tom === 'atencao' ? 'Atenção' : 'Reserva segue acima do mínimo'}</span></div>
-    <p class="mt-venc-txt">${esc(e.texto)}</p>
+    const itens = v.eventos.map((e) => {
+      const alerta = e.tom === 'atencao';
+      const nomes = e.titulos.map((t) => esc(t.nome)).join(' e ');
+      const chip = alerta ? '<span class="mt-status warn">Atenção</span>' : '<span class="mt-status na">Sem alerta</span>';
+      return `<li class="mt-venc ${alerta ? 'atencao' : ''}">
+    <div class="mt-venc-cab"><span class="mt-venc-data">${iconeNum('marco', 14)} ${rotuloMes(e.mes)}<small>${e.em > 0 ? `daqui a ${rotuloDuracao(e.em)}` : 'este mês'}</small></span><span class="mt-venc-nome">${nomes}</span>
+      <span class="mt-venc-liq mono">entram ${formatMoeda(e.liquido, 'BRL', { casas: 0 })}<small> (IR ${formatMoeda(e.ir, 'BRL', { casas: 0 })})</small></span>${chip}</div>
+    ${alerta ? `<p class="mt-venc-txt">${esc(e.texto)}</p>` : ''}
+    <details class="mt-venc-det"><summary>detalhes</summary>
+    ${alerta ? '' : `<p class="mt-venc-txt">${esc(e.texto)}</p>`}
     <dl class="mt-venc-nums">
-      <div><dt>Entram na conta (líquido)</dt><dd class="mono">${formatMoeda(e.liquido, 'BRL', { casas: 0 })}</dd></div>
-      <div><dt>IR cobrado no vencimento</dt><dd class="mono">${formatMoeda(e.ir, 'BRL', { casas: 0 })}</dd></div>
-      <div><dt>Reserva sem reaplicar</dt><dd class="mono ${e.acimaMinimo === false ? 'mt-ruim' : ''}">${formatMoeda(e.reservaSemReaplicar, 'BRL', { casas: 0 })}</dd></div>
-      <div><dt>Reserva reaplicando</dt><dd class="mono ${e.acimaReaplicando === false ? 'mt-ruim' : ''}">${formatMoeda(e.reservaReaplicando, 'BRL', { casas: 0 })}</dd></div>
-      ${e.falta > 0 ? `<div><dt>Falta pro mínimo</dt><dd class="mono mt-ruim">${formatMoeda(e.falta, 'BRL', { casas: 0 })}</dd></div>` : ''}
-    </dl></li>`).join('');
+      <div><dt>Reserva sem reaplicar</dt><dd class="mono">${formatMoeda(e.reservaSemReaplicar, 'BRL', { casas: 0 })}</dd></div>
+      <div><dt>Reserva reaplicando</dt><dd class="mono">${formatMoeda(e.reservaReaplicando, 'BRL', { casas: 0 })}</dd></div>
+      ${e.falta > 0 ? `<div><dt>Falta pro mínimo</dt><dd class="mono">${formatMoeda(e.falta, 'BRL', { casas: 0 })}</dd></div>` : ''}
+    </dl></details></li>`;
+    }).join('');
     return `<section class="mt-bloco" id="mtVencimentos"><div class="mt-bloco-cab"><h3>Títulos que vencem${infoHtml(EXPLICACOES.vencimentos)}</h3><span class="mt-fraco">mínimo ${v.minimo != null ? formatMoeda(v.minimo, 'BRL', { casas: 0 }) : '-'} (líquido)</span></div>
   <ul class="mt-vencs">${itens}</ul>
-  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta: deixa de ser o título e de contar na reserva, até você reaplicar. Valores projetados com ${c.taxa ? `rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.` : 'rendimento zero (informe o rendimento em Editar)'}, sem novos aportes.</p></section>`;
+  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta: deixa de ser o título e de contar na reserva, até você reaplicar. Só vira alerta o que vence em menos de ${LIMITE_ALERTA_VENCIMENTO_MESES} meses e derruba a reserva abaixo do mínimo. Valores projetados com ${c.taxa ? `rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.` : 'rendimento zero (informe o rendimento em Editar)'}, sem novos aportes.</p></section>`;
   }
 
   function marcosHtml(meta, c, marcosRitmo) {
@@ -1025,7 +1079,7 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const anal = doc.getElementById('mtRendaAnalise');
     if (!estado.historico) { textoCaixa(caixa, 'Carregando os proventos mês a mês…', { carregando: true }); return; }
     const h = estado.historico[meta.id];
-    const mesAtual = mesDe(estado.ctx.hoje);
+    const mesAtual = mesEmCurso(estado.ctx.hoje); // 06/10/2026: no último dia do mês ele já conta como fechado
     const completa = comMedia12((h && h.renda) || [], mesAtual);
     if (completa.length < 2) { textoCaixa(caixa, 'Ainda não há proventos suficientes pra montar a evolução mensal.'); return; }
     const renda = estado.periodos.renda === 'tudo' ? completa : recortarMeses(completa, estado.periodos.renda).slice(1);
@@ -1243,6 +1297,19 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     return salva;
   }
 
+  /** 06/10/2026 (Tiago: "me dê a opção de ignorar esse aviso"): grava `ignorarAvisos: ['sobreposicao']` nas metas (persistido na meta). */
+  async function ignorarSobreposicao(ids) {
+    let ok = true;
+    for (const id of ids) {
+      const m = acharMeta(id);
+      if (!m || ignoraAvisoSobreposicao(m)) continue;
+      const nova = clonar(m);
+      nova.ignorarAvisos = [...new Set([...(nova.ignorarAvisos || []), 'sobreposicao'])];
+      if (!(await salvar(nova, { manterDetalhe: false, silencioso: true }))) ok = false;
+    }
+    if (ok) { toast.ok('Aviso ignorado.', { doc }); desenhar(); }
+  }
+
   async function arquivar(meta, restaurar = false) {
     if (!restaurar && !(await confirmar({ titulo: `Arquivar "${meta.nome}"?`, mensagem: 'Ela sai da lista e fica em "Arquivadas": dá pra restaurar - ou excluir de vez de lá.', confirmarTexto: 'Arquivar', doc }))) return;
     const r = await excluirMetaImpl(token, meta.id, { restaurar });
@@ -1335,6 +1402,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
   }
 
   function previaHtml(m) {
+    if (ehMetaDistribuicao(m)) return previaDistribuicaoHtml(m);
     const c = calcDe(m);
     if (c.renda) return `renda hoje <b>${r0(c.renda.atual)}</b>/mês · patrimônio necessário <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>`;
     if (c.alvoBRL == null && !(c.viagem && c.viagem.temFixos)) return 'informe o alvo';
@@ -1349,6 +1417,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     if (!a) return;
     const p = el.dialogo.querySelector('#mtPrevia');
     if (p) p.innerHTML = previaHtml(a.meta);
+    if (ehMetaDistribuicao(a.meta)) atualizarSomasDistribuicao(el.dialogo, a.meta);
     const conta = el.dialogo.querySelector('#mtContaApos');
     if (conta) conta.innerHTML = contaAposentadoriaHtml(a.meta);
     const viag = el.dialogo.querySelector('#mtResumoViagem');
@@ -1377,7 +1446,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       return `<button type="button" class="mt-tipo ${ativo ? 'ativo' : ''}" data-tipo="${tipo}" ${categoria ? `data-categoria="${categoria}"` : ''} style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">${seloMetaHtml(fake, { tamanho: 34 })}<span><strong>${esc(ap.rotulo)}</strong><em>${esc(resumo)}</em></span></button>`;
     };
     return `<p class="mt-dialogo-dica">Que tipo de meta? Cada tipo pede os dados certos e calcula do jeito certo.</p>
-<h4 class="mt-grupo">Patrimônio e renda</h4><div class="mt-tipos">${['rendaPassiva', 'reservaEmergencia', 'aposentadoria'].map((t) => tile(t)).join('')}</div>
+<h4 class="mt-grupo">Patrimônio e renda</h4><div class="mt-tipos">${['rendaPassiva', 'reservaEmergencia', 'aposentadoria'].map((t) => tile(t)).join('')}${tileDistribuicaoHtml({ ativo: m.tipo === TIPO_DISTRIBUICAO, jaExiste: !!distribuicaoExistente(), seloHtml: seloMetaHtml({ tipo: TIPO_DISTRIBUICAO }, { tamanho: 34 }), resumo: TIPOS_META[TIPO_DISTRIBUICAO].resumo })}</div>
 <h4 class="mt-grupo">Objetivos</h4><div class="mt-tipos">${['viagemInternacional', 'viagemNacional', 'casa', 'carro'].map((t) => tile(t)).join('')}</div>
 <h4 class="mt-grupo">Juntar até uma data</h4><div class="mt-tipos compacto">${Object.keys(CATEGORIAS_ACUMULO).map((k) => tile('acumulo', k)).join('')}</div>`;
   }
@@ -1418,6 +1487,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
   }
 
   function passoDadosHtml(m) {
+    if (ehMetaDistribuicao(m)) return passoDadosDistribuicaoHtml(m);
     const ref = estado.ctx.referencias || {};
     const simbolo = (moeda) => (moeda === 'BRL' ? 'R$' : moeda);
     const f = [];
@@ -1524,6 +1594,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 <button type="button" class="mt-link" data-saldo-add>+ Adicionar saldo em conta</button>`;
   }
   function passoVinculosHtml(m) {
+    if (ehMetaDistribuicao(m)) return passoVinculosDistribuicaoHtml();
     const ativos = estado.ctx.ativos || [];
     const vinc = m.vinculos || [];
     const temGrupo = (tipo, chave) => vinc.some((v) => v.tipo === tipo && (v.classe === chave || v.marca === chave));
@@ -1559,6 +1630,7 @@ ${saldosEditorHtml(m)}`;
   }
 
   function passoRevisarHtml(m) {
+    if (ehMetaDistribuicao(m)) return revisarDistribuicaoHtml(m, distribuicaoDe(m), { seloHtml: seloMetaHtml(m, { tamanho: 42 }) });
     const c = calcDe(m);
     const ap = aparenciaMeta(m);
     const linhas = [
@@ -1599,6 +1671,7 @@ ${saldosEditorHtml(m)}`;
 
   function validarPasso(a) {
     const m = a.meta;
+    if (a.passo === 2 && ehMetaDistribuicao(m)) return erroPassoDistribuicao(m);
     if (a.passo === 2 && !String(m.nome || '').trim()) return 'Dê um nome pra meta.';
     const url = m.especificos && m.especificos.roteiroUrl;
     if (a.passo === 2 && String(url || '').trim() && normalizarUrl(url) === null) return 'O link do roteiro não parece válido (ex. https://wanderlog.com/plan/…).';
@@ -1707,6 +1780,7 @@ ${saldosEditorHtml(m)}`;
     if (tipoBtn) {
       const tipo = tipoBtn.dataset.tipo;
       const categoria = tipoBtn.dataset.categoria;
+      if (tipo === TIPO_DISTRIBUICAO && !a.editando && distribuicaoExistente()) { const existente = distribuicaoExistente(); fecharAssistente(); irPara(existente.id); return; } // 06/10/2026: uma só
       const mudou = a.meta.tipo !== tipo || (tipo === 'acumulo' && a.meta.categoria !== categoria);
       if (mudou && !a.editando) a.meta = metaPadrao(tipo, { referencias: estado.ctx.referencias, hoje: estado.ctx.hoje, categoria });
       else if (mudou) { a.meta.tipo = tipo; a.meta.categoria = tipo === 'acumulo' ? categoria : null; }
@@ -1716,11 +1790,11 @@ ${saldosEditorHtml(m)}`;
     }
     const passoBtn = ev.target.closest('[data-passo]');
     if (passoBtn && !passoBtn.disabled) { a.passo = Number(passoBtn.dataset.passo); desenharAssistente(); return; }
-    if (ev.target.closest('[data-anterior]')) { a.passo = Math.max(1, a.passo - 1); desenharAssistente(); return; }
+    if (ev.target.closest('[data-anterior]')) { a.passo = Math.max(1, a.passo - (a.passo === 4 && ehMetaDistribuicao(a.meta) ? 2 : 1)); desenharAssistente(); return; }
     if (ev.target.closest('[data-proximo]')) {
       const erro = validarPasso(a);
       if (erro) { const p = el.dialogo.querySelector('#mtPrevia'); if (p) p.innerHTML = `<span class="mt-ruim">${erro}</span>`; return; }
-      a.passo = Math.min(4, a.passo + 1); desenharAssistente(); return;
+      a.passo = Math.min(4, a.passo + (a.passo === 2 && ehMetaDistribuicao(a.meta) ? 2 : 1)); desenharAssistente(); return; // distribuição: sem passo de investimentos
     }
     // 03/10/2026: destinos, itens fixos e saldos em conta
     const esp = a.meta.especificos || (a.meta.especificos = {});
@@ -1767,7 +1841,7 @@ ${saldosEditorHtml(m)}`;
     }
     const salvarBtn = ev.target.closest('[data-salvar]');
     if (salvarBtn) {
-      if (!String(a.meta.nome || '').trim()) { a.passo = 2; desenharAssistente(); return; }
+      if (!String(a.meta.nome || '').trim() || (ehMetaDistribuicao(a.meta) && erroPassoDistribuicao(a.meta))) { a.passo = 2; desenharAssistente(); return; }
       salvarBtn.disabled = true;
       salvarBtn.textContent = 'Salvando…';
       const meta = clonar(a.meta);
@@ -1974,6 +2048,8 @@ ${saldosEditorHtml(m)}`;
       await salvar(clonar(s.meta));
       return;
     }
+    const ign = ev.target.closest('[data-ignorar-sobreposicao]');
+    if (ign) { await ignorarSobreposicao((ign.dataset.ignorarSobreposicao || estado.detalheId || '').split(',').filter(Boolean)); return; }
     const meta = estado.detalheId ? acharMeta(estado.detalheId) : null;
     if (!meta) return;
     if (ev.target.closest('[data-editar]')) { abrirAssistente(meta, 2, { editando: true }); return; }

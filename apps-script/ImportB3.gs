@@ -1,6 +1,6 @@
 /**
  * ImportB3.gs — Importação do extrato da B3 (Compra/Venda) direto pra
- * aba "Transações". Recebe o lote JÁ VALIDADO no navegador (teste.html
+ * aba "Transações". Recebe o lote JÁ VALIDADO no navegador (tests/manual/teste.html
  * lê o .xlsx com SheetJS, filtra Compra/Venda, e já confere o ticker
  * contra a Carteira antes de mandar pra cá).
  *
@@ -26,7 +26,7 @@
  * grava numa cópia da aba (mesma estrutura de "Transações": cabeçalho
  * linha 6, dados a partir da linha 7, colunas A-F) em vez da real —
  * usado pelos testes de "Gravação em lote" e "Rejeição parcial" no
- * teste.html, pra nunca escrever uma transação de teste na planilha
+ * tests/manual/teste.html, pra nunca escrever uma transação de teste na planilha
  * de verdade. A validação de ticker continua contra a Carteira REAL
  * (só leitura).
  */
@@ -44,7 +44,7 @@ function handleImportarTransacoesB3(e) {
     var opcoes = null;
     if (e.parameter.opcoesTeste) {
       var opcoesTeste = JSON.parse(e.parameter.opcoesTeste);
-      opcoes = { abaTransacoesNome: opcoesTeste.abaTransacoesNome || 'aux_tests' };
+      opcoes = { abaTransacoesNome: nomeAbaTesteValido_(opcoesTeste.abaTransacoesNome) }; // A-80: só abas aux_tests*
     }
     var resultado = importarTransacoesB3_(e.parameter, opcoes);
     // 05/10/2026 (A-24): o aporte concluído de ação/FII fica "a confirmar" até esta importação trazer o
@@ -164,7 +164,7 @@ function proximaLinhaVaziaTransacoes_(aba) {
 }
 
 /**
- * O front-end (teste.html) manda a data já normalizada como
+ * O front-end (tests/manual/teste.html) manda a data já normalizada como
  * "YYYY-MM-DD". Aceita também um objeto Date, por segurança.
  */
 function normalizarData_(dataStr) {

@@ -50,7 +50,6 @@ export function criarSparkline(el, opcoes = {}) {
   esvaziar(el);
   const raiz = no(doc, ':div', { class: 'chart chart--spark' }, el);
   const svg = no(doc, 'svg', { class: 'chart-svg chart-spark-svg', width: '100%', role: 'img', focusable: 'false' }, raiz);
-  const titulo = no(doc, 'title', null, svg);
   const gid = uid('sg');
   const defs = no(doc, 'defs', null, svg);
   const grad = no(doc, 'linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
@@ -90,7 +89,7 @@ export function criarSparkline(el, opcoes = {}) {
     pts = pontosSpark(vals, W, H, op.margem);
     dir = direcaoDe(vals, op.referencia);
     const cor = corSpark(op.cor, dir);
-    titulo.textContent = op.aria || (vals.length ? `Tendência de ${vals.length} pontos: ${dir === 'up' ? 'alta' : dir === 'down' ? 'queda' : 'estável'}` : 'Sem dados');
+    svg.setAttribute('aria-label', op.aria || (vals.length ? `Tendência de ${vals.length} pontos: ${dir === 'up' ? 'alta' : dir === 'down' ? 'queda' : 'estável'}` : 'Sem dados')); /* 06/10/2026: aria-label, não <title> (tooltip nativo duplicado) */
     raiz.setAttribute('data-dir', dir);
     const ok = op.animar !== false;
     if (entrada && ok) {

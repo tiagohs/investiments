@@ -119,7 +119,11 @@ const abasSync = () => ({
     ['VALE3', DIA('2026-02-06'), '', '', '', '', '', '', '', '', -5, '', 0],
     ['BBAS3', DIA('2026-01-07'), '', '', '', '', '', '', '', '', 3, '', 3]],      // com posição
   'Transações - USA': [[], [], [], [], [], ['Ticker', 'Data']],
-  'Auxiliar_ativos': [['Classe', 'Ticker']],
+  // 06/10/2026: a lista de tickers sai de Auxiliar_ativos (nada fixo em Sync.gs): 13 Ações + 10 FIIs + 7 EUA inventados (BBAS3/PETR4/VALE3 ficam por último nas Ações)
+  'Auxiliar_ativos': [['Classe', 'Ticker'],
+    ...Array.from({ length: 10 }, (_, i) => ['Ações', 'AAA' + String.fromCharCode(65 + i) + '3']), ['Ações', 'BBAS3'], ['Ações', 'PETR4'], ['Ações', 'VALE3'],
+    ...Array.from({ length: 10 }, (_, i) => ['FIIs', 'FFF' + String.fromCharCode(65 + i) + '11']),
+    ...Array.from({ length: 7 }, (_, i) => ['Ações EUA', 'UU' + String.fromCharCode(65 + i)])],
 });
 
 test('A-45: a sync de ativos NÃO segura o lock do script durante o trabalho (só a trava do recurso "precos")', () => {

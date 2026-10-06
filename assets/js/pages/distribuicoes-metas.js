@@ -155,9 +155,7 @@ import {
   salvarMetaRendaPassiva as salvarMetaRendaPassivaApi,
   salvarMetaPatrimonio as salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencial as salvarMesesRendaEmergencialApi,
-  salvarObjetivosCarteira as salvarObjetivosCarteiraApi,
   salvarRadarItem as salvarRadarItemApi,
-  salvarSplitInterno as salvarSplitInternoApi,
   getIntradia,
   getMetas,
   getMacro,
@@ -179,7 +177,9 @@ import {
   TIPO_META_DA_CARTEIRA, metaPrincipalDoTipo, metasComCalculo, urlMetas, urlNovaMeta, seloMetaHtml, statusPillHtml,
   formatMoeda, pct, garantirEstiloMetas,
 } from '../metas-card.js';
-import { aparenciaMeta } from './metas-calc.js';
+import { aparenciaMeta } from './metas-calc-nucleo.js';
+// 06/10/2026: os objetivos da carteira viraram a meta "Distribuição da carteira" (cálculo atual x meta em metas-distribuicao.js)
+import { TIPO_DISTRIBUICAO, pesosDaMeta, pesosDeResposta, atuaisDeResposta, calcularDistribuicao, blocosDeDistribuicao, statusDistribuicao } from './metas-distribuicao.js';
 
 /** "73%" a partir de uma fração (0.7377 -> "74%"). Não-finito vira "—". */
 export function formatPercentualMeta(fracao) {
@@ -384,7 +384,7 @@ const CORES_TIPO_OBJETIVO = {
 // x Híbrido) também ganham cor - antes caíam todos no cinza (--na), e a barra
 // única de distribuição (estilo "Minha carteira" da Início) ficava sem leitura.
 const CORES_TIPO_SPLIT = [
-  [/^dividendo/i, 'var(--acoes)'],
+  [/^(dividendo|nacion)/i, 'var(--acoes)'], // 06/10/2026: "Dividendos" virou "Nacionais"
   [/internacion/i, 'var(--usa)'],
   [/^tijolo/i, 'var(--fii-tijolo)'],
   [/^papel/i, 'var(--fii-papel)'],
@@ -760,10 +760,10 @@ export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPer
  * tabela do Radar - por isso a associação aba -> link segue a mesma
  * divisão.
  */
-export function renderSplitInterno(doc, container, { splitsInternos, linksRecomendados, abaAtiva, onSalvarPercentuais } = {}) {
+export function renderSplitInterno(doc, container, { splitsInternos, linksRecomendados, abaAtiva, onSalvarPercentuais, somenteLinks = false } = {}) {
   if (!container) return;
   container.innerHTML = '';
-  if (!splitsInternos) return;
+  if (!splitsInternos && !somenteLinks) return; // 06/10/2026: somenteLinks = o Radar só mostra a tabela (+ os links da Suno); os pesos moram na meta
 
   wirePointerTooltipInfo_(doc, container);
 
@@ -778,7 +778,7 @@ export function renderSplitInterno(doc, container, { splitsInternos, linksRecome
   };
 
   const ehFiis = abaAtiva === 'fiis';
-  const bloco = ehFiis ? splitsInternos.fiis : splitsInternos.acoes;
+  const bloco = somenteLinks || !splitsInternos ? null : (ehFiis ? splitsInternos.fiis : splitsInternos.acoes);
   if (bloco) {
     container.appendChild(criarBlocoObjetivo(doc, {
       titulo: ehFiis ? 'Distribuição desejada — FIIs' : 'Distribuição desejada — Ações',
@@ -2052,23 +2052,33 @@ export function renderAvisos(container, avisos) {
   renderAvisosParciais(container, avisos, NOMES_AVISOS_DM);
 }
 
-/** 06/10/2026: KPIs do alto (da própria resposta - nenhum número novo): total investido, aporte pendente, renda passiva e reserva. */
-export function renderKpisDistribuicoes(doc, container, resposta) {
+/**
+ * 06/10/2026: a distribuição da carteira (pesos da meta "Distribuição da carteira" x carteira atual da planilha). Sem a meta na
+ * resposta (cache antigo), usa os % que a planilha tem.
+ */
+export function distribuicaoDaResposta(resposta) {
+  const meta = resposta && resposta.metaDistribuicao;
+  const pesos = meta ? pesosDaMeta(meta) : pesosDeResposta(resposta);
+  return calcularDistribuicao(pesos, atuaisDeResposta(resposta));
+}
+
+/** 06/10/2026: KPIs do alto da aba Metas (da própria resposta): total investido, aporte pendente, renda passiva e reserva. */
+export function renderKpisDistribuicoes(doc, container, resposta, { dist = null } = {}) {
   if (!container) return;
   (container._kpis || []).forEach((k) => k.destruir());
   container._kpis = [];
   container.textContent = '';
-  const geral = resposta && resposta.objetivos && resposta.objetivos.alocacaoGeral && resposta.objetivos.alocacaoGeral.total;
+  const d = dist || distribuicaoDaResposta(resposta);
   const m = (resposta && resposta.metas) || {};
   const pctMeta = (meta) => (meta && typeof meta.percentualAtingido === 'number' && Number.isFinite(meta.percentualAtingido) ? meta.percentualAtingido : null);
   const itens = [];
-  if (geral && typeof geral.carteiraAtual === 'number') {
-    itens.push({ rotulo: 'Total investido', valor: geral.carteiraAtual, formatar: formatBRL, info: 'Soma da carteira atual de Ações, FIIs e Renda Fixa (a mesma de "Objetivos").' });
-    const falta = typeof geral.valorInvestir === 'number' && geral.valorInvestir > 0.5;
+  if (d && d.temDados) {
+    itens.push({ rotulo: 'Total investido', valor: d.totalInvestido, formatar: formatBRL, info: 'Soma da carteira atual de Ações, FIIs e Renda Fixa (a mesma da meta "Distribuição da carteira").' });
+    const falta = d.aporteTotal > 0.5;
     itens.push({
-      rotulo: 'Pra atingir os objetivos', valor: falta ? geral.valorInvestir : 0, formatar: (v) => (falta ? `+ ${formatBRL(v)}` : 'Na meta'),
+      rotulo: 'Pra atingir os objetivos', valor: falta ? d.aporteTotal : 0, formatar: (v) => (falta ? `+ ${formatBRL(v)}` : 'Na meta'),
       delta: falta ? { sinal: 0, texto: 'de aporte novo pra rebalancear' } : { sinal: 1, texto: 'nenhum aporte pendente' },
-      info: 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.',
+      info: 'Aporte novo pra deixar todos os tipos na fatia desejada sem vender nada, mantendo a proporção da meta.',
     });
   }
   [['Renda passiva', m.rendaPassiva], ['Reserva de emergência', m.rendaEmergencial], ['Meta de patrimônio', m.patrimonio]].forEach(([rotulo, meta]) => {
@@ -2089,6 +2099,32 @@ export function renderKpisDistribuicoes(doc, container, resposta) {
 }
 
 /**
+ * 06/10/2026 (Tiago: os objetivos da carteira viram uma meta): na aba Metas, a meta "Distribuição da carteira" - os blocos de
+ * sempre (Ações/FIIs/Renda Fixa, Renda Fixa, Ações, FIIs; atual x meta, "na meta"/"faltam R$", aporte pra rebalancear) com os
+ * pesos da meta. Sem botão de editar % aqui: o lugar de editar é a meta (link "Editar em Metas e Objetivos").
+ */
+export function renderDistribuicaoMeta(doc, container, resposta, { raizSite } = {}) {
+  if (!container) return;
+  container.innerHTML = '';
+  const dist = distribuicaoDaResposta(resposta);
+  const blocos = blocosDeDistribuicao(dist);
+  if (!blocos.length) return;
+  wirePointerTooltipInfo_(doc, container);
+  const meta = resposta && resposta.metaDistribuicao;
+  const st = statusDistribuicao(dist);
+  const href = meta ? urlMetas(meta.id, { raizSite }) : urlNovaMeta(TIPO_DISTRIBUICAO, { raizSite });
+  const cab = doc.createElement('div');
+  cab.className = 'dm-dist-cab';
+  cab.innerHTML = `<h3>Distribuição da carteira</h3><span class="mt-status ${st.classe}">${esc(st.rotulo)}</span>
+<a class="btn btn-tonal btn-sm dm-dist-link" href="${esc(href)}">${meta ? 'Editar em Metas e Objetivos' : 'Criar em Metas e Objetivos'}</a>`;
+  container.appendChild(cab);
+  const grid = doc.createElement('div');
+  grid.className = 'obj-grid dm-dist-grid';
+  blocos.forEach((b) => grid.appendChild(criarBlocoObjetivo(doc, { titulo: b.titulo, tipos: b.tipos, total: b.total })));
+  container.appendChild(grid);
+}
+
+/**
  * Orquestrador real: busca action=distribuicoesMetas com o token, desenha
  * os 3 cards e liga os 3 formulários de edição às ações de escrita reais
  * — depois de cada salvamento bem-sucedido, busca tudo de novo e
@@ -2100,9 +2136,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarMetaRendaPassivaImpl = salvarMetaRendaPassivaApi,
   salvarMetaPatrimonioImpl = salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencialImpl = salvarMesesRendaEmergencialApi,
-  salvarObjetivosCarteiraImpl = salvarObjetivosCarteiraApi,
   salvarRadarItemImpl = salvarRadarItemApi,
-  salvarSplitInternoImpl = salvarSplitInternoApi,
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
   getMacroImpl = getMacro, // 05/10/2026: contexto de mercado do momento do Radar (Macro.gs)
@@ -2111,25 +2145,30 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const loadingEl = doc.getElementById('metasLoading');
   const erroEl = doc.getElementById('metasErro');
   const conteudoEl = doc.getElementById('metasConteudo');
-  const objetivosContainer = doc.getElementById('objetivosCarteiraGrid');
+  const distribuicaoContainer = doc.getElementById('distribuicaoMetaGrid'); // 06/10/2026: era 'objetivosCarteiraGrid' (aba Objetivos, removida)
   const splitInternoContainer = doc.getElementById('splitInternoGrid');
   const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
-  // 06/10/2026 (Onda 3): cabeçalho padrão (título + "Atualizar dados") e abas em pílula - Objetivos | Radar | Metas, uma seção por vez
-  // (as 3 vêm na mesma resposta). A aba escolhida fica guardada só neste navegador (conveniência).
+  // 06/10/2026 (Onda 3): cabeçalho padrão (título + "Atualizar dados") e abas em pílula, uma seção por vez (as 2 vêm na mesma
+  // resposta). 06/10/2026 (Tiago): a aba Objetivos some - os objetivos da carteira viraram a meta "Distribuição da carteira" e
+  // todo o resumo de metas (KPIs inclusos) fica na aba Metas; o Radar fica só com a tabela. A aba escolhida fica guardada só
+  // neste navegador (conveniência); o endereço/aba antigos (#objetivos, "objetivos" guardado) levam pra Metas.
   const cabecalhoEl = doc.getElementById('metasCabecalho');
-  const PAINEIS = [{ id: 'objetivos', rotulo: 'Objetivos' }, { id: 'radar', rotulo: 'Radar de oportunidades' }, { id: 'metas', rotulo: 'Metas' }];
-  let abaInicial = 'objetivos';
-  try { const g = doc.defaultView && doc.defaultView.localStorage && doc.defaultView.localStorage.getItem('distribuicoes.aba'); if (PAINEIS.some((x) => x.id === g)) abaInicial = g; } catch (e) { /* sem storage */ }
+  const PAINEIS = [{ id: 'radar', rotulo: 'Radar de oportunidades' }, { id: 'metas', rotulo: 'Metas' }];
+  const painelDe = (id) => (id === 'objetivos' ? 'metas' : (PAINEIS.some((x) => x.id === id) ? id : null));
+  let abaInicial = 'radar';
+  try { const g = doc.defaultView && doc.defaultView.localStorage && doc.defaultView.localStorage.getItem('distribuicoes.aba'); if (painelDe(g)) abaInicial = painelDe(g); } catch (e) { /* sem storage */ }
+  try { const h = painelDe(String((doc.defaultView && doc.defaultView.location && doc.defaultView.location.hash) || '').replace(/^#/, '')); if (h) abaInicial = h; } catch (e) { /* sem location */ }
   const mostrarPainel = (id) => {
     doc.querySelectorAll('.dm-painel[data-painel]').forEach((el) => { el.hidden = el.dataset.painel !== id; });
     try { if (doc.defaultView && doc.defaultView.localStorage) doc.defaultView.localStorage.setItem('distribuicoes.aba', id); } catch (e) { /* sem storage */ }
+    try { const w = doc.defaultView; if (w && w.history && w.location && w.location.hash !== `#${id}`) w.history.replaceState(w.history.state, '', `${w.location.pathname}${w.location.search}#${id}`); } catch (e) { /* sem history */ }
     const p = PAINEIS.find((x) => x.id === id);
     if (p) definirTituloPagina({ subaba: p.rotulo, secao: 'Acompanhamento de Ativos' }, doc); // 06/10/2026 (A-69): "<Subaba> · <Seção> · Patrimônio"
   };
   const cabecalho = cabecalhoEl ? montarCabecalhoPagina(cabecalhoEl, {
     secao: 'Acompanhamento de Ativos', titulo: 'Acompanhamento de Ativos',
-    subtitulo: 'Objetivos da carteira, radar de oportunidades e metas', refresh: true,
+    subtitulo: 'Radar de oportunidades e metas da carteira', refresh: true,
     abas: { pilula: { rotulo: 'Seções do acompanhamento', itens: PAINEIS.map((x) => ({ ...x })), ativo: abaInicial, aoMudar: mostrarPainel } },
   }) : null;
   mostrarPainel(abaInicial);
@@ -2215,13 +2254,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
 
     renderAvisos(doc.getElementById('metasAvisos'), resposta.avisos);
 
-    renderObjetivosCarteira(doc, objetivosContainer, resposta.objetivos, {
-      onSalvarPercentuais: async (bloco, percentuais) => {
-        const r = await salvarObjetivosCarteiraImpl(token, bloco, percentuais);
-        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
-        await carregarERedesenhar();
-      },
-    });
+    renderDistribuicaoMeta(doc, distribuicaoContainer, resposta, { raizSite });
 
     radarApi = renderRadarOportunidades(doc, radarContainer, resposta.radar, {
       metas: metasDaDistribuicao(resposta),
@@ -2235,16 +2268,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
         await carregarERedesenhar();
       },
       onTrocarAba: (abaAtiva) => {
-        renderSplitInterno(doc, splitInternoContainer, {
-          splitsInternos: resposta.splitsInternos,
-          linksRecomendados: resposta.linksRecomendados,
-          abaAtiva,
-          onSalvarPercentuais: async (bloco, percentuais) => {
-            const r = await salvarSplitInternoImpl(token, bloco, percentuais);
-            if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
-            await carregarERedesenhar();
-          },
-        });
+        // 06/10/2026: o Radar só mostra a tabela (+ os links da carteira recomendada da Suno); os pesos moram na meta
+        renderSplitInterno(doc, splitInternoContainer, { linksRecomendados: resposta.linksRecomendados, abaAtiva, somenteLinks: true });
       },
     });
 

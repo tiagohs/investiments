@@ -24,7 +24,7 @@ import {
   filtrarHistoricoPorPeriodo, normalizarSerieRentabilidade, calcularResumoRentabilidade, calcularResumoEvolucao, somarProventosNoPeriodo,
   limitesDoHistorico_, CAMPO_PRINCIPAL_POR_VISAO, CAMPO_FLUXO_POR_VISAO, CAMPO_FLUXO_APLICADO_POR_VISAO, COR_PRINCIPAL_POR_VISAO,
   BENCHMARKS_POR_VISAO, LABEL_POR_VISAO_RENTABILIDADE, primeiroIndiceValidoInicio_, inicioEhAbertura_, ultimoValidoDe_, montarAnaliseRentabilidade_,
-} from './inicio.js';
+} from './inicio-calc.js';
 
 /** Ids dos presets (os que as telas e os cálculos já usam); os rótulos canônicos vêm de periodo-personalizado.js. */
 export const PERIODOS_CARTEIRAS = ['mes', '30d', '6m', '12m', '3a', 'tudo'];
@@ -303,6 +303,9 @@ function criarPainelEvolucao(doc, slot, cfg) {
     const valores = janela.map((it) => (num(it[campoValor]) ? it[campoValor] : null));
     const investidos = comInvestido ? janela.map((it) => (num(it.investidoAcumulado) ? it.investidoAcumulado : null)) : null;
     const resumo = calcularResumoEvolucao(valores, investidos);
+    // 06/10/2026 (Tiago: "+R$ 149 mil no período" não batia com o +R$ 39 mil da Rentabilidade): o número do delta é o GANHO do
+    // período (variação do patrimônio − aportes líquidos), o MESMO do card de Rentabilidade - calcularResumoRentabilidade.
+    const ganho = resumo ? calcularResumoRentabilidade(ctx.patrimonio || null, ctx.historico, { visaoId, periodoId: ctx.periodo }).ganhoReais : null;
     if (valores.filter((v) => v != null).length < 2 || !resumo) { p.vazio('Ainda não há histórico suficiente neste período. Escolha um período maior.'); return; }
     const series = [{ id: 'valor', nome: labelValor, valores, principal: true, area: true, cor: corPrincipal }];
     if (investidos) series.push({ id: 'investido', nome: labelInvestido, valores: investidos, pontilhada: true, cor: 'var(--_axis)' });
@@ -312,7 +315,9 @@ function criarPainelEvolucao(doc, slot, cfg) {
     const cabecalho = {
       rotulo: dataFim ? `${rotuloBase} · em ${formatDateBR(dataFim)}` : rotuloBase,
       valor: formatarMoeda(resumo.final),
-      delta: { texto: `${resumo.variacao >= 0 ? '+' : '−'}${formatarMoeda(Math.abs(resumo.variacao))} no período`, sinal: sinalDe(resumo.variacao) },
+      delta: num(ganho)
+        ? { texto: `${ganho >= 0 ? '+' : '−'}${formatarMoeda(Math.abs(ganho))} ganho no período`, sinal: sinalDe(ganho), info: 'sem contar os aportes' }
+        : null,
     };
     const dados = { series, eixoX: eixoXDe(janela), ...cabecalho };
     if (p.grafico) {
@@ -451,12 +456,12 @@ export function montarKpis(doc, container, itens, dono = container) {
 }
 
 /** Anel de composição (donut) dentro de `container`. fatias: [{ nome, valor, cor? (1-8), id? }]. */
-export function desenharAnelDistribuicao(doc, container, fatias, { formatarValor = formatBRL, centro = null, aria = 'Composição', tamanho = 200, legenda = 'direita', dono = container } = {}) {
+export function desenharAnelDistribuicao(doc, container, fatias, { formatarValor = formatBRL, centro = null, aria = 'Composição', tamanho = 200, espessura = undefined, legenda = 'direita', dono = container } = {}) {
   if (!container) return null;
   const lista = (fatias || []).filter((f) => num(f.valor) && f.valor > 0);
   container.replaceChildren();
   if (!lista.length) { container.append(el(doc, 'p', { class: 'cg-vazio', texto: 'Sem posições para mostrar.' })); return null; }
-  const anel = criarAnel(container, { fatias: lista, formatarValor, tamanho, centro: centro || { rotulo: 'Total' }, aria, legenda });
+  const anel = criarAnel(container, { fatias: lista, formatarValor, tamanho, ...(espessura ? { espessura } : {}), centro: centro || { rotulo: 'Total' }, aria, legenda });
   return lembrarGrafico(dono, anel);
 }
 

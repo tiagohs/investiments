@@ -343,13 +343,6 @@ function fnetBuscarEmLotes_(pedidos, temTempo) {
   return res;
 }
 
-/** Documentos "Aviso aos Cotistas - Estruturado" mais recentes de um FII: [{ id, dataEntrega }]. (Uma consulta só; a rotina diária usa fetchAll.) */
-function listarDocumentosFnet_(cnpj, quantos) {
-  var p = fnetPedidoLista_(cnpj, quantos);
-  var resp = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true, headers: p.headers });
-  if (resp.getResponseCode() !== 200) throw new Error('FNet HTTP ' + resp.getResponseCode());
-  return fnetDocsDeTexto_(resp.getContentText());
-}
 
 /** Alguns documentos vêm em base64 em vez do XML direto. */
 function fnetTextoDoDocumento_(texto) {
@@ -360,12 +353,6 @@ function fnetTextoDoDocumento_(texto) {
   return texto;
 }
 
-function baixarDocumentoFnet_(id) {
-  var p = fnetPedidoDocumento_(id);
-  var resp = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true, headers: p.headers });
-  if (resp.getResponseCode() !== 200) throw new Error('FNet documento ' + id + ' HTTP ' + resp.getResponseCode());
-  return fnetTextoDoDocumento_(resp.getContentText('UTF-8'));
-}
 
 /**
  * Proventos do `ticker` num XML estruturado do FNet:

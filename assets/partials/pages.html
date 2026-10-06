@@ -54,10 +54,6 @@
         <div class="favoritos-status" id="favoritosStatus" role="status" aria-live="polite"></div>
       </section>
 
-      <section class="home-carteira inicio-secao" aria-label="Minha carteira">
-        <div id="resumoPatrimonio"></div>
-      </section>
-
       <div class="pagina-grid com-lateral home-colunas">
         <div class="home-principal">
           <div class="secao-cab rentab-cab">
@@ -97,20 +93,24 @@
               </div>
             </details>
           </div>
+
+          <!-- 06/10/2026 (revisão do Tiago): Distribuição e Proventos lado a lado (50%/50%) logo abaixo da Rentabilidade, na área principal;
+               a coluna da direita fica só com "Ativos". Os 4 cartões KPI de total por carteira saíram. -->
+          <div class="home-dist-prov">
+            <div id="resumoDistribuicao"></div>
+
+            <!-- 24/09/2026: proventos do mês (inicio-proventos.js) -->
+            <section class="card proventos-secao lateral-card" id="proventosSecao" hidden>
+              <header class="card-cab lateral-cab">
+                <div><span class="card-rotulo">Neste mês</span><h2 class="card-titulo">Proventos</h2></div>
+                <a class="lateral-link btn btn-text btn-sm" href="proventos/index.html">Ver tudo</a>
+              </header>
+              <div class="prov-corpo"></div>
+            </section>
+          </div>
         </div>
 
-        <aside class="home-lateral" aria-label="Distribuição, proventos e meus ativos">
-          <div id="resumoDistribuicao"></div>
-
-          <!-- 24/09/2026: proventos do mês (inicio-proventos.js) -->
-          <section class="card proventos-secao lateral-card" id="proventosSecao" hidden>
-            <header class="card-cab lateral-cab">
-              <div><span class="card-rotulo">Neste mês</span><h2 class="card-titulo">Proventos</h2></div>
-              <a class="lateral-link btn btn-text btn-sm" href="proventos/index.html">Ver tudo</a>
-            </header>
-            <div class="prov-corpo"></div>
-          </section>
-
+        <aside class="home-lateral" aria-label="Meus ativos">
           <section class="card lateral-card al-card" aria-label="Meus ativos">
             <header class="card-cab lateral-cab">
               <div><span class="card-rotulo" id="alContador"></span><h2 class="card-titulo">Meus ativos</h2></div>
@@ -142,14 +142,14 @@
 
     <!-- 14/09/2026: 1ª fatia foi só "Metas da Carteira". 2ª fatia (mesmo
          dia) acrescenta "Objetivos da Carteira" e a 4ª "Radar de
-         oportunidades" (3ª foi só o back-end de leitura do Radar) — as 3
+         oportunidades" (3ª foi só o back-end de leitura do Radar) — as
          seções vêm juntas na mesma ação distribuicoesMetas
          (apps-script/DistribuicoesMetas.gs), por isso compartilham
-         loading/erro. Ordem das seções aqui é a ordem que o Tiago pediu:
-         Objetivos → Radar → Metas.
-         06/10/2026 (Onda 3, kit Material 3): cabeçalho padrão (título + "Atualizar dados"), abas em pílula
-         (Objetivos | Radar | Metas = uma seção por vez, as 3 continuam na mesma tela e no mesmo carregamento) e 4 cartões KPI
-         no alto. Ver pages/distribuicoes-metas.js. -->
+         loading/erro.
+         06/10/2026 (Onda 3, kit Material 3): cabeçalho padrão (título + "Atualizar dados") e abas em pílula.
+         06/10/2026 (Tiago): os objetivos da carteira viraram a meta "Distribuição da carteira" (Metas e Objetivos) e a aba
+         Objetivos saiu: ficam DUAS abas - "Radar de oportunidades" (só a tabela de ativos) e "Metas" (todo o resumo: KPIs,
+         distribuição da carteira e metas da carteira). Ver pages/distribuicoes-metas.js. -->
 
     <div id="metasCabecalho"></div>
 
@@ -166,21 +166,16 @@
     <div id="metasConteudo" hidden>
       <div class="avisos-banner" id="metasAvisos" hidden role="status"></div>
 
-      <div class="grid-kpi dm-kpis" id="metasKpis"></div>
-
-      <section class="dm-painel" id="painelObjetivos" data-painel="objetivos" aria-labelledby="tabObjetivos">
-        <p class="dm-dica">Quanto você quer ter em cada tipo de ativo e quanto falta investir pra chegar lá. Use "Editar % desejado" em cada bloco pra mudar direto na planilha.</p>
-        <div id="objetivosCarteiraGrid"></div>
-      </section>
-
-      <section class="dm-painel" id="painelRadar" data-painel="radar" aria-labelledby="tabRadar" hidden>
+      <section class="dm-painel" id="painelRadar" data-painel="radar" aria-labelledby="tabRadar">
         <p class="dm-dica">Ranking de compra por classe de ativo. Toque no cabeçalho de uma coluna pra ordenar (padrão: Ranking) e em "Editar" numa linha pra mudar Ranking, Preço-teto ou % desejado direto na planilha.</p>
         <div id="splitInternoGrid"></div>
         <div id="radarOportunidadesGrid"></div>
       </section>
 
       <section class="dm-painel" id="painelMetas" data-painel="metas" aria-labelledby="tabMetas" hidden>
-        <p class="dm-dica">Renda Passiva, Patrimônio e Renda Emergencial. Use "Editar" num cartão pra mudar a meta direto na planilha, ou toque no cartão pra abrir a meta em Metas e Objetivos.</p>
+        <div class="grid-kpi dm-kpis" id="metasKpis"></div>
+        <p class="dm-dica">Quanto você quer ter em cada tipo de ativo e quanto falta investir pra chegar lá (meta "Distribuição da carteira" - os pesos se editam em Metas e Objetivos), mais a Renda Passiva, o Patrimônio e a Renda Emergencial. Toque num cartão pra abrir a meta em Metas e Objetivos.</p>
+        <div id="distribuicaoMetaGrid"></div>
         <div class="goals-grid" id="metasCarteiraGrid"></div>
       </section>
     </div>

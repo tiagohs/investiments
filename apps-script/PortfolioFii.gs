@@ -134,7 +134,7 @@ function atualizarPortfolioFii_(origem, opcoes) {
     assinatura = portAssinaturaCvm_(hoje);
     var anterior = PropertiesService.getScriptProperties().getProperty(PORT_PROP_ASSINATURA_);
     assinaturaMudou = !!assinatura && assinatura !== anterior;
-  } catch (eH) { avisos.push('CVM (HEAD): ' + String(eH).slice(0, 80)); }
+  } catch (eH) { avisos.push('CVM (assinatura do informe): ' + String(eH).slice(0, 80)); }
   var consultar = tickers.filter(function (t) { return cnpjs[t]; });
   var baixar = precisa.length > 0 || (assinaturaMudou && consultar.length > 0);
 
@@ -181,7 +181,11 @@ function atualizarPortfolioFii_(origem, opcoes) {
     if (portAplicarGeocache_(l.json, geoCtx)) { l.json = portCompactar_(l.json); gravar = true; }
   });
   portGravarGeocache_(ss, geoCtx);
-  if (geoCtx.bloqueado) avisos.push('Nominatim recusou o servidor (' + geoCtx.bloqueado + '): o mapa geocodifica no navegador');
+  // 06/10/2026: o Nominatim costuma recusar os IPs compartilhados do Google (HTTP 429/403).
+  // Não é erro: o mapa geocodifica no navegador. Vira nota (não "Atenção") e o servidor
+  // só tenta de novo depois de 24 h (disjuntor 'nominatim' do Fontes.gs, se existir).
+  var notaGeo = '';
+  if (geoCtx.bloqueado) notaGeo = 'endereços novos do mapa ficam para o navegador (Nominatim: ' + geoCtx.bloqueado + ')';
   else if (geoCtx.pendentes) porTempo = true;
 
   // 4) fato relevante NOVO no FNet depois do que já foi visto: marca pra conferir e reprocessa na próxima execução
@@ -202,6 +206,7 @@ function atualizarPortfolioFii_(origem, opcoes) {
   var partes = ['Portfólio dos FIIs: ' + atualizados.length + ' atualizado(s)' + (atualizados.length ? ' (' + atualizados.join(', ') + ')' : '')];
   if (marcados.length) partes.push('fato relevante novo - conferir: ' + marcados.join(', '));
   if (geoCtx.requisicoes) partes.push(geoCtx.requisicoes + ' consulta(s) de mapa');
+  if (notaGeo) partes.push(notaGeo);
   if (semCnpj.length) partes.push('sem CNPJ (digite na aba ' + ABA_FII_CNPJ + '): ' + semCnpj.join(', '));
   if (falhas.length) partes.push('falhou: ' + falhas.join('; '));
   if (avisos.length) partes.push(avisos.join('; '));
@@ -291,14 +296,22 @@ function portChaveFr_(fr) { return fr.data + '|' + fr.id; }
 // CVM: baixar e filtrar
 // ---------------------------------------------------------------------------
 
-/** ETag + tamanho do zip trimestral do ano (HEAD, sem baixar). */
+/**
+ * ETag + tamanho do zip trimestral do ano, sem baixar o arquivo.
+ * 06/10/2026: o UrlFetchApp não aceita method 'head' ("Attribute provided with invalid
+ * value: method"); usa GET pedindo só o 1º byte (Range: bytes=0-0). O servidor da CVM
+ * responde 206 com Content-Range "bytes 0-0/<tamanho total>"; se ignorar o Range (200),
+ * vale o Content-Length.
+ */
 function portAssinaturaCvm_(hoje) {
   var url = PORT_CVM_URL_ + 'FII/DOC/INF_TRIMESTRAL/DADOS/inf_trimestral_fii_' + hoje.slice(0, 4) + '.zip';
-  var resp = UrlFetchApp.fetch(url, { method: 'head', muteHttpExceptions: true });
-  if (resp.getResponseCode() !== 200) return null;
+  var resp = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true, followRedirects: true, headers: { Range: 'bytes=0-0' } });
+  var code = resp.getResponseCode();
+  if (code !== 200 && code !== 206) return null;
   var h = resp.getHeaders() || {};
   var pega = function (nome) { var k = Object.keys(h).filter(function (x) { return x.toLowerCase() === nome; })[0]; return k ? String(h[k]) : ''; };
-  var sig = pega('etag') + '|' + pega('content-length') + '|' + pega('last-modified');
+  var total = (pega('content-range').match(/\/(\d+)\s*$/) || [])[1] || (code === 200 ? pega('content-length') : '');
+  var sig = pega('etag') + '|' + total + '|' + pega('last-modified');
   return sig === '||' ? null : sig;
 }
 
@@ -807,6 +820,10 @@ function portFaltamCoords_(json) {
 /** Uma consulta ao Nominatim (1 req/s). Devolve { lat, lon } | null; marca ctx.bloqueado se o servidor recusar. */
 function portNominatim_(q, ctx, ufEsperada) {
   if (ctx.bloqueado || ctx.requisicoes >= PORT_GEOCODE_MAX_REQ_ || !ctx.temTempo()) return undefined; // undefined = nem tentou
+  if (typeof fonteAberta_ === 'function') {
+    var pausa = fonteAberta_('nominatim');
+    if (pausa) { ctx.bloqueado = 'em pausa até ' + (typeof fonteHoraBr_ === 'function' ? fonteHoraBr_(pausa.ate) : new Date(pausa.ate).toISOString()); return undefined; }
+  }
   var espera = PORT_GEOCODE_INTERVALO_MS_ - (Date.now() - ctx.ultimaReq);
   if (ctx.ultimaReq && espera > 0) Utilities.sleep(espera);
   ctx.ultimaReq = Date.now();
@@ -816,7 +833,15 @@ function portNominatim_(q, ctx, ufEsperada) {
   var resp;
   try { resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': ua } }); } catch (e) { ctx.bloqueado = 'rede: ' + String(e).slice(0, 60); return undefined; }
   var code = resp.getResponseCode();
-  if (code !== 200) { ctx.bloqueado = 'HTTP ' + code; return undefined; }
+  if (code !== 200) {
+    ctx.bloqueado = 'HTTP ' + code;
+    if ((code === 429 || code === 403) && typeof fonteFalhou_ === 'function' && typeof fonteGravarEstado_ === 'function') {
+      var est = fonteFalhou_('nominatim', { codigo: code }) || {};
+      est.ate = Date.now() + 24 * 3600000; // IP do Google recusado: não insiste no mesmo dia
+      fonteGravarEstado_('nominatim', est);
+    }
+    return undefined;
+  }
   var lista;
   try { lista = JSON.parse(resp.getContentText()); } catch (e2) { ctx.bloqueado = 'resposta inválida'; return undefined; }
   if (!lista || !lista.length) return null;

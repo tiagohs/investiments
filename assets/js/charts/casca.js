@@ -58,9 +58,8 @@ export function criarCasca(el, cfg = {}) {
   const raiz = no(doc, ':div', { class: `chart chart--${cfg.tipo || 'generico'}${cfg.legenda === 'direita' ? ' chart--leg-dir' : ''}`, 'data-chart': cfg.tipo || '' }, el);
   const corpo = no(doc, ':div', { class: 'chart-corpo' }, raiz);
   const wrap = no(doc, ':div', { class: 'chart-wrap' }, corpo);
-  const svg = no(doc, 'svg', { class: 'chart-svg', width: '100%', role: 'img', 'aria-labelledby': `${id}-t`, tabindex: cfg.focavel === false ? null : '0', focusable: 'true' }, wrap);
-  const titulo = no(doc, 'title', { id: `${id}-t` }, svg);
-  titulo.textContent = cfg.aria || 'Gráfico';
+  const svg = no(doc, 'svg', { class: 'chart-svg', width: '100%', role: 'img', 'aria-label': cfg.aria || 'Gráfico', 'aria-describedby': `${id}-tab`, tabindex: cfg.focavel === false ? null : '0', focusable: 'true' }, wrap);
+  /* 06/10/2026: sem <title> no SVG (o navegador mostrava um tooltip nativo junto com o nosso): nome em aria-label e dados em aria-describedby. */
   const tip = criarTooltip(doc, wrap);
   const legendaEl = cfg.legenda === false ? null : no(doc, ':div', { class: 'chart-legenda', role: 'group', 'aria-label': 'Legenda' }, cfg.legenda === 'direita' ? corpo : raiz);
   const live = no(doc, ':div', { class: 'chart-sr', 'aria-live': 'polite', 'aria-atomic': 'true' }, raiz);
@@ -148,7 +147,7 @@ export function criarCasca(el, cfg = {}) {
     get destaque() { return destaqueId; },
     aoDestacar(fn) { aoDestacar.push(fn); },
     aoParar(fn) { parar.push(fn); },
-    definirAria(texto) { titulo.textContent = texto; },
+    definirAria(texto) { svg.setAttribute('aria-label', texto); },
     anunciar(texto) { live.textContent = texto; },
     /** Estado de tamanho do SVG (viewBox em pixels reais: texto sem distorção). */
     dimensionar(W, H) { atr(svg, { viewBox: `0 0 ${W} ${H}`, height: H }); svg.style.maxWidth = '100%'; },

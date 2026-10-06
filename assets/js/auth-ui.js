@@ -2,7 +2,7 @@
  * auth-ui.js — liga o Google Identity Services (GIS) de verdade ao
  * módulo de auth.js. Antes disso só existia o pedaço "puro" (guardar/
  * ler/decodificar o token) — o botão "Entrar com Google" e o callback
- * que recebe a credencial só existiam em teste.html (rascunho
+ * que recebe a credencial só existiam em tests/manual/teste.html (rascunho
  * descartável). Este arquivo porta exatamente o mesmo padrão validado
  * lá (google.accounts.id.initialize/renderButton, CLIENT_ID de
  * config.js) pro app de verdade, agora testável/reutilizável.

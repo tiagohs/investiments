@@ -103,10 +103,11 @@ test('criarAnelProgresso() trata percentual ausente/inválido como 0%', () => {
   assert.equal(host.querySelector('.chart-anel-valor').textContent, '0%');
 });
 
-test('criarAnelProgresso() inclui um <title> (acessível/tooltip) com o percentual exato, com 2 casas', () => {
+test('criarAnelProgresso() descreve o percentual exato (2 casas) em aria-label, sem <title> (tooltip nativo duplicado)', () => {
   const doc = makeDom('');
   const host = criarAnelProgresso(doc, { percentual: 0.737725, cor: 'var(--usa)' });
-  assert.match(host.querySelector('title').textContent, /73,77% da meta/);
+  assert.match(host.querySelector('svg').getAttribute('aria-label'), /73,77% da meta/);
+  assert.equal(host.querySelector('title'), null);
 });
 
 
@@ -1743,7 +1744,7 @@ function makePaginaDom() {
     <div class="metas-erro" id="metasErro" hidden></div>
     <div id="metasConteudo" hidden>
       <div class="avisos-banner" id="metasAvisos" hidden></div>
-      <div id="objetivosCarteiraGrid"></div>
+      <div id="distribuicaoMetaGrid"></div>
       <div id="splitInternoGrid"></div>
       <div id="radarOportunidadesGrid"></div>
       <div id="metasCarteiraGrid"></div>
@@ -1763,22 +1764,21 @@ test('montarPaginaDistribuicoesMetas() renderiza os 3 cards e esconde o loading 
   assert.equal(doc.getElementById('metasCarteiraGrid').querySelectorAll('.goal-card').length, 3);
 });
 
-test('montarPaginaDistribuicoesMetas() também desenha os blocos de Objetivos da Carteira quando vêm na resposta', async () => {
+test('montarPaginaDistribuicoesMetas() desenha a distribuição da carteira (blocos atual x meta) na aba Metas, sem botão de editar % (o lugar de editar é a meta)', async () => {
   const doc = makePaginaDom();
   const getDistribuicoesMetasImpl = async () => ({
     ok: true,
     metas: METAS_EXEMPLO,
-    objetivos: {
-      alocacaoGeral: {
-        tipos: [{ tipo: 'FIIs', percentualDesejado: 0.4, percentualAtual: 0.4, carteiraAtual: 1000, valorInvestir: 0 }],
-        total: { carteiraAtual: 1000, valorInvestir: 0 },
-      },
-    },
+    objetivos: OBJETIVOS_EXEMPLO,
+    metaDistribuicao: { id: 'm1', tipo: 'distribuicaoCarteira', nome: 'Distribuição da carteira', especificos: { pesos: { grupos: { acoes: 0.5, fiis: 0.4, rf: 0.1 }, acoes: { nacionais: 0.6, internacionais: 0.4 }, fiis: { tijolo: 0.4, hibrido: 0.3, papel: 0.3 }, rf: { emergencial: 0.9, rendaFixa: 0.1 } } } },
   });
 
   await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
 
-  assert.equal(doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco').length, 1);
+  const grid = doc.getElementById('distribuicaoMetaGrid');
+  assert.ok(grid.querySelectorAll('.obj-bloco').length >= 1);
+  assert.equal(grid.querySelector('.goal-editar-btn'), null, 'sem "Editar % desejado": os pesos se editam na meta');
+  assert.match(grid.querySelector('a.dm-dist-link').getAttribute('href'), /metas\.html#meta=m1$/);
 });
 
 test('montarPaginaDistribuicoesMetas() mostra o estado de erro quando o back-end rejeita a chamada', async () => {
@@ -1869,55 +1869,30 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar não impede tentar de nov
   assert.match(rendaEmergencialCard.querySelector('.goal-edit-status').textContent, /meses inválido/);
 });
 
-test('montarPaginaDistribuicoesMetas(): salvar % desejado de um bloco de Objetivos grava e recarrega os dados', async () => {
+test('montarPaginaDistribuicoesMetas(): sem a meta na resposta (cache antigo) usa os % da planilha e o link vira "Criar em Metas e Objetivos"', async () => {
   const doc = makePaginaDom();
-  let chamadasGet = 0;
-  const getDistribuicoesMetasImpl = async () => {
-    chamadasGet += 1;
-    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO };
-  };
-  let salvo;
-  const salvarObjetivosCarteiraImpl = async (token, bloco, percentuais) => {
-    salvo = { bloco, percentuais };
-    return { ok: true };
-  };
+  const getDistribuicoesMetasImpl = async () => ({ ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO });
 
-  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarObjetivosCarteiraImpl });
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
 
-  const blocoGeral = doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco')[0];
-  blocoGeral.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  blocoGeral.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(salvo.bloco, 'geral');
-  assert.equal(chamadasGet, 2); // busca inicial + recarregar após salvar
+  const grid = doc.getElementById('distribuicaoMetaGrid');
+  assert.ok(grid.querySelector('.obj-bloco'));
+  assert.match(grid.querySelector('a.dm-dist-link').textContent, /Criar em Metas e Objetivos/);
 });
 
-test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado mostra erro no bloco (sem recarregar)', async () => {
-  const doc = makePaginaDom();
-  let chamadasGet = 0;
-  const getDistribuicoesMetasImpl = async () => {
-    chamadasGet += 1;
-    return { ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO };
-  };
-  const salvarObjetivosCarteiraImpl = async () => ({ ok: false, erro: 'soma inválida' });
-
-  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarObjetivosCarteiraImpl });
-
-  const blocoGeral = doc.getElementById('objetivosCarteiraGrid').querySelectorAll('.obj-bloco')[0];
-  blocoGeral.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  blocoGeral.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(chamadasGet, 1);
-  assert.match(blocoGeral.querySelector('.goal-edit-status').textContent, /soma inválida/);
+test('montarPaginaDistribuicoesMetas(): são DUAS abas (Radar de oportunidades e Metas); o endereço/aba antigos "objetivos" levam pra Metas', async () => {
+  const doc = new JSDOM(`<!doctype html><html><body><div id="metasCabecalho"></div><div id="metasLoading"></div><div id="metasErro" hidden></div>
+    <div id="metasConteudo" hidden>
+      <section class="dm-painel" data-painel="radar"><div id="splitInternoGrid"></div><div id="radarOportunidadesGrid"></div></section>
+      <section class="dm-painel" data-painel="metas" hidden><div id="metasKpis"></div><div id="distribuicaoMetaGrid"></div><div id="metasCarteiraGrid"></div></section>
+    </div></body></html>`, { url: 'http://localhost/distribuicoes-metas.html#objetivos' }).window.document;
+  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl: async () => ({ ok: true, metas: METAS_EXEMPLO, objetivos: OBJETIVOS_EXEMPLO }) });
+  const abas = [...doc.querySelectorAll('#metasCabecalho [role="tab"], #metasCabecalho .chip, #metasCabecalho button')].map((b) => b.textContent.trim()).filter((t) => /Radar|Metas|Objetivos/.test(t));
+  assert.ok(abas.some((t) => /Radar de oportunidades/.test(t)));
+  assert.ok(!abas.some((t) => /^Objetivos$/.test(t)), 'a aba Objetivos some');
+  assert.equal(doc.querySelector('.dm-painel[data-painel="metas"]').hidden, false, '#objetivos abre Metas');
+  assert.equal(doc.querySelector('.dm-painel[data-painel="radar"]').hidden, true);
+  assert.ok(doc.getElementById('metasKpis').textContent.includes('Total investido'), 'KPIs ficam na aba Metas');
 });
 
 test('montarPaginaDistribuicoesMetas(): salvar um item do Radar de oportunidades grava e recarrega os dados', async () => {
@@ -1972,7 +1947,7 @@ test('montarPaginaDistribuicoesMetas(): erro ao salvar item do Radar mostra erro
   assert.match(primeiraLinha.querySelector('.radar-edit-status').textContent, /linha mudou de ativo/);
 });
 
-test('montarPaginaDistribuicoesMetas(): desenha o bloco de split interno sincronizado com a aba inicial do Radar (Ações Nacionais)', async () => {
+test('montarPaginaDistribuicoesMetas(): o Radar mostra só a tabela (+ links da Suno da aba ativa); os pesos moram na meta', async () => {
   const doc = makePaginaDom();
   const getDistribuicoesMetasImpl = async () => ({
     ok: true,
@@ -1985,11 +1960,11 @@ test('montarPaginaDistribuicoesMetas(): desenha o bloco de split interno sincron
   await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl });
 
   const splitGrid = doc.getElementById('splitInternoGrid');
-  assert.match(splitGrid.querySelector('.obj-bloco-titulo').textContent, /Ações/);
+  assert.equal(splitGrid.querySelector('.obj-bloco'), null, 'sem bloco de distribuição no Radar');
   assert.equal(splitGrid.querySelectorAll('.split-link').length, 2); // Dividendos + Valor
 });
 
-test('montarPaginaDistribuicoesMetas(): trocar pra aba "FIIs" no Radar troca o bloco de split interno junto', async () => {
+test('montarPaginaDistribuicoesMetas(): trocar pra aba "FIIs" no Radar troca os links da Suno', async () => {
   const doc = makePaginaDom();
   const getDistribuicoesMetasImpl = async () => ({
     ok: true,
@@ -2005,79 +1980,12 @@ test('montarPaginaDistribuicoesMetas(): trocar pra aba "FIIs" no Radar troca o b
     .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
   const splitGrid = doc.getElementById('splitInternoGrid');
-  assert.match(splitGrid.querySelector('.obj-bloco-titulo').textContent, /FIIs/);
+  assert.equal(splitGrid.querySelector('.obj-bloco'), null);
   const links = splitGrid.querySelectorAll('.split-link');
   assert.equal(links.length, 1);
   assert.match(links[0].textContent, /FIIS/);
 });
 
-test('montarPaginaDistribuicoesMetas(): salvar % desejado do split interno (bloco "fiis") grava e recarrega os dados', async () => {
-  const doc = makePaginaDom();
-  let chamadasGet = 0;
-  const getDistribuicoesMetasImpl = async () => {
-    chamadasGet += 1;
-    return {
-      ok: true,
-      metas: METAS_EXEMPLO,
-      radar: RADAR_EXEMPLO,
-      splitsInternos: SPLITS_INTERNOS_EXEMPLO,
-      linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
-    };
-  };
-  let salvo;
-  const salvarSplitInternoImpl = async (token, bloco, percentuais) => {
-    salvo = { bloco, percentuais };
-    return { ok: true };
-  };
-
-  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarSplitInternoImpl });
-
-  doc.getElementById('radarOportunidadesGrid').querySelectorAll('.filter-tab')[2]
-    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-
-  const splitGrid = doc.getElementById('splitInternoGrid');
-  splitGrid.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  splitGrid.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(salvo.bloco, 'fiis');
-  assert.equal(chamadasGet, 2); // busca inicial + recarregar após salvar
-});
-
-test('montarPaginaDistribuicoesMetas(): erro ao salvar % desejado do split interno mostra erro no bloco (sem recarregar)', async () => {
-  const doc = makePaginaDom();
-  let chamadasGet = 0;
-  const getDistribuicoesMetasImpl = async () => {
-    chamadasGet += 1;
-    return {
-      ok: true,
-      metas: METAS_EXEMPLO,
-      radar: RADAR_EXEMPLO,
-      splitsInternos: SPLITS_INTERNOS_EXEMPLO,
-      linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO,
-    };
-  };
-  const salvarSplitInternoImpl = async () => ({ ok: false, erro: 'soma inválida' });
-
-  await montarPaginaDistribuicoesMetas('token-fake', { doc, getDistribuicoesMetasImpl, salvarSplitInternoImpl });
-
-  const splitGrid = doc.getElementById('splitInternoGrid');
-  splitGrid.querySelector('.goal-editar-btn').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  splitGrid.querySelector('form').dispatchEvent(new doc.defaultView.Event('submit', { bubbles: true, cancelable: true }));
-
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(chamadasGet, 1);
-  assert.match(splitGrid.querySelector('.goal-edit-status').textContent, /soma inválida/);
-});
-
-// ---- 26/09/2026: "momento de aporte" embaixo de cada ativo do Radar (momento-aporte.js) ----
 test('renderRadarOportunidades(): cada ativo ganha, logo abaixo, o "momento de aporte" (mesma leitura da tela de Aportes), com as metas da página', async () => {
   const { metasDaDistribuicao } = await import('../assets/js/pages/momento-aporte.js');
   const doc = makeDom('<div id="c"></div>');
@@ -2288,7 +2196,7 @@ test('splits internos ganham cor própria (Dividendos/Internacionais/Tijolo/Pape
   assert.match(cor('Outro qualquer'), /--na/);
 });
 
-test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos da aba na tela, guarda 5 min (voltar pra aba não busca de novo) e põe a distribuição desejada dentro do cartão do Radar', async () => {
+test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos da aba na tela, guarda 5 min (voltar pra aba não busca de novo) e põe os links da carteira recomendada dentro do cartão do Radar', async () => {
   const doc = makePaginaDom();
   const getDistribuicoesMetasImpl = async () => ({ ok: true, metas: METAS_EXEMPLO, radar: RADAR_EXEMPLO, splitsInternos: SPLITS_INTERNOS_EXEMPLO, linksRecomendados: LINKS_RECOMENDADOS_EXEMPLO });
   const pedidos = [];
@@ -2301,7 +2209,7 @@ test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos d
   assert.deepEqual(pedidos, [{ token: 'token-fake', chaves: ['acoes:WIZC3', 'acoes:VAMO3'] }]);
   const radar = doc.getElementById('radarOportunidadesGrid');
   assert.equal(radar.querySelectorAll('.radar-intradia-slot svg.chart-svg').length, 2);
-  assert.ok(radar.querySelector('.radar-card #splitInternoGrid .obj-bloco'), 'split interno dentro do cartão do Radar');
+  assert.ok(radar.querySelector('.radar-card #splitInternoGrid .split-link'), 'links da Suno dentro do cartão do Radar');
 
   radar.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   await esperar();

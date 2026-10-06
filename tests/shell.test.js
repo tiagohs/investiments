@@ -320,9 +320,9 @@ test('renderSyncStatus() mantém o refresh-pill em "--" quando não há sincroni
   assert.equal(doc.getElementById('refreshLabel').textContent, '--');
 });
 
-test('renderSyncStatus() sempre aponta o link "ver todas" pra planilha real (SPREADSHEET_URL)', () => {
+test('renderSyncStatus() aponta o link "ver todas" pra planilha (URL vinda da API, A-27)', () => {
   const doc = syncDom();
-  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' });
+  renderSyncStatus(doc, { status: 'Sucesso', timestamp: '2026-09-13T10:00:00.000Z', origem: 'app', detalhe: '' }, new Date(), 'https://docs.google.com/spreadsheets/d/ID_DE_TESTE/edit');
   assert.match(doc.getElementById('syncSheetLink').href, /docs\.google\.com\/spreadsheets/);
 });
 

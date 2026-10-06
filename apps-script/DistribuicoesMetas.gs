@@ -122,6 +122,22 @@
  * preenchido de propósito - ver linhaParaObjeto_ em
  * montarSplitsInternos_ pra como isso vira carteiraAtualUsd/
  * valorInvestirUsd só no item que tem o dado.
+ *
+ * 06/10/2026 (Tiago: "Faz sentido os objetivos da carteira ser um tipo de
+ * meta? E ser enviado para a tela de Metas e Objetivos?"; "dividendos -
+ * renomearia para nacionais"): os blocos de Objetivos (B11:G13 e B19:G20) e a
+ * distribuição desejada de Ações (B34:G35) e FIIs viraram UMA meta,
+ * "Distribuição da carteira" (tipo 'distribuicaoCarteira' em aux_metas). O
+ * site é a fonte da verdade: ao salvar a meta, Metas.gs chama
+ * gravarPesosPlanilhaDistribuicao_ (aqui, no fim do arquivo) e os % vão pras
+ * mesmas células de sempre (as fórmulas da planilha seguem iguais). A resposta
+ * de `distribuicoesMetas` ganha `metaDistribuicao` (a meta; criada na 1ª
+ * leitura a partir dos % da planilha, idempotente). Funções novas:
+ * normalizarPesosDistribuicao_, lerPesosPlanilhaDistribuicao_,
+ * gravarPesosPlanilhaDistribuicao_, garantirMetaDistribuicao_,
+ * montarDistribuicaoAtual_. As ações salvarObjetivosCarteira/
+ * salvarSplitInterno continuam existindo (compatibilidade), mas a tela não
+ * chama mais.
  */
 
 function handleDistribuicoesMetas(e, auth) {
@@ -142,6 +158,14 @@ function handleDistribuicoesMetas(e, auth) {
     resposta.objetivos = montarObjetivosCarteira_();
   } catch (err) {
     avisos.objetivos = String(err);
+  }
+
+  // 06/10/2026: os objetivos da carteira viraram a meta "Distribuição da carteira" (Metas e Objetivos). 1ª leitura sem
+  // a meta = ela nasce dos % da planilha (garantirMetaDistribuicao_, idempotente).
+  try {
+    resposta.metaDistribuicao = garantirMetaDistribuicao_(SpreadsheetApp.getActiveSpreadsheet(), new Date());
+  } catch (err) {
+    avisos.metaDistribuicao = String(err);
   }
 
   try {
@@ -859,4 +883,150 @@ function handleSalvarMetaPatrimonio(e) {
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }
+}
+
+// ---------------------------------------------------------------------------
+// 06/10/2026 (Tiago: "faz sentido os objetivos da carteira ser um tipo de
+// meta? E ser enviado para a tela de Metas e Objetivos?"): a distribuição
+// desejada da carteira virou a meta "Distribuição da carteira"
+// (tipo 'distribuicaoCarteira' em aux_metas - Metas.gs). O SITE é a fonte da
+// verdade dos %: a meta guarda os pesos e, a cada salvamento, eles são
+// gravados nas células da planilha de onde as fórmulas leem (nada de fórmula
+// mudou lá). Células (aba "Distribuição e Metas"), as mesmas de sempre:
+//   grupos (Ações Nacionais e Internacionais / FIIs / Renda Fixa)  C11:C13
+//   Renda Fixa (Renda Emergencial / Renda Fixa)                    C19:C20
+//   Ações (Dividendos = "Nacionais" / Ações Internacionais)        C34:C35
+//   FIIs (Tijolo / Papel / Híbrido - pelo rótulo da coluna B)      C73:C75
+//         (1ª linha achada pelo cabeçalho: localDistribuicaoMetas_)
+// Na 1ª leitura sem nenhuma meta desse tipo (nem arquivada), a meta nasce dos
+// % que estão na planilha (garantirMetaDistribuicao_ - idempotente).
+// ---------------------------------------------------------------------------
+
+var DM_TIPO_META_DISTRIBUICAO_ = 'distribuicaoCarteira';
+var DM_GRUPOS_PESOS_ = {
+  grupos: { rotulo: 'Ações, FIIs e Renda Fixa', chaves: ['acoes', 'fiis', 'rf'] },
+  acoes: { rotulo: 'Ações (Nacionais e Internacionais)', chaves: ['nacionais', 'internacionais'] },
+  fiis: { rotulo: 'FIIs (Tijolo, Híbrido e Papel)', chaves: ['tijolo', 'hibrido', 'papel'] },
+  rf: { rotulo: 'Renda Fixa (Renda Emergencial e Renda Fixa)', chaves: ['emergencial', 'rendaFixa'] }
+};
+var DM_TOLERANCIA_SOMA_ = 0.0005; // 0,05 ponto percentual (arredondamento de 33,33 + 33,33 + 33,34)
+
+/** Pesos (frações 0-1) validados: cada grupo soma 100%. Lança Error com o grupo que não fecha. */
+function normalizarPesosDistribuicao_(pesos) {
+  if (!pesos || typeof pesos !== 'object') throw new Error('informe os pesos da distribuição da carteira');
+  var out = {};
+  Object.keys(DM_GRUPOS_PESOS_).forEach(function (g) {
+    var cfg = DM_GRUPOS_PESOS_[g];
+    var bruto = pesos[g] && typeof pesos[g] === 'object' ? pesos[g] : {};
+    var soma = 0;
+    out[g] = {};
+    cfg.chaves.forEach(function (k) {
+      var n = bruto[k] === null || bruto[k] === undefined || bruto[k] === '' ? 0 : Number(bruto[k]);
+      if (!isFinite(n) || n < 0 || n > 1) throw new Error('peso inválido em ' + cfg.rotulo + ' (' + k + '): use de 0% a 100%');
+      n = Math.round(n * 10000) / 10000;
+      out[g][k] = n;
+      soma += n;
+    });
+    if (Math.abs(soma - 1) > DM_TOLERANCIA_SOMA_) throw new Error('os pesos de "' + cfg.rotulo + '" precisam somar 100% (soma atual: ' + Math.round(soma * 10000) / 100 + '%)');
+  });
+  return out;
+}
+
+function chaveFiiDistribuicao_(rotulo) {
+  var t = String(rotulo || '').toLowerCase();
+  if (/tijolo/.test(t)) return 'tijolo';
+  if (/papel/.test(t)) return 'papel';
+  if (/h[ií]brid/.test(t)) return 'hibrido';
+  return null;
+}
+
+/** Os % desejados que estão hoje na planilha, no formato `especificos.pesos` da meta (sem validar a soma). */
+function lerPesosPlanilhaDistribuicao_(ss) {
+  var dm = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+  var n = function (v) { return typeof v === 'number' && isFinite(v) ? v : 0; };
+  var geral = dm.getRange('C11:C13').getValues();
+  var rf = dm.getRange('C19:C20').getValues();
+  var acoes = dm.getRange('C34:C35').getValues();
+  var linhaFiis = localDistribuicaoMetas_(dm).objetivosFiis;
+  var fiisLinhas = dm.getRange('B' + linhaFiis + ':C' + (linhaFiis + 2)).getValues();
+  var fiis = { tijolo: 0, hibrido: 0, papel: 0 };
+  fiisLinhas.forEach(function (l, i) {
+    var chave = chaveFiiDistribuicao_(l[0]) || ['tijolo', 'papel', 'hibrido'][i];
+    fiis[chave] = n(l[1]);
+  });
+  return {
+    grupos: { acoes: n(geral[0][0]), fiis: n(geral[1][0]), rf: n(geral[2][0]) },
+    acoes: { nacionais: n(acoes[0][0]), internacionais: n(acoes[1][0]) },
+    fiis: fiis,
+    rf: { emergencial: n(rf[0][0]), rendaFixa: n(rf[1][0]) }
+  };
+}
+
+/**
+ * Grava os pesos da meta nas células da planilha (as fórmulas de % atual / R$ investir dependem delas).
+ * Valida de novo (soma 100% em cada grupo) antes de escrever qualquer célula.
+ */
+function gravarPesosPlanilhaDistribuicao_(ss, pesos) {
+  var p = normalizarPesosDistribuicao_(pesos);
+  var dm = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+  var col = function (lista) { return lista.map(function (v) { return [v]; }); };
+  var linhaFiis = localDistribuicaoMetas_(dm).objetivosFiis;
+  var rotulosFiis = dm.getRange('B' + linhaFiis + ':B' + (linhaFiis + 2)).getValues();
+  var ordemFiis = ['tijolo', 'papel', 'hibrido'];
+  var valoresFiis = rotulosFiis.map(function (l, i) { return [p.fiis[chaveFiiDistribuicao_(l[0]) || ordemFiis[i]]]; });
+  dm.getRange('C11:C13').setValues(col([p.grupos.acoes, p.grupos.fiis, p.grupos.rf]));
+  dm.getRange('C19:C20').setValues(col([p.rf.emergencial, p.rf.rendaFixa]));
+  dm.getRange('C34:C35').setValues(col([p.acoes.nacionais, p.acoes.internacionais]));
+  dm.getRange('C' + linhaFiis + ':C' + (linhaFiis + 2)).setValues(valoresFiis);
+  return p;
+}
+
+/** A meta de distribuição (ativa) e se existe alguma (inclusive arquivada) - 1 leitura só da aba aux_metas. */
+function acharMetaDistribuicao_(ss) {
+  var doTipo = lerLinhasMetas_(ss).filter(function (x) { return x.meta.tipo === DM_TIPO_META_DISTRIBUICAO_; });
+  var ativa = doTipo.filter(function (x) { return x.meta.status !== 'arquivada'; })[0] || null;
+  if (ativa) ativa.meta.atualizadoEm = ativa.atualizadoEm;
+  return { ativa: ativa ? ativa.meta : null, existe: doTipo.length > 0 };
+}
+
+/**
+ * Migração automática e idempotente: se não existe nenhuma meta "Distribuição da carteira" (nem arquivada - arquivar é uma
+ * decisão dele), cria uma a partir dos % da planilha. Devolve a meta ativa (ou null). Nunca regrava a planilha aqui.
+ */
+function garantirMetaDistribuicao_(ss, agora) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var achada = acharMetaDistribuicao_(ss);
+  if (achada.existe) return achada.ativa;
+  var pesos = normalizarPesosDistribuicao_(lerPesosPlanilhaDistribuicao_(ss)); // planilha com soma errada: não cria (lança)
+  var trava = travaRecurso_('metas', 'migrar objetivos da carteira');
+  try { trava.waitLock(20000); } catch (eL) { return null; }
+  try {
+    achada = acharMetaDistribuicao_(ss); // outra chamada pode ter criado enquanto esperava a trava
+    if (achada.existe) return achada.ativa;
+    var r = salvarMeta_(ss, JSON.stringify({
+      tipo: DM_TIPO_META_DISTRIBUICAO_, nome: 'Distribuição da carteira', status: 'ativa',
+      notas: 'Criada a partir dos % que estavam na planilha (Distribuição e Metas).', especificos: { pesos: pesos }
+    }), agora || new Date(), { semPlanilha: true });
+    return r && r.ok ? r.meta : null;
+  } finally {
+    try { trava.releaseLock(); } catch (eR) { /* ok */ }
+  }
+}
+
+/**
+ * O "atual" da distribuição, como a planilha calcula (carteira atual em R$ de cada tipo), no mesmo formato dos blocos da tela de
+ * Acompanhamento (objetivos + splitsInternos) - só rótulo e carteira atual (4 leituras: B:E de cada bloco). Quem compara com os
+ * pesos da meta é o navegador (metas-distribuicao.js).
+ */
+function montarDistribuicaoAtual_() {
+  var dm = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Distribuição e Metas');
+  if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
+  var tipos = function (a1) { return dm.getRange(a1).getValues().map(function (l) { return { tipo: l[0], carteiraAtual: l[3] }; }); };
+  var linhaFiis = localDistribuicaoMetas_(dm).objetivosFiis;
+  return {
+    objetivos: { alocacaoGeral: { tipos: tipos('B11:E13') }, alocacaoRendaFixa: { tipos: tipos('B19:E20') } },
+    splitsInternos: { acoes: { itens: tipos('B34:E35') }, fiis: { itens: tipos('B' + linhaFiis + ':E' + (linhaFiis + 2)) } }
+  };
 }

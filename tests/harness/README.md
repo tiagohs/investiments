@@ -112,3 +112,28 @@ alerta e não bloqueia. Pular uma vez: `git commit --no-verify`.
 
 Planilha nova: `python3 tests/harness/extrair-fixtures.py "…/Investimentos - Controle NN.xlsx"`
 (grava também `_meta` com o nome do arquivo, que aparece no topo do relatório).
+
+
+## Onda 4 - frente 4A (06/10/2026: A-72, A-74, A-75, A-81)
+
+- **Coerência entre telas** (`coerencia-telas.test.mjs`, A-72): roda as ações do Web App juntas, com o relógio dos `.gs`
+  congelado no dia da extração (`_meta.extraidoEm`), e compara patrimônio de hoje (Início x Carteiras x Organização x
+  Distribuição e Metas x Metas), reserva bruto x líquido, proventos em 12 meses (mesma janela/rótulo), "já guardado" das metas
+  x o que existe pra vincular, órfãos/aliases e duplicata nos históricos. Também fixa o **orçamento de leitura por ação**
+  (células, leituras, bytes: o medido em 06/10/2026 + 20%); `node tests/harness/coerencia-telas.test.mjs --medir` imprime a
+  tabela atual. Teste marcado `todo` = achado conhecido que ainda não foi corrigido no `.gs` (aparece, não reprova).
+- **Fixtures x planilha nova** (A-74): `extrair-fixtures.py` extrai a lista fixa **e** toda aba que `apps-script/*.gs` usa
+  (varredura do texto) e grava em `_meta` quais faltaram na planilha. `abas-contrato.test.js` + `contrato-abas.mjs` conferem,
+  aba por aba, cabeçalhos/rótulos - ao trocar de planilha (Controle N+1) o teste diz qual aba/célula mudou. Aba nova usada no
+  `.gs` obriga a entrada no contrato.
+- **`CI_ESTRITO=1`** (`npm run test:estrito`): teste que dependia de `fixtures.json`/aba e foi pulado **reprova** (e diz qual
+  aba falta). Em teste novo use `exigirFixtures(t, ['Aba'])` (`fixtures-exigidas.mjs`); o `reporter-estrito.mjs` cobre os
+  `t.skip` antigos. Sem a variável, tudo continua pulando em silêncio como antes (CI sem a planilha).
+- **Velocidade** (A-75): `fixtures.json` é lido/parseado 1 vez por processo (`lerFixturesRaw_`), as abas só são convertidas
+  quando alguém as lê, e `criarSandboxGs` é o único jeito de montar o sandbox (`carregarTodasAsTelasComDadosReais({ compartilhar: true })`
+  reaproveita o resultado em teste que só lê). O pre-commit roda só os testes dos arquivos afetados
+  (`pre-commit-testes.mjs`; `npm run test:afetados -- apps-script/Metas.gs` simula); a suíte completa é `npm test` e o
+  relatório das telas é `npm run verificar` / `npm run relatorio` (o teste do relatório agora grava numa pasta temporária).
+- **Alertas de dado novos** (A-81, `qualidade-dados.mjs`): lote RF duplicado, P/VP/P/L fora da faixa entre fontes, ticker
+  "Erro" em Proventos, aporte "Concluído" sem lançamento há mais de 10 dias, Atenção/Erro por fonte nos últimos 7 dias.
+  Provados com planilha inventada em `qualidade-dados-checagens.test.js`.
