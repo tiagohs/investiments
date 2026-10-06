@@ -89,11 +89,19 @@ function rodarPortfolioFiiTudo() {
   Logger.log(r.status + ' - ' + r.detalhe);
 }
 
-/** Guarda o e-mail de contato que vai no User-Agent do Nominatim (política de uso do OpenStreetMap). Rodar 1x. */
+/**
+ * Guarda o e-mail de contato que vai no User-Agent do Nominatim (política de uso do OpenStreetMap). Rodar 1x.
+ * 06/10/2026: o botão "Executar" do editor não passa argumento, então sem parâmetro usa o e-mail
+ * da conta que está rodando o script (Session.getEffectiveUser) — nada fica escrito no repositório.
+ */
 function configurarContatoNominatim(contato) {
-  if (!contato) throw new Error('Passe o e-mail: configurarContatoNominatim("voce@exemplo.com")');
+  if (typeof contato !== 'string' || contato.indexOf('@') < 0) {
+    contato = '';
+    try { contato = Session.getEffectiveUser().getEmail() || ''; } catch (e) { contato = ''; }
+  }
+  if (!contato) throw new Error('Não consegui descobrir o seu e-mail. Rode configurarContatoNominatim("voce@exemplo.com") a partir de outra função.');
   PropertiesService.getScriptProperties().setProperty(PORT_PROP_CONTATO_, String(contato));
-  Logger.log('Contato do Nominatim guardado.');
+  Logger.log('Contato do Nominatim guardado: ' + contato);
 }
 
 /**
