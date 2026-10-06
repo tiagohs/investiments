@@ -102,8 +102,8 @@ export function rotuloPeriodo(id) {
  * "Escolher período" entra depois do segmentado, no mesmo contêiner.
  */
 const CHECK_SEG = '<svg class="chart-seg-ck" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9.55 17.65 4.6 12.7l1.4-1.4 3.55 3.55 8.45-8.45 1.4 1.4z"/></svg>';
-export function botoesSegmentadoHtml(ids, ativo = ids[0]) {
-  return `<div class="chart-seg" role="group" aria-label="Período">${ids.map((id) => `<button class="chart-seg-btn${id === ativo ? ' active' : ''}" type="button" data-periodo="${id}" aria-pressed="${id === ativo ? 'true' : 'false'}">${CHECK_SEG}<span>${rotuloPeriodo(id)}</span></button>`).join('')}</div>`;
+export function botoesSegmentadoHtml(ids, ativo = ids[0], rotulos = {}) { // 07/10/2026: `rotulos` troca o texto de alguns ids (ex.: a Home mostra "12 meses" e "Desde o início")
+  return `<div class="chart-seg" role="group" aria-label="Período">${ids.map((id) => `<button class="chart-seg-btn${id === ativo ? ' active' : ''}" type="button" data-periodo="${id}" aria-pressed="${id === ativo ? 'true' : 'false'}">${CHECK_SEG}<span>${(rotulos && rotulos[id]) || rotuloPeriodo(id)}</span></button>`).join('')}</div>`;
 }
 
 const ROTULO_CHIP = ROTULO_PERSONALIZADO;

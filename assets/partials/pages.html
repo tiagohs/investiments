@@ -42,6 +42,12 @@
         <div class="mkt-faixa" id="faixaMercado"></div>
       </section>
 
+      <!-- 07/10/2026: hero "Patrimônio líquido" (inicio-hero.js; dado do getPatrimonio, buscado em paralelo DEPOIS do 1º desenho
+           - ver inicio-blocos.js). O esqueleto abaixo vale até o JS trocar o conteúdo. No celular vem logo depois dos índices. -->
+      <section class="card hero-pl inicio-secao" id="patrimonioHero" aria-label="Patrimônio líquido" data-estado="carregando">
+        <div class="hero-esqueleto" aria-hidden="true"><span class="skel skel-linha hero-esq-a"></span><span class="skel skel-linha hero-esq-b"></span><span class="skel skel-bloco hero-esq-c"></span></div>
+      </section>
+
       <!-- 23/09/2026: Favoritos (assets/js/pages/inicio-favoritos.js) - cópia dos ativos marcados com a estrela, na ordem
            salva (aba Auxiliar_favoritos). 26/09/2026: cada cartão traz o gráfico do dia. -->
       <section class="favoritos-secao inicio-secao" id="favoritosSecao" hidden>
@@ -57,7 +63,7 @@
       <div class="pagina-grid com-lateral home-colunas">
         <div class="home-principal">
           <div class="secao-cab rentab-cab">
-            <h2 class="secao-titulo">Rentabilidade</h2>
+            <h2 class="secao-titulo">Rentabilidade dos investimentos</h2>
             <div class="rentab-periodo" id="periodoTabs"></div>
           </div>
 
@@ -110,7 +116,12 @@
           </div>
         </div>
 
-        <aside class="home-lateral" aria-label="Meus ativos">
+        <aside class="home-lateral" aria-label="Metas e meus ativos">
+          <!-- 07/10/2026: Metas no topo da coluna (inicio-metas.js; getMetas em paralelo, mesmo esquema do hero). No celular
+               a coluna se desmancha e este cartão vem logo depois do hero (ordem em inicio.css). -->
+          <section class="card lateral-card metas-home" id="metasHome" aria-label="Metas" data-estado="carregando">
+            <div class="hm-esqueleto" aria-hidden="true"><span class="skel skel-linha hm-esq-a"></span><span class="skel skel-linha hm-esq-b"></span><span class="skel skel-linha hm-esq-b"></span><span class="skel skel-linha hm-esq-b"></span></div>
+          </section>
           <section class="card lateral-card al-card" aria-label="Meus ativos">
             <header class="card-cab lateral-cab">
               <div><span class="card-rotulo" id="alContador"></span><h2 class="card-titulo">Meus ativos</h2></div>

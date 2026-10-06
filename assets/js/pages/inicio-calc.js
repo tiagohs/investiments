@@ -39,6 +39,14 @@ export const VISOES = {
   internacional: { valor: (p) => (p && p.porClasse ? p.porClasse.acoesEua : undefined), label: 'Ações Internacionais' },
 };
 
+/**
+ * 07/10/2026 (Tiago: o "Patrimônio total" da Início passa a se chamar "Investimentos" - o patrimônio líquido virou o hero da
+ * tela): rótulos PRÓPRIOS da Início pra visão 'total'. Carteiras > Visão geral continua com "Patrimônio total"
+ * (VISOES / LABEL_POR_VISAO_RENTABILIDADE / NOME_ANALISE_POR_VISAO não mudam - são compartilhados).
+ */
+export const ROTULO_TOTAL_HOME = 'Investimentos';
+export const NOME_ANALISE_TOTAL_HOME = 'A carteira de investimentos'; // singular: os verbos das frases da Análise são todos na 3ª pessoa do singular
+
 /** {valor, label} pra visão pedida - cai em "total" se o id não for reconhecido. */
 export function resolverVisao(patrimonio, visaoId) {
   const visao = VISOES[visaoId] || VISOES.total;

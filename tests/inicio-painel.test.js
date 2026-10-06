@@ -126,7 +126,7 @@ test('renderResumoCompacto(): sem cartões KPI (06/10/2026), só a distribuiçã
   renderResumoCompacto(doc, r, dados, { distribuicaoEl: doc.getElementById('d') });
   assert.equal(r.querySelectorAll('.rc-kpi, .chart-kpi').length, 0, 'os 4 cartões KPI de total por carteira saíram (pedido do Tiago)');
   const d = doc.getElementById('d');
-  assert.match(d.querySelector('.rc-distrib-cab').textContent, /Patrimônio total/);
+  assert.match(d.querySelector('.rc-distrib-cab').textContent, /Investimentos/);
   assert.ok(d.querySelectorAll('.chart-anel svg .chart-fatia, .chart--anel svg .chart-fatia').length >= 3, 'anel com as fatias');
   assert.equal(d.querySelector('.tab[aria-selected="true"]').dataset.tab, 'total');
 

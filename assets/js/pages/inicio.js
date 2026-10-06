@@ -142,6 +142,8 @@ import { montarFavoritos } from './inicio-favoritos.js';
 import { renderProventosAnunciados } from './inicio-proventos.js';
 import { gravarCacheDados, lerCacheDados } from '../cache-dados.js';
 import { mountRefreshControl } from '../shell.js';
+import { criarBlocosHome } from './inicio-blocos.js'; // 07/10/2026: hero "Patrimônio líquido" + Metas (módulos pesados entram por import() lá dentro)
+import { NOME_ANALISE_TOTAL_HOME, ROTULO_TOTAL_HOME } from './inicio-calc.js';
 
 // Compatibilidade (A-76, 06/10/2026): estes nomes moraram aqui; agora vivem nos módulos abaixo e continuam exportados daqui.
 export { BENCHMARKS_POR_VISAO, CAMPO_FLUXO_APLICADO_POR_VISAO, CAMPO_FLUXO_POR_VISAO, CAMPO_PRINCIPAL_POR_VISAO, COR_PRINCIPAL_POR_VISAO, LABEL_POR_VISAO_RENTABILIDADE, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, calcularResumoEvolucao, calcularResumoRentabilidade, comCamposUsdAcoesEua, filtrarHistoricoPorPeriodo, historicoTemCambioUsd, inicioEhAbertura_, limitesDoHistorico_, montarAnaliseRentabilidade_, normalizarSerieRentabilidade, primeiroIndiceValidoInicio_, resolverVisao, somarProventosNoPeriodo, splitValorExibicao, ultimoValidoDe_ } from './inicio-calc.js';
@@ -190,7 +192,7 @@ export function renderAvisos(container, avisos) {
  * ver shell.js). getHomeImpl é injetável pra teste (sem precisar de
  * fetch/token reais).
  */
-export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome, getIntradiaImpl = getIntradia, salvarFavoritosImpl = null, opcoesFavoritos = null } = {}) {
+export async function montarPaginaInicio(token, { doc = document, getHomeImpl = getHome, getIntradiaImpl = getIntradia, salvarFavoritosImpl = null, opcoesFavoritos = null, getPatrimonioImpl = undefined, getMetasImpl = undefined, raizSite = null } = {}) {
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
@@ -204,8 +206,9 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     aoMudar: (n) => aplicarCardsPorLinha(doc.getElementById('inicioConteudo'), n),
   });
   aplicarCardsPorLinha(doc.getElementById('inicioConteudo'), lerCardsPorLinha());
+  // 07/10/2026: subtítulo era "Sua carteira e o mercado de hoje" (a Início agora abre com o patrimônio líquido e as metas)
   const cabecalho = cabecalhoEl ? montarCabecalhoPagina(cabecalhoEl, {
-    secao: 'Início', titulo: 'Início', subtitulo: 'Sua carteira e o mercado de hoje', refresh: true, acoes: [controleCards],
+    secao: 'Início', titulo: 'Início', subtitulo: 'Seu patrimônio, suas metas e o mercado de hoje', refresh: true, acoes: [controleCards],
   }) : null;
   const refreshControlEl = (cabecalho && cabecalho.refreshEl) || doc.getElementById('refreshControlInicio');
   const periodoEl = doc.getElementById('periodoTabs');
@@ -271,6 +274,18 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     return card;
   }
 
+  // 07/10/2026: hero "Patrimônio líquido" e cartão "Metas" - dado próprio (getPatrimonio/getMetas) buscado em paralelo, DEPOIS
+  // do 1º desenho da Início (inicio-blocos.js); um deles falhar não derruba a página.
+  const blocos = criarBlocosHome(doc, token, {
+    ...(getPatrimonioImpl ? { getPatrimonioImpl } : {}), ...(getMetasImpl ? { getMetasImpl } : {}), ...(raizSite ? { raizSite } : {}),
+  });
+  let blocosPronto = Promise.resolve();
+  const semBlocos = getPatrimonioImpl === null && getMetasImpl === null; // só teste: desliga os dois pedidos extras
+  function iniciarBlocos() {
+    if (semBlocos || !doc.getElementById('patrimonioHero') && !doc.getElementById('metasHome')) return;
+    blocosPronto = blocos.iniciar();
+  }
+
   function desenharResposta(resposta) {
     if (loadingEl) loadingEl.hidden = true;
 
@@ -323,6 +338,9 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
         // IPCA"): a mesma linha do IPCA da Visão geral de Carteiras também no
         // Patrimônio total da Início (as outras visões ficam como estavam).
         benchmarksExtra: visaoId === 'total' ? [{ campo: 'indiceIpca', label: 'IPCA', cor: '--rf', dash: '3 3' }] : null,
+        // 07/10/2026: na Início a visão 'total' se chama "Investimentos" (rótulo do card e sujeito da Análise); Carteiras segue
+        // com "Patrimônio total" - os rótulos compartilhados (inicio-calc.js) não mudam
+        ...(visaoId === 'total' ? { labelInfo: ROTULO_TOTAL_HOME, nomeAnalise: NOME_ANALISE_TOTAL_HOME } : {}),
       })),
     });
 
@@ -361,6 +379,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     renderProventosAnunciados(doc, doc.getElementById('proventosSecao'), resposta.proventosAnunciados);
 
     aplicarIntradia(seriesIntradia);
+    iniciarBlocos();
     const chavesFavoritos = favoritosGrid ? [...favoritosGrid.querySelectorAll('[data-intradia]')].map((el) => el.dataset.intradia) : [];
     buscarIntradia([...CHAVES_MERCADO, ...chavesFavoritos]);
   }
@@ -384,4 +403,6 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
   await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
+  // pros testes aguardarem os blocos extras (hero/Metas); a página não espera por eles
+  return { blocosPronto: () => blocosPronto };
 }

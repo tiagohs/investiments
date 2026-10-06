@@ -20,7 +20,7 @@ import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { logoCirculoHtml, iniciaisDe } from './logo-circulo.js';
 import { htmlBotaoFavorito, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import {
-  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao,
+  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao, ROTULO_TOTAL_HOME,
 } from './inicio-calc.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 // 06/10/2026 (Onda 3, kit): KPI com contagem + sparkline, anel de composição e abas sublinhadas vêm da biblioteca/ui do kit.
@@ -87,7 +87,7 @@ export function completarFaixaComIntradia(container, series) {
 // ---------------------------------------------------------------------------
 
 const VISOES_RESUMO = [
-  { id: 'total', rotulo: 'Patrimônio total' },
+  { id: 'total', rotulo: ROTULO_TOTAL_HOME }, // 07/10/2026: era "Patrimônio total" (agora é o hero); só a Início usa esta lista
   { id: 'longoPrazo', rotulo: 'Longo Prazo' },
   { id: 'nacional', rotulo: 'Nacional' },
   { id: 'rendaEmergencial', rotulo: 'Renda Emergencial' },
