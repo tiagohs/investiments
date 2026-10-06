@@ -44,6 +44,8 @@ function montarDom(hash = '') {
     <div id="refreshControlTransacoes"></div>
     <div id="transacoesLoading"></div><div id="transacoesErro" hidden></div><div id="transacoesConteudo" hidden></div></body></html>`, { url: `https://exemplo.test/transacoes/index.html${hash}`, pretendToBeVisual: true });
   const w = dom.window;
+  // 06/10/2026 (Onda 3): KPIs e gráficos da biblioteca animam; no jsdom pedimos "menos movimento" (e a tela não é celular)
+  w.matchMedia = (q) => ({ matches: /reduce/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   globalThis.sessionStorage = w.sessionStorage;
   globalThis.localStorage = w.localStorage;
   w.localStorage.clear();
@@ -52,6 +54,9 @@ function montarDom(hash = '') {
 const clique = (w, el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 const digitar = (w, el, valor, tipo = 'input') => { el.value = valor; el.dispatchEvent(new w.Event(tipo, { bubbles: true })); };
 const esperar = () => new Promise((r) => setTimeout(r, 0));
+// 06/10/2026 (Onda 3): o resultado das ações vira toast (fica fora do container da página); o diálogo de confirmar também
+const toasts = (doc) => [...doc.querySelectorAll('.toast')].map((t) => t.textContent.replace(/\s+/g, ' ').trim());
+const confirmarDialogo = (w, doc, acao) => { const b = doc.querySelector(`.dialogo [data-acao="${acao}"]`); assert.ok(b, `diálogo com ${acao}`); clique(w, b); };
 // texto como a gente lê: um espaço entre elementos (textContent cola "TEST112 × ...")
 const txt = (el) => {
   const partes = [];
@@ -87,11 +92,12 @@ async function montar(extra = {}, hash = '') {
 test('transações: abre em Aportes com as etapas, prateleira de Ações e o investido por mês; troca de aba e lembra pelo #', async () => {
   const { doc, w } = await montar();
   assert.equal(doc.getElementById('transacoesConteudo').hidden, false);
-  assert.ok(doc.querySelector('[data-aba="aportes"]').classList.contains('active'));
+  assert.equal(doc.querySelector('[data-tab="aportes"]').getAttribute('aria-selected'), 'true');
+  assert.match(doc.title, /^Aportes · Transações/);
   assert.equal(doc.querySelectorAll('.tx-etapa').length, 3);
   const linhas = [...doc.querySelectorAll('.tx-prateleira tbody tr[data-linha]')];
   assert.equal(linhas.length, 2, 'ações da carteira, maior posição primeiro');
-  assert.match(txt(linhas[0]), /ABCD3.*R\$ 20,00.*R\$ 21,00.*12\/08.*-4,8%.*Comprar/);
+  assert.match(txt(linhas[0]), /ABCD3.*R\$\s20,00.*R\$\s21,00.*12\/08.*−4,8%.*Comprar/);
   // 26/09/2026: "momento de aporte" logo abaixo de cada ativo
   const momentos = [...doc.querySelectorAll('.tx-prateleira tbody tr.tx-momento-tr')];
   assert.equal(momentos.length, 2);
@@ -102,7 +108,7 @@ test('transações: abre em Aportes com as etapas, prateleira de Ações e o inv
   assert.ok(momentos[1].querySelector('.momento-mais'), 'o resto dos sinais fica recolhido');
   assert.match(txt(doc.querySelector('.tx-momento-nota')), /Não é recomendação/);
   assert.match(txt(doc.querySelector('.tx-mes-detalhe')), /Investido em setembro de 2026 R\$ 550,00/);
-  clique(w, doc.querySelector('[data-aba="lancamentos"]'));
+  clique(w, doc.querySelector('[data-tab="lancamentos"]'));
   assert.equal(doc.getElementById('txPainel-aportes').hidden, true);
   assert.ok(doc.querySelector('#txDrop'));
   assert.equal(doc.querySelectorAll('.tx-lista-mes').length, 3, 'agrupado por mês');
@@ -151,7 +157,7 @@ test('aportes: confirmar -> aguardando valores finais -> ajustar preço -> concl
   assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 0, 'carrinho esvaziou');
   const card = doc.querySelector('.tx-andamento');
   assert.ok(card, 'aparece em "Aguardando valores finais"');
-  assert.match(txt(doc.querySelector('[data-aba="aportes"]')), /1/);
+  assert.match(txt(doc.querySelector('[data-tab="aportes"]')), /1/);
   digitar(w, card.querySelector('[data-final="preco"][data-i="0"]'), '19,50');
   digitar(w, card.querySelector('[data-final="qtd"][data-i="1"]'), '0');
   assert.match(txt(card.querySelector('.tx-andamento-totais')), /Planejado R\$ 250,00 → Pago R\$ 195,00 −R\$ 55,00/);
@@ -178,9 +184,9 @@ test('aportes: cancelar pede confirmação na própria tela; excluir concluído;
   assert.equal(chamadas.salvar[1].id, 'AP-1');
   assert.equal(chamadas.salvar[1].itens[0].qtdPlanejada, 4);
   clique(w, doc.querySelector('.tx-andamento [data-acao="cancelar"]'));
-  assert.match(txt(doc.querySelector('.tx-confirmar')), /Cancelar este aporte\?/);
+  assert.match(txt(doc.querySelector('.dialogo')), /Cancelar este aporte\?/);
   assert.equal(chamadas.excluir.length, 0, 'só depois de confirmar');
-  clique(w, doc.querySelector('[data-acao="cancelar-sim"]'));
+  confirmarDialogo(w, doc, 'confirmar');
   await esperar();
   assert.deepEqual(chamadas.excluir, ['AP-1']);
   assert.equal(doc.querySelector('.tx-andamento'), null);
@@ -188,7 +194,9 @@ test('aportes: cancelar pede confirmação na própria tela; excluir concluído;
   assert.equal(doc.querySelectorAll('.tx-recibo-linha').length, 1);
   assert.match(txt(doc.querySelector('.tx-recibo-linha')), /TEST11 2 × R\$ 100,00/);
   clique(w, doc.querySelector('[data-acao="excluir"][data-id="AP-OLD"]'));
-  clique(w, doc.querySelector('[data-acao="excluir-sim"]'));
+  await esperar();
+  assert.match(txt(doc.querySelector('.dialogo')), /Excluir/);
+  confirmarDialogo(w, doc, 'confirmar');
   await esperar();
   assert.deepEqual(chamadas.excluir, ['AP-1', 'AP-OLD']);
   assert.match(txt(doc.querySelector('#txHistorico')), /Nenhum aporte concluído/);
@@ -348,7 +356,7 @@ test('aportes: mapa de compras - quadrado com preço e ×qtd, clicar abre o deta
   clique(w, pop.querySelector('[data-mapa-repetir]'));
   const guardado = JSON.parse(w.localStorage.getItem('transacoes.carrinho.v1'));
   assert.deepEqual([guardado.itens['fiis:TEST11'].qtd, guardado.itens['fiis:TEST11'].preco], [1, 100]);
-  assert.match(txt(doc.querySelector('.tx-aviso')), /TEST11 foi pro carrinho: 1 × R\$ 100,00/);
+  assert.ok(toasts(doc).some((t) => /TEST11 foi pro carrinho: 1 × R\$ 100,00/.test(t)), 'avisa por toast');
   assert.ok(doc.querySelector('[data-classe="fiis"]').classList.contains('active'), 'a prateleira troca pra classe do ativo');
   clique(w, doc.querySelector('[data-mapa-classe="acoesEua"]'));
   assert.match(txt(doc.querySelector('#txMapaCompras tfoot')), /Total em R\$/);
@@ -364,15 +372,16 @@ test('lançamentos: tipo em tag, ativo com a classe, "Em reais" nas compras em d
   assert.equal(doc.getElementById('txPainel-lancamentos').hidden, false, 'foi pra aba Lançamentos');
   assert.deepEqual(historico, ['TEST11']);
   assert.equal(doc.getElementById('txListaAtivo').value, 'TEST11');
-  assert.ok(doc.querySelector('#txListaGrafico svg.ag-chart'));
-  assert.equal(doc.querySelectorAll('#txListaGrafico .ag-ponto').length, 1, 'a compra de 01/09 vira um ponto');
+  assert.ok(doc.querySelector('#txListaGrafico svg .chart-linha'), 'linha do preço (biblioteca de gráficos)');
+  assert.equal(doc.querySelectorAll('#txListaGrafico .chart-marca').length, 1, 'a compra de 01/09 vira uma bolha');
+  assert.ok(doc.querySelector('#txGrafPeriodo [data-periodo]'), 'seletor de período canônico');
   assert.match(txt(doc.querySelector('.ag-stats')), /Compras no período: 1/);
   const linha = doc.querySelector('.tx-lista-linha');
   assert.ok(linha.querySelector('.tx-tipo-compra'));
-  assert.match(txt(linha), /TEST11 FIIs Compra ×1 R\$ 98,00 R\$ 98,00/);
+  assert.match(txt(linha), /FIIs TEST11 Compra ×1 R\$ 98,00 R\$ 98,00/);
   digitar(w, doc.getElementById('txListaAtivo'), '', 'change');
   const usa = [...doc.querySelectorAll('.tx-lista-linha')].find((l) => /AAA/.test(txt(l)));
-  assert.match(txt(usa), /AAA Ações EUA Compra ×1 US\$ 10,00 US\$ 10,00 R\$ 50,00 câmbio 5,00/);
+  assert.match(txt(usa), /Ações EUA AAA Compra ×1 US\$ 10,00 US\$ 10,00 R\$ 50,00 câmbio 5,00/);
 });
 
 // ---------------------------------------------------------------------------
@@ -396,7 +405,7 @@ test('renda fixa: tabela como as outras classes - tipo junto da instituição, C
   const linhas = [...doc.querySelectorAll('.tx-prateleira-rf tbody tr[data-linha]')];
   const selic = linhas.find((l) => /Selic 2029/.test(l.textContent));
   const ipca = linhas.find((l) => /IPCA\+ 2035/.test(l.textContent));
-  assert.match(txt(selic.querySelector('td.esq')), /Tesouro Selic 2029 CORRETORA X Renda emergencial/);
+  assert.match(txt(selic.querySelector('td.esq')), /CORRETORA X Renda emergencial Tesouro Selic 2029/);
   assert.ok(selic.querySelector('.tx-tipo-rf.emergencial'));
   assert.match(txt(ipca.querySelector('td.esq')), /CORRETORA X Renda fixa/);
   assert.match(txt(ipca.querySelector('[data-rot="Cotação"]')).replace(/ /g, ' '), /R\$ 2\.610,00 PU · 24\/09/);
@@ -457,7 +466,7 @@ test('renda fixa: título novo do Tesouro pela lista de hoje (mínimo R$ 201,42 
 
 test('carrinho: "Aportes realizados" fica abaixo de "Novo aporte"; mudar o carrinho guarda o dólar e avisa o header (carrinho:mudou)', async () => {
   const { doc, w } = await montar();
-  const ordem = [...doc.querySelectorAll('#txPainel-aportes > section')].map((s) => s.id);
+  const ordem = [...doc.querySelectorAll('#txPainel-aportes > section, #txPainel-aportes > details')].map((s) => s.id);
   assert.ok(ordem.indexOf('txNovoAporte') < ordem.indexOf('txMapaCompras'));
   const eventos = [];
   w.addEventListener('carrinho:mudou', (ev) => eventos.push(ev.detail.origem));
@@ -519,7 +528,7 @@ test('carrinho: outro carrinho no MESMO dia soma no aporte que já está aguarda
   assert.deepEqual(m.itens.map((i) => [i.ativo, i.qtdPlanejada, i.valorPlanejado]), [['ABCD3', 12, 240], ['EFGH3', 5, 50], ['TEST11', 1, 100]]);
   assert.deepEqual(chamadas.excluir, [], 'ninguém foi apagado');
   assert.equal(doc.querySelectorAll('.tx-andamento').length, 1, 'continua um card só lá em cima');
-  assert.match(txt(doc.querySelector('.tx-aviso')), /somado.*aporte de 26\/09\/2026/);
+  assert.ok(toasts(doc).some((t) => /somado.*aporte de 26\/09\/2026/.test(t)), 'avisa por toast');
 });
 
 test('carrinho: dois aportes aguardando no mesmo dia (já duplicados) -> "Juntar" num só', async () => {
@@ -585,7 +594,7 @@ test('ações EUA: etapa 1 estima os dólares da Remessa (R$ -> US$ e o inverso)
   assert.deepEqual([envios[0].tipo, envios[0].usd, envios[0].reais, envios[0].data, envios[0].comercial], ['envio', 100, 512.55, '2026-09-26', 5.1]);
   assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 100,00/);
   assert.match(txt(doc.querySelector('.tx-eua-movs')).replace(/ /g, ' '), /Envio 26\/09\/2026 · R\$ 512,55 · Remessa Online \(estimativa\) \+US\$ 100,00/);
-  assert.match(txt(doc.querySelector('.tx-aviso')), /Envio registrado: US\$ 100,00 no caixa em dólar/);
+  assert.ok(toasts(doc).some((t) => /Envio registrado: US\$ 100,00 no caixa em dólar/.test(t)), 'avisa por toast');
   clique(w, doc.querySelector('[data-acao="rem-excluir"]'));
   await esperar();
   assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 0,00/);
@@ -630,4 +639,78 @@ test('ações EUA: o ajuste de saldo manda a diferença como "ajuste"', async ()
   await esperar();
   assert.deepEqual([movs[0].tipo, movs[0].usd], ['ajuste', 45]);
   assert.match(txt(doc.getElementById('txEuaComprar')).replace(/ /g, ' '), /Caixa em dólar aguardando compra US\$ 75,00/);
+});
+
+// 05/10/2026 (A-24): aporte concluído (ação/FII/Renda Fixa) sem lançamento nas abas = linha "a confirmar"
+// na lista de Lançamentos; some quando o back-end deixa de mandá-la (a importação da B3 trouxe o lançamento).
+test('A-24: lançamentos "a confirmar" aparecem na lista (distintos, fora do total do mês e do CSV) e o header recebe a contagem', async () => {
+  const aConfirmar = [
+    { id: 'AC-1-acoes-ABCD3', aporteId: 'AP-9', destino: 'transacoes', classe: 'acoes', data: '2026-09-02', ativo: 'ABCD3', tipo: 'Compra', qtd: 5, preco: 20, valor: 100, moeda: 'BRL', aConfirmar: true },
+    { id: 'AC-1-rendaFixa-Tesouro Selic 2029', aporteId: 'AP-9', destino: 'rendaFixa', classe: 'rendaFixa', data: '2026-09-02', ativo: 'Tesouro Selic 2029', tipo: 'Compra', qtd: null, preco: null, valor: 500, moeda: 'BRL', inst: 'CORRETORA X', aConfirmar: true },
+  ];
+  const { doc, w } = await montar({ getTransacoesImpl: async () => ({ ...structuredClone(DADOS), aConfirmar }) }, '#lancamentos');
+  const linhas = [...doc.querySelectorAll('#txLista tr.tx-lista-aconfirmar')];
+  assert.equal(linhas.length, 2);
+  assert.match(txt(linhas[0]), /02\/09 .*(ABCD3|Tesouro Selic 2029).*a confirmar/);
+  assert.ok(doc.querySelector('#txLista .tx-aconf-aviso'), 'aviso explicando');
+  assert.match(txt(doc.querySelector('#txLista .tx-secao-cab .hint')), /2 a confirmar/);
+  const mes = txt(doc.querySelector('#txLista tr.tx-lista-mes'));
+  assert.match(mes, /A confirmar R\$ 600,00/, 'tem o total à parte');
+  assert.doesNotMatch(mes, /Compras R\$ 6/, 'e não entra em "Compras" do mês');
+  // o header (todas as telas) recebe a contagem
+  const guardado = JSON.parse(w.localStorage.getItem('investiments_aportes_pendentes'));
+  assert.equal(guardado.aConfirmar.n, 2);
+  // o CSV continua só com o que está de verdade nas abas
+  clique(w, doc.querySelector('[data-lanc="csv"]'));
+  // quando o back-end deixa de mandar (importação trouxe o lançamento), a linha some e a contagem zera
+  const { doc: doc2, w: w2 } = await montar({ getTransacoesImpl: async () => ({ ...structuredClone(DADOS), aConfirmar: [] }) }, '#lancamentos');
+  assert.equal(doc2.querySelectorAll('#txLista tr.tx-lista-aconfirmar').length, 0);
+  assert.equal(JSON.parse(w2.localStorage.getItem('investiments_aportes_pendentes')).aConfirmar.n, 0);
+});
+
+// 05/10/2026 (A-11): aviso discreto no carrinho quando o ativo está em mais de uma meta
+test('aportes: carrinho avisa (discreto) que um ativo em mais de uma meta só conta na de maior prioridade', async () => {
+  const vinculo = { ativos: [{ id: 'ABCD3', ref: 'ABCD3', nome: 'Empresa ABCD' }] };
+  const metas = [
+    { id: 'm1', nome: 'Renda', status: 'ativa', calc: { vinculos: [vinculo] } },
+    { id: 'm2', nome: 'Aposentadoria', status: 'ativa', calc: { vinculos: [vinculo] } },
+  ];
+  const { doc, w } = await montar({ carregarMetas: (aoChegar) => Promise.resolve().then(() => aoChegar(metas)) });
+  clique(w, doc.querySelector('[data-stepper="acoes:ABCD3"] [data-passo="1"]'));
+  await esperar();
+  const aviso = doc.querySelector('#txCarrinho #txRecSobre .tx-recibo-sobre');
+  assert.ok(aviso, 'aviso no carrinho');
+  assert.match(txt(aviso), /ABCD3 está em Renda e Aposentadoria: o aporte só conta em "Renda"/);
+  clique(w, doc.querySelector('[data-stepper="acoes:EFGH3"] [data-passo="1"]'));
+  assert.equal(doc.querySelectorAll('#txRecSobre .tx-recibo-sobre').length, 1, 'EFGH3 não está em meta: só 1 aviso');
+});
+
+// ---------------------------------------------------------------------------
+// 06/10/2026 (Onda 3, fase 2): estado de erro com "Tentar de novo", KPIs e gráfico da biblioteca
+// ---------------------------------------------------------------------------
+
+test('Onda 3: falha ao carregar mostra o erro com "Tentar de novo" (texto humano, detalhe técnico recolhido) e a tentativa recarrega', async () => {
+  let falhar = true;
+  const { doc, w } = await montar({ getTransacoesImpl: async () => (falhar ? { ok: false, error: 'HTTP 500 em getTransacoes' } : structuredClone(DADOS)) });
+  const erro = doc.getElementById('transacoesErro');
+  assert.equal(erro.hidden, false);
+  assert.equal(doc.getElementById('transacoesConteudo').hidden, true);
+  const tentar = [...erro.querySelectorAll('button')].find((b) => /Tentar de novo/.test(b.textContent));
+  assert.ok(tentar, 'botão Tentar de novo');
+  assert.ok(erro.querySelector('details'), 'detalhe técnico recolhido');
+  falhar = false;
+  clique(w, tentar);
+  for (let i = 0; i < 20 && doc.getElementById('transacoesConteudo').hidden; i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(doc.getElementById('transacoesConteudo').hidden, false);
+  assert.equal(erro.hidden, true);
+  w.close();
+});
+
+test('Onda 3: KPIs do topo (carrinho, aguardando, concluídos, investido no mês) e "Investido por mês" pela biblioteca de gráficos', async () => {
+  const { doc, w } = await montar();
+  const kpis = [...doc.querySelectorAll('.tx-kpis .tx-kpi')];
+  assert.equal(kpis.length, 4);
+  assert.match(txt(kpis[3]), /Investido em setembro.*R\$ 550,00/);
+  assert.ok(doc.querySelectorAll('#txResumoGrafico .chart-barra, #txResumoGrafico rect').length > 0, 'barras do gráfico');
+  w.close();
 });

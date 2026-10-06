@@ -146,6 +146,7 @@ test('novo ativo: abre pelo atalho (?novoAtivo=), confere o ticker, mostra o pla
   const doc = w.document;
   const chamadas = [];
   const eventos = [];
+  const confirmacoes = [];
   w.addEventListener('consolidacao:pendente', (e) => eventos.push(e.detail));
   let fechou = null;
   ligarNovoAtivo(doc, {
@@ -157,6 +158,8 @@ test('novo ativo: abre pelo atalho (?novoAtivo=), confere o ticker, mostra o pla
       return { ok: true, resultado: simular ? plano : { ...plano, consolidacao: { pendente: true, ativos: ['NOVO3'] } } };
     },
     removerImpl: async (t, classe, ticker) => { chamadas.push(['remover', classe, ticker]); return { ok: true, resultado: { ticker, removidas: ['Radar linha 54', 'Auxiliar_ativos linha 60', 'Carteira Ações linha 25'] } }; },
+    // 06/10/2026 (Onda 3): desfazer pede confirmação (confirmar() do kit); a 1ª resposta é "cancelar", a 2ª confirma
+    confirmarImpl: async (o) => { confirmacoes.push(o.titulo); return confirmacoes.length > 1; },
     aoFechar: (x) => { fechou = x; },
   });
   await esperar(); await esperar();
@@ -187,6 +190,10 @@ test('novo ativo: abre pelo atalho (?novoAtivo=), confere o ticker, mostra o pla
   assert.match(txt(doc.querySelector('.na-feito')), /NOVO3 cadastrado/);
   assert.deepEqual(eventos, [{ pendente: true, ativos: ['NOVO3'] }], 'o topo mostra "Consolidação necessária"');
 
+  clique(w, doc.querySelector('[data-na="desfazer"]'));
+  await esperar();
+  assert.deepEqual(confirmacoes, ['Desfazer o cadastro de NOVO3?']);
+  assert.equal(chamadas.filter((c) => c[0] === 'remover').length, 0, 'cancelou na confirmação: nada é removido');
   clique(w, doc.querySelector('[data-na="desfazer"]'));
   await esperar();
   assert.deepEqual(chamadas[chamadas.length - 1], ['remover', 'acoes', 'NOVO3']);

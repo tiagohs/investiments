@@ -10,6 +10,7 @@
  */
 
 import { resolveSiteRootUrl } from './shell.js';
+import { escAttr } from './util/html.js'; // 05/10/2026 (A-68)
 
 const CLASSES_RF = new Set(['rf', 'rendaFixa', 'renda-fixa']);
 
@@ -53,10 +54,6 @@ export function refDaUrl(href) {
 // ---------------------------------------------------------------------------
 
 const ICONE_NOVA_ABA_SVG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>';
-
-function escAttr(s) {
-  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
 
 /** HTML do ícone "abrir em nova aba" (depois do link do ticker). */
 export function linkNovaAbaHtml(href, rotulo = '') {

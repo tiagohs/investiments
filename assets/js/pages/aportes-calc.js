@@ -15,6 +15,7 @@ import { avaliarAtivo, sinalPrecoMedio, sinaisDeMetas, sinaisRendaFixaMeta } fro
 // 05/10/2026: contexto de mercado (juro real, termômetro da bolsa, NTN-B) - peso pequeno e limitado
 import { sinaisMacro, LIMITE_PONTOS_MACRO } from '../criterios/macro.js';
 import { puDoTitulo } from './aportes-rf-calc.js';
+import { formatUSD, formatNumeroPt, MESES_CURTOS, MESES_LONGOS, formatPct, formatBRL0, formatBRL } from '../format.js';
 
 export const CLASSES_APORTE = [
   { id: 'acoes', nome: 'Ações', curto: 'Ações', cor: '--acoes' },
@@ -23,8 +24,7 @@ export const CLASSES_APORTE = [
   { id: 'rendaFixa', nome: 'Renda Fixa', curto: 'RF', cor: '--rf' },
 ];
 export const NOME_CLASSE_APORTE = Object.fromEntries(CLASSES_APORTE.map((c) => [c.id, c.nome]));
-export const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-export const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
 
 // 05/10/2026: as contas puras do carrinho (pôr/tirar item, totais, validar o que
 // veio do navegador) moraram aqui até agora; foram pra ../carrinho-global.js
@@ -196,6 +196,45 @@ export function mesesDoAno(resumo, ano) {
   });
 }
 
+/** 'aaaa-mm' + n meses. */
+function somarMesChave(chave, n) {
+  const [a, m] = chave.split('-').map(Number);
+  const t = a * 12 + (m - 1) + n;
+  return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+
+/** 06/10/2026 (A-67): períodos canônicos do gráfico "Investido por mês" (mesmos ids/rótulos de Proventos; + "Escolher período"). */
+export const PERIODOS_INVESTIDO = ['ano', '12m', '24m', '36m', 'inicio'];
+
+/**
+ * Meses do gráfico "Investido por mês" no período escolhido (mesmo formato de mesesDoAno): 'ano' = jan..dez do ano de hoje;
+ * '12m'/'24m'/'36m' = os últimos N meses até o mês de hoje; 'inicio' = do 1º mês com dado até hoje; ou um intervalo
+ * { inicio, fim } (yyyy-MM-dd) = os meses que tocam o intervalo (cortado no mês de hoje).
+ */
+export function mesesDoPeriodo(resumo, periodo, hoje) {
+  const mesHoje = String(hoje).slice(0, 7);
+  let chaves;
+  if (periodo && typeof periodo === 'object' && periodo.inicio && periodo.fim) {
+    const a = periodo.inicio <= periodo.fim ? periodo.inicio : periodo.fim;
+    const b = periodo.inicio <= periodo.fim ? periodo.fim : periodo.inicio;
+    const fim = b.slice(0, 7) < mesHoje ? b.slice(0, 7) : mesHoje;
+    const ini = a.slice(0, 7) < fim ? a.slice(0, 7) : fim;
+    chaves = []; for (let m = ini; m <= fim && chaves.length < 600; m = somarMesChave(m, 1)) chaves.push(m);
+  } else if (periodo === 'ano') {
+    return mesesDoAno(resumo, Number(mesHoje.slice(0, 4)));
+  } else if (periodo === 'inicio') {
+    const primeiro = Object.keys(resumo || {}).filter((k) => /^\d{4}-\d{2}$/.test(k) && k <= mesHoje).sort()[0] || mesHoje;
+    chaves = []; for (let m = primeiro; m <= mesHoje && chaves.length < 600; m = somarMesChave(m, 1)) chaves.push(m);
+  } else {
+    const n = { '12m': 12, '24m': 24, '36m': 36 }[periodo] || 12;
+    chaves = Array.from({ length: n }, (_, i) => somarMesChave(mesHoje, i - (n - 1)));
+  }
+  return chaves.map((chave) => {
+    const r = (resumo && resumo[chave]) || {};
+    return { mes: Number(chave.slice(5, 7)), chave, acoes: num(r.acoes), fiis: num(r.fiis), acoesEua: num(r.acoesEua), rendaFixa: num(r.rendaFixa), total: num(r.total), acoesEuaUsd: num(r.acoesEuaUsd) };
+  });
+}
+
 /** Aportes concluídos por mês ('aaaa-mm' -> { n, valor }), pelo valor final. */
 export function aportesPorMes(aportes, cambio) {
   const out = {};
@@ -223,10 +262,9 @@ export function aportesPorMes(aportes, cambio) {
 // ---------------------------------------------------------------------------
 
 const ROTULO_MOMENTO = { bom: 'Bom momento', neutro: 'Momento neutro', esperar: 'Melhor esperar' };
-const br = (v, casas = 1) => (Math.round(v * 10 ** casas) / 10 ** casas).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
-const pctTxt = (fracao, casas = 1) => `${br(fracao * 100, casas)}%`;
-const reais = (v) => `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
-const moedaTxt = (v, moeda) => `${moeda === 'USD' ? 'US$' : 'R$'} ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const br = (v, casas = 1) => formatNumeroPt((Math.round(v * 10 ** casas) / 10 ** casas), { minimumFractionDigits: casas, maximumFractionDigits: casas });
+// 05/10/2026 (A-06): dólar pelo formatUSD único (mesmo padrão do real)
+const moedaTxt = (v, moeda) => (moeda === 'USD' ? formatUSD(v) : formatBRL(v));
 const NOME_META_CLASSE = { acoes: 'Ações (Dividendos)', fiis: 'FIIs', acoesEua: 'Ações Internacionais' };
 
 function sinal(lista, tom, texto, peso, extra = null) { lista.push(extra ? { tom, texto, peso, ...extra } : { tom, texto, peso }); }
@@ -257,8 +295,8 @@ function fechar(sinais, nivel) {
 function sinalMetaClasse(sinais, meta, nome, peso = 0.5) {
   if (!meta || typeof meta.desejado !== 'number' || typeof meta.atual !== 'number' || !(meta.desejado > 0)) return;
   const dif = meta.atual - meta.desejado;
-  if (dif <= -0.01) sinal(sinais, 'bom', `${nome} abaixo da fatia desejada da carteira (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, peso);
-  else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da fatia desejada (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, -peso);
+  if (dif <= -0.01) sinal(sinais, 'bom', `${nome} abaixo da fatia desejada da carteira (${formatPct(meta.atual)} de ${formatPct(meta.desejado, 0)})`, peso);
+  else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da fatia desejada (${formatPct(meta.atual)} de ${formatPct(meta.desejado, 0)})`, -peso);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,9 +357,9 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
   let acimaDoTeto = false;
   if (preco > 0 && a.precoTeto > 0) {
     const margem = a.precoTeto / preco - 1;
-    if (preco <= a.precoTeto && margem < 0.02) sinal(sinais, 'neutro', `No limite do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}): margem de ${pctTxt(margem)}`, 0.5);
-    else if (preco <= a.precoTeto) sinal(sinais, 'bom', `Abaixo do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}): margem de ${pctTxt(margem)}`, 2);
-    else { acimaDoTeto = true; sinal(sinais, 'ruim', `Acima do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}) em ${pctTxt(preco / a.precoTeto - 1)}`, -2); }
+    if (preco <= a.precoTeto && margem < 0.02) sinal(sinais, 'neutro', `No limite do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}): margem de ${formatPct(margem)}`, 0.5);
+    else if (preco <= a.precoTeto) sinal(sinais, 'bom', `Abaixo do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}): margem de ${formatPct(margem)}`, 2);
+    else { acimaDoTeto = true; sinal(sinais, 'ruim', `Acima do preço-teto (${moedaTxt(a.precoTeto, a.moeda)}) em ${formatPct(preco / a.precoTeto - 1)}`, -2); }
   }
   const r = a.radar || null;
   if (r && typeof r.percentualDesejado === 'number') {
@@ -329,18 +367,18 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     const at = typeof r.percentualAtual === 'number' ? r.percentualAtual : (a.peso || 0);
     if (d <= 0) sinal(sinais, 'ruim', 'Fora da meta: % desejado zerado no Radar', -1.5);
     else if (at - d <= -0.01) {
-      const falta = r.valorInvestir > 0 ? `: faltam ${a.moeda === 'USD' ? moedaTxt(r.valorInvestir, 'USD') : reais(r.valorInvestir)}` : '';
-      sinal(sinais, 'bom', `Abaixo do % desejado no Radar (${pctTxt(at)} de ${pctTxt(d)})${falta}`, at / d < 0.6 ? 2 : 1);
-    } else if (at - d >= 0.01) sinal(sinais, 'ruim', `Acima do % desejado no Radar (${pctTxt(at)} de ${pctTxt(d)})`, -1.5);
-    else sinal(sinais, 'neutro', `No % desejado do Radar (${pctTxt(at)} de ${pctTxt(d)})`, 0);
+      const falta = r.valorInvestir > 0 ? `: faltam ${a.moeda === 'USD' ? moedaTxt(r.valorInvestir, 'USD') : formatBRL0(r.valorInvestir)}` : '';
+      sinal(sinais, 'bom', `Abaixo do % desejado no Radar (${formatPct(at)} de ${formatPct(d)})${falta}`, at / d < 0.6 ? 2 : 1);
+    } else if (at - d >= 0.01) sinal(sinais, 'ruim', `Acima do % desejado no Radar (${formatPct(at)} de ${formatPct(d)})`, -1.5);
+    else sinal(sinais, 'neutro', `No % desejado do Radar (${formatPct(at)} de ${formatPct(d)})`, 0);
   }
   const pm = sinalPrecoMedio({ precoAtual: preco, precoMedio: a.precoMedio, quantidade: a.quantidade, moeda: a.moeda });
   if (pm) sinal(sinais, pm.tom, pm.texto, pm.peso, pm.ajuda ? { ajuda: pm.ajuda } : null);
   const u = a.ultimoPago;
   if (preco > 0 && u && u.preco > 0) {
     const v = preco / u.preco - 1;
-    if (v <= -0.03) sinal(sinais, 'bom', `${pctTxt(-v)} mais barato que a última compra (${moedaTxt(u.preco, a.moeda)})`, 0.5);
-    else if (v >= 0.08) sinal(sinais, 'ruim', `${pctTxt(v)} mais caro que a última compra (${moedaTxt(u.preco, a.moeda)})`, -0.5);
+    if (v <= -0.03) sinal(sinais, 'bom', `${formatPct(-v)} mais barato que a última compra (${moedaTxt(u.preco, a.moeda)})`, 0.5);
+    else if (v >= 0.08) sinal(sinais, 'ruim', `${formatPct(v)} mais caro que a última compra (${moedaTxt(u.preco, a.moeda)})`, -0.5);
   }
   if (classe === 'fiis' && r && r.pvp > 0) {
     if (r.pvp < 0.95) sinal(sinais, 'bom', `P/VP ${br(r.pvp, 2)}: negociando abaixo do patrimônio`, 1);
@@ -354,7 +392,7 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     if (/acima/i.test(r.descontoPl)) sinal(sinais, 'bom', `Desconto sobre P/L: com desconto${pl}`, 1);
     else if (/abaixo/i.test(r.descontoPl)) sinal(sinais, 'ruim', `Desconto sobre P/L: está caro${pl}`, -0.5);
   }
-  if (typeof a.variacaoDia === 'number' && a.variacaoDia <= -0.02) sinal(sinais, 'bom', `Caindo ${pctTxt(-a.variacaoDia)} hoje`, 0.5);
+  if (typeof a.variacaoDia === 'number' && a.variacaoDia <= -0.02) sinal(sinais, 'bom', `Caindo ${formatPct(-a.variacaoDia)} hoje`, 0.5);
   if (metas) sinalMetaClasse(sinais, metas[classe], NOME_META_CLASSE[classe]);
   const r0 = a.radar || {};
   sinaisMeta(sinais, { classe, ticker: a.ticker, moeda: a.moeda, dy: a.dy != null ? a.dy : r0.dy }, {
@@ -433,8 +471,8 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
   // a meta de Metas e Objetivos substitui a linha de "% da reserva" da planilha (mesma informação, mais exata)
   if (!metasObj.length && meta && typeof meta.desejado === 'number' && typeof meta.atual === 'number' && meta.desejado > 0) {
     const dif = meta.atual - meta.desejado;
-    if (dif <= -0.01) sinal(sinais, 'bom', `${nome} abaixo da meta (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})${meta.valorInvestir > 0 ? `: faltam ${reais(meta.valorInvestir)}` : ''}`, 1.5);
-    else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da meta (${pctTxt(meta.atual)} de ${pctTxt(meta.desejado, 0)})`, -1.5);
+    if (dif <= -0.01) sinal(sinais, 'bom', `${nome} abaixo da meta (${formatPct(meta.atual)} de ${formatPct(meta.desejado, 0)})${meta.valorInvestir > 0 ? `: faltam ${formatBRL0(meta.valorInvestir)}` : ''}`, 1.5);
+    else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da meta (${formatPct(meta.atual)} de ${formatPct(meta.desejado, 0)})`, -1.5);
     else sinal(sinais, 'neutro', `${nome} na meta`, 0);
   }
   if (metas) sinalMetaClasse(sinais, metas.rendaFixa, 'Renda Fixa');
@@ -449,7 +487,7 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
   // reserva (ou outra meta) no ideal: neutro e diz onde faz mais falta - outra meta (já no texto) ou a classe mais abaixo da alocação-alvo
   if (metasObj.some((x) => x.tipo === 'atingida' && !x.outraMeta)) {
     const alvoClasse = classeMaisAbaixoDaAlocacao(metas);
-    if (alvoClasse) sinal(sinais, 'neutro', `Para o próximo aporte, a classe mais abaixo da alocação-alvo é ${alvoClasse.nome} (${pctTxt(alvoClasse.atual)} de ${pctTxt(alvoClasse.desejado, 0)})`, 0);
+    if (alvoClasse) sinal(sinais, 'neutro', `Para o próximo aporte, a classe mais abaixo da alocação-alvo é ${alvoClasse.nome} (${formatPct(alvoClasse.atual)} de ${formatPct(alvoClasse.desejado, 0)})`, 0);
   }
   if (t.vencimento && hoje && !encaixe.some((x) => x.tipo === 'rf-vencendo')) {
     const dias = (Date.parse(`${t.vencimento}T12:00:00Z`) - Date.parse(`${hoje}T12:00:00Z`)) / 86400000;
@@ -473,3 +511,6 @@ export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking
   const opcoes = { metasObjetivos, valorSugerido, cambio, macro };
   return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje, opcoes) : momentoRendaVariavel(a, classe, metas, total, opcoes);
 }
+
+// 05/10/2026 (A-68): os meses moram em format.js; reexportados daqui pra quem já importava.
+export { MESES_CURTOS, MESES_LONGOS };

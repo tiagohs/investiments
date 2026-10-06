@@ -7,6 +7,8 @@
  * consultas do mapa pro navegador (quando o Nominatim recusa o Apps Script).
  */
 
+import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
+
 export const ROTULO_TIPO = { tijolo: 'Tijolo', papel: 'Papel', hibrido: 'Híbrido', fof: 'Fundo de fundos', indefinido: 'Tipo não identificado' };
 export const SEM_DADO = 'Não identificado';
 
@@ -229,10 +231,10 @@ export function pctTexto(frac, casas = 1) {
   if (!Number.isFinite(frac)) return '—';
   const v = frac * 100;
   if (v > 0 && v < 0.05) return '<0,1%';
-  return `${v.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
+  return `${formatNumeroPt(v, { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
 }
 
 /** m2 com milhar: 30000 -> "30.000 m²". */
 export function areaTexto(a) {
-  return Number.isFinite(a) && a > 0 ? `${Math.round(a).toLocaleString('pt-BR')} m²` : '—';
+  return Number.isFinite(a) && a > 0 ? `${formatNumeroPt(Math.round(a))} m²` : '—';
 }

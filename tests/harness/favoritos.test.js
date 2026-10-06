@@ -20,7 +20,7 @@ function sandboxVazio() {
   const sandbox = { console: { ...console, log() {} } };
   vm.createContext(sandbox);
   montarSandboxComFixtures_({}, sandbox);
-  for (const f of ['Auth.gs', 'Favoritos.gs']) new vm.Script(fs.readFileSync(path.join(GAS, f), 'utf8'), { filename: f }).runInContext(sandbox);
+  for (const f of ['Auth.gs', 'Planilha.gs', 'Favoritos.gs']) new vm.Script(fs.readFileSync(path.join(GAS, f), 'utf8'), { filename: f }).runInContext(sandbox);
   return sandbox;
 }
 // arrays do vm são de outra realm - JSON pra comparar com deepStrictEqual

@@ -51,7 +51,7 @@ export const ROUTES = [
   {
     key: 'inicio',
     href: 'index.html',
-    title: 'Patrimônio',
+    title: 'Início · Patrimônio', // 06/10/2026 (A-69): "<Subaba> · <Seção> · Patrimônio"
     containerId: 'page-inicio',
     templateId: 'page-inicio-template',
     mount: montarPaginaInicio,
@@ -59,7 +59,7 @@ export const ROUTES = [
   {
     key: 'distribuicoes',
     href: 'distribuicoes-metas.html',
-    title: 'Acompanhamento de Ativos', // 02/10/2026: era "Distribuições e Metas" (Tiago renomeou o menu)
+    title: 'Acompanhamento de Ativos · Patrimônio', // 02/10/2026: era "Distribuições e Metas" (Tiago renomeou o menu); 06/10/2026 (A-69): formato do título
     containerId: 'page-distribuicoes',
     templateId: 'page-distribuicoes-template',
     mount: montarPaginaDistribuicoesMetas,

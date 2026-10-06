@@ -152,6 +152,19 @@ test('historicoMensalPatrimonio_: último patrimônio do mês e soma dos aportes
   assert.deepEqual(r.map((m) => [m.mes, m.patrimonio, m.aporte, m.aporteLongoPrazo]), [['2026-01', 160, 55, 45], ['2026-02', 170, 0, 0]]);
 });
 
+// 05/10/2026 (auditoria A-09): linha repetida na série não conta em dobro
+test('historicoMensalPatrimonio_: dia repetido na série conta uma vez só (a última linha do dia vence)', () => {
+  const sb = sandbox();
+  const r = semRealm(sb.historicoMensalPatrimonio_([
+    { data: '2026-01-02', patrimonio: 100, fluxoCaixaPatrimonio: 50, fluxoCaixaLongoPrazo: 40 },
+    { data: '2026-01-02', patrimonio: 105, fluxoCaixaPatrimonio: 50, fluxoCaixaLongoPrazo: 40 },
+    { data: '2026-01-30', patrimonio: 160, fluxoCaixaPatrimonio: 5, fluxoCaixaLongoPrazo: 5 },
+    { data: '2026-01-30', patrimonio: 160, fluxoCaixaPatrimonio: 5, fluxoCaixaLongoPrazo: 5 },
+    { data: '2026-02-03', patrimonio: 170 },
+  ]));
+  assert.deepEqual(r.map((m) => [m.mes, m.patrimonio, m.aporte, m.aporteLongoPrazo]), [['2026-01', 160, 55, 45], ['2026-02', 170, 0, 0]]);
+});
+
 test('FipeZap: acha a aba da cidade pelo nome (sem acento) e lê índice e preço médio; o "." de mês sem dado fica de fora', () => {
   const sb = sandbox();
   const arq = {

@@ -172,7 +172,7 @@ function testarMetasCarteiraDireto() {
   Logger.log(JSON.stringify(dados, null, 2));
 }
 
-function montarMetasCarteira_() {
+function montarMetasCarteira_(opcoes) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dm = ss.getSheetByName('Distribuição e Metas');
   if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
@@ -193,9 +193,14 @@ function montarMetasCarteira_() {
   // da planilha. Se a conta falhar, fica o valor da planilha.
   try {
     var telaProventos = montarTelaProventosComCache_();
-    var media = mediaRendaPassiva12Meses_(telaProventos.recebidos, telaProventos.hoje);
+    // 05/10/2026 (A-17): mesma base da tela Proventos (lançados + pagos
+    // presumidos pela data) e rótulo/separação confirmado x presumido junto
+    var media = mediaRendaPassiva12Meses_(recebidosComPresumidos_(telaProventos), telaProventos.hoje);
     rendaPassiva.mediaUlt12Meses = media.media;
-    rendaPassiva.mesesMedia = { inicio: media.inicio, fim: media.fim };
+    rendaPassiva.mesesMedia = { inicio: media.inicio, fim: media.fim, rotulo: media.rotulo };
+    rendaPassiva.total12Meses = media.total;
+    rendaPassiva.confirmado12Meses = media.confirmado;
+    rendaPassiva.presumido12Meses = media.presumido;
     var meta = Number(rendaPassiva.meta);
     rendaPassiva.percentualAtingido = meta > 0 ? media.media / meta : '';
   } catch (erroMedia) {
@@ -221,12 +226,27 @@ function montarMetasCarteira_() {
   var mediaGastos = dm.getRange('K11').getValue();
   var meses = dm.getRange('L11').getValue();
   var metaRendaEmergencial = dm.getRange('M12').getValue();
-  var carteiraAtualRendaEmergencial = dm.getRange('E19').getValue();
+  var carteiraBrutaRendaEmergencial = dm.getRange('E19').getValue();
+  // 05/10/2026 (A-10): E19 é BRUTO (sem IR/IOF), enquanto a engine de Metas e a
+  // Carteira RF medem a reserva pelo LÍQUIDO (o que ele realmente resgata). Agora
+  // o % atingido e o "atingida" usam o líquido (E19 - IR/IOF estimados por
+  // Metas.gs!impostoReservaMetas_); sem a estimativa, fica o bruto e o front rotula.
+  var impostoRendaEmergencial = null;
+  if (!(opcoes && opcoes.semReserva)) {
+    try { impostoRendaEmergencial = impostoReservaMetas_(opcoes && opcoes.ativos ? opcoes.ativos : ativosParaMetas_(ss)); } catch (eImp) { impostoRendaEmergencial = null; }
+  }
+  var temLiquidoRendaEmergencial = typeof carteiraBrutaRendaEmergencial === 'number' && typeof impostoRendaEmergencial === 'number';
+  var carteiraAtualRendaEmergencial = temLiquidoRendaEmergencial
+    ? Math.round(Math.max(0, carteiraBrutaRendaEmergencial - impostoRendaEmergencial) * 100) / 100
+    : carteiraBrutaRendaEmergencial;
   var rendaEmergencial = {
     mediaGastos: mediaGastos,
     meses: meses,
     meta: metaRendaEmergencial,
     carteiraAtual: carteiraAtualRendaEmergencial,
+    carteiraBruta: carteiraBrutaRendaEmergencial,
+    impostoEstimado: temLiquidoRendaEmergencial ? impostoRendaEmergencial : null,
+    base: temLiquidoRendaEmergencial ? 'liquido' : 'bruto',
     percentualAtingido: metaRendaEmergencial ? (carteiraAtualRendaEmergencial / metaRendaEmergencial) : '',
     atingida: carteiraAtualRendaEmergencial >= metaRendaEmergencial
   };
@@ -314,20 +334,55 @@ function testarObjetivosCarteiraDireto() {
  * (confirmado na planilha real: logo após o último ticker).
  */
 function lerBlocoRadar_(sheet, primeiraLinha, colunas) {
+  // 05/10/2026 (A-34 da auditoria): antes era 1 getRange().getValue() por
+  // CÉLULA (~500 chamadas por abertura da tela, mesmo com tudo em cache).
+  // Agora lê em pedaços de LINHAS_PEDACO_RADAR_ linhas, só das colunas
+  // usadas (da menor à maior), com 1 getValues por pedaço - normalmente 1
+  // chamada por bloco. O resultado é idêntico ao da leitura célula a
+  // célula (para na primeira linha com Ativo vazio, que É a linha de total).
   var itens = [];
+  var indices = {};
+  var menor = 0, maior = 0;
+  for (var campo in colunas) {
+    var col = colunas[campo];
+    if (!col) continue;
+    var idx = indiceColunaRadar_(col);
+    indices[campo] = idx;
+    if (!menor || idx < menor) menor = idx;
+    if (idx > maior) maior = idx;
+  }
+  var idxAtivo = indices.ativo;
+  var maxLinhas = typeof sheet.getMaxRows === 'function' ? sheet.getMaxRows() : 0;
   var linha = primeiraLinha;
-  while (true) {
-    var ativo = sheet.getRange(colunas.ativo + linha).getValue();
-    if (!ativo) break;
-    var item = { linha: linha };
-    for (var campo in colunas) {
-      var col = colunas[campo];
-      item[campo] = col ? sheet.getRange(col + linha).getValue() : null;
+  var fim = false;
+  while (!fim) {
+    var qtd = LINHAS_PEDACO_RADAR_;
+    if (maxLinhas) qtd = Math.min(qtd, maxLinhas - linha + 1);
+    if (qtd <= 0) break;
+    var pedaco = sheet.getRange(linha, menor, qtd, maior - menor + 1).getValues();
+    for (var i = 0; i < pedaco.length; i++) {
+      var valores = pedaco[i];
+      if (!valores[idxAtivo - menor]) { fim = true; break; }
+      var item = { linha: linha };
+      for (var nome in colunas) {
+        item[nome] = colunas[nome] ? valores[indices[nome] - menor] : null;
+      }
+      itens.push(item);
+      linha++;
     }
-    itens.push(item);
-    linha++;
   }
   return { itens: itens, linhaTotal: linha };
+}
+
+/** Linhas lidas por chamada em lerBlocoRadar_ (os blocos do Radar têm ~10-25 linhas). */
+var LINHAS_PEDACO_RADAR_ = 40;
+
+/** 'B' -> 2, 'S' -> 19, 'AA' -> 27 (índice 1-based da coluna). */
+function indiceColunaRadar_(letras) {
+  var n = 0;
+  var s = String(letras).toUpperCase();
+  for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+  return n;
 }
 
 /**
@@ -422,10 +477,12 @@ function montarRadarOportunidades_() {
   }
 
   function total_(linhaTotal, colCarteiraAtual, colNovaCarteira, colValorInvestir) {
+    // 05/10/2026 (A-34): 1 leitura da linha de total (A:S) em vez de 3 getValue
+    var linhaVal = dm.getRange(linhaTotal, 1, 1, 19).getValues()[0];
     return {
-      carteiraAtual: dm.getRange(colCarteiraAtual + linhaTotal).getValue(),
-      novaCarteira: dm.getRange(colNovaCarteira + linhaTotal).getValue(),
-      valorInvestir: dm.getRange(colValorInvestir + linhaTotal).getValue()
+      carteiraAtual: linhaVal[indiceColunaRadar_(colCarteiraAtual) - 1],
+      novaCarteira: linhaVal[indiceColunaRadar_(colNovaCarteira) - 1],
+      valorInvestir: linhaVal[indiceColunaRadar_(colValorInvestir) - 1]
     };
   }
 

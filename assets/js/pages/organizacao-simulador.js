@@ -28,17 +28,19 @@
  * despesas.totalComFolga), ctx.cfg (financiamento, fies, fgts, carreira),
  * ctx.b.liquido e ctx.fgts (resumoFgts). Ver parametrosPadrao no calc.
  */
-import { formatNumeroBR } from '../format.js';
+import { formatNumeroBR, formatPct } from '../format.js';
 import { lerValorBR } from './organizacao-calc.js';
-import { mil, brl0, mesAno } from './patrimonio-graficos.js';
+import { mil, brl0, mesAno, eixoMil } from './patrimonio-graficos.js';
+import { kpiHtml, chipHtml, tornarRecolhiveis } from './organizacao-ui.js';
+import { montarGrafico } from './metas-graficos.js'; // 06/10/2026 (Onda 3): gráficos da biblioteca (criam e morfam)
 import {
   simular, parametrosPadrao, veredito, PERFIS, ESTRATEGIAS_VIDEO, REFERENCIAS, PADROES, premissas,
   minimoParaMatar, opcoesMatarParcelas, parcelasQueOValorMata, trNoMes,
 } from './simulador-dividas-calc.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
 const mesesTxt = (m) => (m == null ? '—' : m >= 24 ? `${formatNumeroBR(m / 12, 1)} anos` : `${m} ${m === 1 ? 'mês' : 'meses'}`);
 const f1 = (v) => v.toFixed(1);
 const CHAVE = 'simuladorDividas:v1';
@@ -47,110 +49,84 @@ const NOME_DIV_LONGO = { financiamento: 'o apê', fies: 'o FIES' };
 const NOME_DIV_DE = { financiamento: 'do apê', fies: 'do FIES' };
 const parcelasTxt = (k) => `${formatNumeroBR(k, Number.isInteger(k) ? 0 : 1)} ${Math.abs(k - 1) < 0.05 ? 'parcela' : 'parcelas'}`;
 
+/** `cor` = posição na paleta do kit (--chart-N): amortizar 3, investir 1, metade em cada 6, só as parcelas 7 (pontilhada). */
 export const SERIES = [
-  { id: 'base', nome: 'Só as parcelas', cor: 'var(--sd-base)', tracejado: true },
-  { id: 'amortizar', nome: 'Amortizar', cor: 'var(--sd-amort)' },
-  { id: 'investir', nome: 'Investir', cor: 'var(--sd-inv)' },
-  { id: 'misto', nome: 'Metade em cada', cor: 'var(--sd-misto)' },
+  { id: 'base', nome: 'Só as parcelas', cor: 'var(--chart-axis)', tracejado: true },
+  { id: 'amortizar', nome: 'Amortizar', cor: 3 },
+  { id: 'investir', nome: 'Investir', cor: 1 },
+  { id: 'misto', nome: 'Metade em cada', cor: 4 },
 ];
 
 // ---------------------------------------------------------------------------
-// Gráficos (SVG puro)
+// Gráficos (06/10/2026, Onda 3: biblioteca assets/js/charts via metas-graficos!montarGrafico; aqui só dado -> opções)
 // ---------------------------------------------------------------------------
 
-function passoRedondo(amp, n = 4) {
-  const bruto = amp / n;
-  const pot = 10 ** Math.floor(Math.log10(bruto || 1));
-  return [1, 2, 2.5, 5, 10].map((k) => k * pot).find((p) => p >= bruto) || pot * 10;
-}
-const eixo = (v) => (v === 0 ? '0' : `${v < 0 ? '−' : ''}${Math.abs(v) >= 1e6 ? `${formatNumeroBR(Math.abs(v) / 1e6, Math.abs(v) % 1e6 ? 1 : 0)} mi` : `${formatNumeroBR(Math.abs(v) / 1000, 0)} mil`}`);
-const linhaTt = (rot, valor, cls = '', cor = '') => `<div class="pt-tt-l${cls ? ` ${cls}` : ''}"><span>${cor ? `<i class="sd-tt-cor" style="background:${cor}"></i>` : ''}${esc(rot)}</span><b>${esc(valor)}</b></div>`;
+const tituloAno = (a) => (a.k === 0 ? 'Hoje' : `Fim de ${a.ano}`);
+const eixoAnos = (anos) => anos.map((a) => ({ rotulo: a.k === 0 ? 'hoje' : String(a.ano), titulo: tituloAno(a) }));
+const tituloDoItem = (item) => (item && item.titulo) || '';
+const difTxt = (d) => `${d >= 0 ? '+' : '−'}${mil(Math.abs(d))}`;
 
-/**
- * Linhas anuais com uma escala só. rotulos: ['2026', ...]; series: [{ id,
- * nome, cor, tracejado, valores: [...] }]; dica(i) -> HTML do balão.
- */
-export function graficoLinhas({ rotulos, series, dica, zero = false, rotuloFinal = [] }, { largura = 720, altura = 260 } = {}) {
-  const W = Math.max(300, largura);
-  const H = altura;
-  const n = rotulos.length;
-  const mg = { t: 16, r: W < 480 ? 12 : 64, b: 26, l: 50 };
-  const todos = series.flatMap((s) => s.valores).filter(num);
-  if (!n || !todos.length) return { svg: '', dicas: [] };
-  let lo = Math.min(...todos); let hi = Math.max(...todos);
-  if (zero) lo = Math.min(0, lo);
-  if (hi - lo < 1) hi = lo + 1;
-  const passo = passoRedondo(hi - lo, 4);
-  lo = Math.floor(lo / passo) * passo; hi = Math.ceil(hi / passo) * passo;
-  const x = (k) => mg.l + (n === 1 ? 0 : (k / (n - 1)) * (W - mg.l - mg.r));
-  const y = (v) => mg.t + ((hi - v) / (hi - lo || 1)) * (H - mg.t - mg.b);
-  let s = '';
-  for (let v = lo; v <= hi + 1e-6; v += passo) {
-    s += `<line class="${Math.abs(v) < 1e-6 ? 'pt-zero' : 'pt-grade'}" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(v))}" y2="${f1(y(v))}"/><text class="pt-eixo" x="${mg.l - 8}" y="${f1(y(v) + 3.5)}" text-anchor="end">${esc(eixo(v))}</text>`;
-  }
-  const cadaQuantos = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - mg.l - mg.r) / 48))));
-  rotulos.forEach((r, k) => { if ((n - 1 - k) % cadaQuantos === 0) s += `<text class="pt-eixo" x="${f1(x(k))}" y="${H - 7}" text-anchor="middle">${esc(r)}</text>`; });
-  series.forEach((sr) => {
-    const pts = sr.valores.map((v, k) => (num(v) ? [x(k), y(v)] : null)).filter(Boolean);
-    if (!pts.length) return;
-    s += `<path class="sd-linha${sr.tracejado ? ' trac' : ''}" style="stroke:${sr.cor}" d="${pts.map((p, k) => `${k ? 'L' : 'M'}${f1(p[0])},${f1(p[1])}`).join('')}"/>`;
-    const u = pts[pts.length - 1];
-    s += `<circle class="sd-ponto" style="fill:${sr.cor}" cx="${f1(u[0])}" cy="${f1(u[1])}" r="4"/>`;
-  });
-  // valor no fim das linhas pedidas, sem encavalar
-  if (W >= 480) {
-    let ult = -1e9;
-    rotuloFinal.map((id) => series.find((sr) => sr.id === id)).filter(Boolean)
-      .map((sr) => ({ sr, yy: y(sr.valores[n - 1]) })).sort((a, b) => a.yy - b.yy)
-      .forEach(({ sr, yy }) => {
-        const yt = Math.max(yy + 4, ult + 13);
-        ult = yt;
-        s += `<text class="pt-rot-v" x="${f1(W - mg.r + 8)}" y="${f1(yt)}">${esc(mil(sr.valores[n - 1]))}</text>`;
-      });
-  }
-  const bw = n > 1 ? (W - mg.l - mg.r) / (n - 1) : W - mg.l - mg.r;
-  const dicas = [];
-  rotulos.forEach((r, k) => {
-    s += `<rect class="pt-hit sd-hit" data-i="${k}" tabindex="0" x="${f1(Math.max(mg.l - 6, x(k) - bw / 2))}" y="${mg.t}" width="${f1(bw)}" height="${H - mg.t - mg.b}"><title>${esc(r)}</title></rect>`;
-    dicas.push(dica(k));
-  });
-  return { svg: `<svg class="pt-svg" viewBox="0 0 ${W} ${H}" role="img">${s}</svg>`, dicas };
+/** Patrimônio líquido no fim de cada ano, em cada caminho (só as parcelas, metade em cada, investir, amortizar). -> spec de montarGrafico ou null. */
+export function opcoesPatrimonioCenarios(anos) {
+  if (!anos || !anos.length) return null;
+  return {
+    tipo: 'linha',
+    opcoes: {
+      series: ['base', 'misto', 'investir', 'amortizar'].map((id) => SERIES.find((x) => x.id === id)).map((sr) => ({
+        id: sr.id, nome: sr.nome, cor: sr.cor, pontilhada: !!sr.tracejado, principal: sr.id === 'investir', valores: anos.map((a) => a[sr.id].patrimonio),
+      })),
+      eixoX: eixoAnos(anos), formatarX: tituloDoItem, formatarValor: (v) => mil(v), formatarY: eixoMil, altura: 280, zero: false,
+      tooltipExtra: (k) => { const a = anos[k]; return a.k ? [{ nome: 'Investir − amortizar', valor: difTxt(a.investir.patrimonio - a.amortizar.patrimonio) }] : []; },
+      aria: `Patrimônio líquido no fim de cada ano em cada caminho, de hoje até ${anos[anos.length - 1].ano}`,
+    },
+  };
 }
 
-/** Barras verticais com zero no meio (positivo pra cima). */
-export function graficoBarras({ rotulos, valores, corPos, corNeg, dica }, { largura = 720, altura = 200 } = {}) {
-  const W = Math.max(300, largura);
-  const H = altura;
-  const n = rotulos.length;
-  const mg = { t: 14, r: 12, b: 26, l: 50 };
-  if (!n) return { svg: '', dicas: [] };
-  const maxAbs = Math.max(1, ...valores.map((v) => Math.abs(v || 0)));
-  const passo = passoRedondo(maxAbs, 2);
-  const hi = Math.max(passo, Math.ceil(Math.max(0, ...valores) / passo) * passo);
-  const lo = Math.min(-passo, Math.floor(Math.min(0, ...valores) / passo) * passo);
-  const y = (v) => mg.t + ((hi - v) / (hi - lo)) * (H - mg.t - mg.b);
-  const bw = (W - mg.l - mg.r) / n;
-  const larg = Math.min(34, bw * 0.6);
-  let s = '';
-  for (let v = lo; v <= hi + 1e-6; v += passo) s += `<line class="${Math.abs(v) < 1e-6 ? 'pt-zero' : 'pt-grade'}" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(v))}" y2="${f1(y(v))}"/><text class="pt-eixo" x="${mg.l - 8}" y="${f1(y(v) + 3.5)}" text-anchor="end">${esc(eixo(v))}</text>`;
-  const cadaQuantos = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - mg.l - mg.r) / 44))));
-  const dicas = [];
-  valores.forEach((v, k) => {
-    const xc = mg.l + bw * k + bw / 2;
-    const a = y(Math.max(0, v)); const b = y(Math.min(0, v));
-    if (b - a > 0.5) s += `<rect x="${f1(xc - larg / 2)}" y="${f1(a)}" width="${f1(larg)}" height="${f1(b - a)}" rx="3" fill="${v >= 0 ? corPos : corNeg}"/>`;
-    if ((n - 1 - k) % cadaQuantos === 0) s += `<text class="pt-eixo" x="${f1(xc)}" y="${H - 7}" text-anchor="middle">${esc(rotulos[k])}</text>`;
-    s += `<rect class="pt-hit sd-hit" data-i="${k}" tabindex="0" x="${f1(mg.l + bw * k)}" y="${mg.t}" width="${f1(bw)}" height="${H - mg.t - mg.b}"><title>${esc(rotulos[k])}</title></rect>`;
-    dicas.push(dica(k));
-  });
-  return { svg: `<svg class="pt-svg" viewBox="0 0 ${W} ${H}" role="img">${s}</svg>`, dicas };
+/** Investir − amortizar a cada fim de ano: acima do zero investir está na frente, abaixo amortizar. -> spec de montarGrafico ou null. */
+export function opcoesDiferenca(anos) {
+  const lista = (anos || []).slice(1);
+  if (!lista.length) return null;
+  const difs = lista.map((a) => a.investir.patrimonio - a.amortizar.patrimonio);
+  return {
+    tipo: 'barras',
+    opcoes: {
+      modo: 'empilhadas', categorias: lista.map((a) => ({ rotulo: String(a.ano), titulo: tituloAno(a) })),
+      series: [
+        { id: 'investir', nome: 'Investir na frente', cor: SERIES[2].cor, valores: difs.map((d) => (d >= 0 ? d : null)) },
+        { id: 'amortizar', nome: 'Amortizar na frente', cor: SERIES[1].cor, valores: difs.map((d) => (d < 0 ? d : null)) },
+      ],
+      formatarX: tituloDoItem, formatarValor: (v) => difTxt(v), formatarY: eixoMil, altura: 220, rotulosValor: false, tons: 'categorica',
+      tooltipExtra: (k) => [{ nome: 'Investir', valor: mil(lista[k].investir.patrimonio) }, { nome: 'Amortizar', valor: mil(lista[k].amortizar.patrimonio) }],
+      aria: `Diferença de patrimônio entre investir e amortizar no fim de cada ano, de ${lista[0].ano} a ${lista[lista.length - 1].ano}`,
+    },
+  };
+}
+
+/** Quanto ainda se deve (financiamento + FIES) em cada caminho. -> spec de montarGrafico ou null. */
+export function opcoesDividas(anos) {
+  if (!anos || !anos.length) return null;
+  const serDiv = SERIES.filter((x) => x.id !== 'investir');
+  return {
+    tipo: 'linha',
+    opcoes: {
+      series: serDiv.map((sr) => ({
+        id: sr.id, nome: sr.id === 'base' ? 'Só as parcelas (= investir)' : sr.nome, cor: sr.cor, pontilhada: !!sr.tracejado, principal: sr.id === 'amortizar', valores: anos.map((a) => a[sr.id].totalDividas),
+      })),
+      eixoX: eixoAnos(anos), formatarX: tituloDoItem, formatarValor: (v) => mil(v), formatarY: eixoMil, altura: 220, zero: true,
+      tooltipExtra: (k) => {
+        const a = anos[k]; const ids = Object.keys(a.base.dividas);
+        return ids.length > 1 ? ids.map((id) => ({ nome: NOME_DIV[id], valor: `${mil(a.base.dividas[id])} → ${mil(a.amortizar.dividas[id])}` })) : [];
+      },
+      aria: `Quanto ainda se deve de financiamento e FIES no fim de cada ano, de hoje até ${anos[anos.length - 1].ano}`,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Blocos (HTML)
 // ---------------------------------------------------------------------------
 
-const seg = (grupo, itens, atual) => `<div class="pt-seg" role="group" data-sd-seg="${grupo}">${itens.map(([v, rot, title]) => `<button type="button" data-v="${esc(v)}"${title ? ` title="${esc(title)}"` : ''} class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
+const seg = (grupo, itens, atual) => `<div class="segmented" role="group" data-sd-seg="${grupo}">${itens.map(([v, rot, title]) => `<button type="button" data-v="${esc(v)}"${title ? ` title="${esc(title)}"` : ''} class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
 const campoPct = (id, rot, valor, casas = 2, dica = '') => `<label class="pt-campo" for="${id}">${esc(rot)}<span class="pt-input"><input id="${id}" data-sd-taxa inputmode="decimal" value="${esc(num(valor) ? formatNumeroBR(valor * 100, casas) : '')}"><i>%</i></span>${dica ? `<small>${esc(dica)}</small>` : ''}</label>`;
 
 export function htmlFormulario(p, pr) {
@@ -167,7 +143,7 @@ export function htmlFormulario(p, pr) {
       <label class="pt-ctl" for="sdHorizonte"><span class="pt-ctl-row">Por</span><select id="sdHorizonte" class="sd-select">${[5, 10, 15, 20, 25, 30].map((a) => `<option value="${a}"${p.horizonteAnos === a ? ' selected' : ''}>${a} anos</option>`).join('')}</select></label>
     </div>
     <p class="sd-valor-nota" id="sdValorNota">${htmlValorNota(p)}</p>
-    <details class="sd-prem"${p._premAberta ? ' open' : ''}><summary>Premissas: taxas e opções <span class="pt-hint">CDI ${esc(pct(pr.cdi, 2))} → ${esc(pct(pr.cdiLongo, 1))} em ${esc(pr.anosTransicao)} anos · IPCA ${esc(pct(pr.ipca, 1))} · TR ${esc(pct(pr.trMensal, 3))}/mês</span></summary>
+    <details class="sd-prem"${p._premAberta ? ' open' : ''}><summary>Premissas: taxas e opções <span class="pt-hint">CDI ${esc(formatPct(pr.cdi, 2))} → ${esc(formatPct(pr.cdiLongo, 1))} em ${esc(pr.anosTransicao)} anos · IPCA ${esc(formatPct(pr.ipca, 1))} · TR ${esc(formatPct(pr.trMensal, 3))}/mês</span></summary>
       <div class="pt-campos sd-campos">
         ${campoPct('sdCdi', 'CDI hoje (a.a.)', pr.cdi)}
         ${campoPct('sdCdiLongo', 'CDI de longo prazo', pr.cdiLongo, 2, 'IPCA + juro neutro (~5%)')}
@@ -232,11 +208,11 @@ export function htmlMatarParcelas(opcoes, p) {
         <span class="sd-matar-c"><small>Quita em</small><b>${esc(mesAno(l.quitaMes))}</b><em>${l.mesesAdiantados > 0 ? `${esc(mesesTxt(l.mesesAdiantados))} antes` : 'igual'}</em></span>
         <span class="sd-matar-c"><small>Juros + seguro</small><b>−${esc(mil(l.custoEconomizado))}</b><em>no contrato</em></span>
         <span class="sd-matar-c sd-matar-pat"><small>Patrimônio em ${esc(l.anoHorizonte)}</small><b class="${ganha === 'amortizar' ? 'amort' : 'inv'}">${esc(ganha === 'amortizar' ? 'amortizar' : 'investir')} +${esc(mil(dif))}</b><em>${esc(mil(l.patrimonioAmortizar))} × ${esc(mil(l.patrimonioInvestir))}</em></span>
-        <span class="sd-matar-acao">${atual ? '<span class="pt-pill good">simulando</span>' : `<button type="button" class="pt-mini" data-sd-matar="${esc(o.id)}:${esc(l.valor)}">simular este</button>`}</span>
+        <span class="sd-matar-acao">${atual ? chipHtml('good', 'simulando', 'check') : `<button type="button" class="pt-mini" data-sd-matar="${esc(o.id)}:${esc(l.valor)}">simular este</button>`}</span>
       </li>`;
     }).join('');
-    return `<div class="pt-card pt-pad sd-matar-card" data-sd-divida="${esc(o.id)}">
-      <div class="pt-card-cab"><h3>${esc(o.id === 'financiamento' ? 'Apê' : 'FIES')} <small>${esc(o.sistema)}</small></h3><span class="pt-hint">hoje quita em ${esc(mesAno(l0 && l0.baseMes))} · custa ${esc(pct(o.custo))} a.a. hoje${o.abaixoInflacao ? ` - <b>menos que a inflação</b> (${esc(pct(pr.ipca))}): antecipar não compensa` : ''}</span></div>
+    return `<div class="card pt-card pt-pad sd-matar-card" data-sd-divida="${esc(o.id)}">
+      <div class="pt-card-cab"><h3>${esc(o.id === 'financiamento' ? 'Apê' : 'FIES')} <small>${esc(o.sistema)}</small></h3><span class="pt-hint">hoje quita em ${esc(mesAno(l0 && l0.baseMes))} · custa ${esc(formatPct(o.custo))} a.a. hoje${o.abaixoInflacao ? ` - <b>menos que a inflação</b> (${esc(formatPct(pr.ipca))}): antecipar não compensa` : ''}</span></div>
       <ul class="sd-matar-lista">${linhas}</ul>
     </div>`;
   }).join('') + `<p class="pt-nota sd-matar-nota">"Matar" uma parcela = tirar uma do fim do contrato (modo Prazo). No SAC é uma amortização (${p.dividas.financiamento && p.dividas.financiamento.tr ? 'corrigida pela TR todo mês - o mesmo valor tira um pouco menos com o tempo' : 'constante'}); na Price, o valor de hoje das últimas parcelas (cresce devagar mês a mês). A coluna "Patrimônio em ${esc((opcoes[0].linhas[0] || {}).anoHorizonte || '')}" compara o patrimônio líquido amortizando × investindo o mesmo valor em ${esc(perfil.nome)} por ${esc(p.horizonteAnos)} anos.</p>`;
@@ -266,8 +242,8 @@ export function htmlCards(sim) {
   })() : '';
   const ids = Object.keys(r.quitacao);
   return `
-    <article class="sd-card amort${ganha === 'amortizar' ? ' ganha' : ''}" data-sd-card="amortizar">
-      <div class="sd-card-cab"><span class="sd-marca"></span><span class="pt-rot">Amortizar ${esc(alvoTxt)}</span>${ganha === 'amortizar' ? `<span class="pt-pill good">+${esc(mil(dif))}</span>` : ''}</div>
+    <article class="card sd-card amort${ganha === 'amortizar' ? ' ganha' : ''}" data-sd-card="amortizar">
+      <div class="sd-card-cab"><span class="sd-marca"></span><span class="sd-rot">Amortizar ${esc(alvoTxt)}</span>${ganha === 'amortizar' ? chipHtml('good', `+${esc(mil(dif))}`, 'check') : ''}</div>
       <span class="sd-num">${esc(mil(r.patrimonio.amortizar))}</span>
       <small class="sd-sub">patrimônio líquido em ${esc(r.anoHorizonte)}</small>
       <ul class="sd-stats">
@@ -278,14 +254,14 @@ export function htmlCards(sim) {
       </ul>
     </article>
     <span class="sd-vs" aria-hidden="true">ou</span>
-    <article class="sd-card inv${ganha === 'investir' ? ' ganha' : ''}" data-sd-card="investir">
-      <div class="sd-card-cab"><span class="sd-marca"></span><span class="pt-rot">Investir em ${esc(perfil.nome)}</span>${ganha === 'investir' ? `<span class="pt-pill good">+${esc(mil(dif))}</span>` : ''}</div>
+    <article class="card sd-card inv${ganha === 'investir' ? ' ganha' : ''}" data-sd-card="investir">
+      <div class="sd-card-cab"><span class="sd-marca"></span><span class="sd-rot">Investir em ${esc(perfil.nome)}</span>${ganha === 'investir' ? chipHtml('good', `+${esc(mil(dif))}`, 'check') : ''}</div>
       <span class="sd-num">${esc(mil(r.patrimonio.investir))}</span>
       <small class="sd-sub">patrimônio líquido em ${esc(r.anoHorizonte)}</small>
       <ul class="sd-stats">
         <li><span>Renda passiva</span><b>${esc(brl0(r.rendaPassiva))}/mês</b><small>${esc(brl0(r.rendaPassivaReal))} acima da inflação${p.perfil === 'fii' ? ' · isenta de IR' : ' · já sem IR'}</small></li>
         <li><span>Investido (líquido de IR)</span><b>${esc(mil(r.investidoLiquido))}</b><small>bruto ${esc(mil(r.investidoBruto))} · IR ${esc(mil(r.irEstimado))} se resgatar</small></li>
-        <li><span>Rendimento líquido</span><b>${esc(mil(r.rendimentoLiquido))}</b><small>sobre ${esc(mil(r.aportadoInvestir))} aportados · ~${esc(pct(r.retornoLiquido))} a.a.</small></li>
+        <li><span>Rendimento líquido</span><b>${esc(mil(r.rendimentoLiquido))}</b><small>sobre ${esc(mil(r.aportadoInvestir))} aportados · ~${esc(formatPct(r.retornoLiquido))} a.a.</small></li>
       </ul>
     </article>`;
 }
@@ -296,33 +272,35 @@ export function htmlFaixa(sim) {
   const alvo = r.ordemAlvo[0];
   const c = alvo ? r.custos[alvo] : null;
   const v = r.virada;
-  return `
-    <div class="pt-tile"><span class="pt-rot">Só as parcelas</span><b>${esc(mil(r.patrimonio.base))}</b><small>em ${esc(r.anoHorizonte)}, sem o extra</small></div>
-    <div class="pt-tile"><span class="pt-rot">Metade em cada</span><b>${esc(mil(r.patrimonio.misto))}</b><small>${esc(formatNumeroBR((p.fracMisto || 0.5) * 100, 0))}% na dívida, o resto investido</small></div>
-    <div class="pt-tile"><span class="pt-rot">Custo da dívida</span><b>${esc(c ? pct(c.medio) : '—')}</b><small>${alvo ? `${esc(NOME_DIV[alvo])}: hoje ${esc(pct(c.hoje))} a.a. (juros${p.dividas[alvo].tr ? ' + TR' : ''}${p.dividas[alvo].seguro ? ' + seguro' : ''}); média no período` : 'nenhuma dívida no alvo'}</small></div>
-    <div class="pt-tile dest"><span class="pt-rot">Ponto de virada</span><b>${esc(v && !v.acima && !v.abaixo ? pct(v.taxa) : v && v.acima ? '> 40%' : '—')}</b><small>retorno líquido a.a. acima do qual investir ganha · ${esc(PERFIS[p.perfil].curto)} dá ~${esc(pct(r.retornoLiquido))}</small></div>`;
+  const kpi = (rotulo, valor, sub, classe = '') => kpiHtml({ classe, rotulo, valorHtml: esc(valor), subHtml: sub });
+  return [
+    kpi('Só as parcelas', mil(r.patrimonio.base), `em ${esc(r.anoHorizonte)}, sem o extra`),
+    kpi('Metade em cada', mil(r.patrimonio.misto), `${esc(formatNumeroBR((p.fracMisto || 0.5) * 100, 0))}% na dívida, o resto investido`),
+    kpi('Custo da dívida', c ? formatPct(c.medio) : '—', alvo ? `${esc(NOME_DIV[alvo])}: hoje ${esc(formatPct(c.hoje))} a.a. (juros${p.dividas[alvo].tr ? ' + TR' : ''}${p.dividas[alvo].seguro ? ' + seguro' : ''}); média no período` : 'nenhuma dívida no alvo'),
+    kpi('Ponto de virada', v && !v.acima && !v.abaixo ? formatPct(v.taxa) : v && v.acima ? '> 40%' : '—', `retorno líquido a.a. acima do qual investir ganha · ${esc(PERFIS[p.perfil].curto)} dá ~${esc(formatPct(r.retornoLiquido))}`, 'sd-virada'),
+  ].join('');
 }
 
 export function htmlVeredito(v) {
-  return `<div class="sd-ver-cab"><span class="pt-rot">Veredito</span><h3>${esc(v.titulo)}</h3></div><p class="sd-ver-txt">${esc(v.texto)}</p>${v.bullets.length ? `<ul class="sd-ver-lista">${v.bullets.map((b) => `<li class="sd-tom-${esc(b.tom)}">${b.html}</li>`).join('')}</ul>` : ''}`;
+  return `<div class="sd-ver-cab"><span class="sd-rot">Veredito</span><h3>${esc(v.titulo)}</h3></div><p class="sd-ver-txt">${esc(v.texto)}</p>${v.bullets.length ? `<ul class="sd-ver-lista">${v.bullets.map((b) => `<li class="sd-tom-${esc(b.tom)}">${b.html}</li>`).join('')}</ul>` : ''}`;
 }
 
 export function htmlPerfis(sim) {
   const { resumo: r, params: p } = sim;
-  return `<div class="pt-tab-wrap sd-tab-wrap"><table class="pt-tab sd-perfis"><thead><tr><th class="esq">Investir em</th><th>Retorno líquido</th><th>Patrimônio em ${esc(r.anoHorizonte)}</th><th>Renda/mês</th><th>Acima da inflação</th></tr></thead><tbody>
-    ${r.perfis.map((x) => `<tr class="${x.id === p.perfil ? 'sel' : ''}"><td class="esq"><button type="button" class="sd-perfil-btn" data-sd-perfil="${esc(x.id)}" aria-pressed="${x.id === p.perfil}">${esc(x.nome)}</button><small>${esc(x.desc)}</small></td><td>${esc(pct(x.retornoLiquido))} a.a.</td><td>${esc(mil(x.patrimonio))}</td><td>${esc(brl0(x.renda))}</td><td>${esc(brl0(x.rendaReal))}</td></tr>`).join('')}
-    <tr class="sd-ref"><td class="esq">Amortizar (comparação)</td><td>${esc(pct(r.ordemAlvo[0] ? r.custos[r.ordemAlvo[0]].medio : null))} a.a.<small>custo evitado</small></td><td>${esc(mil(r.patrimonio.amortizar))}</td><td>${esc(brl0(r.rendaPassivaAmortizar))}</td><td>—</td></tr>
+  return `<div class="tabela-wrap sd-tab-wrap"><table class="tabela tabela-alta sd-perfis"><thead><tr><th scope="col">Investir em</th><th scope="col" class="num">Retorno líquido</th><th scope="col" class="num">Patrimônio em ${esc(r.anoHorizonte)}</th><th scope="col" class="num col-opc">Renda/mês</th><th scope="col" class="num col-opc">Acima da inflação</th></tr></thead><tbody>
+    ${r.perfis.map((x) => `<tr class="${x.id === p.perfil ? 'sel' : ''}"><td class="esq"><button type="button" class="sd-perfil-btn" data-sd-perfil="${esc(x.id)}" aria-pressed="${x.id === p.perfil}">${esc(x.nome)}</button><small>${esc(x.desc)}</small></td><td class="num">${esc(formatPct(x.retornoLiquido))} a.a.</td><td class="num">${esc(mil(x.patrimonio))}</td><td class="num col-opc">${esc(brl0(x.renda))}</td><td class="num col-opc">${esc(brl0(x.rendaReal))}</td></tr>`).join('')}
+    <tr class="sd-ref"><td class="esq">Amortizar (comparação)</td><td class="num">${esc(formatPct(r.ordemAlvo[0] ? r.custos[r.ordemAlvo[0]].medio : null))} a.a.<small>custo evitado</small></td><td class="num">${esc(mil(r.patrimonio.amortizar))}</td><td class="num col-opc">${esc(brl0(r.rendaPassivaAmortizar))}</td><td class="num col-opc">—</td></tr>
   </tbody></table></div>
   <p class="pt-nota pt-nota-pad">Retorno líquido = média ao ano no período, já sem IR (renda fixa: tabela regressiva até 15%; FIIs: proventos isentos, 20% só sobre a valorização se vender). Renda/mês = o que o dinheiro rende no último mês (proventos nos FIIs); "acima da inflação" é o que dá pra gastar sem o patrimônio perder valor. CDI e TR caem juntos até o CDI de longo prazo.</p>`;
 }
 
 export function htmlTabela(sim) {
   const { anos, resumo: r } = sim;
-  const cel = (v) => `<td>${esc(mil(v))}</td>`;
-  return `<div class="pt-tab-wrap sd-tab-wrap"><table class="pt-tab sd-anos"><thead><tr><th class="esq">Ano</th><th>Dívidas<small>só parcelas</small></th><th>Dívidas<small>amortizando</small></th><th>Investido<small>investindo, líquido</small></th><th>Patrimônio<small>só parcelas</small></th><th>Patrimônio<small>amortizar</small></th><th>Patrimônio<small>investir</small></th><th>Patrimônio<small>metade</small></th><th>Investir − amortizar</th><th>Renda/mês<small>investindo</small></th></tr></thead><tbody>
+  const cel = (v, opc = false) => `<td class="num${opc ? ' col-opc' : ''}">${esc(mil(v))}</td>`;
+  return `<div class="tabela-wrap sd-tab-wrap"><table class="tabela tabela-baixa sd-anos"><thead><tr><th scope="col">Ano</th><th scope="col" class="num col-opc">Dívidas<small>só parcelas</small></th><th scope="col" class="num col-opc">Dívidas<small>amortizando</small></th><th scope="col" class="num col-opc">Investido<small>investindo, líquido</small></th><th scope="col" class="num col-opc">Patrimônio<small>só parcelas</small></th><th scope="col" class="num">Patrimônio<small>amortizar</small></th><th scope="col" class="num">Patrimônio<small>investir</small></th><th scope="col" class="num col-opc">Patrimônio<small>metade</small></th><th scope="col" class="num">Investir − amortizar</th><th scope="col" class="num col-opc">Renda/mês<small>investindo</small></th></tr></thead><tbody>
     ${anos.map((a) => {
     const d = a.investir.patrimonio - a.amortizar.patrimonio;
-    return `<tr${a.k === 0 ? ' class="pt-hoje"' : ''}><td class="esq">${a.k === 0 ? 'hoje' : esc(a.ano)}</td>${cel(a.base.totalDividas)}${cel(a.amortizar.totalDividas)}${cel(a.investir.investidoLiquido)}${cel(a.base.patrimonio)}${cel(a.amortizar.patrimonio)}${cel(a.investir.patrimonio)}${cel(a.misto.patrimonio)}<td class="${d >= 0 ? 'good' : 'bad'}">${a.k === 0 ? '—' : `${d >= 0 ? '+' : '−'}${esc(mil(Math.abs(d)))}`}</td><td>${esc(brl0(a.investir.renda))}</td></tr>`;
+    return `<tr${a.k === 0 ? ' class="pt-hoje"' : ''}><td class="esq">${a.k === 0 ? 'hoje' : esc(a.ano)}</td>${cel(a.base.totalDividas, true)}${cel(a.amortizar.totalDividas, true)}${cel(a.investir.investidoLiquido, true)}${cel(a.base.patrimonio, true)}${cel(a.amortizar.patrimonio)}${cel(a.investir.patrimonio)}${cel(a.misto.patrimonio, true)}<td class="num ${d >= 0 ? 'good' : 'bad'}">${a.k === 0 ? '—' : `${d >= 0 ? '+' : '−'}${esc(mil(Math.abs(d)))}`}</td><td class="num col-opc">${esc(brl0(a.investir.renda))}</td></tr>`;
   }).join('')}</tbody></table></div>
   <p class="pt-nota pt-nota-pad">Patrimônio = o líquido de hoje + a dívida que foi abatida + o investido no experimento (líquido de IR) + o que o FGTS cresceu. Seus aportes normais, a valorização do apê e o rendimento do que você já tem são iguais nos cenários e ficam de fora. ${r.frequencias ? `Valores nominais (sem descontar a inflação).` : ''}</p>`;
 }
@@ -338,7 +316,7 @@ export function htmlEstrategias(sim) {
 
 export function htmlReferencias() {
   return `<ul class="sd-refs">${REFERENCIAS.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.nome)}</a></li>`).join('')}</ul>
-  <p class="pt-nota">Taxas padrão quando o site não tem o número: CDI ${esc(pct(PADROES.cdi, 2))} (BCB, 01/10/2026), IPCA ${esc(pct(PADROES.ipca, 1))} em 12 meses, TR ${esc(pct(PADROES.trMensal, 3))} ao mês. É uma simulação: taxas futuras são suposições - confira a regra de amortização no app da Caixa antes de pagar.</p>`;
+  <p class="pt-nota">Taxas padrão quando o site não tem o número: CDI ${esc(formatPct(PADROES.cdi, 2))} (BCB, 01/10/2026), IPCA ${esc(formatPct(PADROES.ipca, 1))} em 12 meses, TR ${esc(formatPct(PADROES.trMensal, 3))} ao mês. É uma simulação: taxas futuras são suposições - confira a regra de amortização no app da Caixa antes de pagar.</p>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +377,6 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
   let sim = null;
   let opcoes = null; // "matar 2, 3, 4 parcelas" (guardado enquanto as premissas não mudam)
   let chaveOpcoes = '';
-  const dicas = {};
 
   const lerSalvo = () => { try { const t = store && store.getItem(CHAVE); return t ? JSON.parse(t) : {}; } catch (e) { return {}; } };
   const salvar = () => {
@@ -430,10 +407,10 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
       <div class="pt-conteudo sd">
         <section class="pt-sec">
           <div class="pt-sec-cab"><h2>Amortizar ou investir?</h2><span class="pt-hint">o mesmo dinheiro saindo do bolso nos dois caminhos · já simulado com as suas dívidas de hoje</span></div>
-          <div class="pt-card sd-form" id="sdForm"></div>
+          <div class="card pt-card sd-form" id="sdForm"></div>
           <div class="sd-cards" id="sdCards" aria-live="polite"></div>
-          <div class="pt-tiles sd-faixa" id="sdFaixa"></div>
-          <div class="pt-card pt-pad sd-ver" id="sdVer"></div>
+          <div class="grid-kpi sd-faixa" id="sdFaixa"></div>
+          <div class="card pt-card pt-pad sd-ver" id="sdVer"></div>
         </section>
         <section class="pt-sec" id="sdSecParcelas">
           <div class="pt-sec-cab"><h2>Quanto amortizar pra matar 2, 3 ou 4 parcelas por mês</h2><span class="pt-hint">todo mês, reduzindo o prazo · em cada dívida · "simular este" põe o valor lá em cima</span></div>
@@ -441,58 +418,37 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
         </section>
         <section class="pt-sec">
           <div class="pt-sec-cab"><h2>Ano a ano</h2><span class="pt-hint">patrimônio líquido no fim de cada ano, em cada caminho</span></div>
-          <div class="pt-card"><div class="sd-leg pt-leg" id="sdLegPat"></div><div class="pt-grafico" data-sd-graf="pat" id="sdGPat"></div></div>
+          <div class="card pt-card sd-pad"><div class="sd-grafico" id="sdGPat"></div></div>
           <div class="sd-duas">
-            <div class="pt-card"><div class="pt-card-cab sd-pad-cab"><h3>Investir − amortizar</h3><span class="pt-hint">acima do zero, investir está na frente</span></div><div class="pt-grafico" data-sd-graf="dif" id="sdGDif"></div></div>
-            <div class="pt-card"><div class="pt-card-cab sd-pad-cab"><h3>Quanto você ainda deve</h3><span class="pt-hint">financiamento + FIES</span></div><div class="sd-leg pt-leg" id="sdLegDiv"></div><div class="pt-grafico" data-sd-graf="div" id="sdGDiv"></div></div>
+            <div class="card pt-card"><div class="pt-card-cab sd-pad-cab"><h3>Investir − amortizar</h3><span class="pt-hint">acima do zero, investir está na frente</span></div><div class="sd-grafico" id="sdGDif"></div></div>
+            <div class="card pt-card"><div class="pt-card-cab sd-pad-cab"><h3>Quanto você ainda deve</h3><span class="pt-hint">financiamento + FIES</span></div><div class="sd-grafico" id="sdGDiv"></div></div>
           </div>
-          <details class="pt-card sd-det"><summary>Tabela ano a ano</summary><div id="sdTabela"></div></details>
+          <details class="card pt-card sd-det"><summary>Tabela ano a ano</summary><div id="sdTabela"></div></details>
         </section>
         <section class="pt-sec">
           <div class="pt-sec-cab"><h2>Onde investir faz diferença</h2><span class="pt-hint">o mesmo valor em cada tipo - toque pra simular com ele</span></div>
-          <div class="pt-card" id="sdPerfis"></div>
+          <div class="card pt-card" id="sdPerfis"></div>
         </section>
         <section class="pt-sec">
           <div class="sd-duas">
-            <div class="pt-card pt-pad"><div class="pt-card-cab"><h3>Estratégias do vídeo</h3><span class="pt-hint">BextPlay · "Devo amortizar todo mês ou uma vez por ano" (2025)</span></div><div id="sdVideo"></div></div>
-            <div class="pt-card pt-pad"><div class="pt-card-cab"><h3>Referências</h3></div><div id="sdRefs"></div></div>
+            <div class="card pt-card pt-pad"><div class="pt-card-cab"><h3>Estratégias do vídeo</h3><span class="pt-hint">BextPlay · "Devo amortizar todo mês ou uma vez por ano" (2025)</span></div><div id="sdVideo"></div></div>
+            <div class="card pt-card pt-pad"><div class="pt-card-cab"><h3>Referências</h3></div><div id="sdRefs"></div></div>
           </div>
         </section>
       </div>`;
+    tornarRecolhiveis(raiz, { seletor: '.sd > .pt-sec', cabecalho: '.pt-sec-cab', abertasNoCelular: 1, doc });
   }
 
-  const largura = (id, padraoL) => { const e = raiz.querySelector(id); return (e && e.clientWidth ? e.clientWidth - 36 : 0) || padraoL; };
-  const legenda = (ids) => SERIES.filter((s) => ids.includes(s.id)).map((s) => `<span><i class="${s.tracejado ? 'sd-leg-trac' : ''}" style="${s.tracejado ? `border-color:${s.cor}` : `background:${s.cor}`}"></i>${esc(s.nome)}</span>`).join('');
-
-  function desenharGrafico(id, chave, g) {
+  function desenharGrafico(id, spec) {
     const box = raiz.querySelector(id);
-    if (!box) return;
-    box.innerHTML = `${g.svg}<div class="pt-tt" hidden></div>`;
-    dicas[chave] = g.dicas;
+    if (box && spec) montarGrafico(box, spec);
   }
 
   function graficos() {
     const { anos } = sim;
-    const rotulos = anos.map((a) => (a.k === 0 ? 'hoje' : String(a.ano)));
-    const dicaAno = (k) => {
-      const a = anos[k];
-      return `<b class="pt-tt-t">${esc(a.k === 0 ? 'Hoje' : `Fim de ${a.ano}`)}</b>${SERIES.map((s) => linhaTt(s.nome, mil(a[s.id].patrimonio), '', s.cor)).join('')}${a.k ? linhaTt('Investir − amortizar', `${a.investir.patrimonio >= a.amortizar.patrimonio ? '+' : '−'}${mil(Math.abs(a.investir.patrimonio - a.amortizar.patrimonio))}`, 'pt-tt-total') : ''}`;
-    };
-    raiz.querySelector('#sdLegPat').innerHTML = legenda(['base', 'amortizar', 'investir', 'misto']);
-    desenharGrafico('#sdGPat', 'pat', graficoLinhas({
-      rotulos, series: ['base', 'misto', 'investir', 'amortizar'].map((id) => SERIES.find((x) => x.id === id)).map((sr) => ({ ...sr, valores: anos.map((a) => a[sr.id].patrimonio) })), dica: dicaAno, rotuloFinal: ['base', 'amortizar', 'investir'],
-    }, { largura: largura('#sdGPat', 720), altura: 280 }));
-    const difs = anos.slice(1).map((a) => a.investir.patrimonio - a.amortizar.patrimonio);
-    desenharGrafico('#sdGDif', 'dif', graficoBarras({
-      rotulos: anos.slice(1).map((a) => String(a.ano)), valores: difs, corPos: 'var(--sd-inv)', corNeg: 'var(--sd-amort)',
-      dica: (k) => { const a = anos[k + 1]; const d = difs[k]; return `<b class="pt-tt-t">Fim de ${esc(a.ano)}</b>${linhaTt(d >= 0 ? 'Investir na frente' : 'Amortizar na frente', mil(Math.abs(d)))}${linhaTt('Investir', mil(a.investir.patrimonio), '', 'var(--sd-inv)')}${linhaTt('Amortizar', mil(a.amortizar.patrimonio), '', 'var(--sd-amort)')}`; },
-    }, { largura: largura('#sdGDif', 420), altura: 210 }));
-    const serDiv = SERIES.filter((s) => s.id !== 'investir').map((s) => ({ ...s, nome: s.id === 'base' ? 'Só as parcelas (= investir)' : s.nome, valores: anos.map((a) => a[s.id].totalDividas) }));
-    raiz.querySelector('#sdLegDiv').innerHTML = serDiv.map((s) => `<span><i class="${s.tracejado ? 'sd-leg-trac' : ''}" style="${s.tracejado ? `border-color:${s.cor}` : `background:${s.cor}`}"></i>${esc(s.nome)}</span>`).join('');
-    desenharGrafico('#sdGDiv', 'div', graficoLinhas({
-      rotulos, series: serDiv, zero: true,
-      dica: (k) => { const a = anos[k]; const ids = Object.keys(a.base.dividas); return `<b class="pt-tt-t">${esc(a.k === 0 ? 'Hoje' : `Fim de ${a.ano}`)}</b>${serDiv.map((s) => linhaTt(s.nome.replace(' (= investir)', ''), mil(a[s.id].totalDividas), '', s.cor)).join('')}${ids.length > 1 ? `<div class="pt-tt-n">${ids.map((id) => `${NOME_DIV[id]}: ${mil(a.base.dividas[id])} → ${mil(a.amortizar.dividas[id])}`).join(' · ')}</div>` : ''}`; },
-    }, { largura: largura('#sdGDiv', 420), altura: 210 }));
+    desenharGrafico('#sdGPat', opcoesPatrimonioCenarios(anos));
+    desenharGrafico('#sdGDif', opcoesDiferenca(anos));
+    desenharGrafico('#sdGDiv', opcoesDividas(anos));
   }
 
   function resultado() {
@@ -606,33 +562,6 @@ export function montarSimuladorDividas(raiz, { ctx, doc = raiz && raiz.ownerDocu
       clearTimeout(timer);
       timer = setTimeout(() => { const v = lerValorBR(ev.target.value); if (num(v) && v >= 0) mudar(() => { definirValor(v); }); }, 450);
     });
-    // balões dos gráficos
-    const mostrar = (alvo) => {
-      const box = alvo.closest('[data-sd-graf]');
-      if (!box) return;
-      const tt = box.querySelector('.pt-tt');
-      const html = (dicas[box.dataset.sdGraf] || [])[Number(alvo.dataset.i)];
-      if (!tt || !html) return;
-      tt.innerHTML = html;
-      tt.hidden = false;
-      const rb = box.getBoundingClientRect(); const ra = alvo.getBoundingClientRect();
-      const cx = ra.left - rb.left + ra.width / 2;
-      const w = tt.offsetWidth || 200;
-      tt.style.left = `${Math.max(4, Math.min(rb.width - w - 4, cx + 12 > rb.width - w ? cx - w - 12 : cx + 12))}px`;
-      tt.style.top = '8px';
-      box.querySelectorAll('.sd-hit.on').forEach((h) => h.classList.remove('on'));
-      alvo.classList.add('on');
-    };
-    const esconder = (box) => { if (!box) return; const tt = box.querySelector('.pt-tt'); if (tt) tt.hidden = true; box.querySelectorAll('.sd-hit.on').forEach((h) => h.classList.remove('on')); };
-    raiz.addEventListener('mouseover', (ev) => { const h = ev.target.closest && ev.target.closest('.sd-hit'); if (h) mostrar(h); });
-    raiz.addEventListener('focusin', (ev) => { const h = ev.target.closest && ev.target.closest('.sd-hit'); if (h) mostrar(h); });
-    raiz.addEventListener('mouseout', (ev) => { const box = ev.target.closest && ev.target.closest('[data-sd-graf]'); if (box && !box.contains(ev.relatedTarget)) esconder(box); });
-    raiz.addEventListener('focusout', (ev) => { const box = ev.target.closest && ev.target.closest('[data-sd-graf]'); if (box) esconder(box); });
-    if (win && typeof win.addEventListener === 'function') {
-      let tr = null;
-      let ultimaL = raiz.clientWidth;
-      win.addEventListener('resize', () => { clearTimeout(tr); tr = setTimeout(() => { if (sim && sim.temDivida && raiz.clientWidth !== ultimaL) { ultimaL = raiz.clientWidth; graficos(); } }, 200); });
-    }
   }
 
   iniciar();

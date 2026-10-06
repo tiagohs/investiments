@@ -48,6 +48,22 @@ SHEETS = [
     'RF Contratada - Lotes',
     # --- 26/09/2026: tela Organização Financeira (Despesas.gs) ---
     'Despesas Essenciais',
+    # --- 06/10/2026: auditoria geral - metas, patrimônio, gastos, aportes, fundamentos,
+    # câmbio e o histórico de sincronizações (abas que não existirem são puladas) ---
+    'Registro de Controle',
+    'Bolsa USA >>>',
+    'aux_metas',
+    'aux_patrimonio',
+    'aux_gastos',
+    'aux_gastos-arquivos',
+    'aux_aportes',
+    'aux_fundamentos',
+    'aux_fundamentos-historico',
+    'aux_proventos-conferencia',
+    'aux_proventos-anunciados',
+    'aux_fii-cnpj',
+    'aux_informes-fii',
+    'Salário',
 ]
 
 

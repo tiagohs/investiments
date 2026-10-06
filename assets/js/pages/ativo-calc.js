@@ -19,6 +19,7 @@
  */
 
 import { normalizarSerieRentabilidade } from './inicio.js';
+import { formatNumeroPt, formatDMA } from '../format.js'; // 05/10/2026 (A-68)
 
 export const CLASSES_ATIVO = {
   acoes: { label: 'Ação', labelPlural: 'Ações', token: '--acoes', soft: '--acoes-soft', visao: 'ativoAcoes', pagina: 'acoes', indice: { campo: 'ibovespa', label: 'Ibovespa' } },
@@ -37,6 +38,23 @@ export function valorAtualBrl(resposta) {
   if (resposta.moeda !== 'USD') return a.totalAtualizado;
   const cambio = cambioMaisRecente(resposta);
   return cambio ? a.totalAtualizado * cambio : null;
+}
+
+/**
+ * 05/10/2026 (A-38): `indices` do ativo montados da série da Início (home.historico, a que já está no IndexedDB) em vez de
+ * vir 197 KB repetidos em toda resposta de ativo. Mesmo formato e mesma janela de Ativo.gs!indicesDesde_ (a partir de
+ * 7 dias antes da `desde`). Devolve null se `historico` não é uma lista (formato desconhecido): quem chama pede os índices ao servidor.
+ */
+export function indicesDoHistoricoHome(historico, desde) {
+  if (!Array.isArray(historico)) return null;
+  let corte = '0000-00-00';
+  if (desde) {
+    const d = new Date(`${desde}T12:00:00Z`);
+    if (!Number.isNaN(d.getTime())) corte = new Date(d.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  }
+  return historico.filter((p) => p && p.data >= corte).map((p) => ({
+    data: p.data, cdi: p.indiceCdi, ipca: p.indiceIpca, ibovespa: p.ibovespa, ifix: p.ifix, sp500: p.sp500, cambioUsd: p.cambioUsd, patrimonio: p.patrimonio,
+  }));
 }
 
 /** Último câmbio do dólar conhecido (índices da Início, senão a série do ativo). */
@@ -367,6 +385,8 @@ export function resumoProventosAtivo(resposta, { aplicadoHoje = null } = {}) {
     quantidade: proventos.length,
     mesAtual: somaProventos(proventos, `${mesAtual}-01`, `${mesAtual}-31`),
     ultimos12,
+    // 05/10/2026 (A-17): janela explícita (a mesma da média da meta de Renda Passiva)
+    janela12: { inicio: inicio12.slice(0, 7), fim: fim12.slice(0, 7), rotulo: '12 meses fechados' },
     mediaMensal12: r2(ultimos12 / 12),
     yieldOnCost12: aplicadoHoje ? ultimos12 / aplicadoHoje : null,
     porAno: Object.keys(porAno).sort().map((ano) => ({ ano, valor: porAno[ano] })),
@@ -542,9 +562,8 @@ export function posicaoFiscal(transacoes, ateData, { emDolar = false } = {}) {
   };
 }
 
-const fmt2 = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtQtd = (v) => Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 6 });
-const dataBr = (iso) => { const [a, m, d] = String(iso).split('-'); return `${d}/${m}/${a}`; };
+const fmt2 = (v) => formatNumeroPt(Number(v), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtQtd = (v) => formatNumeroPt(Number(v), { maximumFractionDigits: 6 });
 const nomeLimpo = (nome) => String(nome || '').replace(/\s*\(antig[oa][^)]*\)/gi, '').trim().toUpperCase();
 
 function textoDiscriminacao(classe, dados, pos, quando) {
@@ -603,7 +622,7 @@ export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [],
   const dados = { ticker: String(ticker || '').toUpperCase(), nome: nomeLimpo((sobre && sobre.nome) || a.nome || ticker), cnpj: sobre && sobre.cnpj, bolsa: sobre && sobre.bolsa };
   const montar = (data, rotulo, previa) => {
     const pos = posicaoFiscal(transacoes, data, { emDolar });
-    const quando = `EM ${dataBr(data)}`;
+    const quando = `EM ${formatDMA(data)}`;
     return {
       rotulo, data, previa: !!previa,
       quantidade: pos.quantidade,

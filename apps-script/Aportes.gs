@@ -55,8 +55,11 @@ function handleTransacoes(e, auth) {
  */
 function handleAportesPendentes(e, auth) {
   try {
-    var aportes = lerAportes_(SpreadsheetApp.getActiveSpreadsheet()).filter(function (a) { return a.status === 'aguardando'; });
-    return jsonOut({ ok: true, aportes: aportes });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var todos = lerAportes_(ss);
+    var aportes = todos.filter(function (a) { return a.status === 'aguardando'; });
+    // 05/10/2026 (A-24): o header também avisa "N lançamentos a confirmar" (aporte concluído que a importação da B3 ainda não trouxe)
+    return jsonOut({ ok: true, aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, todos, null) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'aportesPendentes', erro: String(erro) });
   }
@@ -67,7 +70,9 @@ function handleSalvarAporte(e) {
   try {
     var aporte = JSON.parse(e.parameter.aporte || '{}');
     var id = salvarAporte_(aporte);
-    return jsonOut({ ok: true, id: id, aportes: lerAportes_(SpreadsheetApp.getActiveSpreadsheet()) });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var aportes = lerAportes_(ss);
+    return jsonOut({ ok: true, id: id, aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, null) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'salvarAporte', erro: String(erro) });
   }
@@ -77,7 +82,9 @@ function handleSalvarAporte(e) {
 function handleExcluirAporte(e) {
   try {
     var removidas = excluirAporte_(String(e.parameter.id || ''));
-    return jsonOut({ ok: true, removidas: removidas, aportes: lerAportes_(SpreadsheetApp.getActiveSpreadsheet()) });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var aportes = lerAportes_(ss);
+    return jsonOut({ ok: true, removidas: removidas, aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, null) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'excluirAporte', erro: String(erro) });
   }
@@ -111,6 +118,7 @@ function montarTelaTransacoes_() {
     tesouro: contexto ? contexto.tesouroHoje : [], // 05/10/2026: PU de compra de hoje de cada título (mínimo = 1% do PU)
     caixaDolar: lerCaixaDolar_(ss), // 05/10/2026: dólares enviados aguardando compra
     aportes: aportes,
+    aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, abas), // 05/10/2026 (A-24): aporte concluído (B3/RF) sem lançamento
     resumo: resumoInvestidoComCache_(ss, abas, cambioHist),
     lancamentos: listaLancamentosTela_(ss, abas, cambioHist)
   };
@@ -222,9 +230,10 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
   });
 
   var rf = ss.getSheetByName('Carteira Renda Fixa');
-  if (rf && rf.getLastRow() >= 9) {
+  var ultimaRfAporte = rf ? ultimaLinhaReal_(rf, [1, 4], 9) : 0; // 05/10/2026 (A-31): última linha REAL da Carteira Renda Fixa
+  if (rf && ultimaRfAporte >= 9) {
     var vistos = {};
-    rf.getRange(9, 1, rf.getLastRow() - 8, 12).getValues().forEach(function (l) {
+    lerAbaUmaVez_(rf, 9, ultimaRfAporte - 8, 12).forEach(function (l) {
       var titulo = String(l[2] || '').replace(/\s+/g, ' ').trim();
       if (!titulo) return;
       var instituicao = String(l[5] || '').trim();
@@ -286,6 +295,106 @@ function resumoInvestido_(ss, abas, cambioHist) {
     Object.keys(meses[m]).forEach(function (k) { meses[m][k] = Math.round(meses[m][k] * 100) / 100; });
   });
   return meses;
+}
+
+// ---------------------------------------------------------------------------
+// 05/10/2026 (A-24): lançamentos "a confirmar". Aporte de ação/FII (B3) ou de
+// Renda Fixa marcado "Concluído" que ainda não tem o lançamento correspondente
+// nas abas de Transações aparece na lista de Lançamentos (e no aviso do header)
+// como "a confirmar" (Tiago: "ele só confirma via importação da B3"). Ações EUA
+// ficam de fora. NADA é gravado: a lista é DERIVADA (aux_aportes concluídos x o
+// que as abas Transações / Transações Renda Fixa têm), então quando a importação
+// trouxer o lançamento equivalente o "a confirmar" some sozinho, sem duplicar e
+// sem linha falsa na planilha.
+// Equivalente = mesmo ativo (RF: mesmo título e instituição), compra dentro da
+// janela de dias em volta da data do aporte e quantidade (RF: valor) coberta
+// com tolerância. Cada lançamento real cobre no máximo um aporte (consumo).
+// ---------------------------------------------------------------------------
+
+var ACONFIRMAR_DIAS_ANTES = 2;   // lançamento real até 2 dias antes da data do aporte (data conferida na mão)
+var ACONFIRMAR_DIAS_DEPOIS = 10; // ... e até 10 dias depois (a B3 lança pela data do negócio; o aporte pode ter sido concluído antes)
+var ACONFIRMAR_TOLERANCIA = 0.02;
+
+function diaDaChaveAporte_(chave) {
+  var p = String(chave || '').split('-');
+  return p.length === 3 ? Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) / 86400000 : NaN;
+}
+
+/**
+ * aportes (lerAportes_) + abas (lerAbasLanc_ com transacoes e rendaFixa) ->
+ * [{ id, aporteId, destino, classe, data, ativo, tipo, qtd, preco, valor, moeda, inst, aConfirmar: true }] (mais novo primeiro).
+ */
+function lancamentosAConfirmar_(aportes, abas) {
+  var arr = function (v, c) { return Math.round(v * Math.pow(10, c)) / Math.pow(10, c); };
+  var compras = []; // lançamentos reais de compra, ainda não consumidos
+  (abas.transacoes ? abas.transacoes.itens : []).forEach(function (it) {
+    if (!/compra/i.test(it.tipo) || !(it.qtd > 0) || !it.data) return;
+    compras.push({ destino: 'transacoes', chave: it.ticker, data: it.data, dia: diaDaChaveAporte_(it.data), resta: it.qtd });
+  });
+  (abas.rendaFixa ? abas.rendaFixa.itens : []).forEach(function (it) {
+    if (!/compra|aplica/i.test(it.movimentacao) || !it.data) return;
+    var valor = it.valor != null ? it.valor : (it.qtd || 0) * (it.preco || 0);
+    if (!(valor > 0)) return;
+    compras.push({ destino: 'rendaFixa', chave: normTextoLanc_(it.produto), inst: normalizarInstituicaoRF_(it.instituicao), data: it.data, dia: diaDaChaveAporte_(it.data), resta: valor });
+  });
+  compras.sort(function (a, b) { return a.dia - b.dia; });
+
+  var pedidos = [];
+  aportes.forEach(function (a) {
+    if (a.status !== 'concluido') return;
+    (a.itens || []).forEach(function (it) {
+      if (it.classe === 'rendaFixa') {
+        var valor = it.valorFinal > 0 ? it.valorFinal : it.valorPlanejado;
+        if (!(valor > 0)) return;
+        pedidos.push({ aporte: a, it: it, destino: 'rendaFixa', classe: 'rendaFixa', chave: normTextoLanc_(it.ativo), inst: normalizarInstituicaoRF_(it.instituicao), medida: valor, qtd: null, preco: null });
+      } else if (it.classe === 'acoes' || it.classe === 'fiis') {
+        var qtd = it.qtdFinal > 0 ? it.qtdFinal : it.qtdPlanejada;
+        if (!(qtd > 0)) return;
+        var preco = it.precoFinal > 0 ? it.precoFinal : it.precoPlanejado;
+        pedidos.push({ aporte: a, it: it, destino: 'transacoes', classe: it.classe, chave: String(it.ativo).trim().toUpperCase(), medida: qtd, qtd: qtd, preco: preco > 0 ? preco : null });
+      }
+    });
+  });
+  pedidos.sort(function (x, y) { return x.aporte.data < y.aporte.data ? -1 : (x.aporte.data > y.aporte.data ? 1 : 0); }); // o aporte mais antigo consome primeiro
+
+  var out = [];
+  pedidos.forEach(function (p) {
+    var dia = diaDaChaveAporte_(p.aporte.data);
+    var coberto = 0;
+    compras.forEach(function (c) {
+      if (coberto >= p.medida || c.resta <= 0 || c.destino !== p.destino || c.chave !== p.chave) return;
+      if (!(c.dia >= dia - ACONFIRMAR_DIAS_ANTES && c.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
+      if (p.destino === 'rendaFixa' && c.inst && p.inst && c.inst !== p.inst) return;
+      var usa = Math.min(c.resta, p.medida - coberto);
+      c.resta -= usa;
+      coberto += usa;
+    });
+    if (coberto >= p.medida * (1 - ACONFIRMAR_TOLERANCIA) - 0.0001) return; // já lançado
+    var falta = p.medida - coberto;
+    var item = {
+      id: 'AC-' + p.aporte.id + '-' + p.classe + '-' + p.it.ativo, aporteId: p.aporte.id, destino: p.destino, classe: p.classe,
+      data: p.aporte.data, ativo: p.it.ativo, tipo: 'Compra', moeda: 'BRL', aConfirmar: true
+    };
+    if (p.destino === 'rendaFixa') {
+      item.qtd = null; item.preco = null; item.valor = arr(falta, 2); item.inst = p.it.instituicao || '';
+    } else {
+      item.qtd = arr(falta, 6); item.preco = p.preco != null ? arr(p.preco, 4) : null; item.valor = p.preco != null ? arr(falta * p.preco, 2) : null;
+    }
+    out.push(item);
+  });
+  out.sort(function (x, y) { return x.data < y.data ? 1 : (x.data > y.data ? -1 : 0); });
+  return out;
+}
+
+/** Igual a lancamentosAConfirmar_, mas lendo as abas aqui e sem nunca derrubar a tela (lista vazia se algo falhar). */
+function lancamentosAConfirmarDaPlanilha_(ss, aportes, abas) {
+  try {
+    var lidas = abas && abas.transacoes && abas.rendaFixa ? abas : lerAbasLanc_(ss, ['transacoes', 'rendaFixa']);
+    return lancamentosAConfirmar_(aportes || lerAportes_(ss), lidas);
+  } catch (erro) {
+    Logger.log('lancamentosAConfirmar_: ' + erro);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -357,7 +466,7 @@ function validarAporte_(a) {
 function salvarAporte_(aporte) {
   validarAporte_(aporte);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   var id;
   try {
@@ -392,7 +501,7 @@ function excluirAporte_(id) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var aba = ss.getSheetByName(ABA_APORTES);
   if (!aba) return 0;
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   var removidas = 0;
   try {
@@ -583,7 +692,7 @@ function salvarMovimentoCaixaDolar_(mov) {
   if (usd === null || usd === 0) throw new Error('informe os dólares');
   if (tipo === 'envio' && usd < 0) throw new Error('um envio tem dólar positivo (para tirar, use ajuste)');
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   try {
     var aba = garantirAbaCaixaDolar_(ss);
@@ -605,7 +714,7 @@ function excluirMovimentoCaixaDolar_(id) {
   if (!id) throw new Error('id vazio');
   var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_CAIXA_DOLAR);
   if (!aba || aba.getLastRow() < 2) return 0;
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   try {
     var vals = aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_CAIXA_DOLAR.length).getValues();
@@ -634,11 +743,11 @@ function registrarUsoCaixaDolar_(ss, aporteId, aporte) {
   var usd = 0;
   if (aporte && aporte.status === 'concluido') {
     (aporte.itens || []).forEach(function (it) {
-      if (it.classe === 'acoesEua' && Number(it.valorFinal) > 0) usd += Number(it.valorFinal);
+      if (it.classe === 'acoesEua' && Number(it.valorFinal) > 0) usd += Math.round(Number(it.valorFinal) * 100) / 100; // 05/10/2026 (A-23): cada ação ao centavo, como a corretora cobra
     });
   }
   usd = Math.round(usd * 100) / 100;
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   try {
     if (aba.getLastRow() >= 2) {

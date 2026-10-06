@@ -1,6 +1,6 @@
 # Histórico do projeto — Investimentos (app de controle de patrimônio)
 
-> Documento de contexto gerado por Claude a partir das conversas de planejamento e implementação deste projeto. Objetivo: qualquer sessão futura (ou suporte) conseguir retomar o trabalho rapidamente sem precisar reconstruir tudo do zero. Não é uma transcrição literal da conversa — é uma síntese organizada por assunto. Atualizado em 14/09/2026 com a construção do front-end real (Início, Login, Distribuições e Metas) — ver a seção "Front-end real" mais abaixo.
+> Documento de contexto gerado por Claude a partir das conversas de planejamento e implementação deste projeto. Objetivo: qualquer sessão futura (ou suporte) conseguir retomar o trabalho rapidamente sem precisar reconstruir tudo do zero. Não é uma transcrição literal da conversa — é uma síntese organizada por assunto. Atualizado em 14/09/2026 com a construção do front-end real (Início, Login, Distribuições e Metas) — ver a seção "Front-end real" mais abaixo. **Atualizado em 06/10/2026**: a seção "Fase 02–06/10/2026" (logo antes de "Status geral") resume tudo o que foi construído de 02 a 06/10 e aponta para `docs/auditoria-2026-10.md` (backlog da auditoria) e `docs/guia-desenvolvimento.md` (arquitetura, mapa tela → arquivos → .gs → abas e convenções). A árvore de arquivos e as seções de 09–14/09 abaixo descrevem o começo do projeto e estão desatualizadas em relação à lista de arquivos; para o estado atual, veja o guia.
 
 ## O que é o projeto
 
@@ -311,7 +311,96 @@ Ordem das 3 seções definida pelo Tiago: **Objetivos da Carteira → Radar de o
 **Lição aprendida (14/09, vale registrar pra próximas telas)**: ao planejar o Radar de oportunidades, a 1ª investigação (baseada só num snapshot em cache da planilha, sem confirmação do Tiago) concluiu — errado — que Preço-teto/Viés viriam de uma aba `RV Metas de compra e venda` vazia e que o Ranking usaria uma "Coeficiente MinMax" qualquer. O Tiago corrigiu tudo: os 3 campos (e as 3 tabelas inteiras) vivem dentro da própria "Distribuição e Metas", com células exatas citadas por ele (`F42` = viés da WIZC3, `E43` ≈ preço-teto, `L41` = cabeçalho "% desejado"). **Lição**: mesmo com um snapshot da planilha disponível como "gerador de hipótese" pra economizar perguntas, uma citação de célula específica do usuário é fonte de verdade e exige reinvestigação completa daquele trecho — não só um ajuste fino da hipótese anterior.
 
 
-## Status geral (nesta data)
+## Fase 02–06/10/2026 — Organização, Metas, critérios de análise, carrinho e auditoria
+
+> Fase conduzida em 3 grandes pedidos do Tiago (02/10 — "não deixe nada de fora", 03/10 — critérios de análise e Metas v2, 05/10 — Caixa/FGTS, Renda Fixa e carrinho) e fechada em 06/10 com uma auditoria geral (ver `docs/auditoria-2026-10.md`). Foi feita com **agentes paralelos**, cada um num escopo de arquivos, seguindo as regras de `docs/guia-desenvolvimento.md` (comentários datados citando o pedido, nenhum dado real no repositório, `.gs` listados para o Tiago implantar). Números do fim da fase: 1.403 testes (`node --test`), 42 arquivos `.gs` (~20 mil linhas), mais de 40 mil linhas de JS no front, 9 páginas HTML no app (mais o `teste.html`).
+
+### Menu e navegação (após a fase)
+
+Início · **Acompanhamento de Ativos** (era "Distribuições e Metas"; a URL `distribuicoes-metas.html` foi mantida) · **Metas e Objetivos** (menu novo) · Carteiras (Visão geral, Ações, FIIs, Ações Internacionais, Renda Fixa, "+" adicionar ativo) · Transações (Aportes, Lançamentos) · Proventos · Organização Financeira (Patrimônio, Gastos e Despesas, Renda e Orçamentos, Simulações + painel Documentos) · Detalhe do Ativo (`ativo/`, com abas Visão geral, Extrato, Patrimônio — só FII — e Sobre e IR). Header e menu ficam **fixos ao rolar no celular** (05/10).
+
+### Organização Financeira — 4 abas + Documentos
+
+- **Patrimônio** (`organizacao-patrimonio.js`, `patrimonio-*.js`, `Patrimonio.gs`): balanço, histórico, crescimento, financiamento do apartamento (SAC) e FIES (Price), FGTS e saque-aniversário, Carreira (salários por mês), meta/aposentadoria, importação de documentos (declarações do IR e extratos lidos no navegador, ou do Drive — pasta IR/2026 com busca robusta, 03/10) e **Patrimônio vs. Inflação** (rentabilidade real: PL × CDI e IPCA, se cresce acima da inflação, veredito com "por quê" e "o que continuar/como melhorar").
+- **Gastos e Despesas**: tudo o que já era "Despesas" (renomeado: "Despesas essenciais para a renda de emergência", com subtítulo explicando que é a lista contada na renda emergencial) mais os **Gastos do Drive** (abaixo).
+- **Renda e Orçamentos**: salário pelo IR (mensal e por ano), holerites do Drive (`Documentos/Trabalho/<EMPRESA>/Holerite/ANO/MES-ANO.pdf`, 05/10), gráficos de crescimento do salário, "quanto invisto por mês do salário", contas do IR, Carreira e FGTS (vindos de Patrimônio).
+- **Simulações** (03/10): herói com o ritmo atual, "quando chego ao 1º milhão" e o viés investir × amortizar; detalhes abaixo (amortizar × investir para o apartamento e o FIES, mensal ou no fim do ano, gráfico anual, crítico, renda passiva e tipos de investimento; estratégias de um vídeo indicado, com cálculos e referências). Amortização mensal padrão = o mínimo para tirar ao menos 2 parcelas; exemplos matando 2, 3 e 4 parcelas.
+- **Regra de amortização da Caixa** (05/10, `prazoCaixaSacExato` em `patrimonio-calc.js`): no "reduzir prazo" do SAC o novo prazo é o menor `n` tal que a prestação nova não passa da atual (`s1·(1/n + i) ≤ s0·(1/n0 + i)`), conferido com dois testes feitos pelo Tiago no app da Caixa (um valor tira 2 parcelas, um pouco menos só 1); o FGTS é sempre amortizado **no prazo**; saque-aniversário por faixa contínua; a próxima amortização com FGTS vem 24 meses depois da anterior.
+- **Documentos** (`organizacao-documentos.js`, 03/10): painel no topo que diz quais documentos enviar todo mês e quais de vez em quando, o que o site já acha sozinho no Drive e o que dá para automatizar; **sempre há a opção de enviar o arquivo manualmente**.
+
+### Gastos do Drive (faturas e extratos)
+
+`organizacao-gastos.js`, `gastos-calc.js`, `gastos-import.js`, `Gastos.gs`; abas `aux_gastos`, `aux_gastos-arquivos`, `aux_gastos-regras`. Lê no navegador (pdf.js) as faturas de cartão (Drive `Documentos/Transações/Cartão de Crédito`, algumas com senha) e os extratos (`Documentos/Transações/Extratos`); **a senha é pedida na importação e lembrada só no navegador — nunca no repositório nem na planilha**. Confere cada arquivo (saldo anterior + lançamentos = total da fatura; cada lançamento fecha com o saldo da linha) e marca "ok/aviso/erro"; só reimporta o que falhou; regras de categoria aprendidas; gráficos e médias (quanto já gastei e gasto em média por mês/categoria). Correções de 03/10 para faturas de dois bancos que não liam e de 05/10 para a área não carregar ao trocar de aba.
+
+### Metas e Objetivos (v1 em 02/10, v2 em 03–05/10)
+
+`metas.html` + `pages/metas.js`, `metas-calc.js` (cálculo puro), `metas-graficos.js`, `metas-viagem.js`, `metas-card.js`, `Metas.gs`; abas `aux_metas` e `aux_cambio`; dados estáticos em `assets/data/` (países, cidades, taxas turísticas).
+- **Tipos**: renda passiva, reserva de emergência, aposentadoria (patrimônio), viagem internacional, viagem nacional, comprar casa, comprar carro e "juntar até uma data" com 12 categorias (projetos, educação, equipamentos, empreendedorismo, hobbies, pets, grandes eventos, assinaturas, saúde, mudança de país, casamento, veículos de lazer).
+- **Viagem multi-destino**: baseada na planilha de planejamento do Tiago — destinos com dias × gasto diário em cada moeda, taxa turística, passagens/hospedagem parceladas, margem de segurança; o gasto varia por país.
+- **Entradas programadas** (13º, PLR, saque-aniversário etc., cada uma com % de confiança) que entram na projeção; **saldo em conta** (ex.: euros guardados numa conta de câmbio) como forma de guardar além dos ativos.
+- **Câmbio multimoeda** (`aux_cambio`, AwesomeAPI/PTAX, faixa de sanidade por moeda): o restante sempre aparece em BRL.
+- **Vínculos**: cada meta se liga a ativos por **classe**, **marca** (renda emergencial / longo prazo) ou **ativo**, com fração; o progresso é calculado dos ativos; **sub-itens de custo** dentro da meta.
+- **Reserva de emergência**: a meta é o valor **líquido** de IR/IOF que cai na conta ao resgatar; detalhe de onde está o dinheiro; **vencimento dos títulos de renda fixa** é considerado (o IR é pago no vencimento e a reserva tem que continuar com o mínimo — 05/10).
+- **Aposentadoria**: a conta da planilha (despesas essenciais + extra = base; + % de reinvestimento = renda ideal; ÷ rendimento = montante) é **editável no cadastro**; prazo editável (bug corrigido); cenários "renda −10% / −20%"; **marcos de cada milhão** (1º, 2º, 3º… até o alvo, com a velocidade do 1º para o 2º), e as simulações de aporte/75%/50% do tempo sempre dizem "com isso, sua meta chega em X, o 1º milhão em Y" (05/10).
+- **Análise**: ritmo real deduzido do histórico dos investimentos vinculados (digitação só se quiser), "no ritmo/atrasada" explicado por tooltip "i"/toast, histórico mensal (`metasHistorico`) com tooltip, filtros e análise abaixo do gráfico, projeção com dicas para chegar em 75%/50% do tempo, sugestões de investimento com fonte e veredito dos vínculos atuais; heróis com cores e ícones por estado; excluir de verdade (`excluirMetaDefinitivo`) além de arquivar.
+- **Integração**: "Metas da Carteira" do Acompanhamento de Ativos e o card de renda passiva em Carteiras apontam para a meta correspondente.
+- **Achados da auditoria** (06/10): metas sobrepostas no "Já guardado", reserva bruta × líquida, cópias congeladas da planilha — ver A-10 a A-17 em `docs/auditoria-2026-10.md`.
+
+### Critérios de análise (03–05/10)
+
+Pedido: "um largo banco de dados de critérios, para o site ser dinâmico nas decisões e análises" (fontes: vídeos de ações BR/internacionais, FIIs e rentabilidade que o Tiago confia).
+- `assets/js/criterios/base-acoes.js`, `base-fiis.js`, `base-rentabilidade.js` (bases normalizadas, faixas por setor/segmento FII), `motor.js` (motor puro `avaliarAtivo` → nota 0–100, veredito, pontos por relevância, eliminatórios, dados faltantes, cobertura; sanidade que ignora valores absurdos), `macro.js` (contexto de mercado: juros, Tesouro, bolsa cara/barata; backend `Macro.gs`).
+- **Fundamentos** (`Fundamentos.gs`, abas `aux_fundamentos`, `aux_fundamentos-historico`, `aux_fundamentos-gf`): CVM, Yahoo (e SEC/Fundamentus, depois bloqueados), foto mensal; contrato com o front em `fundamentos` (percentuais como fração, datas ISO; o front nunca quebra sem o campo).
+- **Metas entram na análise**: "falta X para a meta; investir X neste título cadastrado como renda emergencial atinge a meta"; "preço atual abaixo do preço médio = ponto positivo, senão neutro"; reavaliação de 05/10 considera meta/classificação do ativo, macro e se a bolsa está cara ou barata. Card "Análise do ativo" e "momento de aporte" (`momento-aporte.js`) usam as mesmas funções.
+
+### Análise dos gráficos, período personalizado e "ontem era"
+
+- `analise-grafico.js`: abaixo de **todo** gráfico de crescimento (Início, Carteiras, Ativo, Organização, Metas) há um card de análise vs. os índices do gráfico (TWR/TIR/PME, drawdown, volatilidade, Sharpe/Sortino, regressão, renda passiva), com vários pontos por relevância e design discreto (ex.: "o índice de renda fixa caiu nos últimos dias por tal razão").
+- `periodo-personalizado.js`: opção **"Escolher período"** com calendário em todos os filtros de gráfico de série temporal.
+- **"Ontem era"**: abaixo do valor total, "Ontem era VALOR ▼/▲ %" e, em paralelo, "Setembro era / Agosto era / Julho era" (3 meses relativos ao período; em 6M/3A/personalizado com mais de um mês aparece "—"); na Início e nos gráficos de Patrimônio das Carteiras.
+- IPCA no gráfico do patrimônio total de Carteiras.
+
+### Acompanhamento de Ativos e Detalhe do Ativo
+
+- Renomeado em todo lugar visível; Objetivos da Carteira e Radar com a formatação da "Minha Carteira"; gráfico de variação diária (intradia, `Intradia.gs`) ao lado do hero (desktop) ou abaixo (mobile) e no fim da avaliação "bom/mau momento".
+- **Ativo**: gráfico do dia, clique abre o Google Finance, **canais do YouTube** por ativo (`canais-youtube.js`, `Videos.gs`, abas `aux_videos`, `aux_videos-canais`, `aux_videos-termos`; a busca considera o canal quando existe), aba **Patrimônio do FII** (portfólio: imóveis, CRI/indexadores, mapa; `PortfolioFii.gs`, `ativo-patrimonio.js`, abas `aux_fii-portfolio`, `aux_fii-geocache`, `aux_fii-cnpj`, `aux_informes-fii`; só reprocessa FII com informe novo da CVM/fato relevante).
+
+### Proventos, conferência B3 e Agenda das 10:01
+
+- **Pago presumido** (24/09–02/10): se a data de pagamento já passou, o provento é tratado como pago; **conferência B3**: o Tiago manda o extrato no fim do mês e o app faz o check final (`aux_proventos-conferencia`); proventos anunciados vêm do FNet (`FnetProventos.gs`, `aux_proventos-anunciados`) e informes de FII (`FnetInformesFii.gs`).
+- **Agenda diária** (`Agenda.gs`, 02/10): ativos, renda fixa e índices **às 10:01 (fuso de São Paulo) sempre**; um gatilho "despertador" cria um gatilho de uma vez só para 10:01 e cada execução roda **uma etapa** (Ativos → Renda Fixa + Índices → snapshot do resumo → proventos FNet → informes FNet → Fundamentos → Portfólio dos FIIs), com até 3 tentativas a cada 10 min; as secundárias só rodam se as principais deram certo; domingo não agenda.
+
+### Transações: carrinho, fluxo EUA, renda fixa por valor
+
+- **Carrinho** (`transacoes.js`, `aportes*.js`, `carrinho-global.js`, `carrinho-header.js`, `Aportes.gs`, abas `aux_aportes`, `aux_caixa_dolar`): "Aportes realizados" abaixo de "Novo aporte"; **mini-carrinho no header** em qualquer tela (clicar mostra o conteúdo e leva a Transações; cuidado com o mobile); novo carrinho no mesmo dia faz **merge** em vez de duplicar; o carrinho expira no dia e, passado o fechamento (B3 17h, EUA 18h), o app pergunta se a compra foi feita e remove.
+- **Fluxo Ações EUA**: primeiro o envio BRL → USD (taxas, VET e quanto chega, como numa remessa online), depois a divisão dos dólares entre as ações — estimando pelos papéis que quer ou só enviando e comprando depois (caixa em dólar).
+- **Renda fixa por valor**: Tesouro Direto aceita investir um **valor** (mínimo do título), coluna "Cotação" (valor atual do título), "Na classe" e o tipo (renda fixa ou emergencial) abaixo do nome; as análises consideram se o investimento é de uma meta.
+- **Lançamentos**: importação dos extratos B3/IBKR (`Lancamentos.gs`, `lancamentos-parse.js`).
+
+### Caches de Renda Fixa e desempenho (05/10)
+
+Carteiras > Renda Fixa demorava (pedido de 05/10): leitura única em blocos, **nenhuma chamada de rede no caminho da tela**, cache do resultado montado no `CacheService` (chave por conteúdo, contagens, dia e versão), resultado idêntico com e sem cache (`tests/harness/renda-fixa-cache.test.js`). A auditoria de 06/10 mostrou que o resto do site ainda tem gargalos maiores (ver seção 5 de `docs/auditoria-2026-10.md`).
+
+### Auditoria de 06/10/2026
+
+Três auditores (dados/cálculos, UI/mobile, desempenho/sincronização/código) mediram o site com as fixtures da planilha "Controle 15/16". O resultado virou um backlog único de 82 itens em 4 ondas em `docs/auditoria-2026-10.md`. O mais urgente: botões dos painéis do header sem resposta no celular (A-01) e as correções de cálculo de Metas e Patrimônio (A-07 a A-14).
+
+### Ondas 1, 2 e 3 da auditoria (06/10/2026)
+- **Onda 1 (bugs e cálculos)**: painéis do header clicáveis no celular; USD em "US$ 1.234,56"; financiamento sem data de início estimado desde a compra (FGTS de jan/2026 aparece); prazo/saldo contando só parcelas vencidas; alocação exclusiva das metas por prioridade (cada ativo conta uma vez); reserva em base líquida; IR/IOF por lote; tabela única de aliases de ticker; janela única de "proventos 12 meses" com confirmado × presumido; "hoje" sempre no fuso de São Paulo; aporte concluído de ação/FII/RF aparece em Transações como **"a confirmar"** até a importação da B3 (derivado, nada gravado na planilha; EUA fora); YouTube 404/lista vazia = "sem vídeos disponíveis".
+- **Onda 2 (desempenho e sincronização)**: leitura só até a última linha real (células lidas caem 3–5×), caches com carimbo de escrita, N+1 eliminados, Gastos por janela de 12 meses, cache de resposta de Metas/Macro, Organização sem chamadas duplicadas, Carteiras pinta a tabela antes dos gráficos, logout limpa os dados locais, CSP nas páginas; trava por recurso no lugar do lock global, Agenda com etapas independentes e recuperação, calendário B3, Registro de Controle estruturado com heartbeat, disjuntor persistente de fontes (`Fontes.gs`), FNet em lote, fundamentos válidos por 7 dias.
+- **Onda 3 (UI)**: migração para Material Design 3 seguindo o kit Figma "Material You Design System & UI Kit" (fonte Readex Pro, neutros slate e primary oliva/lima do logo), trilho + gaveta recolhível, top bar com busca, abas em pílula/sublinhadas e breadcrumb, componentes em `assets/js/ui/` (confirmar, toast, erro de carga, abas), biblioteca única de gráficos animados em `assets/js/charts/`, formatação e escape centralizados (`format.js`, `util/html.js`), períodos canônicos. Logo novo no header e nos ícones (favicon/PWA). Catálogos vivos em `docs/componentes-m3.html` e `docs/graficos-m3.html`; guia em `docs/guia-ui-m3.md`.
+- **Ficou para depois**: A-42 (build com bundling e hash) e a Onda 4 (dívida técnica), A-56 (snapshot diário de preço — só projetado), mapa coroplético da biblioteca de gráficos, e o e-mail autorizado/ID da planilha ainda versionados (A-27, parte).
+
+## Status geral (atualizado em 06/10/2026)
+
+- **O site cobre hoje**: Início, Acompanhamento de Ativos, Metas e Objetivos, Carteiras (5 telas), Detalhe do Ativo (ação, FII, EUA, renda fixa), Transações (Aportes + Lançamentos), Proventos e Organização Financeira (4 abas + Documentos) — todos lendo a planilha do Tiago pelo Web App, com cache em 3 camadas (CacheService no servidor; IndexedDB/sessionStorage/localStorage no navegador; service worker para o esqueleto) e sincronização diária encadeada às 10:01.
+- **Qualidade**: 1.403 testes (`node --test`; com a planilha "Controle 16" 3 falham só por suposição de aba vazia — ver A-73), relatório de conferência das telas contra um oráculo independente e prévia com dados reais.
+- **Pendente (auditoria de 06/10)**: backlog de 82 itens em 4 ondas (`docs/auditoria-2026-10.md`): Onda 1 bugs/cálculos/UX mobile crítica, Onda 2 desempenho e sincronização, Onda 3 padronização de UI, Onda 4 dívida técnica e testes. Decisão do Tiago ainda aberta: confirmar o compartilhamento da planilha e anonimizar o que o repositório público ainda carrega (A-27).
+- **Ideias de produto** derivadas do que já existe: `docs/ideias-produtos.md`.
+- O `teste.html` (scaffold de Fase 0) segue publicado; A-80 propõe retirá-lo do deploy.
+
+### Status em 14/09/2026 (histórico — mantido para contexto)
+
 
 - **Fase 0 (validação de dados/backend) concluída** para Renda Variável: login, leitura da planilha, backfill completo dos 29 ativos, sincronização incremental, Registro de Controle (3 estados + retry seletivo), gravação em lote da B3 — todos testados via `teste.html` contra a planilha real (em modo teste, sem tocar dado real).
 - **Histórico de Renda Fixa reconstruído e sincronizando**: 14 posições desde 2020, extrato B3 unificado, classificação por produto+instituição+indexador validada, backfill completo e incremental funcionando.
@@ -327,6 +416,16 @@ Ordem das 3 seções definida pelo Tiago: **Objetivos da Carteira → Radar de o
 
 - Sessão roda num container na nuvem; o Mac do Tiago fica vinculado via ponte de dispositivo.
 - Arquivos `.gs` do Apps Script: gerados na nuvem → entregues como arquivo na conversa → Tiago cola manualmente no editor do Apps Script **e também** são escritos em `apps-script/` no repositório (mesmo fluxo de commit dos arquivos de front-end, abaixo) — a fonte de deploy continua sendo o editor do Apps Script, o repo é só histórico/referência.
-- Arquivos de front-end/documentação/scripts (`.html`, `.md`, `.gs`) que entram no repositório: gerados na nuvem → entregues como arquivo → escritos no repositório real (`/Users/tiagosilva/Documents/Desenvolvimento/investiments`) via ponte de dispositivo → `git add` + `git commit` (mensagens sem acento, heredoc) rodado no Mac do Tiago via shell remoto.
+- Arquivos de front-end/documentação/scripts (`.html`, `.md`, `.gs`) que entram no repositório: gerados na nuvem → entregues como arquivo → escritos no repositório real (a pasta do repositório no Mac do Tiago) via ponte de dispositivo → `git add` + `git commit` (mensagens sem acento, heredoc) rodado no Mac do Tiago via shell remoto.
 - **Claude nunca dá `git push`** — o Tiago sempre revisa e sobe as mudanças ele mesmo.
 - Planilhas auxiliares (ex: as duas abas novas de Renda Fixa) são entregues como `.xlsx` pra o Tiago colar manualmente na planilha real — nenhuma automação escreve na planilha do zero, só via Apps Script já autorizado.
+
+### Desde 02/10/2026 (o que mudou no fluxo)
+
+- **Cópia de trabalho na nuvem + sincronização por manifesto**: a sessão edita uma cópia de trabalho do repositório na nuvem (git local só para `diff`; **sem commit pelo agente**). Para levar as mudanças ao repositório do Mac, a cópia é comparada com o repositório por um **manifesto de md5** (lista caminho → hash): só entram os arquivos cujo hash difere, e o Tiago revisa, faz o commit e o push. O script de sincronização da sessão não é versionado; ele nunca copia `tests/harness/fixtures.json`, PDFs nem nada gitignored.
+- **Agentes paralelos por escopo**: cada agente recebe um briefing com os arquivos que pode tocar; arquivos compartilhados (`Router.gs`, `api-client.js`, `shell.html`, `router.js`, `shell.css`, `shell.js`, `tests/api-client.test.js`) só recebem edições pequenas e aditivas com `Edit` (nunca reescrever o arquivo inteiro). Regras comuns no arquivo de regras da sessão (resumidas em `docs/guia-desenvolvimento.md`); cada pedido do Tiago vira um **checklist de revisão** conferido item a item no fim.
+- **Prévia com dados reais**: `node tests/harness/previa.mjs <porta>` serve o repositório e responde as ações do Web App rodando os `.gs` de verdade sobre `fixtures.json`; `previaPlaywright.py` tira os prints (claro/escuro, 390 px e desktop). O agente **olha os prints** antes de entregar.
+- **Fixtures sempre da planilha mais nova** (`extrair-fixtures.py` a cada "Controle N"): usadas para conferir e para a prévia, **nunca** copiadas para arquivo versionado — testes usam dados inventados.
+- **Entrega de `.gs`**: no relatório de cada agente, a lista dos arquivos `.gs` que precisam de **nova versão da implantação** e das funções para rodar **uma vez** no editor; o Tiago cola e implanta (a nuvem nunca implanta).
+- **Verificação**: `node --check` em cada `.gs`/módulo alterado, `node --test` (e `npm run verificar`, que gera o relatório de conferência das telas), prévia + prints. O gancho `.githooks/pre-commit` roda a verificação completa antes de cada commit.
+- **Auditoria como etapa**: ao fim da fase, três auditores independentes mediram dados, UI e desempenho; o backlog consolidado (`docs/auditoria-2026-10.md`) orienta as próximas rodadas em "ondas" que podem ser paralelizadas sem conflito de arquivos.

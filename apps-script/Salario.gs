@@ -68,7 +68,7 @@ function handleExcluirPagamentoSalario(e) {
 }
 
 function comTravaSalario_(fn) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('salario', 'salvar salário');
   try { trava.waitLock(20000); } catch (eL) { return jsonOut({ ok: false, etapa: 'salario', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     return jsonOut(fn());

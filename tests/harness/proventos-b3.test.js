@@ -186,9 +186,10 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
   const r = await carregarTodasAsTelasComDadosReais();
   const tela = plain(r.sandbox.montarTelaProventos_());
   const s = r.home.historico;
-  const dom = new JSDOM('<!doctype html><body><div id="refreshControlProventos"></div><div id="proventosLoading"></div><div id="proventosErro" hidden></div><div id="proventosConteudo" hidden></div></body>', { url: 'https://exemplo.test/proventos/index.html', pretendToBeVisual: true });
+  const dom = new JSDOM('<!doctype html><body><main><div id="pvCabecalho"></div><div id="pvImportarStatus" hidden></div><div id="proventosLoading"></div><div id="proventosErro" hidden></div><div id="proventosConteudo" hidden></div></main></body>', { url: 'https://exemplo.test/proventos/index.html', pretendToBeVisual: true });
   const w = dom.window;
   const doc = w.document;
+  w.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} }); // 06/10/2026 (Onda 3): KPIs/gráficos sem animação
   globalThis.sessionStorage = w.sessionStorage;
   globalThis.localStorage = w.localStorage;
   const { montarPaginaProventos } = await import('../../assets/js/pages/proventos.js');
@@ -203,11 +204,11 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
   const inicioPeriodo = { ano: `${hoje.slice(0, 4)}-01`, '12m': mesIni(12), '24m': mesIni(24), '36m': mesIni(36) };
   const erros = [];
   for (const classe of Object.keys(campos)) {
-    clique(doc.querySelector(`[data-classe="${classe}"]`));
+    clique(doc.querySelector(`#pvClasses [data-tab="${classe}"]`));
     const aplicado = r2(s.reduce((a, x) => a + aplicados[classe].reduce((b, c) => b + (Number(x[c]) || 0), 0), 0));
     for (const periodo of ['ano', '12m', '24m', '36m', 'inicio']) {
       clique(doc.querySelector(`[data-periodo="${periodo}"]`));
-      const cards = [...doc.querySelectorAll('.pv-card .pv-card-valor')].map((el) => brl(el.textContent));
+      const cards = [...doc.querySelectorAll('.pv-card .chart-kpi-val')].map((el) => brl(el.textContent));
       const ini = periodo === 'inicio' ? '0000-00' : inicioPeriodo[periodo];
       const renda = r2(s.filter((x) => x.data.slice(0, 7) >= ini && x.data <= hoje).reduce((a, x) => a + campos[classe].reduce((b, c) => b + (Number(x[c]) || 0), 0), 0));
       if (Math.abs(cards[0] - aplicado) > 0.011) erros.push(`${classe}/${periodo}: Valor aplicado ${cards[0]} x série ${aplicado}`);
@@ -218,8 +219,8 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
     }
   }
   // Agenda, mês de hoje, todas as classes: recebido = Início "Recebido no mês"
-  clique(doc.querySelector('[data-classe="todas"]'));
-  clique(doc.querySelector('[data-aba="agenda"]'));
+  clique(doc.querySelector('#pvClasses [data-tab="todas"]'));
+  clique(doc.querySelector('#pvCabecalho [data-tab="agenda"]'));
   clique(doc.querySelector('[data-status="realizado"]'));
   const pagos = [...doc.querySelectorAll('.pv-agenda tbody tr')].filter((tr) => /^Pago$/.test(tr.querySelector('.pv-pill').textContent)).reduce((a, tr) => a + brl(tr.querySelector('.pv-ag-total b').textContent), 0);
   const home = r.home.proventosAnunciados.recebidosNoMes.reduce((a, p) => a + p.valor, 0);
@@ -253,7 +254,9 @@ test('Meta de Renda Passiva (Distribuições e Metas) = "Média mensal" de 12 me
   assert.equal(metas.rendaPassiva.mediaUlt12Meses, oraculo, 'Distribuições x histórico');
   assert.equal(tela12.media12m, oraculo, 'tela Proventos x histórico');
   assert.equal(tela12.media, oraculo, 'no período "12 meses" o cartão mostra a mesma média');
-  assert.deepEqual(metas.rendaPassiva.mesesMedia, { inicio: ini, fim });
+  assert.deepEqual(metas.rendaPassiva.mesesMedia, { inicio: ini, fim, rotulo: '12 meses fechados' });
+  // 05/10/2026 (A-17): confirmado + presumido = total (o rótulo e a separação vêm junto)
+  assert.ok(Math.abs(metas.rendaPassiva.confirmado12Meses + metas.rendaPassiva.presumido12Meses - metas.rendaPassiva.total12Meses) < 0.011);
   const meta = Number(metas.rendaPassiva.meta);
   if (meta > 0) assert.ok(Math.abs(metas.rendaPassiva.percentualAtingido - oraculo / meta) < 1e-9);
 });

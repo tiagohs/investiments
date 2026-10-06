@@ -43,11 +43,12 @@ import {
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { urlAtivo } from '../link-ativo.js';
-import { ligarFiltroPeriodo, ehPeriodoPersonalizado } from '../periodo-personalizado.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { ligarFiltroPeriodo, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js';
 import { renderAnalise } from '../analise-grafico.js';
 import {
   TIPOS_META, CATEGORIAS_ACUMULO, MOEDAS, STATUS_META, EXPLICACOES, aparenciaMeta, calcularMeta, serieProjecao, resumoMetas,
-  metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, rotuloMes, rotuloDuracao,
+  metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, vinculosOrfaos, rotuloMes, rotuloDuracao,
   mesesEntre, mesDe, cotacao, somarMeses, taxaMensal, velocidadeMeta, dicasAcelerar, marcosProjecao, cenariosRendaMenor, resumoMarcos, fraseMarcos, velocidadeEntreMarcos,
   analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal, SUGESTOES_INVESTIMENTO, chaveSugestaoInvestimento,
   avaliarVinculos, destinoPadrao, contaAposentadoria, calcularViagem, explicarStatus,
@@ -59,28 +60,25 @@ import {
   entradasDetalheHtml, avisoRevisarHtml,
 } from './metas-viagem.js';
 import {
-  iconeMetaSvg, seloMetaHtml, escHtml, formatMoeda, valorGrandeHtml, pct, statusPillHtml, garantirEstiloMetas, contextoMetas,
+  iconeMetaSvg, seloMetaHtml, formatMoeda, valorGrandeHtml, pct, statusPillHtml, garantirEstiloMetas, contextoMetas,
   metaPrincipalDoTipo, tipoMetaDoSlug, infoHtml, statusComDicaHtml,
 } from '../metas-card.js';
-import { graficoProjecaoSvg, graficoHistoricoSvg, graficoRendaSvg, ligarTooltipGrafico } from './metas-graficos.js';
+import { opcoesProjecao, opcoesHistorico, opcoesRenda, montarGrafico, limparGrafico } from './metas-graficos.js';
+import {
+  montarCabecalhoPagina, criarTabs, criarBreadcrumb, confirmar, toast, mostrarErroCarga, mostrarEstadoVazio, icone as iconeUi, criar as criarUi, definirTituloPagina,
+} from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas, breadcrumb, confirmar, toast e erro de carga padrão do kit
+import { criarAnelProgresso, criarBarraProgresso } from '../charts/index.js';
+import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
 
-export { graficoProjecaoSvg };
+export { opcoesProjecao, opcoesHistorico, opcoesRenda };
 
 /** Conteúdo do <main> da aba (o router injeta - ver router.js, rota "metas"). */
 export const TEMPLATE_METAS = `
 <div class="mt-pagina">
-  <div class="mt-titulo">
-    <div>
-      <h1>Metas e Objetivos</h1>
-      <p>Quanto falta, quanto aportar por mês e se você está no ritmo - com os seus investimentos de verdade.</p>
-    </div>
-    <div class="mt-titulo-acoes">
-      <div id="mtRefresh" class="refresh-control"></div>
-      <button class="btn btn-primary" id="mtNova" type="button"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nova meta</button>
-    </div>
-  </div>
+  <!-- 06/10/2026 (Onda 3): cabeçalho padrão (título + subtítulo + Atualizar + Nova meta) montado por montarCabecalhoPagina -->
+  <header id="mtCabecalho"></header>
   <div class="mt-carregando" id="mtCarregando" aria-hidden="true">
-    <div class="mt-skel-resumo"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+    <div class="grid-kpi"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
     <div class="mt-grade"><span class="skel" style="height:210px"></span><span class="skel" style="height:210px"></span><span class="skel" style="height:210px"></span></div>
   </div>
   <div class="mt-erro" id="mtErro" hidden></div>
@@ -107,7 +105,7 @@ export function parseNumeroBR(texto) {
 
 function numParaCampo(v, casas = 2) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '';
-  return v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: casas });
+  return formatNumeroPt(v, { minimumFractionDigits: 0, maximumFractionDigits: casas });
 }
 
 function lerCaminho(obj, caminho) {
@@ -173,19 +171,70 @@ function iconeNum(chave, tamanho = 15) {
   return `<svg viewBox="0 0 24 24" width="${tamanho}" height="${tamanho}" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONE_NUM[chave] || ICONE_NUM.alvo}</svg>`;
 }
 
-/** Anel de progresso (SVG): `p` 0-1; `p2` (opcional) = anel fino de fora (ex. bruto da reserva). */
-export function anelProgressoHtml(p, { tamanho = 104, tom = 'meta', p2 = null, rotulo = 'da meta' } = {}) {
-  const r = 42; const C = 2 * Math.PI * r;
+/** Cor do tipo da meta (token legado --acoes/--fiis/--rf/--usa/--bad) -> posição na paleta categórica do kit (--chart-N). */
+const COR_CHART = { acoes: 1, fiis: 2, rf: 3, usa: 4, bad: 8 };
+
+/**
+ * 06/10/2026 (A-64/A-65): no celular os blocos longos da tela de detalhe (vencimentos, velocidade, marcos)
+ * viram seções recolhíveis (<details>, fechadas), sem mexer no conteúdo. No desktop nada muda.
+ */
+export function recolherNoCelular(raiz, win, doc) {
+  let estreito = false;
+  try { estreito = !!(win && win.matchMedia && win.matchMedia('(max-width: 760px)').matches); } catch { estreito = false; }
+  if (!estreito) return;
+  const titulos = ['Títulos que vencem', 'Quanto tempo leva', 'Marcos até o alvo', 'De onde vem o alvo'];
+  raiz.querySelectorAll('section.mt-bloco').forEach((sec) => {
+    const cab = sec.querySelector(':scope > .mt-bloco-cab');
+    const h3 = cab && cab.querySelector('h3');
+    if (!h3 || !titulos.some((t) => (h3.textContent || '').trim().startsWith(t))) return;
+    const det = doc.createElement('details');
+    det.className = 'mt-rec';
+    const sum = doc.createElement('summary');
+    sum.className = 'mt-bloco-cab';
+    while (cab.firstChild) sum.appendChild(cab.firstChild);
+    cab.remove();
+    det.appendChild(sum);
+    while (sec.firstChild) det.appendChild(sec.firstChild);
+    sec.appendChild(det);
+  });
+}
+
+/** 06/10/2026 (Onda 3): troca cada `.mt-prog[data-prog]` pela barra de progresso da biblioteca de gráficos (animada, com aria). */
+export function montarProgressos(raiz) {
+  if (!raiz) return;
+  raiz.querySelectorAll('.mt-prog[data-prog]').forEach((el) => {
+    const v = Number(el.dataset.prog);
+    const meta = el.dataset.meta != null && el.dataset.meta !== '' ? Number(el.dataset.meta) : undefined;
+    criarBarraProgresso(el, {
+      valor: Number.isFinite(v) ? v : 0, meta, cor: v >= 1 ? 'up' : (COR_CHART[el.dataset.cor] || 1), rotulo: el.dataset.rotulo || 'Progresso',
+    });
+    el.removeAttribute('data-prog');
+  });
+}
+
+/**
+ * Anel de progresso: `p` 0-1; `p2` (opcional) = anel fino de fora (ex. bruto da reserva). 06/10/2026 (Onda 3): só o espaço
+ * (com os dados em data-*); `montarAneis` troca pelo anel da biblioteca de gráficos (varre no sentido horário, texto no meio).
+ */
+export function anelProgressoHtml(p, { tamanho = 104, tom = 'meta', p2 = null, rotulo = 'da meta', cor = 'acoes' } = {}) {
   const v = Math.max(0, Math.min(1, p || 0));
-  const v2 = p2 == null ? null : Math.max(0, Math.min(1, p2));
-  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;height:${tamanho}px" role="img" aria-label="${pct(p)} ${rotulo}">
-  <svg viewBox="0 0 100 100" aria-hidden="true">
-    <circle cx="50" cy="50" r="${r}" class="mt-anel-fundo"/>
-    ${v2 != null ? `<circle cx="50" cy="50" r="47.5" class="mt-anel-bruto" stroke-dasharray="${(v2 * 2 * Math.PI * 47.5).toFixed(1)} ${(2 * Math.PI * 47.5).toFixed(1)}" transform="rotate(-90 50 50)"/>` : ''}
-    <circle cx="50" cy="50" r="${r}" class="mt-anel-valor" stroke-dasharray="${(v * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 50 50)"/>
-  </svg>
-  <span class="mt-anel-txt"><b>${pct(p)}</b><small>${rotulo}</small></span>
-</div>`;
+  const v2 = p2 == null ? '' : String(Math.max(0, Math.min(1, p2)));
+  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;min-height:${tamanho}px" data-anel="${v}" data-anel2="${v2}" data-tom="${tom}" data-cor="${esc(cor)}" data-tamanho="${tamanho}" data-rotulo="${esc(rotulo)}" data-texto="${esc(pct(p))}"></div>`;
+}
+
+/** Monta os anéis (`.mt-anel[data-anel]`) com `criarAnelProgresso`. */
+export function montarAneis(raiz) {
+  if (!raiz) return;
+  raiz.querySelectorAll('.mt-anel[data-anel]').forEach((el) => {
+    const tom = el.dataset.tom;
+    const cor = tom === 'bom' ? 'var(--chart-up)' : tom === 'ruim' ? 'var(--chart-down)' : (COR_CHART[el.dataset.cor] || 1);
+    const v2 = el.dataset.anel2;
+    criarAnelProgresso(el, {
+      valor: Number(el.dataset.anel), valor2: v2 === '' ? undefined : Number(v2), tamanho: Number(el.dataset.tamanho) || 104, espessura: 11,
+      cor, cor2: 'var(--chart-axis)', rotulo: el.dataset.texto, subrotulo: el.dataset.rotulo, aria: 'Progresso da meta:',
+    });
+    el.removeAttribute('data-anel');
+  });
 }
 
 /** Chip colorido +/− (verde/vermelho). */
@@ -227,14 +276,14 @@ export function cardMetaHtml(meta, c) {
   const aporte = necessario != null && necessario > 0
     ? `<div class="mt-aporte ${c.aporteAtual + 0.5 >= (c.parcelasCorrendo > 0 ? (c.aporteNecessario || 0) : necessario) ? 'ok' : 'baixo'}"><span>Aporte/mês</span><b>${formatMoeda(necessario, 'BRL', { casas: 0 })}</b><span class="mt-fraco">${c.viagem ? 'pra guardar' : 'necessário'}${!c.viagem && c.parcelasCorrendo > 0 ? ` (${r0(c.parcelasCorrendo)} de parcelas)` : ''} · você: ${voce}${parcelasAPagar > 0 ? ` · paga ${r0(parcelasAPagar)}/mês de parcelas` : ''}</span></div>`
     : (c.dataEstimada && c.status !== 'concluida' && c.status !== 'saldo-ideal' ? `<div class="mt-aporte ok"><span>Nesse ritmo</span><b>${rotuloMes(c.dataEstimada)}</b><span class="mt-fraco">${c.aporteAtual > 0 ? `aportando ${voce}/mês` : 'só com o rendimento'}</span></div>` : '');
-  return `<button class="mt-card" type="button" data-abrir="${escHtml(meta.id)}" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
+  return `<button class="mt-card" type="button" data-abrir="${esc(meta.id)}" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   <span class="mt-card-cab">
     ${seloMetaHtml(meta)}
-    <span class="mt-card-tit"><strong>${escHtml(meta.nome)}</strong><span>${c.viagem ? bandeirasViagemHtml(meta, { tamanho: 15 }) : ''}${escHtml(ap.rotulo)}${meta.contribuicao === 'recorrente' ? ' · pagamento recorrente' : ''}</span></span>
+    <span class="mt-card-tit"><strong>${esc(meta.nome)}</strong><span>${c.viagem ? bandeirasViagemHtml(meta, { tamanho: 15 }) : ''}${esc(ap.rotulo)}${meta.contribuicao === 'recorrente' ? ' · pagamento recorrente' : ''}</span></span>
     ${meta.status === 'arquivada' ? '<span class="mt-status na">Arquivada</span>' : statusPillHtml(c.status, meta)}
   </span>
   <span class="mt-card-valor">${linhaValor}</span>
-  <span class="mt-barra ${p >= 1 ? 'good' : ''}"><span style="width:${(p * 100).toFixed(1)}%"></span></span>
+  <span class="mt-prog" data-prog="${p.toFixed(4)}" data-cor="${esc(ap.cor)}" data-rotulo="${esc(`${pct(c.percentual)} de ${meta.nome}`)}"></span>
   <span class="mt-card-pct"><b>${pct(c.percentual)}</b>${c.vinculos.length ? ` · ${c.vinculos.length} ${c.vinculos.length === 1 ? 'vínculo' : 'vínculos'}` : ''}</span>
   <span class="mt-card-linhas">${linhas.map(([r, v]) => `<span><em>${r}</em><b>${v}</b></span>`).join('')}</span>
   ${aporte}
@@ -246,9 +295,9 @@ export function cardMetaHtml(meta, c) {
 function linhaMarcoCard(c) {
   if (c.vencimentos && c.vencimentos.proximo) {
     const e = c.vencimentos.proximo;
-    return `<span class="mt-card-marco ${e.tom === 'atencao' ? 'atencao' : ''}">${e.tom === 'atencao' ? '⚠ ' : ''}${escHtml(e.titulos[0].nome)}${e.titulos.length > 1 ? ` e +${e.titulos.length - 1}` : ''} vence em ${rotuloMes(e.mes)}${e.tom === 'atencao' ? ' - reserva cai abaixo do mínimo' : ''}</span>`;
+    return `<span class="mt-card-marco ${e.tom === 'atencao' ? 'atencao' : ''}">${e.tom === 'atencao' ? '⚠ ' : ''}${esc(e.titulos[0].nome)}${e.titulos.length > 1 ? ` e +${e.titulos.length - 1}` : ''} vence em ${rotuloMes(e.mes)}${e.tom === 'atencao' ? ' - reserva cai abaixo do mínimo' : ''}</span>`;
   }
-  if (c.marcoProximo) return `<span class="mt-card-marco">${iconeNum('marco', 12)} ${escHtml(c.marcoProximo.rotulo)} em <b>${c.marcoProximo.ano}</b></span>`;
+  if (c.marcoProximo) return `<span class="mt-card-marco">${iconeNum('marco', 12)} ${esc(c.marcoProximo.rotulo)} em <b>${c.marcoProximo.ano}</b></span>`;
   return '';
 }
 
@@ -278,6 +327,8 @@ export function fraseRitmo(meta, c) {
     }
     return { tom, html: `Nesse ritmo você chega em ${quando}${aporteTxt ? `, aportando ${aporteTxt}` : ' só com o rendimento'}.` };
   }
+  // 05/10/2026 (A-15): ritmo <= 0 (aporte real zero ou só resgates) tem mensagem própria, em vez de "nunca" sem explicação
+  if (c.ritmoSemAporte) return { tom: 'ruim', html: `Nos últimos meses você não aportou nessa meta (ritmo médio ${formatMoeda(c.aporteReal, 'BRL', { casas: 0 })}/mês): sem aporte não dá pra projetar quando chega. Informe um aporte em Editar ou veja o aporte necessário e as simulações abaixo.` };
   if (c.aporteOrigem === 'nenhum') return { tom: 'neutro', html: 'Ainda não dá pra saber o seu ritmo: vincule investimentos (o aporte real sai do histórico deles) ou informe um aporte mensal em Editar.' };
   return { tom: 'ruim', html: `No ritmo de hoje (${aporteTxt || 'sem aporte'}) a meta não chega no alvo - veja as simulações abaixo.` };
 }
@@ -332,18 +383,18 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   }
   if (meta.tipo === 'aposentadoria' && c.aposentadoria) {
     const prox = (marcos || []).find((m) => !m.ja && m.mes);
-    nums.splice(1, 0, numHeroi({ icone: 'alvo', rotulo: 'Montante alvo', valor: c.alvoBRL != null ? valorGrandeHtml(c.alvoBRL) : '—', sub: `renda ideal <b>${c.aposentadoria.renda ? r0(c.aposentadoria.renda) : '—'}</b>/mês${prox ? ` · ${prox.rotulo} em <b>${prox.ano}</b>` : ''}`, dica: EXPLICACOES.taxaRetirada }));
+    nums.splice(1, 0, numHeroi({ icone: 'alvo', rotulo: 'Montante alvo', valor: c.alvoBRL != null ? valorGrandeHtml(c.alvoBRL) : '—', sub: `renda ideal <b>${c.aposentadoria.renda ? r0(c.aposentadoria.renda) : '—'}</b>/mês · retirada <b>${pct(c.aposentadoria.taxa, 1)}</b>/ano${prox ? ` · ${prox.rotulo} em <b>${prox.ano}</b>` : ''}`, dica: EXPLICACOES.taxaRetirada }));
   }
   const ritmo = fraseRitmo(meta, c);
   const p = c.percentual || 0;
   const tomAnel = ['concluida', 'saldo-ideal'].includes(c.status) ? 'bom' : (['atrasada', 'vencida'].includes(c.status) ? 'ruim' : 'meta');
-  const viagemInfo = meta.especificos && meta.especificos.destino ? ` · ${escHtml(meta.especificos.destino)}` : '';
-  const destinosTxt = c.viagem && c.viagem.destinos.length ? ` · ${c.viagem.destinos.map((d) => escHtml(d.cidade || d.pais)).join(', ')}` : '';
+  const viagemInfo = meta.especificos && meta.especificos.destino ? ` · ${esc(meta.especificos.destino)}` : '';
+  const destinosTxt = c.viagem && c.viagem.destinos.length ? ` · ${c.viagem.destinos.map((d) => esc(d.cidade || d.pais)).join(', ')}` : '';
   const bandeiras = c.viagem ? bandeirasViagemHtml(meta, { tamanho: 18 }) : '';
   return `<section class="mt-heroi mt-heroi-v2" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   <div class="mt-heroi-cab">
     ${seloMetaHtml(meta, { tamanho: 46 })}
-    <div class="mt-heroi-tit"><span class="mt-eyebrow">${bandeiras}${escHtml(ap.rotulo)}${viagemInfo}${destinosTxt}${c.dataAlvo ? ` · até ${rotuloMes(c.dataAlvo)}` : ''}</span><h2>${escHtml(meta.nome)}</h2></div>
+    <div class="mt-heroi-tit"><span class="mt-eyebrow">${bandeiras}${esc(ap.rotulo)}${viagemInfo}${destinosTxt}${c.dataAlvo ? ` · até ${rotuloMes(c.dataAlvo)}` : ''}</span><h2>${esc(meta.nome)}</h2></div>
     ${arquivada ? '<span class="mt-status na">Arquivada</span>' : statusComDicaHtml(c.status, meta)}
     <div class="mt-heroi-acoes">
       ${botaoRoteiroHtml(meta)}
@@ -351,14 +402,14 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     </div>
   </div>
   <div class="mt-heroi-corpo">
-    ${anelProgressoHtml(p, { tom: tomAnel, p2: reserva && c.liquido.impostoBRL > 0 ? c.percentualBruto : null, rotulo: reserva ? 'líquido' : 'da meta' })}
+    ${anelProgressoHtml(p, { tom: tomAnel, cor: ap.cor, p2: reserva && c.liquido.impostoBRL > 0 ? c.percentualBruto : null, rotulo: reserva ? 'líquido' : 'da meta' })}
     <div class="mt-heroi-numeros">${nums.join('')}</div>
   </div>
   ${c.viagem ? porMesHtml(c) : ''}
   ${reserva && c.liquido.impostoBRL > 0 ? `<p class="mt-heroi-legenda"><i class="liq"></i>líquido ${pct(c.percentual)} <i class="bru"></i>bruto ${pct(c.percentualBruto)} do saldo ideal</p>` : ''}
   <p class="mt-heroi-ritmo ${ritmo.tom}">${iconeNum(ritmo.tom === 'bom' ? 'foguete' : 'relogio', 16)}<span>${ritmo.html}</span>${infoHtml(EXPLICACOES.noSeuRitmo, { rotulo: 'Como o ritmo é calculado?' })}</p>
-  ${meta.notas ? `<p class="mt-notas">${escHtml(meta.notas)}</p>` : ''}
-  ${c.avisos.length ? `<p class="mt-alerta">${c.avisos.map(escHtml).join(' · ')}</p>` : ''}
+  ${meta.notas ? `<p class="mt-notas">${esc(meta.notas)}</p>` : ''}
+  ${c.avisos.length ? `<p class="mt-alerta">${c.avisos.map(esc).join(' · ')}</p>` : ''}
 </section>`;
 }
 
@@ -395,11 +446,11 @@ export function comMedia12(renda, mesAtual) {
   return out;
 }
 
-const PERIODOS_HIST = [['6m', '6M'], ['12m', '12M'], ['24m', '24M'], ['tudo', 'Tudo']];
-const PERIODOS_PROJ = [['12m', '12 meses'], ['60m', '5 anos'], ['fim', 'Até o alvo']];
+const PERIODOS_HIST = ['6m', '12m', '24m', 'tudo'].map((id) => [id, rotuloPeriodo(id)]);
+const PERIODOS_PROJ = ['12m', '60m', 'fim'].map((id) => [id, rotuloPeriodo(id)]);
 
 function tabsPeriodoHtml(lista, atual, rotulo) {
-  return `<div class="filter-tabs mt-tabs-periodo" role="group" aria-label="${escHtml(rotulo)}">${lista.map(([k, r]) => `<button type="button" class="filter-tab ${atual === k ? 'active' : ''}" data-periodo="${k}">${r}</button>`).join('')}</div>`;
+  return `<div class="filter-tabs mt-tabs-periodo" role="group" aria-label="${esc(rotulo)}">${lista.map(([k, r]) => `<button type="button" class="filter-tab ${atual === k ? 'active' : ''}" data-periodo="${k}">${r}</button>`).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,10 +475,23 @@ export async function montarPaginaMetas(token, {
     avisos: doc.getElementById('mtAvisos'),
     tela: doc.getElementById('mtTela'),
     dialogo: doc.getElementById('mtDialogo'),
-    nova: doc.getElementById('mtNova'),
-    refresh: doc.getElementById('mtRefresh'),
+    nova: null,
+    refresh: null,
   };
   if (!el.tela) return null;
+
+  // 06/10/2026 (Onda 3): cabeçalho padrão do kit (título grande, subtítulo de uma linha com o número-chave, "Atualizar dados" e
+  // a ação principal em pílula) + document.title "<Subaba> · <Seção> · Patrimônio" (A-69).
+  const botaoNova = criarUi(doc, 'button', { type: 'button', id: 'mtNova', class: 'btn btn-filled' }, [iconeUi(doc, 'add'), 'Nova meta']);
+  const cabEl = doc.getElementById('mtCabecalho');
+  const cabecalho = cabEl ? montarCabecalhoPagina(cabEl, {
+    secao: 'Metas e Objetivos', subaba: 'Minhas metas', titulo: 'Metas e Objetivos',
+    subtitulo: 'Quanto falta, quanto aportar por mês e se você está no ritmo - com os seus investimentos de verdade.',
+    refresh: true, acoes: [botaoNova], doc,
+  }) : null;
+  el.nova = botaoNova;
+  el.refresh = cabecalho ? cabecalho.refreshEl : null;
+  if (el.refresh) el.refresh.id = 'mtRefresh';
 
   const estado = {
     resposta: null, ctx: null, filtroStatus: 'todas', filtroTipo: 'todos', detalheId: null, assistente: null, simulador: null,
@@ -521,8 +585,8 @@ export async function montarPaginaMetas(token, {
     if (el.carregando) el.carregando.hidden = true;
     if (!resposta || !resposta.ok) {
       if (!estado.resposta && el.erro) {
-        el.erro.hidden = false;
-        el.erro.textContent = `Não deu pra carregar as metas agora (${(resposta && resposta.etapa) || '?'}): ${(resposta && resposta.erro) || 'erro desconhecido'}.`;
+        // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica num <details>
+        mostrarErroCarga(el.erro, { tela: 'Metas e Objetivos', resposta, aoTentar: () => carregarERedesenhar(), doc });
       }
       return;
     }
@@ -533,7 +597,7 @@ export async function montarPaginaMetas(token, {
     if (el.avisos) {
       const av = resposta.avisos || {};
       el.avisos.hidden = !Object.keys(av).length;
-      el.avisos.innerHTML = Object.keys(av).length ? `Algumas informações não carregaram: ${Object.entries(av).map(([k, v]) => `<b>${escHtml(k)}</b>: ${escHtml(v)}`).join(' · ')}` : '';
+      el.avisos.innerHTML = Object.keys(av).length ? `Algumas informações não carregaram: ${Object.entries(av).map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join(' · ')}` : '';
     }
     el.tela.hidden = false;
     desenhar();
@@ -592,7 +656,7 @@ export async function montarPaginaMetas(token, {
     balao.className = 'mt-dica-balao';
     balao.id = `mtDica${Math.random().toString(36).slice(2, 8)}`;
     balao.setAttribute('role', 'tooltip');
-    balao.innerHTML = `<p>${escHtml(botao.dataset.dica)}</p><button type="button" class="mt-dica-fechar" aria-label="Fechar explicação">×</button>`;
+    balao.innerHTML = `<p>${esc(botao.dataset.dica)}</p><button type="button" class="mt-dica-fechar" aria-label="Fechar explicação">×</button>`;
     doc.body.appendChild(balao);
     botao.setAttribute('aria-expanded', 'true');
     botao.setAttribute('aria-describedby', balao.id);
@@ -618,7 +682,7 @@ export async function montarPaginaMetas(token, {
     const r = estado.resposta;
     const ativas = r.metas || [];
     const calcs = ativas.map((m) => ({ meta: m, c: calcDe(m) }));
-    const res = resumoMetas(calcs.map((x) => x.c));
+    const res = resumoMetas(calcs.map((x) => x.c), { patrimonioVinculavel: estado.ctx && estado.ctx.alocacao ? estado.ctx.alocacao.patrimonioVinculavel : null });
     const arquivadas = (r.arquivadas || []).map((m) => ({ meta: m, c: calcDe(m) }));
     const base = estado.filtroStatus === 'arquivadas' ? arquivadas : calcs;
     const tiposPresentes = [...new Map(base.map(({ meta }) => [chaveTipo(meta), meta])).entries()];
@@ -630,26 +694,47 @@ export async function montarPaginaMetas(token, {
     let html = '';
     if (ativas.length) {
       const faltaAporte = res.aporteNecessario - aporteReal;
-      html += `<section class="mt-resumo" aria-label="Resumo das metas">
-  <div class="mt-tile mt-tile-cor ${res.atrasadas ? 'ruim' : 'bom'}"><span class="mt-rot">${iconeNum('alvo')}Metas ativas</span><span class="mt-grande">${res.quantidade}</span><span class="mt-sub"><b class="mt-bom">${res.noRitmo}</b> no ritmo · <b class="${res.atrasadas ? 'mt-ruim' : ''}">${res.atrasadas}</b> ${res.atrasadas === 1 ? 'precisa' : 'precisam'} de atenção</span></div>
-  <div class="mt-tile"><span class="mt-rot">${iconeNum('carteira')}Já guardado pras metas</span><span class="mt-grande">${valorGrandeHtml(res.atual)}</span><span class="mt-sub">de <b>${r0(res.alvo)}</b> somando os alvos</span></div>
-  <div class="mt-tile"><span class="mt-rot">${iconeNum('moeda')}Aporte mensal necessário${infoHtml(EXPLICACOES.aporteNecessario)}</span><span class="mt-grande">${valorGrandeHtml(res.aporteNecessario)}</span><span class="mt-sub">você aporta <b>${r0(aporteReal)}</b>/mês (real/informado)${faltaAporte > 1 ? ` · <b class="mt-ruim">faltam ${r0(faltaAporte)}</b>` : (res.aporteNecessario > 0 ? ' · <b class="mt-bom">cobre tudo</b>' : '')}</span></div>
+      const infoPatrimonio = 'Cada investimento conta numa meta só: se duas metas vinculam o mesmo ativo, fica com a de maior prioridade (reserva de emergência, depois renda passiva, depois aposentadoria, depois as demais). Por isso este total nunca passa do patrimônio que você tem investido.';
+      const kpiIcone = (nome) => `<svg class="ico mt-kpi-ico" aria-hidden="true"><use href="#ico-${nome}"/></svg>`;
+      // 06/10/2026 (Onda 3): cartões KPI do kit (rótulo pequeno + info, número grande, tendência com ícone - nunca só cor)
+      html += `<section class="grid-kpi mt-resumo" aria-label="Resumo das metas">
+  <article class="card"><div class="kpi">
+    <div class="kpi-topo"><span class="kpi-rotulo">Metas ativas</span>${kpiIcone('target')}</div>
+    <div class="kpi-valor">${res.quantidade}</div>
+    <div class="kpi-sub"><span class="tendencia sobe"><svg class="ico" aria-hidden="true"><use href="#ico-north-east"/></svg>${res.noRitmo} no ritmo</span> ${res.atrasadas ? `<span class="tendencia desce"><svg class="ico" aria-hidden="true"><use href="#ico-south-east"/></svg>${res.atrasadas} ${res.atrasadas === 1 ? 'precisa' : 'precisam'} de atenção</span>` : ''}</div>
+  </div></article>
+  <article class="card"><div class="kpi">
+    <div class="kpi-topo"><span class="kpi-rotulo">Patrimônio alocado nas metas</span>${infoHtml(infoPatrimonio)}</div>
+    <div class="kpi-valor">${valorGrandeHtml(res.atual)}</div>
+    <div class="kpi-sub">de <b>${r0(res.alvo)}</b> somando os alvos</div>
+  </div></article>
+  <article class="card"><div class="kpi">
+    <div class="kpi-topo"><span class="kpi-rotulo">Aporte mensal necessário</span>${infoHtml(EXPLICACOES.aporteNecessario)}</div>
+    <div class="kpi-valor">${valorGrandeHtml(res.aporteNecessario)}</div>
+    <div class="kpi-sub">você aporta <b>${r0(aporteReal)}</b>/mês (real/informado)${faltaAporte > 1 ? ` · <span class="tendencia desce"><svg class="ico" aria-hidden="true"><use href="#ico-south-east"/></svg>faltam ${r0(faltaAporte)}</span>` : (res.aporteNecessario > 0 ? ' · <span class="tendencia sobe"><svg class="ico" aria-hidden="true"><use href="#ico-check"/></svg>cobre tudo</span>' : '')}</div>
+  </div></article>
 </section>`;
     }
     if (sobre.length) {
       const grupos = new Map();
       sobre.forEach((s) => { const k = s.metas.join(' e '); grupos.set(k, [...(grupos.get(k) || []), s]); });
       const partes = [...grupos.entries()].map(([metas, lista]) => {
-        const nomes = lista.slice(0, 3).map((s) => `<b>${escHtml(s.nome)}</b>`).join(', ') + (lista.length > 3 ? ` e mais ${lista.length - 3}` : '');
-        return `${nomes} ${lista.length === 1 ? 'conta' : 'contam'} em <b>${escHtml(metas)}</b> (${r0(lista.reduce((t, s) => t + s.comprometido - s.valorBRL, 0))} a mais do que existe)`;
+        const nomes = lista.slice(0, 3).map((s) => `<b>${esc(s.nome)}</b>`).join(', ') + (lista.length > 3 ? ` e mais ${lista.length - 3}` : '');
+        return `${nomes} ${lista.length === 1 ? 'conta' : 'contam'} em <b>${esc(metas)}</b> (${r0(lista.reduce((t, s) => t + s.comprometido - s.valorBRL, 0))} a mais do que existe)`;
       });
-      html += `<p class="mt-alerta">O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Use uma fração ou um valor fixo nos vínculos.</p>`;
+      // 05/10/2026 (A-11): o progresso já conta cada ativo numa meta só (prioridade: reserva, renda passiva, aposentadoria, demais)
+      html += `<p class="mt-alerta">O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Cada ativo conta numa meta só - fica com a de maior prioridade (reserva, depois renda passiva, depois aposentadoria) e as outras contam só o que sobra. Use uma fração ou um valor fixo nos vínculos para repartir.</p>`;
+    }
+    // 05/10/2026 (A-14): vínculo a ativo que não existe mais (vendido ou com outro ticker) - antes sumia em silêncio
+    const orfaos = vinculosOrfaos(ativas, estado.ctx.ativos, estado.ctx.cambio, estado.ctx.aliases);
+    if (orfaos.length) {
+      html += `<p class="mt-alerta">Vínculos sem ativo correspondente (não contam no progresso): ${orfaos.map((o) => `<b>${esc(String(o.id || '').split('@')[0])}</b> em ${esc(o.meta)}`).join(' · ')}. Foram vendidos ou mudaram de ticker - abra a meta e refaça o vínculo.</p>`;
     }
     if (ativas.length || arquivadas.length) {
       const legenda = ['no-ritmo', 'atrasada', 'saldo-ideal', 'ideal-bruto', 'abaixo', 'vencida', 'sem-prazo'].map((k) => `${STATUS_META[k].rotulo}: ${STATUS_META[k].explicacao}`).join('\n\n');
       html += `<div class="mt-filtros">
-  <div class="mt-filtros-status"><div class="filter-tabs" role="tablist" aria-label="Status">${FILTROS_STATUS.filter(([k]) => k !== 'arquivadas' || arquivadas.length).map(([k, rot]) => `<button type="button" class="filter-tab ${estado.filtroStatus === k ? 'active' : ''}" data-filtro-status="${k}" role="tab" aria-selected="${estado.filtroStatus === k}">${rot}</button>`).join('')}</div>${infoHtml(legenda, { rotulo: 'O que significa cada status?' })}</div>
-  ${tiposPresentes.length > 1 ? `<div class="mt-filtro-tipos" aria-label="Tipo"><button type="button" class="mt-chip ${estado.filtroTipo === 'todos' ? 'active' : ''}" data-filtro-tipo="todos">Todos os tipos</button>${tiposPresentes.map(([k, m]) => `<button type="button" class="mt-chip ${estado.filtroTipo === k ? 'active' : ''}" data-filtro-tipo="${escHtml(k)}">${iconeMetaSvg(aparenciaMeta(m).icone, { tamanho: 13 })}${escHtml(aparenciaMeta(m).rotulo)}</button>`).join('')}</div>` : ''}
+  <div class="mt-filtros-status"><div id="mtAbasStatus"></div>${infoHtml(legenda, { rotulo: 'O que significa cada status?' })}</div>
+  ${tiposPresentes.length > 1 ? `<div class="mt-filtro-tipos" role="group" aria-label="Tipo"><button type="button" class="chip ${estado.filtroTipo === 'todos' ? 'on' : ''}" aria-pressed="${estado.filtroTipo === 'todos'}" data-filtro-tipo="todos">Todos os tipos</button>${tiposPresentes.map(([k, m]) => `<button type="button" class="chip ${estado.filtroTipo === k ? 'on' : ''}" aria-pressed="${estado.filtroTipo === k}" data-filtro-tipo="${esc(k)}">${iconeMetaSvg(aparenciaMeta(m).icone, { tamanho: 16 })}${esc(aparenciaMeta(m).rotulo)}</button>`).join('')}</div>` : ''}
 </div>`;
     }
     if (estado.filtroStatus === 'arquivadas' && arquivadas.length) {
@@ -658,7 +743,7 @@ export async function montarPaginaMetas(token, {
     if (visiveis.length) {
       html += `<div class="mt-grade">${visiveis.map(({ meta, c }) => cardMetaHtml(meta, c)).join('')}</div>`;
     } else if (ativas.length || arquivadas.length) {
-      html += '<p class="mt-vazio-filtro">Nenhuma meta nesse filtro.</p>';
+      html += '<div class="mt-vazio-filtro" id="mtVazioFiltro"></div>';
     }
     const sugestoes = sugestoesMetas({ referencias: estado.ctx.referencias, hoje: estado.ctx.hoje, existentes: ativas });
     if (!ativas.length) {
@@ -672,6 +757,24 @@ export async function montarPaginaMetas(token, {
     }
     el.tela.innerHTML = html;
     estado.sugestoes = sugestoes;
+    // abas SUBLINHADAS = recortes dentro da subpágina (kit): status das metas
+    const abasEl = doc.getElementById('mtAbasStatus');
+    if (abasEl) {
+      criarTabs(abasEl, {
+        variante: 'sublinhada', rotulo: 'Status das metas', ativo: estado.filtroStatus, doc,
+        itens: FILTROS_STATUS.filter(([k]) => k !== 'arquivadas' || arquivadas.length).map(([id, rotulo]) => ({ id, rotulo })),
+        aoMudar: (id) => { estado.filtroStatus = id; desenhar(); },
+      });
+    }
+    const vazioEl = doc.getElementById('mtVazioFiltro');
+    if (vazioEl) {
+      mostrarEstadoVazio(vazioEl, {
+        icone: 'filter-list', titulo: 'Nenhuma meta nesse filtro', texto: 'Troque o status ou o tipo para ver as outras metas.', doc,
+        acao: { rotulo: 'Limpar filtros', aoClicar: () => { estado.filtroStatus = 'todas'; estado.filtroTipo = 'todos'; desenhar(); } },
+      });
+    }
+    definirTituloPagina({ subaba: 'Minhas metas', secao: 'Metas e Objetivos' }, doc);
+    montarProgressos(el.tela);
   }
 
   function sugestaoHtml(s, i) {
@@ -680,7 +783,7 @@ export async function montarPaginaMetas(token, {
     const valor = c.renda ? `${r0(c.renda.alvo)}/mês` : (c.alvoBRL != null ? (c.moeda !== 'BRL' ? formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 }) : r0(c.alvoBRL)) : '');
     return `<button type="button" class="mt-sugestao" data-sugestao="${i}" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   ${seloMetaHtml(s.meta, { tamanho: 34 })}
-  <span class="mt-sug-txt"><strong>${escHtml(s.meta.nome)}</strong><span>${escHtml(s.porque)}</span></span>
+  <span class="mt-sug-txt"><strong>${esc(s.meta.nome)}</strong><span>${esc(s.porque)}</span></span>
   <span class="mt-sug-valor mono">${valor}</span>
   <span class="mt-sug-mais" aria-hidden="true">+</span>
 </button>`;
@@ -700,7 +803,7 @@ export async function montarPaginaMetas(token, {
     const hist = estado.historico ? estado.historico[meta.id] : null;
     const marcosRitmo = c.alvoBRL > 0 ? marcosProjecao(c, { hoje, anoNascimento: num(meta.especificos && meta.especificos.anoNascimento) }) : [];
     let html = `<div class="mt-detalhe">
-<button type="button" class="mt-voltar" data-voltar><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Todas as metas</button>
+<nav class="breadcrumb mt-breadcrumb" aria-label="Você está em"><ol><li><a href="#" data-voltar>Metas e Objetivos</a><span class="bc-sep" aria-hidden="true"><svg class="ico"><use href="#ico-chev-r"/></svg></span></li><li><span aria-current="page">${esc(meta.nome)}</span></li></ol></nav>
 ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 <div class="mt-colunas">
   <div class="mt-col-principal">`;
@@ -710,24 +813,22 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 
     // histórico
     html += `<section class="mt-bloco" id="mtHistBloco"><div class="mt-bloco-cab"><h3>Histórico${infoHtml(EXPLICACOES.historico)}</h3>
-      <div class="mt-bloco-ctrl"><div class="filter-tabs mt-modo" role="group" aria-label="Visão"><button type="button" class="filter-tab ${estado.modoHist === 'acumulado' ? 'active' : ''}" data-modo-hist="acumulado">Acumulado</button><button type="button" class="filter-tab ${estado.modoHist === 'mensal' ? 'active' : ''}" data-modo-hist="mensal">Mês a mês</button></div>
+      <div class="mt-bloco-ctrl"><div class="segmented mt-modo" role="group" aria-label="Visão"><button type="button" aria-pressed="${estado.modoHist === 'acumulado'}" data-modo-hist="acumulado">Acumulado</button><button type="button" aria-pressed="${estado.modoHist === 'mensal'}" data-modo-hist="mensal">Mês a mês</button></div>
       ${tabsPeriodoHtml(PERIODOS_HIST, estado.periodos.hist, 'Período do histórico')}</div></div>
       <div class="mt-grafico-caixa" id="mtHistGrafico"></div>
-      <div class="mt-legenda" id="mtHistLegenda"></div>
       <div class="mt-analise" id="mtHistAnalise"></div></section>`;
 
     if (meta.tipo === 'rendaPassiva') {
       html += `<section class="mt-bloco" id="mtRendaBloco"><div class="mt-bloco-cab"><h3>Renda mês a mês${infoHtml(EXPLICACOES.rendaMensal)}</h3>${tabsPeriodoHtml(PERIODOS_HIST, estado.periodos.renda, 'Período da renda')}</div>
       <div class="mt-grafico-caixa" id="mtRendaGrafico"></div>
-      <div class="mt-legenda"><i class="renda"></i>proventos do mês<i class="media"></i>média de 12 meses${c.renda && c.renda.alvo ? '<i class="alvo"></i>meta' : ''}</div>
       <div class="mt-analise" id="mtRendaAnalise"></div></section>`;
     }
 
     html += vencimentosHtml(meta, c);
     if (c.alvoBRL != null && (!(c.status === 'concluida' || c.status === 'saldo-ideal') || (c.vencimentos && c.vencimentos.eventos.length))) {
       html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Evolução projetada${infoHtml(EXPLICACOES.projecao)}</h3>${tabsPeriodoHtml(PERIODOS_PROJ, estado.periodos.proj, 'Horizonte da projeção')}</div>
-      <div class="mt-legenda"><i class="ritmo"></i>no seu ritmo${c.aporteNecessario != null ? '<i class="necessaria"></i>necessária' : ''}<i class="alvo"></i>alvo${marcosRitmo.some((m) => !m.ja && m.mes) ? '<i class="marco"></i>marcos' : ''}${c.vencimentos && c.vencimentos.eventos.length ? '<i class="venc"></i>vencimento de título' : ''}</div>
       <div class="mt-grafico-caixa" id="mtGrafico"></div>
+      <p class="mt-nota" id="mtGraficoNotas" hidden></p>
       <p class="mt-nota">${c.taxa ? `Rendimento de ${pct(meta.rendimentoAnual || 0, 1)} ao ano (${pct(c.taxa, 2)} ao mês), aportes no fim de cada mês.` : 'Sem rendimento informado - só a soma dos aportes.'}${meta.tipo === 'reservaEmergencia' ? ' Parte do valor líquido de hoje.' : ''}</p>
       <div class="mt-analise" id="mtProjAnalise"></div></section>`;
     }
@@ -738,13 +839,13 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
 
     if (c.partes.length && meta.tipo !== 'acumulo' && !c.viagem) { // viagem: a conta está em "A juntar"
       const ehApos = meta.tipo === 'aposentadoria';
-      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>De onde vem o alvo</h3>${ehApos && !arquivada ? '<button type="button" class="mt-link" data-editar>Editar a conta</button>' : ''}</div><ul class="mt-partes ${ehApos ? 'passos' : ''}">${c.partes.map((pt) => `<li class="${/^=/.test(pt.rotulo) ? 'sub' : ''}"><span>${escHtml(pt.rotulo)}${pt.chave === 'extra' ? infoHtml(EXPLICACOES.extra) : pt.chave === 'reinvestimento' ? infoHtml(EXPLICACOES.reinvestimento) : pt.chave === 'taxa' ? infoHtml(EXPLICACOES.taxaRetirada) : ''}</span><b class="mono">${pt.tipo === '%' ? pct(pt.valor, 1) : pt.tipo === 'n' ? pt.valor : (pt.moeda && pt.moeda !== 'BRL' ? `${formatMoeda(pt.valorMoeda, pt.moeda, { casas: 0 })} ≈ ${formatMoeda(pt.valor)}` : formatMoeda(pt.valor))}</b></li>`).join('')}<li class="total"><span>${meta.tipo === 'rendaPassiva' ? 'Patrimônio necessário' : meta.tipo === 'reservaEmergencia' ? 'Saldo ideal' : ehApos ? `Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : 0, 1)}` : 'Alvo'}</span><b class="mono">${formatMoeda(c.alvoBRL)}</b></li></ul>
+      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>De onde vem o alvo</h3>${ehApos && !arquivada ? '<button type="button" class="mt-link" data-editar>Editar a conta</button>' : ''}</div><ul class="mt-partes ${ehApos ? 'passos' : ''}">${c.partes.map((pt) => `<li class="${/^=/.test(pt.rotulo) ? 'sub' : ''}"><span>${esc(pt.rotulo)}${pt.chave === 'extra' ? infoHtml(EXPLICACOES.extra) : pt.chave === 'reinvestimento' ? infoHtml(EXPLICACOES.reinvestimento) : pt.chave === 'taxa' ? infoHtml(EXPLICACOES.taxaRetirada) : ''}</span><b class="mono">${pt.tipo === '%' ? pct(pt.valor, 1) : pt.tipo === 'n' ? pt.valor : (pt.moeda && pt.moeda !== 'BRL' ? `${formatMoeda(pt.valorMoeda, pt.moeda, { casas: 0 })} ≈ ${formatMoeda(pt.valor)}` : formatMoeda(pt.valor))}</b></li>`).join('')}<li class="total"><span>${meta.tipo === 'rendaPassiva' ? 'Patrimônio necessário' : meta.tipo === 'reservaEmergencia' ? 'Saldo ideal' : ehApos ? `Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : 0, 1)}` : 'Alvo'}</span><b class="mono">${formatMoeda(c.alvoBRL)}</b></li></ul>
       ${meta.tipo === 'reservaEmergencia' ? '<p class="mt-nota">O custo de vida vem das Despesas essenciais (Organização Financeira) - adicionar ou remover uma despesa lá muda o saldo ideal aqui. O status olha o valor LÍQUIDO: o que cairia na conta se resgatasse tudo hoje.</p>' : ''}
       ${ehApos && c.aposentadoria && c.aposentadoria.modo === 'calculado' ? '<p class="mt-nota">É a mesma conta da planilha (Distribuição e Metas, K17 a N19). As despesas vêm da renda emergencial (Despesas essenciais); extra, % de reinvestimento e rendimento você muda em Editar.</p>' : ''}</section>`;
     }
     if (c.conta) {
-      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>${escHtml(c.conta.descricao || 'Conta mensal')}</h3><span class="mt-fraco">${c.conta.pagas} de ${c.conta.total} parcelas</span></div>
-      <div class="mt-heroi-barra"><span class="mt-barra"><span style="width:${((c.conta.pagas / c.conta.total) * 100).toFixed(1)}%"></span></span></div>
+      html += `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>${esc(c.conta.descricao || 'Conta mensal')}</h3><span class="mt-fraco">${c.conta.pagas} de ${c.conta.total} parcelas</span></div>
+      <div class="mt-heroi-barra"><span class="mt-prog" data-prog="${(c.conta.pagas / c.conta.total).toFixed(4)}" data-cor="${esc(aparenciaMeta(meta).cor)}" data-rotulo="${esc(`${c.conta.pagas} de ${c.conta.total} parcelas pagas`)}"></span></div>
       <p class="mt-nota">${formatMoeda(c.conta.valor)}/mês · total ${formatMoeda(c.conta.valorTotal)} · pago ${formatMoeda(c.conta.valorPago)}${c.conta.inicio ? ` · desde ${rotuloMes(c.conta.inicio)}` : ''}</p></section>`;
     }
     if (c.recorrente) {
@@ -759,9 +860,13 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     html += avaliacaoHtml(meta, c);
     if (!arquivada) html += '<section class="mt-bloco" id="mtSimulador"></section>';
     const dicas = aparenciaMeta(meta).dicas || [];
-    if (dicas.length) html += `<section class="mt-bloco mt-dicas"><h3>Dicas</h3><ul>${dicas.map((d) => `<li>${escHtml(d)}</li>`).join('')}</ul></section>`;
+    if (dicas.length) html += `<section class="mt-bloco mt-dicas"><h3>Dicas</h3><ul>${dicas.map((d) => `<li>${esc(d)}</li>`).join('')}</ul></section>`;
     html += '</div></div></div>';
     el.tela.innerHTML = html;
+    definirTituloPagina({ subaba: meta.nome, secao: 'Metas e Objetivos' }, doc);
+    montarAneis(el.tela);
+    montarProgressos(el.tela);
+    recolherNoCelular(el.tela, win, doc);
 
     desenharHistorico(meta, c);
     desenharRenda(meta, c);
@@ -791,8 +896,8 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     return `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Quanto tempo leva${infoHtml(EXPLICACOES.velocidade)}</h3><span class="mt-fraco">${vel.origem === 'ritmo' ? `base: seu ritmo de ${r0(c.aporteAtual)}/mês` : 'base: o prazo da meta'}</span></div>
   <div class="mt-vels">${cards}</div>
   <p class="mt-nota">Para chegar em ${rotuloDuracao(vel.cenarios[1].meses)} (75% do tempo), aporte ${r0(vel.cenarios[1].aporte)}/mês; em ${rotuloDuracao(vel.cenarios[2].meses)} (metade), ${r0(vel.cenarios[2].aporte)}/mês - com o mesmo rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.</p>
-  ${vel.cenarios.some((x) => x.comIsso) ? `<ul class="mt-comisso">${vel.cenarios.filter((x) => x.comIsso).map((x) => `<li><b>${x.fracao === 1 ? (vel.origem === 'ritmo' ? 'No seu ritmo' : 'Até o prazo') : `Em ${Math.round(x.fracao * 100)}% do tempo`}:</b> ${escHtml(x.comIsso)}${x.velocidadeMarcos ? ` <span class="mt-fraco">${escHtml(x.velocidadeMarcos)}</span>` : ''}</li>`).join('')}</ul>` : ''}
-  ${dicas.length ? `<h4 class="mt-grupo">Como acelerar</h4><ul class="mt-dicas-acel">${dicas.slice(0, 5).map((d) => `<li><span class="mt-dica-ico ${d.mesesAMenos > 0 ? 'bom' : ''}">${iconeNum(d.mesesAMenos > 0 ? 'foguete' : 'moeda', 14)}</span><span>${escHtml(d.texto)}${d.comIsso ? `<small class="mt-comisso-dica">${escHtml(d.comIsso)}</small>` : ''}</span></li>`).join('')}</ul>` : ''}
+  ${vel.cenarios.some((x) => x.comIsso) ? `<ul class="mt-comisso">${vel.cenarios.filter((x) => x.comIsso).map((x) => `<li><b>${x.fracao === 1 ? (vel.origem === 'ritmo' ? 'No seu ritmo' : 'Até o prazo') : `Em ${Math.round(x.fracao * 100)}% do tempo`}:</b> ${esc(x.comIsso)}${x.velocidadeMarcos ? ` <span class="mt-fraco">${esc(x.velocidadeMarcos)}</span>` : ''}</li>`).join('')}</ul>` : ''}
+  ${dicas.length ? `<h4 class="mt-grupo">Como acelerar</h4><ul class="mt-dicas-acel">${dicas.slice(0, 5).map((d) => `<li><span class="mt-dica-ico ${d.mesesAMenos > 0 ? 'bom' : ''}">${iconeNum(d.mesesAMenos > 0 ? 'foguete' : 'moeda', 14)}</span><span>${esc(d.texto)}${d.comIsso ? `<small class="mt-comisso-dica">${esc(d.comIsso)}</small>` : ''}</span></li>`).join('')}</ul>` : ''}
 </section>`;
   }
 
@@ -803,7 +908,7 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const itens = v.eventos.map((e) => `<li class="mt-venc ${e.tom}">
     <div class="mt-venc-cab"><span class="mt-venc-data">${iconeNum('marco', 14)} ${rotuloMes(e.mes)}<small>${e.em > 0 ? `daqui a ${rotuloDuracao(e.em)}` : 'este mês'}</small></span>
       <span class="mt-status ${e.tom === 'atencao' ? 'warn' : 'good'}">${e.tom === 'atencao' ? 'Atenção' : 'Reserva segue acima do mínimo'}</span></div>
-    <p class="mt-venc-txt">${escHtml(e.texto)}</p>
+    <p class="mt-venc-txt">${esc(e.texto)}</p>
     <dl class="mt-venc-nums">
       <div><dt>Entram na conta (líquido)</dt><dd class="mono">${formatMoeda(e.liquido, 'BRL', { casas: 0 })}</dd></div>
       <div><dt>IR cobrado no vencimento</dt><dd class="mono">${formatMoeda(e.ir, 'BRL', { casas: 0 })}</dd></div>
@@ -820,13 +925,13 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const marcosNec = c.aporteNecessario > 0 ? marcosProjecao(c, { hoje: estado.ctx.hoje, aporte: c.aporteNecessario, anoNascimento: num(meta.especificos && meta.especificos.anoNascimento) }) : [];
     const cen = cenariosRendaMenor(c, { hoje: estado.ctx.hoje });
     const celula = (m) => (m.ja ? '<span class="mt-bom">já tem ✓</span>' : m.mes ? `<b>${rotuloMes(m.mes)}</b>${m.idade ? ` <span class="mt-fraco">(${m.idade} anos)</span>` : ''}` : '<span class="mt-fraco">não chega</span>');
-    const linhas = marcosRitmo.map((m, i) => `<tr class="${m.rotulo === 'Alvo' ? 'alvo' : ''}"><th scope="row">${iconeNum('marco', 13)} ${escHtml(m.rotulo)}<span class="mt-fraco"> ${r0(m.valor)}</span></th><td>${celula(m)}</td>${marcosNec.length ? `<td>${celula(marcosNec[i])}</td>` : ''}</tr>`).join('');
+    const linhas = marcosRitmo.map((m, i) => `<tr class="${m.rotulo === 'Alvo' ? 'alvo' : ''}"><th scope="row">${iconeNum('marco', 13)} ${esc(m.rotulo)}<span class="mt-fraco"> ${r0(m.valor)}</span></th><td>${celula(m)}</td>${marcosNec.length ? `<td>${celula(marcosNec[i])}</td>` : ''}</tr>`).join('');
     const rendaBase = c.aposentadoria ? c.aposentadoria.renda : (c.renda ? c.renda.alvo : null);
     return `<section class="mt-bloco"><div class="mt-bloco-cab"><h3>Marcos até o alvo${infoHtml(EXPLICACOES.marcos)}</h3>${!num(meta.especificos && meta.especificos.anoNascimento) && meta.tipo === 'aposentadoria' ? '<span class="mt-fraco">informe o ano de nascimento em Editar pra ver a idade</span>' : ''}</div>
-  <div class="mt-tabela-rolagem"><table class="mt-tabela"><thead><tr><th scope="col">Marco</th><th scope="col">No seu ritmo (${r0(c.aporteAtual)}/mês)</th>${marcosNec.length ? `<th scope="col">No necessário (${r0(c.aporteNecessario)}/mês)</th>` : ''}</tr></thead><tbody>${linhas}</tbody></table></div>
-  ${fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>No seu ritmo (${r0(c.aporteAtual)}/mês).</b> ${escHtml(fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosRitmo) ? ` Velocidade: ${escHtml(velocidadeEntreMarcos(marcosRitmo))}` : ''}</p>` : ''}
-  ${marcosNec.length && fraseMarcos(marcosNec, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>Com o aporte necessário (${r0(c.aporteNecessario)}/mês).</b> ${escHtml(fraseMarcos(marcosNec, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosNec) ? ` Velocidade: ${escHtml(velocidadeEntreMarcos(marcosNec))}` : ''}</p>` : ''}
-  ${cen.length ? `<h4 class="mt-grupo">E se a renda fosse menor?</h4><div class="mt-cenarios">${cen.map((x) => `<div class="mt-cen"><span class="mt-cen-tit">Renda ${Math.round(x.reducao * 100)}% menor${x.renda ? ` (${r0(x.renda)}/mês)` : ''}</span><b>${r0(x.montante)}</b><span>precisaria juntar · <span class="mt-bom">−${r0(x.economia)}</span></span>${x.aporteNecessario != null ? `<span>aporte até o prazo: <b>${r0(x.aporteNecessario)}</b>/mês</span>` : ''}${x.data ? `<span>no seu ritmo: <b>${rotuloMes(x.data)}</b>${x.mesesAMenos > 0 ? ` (${rotuloDuracao(x.mesesAMenos)} antes)` : ''}</span>` : ''}${x.comIsso ? `<span class="mt-fraco">${escHtml(x.comIsso)}</span>` : ''}</div>`).join('')}</div>
+  <div class="card card-flat"><div class="tabela-wrap"><table class="tabela tabela-baixa mt-tabela"><thead><tr><th scope="col">Marco</th><th scope="col">No seu ritmo (${r0(c.aporteAtual)}/mês)</th>${marcosNec.length ? `<th scope="col">No necessário (${r0(c.aporteNecessario)}/mês)</th>` : ''}</tr></thead><tbody>${linhas}</tbody></table></div></div>
+  ${fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>No seu ritmo (${r0(c.aporteAtual)}/mês).</b> ${esc(fraseMarcos(marcosRitmo, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosRitmo) ? ` Velocidade: ${esc(velocidadeEntreMarcos(marcosRitmo))}` : ''}</p>` : ''}
+  ${marcosNec.length && fraseMarcos(marcosNec, { alvo: c.alvoBRL }) ? `<p class="mt-nota mt-comisso-p"><b>Com o aporte necessário (${r0(c.aporteNecessario)}/mês).</b> ${esc(fraseMarcos(marcosNec, { alvo: c.alvoBRL }))}${velocidadeEntreMarcos(marcosNec) ? ` Velocidade: ${esc(velocidadeEntreMarcos(marcosNec))}` : ''}</p>` : ''}
+  ${cen.length ? `<h4 class="mt-grupo">E se a renda fosse menor?</h4><div class="mt-cenarios">${cen.map((x) => `<div class="mt-cen"><span class="mt-cen-tit">Renda ${Math.round(x.reducao * 100)}% menor${x.renda ? ` (${r0(x.renda)}/mês)` : ''}</span><b>${r0(x.montante)}</b><span>precisaria juntar · <span class="mt-bom">−${r0(x.economia)}</span></span>${x.aporteNecessario != null ? `<span>aporte até o prazo: <b>${r0(x.aporteNecessario)}</b>/mês</span>` : ''}${x.data ? `<span>no seu ritmo: <b>${rotuloMes(x.data)}</b>${x.mesesAMenos > 0 ? ` (${rotuloDuracao(x.mesesAMenos)} antes)` : ''}</span>` : ''}${x.comIsso ? `<span class="mt-fraco">${esc(x.comIsso)}</span>` : ''}</div>`).join('')}</div>
   <p class="mt-nota">Montante = renda x 12 / ${pct(c.aposentadoria ? c.aposentadoria.taxa : (meta.especificos && meta.especificos.dyAnual) || 0, 1)}${rendaBase ? `, a partir da renda de ${r0(rendaBase)}/mês` : ''}.</p>` : ''}
 </section>`;
   }
@@ -837,27 +942,27 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const detalheAtivo = (a, parte) => {
       const ir = a.irResgate;
       const imposto = ir ? ((ir.ir || 0) + (ir.iof || 0)) * parte : 0;
-      const sub = [ROTULO_CLASSE[a.classe], a.classe === 'rf' && a.marca ? ROTULO_MARCA[a.marca] : null, a.instituicao, a.indexador, a.vencimento ? `vence ${a.vencimento}` : null].filter(Boolean).map(escHtml).join(' · ');
-      return `<li class="mt-v-ativo"><span class="mt-v-nome"><a href="${escHtml(urlAtivo(a.ref))}">${escHtml(a.nome)}</a><em>${sub}</em>${ir && imposto > 0.004 ? `<em class="mt-v-ir">IR${ir.iof ? '+IOF' : ''} se resgatasse hoje: <span class="mt-ruim">−${formatMoeda(imposto)}</span> · líquido ${formatMoeda(a.valorBRL * parte - imposto)}</em>` : (ir && ir.isento ? '<em class="mt-v-ir">isento de IR</em>' : '')}</span><b class="mono">${formatMoeda(a.valorBRL * parte)}</b></li>`;
+      const sub = [ROTULO_CLASSE[a.classe], a.classe === 'rf' && a.marca ? ROTULO_MARCA[a.marca] : null, a.instituicao, a.indexador, a.vencimento ? `vence ${a.vencimento}` : null].filter(Boolean).map(esc).join(' · ');
+      return `<li class="mt-v-ativo"><span class="mt-v-nome"><a href="${esc(urlAtivo(a.ref))}">${esc(a.nome)}</a><em>${sub}</em>${ir && imposto > 0.004 ? `<em class="mt-v-ir">IR${ir.iof ? '+IOF' : ''} se resgatasse hoje: <span class="mt-ruim">−${formatMoeda(imposto)}</span> · líquido ${formatMoeda(a.valorBRL * parte - imposto)}</em>` : (ir && ir.isento ? '<em class="mt-v-ir">isento de IR</em>' : '')}</span><b class="mono">${formatMoeda(a.valorBRL * parte)}</b></li>`;
     };
     const linhas = c.vinculos.map((v) => {
       if (v.tipo === 'saldo') {
         const editando = estado.editandoSaldo === v.id;
         const hist = (v.historico || []).slice(-4).reverse();
-        return `<li class="mt-v-saldo"><span class="mt-v-nome"><strong>${iconeNum('carteira', 13)} Saldo em conta · ${escHtml(v.instituicao)}</strong><em>${formatMoeda(Number(v.saldo) || 0, v.moeda || 'BRL')}${v.moeda !== 'BRL' && v.cotacao ? ` x ${formatMoeda(v.cotacao, 'BRL', { casas: 2 })}` : ''} · atualizado ${v.atualizadoEm ? v.atualizadoEm.split('-').reverse().join('/') : '—'}${infoHtml(EXPLICACOES.saldoConta)}</em>
+        return `<li class="mt-v-saldo"><span class="mt-v-nome"><strong>${iconeNum('carteira', 13)} Saldo em conta · ${esc(v.instituicao)}</strong><em>${formatMoeda(Number(v.saldo) || 0, v.moeda || 'BRL')}${v.moeda !== 'BRL' && v.cotacao ? ` x ${formatMoeda(v.cotacao, 'BRL', { casas: 2 })}` : ''} · atualizado ${v.atualizadoEm ? v.atualizadoEm.split('-').reverse().join('/') : '—'}${infoHtml(EXPLICACOES.saldoConta)}</em>
           ${hist.length > 1 ? `<em class="mt-v-hist">antes: ${hist.slice(1).map((h) => `${formatMoeda(h.saldo, v.moeda || 'BRL', { casas: 0 })} em ${h.data.split('-').reverse().slice(0, 2).join('/')}`).join(' · ')}</em>` : ''}
-          ${arquivada ? '' : (editando ? `<span class="mt-saldo-form"><label class="sr" for="mtSaldoNovo">Novo saldo</label><span class="mt-entrada"><span class="mt-prefixo">${escHtml(v.moeda || 'BRL')}</span><input id="mtSaldoNovo" inputmode="decimal" value="${numParaCampo(Number(v.saldo) || 0)}"></span><button type="button" class="btn btn-primary mt-btn-sm" data-saldo-salvar="${escHtml(v.id)}">Salvar</button><button type="button" class="btn btn-ghost mt-btn-sm" data-saldo-cancelar>Cancelar</button></span>` : `<button type="button" class="mt-link" data-saldo-editar="${escHtml(v.id)}">Atualizar saldo</button>`)}</span>
+          ${arquivada ? '' : (editando ? `<span class="mt-saldo-form"><label class="sr" for="mtSaldoNovo">Novo saldo</label><span class="mt-entrada"><span class="mt-prefixo">${esc(v.moeda || 'BRL')}</span><input id="mtSaldoNovo" inputmode="decimal" value="${numParaCampo(Number(v.saldo) || 0)}"></span><button type="button" class="btn btn-primary mt-btn-sm" data-saldo-salvar="${esc(v.id)}">Salvar</button><button type="button" class="btn btn-ghost mt-btn-sm" data-saldo-cancelar>Cancelar</button></span>` : `<button type="button" class="mt-link" data-saldo-editar="${esc(v.id)}">Atualizar saldo</button>`)}</span>
           <b class="mono">${formatMoeda(v.valorBRL)}</b></li>`;
       }
       const parte = v.base > 0 ? v.valorBRL / v.base : 0;
       const modo = v.modo === 'fracao' ? `${pct(v.fracao, 0)} de ${r0(v.base)}` : v.modo === 'valor' ? `valor fixo (de ${r0(v.base)})` : 'total';
       if (v.tipo === 'ativo') {
         const a = v.ativos[0];
-        if (!a) return `<li><span class="mt-v-nome">${escHtml(v.nome || v.id)}<em class="mt-ruim">não encontrado na carteira hoje</em></span><b class="mono">${formatMoeda(0)}</b></li>`;
-        return detalheAtivo(a, parte).replace('<em>', `<em>${v.modo !== 'total' ? `${escHtml(modo)} · ` : ''}`);
+        if (!a) return `<li><span class="mt-v-nome">${esc(v.nome || v.id)}<em class="mt-ruim">não encontrado na carteira hoje</em></span><b class="mono">${formatMoeda(0)}</b></li>`;
+        return detalheAtivo(a, parte).replace('<em>', `<em>${v.modo !== 'total' ? `${esc(modo)} · ` : ''}`);
       }
       const nome = v.tipo === 'classe' ? `Toda a classe ${ROTULO_CLASSE[v.classe]}` : ROTULO_MARCA[v.marca];
-      return `<li class="mt-v-grupo"><details><summary><span class="mt-v-nome"><strong>${escHtml(nome)}</strong><em>${v.ativos.length} ${v.classe === 'rf' || v.tipo === 'marca' ? 'títulos' : 'ativos'} · ${escHtml(modo)}${v.impostoBRL > 0.004 ? ` · <span class="mt-ruim">IR −${r0(v.impostoBRL)}</span>` : ''}</em></span><b class="mono">${formatMoeda(v.valorBRL)}</b></summary><ul>${v.ativos.slice().sort((x, y) => y.valorBRL - x.valorBRL).map((a) => detalheAtivo(a, parte)).join('')}</ul></details></li>`;
+      return `<li class="mt-v-grupo"><details><summary><span class="mt-v-nome"><strong>${esc(nome)}</strong><em>${v.ativos.length} ${v.classe === 'rf' || v.tipo === 'marca' ? 'títulos' : 'ativos'} · ${esc(modo)}${v.impostoBRL > 0.004 ? ` · <span class="mt-ruim">IR −${r0(v.impostoBRL)}</span>` : ''}</em></span><b class="mono">${formatMoeda(v.valorBRL)}</b></summary><ul>${v.ativos.slice().sort((x, y) => y.valorBRL - x.valorBRL).map((a) => detalheAtivo(a, parte)).join('')}</ul></details></li>`;
     }).join('');
     const liquidoLinha = c.liquido.impostoBRL > 0 || reserva
       ? `<li class="total liquido"><span>Líquido se resgatasse hoje${infoHtml(EXPLICACOES.liquido)}</span><b class="mono">${formatMoeda(c.atualLiquidoBRL)}</b></li>${c.liquido.rvSemEstimativa ? '<li class="nota"><span class="mt-fraco">IR de ações/FIIs não estimado (depende do preço médio e da isenção de R$ 20 mil/mês em ações).</span></li>' : ''}`
@@ -870,20 +975,28 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const chave = chaveSugestaoInvestimento(meta, c);
     const sug = SUGESTOES_INVESTIMENTO[chave];
     const ROT = { bom: 'Combina', atencao: 'Atenção', ruim: 'Não combina' };
-    const itens = av.itens.map((x) => `<li class="mt-av ${x.veredito}"><span class="mt-av-selo">${x.veredito === 'bom' ? '✓' : x.veredito === 'ruim' ? '✕' : '!'}</span><span><b>${escHtml(x.nome || (x.vinculo.tipo === 'classe' ? `Classe ${ROTULO_CLASSE[x.vinculo.classe]}` : ROTULO_MARCA[x.vinculo.marca] || ''))}</b> <em class="mt-av-rot">${ROT[x.veredito]}</em><br>${escHtml(x.motivo)}</span></li>`).join('');
+    const itens = av.itens.map((x) => `<li class="mt-av ${x.veredito}"><span class="mt-av-selo">${x.veredito === 'bom' ? '✓' : x.veredito === 'ruim' ? '✕' : '!'}</span><span><b>${esc(x.nome || (x.vinculo.tipo === 'classe' ? `Classe ${ROTULO_CLASSE[x.vinculo.classe]}` : ROTULO_MARCA[x.vinculo.marca] || ''))}</b> <em class="mt-av-rot">${ROT[x.veredito]}</em><br>${esc(x.motivo)}</span></li>`).join('');
     return `<section class="mt-bloco mt-bloco-sug"><div class="mt-bloco-cab"><h3>Seus investimentos combinam?${infoHtml(EXPLICACOES.avaliacao)}</h3></div>
-  <p class="mt-av-resumo ${!av.itens.length ? 'neutro' : av.resumo.ruim ? 'ruim' : av.resumo.atencao ? 'atencao' : 'bom'}">${escHtml(av.resumo.texto)}</p>
+  <p class="mt-av-resumo ${!av.itens.length ? 'neutro' : av.resumo.ruim ? 'ruim' : av.resumo.atencao ? 'atencao' : 'bom'}">${esc(av.resumo.texto)}</p>
   ${itens ? `<ul class="mt-avs">${itens}</ul>` : ''}
-  ${sug ? `<details class="mt-sug-inv" ${av.itens.length ? '' : 'open'}><summary>O que as fontes sugerem: ${escHtml(sug.titulo)}</summary>
-    <ul>${sug.itens.map((i) => `<li><b>${escHtml(i.nome)}</b> - ${escHtml(i.porque)}</li>`).join('')}</ul>
-    <p class="mt-nota">${escHtml(sug.evitar)}</p>
-    <p class="mt-fontes">Fontes: ${sug.fontes.map((f) => `<a href="${escHtml(f.url)}" target="_blank" rel="noopener noreferrer">${escHtml(f.nome)}</a>`).join(' · ')}</p>
+  ${sug ? `<details class="mt-sug-inv" ${av.itens.length ? '' : 'open'}><summary>O que as fontes sugerem: ${esc(sug.titulo)}</summary>
+    <ul>${sug.itens.map((i) => `<li><b>${esc(i.nome)}</b> - ${esc(i.porque)}</li>`).join('')}</ul>
+    <p class="mt-nota">${esc(sug.evitar)}</p>
+    <p class="mt-fontes">Fontes: ${sug.fontes.map((f) => `<a href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">${esc(f.nome)}</a>`).join(' · ')}</p>
     <p class="mt-nota">Resumo educativo dessas fontes, não é recomendação individual.</p></details>` : ''}
 </section>`;
   }
 
   // ---------------- gráficos ----------------
-  function larguraDe(caixa) { return (caixa && caixa.clientWidth) || 640; }
+  // 06/10/2026 (Onda 3): os três gráficos agora são da biblioteca assets/js/charts (traduzidos por metas-graficos.js);
+  // trocar o período/modo MORFA o gráfico que já está na caixa em vez de redesenhar do zero.
+  const textoCaixa = (caixa, texto, { carregando = false } = {}) => {
+    limparGrafico(caixa);
+    const p = doc.createElement('p');
+    p.className = `hint${carregando ? ' mt-carregando-hist' : ''}`;
+    p.textContent = texto;
+    caixa.append(p);
+  };
 
   function desenharHistorico(meta, c) {
     const caixa = doc.getElementById('mtHistGrafico');
@@ -891,27 +1004,18 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const leg = doc.getElementById('mtHistLegenda');
     const anal = doc.getElementById('mtHistAnalise');
     const semVinculos = !(meta.vinculos || []).length;
-    if (semVinculos) { caixa.innerHTML = '<p class="hint">Vincule investimentos ou um saldo em conta pra ver como a meta evoluiu mês a mês.</p>'; return; }
-    if (!estado.historico) { caixa.innerHTML = '<p class="hint mt-carregando-hist">Carregando o histórico…</p>'; return; }
+    if (semVinculos) { textoCaixa(caixa, 'Vincule investimentos ou um saldo em conta pra ver como a meta evoluiu mês a mês.'); return; }
+    if (!estado.historico) { textoCaixa(caixa, 'Carregando o histórico…', { carregando: true }); return; }
     const h = estado.historico[meta.id];
     if (!h || !h.meses || h.meses.length < 2) {
-      caixa.innerHTML = `<p class="hint">${estado.historicoErro ? `Histórico indisponível agora (${escHtml(estado.historicoErro)}).` : 'Ainda não há histórico suficiente (precisa de pelo menos 2 meses com valor).'}</p>`;
+      textoCaixa(caixa, estado.historicoErro ? 'Não consegui carregar o histórico agora. Atualize os dados para tentar de novo.' : 'Ainda não há histórico suficiente (precisa de pelo menos 2 meses com valor).');
       return;
     }
     const meses = recortarMeses(h.meses, estado.periodos.hist);
-    const largura = larguraDe(caixa);
-    caixa.innerHTML = graficoHistoricoSvg(meses, { largura, altura: largura < 480 ? 230 : 260, alvo: c.alvoBRL, modo: estado.modoHist });
-    if (leg) leg.innerHTML = estado.modoHist === 'mensal' ? '<i class="aporte"></i>aporte do mês<i class="rend"></i>rendimento/valorização do mês' : '<i class="hist"></i>valor da meta no fim do mês<i class="aporte"></i>aporte do mês (compras - vendas)';
-    ligarTooltipGrafico(caixa, (i) => {
-      const p = meses[i];
-      const ant = i > 0 ? meses[i - 1] : null;
-      const rend = ant ? p.valor - ant.valor - (p.fluxo || 0) : null;
-      return `<div class="mt-tt-data">${rotuloMes(p.mes)}${p.mes === mesDe(estado.ctx.hoje) ? ' (até hoje)' : ''}</div>
-        <div class="mt-tt-item"><i class="hist"></i>Valor<b>${formatMoeda(p.valor)}</b></div>
-        <div class="mt-tt-item"><i class="aporte"></i>Aporte<b class="${(p.fluxo || 0) < 0 ? 'mt-ruim' : ''}">${(p.fluxo || 0) < 0 ? '−' : ''}${formatMoeda(Math.abs(p.fluxo || 0))}</b></div>
-        ${rend != null ? `<div class="mt-tt-item"><i class="rend"></i>Rendimento<b class="${rend < 0 ? 'mt-ruim' : 'mt-bom'}">${rend < 0 ? '−' : '+'}${formatMoeda(Math.abs(rend))}</b></div>` : ''}
-        ${c.alvoBRL ? `<div class="mt-tt-item">% do alvo<b>${pct(p.valor / c.alvoBRL)}</b></div>` : ''}`;
-    });
+    const spec = opcoesHistorico(meses, { alvo: c.alvoBRL, modo: estado.modoHist, mesAtual: mesDe(estado.ctx.hoje) });
+    if (!spec) { textoCaixa(caixa, 'Ainda não há histórico suficiente nesse período.'); return; }
+    montarGrafico(caixa, spec);
+    if (leg) leg.hidden = true; // a legenda agora é a da própria biblioteca
     if (anal) renderAnalise(doc, anal, analisarHistoricoMeta({ meses, calc: c, indices: estado.indices }), { titulo: 'Análise do histórico' });
   }
 
@@ -919,21 +1023,15 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const caixa = doc.getElementById('mtRendaGrafico');
     if (!caixa) return;
     const anal = doc.getElementById('mtRendaAnalise');
-    if (!estado.historico) { caixa.innerHTML = '<p class="hint">Carregando os proventos mês a mês…</p>'; return; }
+    if (!estado.historico) { textoCaixa(caixa, 'Carregando os proventos mês a mês…', { carregando: true }); return; }
     const h = estado.historico[meta.id];
     const mesAtual = mesDe(estado.ctx.hoje);
     const completa = comMedia12((h && h.renda) || [], mesAtual);
-    if (completa.length < 2) { caixa.innerHTML = '<p class="hint">Ainda não há proventos suficientes pra montar a evolução mensal.</p>'; return; }
+    if (completa.length < 2) { textoCaixa(caixa, 'Ainda não há proventos suficientes pra montar a evolução mensal.'); return; }
     const renda = estado.periodos.renda === 'tudo' ? completa : recortarMeses(completa, estado.periodos.renda).slice(1);
-    const largura = larguraDe(caixa);
-    caixa.innerHTML = graficoRendaSvg(renda, { largura, altura: largura < 480 ? 200 : 220, alvo: c.renda ? c.renda.alvo : null, mesAtual });
-    ligarTooltipGrafico(caixa, (i) => {
-      const p = renda[i];
-      return `<div class="mt-tt-data">${rotuloMes(p.mes)}${p.mes === mesAtual ? ' (parcial)' : ''}</div>
-        <div class="mt-tt-item"><i class="renda"></i>Proventos<b>${formatMoeda(p.valor)}</b></div>
-        ${p.media12 != null ? `<div class="mt-tt-item"><i class="media"></i>Média 12 meses<b>${formatMoeda(p.media12)}</b></div>` : ''}
-        ${c.renda && c.renda.alvo ? `<div class="mt-tt-item">% da meta<b>${pct(p.valor / c.renda.alvo)}</b></div>` : ''}`;
-    });
+    const spec = opcoesRenda(renda, { alvo: c.renda ? c.renda.alvo : null, mesAtual });
+    if (!spec) { textoCaixa(caixa, 'Ainda não há proventos suficientes nesse período.'); return; }
+    montarGrafico(caixa, { tipo: 'linha', opcoes: spec });
     if (anal) renderAnalise(doc, anal, analisarRendaMensal(completa.filter((x) => renda.some((r) => r.mes === x.mes)), c, { hoje: estado.ctx.hoje }), { titulo: 'Análise da renda' });
   }
 
@@ -954,19 +1052,19 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     const caixa = doc.getElementById('mtGrafico');
     if (!caixa) return;
     const pontos = pontosProjecao(c);
-    const largura = larguraDe(caixa);
-    caixa.innerHTML = graficoProjecaoSvg(c, { largura, altura: largura < 480 ? 210 : 250, hoje: estado.ctx.hoje, pontos, marcos });
-    ligarTooltipGrafico(caixa, (i) => {
-      const p = pontos[i];
-      const m = marcos.find((x) => x.mes === p.mes && !x.ja);
-      const venc = c.vencimentos ? c.vencimentos.eventos.find((e) => e.mes === p.mes) : null;
-      return `<div class="mt-tt-data">${rotuloMes(p.mes)}${i ? ` · daqui a ${rotuloDuracao(mesesEntre(mesDe(estado.ctx.hoje), p.mes))}` : ' (hoje)'}</div>
-        <div class="mt-tt-item"><i class="ritmo"></i>No seu ritmo<b>${formatMoeda(p.ritmo)}</b></div>
-        ${p.necessaria != null ? `<div class="mt-tt-item"><i class="necessaria"></i>Necessária<b>${formatMoeda(p.necessaria)}</b></div>` : ''}
-        ${c.alvoBRL ? `<div class="mt-tt-item">% do alvo (ritmo)<b>${pct(p.ritmo / c.alvoBRL)}</b></div>` : ''}
-        ${m ? `<div class="mt-tt-marco">★ ${escHtml(m.rotulo)}${m.idade ? ` · ${m.idade} anos` : ''}</div>` : ''}
-        ${venc ? `<div class="mt-tt-marco">⏳ vence ${escHtml(venc.titulos.map((t) => t.nome).join(' e '))}: entram ${formatMoeda(venc.liquido, 'BRL', { casas: 0 })} líquidos</div>` : ''}`;
-    });
+    const spec = opcoesProjecao(c, { hoje: estado.ctx.hoje, pontos, marcos, duracaoAte: (mes) => rotuloDuracao(mesesEntre(mesDe(estado.ctx.hoje), mes)) });
+    if (!spec) { textoCaixa(caixa, 'Sem dados pra projetar (falta o alvo).'); return; }
+    montarGrafico(caixa, { tipo: 'linha', opcoes: spec });
+    // marcos e vencimentos que caem no trecho desenhado: ficam também em texto (o tooltip do mês mostra o mesmo)
+    const notas = doc.getElementById('mtGraficoNotas');
+    if (notas) {
+      const itens = [];
+      if (spec.notas.prazo) itens.push(`prazo da meta: ${rotuloMes(c.dataAlvo)}`);
+      spec.notas.marcos.forEach((m) => itens.push(`${m.rotulo} em ${rotuloMes(m.mes)}`));
+      spec.notas.vencimentos.forEach((v) => itens.push(`vence ${v.titulos.map((t) => t.nome).join(' e ')} em ${rotuloMes(v.mes)}`));
+      notas.hidden = !itens.length;
+      notas.textContent = itens.length ? `No gráfico (passe o mouse no mês): ${itens.join(' · ')}.` : '';
+    }
     const anal = doc.getElementById('mtProjAnalise');
     if (anal) renderAnalise(doc, anal, analisarProjecaoMeta(c, { pontos, marcos, hoje: estado.ctx.hoje }), { titulo: 'Análise da projeção' });
   }
@@ -1040,7 +1138,7 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     // 05/10/2026: "Com isso, sua meta de X chega em ..., o 1º milhão em ..." (só pra alvo em milhões)
     const fraseSim = ({ alvo, atual, aporte, rendimento }) => {
       const rm = resumoMarcos(c, { hoje: estado.ctx.hoje, alvo, atual, aporte, taxa: taxaMensal(rendimento || 0), entradas: null });
-      return rm.frase ? ` <span class="mt-comisso-sim">${escHtml(rm.frase)}${rm.velocidade ? ` <em>${escHtml(rm.velocidade)}</em>` : ''}</span>` : '';
+      return rm.frase ? ` <span class="mt-comisso-sim">${esc(rm.frase)}${rm.velocidade ? ` <em>${esc(rm.velocidade)}</em>` : ''}</span>` : '';
     };
     caixa.innerHTML = `<div class="mt-bloco-cab"><h3>Simulador</h3></div>
 <div class="filter-tabs mt-sim-modo"><button type="button" class="filter-tab ${s.modo === 'data' ? 'active' : ''}" data-sim-modo="data">Até uma data</button><button type="button" class="filter-tab ${s.modo === 'aporte' ? 'active' : ''}" data-sim-modo="aporte">Com um aporte</button></div>
@@ -1077,10 +1175,10 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
       const total = itens.reduce((s, it) => s + ((cotacao(it.moeda, cambio) || 0) * (Number(it.valor) || 0)), 0);
       caixa.innerHTML = `${itens.length ? `<ul class="mt-itens">${itens.map((it, i) => `<li class="${it.concluido ? 'feito' : ''}">
   <label class="mt-check" title="Já pago"><input type="checkbox" data-item-check="${i}" ${it.concluido ? 'checked' : ''} ${somenteLeitura ? 'disabled' : ''}><span class="sr">Já pago</span></label>
-  <input class="mt-item-nome" data-item-nome="${i}" value="${escHtml(it.nome)}" aria-label="Item" ${somenteLeitura ? 'disabled' : ''}>
+  <input class="mt-item-nome" data-item-nome="${i}" value="${esc(it.nome)}" aria-label="Item" ${somenteLeitura ? 'disabled' : ''}>
   <span class="mt-entrada mt-item-valor"><select data-item-moeda="${i}" aria-label="Moeda" ${somenteLeitura ? 'disabled' : ''}>${MOEDAS.map((m) => `<option ${m === it.moeda ? 'selected' : ''}>${m}</option>`).join('')}</select><input data-item-valor="${i}" inputmode="decimal" value="${numParaCampo(it.valor)}" aria-label="Valor" ${somenteLeitura ? 'disabled' : ''}></span>
   <span class="mt-item-brl mono">${it.moeda !== 'BRL' && cotacao(it.moeda, cambio) ? formatMoeda((Number(it.valor) || 0) * cotacao(it.moeda, cambio), 'BRL', { casas: 0 }) : ''}</span>
-  ${somenteLeitura ? '' : `<button type="button" class="mt-x" data-item-remover="${i}" aria-label="Remover ${escHtml(it.nome)}">×</button>`}
+  ${somenteLeitura ? '' : `<button type="button" class="mt-x" data-item-remover="${i}" aria-label="Remover ${esc(it.nome)}">×</button>`}
 </li>`).join('')}</ul><p class="mt-itens-total"><span>Total</span><b class="mono">${formatMoeda(total)}</b></p>` : ''}
 ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ Adicionar item</button>'}`;
     }
@@ -1124,8 +1222,8 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
   async function salvar(meta, { manterDetalhe = false, silencioso = false } = {}) {
     const r = await salvarMetaImpl(token, meta);
     if (!r || !r.ok) {
-      const msg = `Não salvou: ${(r && r.erro) || 'erro desconhecido'}`;
-      if (!silencioso && win && win.alert) win.alert(msg); else console.error(msg);
+      // 06/10/2026 (A-62): toast no lugar de window.alert (e a edição silenciosa de item também avisa, antes só ia pro console)
+      toast.erro(`Não consegui salvar a meta${r && r.erro ? ` (${r.erro})` : ''}. Tente de novo.`, { doc });
       return null;
     }
     const salva = r.meta || { ...meta, id: r.id };
@@ -1134,6 +1232,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     if (idx >= 0) lista.splice(idx, 0, salva); else lista.push(salva);
     estado.resposta = { ...estado.resposta, metas: lista };
     gravarCacheDados('metas', estado.resposta);
+    if (!silencioso) toast.ok('Meta salva.', { doc });
     if (manterDetalhe && silencioso) {
       // edição de sub-item: só atualiza os números (não redesenha os campos que estão sendo digitados)
       return salva;
@@ -1145,9 +1244,10 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
   }
 
   async function arquivar(meta, restaurar = false) {
-    if (!restaurar && win && win.confirm && !win.confirm(`Arquivar "${meta.nome}"? Ela sai da lista (fica em "Arquivadas" e dá pra restaurar - ou excluir de vez de lá).`)) return;
+    if (!restaurar && !(await confirmar({ titulo: `Arquivar "${meta.nome}"?`, mensagem: 'Ela sai da lista e fica em "Arquivadas": dá pra restaurar - ou excluir de vez de lá.', confirmarTexto: 'Arquivar', doc }))) return;
     const r = await excluirMetaImpl(token, meta.id, { restaurar });
-    if (!r || !r.ok) { if (win && win.alert) win.alert(`Não deu: ${(r && r.erro) || 'erro desconhecido'}`); return; }
+    if (!r || !r.ok) { toast.erro(`Não consegui ${restaurar ? 'restaurar' : 'arquivar'} a meta${r && r.erro ? ` (${r.erro})` : ''}.`, { doc }); return; }
+    toast.ok(restaurar ? `"${meta.nome}" voltou pras metas ativas.` : `"${meta.nome}" arquivada.`, { doc });
     const m = { ...meta, status: restaurar ? 'ativa' : 'arquivada' };
     const metas = (estado.resposta.metas || []).filter((x) => x.id !== meta.id);
     const arquivadas = (estado.resposta.arquivadas || []).filter((x) => x.id !== meta.id);
@@ -1159,9 +1259,10 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 
   // 03/10/2026 (Tiago: "me diga como excluí-las para eu iniciar do zero"): apaga de verdade (só arquivada)
   async function excluirDefinitivo(meta) {
-    if (win && win.confirm && !win.confirm(`Excluir "${meta.nome}" DEFINITIVAMENTE? A linha sai da aba aux_metas e não dá pra desfazer.`)) return;
+    if (!(await confirmar({ titulo: `Excluir "${meta.nome}" de vez?`, mensagem: 'A meta sai da planilha (aba aux_metas) e não dá pra desfazer.', confirmarTexto: 'Excluir definitivamente', perigo: true, doc }))) return;
     const r = await excluirDefinitivoImpl(token, meta.id);
-    if (!r || !r.ok) { if (win && win.alert) win.alert(`Não excluiu: ${(r && r.erro) || 'erro desconhecido'}`); return; }
+    if (!r || !r.ok) { toast.erro(`Não consegui excluir a meta${r && r.erro ? ` (${r.erro})` : ''}.`, { doc }); return; }
+    toast.ok(`"${meta.nome}" excluída.`, { doc });
     const arquivadas = (estado.resposta.arquivadas || []).filter((x) => x.id !== meta.id);
     estado.resposta = { ...estado.resposta, arquivadas };
     gravarCacheDados('metas', estado.resposta);
@@ -1208,7 +1309,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const topo = rolagem && a._passoDesenhado === a.passo ? rolagem.scrollTop : 0;
     el.dialogo.innerHTML = `<div class="mt-dialogo" role="dialog" aria-modal="true" aria-labelledby="mtDialogoTitulo">
   <header class="mt-dialogo-cab">
-    <h2 id="mtDialogoTitulo">${a.editando ? `Editar "${escHtml(m.nome)}"` : 'Nova meta'}</h2>
+    <h2 id="mtDialogoTitulo">${a.editando ? `Editar "${esc(m.nome)}"` : 'Nova meta'}</h2>
     <button type="button" class="mt-x mt-fechar" data-fechar aria-label="Fechar">×</button>
   </header>
   <ol class="mt-passos">${PASSOS.map((p, i) => `<li class="${i + 1 === a.passo ? 'atual' : i + 1 < a.passo ? 'feito' : ''}"><button type="button" data-passo="${i + 1}" ${i + 1 > a.passo && !(a.editando || a.passo > 1) ? 'disabled' : ''}><span>${i + 1}</span>${p}</button></li>`).join('')}</ol>
@@ -1273,7 +1374,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       const ap = aparenciaMeta(fake);
       const resumo = tipo === 'acumulo' ? (CATEGORIAS_ACUMULO[categoria].dica || '') : TIPOS_META[tipo].resumo;
       const ativo = m.tipo === tipo && (tipo !== 'acumulo' || m.categoria === categoria);
-      return `<button type="button" class="mt-tipo ${ativo ? 'ativo' : ''}" data-tipo="${tipo}" ${categoria ? `data-categoria="${categoria}"` : ''} style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">${seloMetaHtml(fake, { tamanho: 34 })}<span><strong>${escHtml(ap.rotulo)}</strong><em>${escHtml(resumo)}</em></span></button>`;
+      return `<button type="button" class="mt-tipo ${ativo ? 'ativo' : ''}" data-tipo="${tipo}" ${categoria ? `data-categoria="${categoria}"` : ''} style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">${seloMetaHtml(fake, { tamanho: 34 })}<span><strong>${esc(ap.rotulo)}</strong><em>${esc(resumo)}</em></span></button>`;
     };
     return `<p class="mt-dialogo-dica">Que tipo de meta? Cada tipo pede os dados certos e calcula do jeito certo.</p>
 <h4 class="mt-grupo">Patrimônio e renda</h4><div class="mt-tipos">${['rendaPassiva', 'reservaEmergencia', 'aposentadoria'].map((t) => tile(t)).join('')}</div>
@@ -1281,20 +1382,20 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 <h4 class="mt-grupo">Juntar até uma data</h4><div class="mt-tipos compacto">${Object.keys(CATEGORIAS_ACUMULO).map((k) => tile('acumulo', k)).join('')}</div>`;
   }
 
-  function campo({ caminho, rotulo, formato = 'dinheiro', ajuda = '', moeda = null, opcoes = null, largura = '', foco = false, dica = '' }) {
+  function campo({ caminho, rotulo, formato = 'dinheiro', ajuda = '', moeda = null, opcoes = null, largura = '', foco = false, dica = '', padrao = null }) {
     const m = estado.assistente.meta;
     const v = lerCaminho(m, caminho);
     const rot = `${rotulo}${dica ? infoHtml(dica) : ''}`;
     let entrada;
-    if (formato === 'texto') entrada = `<input data-campo="${caminho}" data-formato="texto" value="${escHtml(v || '')}" ${foco ? 'data-foco' : ''}>`;
-    else if (formato === 'mes') entrada = `<input type="month" data-campo="${caminho}" data-formato="mes" value="${escHtml(v || '')}">`;
-    else if (formato === 'select') entrada = `<select data-campo="${caminho}" data-formato="select">${opcoes.map(([k, r]) => `<option value="${escHtml(k)}" ${String(v) === String(k) ? 'selected' : ''}>${escHtml(r)}</option>`).join('')}</select>`;
+    if (formato === 'texto') entrada = `<input data-campo="${caminho}" data-formato="texto" value="${esc(v || '')}" ${foco ? 'data-foco' : ''}>`;
+    else if (formato === 'mes') entrada = `<input type="month" data-campo="${caminho}" data-formato="mes" value="${esc(v || '')}">`;
+    else if (formato === 'select') entrada = `<select data-campo="${caminho}" data-formato="select">${opcoes.map(([k, r]) => `<option value="${esc(k)}" ${String(v) === String(k) ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`;
     else if (formato === 'bool') return `<label class="mt-campo mt-campo-bool ${largura}"><input type="checkbox" data-campo="${caminho}" data-formato="bool" ${v ? 'checked' : ''}><span>${rot}${ajuda ? `<em>${ajuda}</em>` : ''}</span></label>`;
     else {
       const mostra = formato === 'ano' ? (v == null ? '' : String(v)) : formato === 'pct' ? numParaCampo(v == null ? null : v * 100, 2) : numParaCampo(v, formato === 'int' ? 0 : 2);
-      const prefixo = formato === 'dinheiro' ? `<span class="mt-prefixo">${escHtml(moeda || 'R$')}</span>` : '';
+      const prefixo = formato === 'dinheiro' ? `<span class="mt-prefixo">${esc(moeda || 'R$')}</span>` : '';
       const sufixo = formato === 'pct' ? '<span class="mt-sufixo">%</span>' : '';
-      entrada = `<span class="mt-entrada">${prefixo}<input data-campo="${caminho}" data-formato="${formato}" inputmode="decimal" value="${mostra}" ${foco ? 'data-foco' : ''}>${sufixo}</span>`;
+      entrada = `<span class="mt-entrada">${prefixo}<input data-campo="${caminho}" data-formato="${formato}" inputmode="decimal" value="${mostra}" ${padrao != null ? `placeholder="${esc(String(padrao))}"` : ''} ${foco ? 'data-foco' : ''}>${sufixo}</span>`;
     }
     return `<label class="mt-campo ${largura}"><span>${rot}</span>${entrada}${ajuda ? `<em>${ajuda}</em>` : ''}</label>`;
   }
@@ -1337,8 +1438,8 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       f.push(campo({ caminho: 'dataAlvo', rotulo: 'Até quando', formato: 'mes' }));
     } else if (m.tipo === 'reservaEmergencia') {
       const cv = ref.reserva && ref.reserva.custoDeVida;
-      f.push(campo({ caminho: 'especificos.meses', rotulo: 'Meses de custo de vida', formato: 'int' }));
-      f.push(campo({ caminho: 'especificos.margem', rotulo: 'Sobra de segurança', formato: 'pct' }));
+      f.push(campo({ caminho: 'especificos.meses', rotulo: 'Meses de custo de vida', formato: 'int', padrao: ref.reserva && ref.reserva.meses != null ? ref.reserva.meses : null, ajuda: ref.reserva && ref.reserva.meses != null ? `vazio = segue a planilha (hoje ${ref.reserva.meses})` : '' }));
+      f.push(campo({ caminho: 'especificos.margem', rotulo: 'Sobra de segurança', formato: 'pct', padrao: ref.reserva && ref.reserva.sobra != null ? numParaCampo(ref.reserva.sobra * 100, 2) : null, ajuda: ref.reserva && ref.reserva.sobra != null ? `vazio = segue a planilha (hoje ${pct(ref.reserva.sobra)})` : '' }));
       f.push(campo({ caminho: 'especificos.usarDespesasPlanilha', rotulo: `Usar o custo de vida das Despesas essenciais${cv ? ` (${formatMoeda(cv)}/mês)` : ''}`, formato: 'bool', largura: 'largo' }));
       if (m.especificos && m.especificos.usarDespesasPlanilha === false) f.push(campo({ caminho: 'especificos.despesaMensal', rotulo: 'Despesa mensal' }));
       extra += '<p class="mt-nota largo">O status olha o valor LÍQUIDO: "Saldo ideal" só quando o que cairia na conta num resgate hoje (sem IR/IOF) cobre o alvo.</p>';
@@ -1406,7 +1507,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       extra += `<fieldset class="mt-grupo-campos"><legend>Sub-itens de custo <em>(opcional)</em></legend><div id="mtItensAssistente"></div></fieldset>`;
     }
     if (m.tipo === 'rendaPassiva') extra += `<div class="mt-campos">${campo({ caminho: 'exibirNaCarteira', rotulo: 'Mostrar essa meta na tela Carteiras', formato: 'bool', largura: 'largo' })}</div>`;
-    extra += `<label class="mt-campo largo"><span>Notas</span><textarea data-campo="notas" data-formato="texto" rows="2">${escHtml(m.notas || '')}</textarea></label>`;
+    extra += `<label class="mt-campo largo"><span>Notas</span><textarea data-campo="notas" data-formato="texto" rows="2">${esc(m.notas || '')}</textarea></label>`;
     return `<div class="mt-campos">${f.join('')}</div>${extra}`;
   }
 
@@ -1414,9 +1515,9 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const ss = (m.vinculos || []).map((v, i) => ({ v, i })).filter((x) => x.v.tipo === 'saldo');
     return `<h4 class="mt-grupo">Saldo em conta <em class="mt-fraco">(dinheiro parado, não investido - ex. Wise em euro)</em>${infoHtml(EXPLICACOES.saldoConta)}</h4>
 <ul class="mt-saldos-ed">${ss.map(({ v, i }) => `<li>
-  <input data-saldo="${i}" data-saldo-campo="instituicao" value="${escHtml(v.instituicao || '')}" placeholder="Instituição (ex. Wise)" aria-label="Instituição">
+  <input data-saldo="${i}" data-saldo-campo="instituicao" value="${esc(v.instituicao || '')}" placeholder="Instituição (ex. Wise)" aria-label="Instituição">
   <span class="mt-entrada"><select data-saldo="${i}" data-saldo-campo="moeda" aria-label="Moeda">${MOEDAS_SALDO.map((x) => `<option ${x === (v.moeda || 'EUR') ? 'selected' : ''}>${x}</option>`).join('')}</select><input data-saldo="${i}" data-saldo-campo="saldo" inputmode="decimal" value="${numParaCampo(v.saldo)}" aria-label="Saldo"></span>
-  <label class="mt-mini"><span>atualizado em</span><input type="date" data-saldo="${i}" data-saldo-campo="atualizadoEm" value="${escHtml(v.atualizadoEm || '')}" max="${escHtml(String(estado.ctx.hoje || '').slice(0, 10))}"></label>
+  <label class="mt-mini"><span>atualizado em</span><input type="date" data-saldo="${i}" data-saldo-campo="atualizadoEm" value="${esc(v.atualizadoEm || '')}" max="${esc(String(estado.ctx.hoje || '').slice(0, 10))}"></label>
   <span class="mt-saldo-brl mono">${v.moeda && v.moeda !== 'BRL' && cotacao(v.moeda, estado.ctx.cambio) ? `≈ ${r0((Number(v.saldo) || 0) * cotacao(v.moeda, estado.ctx.cambio))}` : ''}</span>
   <button type="button" class="mt-x" data-saldo-remover="${i}" aria-label="Remover saldo">×</button>
 </li>`).join('')}</ul>
@@ -1431,7 +1532,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     outras.forEach((o) => resolverVinculos(o.vinculos, ativos, estado.ctx.cambio).itens.forEach((v) => v.ativos.forEach((a) => {
       const lista = usoOutras.get(a.id) || []; lista.push(o.nome); usoOutras.set(a.id, lista);
     })));
-    const res = resolverVinculos(vinc, ativos, estado.ctx.cambio);
+    const res = resolverVinculos(vinc, ativos, estado.ctx.cambio, { ocupado: (estado.ctx.ocupadoPorMeta && estado.ctx.ocupadoPorMeta[m.id || '']) || {}, aliases: estado.ctx.aliases || null });
     const atalhos = [
       ...['emergencial', 'longo-prazo'].map((k) => ({ tipo: 'marca', chave: k, rotulo: ROTULO_MARCA[k], valor: ativos.filter((a) => a.classe === 'rf' && a.marca === k).reduce((s, a) => s + a.valorBRL, 0) })),
       ...['fiis', 'acoes', 'usa', 'rf'].map((k) => ({ tipo: 'classe', chave: k, rotulo: `Toda a classe ${ROTULO_CLASSE[k]}`, valor: ativos.filter((a) => a.classe === k).reduce((s, a) => s + a.valorBRL, 0) })),
@@ -1442,16 +1543,16 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       const v = vinc.find((x) => x.tipo === 'ativo' && x.id === a.id);
       const coberto = vinc.some((x) => (x.tipo === 'classe' && x.classe === a.classe) || (x.tipo === 'marca' && a.classe === 'rf' && x.marca === a.marca));
       const outrasMetas = usoOutras.get(a.id);
-      const sub = [a.descricao && a.descricao !== a.nome ? a.descricao : null, a.instituicao, a.classe === 'rf' ? ROTULO_MARCA[a.marca] : null].filter(Boolean).map(escHtml).join(' · ');
+      const sub = [a.descricao && a.descricao !== a.nome ? a.descricao : null, a.instituicao, a.classe === 'rf' ? ROTULO_MARCA[a.marca] : null].filter(Boolean).map(esc).join(' · ');
       return `<li class="${v || coberto ? 'marcado' : ''}">
-  <label class="mt-v-check"><input type="checkbox" data-vinc-ativo="${escHtml(a.id)}" ${v || coberto ? 'checked' : ''} ${coberto ? 'disabled' : ''}><span class="mt-v-nome">${escHtml(a.nome)}<em>${sub}${coberto ? ' · já entra pela classe/marca' : ''}${outrasMetas ? ` · <span class="mt-ruim">também em ${outrasMetas.map(escHtml).join(', ')}</span>` : ''}</em></span></label>
+  <label class="mt-v-check"><input type="checkbox" data-vinc-ativo="${esc(a.id)}" ${v || coberto ? 'checked' : ''} ${coberto ? 'disabled' : ''}><span class="mt-v-nome">${esc(a.nome)}<em>${sub}${coberto ? ' · já entra pela classe/marca' : ''}${outrasMetas ? ` · <span class="mt-ruim">também em ${outrasMetas.map(esc).join(', ')}</span>` : ''}</em></span></label>
   <b class="mono">${formatMoeda(a.valorBRL, 'BRL', { casas: 0 })}</b>
-  ${v ? `<span class="mt-v-modo"><select data-vinc-modo="${escHtml(a.id)}" aria-label="Quanto"><option value="total" ${v.modo === 'total' ? 'selected' : ''}>Tudo</option><option value="fracao" ${v.modo === 'fracao' ? 'selected' : ''}>%</option><option value="valor" ${v.modo === 'valor' ? 'selected' : ''}>R$</option></select>${v.modo !== 'total' ? `<input data-vinc-qtd="${escHtml(a.id)}" inputmode="decimal" value="${v.modo === 'fracao' ? numParaCampo((v.fracao || 0) * 100) : numParaCampo(v.valor)}" aria-label="${v.modo === 'fracao' ? 'Percentual' : 'Valor'}">` : ''}</span>` : '<span></span>'}
+  ${v ? `<span class="mt-v-modo"><select data-vinc-modo="${esc(a.id)}" aria-label="Quanto"><option value="total" ${v.modo === 'total' ? 'selected' : ''}>Tudo</option><option value="fracao" ${v.modo === 'fracao' ? 'selected' : ''}>%</option><option value="valor" ${v.modo === 'valor' ? 'selected' : ''}>R$</option></select>${v.modo !== 'total' ? `<input data-vinc-qtd="${esc(a.id)}" inputmode="decimal" value="${v.modo === 'fracao' ? numParaCampo((v.fracao || 0) * 100) : numParaCampo(v.valor)}" aria-label="${v.modo === 'fracao' ? 'Percentual' : 'Valor'}">` : ''}</span>` : '<span></span>'}
 </li>`;
     };
     return `<p class="mt-dialogo-dica">Quais investimentos são dessa meta? O progresso anda sozinho com o valor de hoje deles. Dá pra dedicar só uma parte (% ou valor fixo).</p>
-<div class="mt-atalhos">${atalhos.map((x) => `<button type="button" class="mt-chip ${temGrupo(x.tipo, x.chave) ? 'active' : ''}" data-vinc-grupo="${x.tipo}:${x.chave}" aria-pressed="${temGrupo(x.tipo, x.chave)}">${escHtml(x.rotulo)} <span class="mono">${formatMoeda(x.valor, 'BRL', { casas: 0 })}</span></button>`).join('')}</div>
-<input class="mt-busca" type="search" placeholder="Buscar ativo, instituição…" data-vinc-busca value="${escHtml(estado.assistente.buscaAtivo || '')}" aria-label="Buscar ativo">
+<div class="mt-atalhos">${atalhos.map((x) => `<button type="button" class="mt-chip ${temGrupo(x.tipo, x.chave) ? 'active' : ''}" data-vinc-grupo="${x.tipo}:${x.chave}" aria-pressed="${temGrupo(x.tipo, x.chave)}">${esc(x.rotulo)} <span class="mono">${formatMoeda(x.valor, 'BRL', { casas: 0 })}</span></button>`).join('')}</div>
+<input class="mt-busca" type="search" placeholder="Buscar ativo, instituição…" data-vinc-busca value="${esc(estado.assistente.buscaAtivo || '')}" aria-label="Buscar ativo">
 <div class="mt-v-lista">${grupos.map(([cl, lista]) => `<h4 class="mt-grupo">${ROTULO_CLASSE[cl]}</h4><ul>${lista.map(linhaAtivo).join('')}</ul>`).join('') || '<p class="hint">Nenhum ativo encontrado.</p>'}</div>
 <p class="mt-v-total">Vinculado: <b class="mono">${formatMoeda(res.total)}</b></p>
 ${saldosEditorHtml(m)}`;
@@ -1476,9 +1577,9 @@ ${saldosEditorHtml(m)}`;
       ['Investimentos vinculados', `${c.vinculos.length} · ${formatMoeda(c.valorVinculado)}`],
     ].filter(Boolean);
     return `<div class="mt-revisar" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
-  <div class="mt-revisar-cab">${seloMetaHtml(m, { tamanho: 42 })}<div><strong>${escHtml(m.nome || '(sem nome)')}</strong>${statusPillHtml(c.status, m)}</div></div>
-  <dl>${linhas.map(([k, v]) => `<div><dt>${k}</dt><dd class="mono">${escHtml(v)}</dd></div>`).join('')}</dl>
-  ${c.avisos.length ? `<p class="mt-alerta">${c.avisos.map(escHtml).join(' · ')}</p>` : ''}
+  <div class="mt-revisar-cab">${seloMetaHtml(m, { tamanho: 42 })}<div><strong>${esc(m.nome || '(sem nome)')}</strong>${statusPillHtml(c.status, m)}</div></div>
+  <dl>${linhas.map(([k, v]) => `<div><dt>${k}</dt><dd class="mono">${esc(v)}</dd></div>`).join('')}</dl>
+  ${c.avisos.length ? `<p class="mt-alerta">${c.avisos.map(esc).join(' · ')}</p>` : ''}
   ${!m.nome ? '<p class="mt-alerta">Dê um nome pra meta (passo 2).</p>' : ''}
 </div>`;
   }
@@ -1860,9 +1961,7 @@ ${saldosEditorHtml(m)}`;
   el.tela.addEventListener('click', async (ev) => {
     const abrir = ev.target.closest('[data-abrir]');
     if (abrir) { irPara(abrir.dataset.abrir); return; }
-    if (ev.target.closest('[data-voltar]')) { irPara(null); return; }
-    const fs = ev.target.closest('[data-filtro-status]');
-    if (fs) { estado.filtroStatus = fs.dataset.filtroStatus; desenhar(); return; }
+    if (ev.target.closest('[data-voltar]')) { ev.preventDefault(); irPara(null); return; }
     const ft = ev.target.closest('[data-filtro-tipo]');
     if (ft) { estado.filtroTipo = ft.dataset.filtroTipo; desenhar(); return; }
     if (ev.target.closest('[data-nova]')) { abrirAssistente(metaPadrao('acumulo', { hoje: estado.ctx.hoje }), 1); return; }
@@ -1884,7 +1983,7 @@ ${saldosEditorHtml(m)}`;
     const modoHist = ev.target.closest('[data-modo-hist]');
     if (modoHist) {
       estado.modoHist = modoHist.dataset.modoHist;
-      el.tela.querySelectorAll('[data-modo-hist]').forEach((b) => b.classList.toggle('active', b === modoHist));
+      el.tela.querySelectorAll('[data-modo-hist]').forEach((b) => b.setAttribute('aria-pressed', String(b === modoHist)));
       desenharHistorico(meta, calcDe(meta));
       return;
     }
@@ -1920,21 +2019,7 @@ ${saldosEditorHtml(m)}`;
       if (novaDoHash()) { estado.novaPendente = novaDoHash(); abrirNovaPendente(); return; }
       const id = idDoHash(); if (id !== estado.detalheId) { estado.detalheId = id; desenhar(); }
     });
-    let timerResize = null;
-    let larguraAntes = win.innerWidth;
-    win.addEventListener('resize', () => {
-      if (!estado.detalheId || win.innerWidth === larguraAntes) return;
-      larguraAntes = win.innerWidth;
-      clearTimeout(timerResize);
-      timerResize = setTimeout(() => {
-        const m = acharMeta(estado.detalheId);
-        if (!m) return;
-        const c = calcDe(m);
-        desenharHistorico(m, c);
-        desenharRenda(m, c);
-        desenharGrafico(c, marcosProjecao(c, { hoje: estado.ctx.hoje, anoNascimento: num(m.especificos && m.especificos.anoNascimento) }));
-      }, 150);
-    });
+    // 06/10/2026: os gráficos da biblioteca se redimensionam sozinhos (ResizeObserver) - não precisa redesenhar no resize
   }
   estado.detalheId = idDoHash();
   estado.novaPendente = novaDoHash();

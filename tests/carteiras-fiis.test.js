@@ -26,6 +26,8 @@ function makeDom() {
     <div id="refreshControlFiis" class="refresh-control"></div>
     <div id="fiisConteudo" hidden></div>
   </body></html>`);
+  // movimento reduzido: os números dos KPIs saem finais (sem animação a partir de 0)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return dom.window.document;
 }
 
@@ -85,10 +87,9 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com S
 
     assert.equal(doc.getElementById('fiisLoading').hidden, true);
     assert.equal(doc.getElementById('fiisConteudo').hidden, false);
-    // Resumo em destaque (19/09/2026 #4): 1 cartão .cc-resumo, com o
-    // stat de Lucro/Prejuízo em vermelho (fixture está no prejuízo).
-    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
-    assert.equal(doc.querySelectorAll('.cc-resumo-stat.bad').length, 1);
+    // Resumo (06/10/2026, kit): grade de KPIs, com o delta do Lucro/Prejuízo em queda (fixture está no prejuízo).
+    assert.ok(doc.querySelectorAll('#fiisResumo .card-kpi').length >= 3);
+    assert.equal(doc.querySelectorAll('#fiisResumo .chart-kpi-delta.is-down').length, 1);
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 3);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
 
@@ -131,11 +132,9 @@ test('montarPaginaCarteirasFiis() renderiza resumo/benchmarks/donut/tabela com S
     // caixa de busca presente
     assert.ok(doc.querySelector('.cc-busca-input'));
 
-    // 19/09/2026 #4: só a célula (<td>) da coluna Ativo fica alinhada à
-    // esquerda - o resto centraliza por padrão (CSS), e não sobra nenhuma
-    // célula com a classe antiga .right.
+    // tabela do kit: só a coluna do Ativo é a "cabeça" da linha (.cc-col-ativo) e não sobra nenhuma célula com a classe antiga .right.
     const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
-    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.ok(tdAtivo.classList.contains('cc-col-ativo'));
     assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0);
   });
 });
@@ -188,14 +187,14 @@ test('montarPaginaCarteirasFiis(): clicar no cabeçalho de uma coluna ordena a t
     let linhas = doc.querySelectorAll('.cc-tabela tbody tr');
     assert.match(linhas[0].textContent, /XPML11/);
     assert.match(linhas[1].textContent, /HGLG11/);
-    assert.match(doc.querySelector('.cc-tabela thead th[data-campo="precoAtual"]').textContent, /▲/);
+    assert.equal(doc.querySelector('.cc-tabela thead th[data-campo="precoAtual"]').getAttribute('aria-sort'), 'ascending', 'seta de ordenação ativa (primeiro clique: crescente)');
 
     // clicar de novo no mesmo cabeçalho inverte pra desc
     thPreco.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     linhas = doc.querySelectorAll('.cc-tabela tbody tr');
     assert.match(linhas[0].textContent, /HGLG11/);
     assert.match(linhas[1].textContent, /XPML11/);
-    assert.match(doc.querySelector('.cc-tabela thead th[data-campo="precoAtual"]').textContent, /▼/);
+    assert.equal(doc.querySelector('.cc-tabela thead th[data-campo="precoAtual"]').getAttribute('aria-sort'), 'descending');
   });
 });
 
@@ -237,15 +236,17 @@ test('montarPaginaCarteirasFiis(): desenha os gráficos de Rentabilidade/Evoluç
 
     await montarPaginaCarteirasFiis('token-fake', { doc, getCarteirasFiisImpl, getHomeImpl });
 
-    assert.ok(doc.getElementById('fiisRentabChart').querySelector('svg'));
-    assert.ok(doc.getElementById('fiisEvolucaoChart').querySelector('svg'));
-    assert.match(doc.getElementById('fiisRentabLegenda').textContent, /IFIX/);
+    // 06/10/2026: gráficos da biblioteca (charts/) via criarGraficosCarteira, no #fiisGraficos, com o seletor de período canônico
+    const graficos = doc.getElementById('fiisGraficos');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
+    assert.match(graficos.querySelector('.cg-painel-rentabilidade .chart-legenda').textContent, /IFIX/);
 
-    const periodoTabs = doc.getElementById('fiisPeriodoTabs');
-    assert.ok(periodoTabs);
-    const botao30d = periodoTabs.querySelector('.filter-tab[data-periodo="30d"]');
+    const botao30d = graficos.querySelector('.cg-periodo [data-periodo="30d"]');
+    assert.ok(botao30d, 'seletor de período acima dos gráficos');
     assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
-    assert.ok(doc.getElementById('fiisRentabChart').querySelector('svg'));
-    assert.ok(doc.getElementById('fiisEvolucaoChart').querySelector('svg'));
+    assert.equal(botao30d.getAttribute('aria-pressed'), 'true');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
   });
 });

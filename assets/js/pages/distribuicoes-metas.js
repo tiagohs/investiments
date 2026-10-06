@@ -162,22 +162,24 @@ import {
   getMetas,
   getMacro,
 } from '../api-client.js';
-import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD, formatPercentFromFraction, formatComConversao, hojeSP } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { urlAtivoTicker, criarLinkNovaAba } from '../link-ativo.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { montarCabecalhoPagina, mostrarErroCarga, criarTabs, toast, icone, definirTituloPagina } from '../ui/index.js'; // 06/10/2026 (Onda 3)
+import { renderAvisosParciais } from './avisos-parciais.js';
 import { momentoHtml, momentoDoRadar, metasDaDistribuicao, carregarMacroMomento } from './momento-aporte.js';
 // 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
-import { svgIntradia, rotuloDiaIntradia } from './inicio-intradia.js';
+import { desenharIntradia, rotuloDiaIntradia, valoresIntradia } from './inicio-intradia.js';
+import { criarAnelProgresso as criarAnelProgressoLib, criarBarraComposicao, criarBarraProgresso, criarKpi } from '../charts/index.js'; // 06/10/2026 (Onda 3)
 // 03/10/2026: Metas da carteira -> Metas e Objetivos (ver rodapeMetaObjetivosHtml).
 import {
   TIPO_META_DA_CARTEIRA, metaPrincipalDoTipo, metasComCalculo, urlMetas, urlNovaMeta, seloMetaHtml, statusPillHtml,
-  formatMoeda, pct, escHtml, garantirEstiloMetas,
+  formatMoeda, pct, garantirEstiloMetas,
 } from '../metas-card.js';
 import { aparenciaMeta } from './metas-calc.js';
-
-const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** "73%" a partir de uma fração (0.7377 -> "74%"). Não-finito vira "—". */
 export function formatPercentualMeta(fracao) {
@@ -197,66 +199,20 @@ function formatPercentualPreciso(fracao) {
 }
 
 /**
- * Anel de progresso (SVG) — mesmo desenho de docs/direcao-visual.html:
- * 2 círculos concêntricos (trilho + progresso) + texto central. O anel
- * nunca ultrapassa visualmente 100% (uma meta batida em 130% não deve
- * "vazar" a volta toda de novo) mas o texto mostra o percentual real.
+ * Anel de progresso - 06/10/2026 (Onda 3): agora é o da biblioteca de gráficos (assets/js/charts: arco animado, trilho,
+ * texto central). Devolve o elemento (.goal-ring) que hospeda o anel, com a instância em `_anel` (atualizar/destruir). O anel
+ * nunca ultrapassa visualmente 100% (uma meta batida em 130% não deve "vazar" a volta toda de novo) mas o texto mostra o
+ * percentual real; o <title> traz o valor exato com 2 casas.
  */
 export function criarAnelProgresso(doc, { percentual, cor }) {
   const bruto = typeof percentual === 'number' && Number.isFinite(percentual) ? percentual : 0;
-  const clamped = Math.max(0, Math.min(bruto, 1));
-  const r = 54;
-  const c = 2 * Math.PI * r;
-  const dash = clamped * c;
-
-  const svg = doc.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('width', '132');
-  svg.setAttribute('height', '132');
-  svg.setAttribute('viewBox', '0 0 132 132');
-  svg.classList.add('goal-ring');
-
-  const g = doc.createElementNS(SVG_NS, 'g');
-  g.setAttribute('transform', 'rotate(-90 66 66)');
-
-  const trilho = doc.createElementNS(SVG_NS, 'circle');
-  trilho.setAttribute('cx', '66');
-  trilho.setAttribute('cy', '66');
-  trilho.setAttribute('r', String(r));
-  trilho.setAttribute('fill', 'none');
-  trilho.setAttribute('stroke', 'var(--surface-3)');
-  trilho.setAttribute('stroke-width', '14');
-
-  const progresso = doc.createElementNS(SVG_NS, 'circle');
-  progresso.setAttribute('cx', '66');
-  progresso.setAttribute('cy', '66');
-  progresso.setAttribute('r', String(r));
-  progresso.setAttribute('fill', 'none');
-  progresso.setAttribute('stroke', cor);
-  progresso.setAttribute('stroke-width', '14');
-  progresso.setAttribute('stroke-linecap', 'round');
-  progresso.setAttribute('stroke-dasharray', `${dash.toFixed(1)} ${c.toFixed(1)}`);
-
-  g.append(trilho, progresso);
-
-  const textoGrande = doc.createElementNS(SVG_NS, 'text');
-  textoGrande.setAttribute('x', '66');
-  textoGrande.setAttribute('y', '63');
-  textoGrande.setAttribute('text-anchor', 'middle');
-  textoGrande.setAttribute('class', 'big');
-  textoGrande.textContent = formatPercentualMeta(bruto);
-
-  const textoPequeno = doc.createElementNS(SVG_NS, 'text');
-  textoPequeno.setAttribute('x', '66');
-  textoPequeno.setAttribute('y', '79');
-  textoPequeno.setAttribute('text-anchor', 'middle');
-  textoPequeno.setAttribute('class', 'small');
-  textoPequeno.textContent = 'da meta';
-
-  const tituloEl = doc.createElementNS(SVG_NS, 'title');
-  tituloEl.textContent = `${formatPercentualPreciso(bruto)} da meta`;
-
-  svg.append(tituloEl, g, textoGrande, textoPequeno);
-  return svg;
+  const host = doc.createElement('div');
+  host.className = 'goal-ring';
+  host._anel = criarAnelProgressoLib(host, {
+    valor: Math.max(0, Math.min(bruto, 1)), cor, tamanho: 132, espessura: 14,
+    rotulo: formatPercentualMeta(bruto), subrotulo: 'da meta', aria: `${formatPercentualPreciso(bruto)} da meta.`,
+  });
+  return host;
 }
 
 /**
@@ -278,7 +234,7 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
   head.appendChild(h3);
   if (badge) {
     const span = doc.createElement('span');
-    span.className = `goal-badge ${badge.tipo === 'good' ? 'good' : 'warn'}`;
+    span.className = `goal-badge chip-tonal ${badge.tipo === 'good' ? 'good chip-good' : 'warn chip-warn'}`;
     span.textContent = badge.texto;
     head.appendChild(span);
   }
@@ -319,7 +275,7 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
   if (campos && campos.length > 0) {
     const editarBtn = doc.createElement('button');
     editarBtn.type = 'button';
-    editarBtn.className = 'goal-editar-btn';
+    editarBtn.className = 'goal-editar-btn btn btn-tonal btn-sm';
     editarBtn.textContent = 'Editar';
 
     const form = doc.createElement('form');
@@ -333,6 +289,7 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
       const rotulo = doc.createElement('span');
       rotulo.textContent = campo.rotulo;
       const input = doc.createElement('input');
+      input.className = 'input';
       input.type = 'number';
       input.step = campo.tipo === 'percentual' ? '0.01' : '0.01';
       input.name = campo.nome;
@@ -348,12 +305,15 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
     acoes.className = 'goal-edit-acoes';
     const salvarBtn = doc.createElement('button');
     salvarBtn.type = 'submit';
+    salvarBtn.className = 'btn btn-filled btn-sm';
     salvarBtn.textContent = 'Salvar';
     const cancelarBtn = doc.createElement('button');
     cancelarBtn.type = 'button';
+    cancelarBtn.className = 'btn btn-text btn-sm';
     cancelarBtn.textContent = 'Cancelar';
     const statusEl = doc.createElement('span');
     statusEl.className = 'goal-edit-status';
+    statusEl.setAttribute('role', 'status');
     acoes.append(salvarBtn, cancelarBtn, statusEl);
     form.appendChild(acoes);
 
@@ -390,8 +350,10 @@ export function criarCardMeta(doc, { titulo, badge, percentual, cor, stats, camp
       try {
         await onSalvar(valores);
         statusEl.textContent = '';
+        toast('Meta salva na planilha.', { tipo: 'ok', doc });
       } catch (err) {
         statusEl.textContent = `erro ao salvar: ${err && err.message ? err.message : err}`;
+        toast('Não consegui salvar. Confira a conexão e tente de novo.', { tipo: 'erro', doc });
       } finally {
         salvarBtn.disabled = false;
       }
@@ -439,8 +401,7 @@ function corParaTipoObjetivo(tipo) {
 function valorComDecHtml_(texto) {
   const t = String(texto == null ? '' : texto);
   const m = t.match(/^(.*?)([.,]\d{2})$/);
-  const escHtml = (x) => x.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  return m ? `${escHtml(m[1])}<span class="dec">${escHtml(m[2])}</span>` : escHtml(t);
+  return m ? `${esc(m[1])}<span class="dec">${esc(m[2])}</span>` : esc(t);
 }
 
 /**
@@ -449,24 +410,31 @@ function valorComDecHtml_(texto) {
  * "atual" em cima e "meta" embaixo, com as mesmas cores por tipo - pra ver de
  * relance onde a carteira foge da distribuição desejada.
  */
-function barrasComparativoHtml_(tipos) {
+function comparativoDistribuicao_(doc, tipos) {
   const lista = (tipos || []).filter((t) => t && t.tipo);
-  if (lista.length < 2) return '';
-  const barra = (campo, rotulo) => {
-    const soma = lista.reduce((a, t) => a + (typeof t[campo] === 'number' && t[campo] > 0 ? t[campo] : 0), 0);
-    if (!(soma > 0)) return '';
-    const segs = lista.map((t) => {
-      const v = typeof t[campo] === 'number' && t[campo] > 0 ? t[campo] : 0;
-      if (!v) return '';
-      const cor = t.cor || corParaTipoObjetivo(t.tipo);
-      return `<span class="rc-seg" style="width:${((v / soma) * 100).toFixed(2)}%;background:${cor}" title="${String(t.tipo).replace(/"/g, '')}: ${formatPercentualPreciso(v)}"></span>`;
-    }).join('');
-    return `<div class="obj-comp-linha obj-comp-${campo === 'percentualAtual' ? 'atual' : 'meta'}"><span class="obj-comp-rotulo">${rotulo}</span><div class="rc-barra obj-comp-barra" role="img" aria-label="${rotulo}: ${lista.map((t) => `${String(t.tipo).replace(/"/g, '')} ${formatPercentualMeta(t[campo])}`).join(', ')}">${segs}</div></div>`;
-  };
-  const atual = barra('percentualAtual', 'atual');
-  const meta = barra('percentualDesejado', 'meta');
-  if (!atual && !meta) return '';
-  return `<div class="obj-comparativo">${atual}${meta}</div>`;
+  if (lista.length < 2) return null;
+  const raiz = doc.createElement('div');
+  raiz.className = 'obj-comparativo';
+  let desenhou = false;
+  [['percentualAtual', 'atual'], ['percentualDesejado', 'meta']].forEach(([campo, rotulo]) => {
+    const fatias = lista
+      .filter((t) => typeof t[campo] === 'number' && t[campo] > 0)
+      .map((t) => ({ id: t.tipo, nome: String(t.tipo), valor: t[campo], cor: t.cor || corParaTipoObjetivo(t.tipo) }));
+    if (!fatias.length) return;
+    desenhou = true;
+    const linha = doc.createElement('div');
+    linha.className = `obj-comp-linha obj-comp-${rotulo}`;
+    const rot = doc.createElement('span');
+    rot.className = 'obj-comp-rotulo';
+    rot.textContent = rotulo;
+    const barra = doc.createElement('div');
+    barra.className = 'obj-comp-barra';
+    linha.append(rot, barra);
+    raiz.appendChild(linha);
+    criarBarraComposicao(barra, { fatias, legenda: false, formatarValor: (v) => formatPercentualPreciso(v) });
+    barra.querySelector('.chart-comp').setAttribute('aria-label', `${rotulo}: ${lista.map((t) => `${String(t.tipo)} ${formatPercentualMeta(t[campo])}`).join(', ')}`);
+  });
+  return desenhou ? raiz : null;
 }
 
 /**
@@ -502,15 +470,17 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
       <span class="obj-nome">${tipo || ''}</span>
       <span class="obj-pcts info-alvo"><b></b><span class="obj-meta-pct"></span><span class="info-icon">i</span></span>
     </div>
-    <div class="obj-barra">
-      <div class="obj-barra-fill" style="width:${pctAtual.toFixed(1)}%; background:${corFinal}"></div>
-      <div class="obj-barra-meta" style="left:${pctMeta.toFixed(1)}%"></div>
-    </div>
+    <div class="obj-barra"></div>
     <div class="obj-linha-foot">
       <span class="obj-valor-atual"></span>
-      <span class="goal-badge ${faltaInvestir || precisaResgatar ? 'warn' : 'good'}"></span>
+      <span class="goal-badge chip-tonal ${faltaInvestir || precisaResgatar ? 'warn chip-warn' : 'good chip-good'}"></span>
     </div>
   `;
+  // 06/10/2026 (Onda 3): barra de progresso da biblioteca (preenchida até o % atual, com a marca do % desejado)
+  linha._barra = criarBarraProgresso(linha.querySelector('.obj-barra'), {
+    valor: pctAtual / 100, meta: pctMeta / 100, cor: corFinal,
+    rotulo: `${tipo || 'Tipo'}: atual ${formatPercentualMeta(percentualAtual)}, meta ${formatPercentualMeta(percentualDesejado)}`,
+  });
 
   linha.querySelector('.obj-pcts b').textContent = formatPercentualMeta(percentualAtual);
   linha.querySelector('.obj-meta-pct').textContent = `meta ${formatPercentualMeta(percentualDesejado)}`;
@@ -546,7 +516,7 @@ export function criarLinhaObjetivo(doc, { tipo, percentualDesejado, percentualAt
       ? `resgatar ${formatComConversao(absUsd, Math.abs(valorInvestir), formatUSD)}`
       : `resgatar ${formatBRL(Math.abs(valorInvestir))}`;
   } else {
-    badgeEl.textContent = '✓ na meta';
+    badgeEl.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#ico-check"/></svg>na meta';
   }
 
   return linha;
@@ -620,8 +590,8 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
   cab.className = 'obj-distrib-cab';
   cab.innerHTML = '<span>Distribuição · <b>atual x meta</b></span>';
   distrib.appendChild(cab);
-  const comparativo = barrasComparativoHtml_(tipos);
-  if (comparativo) distrib.insertAdjacentHTML('beforeend', comparativo);
+  const comparativo = comparativoDistribuicao_(doc, tipos);
+  if (comparativo) distrib.appendChild(comparativo);
 
   const linhas = doc.createElement('div');
   linhas.className = 'obj-linhas';
@@ -639,7 +609,7 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
   if (tipos && tipos.length > 0 && blocoId && onSalvarPercentuais) {
     const editarBtn = doc.createElement('button');
     editarBtn.type = 'button';
-    editarBtn.className = 'goal-editar-btn';
+    editarBtn.className = 'goal-editar-btn btn btn-tonal btn-sm';
     editarBtn.textContent = 'Editar % desejado';
 
     const form = doc.createElement('form');
@@ -652,6 +622,7 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
       const rotulo = doc.createElement('span');
       rotulo.textContent = t.tipo;
       const input = doc.createElement('input');
+      input.className = 'input';
       input.type = 'number';
       input.step = '0.01';
       input.value = typeof t.percentualDesejado === 'number' ? Math.round(t.percentualDesejado * 10000) / 100 : '';
@@ -664,12 +635,15 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
     acoes.className = 'goal-edit-acoes';
     const salvarBtn = doc.createElement('button');
     salvarBtn.type = 'submit';
+    salvarBtn.className = 'btn btn-filled btn-sm';
     salvarBtn.textContent = 'Salvar';
     const cancelarBtn = doc.createElement('button');
     cancelarBtn.type = 'button';
+    cancelarBtn.className = 'btn btn-text btn-sm';
     cancelarBtn.textContent = 'Cancelar';
     const statusEl = doc.createElement('span');
     statusEl.className = 'goal-edit-status';
+    statusEl.setAttribute('role', 'status');
     acoes.append(salvarBtn, cancelarBtn, statusEl);
     form.appendChild(acoes);
 
@@ -710,8 +684,10 @@ export function criarBlocoObjetivo(doc, { titulo, tipos, total, blocoId, onSalva
       try {
         await onSalvarPercentuais(blocoId, percentuais);
         statusEl.textContent = '';
+        toast('Percentuais salvos na planilha.', { tipo: 'ok', doc });
       } catch (err) {
         statusEl.textContent = `erro ao salvar: ${err && err.message ? err.message : err}`;
+        toast('Não consegui salvar. Confira a conexão e tente de novo.', { tipo: 'erro', doc });
       } finally {
         salvarBtn.disabled = false;
       }
@@ -976,15 +952,17 @@ function criarBannerCotacaoDolar_(doc, cotacaoDolar) {
 function criarCelulaPctAtualMeta_(doc, item) {
   const wrap = doc.createElement('div');
   wrap.className = 'radar-pct-wrap radar-info-alvo';
-  const pctAtual = Math.max(0, Math.min(typeof item.percentualAtual === 'number' ? item.percentualAtual : 0, 1)) * 100;
-  const pctMeta = Math.max(0, Math.min(typeof item.percentualDesejado === 'number' ? item.percentualDesejado : 0, 1)) * 100;
+  // 06/10/2026 (Onda 3): barra de progresso da biblioteca de gráficos (antes: div/preenchimento/traço feitos à mão).
+  const pctAtual = Math.max(0, Math.min(typeof item.percentualAtual === 'number' ? item.percentualAtual : 0, 1));
+  const pctMeta = Math.max(0, Math.min(typeof item.percentualDesejado === 'number' ? item.percentualDesejado : 0, 1));
   wrap.innerHTML = `
     <span class="radar-pct-label"><b></b><span class="radar-pct-meta-label"></span><span class="radar-info-icon">i</span></span>
-    <div class="radar-pct-bar">
-      <div class="radar-pct-bar-fill" style="width:${pctAtual.toFixed(1)}%"></div>
-      <div class="radar-pct-bar-meta" style="left:${pctMeta.toFixed(1)}%"></div>
-    </div>
+    <div class="radar-pct-bar"></div>
   `;
+  criarBarraProgresso(wrap.querySelector('.radar-pct-bar'), {
+    valor: pctAtual, meta: pctMeta, cor: 1,
+    rotulo: `Atual ${formatPercentualMeta(item.percentualAtual)}, meta ${formatPercentualMeta(item.percentualDesejado)}`,
+  });
   wrap.querySelector('.radar-pct-label b').textContent = formatPercentualMeta(item.percentualAtual);
   wrap.querySelector('.radar-pct-meta-label').textContent = `/ ${formatPercentualMeta(item.percentualDesejado)}`;
   wrap.dataset.tooltip = `Atual: ${formatPercentualPreciso(item.percentualAtual)} · Meta: ${formatPercentualPreciso(item.percentualDesejado)}`;
@@ -1267,7 +1245,7 @@ function criarLogoAtivo_(doc, ticker) {
 function criarBadgeVies_(doc, vies) {
   const span = doc.createElement('span');
   const tipo = vies === 'Comprar' ? 'good' : vies === 'Aguardar' ? 'warn' : '';
-  span.className = tipo ? `goal-badge ${tipo}` : 'goal-badge';
+  span.className = tipo ? `goal-badge chip-tonal ${tipo} ${tipo === 'good' ? 'chip-good' : 'chip-warn'}` : 'goal-badge chip-tonal';
   span.textContent = vies || '—';
   return span;
 }
@@ -1304,7 +1282,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
     } else if (coluna.chave === 'ranking') {
       td.classList.add('radar-rank');
       const badge = doc.createElement('span');
-      badge.className = 'radar-rank-badge';
+      badge.className = 'radar-rank-badge chip-tonal';
       badge.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
       td.appendChild(badge);
     } else if (coluna.chave === 'precoAtual') {
@@ -1331,7 +1309,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
         if (item.precoAtual > item.precoMedio) classe = 'good';
         else if (item.precoAtual < item.precoMedio) classe = 'bad';
       }
-      badge.className = `radar-desconto-badge${classe ? ` ${classe}` : ''}`;
+      badge.className = `radar-desconto-badge chip-tonal${classe ? ` ${classe} ${classe === 'good' ? 'chip-good' : classe === 'bad' ? 'chip-bad' : ''}` : ''}`;
       badge.innerHTML = formatarPrecoRadarComConversao_(item.precoMedio, chaveTabela, cotacaoDolar);
       td.appendChild(badge);
     } else if (coluna.chave === 'precoTeto') {
@@ -1366,7 +1344,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       const info = badgeDesconto_(coluna.chave, item);
       if (info) {
         const badge = doc.createElement('span');
-        badge.className = `radar-desconto-badge ${info.classe} radar-info-alvo`;
+        badge.className = `radar-desconto-badge chip-tonal ${info.classe} ${info.classe === 'good' ? 'chip-good' : info.classe === 'bad' ? 'chip-bad' : ''} radar-info-alvo`;
         badge.textContent = info.texto;
         badge.dataset.tooltip = info.tooltip;
         td.appendChild(badge);
@@ -1428,7 +1406,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
 
   const editarBtn = doc.createElement('button');
   editarBtn.type = 'button';
-  editarBtn.className = 'radar-editar-btn radar-editar-btn-icone';
+  editarBtn.className = 'radar-editar-btn radar-editar-btn-icone icon-btn';
   editarBtn.setAttribute('aria-label', 'Editar');
   editarBtn.title = 'Editar';
   editarBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
@@ -1444,7 +1422,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       const input = doc.createElement('input');
       input.type = 'number';
       input.step = '0.01';
-      input.className = 'radar-edit-input';
+      input.className = 'input radar-edit-input';
       const valorAtual = item[coluna.chave];
       input.value = coluna.chave === 'percentualDesejado'
         ? (typeof valorAtual === 'number' ? Math.round(valorAtual * 10000) / 100 : '')
@@ -1456,11 +1434,11 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
     tdAcoes.innerHTML = '';
     const salvarBtn = doc.createElement('button');
     salvarBtn.type = 'button';
-    salvarBtn.className = 'radar-salvar-btn';
+    salvarBtn.className = 'radar-salvar-btn btn btn-filled btn-sm';
     salvarBtn.textContent = 'Salvar';
     const cancelarBtn = doc.createElement('button');
     cancelarBtn.type = 'button';
-    cancelarBtn.className = 'radar-cancelar-btn';
+    cancelarBtn.className = 'radar-cancelar-btn btn btn-text btn-sm';
     cancelarBtn.textContent = 'Cancelar';
     const statusEl = doc.createElement('span');
     statusEl.className = 'radar-edit-status';
@@ -1507,7 +1485,7 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
 // ---- 02/10/2026 (Tiago: "No espaço vazio no fim da área de avaliação (bom/mau
 // momento), colocar o gráfico de variação diária do lado esquerdo, abaixo do
 // ranking + linha 'ativo'"): cada ativo do Radar ganha, embaixo do # e do
-// Ativo, o gráfico do dia (svgIntradia - o mesmo dos Favoritos da Início);
+// Ativo, o gráfico do dia (sparkline da biblioteca - o mesmo dos Favoritos da Início);
 // clicar abre o ativo no Google Finance. A série vem de action=intradia
 // (Intradia.gs, a mesma da Início), buscada pela página só pros ativos da aba
 // que está na tela. ----
@@ -1530,7 +1508,7 @@ export function urlGoogleFinance(ticker, chaveTabela) {
     : `https://www.google.com/finance/quote/${t}:BVMF`;
 }
 
-const hojeISO_ = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const hojeISO_ = () => hojeSP(); // 05/10/2026: o mesmo "hoje" (São Paulo) de format.js
 
 const ICONE_EXTERNO = '<svg class="radar-intradia-ext" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>';
 
@@ -1566,16 +1544,16 @@ export function preencherIntradiaRadar(raiz, series, { hojeISO = '' } = {}) {
     const serie = series[chave];
     const rotulo = slot.parentNode && slot.parentNode.querySelector('.radar-intradia-rotulo');
     const dia = serie ? rotuloDiaIntradia(serie, hojeISO) : '';
-    const svg = serie ? svgIntradia(serie, { titulo: `Variação do dia${dia && dia !== 'hoje' ? ` (pregão de ${dia})` : ''}` }) : '';
     slot.classList.remove('carregando');
-    if (!svg) {
+    const ok = serie ? desenharIntradia(slot, serie, { altura: 56, titulo: `Variação do dia${dia && dia !== 'hoje' ? ` (pregão de ${dia})` : ''}` }) : false;
+    if (!ok) {
       slot.classList.add('sem-dado');
       slot.innerHTML = '<span class="radar-intradia-vazio">sem gráfico do dia agora</span>';
       if (rotulo) rotulo.textContent = 'Variação do dia';
       return;
     }
     slot.classList.remove('sem-dado');
-    slot.innerHTML = svg;
+    slot.dataset.intradiaDir = valoresIntradia(serie).sobe ? 'sobe' : 'desce';
     if (rotulo) rotulo.textContent = !dia || dia === 'hoje' ? 'Hoje' : `Pregão ${dia}`;
   });
 }
@@ -1661,7 +1639,8 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
       btn.classList.add('active');
       const seta = doc.createElement('span');
       seta.className = 'radar-sort-seta';
-      seta.textContent = ordenacao.direcao === 'asc' ? '▲' : '▼';
+      seta.setAttribute('aria-label', ordenacao.direcao === 'asc' ? 'crescente' : 'decrescente');
+      seta.append(icone(doc, ordenacao.direcao === 'asc' ? 'arrow-upward' : 'arrow-downward'));
       btn.appendChild(seta);
     }
     btn.addEventListener('click', () => onOrdenar && onOrdenar(coluna.chave));
@@ -1932,7 +1911,7 @@ export function rodapeMetaObjetivosHtml(vinculo) {
   const valores = c.renda
     ? `${formatMoeda(c.renda.atual, 'BRL', { casas: 0 })}/mês de ${formatMoeda(c.renda.alvo, 'BRL', { casas: 0 })}/mês`
     : `${formatMoeda(c.atualBRL, 'BRL', { casas: 0 })} de ${c.alvoBRL != null ? formatMoeda(c.alvoBRL, 'BRL', { casas: 0 }) : '—'}`;
-  return `<span class="goal-meta-cab">${seloMetaHtml(meta, { tamanho: 28 })}<span class="goal-meta-tit"><span class="goal-meta-eyebrow">Em Metas e Objetivos</span><strong>${escHtml(meta.nome)}</strong></span>${statusPillHtml(c.status)}</span>
+  return `<span class="goal-meta-cab">${seloMetaHtml(meta, { tamanho: 28 })}<span class="goal-meta-tit"><span class="goal-meta-eyebrow">Em Metas e Objetivos</span><strong>${esc(meta.nome)}</strong></span>${statusPillHtml(c.status)}</span>
 <span class="mt-barra ${p >= 1 ? 'good' : ''}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="width:${(p * 100).toFixed(1)}%"></span></span>
 <span class="goal-meta-sub"><span class="goal-meta-valores"><b>${pct(c.percentual)}</b> · ${valores}</span><span class="goal-meta-ir">Ver meta${SETA_META}</span></span>`;
 }
@@ -2029,7 +2008,10 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
       percentual: rendaEmergencial.percentualAtingido,
       cor: 'var(--fiis)',
       stats: [
-        { k: 'Carteira atual', v: formatBRL(rendaEmergencial.carteiraAtual) },
+        // 05/10/2026 (A-10): líquido de IR/IOF (o que ele resgata de verdade, igual à engine de Metas); sem estimativa, fica o bruto e o rótulo diz
+        rendaEmergencial.base === 'liquido'
+          ? { k: 'Carteira atual (líquida)', v: formatBRL(rendaEmergencial.carteiraAtual), title: `Valor da carteira marcada Renda Emergencial descontado do IR/IOF estimados se resgatasse hoje (bruto ${formatBRL(rendaEmergencial.carteiraBruta)}, impostos ${formatBRL(rendaEmergencial.impostoEstimado)}). É o mesmo critério da meta de reserva em Metas e Objetivos.` }
+          : { k: 'Carteira atual (bruta)', v: formatBRL(rendaEmergencial.carteiraAtual), title: 'Valor bruto (sem IR/IOF): não deu pra estimar o imposto agora.' },
         { k: 'Meta (c/ margem 10%)', v: formatBRL(rendaEmergencial.meta), title: 'Média de gastos essenciais × meses de reserva desejados × 1,10 (margem de segurança de 10%).' },
       ],
       campos: [{ nome: 'meses', rotulo: 'Meses de reserva desejados', valor: rendaEmergencial.meses, tipo: 'numero' }],
@@ -2060,25 +2042,50 @@ export function renderMetasCarteira(doc, container, metas, { onSalvarRendaPassiv
   aplicarMetasObjetivos(container, metasObjetivos, { raizSite });
 }
 
+const NOMES_AVISOS_DM = { metas: 'metas da carteira', objetivos: 'objetivos da carteira', radar: 'radar de oportunidades', linksRecomendados: 'links recomendados', splitsInternos: 'distribuição desejada' };
+
 /**
- * Banner de avisos (falha parcial de alguma seção) — mesmo padrão de
- * renderAvisos em pages/inicio.js (reaproveita a classe .avisos-banner
- * já validada em inicio.css). Hoje só existe uma seção ("metas"), mas o
- * handler já devolve `avisos` no mesmo formato { secao: erro } que o
- * Início usa, então vale já ligar isso em vez de engolir o erro em
- * silêncio quando montarMetasCarteira_ falhar no Apps Script.
+ * Banner de avisos (falha parcial de alguma seção) - mesmo padrão e mesmo texto da Início (pages/avisos-parciais.js): o
+ * handler devolve `avisos` no formato { secao: erro }; o texto é de gente e o detalhe técnico fica num <details>.
  */
 export function renderAvisos(container, avisos) {
+  renderAvisosParciais(container, avisos, NOMES_AVISOS_DM);
+}
+
+/** 06/10/2026: KPIs do alto (da própria resposta - nenhum número novo): total investido, aporte pendente, renda passiva e reserva. */
+export function renderKpisDistribuicoes(doc, container, resposta) {
   if (!container) return;
-  if (!avisos || Object.keys(avisos).length === 0) {
-    container.innerHTML = '';
-    container.hidden = true;
-    return;
+  (container._kpis || []).forEach((k) => k.destruir());
+  container._kpis = [];
+  container.textContent = '';
+  const geral = resposta && resposta.objetivos && resposta.objetivos.alocacaoGeral && resposta.objetivos.alocacaoGeral.total;
+  const m = (resposta && resposta.metas) || {};
+  const pctMeta = (meta) => (meta && typeof meta.percentualAtingido === 'number' && Number.isFinite(meta.percentualAtingido) ? meta.percentualAtingido : null);
+  const itens = [];
+  if (geral && typeof geral.carteiraAtual === 'number') {
+    itens.push({ rotulo: 'Total investido', valor: geral.carteiraAtual, formatar: formatBRL, info: 'Soma da carteira atual de Ações, FIIs e Renda Fixa (a mesma de "Objetivos").' });
+    const falta = typeof geral.valorInvestir === 'number' && geral.valorInvestir > 0.5;
+    itens.push({
+      rotulo: 'Pra atingir os objetivos', valor: falta ? geral.valorInvestir : 0, formatar: (v) => (falta ? `+ ${formatBRL(v)}` : 'Na meta'),
+      delta: falta ? { sinal: 0, texto: 'de aporte novo pra rebalancear' } : { sinal: 1, texto: 'nenhum aporte pendente' },
+      info: 'Aporte novo pra deixar todos os tipos dentro (ou abaixo) da meta, mantendo a proporção desejada.',
+    });
   }
-  container.innerHTML = `Algumas seções não carregaram agora: ${Object.entries(avisos)
-    .map(([secao, erro]) => `<b>${secao}</b>: ${erro}`)
-    .join(' · ')}`;
-  container.hidden = false;
+  [['Renda passiva', m.rendaPassiva], ['Reserva de emergência', m.rendaEmergencial], ['Meta de patrimônio', m.patrimonio]].forEach(([rotulo, meta]) => {
+    const p = pctMeta(meta);
+    if (p == null || itens.length >= 4) return;
+    itens.push({
+      rotulo, valor: p, formatar: (v) => `${Math.round(v * 100)}%`,
+      delta: p >= 1 ? { sinal: 1, texto: 'meta atingida' } : { sinal: 0, texto: 'da meta' },
+    });
+  });
+  itens.forEach((it) => {
+    const slot = doc.createElement('div');
+    slot.className = 'dm-kpi';
+    container.appendChild(slot);
+    container._kpis.push(criarKpi(slot, it));
+  });
+  container.hidden = !itens.length;
 }
 
 /**
@@ -2108,7 +2115,25 @@ export async function montarPaginaDistribuicoesMetas(token, {
   const splitInternoContainer = doc.getElementById('splitInternoGrid');
   const radarContainer = doc.getElementById('radarOportunidadesGrid');
   const container = doc.getElementById('metasCarteiraGrid');
-  const refreshControlEl = doc.getElementById('refreshControlDistribuicoes');
+  // 06/10/2026 (Onda 3): cabeçalho padrão (título + "Atualizar dados") e abas em pílula - Objetivos | Radar | Metas, uma seção por vez
+  // (as 3 vêm na mesma resposta). A aba escolhida fica guardada só neste navegador (conveniência).
+  const cabecalhoEl = doc.getElementById('metasCabecalho');
+  const PAINEIS = [{ id: 'objetivos', rotulo: 'Objetivos' }, { id: 'radar', rotulo: 'Radar de oportunidades' }, { id: 'metas', rotulo: 'Metas' }];
+  let abaInicial = 'objetivos';
+  try { const g = doc.defaultView && doc.defaultView.localStorage && doc.defaultView.localStorage.getItem('distribuicoes.aba'); if (PAINEIS.some((x) => x.id === g)) abaInicial = g; } catch (e) { /* sem storage */ }
+  const mostrarPainel = (id) => {
+    doc.querySelectorAll('.dm-painel[data-painel]').forEach((el) => { el.hidden = el.dataset.painel !== id; });
+    try { if (doc.defaultView && doc.defaultView.localStorage) doc.defaultView.localStorage.setItem('distribuicoes.aba', id); } catch (e) { /* sem storage */ }
+    const p = PAINEIS.find((x) => x.id === id);
+    if (p) definirTituloPagina({ subaba: p.rotulo, secao: 'Acompanhamento de Ativos' }, doc); // 06/10/2026 (A-69): "<Subaba> · <Seção> · Patrimônio"
+  };
+  const cabecalho = cabecalhoEl ? montarCabecalhoPagina(cabecalhoEl, {
+    secao: 'Acompanhamento de Ativos', titulo: 'Acompanhamento de Ativos',
+    subtitulo: 'Objetivos da carteira, radar de oportunidades e metas', refresh: true,
+    abas: { pilula: { rotulo: 'Seções do acompanhamento', itens: PAINEIS.map((x) => ({ ...x })), ativo: abaInicial, aoMudar: mostrarPainel } },
+  }) : null;
+  mostrarPainel(abaInicial);
+  const refreshControlEl = (cabecalho && cabecalho.refreshEl) || doc.getElementById('refreshControlDistribuicoes');
 
   // 02/10/2026: séries do gráfico do dia do Radar (action=intradia), guardadas
   // 5 min por ativo (o Apps Script também guarda 5 min) - trocar de aba ou
@@ -2180,14 +2205,13 @@ export async function montarPaginaDistribuicoesMetas(token, {
     if (loadingEl) loadingEl.hidden = true;
 
     if (!resposta.ok) {
-      if (erroEl) {
-        erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar o Acompanhamento de Ativos agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
-      }
+      if (erroEl) mostrarErroCarga(erroEl, { tela: 'Acompanhamento de Ativos', resposta, aoTentar: carregarERedesenhar, doc });
       return;
     }
 
     if (conteudoEl) conteudoEl.hidden = false;
+    if (erroEl) erroEl.hidden = true;
+    renderKpisDistribuicoes(doc, doc.getElementById('metasKpis'), resposta);
 
     renderAvisos(doc.getElementById('metasAvisos'), resposta.avisos);
 
@@ -2249,7 +2273,8 @@ export async function montarPaginaDistribuicoesMetas(token, {
   // a última resposta guardada (cache-dados.js, IndexedDB) e busca a nova por
   // trás; se a nova falhar, o que já está na tela fica (com o aviso de erro).
   async function carregarERedesenhar() {
-    const resposta = await getDistribuicoesMetasImpl(token);
+    let resposta;
+    try { resposta = await getDistribuicoesMetasImpl(token); } catch (erro) { resposta = { ok: false, etapa: 'network', erro: erro && erro.message ? erro.message : String(erro) }; }
     if (resposta && resposta.ok) gravarCacheDados('distribuicoesMetas', resposta);
     desenharResposta(resposta);
   }

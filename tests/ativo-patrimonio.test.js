@@ -191,9 +191,10 @@ function respostaFii() {
 }
 
 async function montarTela({ hash = '', portfolio = resposta(), manual = null, leaflet = null, nominatim = null } = {}) {
-  const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="carteiras"><div id="refreshControlAtivo"></div><div id="ativoLoading"></div><div id="ativoErro" hidden></div><div id="ativoConteudo" hidden></div></body></html>`,
+  const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="carteiras"><header id="ativoCabecalho"></header><div id="ativoLoading"></div><div id="ativoErro" hidden></div><div id="ativoConteudo" hidden></div></body></html>`,
     { url: `https://exemplo.test/repo/ativo/index.html?ref=ZZSH11${hash}`, pretendToBeVisual: true });
   const w = dom.window;
+  w.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   globalThis.sessionStorage = w.sessionStorage; globalThis.localStorage = w.localStorage;
   const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
   const chamadas = { portfolio: [], coords: [], leaflet: 0, manual: 0 };
@@ -219,11 +220,11 @@ const espera = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
 test('ativo FII: aba "Patrimônio" fica antes de "Sobre e IR", só carrega quando abre e guarda o hash; ação (não-FII) não ganha a aba', async () => {
   const { doc, w, chamadas } = await montarTela();
-  const rotulos = [...doc.querySelectorAll('.at-abas [data-aba]')].map((b) => [b.dataset.aba, txt(b)]);
+  const rotulos = [...doc.querySelectorAll('#ativoCabecalho .tabs [data-tab]')].map((b) => [b.dataset.tab, txt(b)]);
   assert.deepEqual(rotulos, [['visao', 'Visão geral'], ['extrato', 'Extrato'], ['patrimonio', 'Patrimônio'], ['sobre', 'Sobre e IR']]);
   assert.equal(doc.getElementById('at-aba-patrimonio').hidden, true);
   assert.deepEqual(chamadas.portfolio, [], 'nada buscado até abrir a aba');
-  doc.getElementById('at-tab-patrimonio').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  doc.querySelector('#ativoCabecalho .tabs [data-tab="patrimonio"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   await espera();
   assert.deepEqual(chamadas.portfolio, ['ZZSH11']);
   assert.equal(doc.getElementById('at-aba-patrimonio').hidden, false);
@@ -231,8 +232,8 @@ test('ativo FII: aba "Patrimônio" fica antes de "Sobre e IR", só carrega quand
   const t = txt(doc.getElementById('at-aba-patrimonio'));
   assert.match(t, /Patrimônio do fundo/); assert.match(t, /Shopping Alfa/);
   // abrir de novo não busca de novo
-  doc.getElementById('at-tab-visao').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-  doc.getElementById('at-tab-patrimonio').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  doc.querySelector('#ativoCabecalho .tabs [data-tab="visao"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  doc.querySelector('#ativoCabecalho .tabs [data-tab="patrimonio"]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   await espera();
   assert.equal(chamadas.portfolio.length, 1);
 });

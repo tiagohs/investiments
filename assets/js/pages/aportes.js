@@ -25,14 +25,14 @@
 // em reais (câmbio de hoje; o último pago também no câmbio DO DIA da
 // compra, vindo de Aportes.gs!ativosParaAporte_ -> ultimoPago.cambioDia).
 
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDM, formatDMA, formatPercentFromPoints } from '../format.js';
 import { logoAtivoHtml, logoRendaFixaHtml, statusVies } from './carteiras-classe-comum.js';
 import { urlAtivoTicker } from '../link-ativo.js';
 import {
   CLASSES_APORTE, NOME_CLASSE_APORTE, MESES_CURTOS, MESES_LONGOS,
   chaveItem, carrinhoVazio, definirQuantidade, definirValorRf, removerDoCarrinho, atualizarPrecos,
   itensDoCarrinho, totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo,
-  finalDoItem, concluirAporte, totalAporte, classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, momentoAporte, totalRanking,
+  finalDoItem, concluirAporte, totalAporte, classesDoAporte, mesesDoPeriodo, PERIODOS_INVESTIDO, aportesPorMes, momentoAporte, totalRanking,
   mesclarAporteComCarrinho, mesclarAportes, aguardandoDoDia,
 } from './aportes-calc.js';
 import { momentoHtml, carregarMetasMomento, carregarMacroMomento } from './momento-aporte.js';
@@ -42,18 +42,19 @@ import { ehTesouro, puDoTitulo, dataCotacao, compraPorValor, compraPorQuantidade
 import { gravarTaxasRemessa, sugerirDivisaoCaixa, caixaValido } from './aportes-eua-calc.js';
 import { estadoInicialEua, euaFluxoHtml, remessaResultadoHtml, remessaDoEstado, necessidadeHtml, lerNumeroCampo as lerNumeroEua } from './aportes-eua.js';
 import { getToken } from '../auth.js';
+import { avisosSobrecomprometimento } from '../carrinho-global.js'; // 05/10/2026 (A-11): aviso de ativo em mais de uma meta
 import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
 import { celulaMapa } from './aportes-mapa-calc.js';
+import { ligarFiltroPeriodo, botoesSegmentadoHtml, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js'; // 06/10/2026 (A-67): períodos canônicos
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { criarKpi, criarGraficoBarras, garantirEstilosCharts } from '../charts/index.js'; // 06/10/2026 (Onda 3, kit Figma)
+import { confirmar, toast } from '../ui/index.js';
+import { ic, corClasse, chipTom, ativoCelHtml, estadoVazioHtml, secaoHtml, textoDeHtml, ehCelular } from './transacoes-ui.js';
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const dm = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '—');
-const dma = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}/${k.slice(0, 4)}` : '—');
-const usd = (v) => (typeof v === 'number' && Number.isFinite(v) ? `US$ ${formatNumeroBR(v)}` : '—');
+
 const dinheiro = (v, moeda) => (moeda === 'USD' ? usd(v) : formatBRL(v));
-const precoTxt = (v, moeda) => (typeof v === 'number' && v > 0 ? `${moeda === 'USD' ? 'US$' : 'R$'} ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: v < 10 ? 4 : 2 })}` : '—');
+const precoTxt = (v, moeda) => (typeof v === 'number' && v > 0 ? `${moeda === 'USD' ? 'US$' : 'R$'} ${formatNumeroPt(v, { minimumFractionDigits: 2, maximumFractionDigits: v < 10 ? 4 : 2 })}` : '—');
 const qtdTxt = (q) => (typeof q === 'number' ? formatNumeroBR(q, q % 1 ? 4 : 0) : '—');
-const pct = (v, casas = 1) => `${v > 0 ? '+' : ''}${formatNumeroBR(v, casas)}%`;
-const corClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).cor || '--ink-muted';
 const dotHtml = (classe) => `<span class="tx-dot" style="background:var(${corClasse(classe)})"></span>`;
 const diasEntre = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
 /** Linha pequena mono com a conversão em reais, no mesmo estilo do "no dia"/"hoje" do popover do mapa. */
@@ -66,37 +67,94 @@ const lerNumeroCampo = (s) => {
 };
 const numCampo = (v) => (typeof v === 'number' && Number.isFinite(v) ? String(v).replace('.', ',') : '');
 // preço/valor no campo: sempre com centavos ("21,10", não "21,1")
-const dinheiroCampo = (v) => (typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false }) : '');
+const dinheiroCampo = (v) => (typeof v === 'number' && Number.isFinite(v) ? formatNumeroPt(v, { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false }) : '');
 /** Logo do item do aporte: o do ativo, ou a imagem genérica do Tesouro/LCI pela renda fixa. */
 const logoItemHtml = (it) => (it.classe === 'rendaFixa'
   ? logoRendaFixaHtml({ indexador: /selic/i.test(it.ativo) ? 'SELIC' : (/ipca/i.test(it.ativo) ? 'IPCA' : ''), tipoInvestimento: it.ativo, instituicao: it.instituicao })
   : logoAtivoHtml(it.ativo));
 
-const ICONE_CARRINHO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2a1.6 1.6 0 0 0 1.6 1.3h8.3a1.6 1.6 0 0 0 1.6-1.2L21.5 7H6.4"/></svg>';
-const ICONE_LIXO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>';
-
 // ---------------------------------------------------------------------------
 // Etapas (topo da aba)
 // ---------------------------------------------------------------------------
 
-function etapasHtml(estado, dados) {
+/**
+ * 06/10/2026 (Onda 3): as 3 etapas do aporte viram cartões KPI do kit (criarKpi) - Carrinho, Aguardando valores finais e
+ * Concluídos no mês (cada um leva à seção da etapa) - mais o "Investido no mês" das transações, com tendência e sparkline.
+ */
+function dadosKpis(estado, dados) {
   const nCarrinho = Object.keys(estado.carrinho.itens).length;
-  const aguardando = dados.aportes.filter((a) => a.status === 'aguardando').length;
+  const totaisC = totaisCarrinho(estado.carrinho, dados.cambio);
+  const aguardando = dados.aportes.filter((a) => a.status === 'aguardando');
+  const planejado = aguardando.reduce((t, a) => t + totalAporte(a, 'planejado', dados.cambio), 0);
   const mes = (dados.hoje || '').slice(0, 7);
-  const concluidosMes = dados.aportes.filter((a) => a.status === 'concluido' && a.data.slice(0, 7) === mes).length;
-  const etapa = (n, alvo, titulo, sub, destaque = '') => `
-    <a class="tx-etapa${destaque}" href="#${alvo}" data-rolar="${alvo}">
-      <span class="tx-etapa-n">${n}</span>
-      <span class="tx-etapa-txt"><b>${titulo}</b><small>${sub}</small></span>
-    </a>`;
+  const concluidosMes = dados.aportes.filter((a) => a.status === 'concluido' && a.data.slice(0, 7) === mes);
+  const valorConcluidos = concluidosMes.reduce((t, a) => t + totalAporte(a, 'final', dados.cambio), 0);
+  // últimos 12 meses (mais antigo -> atual) das transações, pra sparkline e pra tendência do mês
+  const serie = [];
+  let ano = Number(mes.slice(0, 4)); let m = Number(mes.slice(5, 7));
+  for (let i = 0; i < 12; i += 1) {
+    serie.unshift(((dados.resumo || {})[`${ano}-${String(m).padStart(2, '0')}`] || {}).total || 0);
+    m -= 1; if (m === 0) { m = 12; ano -= 1; }
+  }
+  const atual = serie[serie.length - 1];
+  const anterior = serie[serie.length - 2];
+  const delta = anterior > 0 ? ((atual / anterior) - 1) * 100 : null;
+  return {
+    carrinho: { valor: totaisC.totalBrl, sub: nCarrinho ? `${nCarrinho} ativo${nCarrinho > 1 ? 's' : ''} escolhido${nCarrinho > 1 ? 's' : ''}` : 'vazio: escolha os ativos abaixo' },
+    aguardando: { valor: aguardando.length, sub: aguardando.length ? `${formatBRL(planejado)} planejados` : 'nenhum aporte pendente' },
+    concluidos: { valor: concluidosMes.length, sub: concluidosMes.length ? `${formatBRL(valorConcluidos)} pagos` : 'nenhum concluído no mês' },
+    mes: { valor: atual, delta: delta == null ? null : { texto: `${formatPercentFromPoints(delta, 1)} vs mês anterior`, sinal: delta > 0.05 ? 1 : delta < -0.05 ? -1 : 0 }, serie },
+    nomeMes: MESES_LONGOS[Number(mes.slice(5, 7)) - 1] || 'este mês',
+    nCarrinho, nAguardando: aguardando.length,
+  };
+}
+
+function kpisHtml(estado, dados) {
+  const k = dadosKpis(estado, dados);
+  const cartao = (id, alvo, extra, sub) => `
+    <a class="card tx-kpi tx-etapa${extra}" href="#${alvo}" data-rolar="${alvo}"><div data-kpi="${id}"></div><span class="tx-kpi-sub" data-kpi-sub="${id}">${esc(sub)}</span></a>`;
   return `
-    <nav class="tx-etapas" aria-label="Etapas do aporte">
-      ${etapa(1, 'txNovoAporte', 'Carrinho', nCarrinho ? `${nCarrinho} ativo${nCarrinho > 1 ? 's' : ''}` : 'vazio', nCarrinho ? ' ativa' : '')}
-      <span class="tx-etapa-linha" aria-hidden="true"></span>
-      ${etapa(2, 'txAndamento', 'Aguardando valores finais', aguardando ? `${aguardando} aporte${aguardando > 1 ? 's' : ''}` : 'nenhum', aguardando ? ' atencao' : '')}
-      <span class="tx-etapa-linha" aria-hidden="true"></span>
-      ${etapa(3, 'txHistorico', 'Concluído', `${concluidosMes} em ${MESES_LONGOS[Number(mes.slice(5, 7)) - 1] || 'este mês'}`)}
-    </nav>`;
+    <section class="tx-kpis tx-etapas" aria-label="Resumo dos aportes">
+      ${cartao('carrinho', 'txNovoAporte', k.nCarrinho ? ' ativa' : '', k.carrinho.sub)}
+      ${cartao('aguardando', 'txAndamento', k.nAguardando ? ' atencao' : '', k.aguardando.sub)}
+      ${cartao('concluidos', 'txHistorico', '', k.concluidos.sub)}
+      <div class="card tx-kpi"><div data-kpi="mes"></div><span class="tx-kpi-sub">das transações da planilha</span></div>
+    </section>`;
+}
+
+/** Cria os KPIs nos espaços de kpisHtml (destrói os da vez anterior). */
+function montarKpis(ctx) {
+  const { el, dados, estado } = ctx;
+  destruirKpis(el);
+  const k = dadosKpis(estado, dados);
+  const host = (id) => el.querySelector(`[data-kpi="${id}"]`);
+  const inteiro = (v) => String(Math.round(v));
+  const lista = {};
+  if (host('carrinho')) lista.carrinho = criarKpi(host('carrinho'), { rotulo: 'No carrinho', valor: k.carrinho.valor, formatar: formatBRL, info: 'Total estimado do carrinho de hoje (fica guardado neste navegador até você confirmar).' });
+  if (host('aguardando')) lista.aguardando = criarKpi(host('aguardando'), { rotulo: 'Aguardando valores finais', valor: k.aguardando.valor, formatar: inteiro, info: 'Aportes confirmados que esperam você informar a quantidade e o preço realmente pagos.' });
+  if (host('concluidos')) lista.concluidos = criarKpi(host('concluidos'), { rotulo: `Concluídos em ${k.nomeMes}`, valor: k.concluidos.valor, formatar: inteiro });
+  if (host('mes')) lista.mes = criarKpi(host('mes'), { rotulo: `Investido em ${k.nomeMes}`, valor: k.mes.valor, formatar: formatBRL, delta: k.mes.delta || undefined, info: 'Soma das compras lançadas nas transações da planilha (Ações EUA pelo dólar do dia da compra).', spark: { valores: k.mes.serie, cor: 1, aria: 'Investido mês a mês nos últimos 12 meses' } });
+  el._txKpis = lista;
+}
+
+function destruirKpis(el) {
+  Object.values(el._txKpis || {}).forEach((k) => { try { k.destruir(); } catch (e) { /* já saiu da tela */ } });
+  el._txKpis = null;
+}
+
+/** Digitou uma quantidade / confirmou algo: só os números e as legendas dos cartões mudam. */
+function atualizarKpis(ctx) {
+  const { el, dados, estado } = ctx;
+  const kpis = el._txKpis;
+  if (!kpis) return;
+  const k = dadosKpis(estado, dados);
+  if (kpis.carrinho) kpis.carrinho.atualizar({ valor: k.carrinho.valor });
+  if (kpis.aguardando) kpis.aguardando.atualizar({ valor: k.aguardando.valor });
+  if (kpis.concluidos) kpis.concluidos.atualizar({ valor: k.concluidos.valor });
+  const sub = (id, texto) => { const e = el.querySelector(`[data-kpi-sub="${id}"]`); if (e) e.textContent = texto; };
+  sub('carrinho', k.carrinho.sub); sub('aguardando', k.aguardando.sub); sub('concluidos', k.concluidos.sub);
+  const c = el.querySelector('[data-kpi="carrinho"]'); if (c && c.parentElement) c.parentElement.classList.toggle('ativa', k.nCarrinho > 0);
+  const a = el.querySelector('[data-kpi="aguardando"]'); if (a && a.parentElement) a.parentElement.classList.toggle('atencao', k.nAguardando > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +172,10 @@ function totalPagoHtml(valor, moeda, cambio) {
 
 function linhaAndamentoHtml(a, it, i, dig, cambio) {
   const f = finalDoItem(it, dig);
-  const nomeAtivo = it.classe === 'rendaFixa' ? `<b>${esc(it.ativo)}</b><small>${esc(it.instituicao || 'Renda Fixa')}</small>` : `<b>${esc(it.ativo)}</b><small>${NOME_CLASSE_APORTE[it.classe]}</small>`;
   if (it.classe === 'rendaFixa') {
     return `
       <tr data-i="${i}">
-        <td class="esq"><span class="tx-ativo">${logoItemHtml(it)}<span class="tx-ativo-nome">${nomeAtivo}</span></span></td>
+        <td class="esq">${ativoCelHtml(logoItemHtml(it), it.instituicao || 'Renda Fixa', it.ativo)}</td>
         <td data-rot="Planejado">${formatBRL(it.valorPlanejado)}</td>
         <td data-rot="Qtd final" class="tx-td-vazio">—</td>
         <td data-rot="Aplicado">${inputHtml(`data-final="valor" data-aporte="${esc(a.id)}" data-i="${i}"`, dinheiroCampo(dig.valor != null ? dig.valor : (it.valorFinal != null ? it.valorFinal : it.valorPlanejado)), { rotulo: `Valor aplicado em ${it.ativo}`, prefixo: 'R$' })}</td>
@@ -128,7 +185,7 @@ function linhaAndamentoHtml(a, it, i, dig, cambio) {
   const pre = it.moeda === 'USD' ? 'US$' : 'R$';
   return `
     <tr data-i="${i}">
-      <td class="esq"><span class="tx-ativo">${logoAtivoHtml(it.ativo)}<span class="tx-ativo-nome">${nomeAtivo}</span></span></td>
+      <td class="esq">${ativoCelHtml(logoAtivoHtml(it.ativo), it.ativo, NOME_CLASSE_APORTE[it.classe])}</td>
       <td data-rot="Planejado"><span class="tx-planejado">${qtdTxt(it.qtdPlanejada)} × ${precoTxt(it.precoPlanejado, it.moeda)}</span><small>${dinheiro(it.valorPlanejado, it.moeda)}${it.moeda === 'USD' && cambio > 0 ? ` ≈ ${formatBRL(it.valorPlanejado * cambio)}` : ''}</small></td>
       <td data-rot="Qtd final">${inputHtml(`data-final="qtd" data-aporte="${esc(a.id)}" data-i="${i}"`, numCampo(dig.qtd != null ? dig.qtd : (it.qtdFinal != null ? it.qtdFinal : it.qtdPlanejada)), { decimal: it.moeda === 'USD', rotulo: `Quantidade comprada de ${it.ativo}` })}</td>
       <td data-rot="Preço pago">${inputHtml(`data-final="preco" data-aporte="${esc(a.id)}" data-i="${i}"`, dinheiroCampo(dig.preco != null ? dig.preco : (it.precoFinal != null ? it.precoFinal : it.precoPlanejado)), { rotulo: `Preço pago em ${it.ativo}`, prefixo: pre })}</td>
@@ -137,13 +194,6 @@ function linhaAndamentoHtml(a, it, i, dig, cambio) {
 }
 
 function rodapeAndamentoHtml(a, estado, cambio) {
-  if (estado.confirmando === `cancelar:${a.id}`) {
-    return `
-      <div class="tx-confirmar tx-confirmar-perigo">
-        <span>Cancelar este aporte? Ele sai da lista e da planilha (nada muda nas suas transações).</span>
-        <span class="tx-botoes"><button type="button" class="btn tx-btn-perigo" data-acao="cancelar-sim" data-id="${esc(a.id)}">Sim, cancelar</button><button type="button" class="btn btn-ghost" data-acao="voltar">Voltar</button></span>
-      </div>`;
-  }
   const dig = estado.digitados[a.id] || {};
   const planejado = totalAporte(a, 'planejado', cambio);
   const pago = totalAporte(a, 'final', cambio, dig);
@@ -154,10 +204,10 @@ function rodapeAndamentoHtml(a, estado, cambio) {
         <span>Planejado <b>${formatBRL(planejado)}</b></span>
         <span class="tx-seta" aria-hidden="true">→</span>
         <span>Pago <b>${formatBRL(pago)}</b></span>
-        ${Math.abs(dif) >= 0.01 ? `<span class="tx-dif ${dif > 0 ? 'bad' : 'good'}">${dif > 0 ? '+' : '−'}${formatBRL(Math.abs(dif))}</span>` : ''}
+        ${Math.abs(dif) >= 0.01 ? `<span class="tx-dif chip-tonal ${dif > 0 ? 'chip-bad' : 'chip-good'}">${dif > 0 ? '+' : '−'}${formatBRL(Math.abs(dif))}</span>` : ''}
       </div>
       <span class="tx-botoes">
-        <button type="button" class="btn btn-primary" data-acao="concluir" data-id="${esc(a.id)}">Concluir compra</button>
+        <button type="button" class="btn btn-filled" data-acao="concluir" data-id="${esc(a.id)}">Concluir compra</button>
       </span>
     </div>`;
 }
@@ -170,8 +220,8 @@ function avisoDuplicadosHtml(lista) {
   if (!dias.length) return '';
   return dias.map((d) => `
     <div class="tx-aviso aviso tx-aviso-juntar" role="status">
-      <span>Há <b>${porDia[d].length} aportes de ${dma(d)}</b> aguardando valores finais. Dá pra juntar num só (a mesma ação soma a quantidade).</span>
-      <button type="button" class="btn btn-ghost tx-btn-sm" data-acao="juntar-dia" data-dia="${esc(d)}">Juntar os aportes de ${dm(d)}</button>
+      ${ic('info')}<span>Há <b>${porDia[d].length} aportes de ${formatDMA(d)}</b> aguardando valores finais. Dá pra juntar num só (a mesma ação soma a quantidade).</span>
+      <button type="button" class="btn btn-tonal btn-sm" data-acao="juntar-dia" data-dia="${esc(d)}">Juntar os aportes de ${formatDM(d)}</button>
     </div>`).join('');
 }
 
@@ -189,20 +239,20 @@ function andamentoHtml(estado, dados) {
         const dig = estado.digitados[a.id] || {};
         const usaEua = a.itens.some((it) => it.moeda === 'USD');
         return `
-        <article class="tx-andamento" data-aporte-card="${esc(a.id)}">
+        <article class="card tx-andamento" data-aporte-card="${esc(a.id)}">
           <header class="tx-andamento-cab">
             <div>
-              <span class="status-pill warn">Aguardando valores finais</span>
-              <h3>Aporte de ${dma(a.data)}</h3>
+              <span class="chip-tonal chip-warn">${ic('schedule')}Aguardando valores finais</span>
+              <h3>Aporte de ${formatDMA(a.data)}</h3>
               <span class="tx-classes">${classesDoAporte(a).map((c) => `${dotHtml(c)}${NOME_CLASSE_APORTE[c]}`).join(' · ')}${a.observacao ? ` · <i>${esc(a.observacao)}</i>` : ''}</span>
             </div>
             <span class="tx-botoes">
-              <button type="button" class="btn btn-ghost tx-btn-sm" data-acao="editar" data-id="${esc(a.id)}">Editar no carrinho</button>
-              <button type="button" class="btn btn-ghost tx-btn-sm tx-btn-perigo-ghost" data-acao="cancelar" data-id="${esc(a.id)}">Cancelar aporte</button>
+              <button type="button" class="btn btn-outlined btn-sm" data-acao="editar" data-id="${esc(a.id)}">${ic('edit')}Editar no carrinho</button>
+              <button type="button" class="btn btn-text btn-sm tx-btn-perigo-txt" data-acao="cancelar" data-id="${esc(a.id)}">Cancelar aporte</button>
             </span>
           </header>
-          <div class="tx-tabela-wrap">
-            <table class="tx-tabela tx-tabela-andamento">
+          <div class="tabela-wrap tx-tabela-wrap">
+            <table class="tabela tx-tabela tx-tabela-andamento">
               <thead><tr><th class="esq">Ativo</th><th>Planejado</th><th>Qtd comprada</th><th>Preço pago</th><th>Total pago</th></tr></thead>
               <tbody>${a.itens.map((it, i) => linhaAndamentoHtml(a, it, i, dig[i] || {}, dados.cambio)).join('')}</tbody>
             </table>
@@ -229,9 +279,9 @@ function ultimoPagoHtml(a, hoje, { cambioHoje = null } = {}) {
   return `
     <span class="tx-ultimo">
       <b>${precoTxt(u.preco, a.moeda)}</b>
-      <small>${dm(u.data)}${dias != null && dias >= 0 ? ` · há ${dias}d` : ''}${u.origem === 'aporte' ? ' · aporte' : ''}</small>
+      <small>${formatDM(u.data)}${dias != null && dias >= 0 ? ` · há ${dias}d` : ''}${u.origem === 'aporte' ? ' · aporte' : ''}</small>
       ${conversao}
-      ${dif != null && Math.abs(dif) >= 0.05 ? `<span class="tx-var ${dif < 0 ? 'good' : 'bad'}" title="Cotação de agora comparada com o último preço pago">${pct(dif)}</span>` : ''}
+      ${dif != null && Math.abs(dif) >= 0.05 ? `<span class="tx-var ${dif < 0 ? 'good' : 'bad'} chip-tonal ${dif < 0 ? 'chip-good' : 'chip-bad'}" title="Cotação de agora comparada com o último preço pago">${formatPercentFromPoints(dif, 1)}</span>` : ''}
     </span>`;
 }
 
@@ -245,9 +295,9 @@ function stepperHtml(classe, ativo, qtd, moeda) {
   const frac = moeda === 'USD';
   return `
     <span class="tx-stepper" data-stepper="${esc(classe)}:${esc(ativo)}">
-      <button type="button" class="tx-step" data-passo="-1" aria-label="Menos ${esc(ativo)}">−</button>
+      <button type="button" class="tx-step" data-passo="-1" aria-label="Menos ${esc(ativo)}">${ic('remove')}</button>
       <input type="text" inputmode="${frac ? 'decimal' : 'numeric'}" class="tx-qtd" data-qtd="${esc(classe)}:${esc(ativo)}" value="${qtd ? numCampo(qtd) : ''}" placeholder="0" aria-label="Quantidade de ${esc(ativo)}" autocomplete="off">
-      <button type="button" class="tx-step" data-passo="1" aria-label="Mais ${esc(ativo)}">+</button>
+      <button type="button" class="tx-step" data-passo="1" aria-label="Mais ${esc(ativo)}">${ic('add')}</button>
     </span>`;
 }
 
@@ -261,26 +311,26 @@ function prateleiraRvHtml(estado, dados, classe) {
     const qtd = it ? it.qtd : 0;
     const vies = statusVies(a.vies);
     const variacao = typeof a.variacaoDia === 'number' ? a.variacaoDia * 100 : null;
+    const chipVies = vies.classe ? `<span class="${chipTom(vies.classe)}">${vies.texto}</span>` : '<span class="tx-fraco">—</span>';
     const subtotalUsd = qtd ? qtd * (a.precoAtual || 0) : 0;
     return `
       <tr class="${qtd ? 'no-carrinho' : ''}" data-linha="${esc(classe)}:${esc(a.ticker)}">
-        <td class="esq"><a class="tx-ativo" href="${esc(urlAtivoTicker(a.ticker))}">${logoAtivoHtml(a.ticker)}<span class="tx-ativo-nome"><b>${esc(a.ticker)}</b><small>${esc(a.nome || '')}</small></span></a></td>
-        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, '', `câmbio de hoje: ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<small class="${variacao >= 0 ? 'good' : 'bad'}">${pct(variacao, 2)} hoje</small>` : ''}</td>
+        <td class="esq">${ativoCelHtml(logoAtivoHtml(a.ticker), a.ticker, a.nome || '', { href: urlAtivoTicker(a.ticker) })}</td>
+        <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, '', `câmbio de hoje: ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<span class="var tx-var-dia ${variacao >= 0 ? 'sobe' : 'desce'}">${ic(variacao >= 0 ? 'arrow-circle-up' : 'arrow-circle-down')}${formatPercentFromPoints(variacao, 2)} hoje</span>` : ''}</td>
         <td data-rot="Último pago">${ultimoPagoHtml(a, dados.hoje, { cambioHoje: dados.cambio })}</td>
         <td data-rot="Preço-teto">${tetoHtml(a)}</td>
-        <td data-rot="Viés">${vies.classe ? `<span class="status-pill ${vies.classe}">${vies.texto}</span>` : '<span class="tx-fraco">—</span>'}</td>
+        <td data-rot="Viés">${chipVies}</td>
         <td data-rot="Na classe" class="tx-mono">${formatNumeroBR((a.peso || 0) * 100, 1)}%</td>
-        <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}</td>
-        <td data-rot="Subtotal" class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? `${dinheiro(subtotalUsd, a.moeda)}${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(subtotalUsd * dados.cambio) : ''}` : '<span class="tx-fraco">—</span>'}</td>
-      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking, ...opcoesMomento(estado, dados, qtd ? qtd * (a.precoAtual || 0) : null) }), 8)}`;
+        <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}<span class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? `${dinheiro(subtotalUsd, a.moeda)}${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(subtotalUsd * dados.cambio) : ''}` : ''}</span></td>
+      </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking, ...opcoesMomento(estado, dados, qtd ? qtd * (a.precoAtual || 0) : null) }), 7)}`;
   }).join('');
   return `
-    <div class="tx-tabela-wrap">
-      <table class="tx-tabela tx-prateleira">
-        <thead><tr><th class="esq">Ativo</th><th>Cotação</th><th>Último pago</th><th>Preço-teto</th><th>Viés</th><th>Na classe</th><th>Quantidade</th><th>Subtotal</th></tr></thead>
+    <div class="card card-flat tx-card-tabela"><div class="tabela-wrap tx-tabela-wrap">
+      <table class="tabela tx-tabela tx-prateleira">
+        <thead><tr><th class="esq">Ativo</th><th>Cotação</th><th>Último pago</th><th>Preço-teto</th><th>Viés</th><th>Na classe</th><th>Quantidade</th></tr></thead>
         <tbody>${linhas}</tbody>
       </table>
-    </div>`;
+    </div></div>`;
 }
 
 /**
@@ -298,6 +348,8 @@ function garantirMetasMomento(ctx) {
   estado.metasPedidas = true;
   const refazer = () => {
     const atual = ctx.el && ctx.el._txCtx ? ctx.el._txCtx : ctx;
+    const sobre = atual.el && atual.el.querySelector('#txRecSobre');
+    if (sobre) sobre.innerHTML = sobrecomprometimentoHtml(atual.estado); // as metas chegaram: o aviso do carrinho aparece sem redesenhar o resto
     const lista = atual.el && atual.el.querySelector('#txPrateleiraLista');
     if (lista) lista.innerHTML = atual.estado.classeAtiva === 'rendaFixa' ? prateleiraRfHtml(atual.estado, atual.dados) : prateleiraRvHtml(atual.estado, atual.dados, atual.estado.classeAtiva);
   };
@@ -366,31 +418,31 @@ function prateleiraRfHtml(estado, dados) {
     const emerg = /emergenc/i.test(a.categoria || '');
     return `
       <tr class="${it ? 'no-carrinho' : ''}" data-linha="${esc(k)}">
-        <td class="esq"><span class="tx-ativo">${logoRendaFixaHtml({ indexador: a.indexador, tipoInvestimento: a.tipo, instituicao: a.instituicao })}<span class="tx-ativo-nome"><b>${esc(a.titulo)}</b><small>${esc(a.instituicao)}<span class="tx-tipo-rf${emerg ? ' emergencial' : ''}" title="Marcação na planilha (coluna Categoria)">${rotuloCategoriaRf(a)}</span></small></span></span></td>
+        <td class="esq">${ativoCelHtml(logoRendaFixaHtml({ indexador: a.indexador, tipoInvestimento: a.tipo, instituicao: a.instituicao }), a.titulo, a.titulo, { linhaTopo: `${esc(a.instituicao)}<span class="tx-tipo-rf${emerg ? ' emergencial' : ''}" title="Marcação na planilha (coluna Categoria)">${rotuloCategoriaRf(a)}</span>` })}</td>
         <td data-rot="Cotação">${pu > 0
-    ? `<b class="tx-mono" title="Preço unitário de compra do Tesouro Direto">${formatBRL(pu)}</b><small class="tx-fraco" title="Preço unitário de compra do Tesouro Direto${dataPu ? ` (data-base ${dma(dataPu)})` : ''}">PU${dataPu ? ` · ${dm(dataPu)}` : ''}</small>`
+    ? `<b class="tx-mono" title="Preço unitário de compra do Tesouro Direto">${formatBRL(pu)}</b><small class="tx-fraco" title="Preço unitário de compra do Tesouro Direto${dataPu ? ` (data-base ${formatDMA(dataPu)})` : ''}">PU${dataPu ? ` · ${formatDM(dataPu)}` : ''}</small>`
     : `<span class="tx-fraco">—</span>${a.valorAtualizado > 0 ? `<small class="tx-fraco">atualizado ${formatBRL(a.valorAtualizado)}</small>` : ''}`}</td>
         <td data-rot="Na classe" class="tx-mono" title="${a.valorAtualizado > 0 ? `Valor atualizado ${formatBRL(a.valorAtualizado)}` : ''}"><b>${a.valorInvestido > 0 ? formatBRL(a.valorInvestido) : '—'}</b><small class="tx-fraco">${formatNumeroBR(peso * 100, 1)}%</small></td>
-        <td data-rot="Último aporte">${u && u.valor > 0 ? `<span class="tx-ultimo"><b>${formatBRL(u.valor)}</b><small>${dma(u.data)}${u.origem === 'aporte' ? ' · aporte' : ''}</small></span>` : '<span class="tx-fraco">—</span>'}</td>
-        <td data-rot="Vencimento" class="tx-mono">${a.vencimento ? dma(a.vencimento) : '—'}</td>
+        <td data-rot="Último aporte">${u && u.valor > 0 ? `<span class="tx-ultimo"><b>${formatBRL(u.valor)}</b><small>${formatDMA(u.data)}${u.origem === 'aporte' ? ' · aporte' : ''}</small></span>` : '<span class="tx-fraco">—</span>'}</td>
+        <td data-rot="Vencimento" class="tx-mono">${a.vencimento ? formatDMA(a.vencimento) : '—'}</td>
         <td data-rot="Aplicar" class="tx-td-qtd">${aplicarRfHtml(a, k, it, pu)}</td>
       </tr>${momentoLinhaHtml(momentoAporte(a, 'rendaFixa', dados.metas, dados.hoje, opcoesMomento(estado, dados, it ? it.valor : null)), 6)}`;
   }).join('');
   const nomesNovo = [...new Set([...(dados.tesouro || []).map((t) => t.nome), ...todos.map((a) => a.titulo)])];
   return `
-    <div class="tx-tabela-wrap">
-      <table class="tx-tabela tx-prateleira tx-prateleira-rf">
+    <div class="card card-flat tx-card-tabela"><div class="tabela-wrap tx-tabela-wrap">
+      <table class="tabela tx-tabela tx-prateleira tx-prateleira-rf">
         <thead><tr><th class="esq">Título</th><th>Cotação</th><th>Na classe</th><th>Último aporte</th><th>Vencimento</th><th>Aplicar</th></tr></thead>
         <tbody>${linhas || '<tr><td colspan="6" class="tx-vazio">Nenhum título com esse filtro.</td></tr>'}</tbody>
       </table>
-    </div>
+    </div></div>
     <p class="tx-nota tx-nota-tesouro">Tesouro Direto: informe o <b>valor</b> ou a <b>quantidade</b> de títulos (frações de 0,01). O mínimo é o de <b>0,01 título = 1% do PU de compra do dia</b> (regra da B3 em vigor desde 18/11/2024; o antigo piso de R$ 30 acabou). Nos demais títulos (CDB, LCI...) o valor é livre.</p>
     <form class="tx-rf-novo" id="txRfNovo" autocomplete="off">
       <span class="tx-rf-novo-rot">Título novo</span>
-      <input type="text" id="txRfNovoTitulo" placeholder="Ex.: Tesouro IPCA+ 2035" aria-label="Nome do título" list="txTitulosNovos" required>
-      <input type="text" id="txRfNovoInst" placeholder="Instituição" aria-label="Instituição" list="txInstituicoes">
+      <input type="text" class="input" id="txRfNovoTitulo" placeholder="Ex.: Tesouro IPCA+ 2035" aria-label="Nome do título" list="txTitulosNovos" required>
+      <input type="text" class="input" id="txRfNovoInst" placeholder="Instituição" aria-label="Instituição" list="txInstituicoes">
       <label class="tx-campo"><span class="tx-campo-pre">R$</span><input type="text" inputmode="decimal" id="txRfNovoValor" placeholder="0,00" aria-label="Valor a aplicar" required></label>
-      <button type="submit" class="btn btn-ghost tx-btn-sm">Adicionar</button>
+      <button type="submit" class="btn btn-tonal">${ic('add')}Adicionar</button>
       <small class="tx-rf-info tx-rf-novo-info" id="txRfNovoInfo" aria-live="polite"></small>
       <datalist id="txInstituicoes">${[...new Set(todos.map((a) => a.instituicao).filter(Boolean))].map((i) => `<option value="${esc(i)}"></option>`).join('')}</datalist>
       <datalist id="txTitulosNovos">${nomesNovo.map((n) => `<option value="${esc(n)}"></option>`).join('')}</datalist>
@@ -420,9 +472,9 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
 
 function classesSegHtml(estado) {
   const t = totaisCarrinho(estado.carrinho, 0).porClasse;
-  return `<div class="tx-seg" role="tablist" aria-label="Classe">${CLASSES_APORTE.map((c) => `
+  return `<div class="segmented tx-seg" role="tablist" aria-label="Classe">${CLASSES_APORTE.map((c) => `
     <button type="button" role="tab" class="tx-seg-btn${estado.classeAtiva === c.id ? ' active' : ''}" data-classe="${c.id}" aria-selected="${estado.classeAtiva === c.id}">
-      <span class="tx-dot" style="background:var(${c.cor})"></span><span class="tx-longo">${c.nome}</span><span class="tx-curto">${c.curto}</span>
+      <span class="tx-dot" style="background:var(${corClasse(c.id)})"></span><span class="tx-longo">${c.nome}</span><span class="tx-curto">${c.curto}</span>
       <span class="tx-seg-n" data-conta-classe="${c.id}"${t[c.id] ? '' : ' hidden'}>${t[c.id] ? t[c.id].n : ''}</span>
     </button>`).join('')}</div>`;
 }
@@ -435,15 +487,22 @@ function prateleiraHtml(estado, dados) {
     <div class="tx-prateleira-topo">
       ${classesSegHtml(estado)}
       <div class="tx-filtros">
-        <input type="search" class="tx-busca" id="txBusca" placeholder="Buscar ${rf ? 'título' : 'ativo'}" value="${esc(estado.busca || '')}" aria-label="Buscar">
-        <label class="tx-select-caixa"><span class="tx-sr">Ordenar</span><select id="txOrdem" class="tx-select">${ordens.map(([v, r]) => `<option value="${v}"${(estado.ordem || 'carteira') === v ? ' selected' : ''}>${r}</option>`).join('')}</select></label>
-        ${rf ? '' : `<label class="tx-toggle"><input type="checkbox" id="txSoComprar"${estado.soComprar ? ' checked' : ''}><span>Só viés Comprar</span></label>`}
+        <input type="search" class="input tx-busca" id="txBusca" placeholder="Buscar ${rf ? 'título' : 'ativo'}" value="${esc(estado.busca || '')}" aria-label="Buscar">
+        <label class="tx-select-caixa"><span class="sr-only">Ordenar</span><select id="txOrdem" class="select tx-select">${ordens.map(([v, r]) => `<option value="${v}"${(estado.ordem || 'carteira') === v ? ' selected' : ''}>${r}</option>`).join('')}</select></label>
+        ${rf ? '' : `<label class="switch tx-toggle"><input type="checkbox" class="switch-input" role="switch" id="txSoComprar"${estado.soComprar ? ' checked' : ''}><span class="switch-trilho" aria-hidden="true"></span><span class="switch-rotulo">Só viés Comprar</span></label>`}
       </div>
     </div>
     ${estado.classeAtiva === 'acoesEua' ? euaFluxoHtml(estado, dados, totaisCarrinho(estado.carrinho, dados.cambio).totalUsd) : ''}
     ${estado.classeAtiva === 'acoesEua' && dados.cambio > 0 ? `<p class="tx-nota tx-nota-cambio">Em dólar, com a conversão em reais embaixo: cotação e subtotal pelo câmbio de hoje (<b>${formatBRL(dados.cambio)}</b>); o último pago pelo câmbio do dia da compra e pelo de hoje.</p>` : ''}
     <div id="txPrateleiraLista">${rf ? prateleiraRfHtml(estado, dados) : prateleiraRvHtml(estado, dados, estado.classeAtiva)}</div>
     <p class="tx-momento-nota">Embaixo de cada ativo, a leitura dos <b>seus</b> critérios: preço-teto, ranking da Suno, % desejado do Radar, preço médio, última compra, P/VP e P/L${rf ? ', taxa de hoje x a sua média contratada e as metas de Renda Fixa' : ''}. Não é recomendação de compra.</p>`;
+}
+
+/** 05/10/2026 (A-11): aviso discreto quando um ativo do carrinho está em mais de uma meta (o aporte só conta na de maior prioridade). */
+function sobrecomprometimentoHtml(estado) {
+  const av = avisosSobrecomprometimento(estado.carrinho, estado.metasObjetivos);
+  if (!av.length) return '';
+  return `<p class="tx-recibo-sobre" role="note"><b>Metas:</b> ${av.map((a) => esc(a.texto)).join(' · ')}.</p>`;
 }
 
 function carrinhoConteudoHtml(estado, dados) {
@@ -454,7 +513,7 @@ function carrinhoConteudoHtml(estado, dados) {
   // 05/10/2026: já tem aporte aguardando valores finais nesse dia? Confirmar SOMA nele (sem duplicar)
   const mesclar = !editando && itens.length ? aguardandoDoDia(dados.aportes, c.data) : [];
   const mesclaHtml = mesclar.length ? `
-    <p class="tx-recibo-mescla">Já existe um aporte de ${dma(c.data)} <b>aguardando valores finais</b>${mesclar.length > 1 ? ` (${mesclar.length} deles)` : ''}: ao confirmar, este carrinho é <b>somado</b> a ele, sem duplicar. <button type="button" class="tx-link" data-acao="editar" data-id="${esc(mesclar[0].id)}">Editar o aporte existente</button></p>` : '';
+    <p class="tx-recibo-mescla">Já existe um aporte de ${formatDMA(c.data)} <b>aguardando valores finais</b>${mesclar.length > 1 ? ` (${mesclar.length} deles)` : ''}: ao confirmar, este carrinho é <b>somado</b> a ele, sem duplicar. <button type="button" class="tx-link" data-acao="editar" data-id="${esc(mesclar[0].id)}">Editar o aporte existente</button></p>` : '';
   const grupos = CLASSES_APORTE.filter((cl) => t.porClasse[cl.id]).map((cl) => `
     <div class="tx-recibo-grupo">
       <div class="tx-recibo-grupo-cab">${dotHtml(cl.id)}<b>${cl.nome}</b><span>${cl.id === 'acoesEua' ? `${usd(t.porClasse[cl.id].valor)} <small class="tx-fraco">≈ ${formatBRL(t.porClasse[cl.id].brl)}</small>` : formatBRL(t.porClasse[cl.id].brl)}</span></div>
@@ -462,15 +521,15 @@ function carrinhoConteudoHtml(estado, dados) {
         <div class="tx-recibo-linha">
           <span class="tx-recibo-ativo"><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? (it.qtd > 0 && it.pu > 0 ? `${formatNumeroBR(it.qtd, 2)} título${it.qtd > 1 ? 's' : ''} × ${formatBRL(it.pu)}${it.instituicao ? ` · ${esc(it.instituicao)}` : ''}` : esc(it.instituicao || 'aplicação')) : `${qtdTxt(it.qtd)} × ${precoTxt(it.preco, it.moeda)}`}</small></span>
           <span class="tx-recibo-valor">${dinheiro(it.subtotal, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? `<small class="tx-fraco">≈ R$ ${formatNumeroBR(it.subtotal * dados.cambio)}</small>` : ''}</span>
-          <button type="button" class="tx-recibo-tirar" data-tirar="${esc(it.chave)}" aria-label="Tirar ${esc(it.ativo)} do carrinho">×</button>
+          <button type="button" class="icon-btn tx-recibo-tirar" data-tirar="${esc(it.chave)}" aria-label="Tirar ${esc(it.ativo)} do carrinho">${ic('close')}</button>
         </div>`).join('')}
     </div>`).join('');
   return `
     <div class="tx-recibo-cab">
-      <h3>${ICONE_CARRINHO}Carrinho</h3>
-      <button type="button" class="tx-recibo-fechar" data-acao="fechar-carrinho" aria-label="Fechar carrinho">×</button>
+      <h3>${ic('cart')}Carrinho</h3>
+      <button type="button" class="icon-btn tx-recibo-fechar" data-acao="fechar-carrinho" aria-label="Fechar carrinho">${ic('close')}</button>
     </div>
-    ${editando ? `<div class="tx-recibo-editando">Editando o aporte de ${dma(editando.data)} <button type="button" class="tx-link" data-acao="descartar-edicao">descartar edição</button></div>` : ''}
+    ${editando ? `<div class="tx-recibo-editando">Editando o aporte de ${formatDMA(editando.data)} <button type="button" class="tx-link" data-acao="descartar-edicao">descartar edição</button></div>` : ''}
     ${itens.length ? `<div class="tx-recibo-itens">${grupos}</div>` : `<p class="tx-recibo-vazio">Escolha a classe, coloque a quantidade de cada ativo e ele aparece aqui.</p>`}
     <div class="tx-recibo-total">
       <span>Total${t.totalUsd ? ' estimado' : ''}</span>
@@ -479,13 +538,14 @@ function carrinhoConteudoHtml(estado, dados) {
     ${t.totalUsd ? `<p class="tx-recibo-nota">Inclui ${usd(t.totalUsd)} ≈ ${formatBRL(t.totalUsd * (dados.cambio || 0))} (dólar ${formatBRL(dados.cambio)}).</p>` : ''}
     ${t.totalUsd && estado.eua ? necessidadeHtml(estado, dados, t.totalUsd) : ''}
     ${mesclaHtml}
+    <div id="txRecSobre">${sobrecomprometimentoHtml(estado)}</div>
     <div class="tx-recibo-campos">
-      <label class="tx-rotulo">Data da compra<input type="date" id="txDataAporte" value="${esc(c.data)}"></label>
-      <label class="tx-rotulo">Observação<input type="text" id="txObsAporte" value="${esc(c.observacao || '')}" placeholder="opcional" maxlength="140"></label>
+      <label class="tx-rotulo">Data da compra<input type="date" class="input" id="txDataAporte" value="${esc(c.data)}"></label>
+      <label class="tx-rotulo">Observação<input type="text" class="input" id="txObsAporte" value="${esc(c.observacao || '')}" placeholder="opcional" maxlength="140"></label>
     </div>
     <div class="tx-recibo-acoes">
-      <button type="button" class="btn btn-primary" data-acao="confirmar-carrinho"${itens.length ? '' : ' disabled'}>${editando ? 'Salvar alterações' : (mesclar.length ? 'Somar ao aporte do dia' : 'Confirmar aporte')}</button>
-      <button type="button" class="btn btn-ghost" data-acao="esvaziar"${itens.length ? '' : ' disabled'}>Esvaziar</button>
+      <button type="button" class="btn btn-filled" data-acao="confirmar-carrinho"${itens.length ? '' : ' disabled'}>${editando ? 'Salvar alterações' : (mesclar.length ? 'Somar ao aporte do dia' : 'Confirmar aporte')}</button>
+      <button type="button" class="btn btn-text" data-acao="esvaziar"${itens.length ? '' : ' disabled'}>Esvaziar</button>
     </div>
     <p class="tx-recibo-nota">Confirmar guarda o aporte como <b>aguardando valores finais</b>: depois de comprar na corretora você ajusta quantidade e preço e conclui.</p>`;
 }
@@ -494,7 +554,7 @@ function barraCarrinhoHtml(estado, dados) {
   const t = totaisCarrinho(estado.carrinho, dados.cambio);
   return `
     <button type="button" class="tx-barra-carrinho" data-acao="abrir-carrinho"${t.n ? '' : ' hidden'} aria-label="Ver carrinho">
-      <span class="tx-barra-ico">${ICONE_CARRINHO}<span class="tx-barra-n">${t.n}</span></span>
+      <span class="tx-barra-ico">${ic('cart')}<span class="tx-barra-n">${t.n}</span></span>
       <span class="tx-barra-txt">${t.n} ativo${t.n === 1 ? '' : 's'}<b>${formatBRL(t.totalBrl)}</b></span>
       <span class="tx-barra-ver">Ver carrinho</span>
     </button>`;
@@ -509,7 +569,7 @@ function novoAporteHtml(estado, dados) {
       </div>
       <div class="tx-loja">
         <div class="tx-loja-prateleira" id="txPrateleira">${prateleiraHtml(estado, dados)}</div>
-        <aside class="tx-recibo${estado.carrinhoAberto ? ' aberto' : ''}" id="txCarrinho" aria-label="Carrinho">${carrinhoConteudoHtml(estado, dados)}</aside>
+        <aside class="card tx-recibo${estado.carrinhoAberto ? ' aberto' : ''}" id="txCarrinho" aria-label="Carrinho">${carrinhoConteudoHtml(estado, dados)}</aside>
         <div class="tx-recibo-fundo" data-acao="fechar-carrinho"${estado.carrinhoAberto ? '' : ' hidden'}></div>
       </div>
       <div id="txBarraCarrinho">${barraCarrinhoHtml(estado, dados)}</div>
@@ -520,26 +580,27 @@ function novoAporteHtml(estado, dados) {
 // 3. Resumo por mês + histórico de aportes concluídos
 // ---------------------------------------------------------------------------
 
-function graficoMesesHtml(estado, dados) {
-  const meses = mesesDoAno(dados.resumo, estado.ano);
-  const max = Math.max(...meses.map((m) => m.total), 1);
+const MESES_ABREV = MESES_CURTOS;
+const eixoCompacto = (v) => (v >= 1000 ? `${formatNumeroBR(v / 1000, v % 1000 ? 1 : 0)} mil` : formatNumeroBR(Math.round(v), 0));
+
+/** Dados do período pro gráfico: os meses do período × 4 classes (das transações da planilha). */
+function dadosGraficoMeses(estado, dados) {
+  const meses = mesesDoPeriodo(dados.resumo, estado.periodo, dados.hoje);
+  if (!meses.some((m) => m.chave === estado.mesSel)) estado.mesSel = meses[meses.length - 1].chave;
   const planejados = aportesPorMes(dados.aportes, dados.cambio);
   const mesAtual = dados.hoje.slice(0, 7);
-  const cols = meses.map((m) => {
-    const partes = CLASSES_APORTE.filter((c) => m[c.id] > 0).map((c) => `<span class="tx-barra-parte" style="height:${(m[c.id] / max) * 100}%;background:var(${c.cor})"></span>`).join('');
-    const titulo = `${MESES_LONGOS[m.mes - 1]}: ${formatBRL(m.total)}${CLASSES_APORTE.filter((c) => m[c.id] > 0).map((c) => ` · ${c.nome} ${formatBRL(m[c.id])}`).join('')}`;
-    const p = planejados[m.chave];
-    return `
-      <button type="button" class="tx-mes${estado.mesSel === m.chave ? ' sel' : ''}${m.chave === mesAtual ? ' atual' : ''}${m.chave > mesAtual ? ' futuro' : ''}" data-mes="${m.chave}" title="${esc(titulo)}" aria-label="${esc(titulo)}" aria-pressed="${estado.mesSel === m.chave}">
-        <span class="tx-mes-valor">${m.total ? (m.total >= 1000 ? `${formatNumeroBR(m.total / 1000, 1)} mil` : formatNumeroBR(Math.round(m.total), 0)) : ''}</span>
-        <span class="tx-mes-trilho"><span class="tx-mes-pilha">${partes}</span></span>
-        <span class="tx-mes-rot">${MESES_CURTOS[m.mes - 1]}${p ? '<i class="tx-mes-marca" aria-hidden="true"></i>' : ''}</span>
-      </button>`;
-  }).join('');
-  const totalAno = meses.reduce((s, m) => s + m.total, 0);
-  const legenda = CLASSES_APORTE.map((c) => ({ ...c, v: meses.reduce((s, m) => s + m[c.id], 0) })).filter((c) => c.v > 0)
+  return {
+    meses, planejados, mesAtual,
+    categorias: meses.map((m) => ({ rotulo: MESES_ABREV[m.mes - 1], chave: m.chave })),
+    series: CLASSES_APORTE.map((c) => ({ id: c.id, nome: c.nome, cor: `var(${corClasse(c.id)})`, valores: meses.map((m) => m[c.id] || 0) })),
+  };
+}
+
+function legendaMesesHtml(g, rotuloPer) {
+  const totalAno = g.meses.reduce((t, m) => t + m.total, 0);
+  const leg = CLASSES_APORTE.map((c) => ({ ...c, v: g.meses.reduce((t, m) => t + m[c.id], 0) })).filter((c) => c.v > 0)
     .map((c) => `<span class="tx-leg">${dotHtml(c.id)}${c.nome}<b>${formatBRL(c.v)}</b></span>`).join('');
-  return { cols, totalAno, legenda };
+  return `<span class="tx-leg tx-leg-total">Total ${rotuloPer}<b>${formatBRL(totalAno)}</b></span>${leg}<span class="tx-leg tx-leg-marca"><i class="tx-mes-marca" aria-hidden="true"></i>mês com aporte concluído</span>`;
 }
 
 function mesDetalheHtml(estado, dados) {
@@ -558,29 +619,67 @@ function mesDetalheHtml(estado, dados) {
     </div>`;
 }
 
+/** Rótulo do período do gráfico pra frases ("no ano", "em 12 meses"...). */
+function rotuloPeriodoResumo(estado, hoje) {
+  if (ehPeriodoPersonalizado(estado.periodo)) return 'no período escolhido';
+  return { ano: `em ${String(hoje).slice(0, 4)}`, inicio: 'desde o início' }[estado.periodo] || `em ${rotuloPeriodo(estado.periodo).toLowerCase()}`;
+}
+
+/** { min, max } do calendário pro "Escolher período": do 1º mês com dado até hoje. */
+function limitesPeriodoInvestido(dados) {
+  const primeiro = Object.keys(dados.resumo || {}).filter((k) => /^\d{4}-\d{2}$/.test(k)).sort()[0];
+  return { min: primeiro ? `${primeiro}-01` : `${dados.hoje.slice(0, 4)}-01-01`, max: dados.hoje };
+}
+
 function resumoHtml(estado, dados) {
-  const anos = anosDoResumo(dados.resumo, dados.hoje);
-  const i = anos.indexOf(estado.ano);
-  const g = graficoMesesHtml(estado, dados);
-  return `
-    <section class="tx-secao" id="txResumo" aria-labelledby="txResumoTitulo">
-      <div class="tx-secao-cab">
-        <h2 id="txResumoTitulo">Investido por mês</h2>
-        <span class="hint">das transações da planilha (EUA pelo dólar do dia da compra)</span>
-        <div class="tx-ano" role="group" aria-label="Ano">
-          <button type="button" class="tx-ano-btn" data-ano="${anos[i + 1] || ''}"${anos[i + 1] ? '' : ' disabled'} aria-label="Ano anterior">‹</button>
-          <b>${estado.ano}</b>
-          <button type="button" class="tx-ano-btn" data-ano="${anos[i - 1] || ''}"${anos[i - 1] ? '' : ' disabled'} aria-label="Próximo ano">›</button>
-        </div>
-      </div>
+  const g = dadosGraficoMeses(estado, dados);
+  const rot = rotuloPeriodoResumo(estado, dados.hoje);
+  // 06/10/2026 (A-67): seletor de período canônico (segmentado do kit + "Escolher período") no lugar do passo de ano
+  const filtro = `<div class="tx-periodo" id="txPeriodo">${botoesSegmentadoHtml(PERIODOS_INVESTIDO, ehPeriodoPersonalizado(estado.periodo) ? null : estado.periodo)}</div>`;
+  return secaoHtml({
+    id: 'txResumo', chave: 'resumo', titulo: 'Investido por mês', dica: 'das transações da planilha (EUA pelo dólar do dia da compra)', aberta: estado.secoes.resumo,
+    corpo: `
+      <div class="tx-resumo-barra">${filtro}</div>
       <div class="tx-resumo">
         <div class="tx-resumo-grafico">
-          <div class="tx-meses" role="group" aria-label="Meses de ${estado.ano}">${g.cols}</div>
-          <div class="tx-legenda"><span class="tx-leg tx-leg-total">Total em ${estado.ano}<b>${formatBRL(g.totalAno)}</b></span>${g.legenda}<span class="tx-leg tx-leg-marca"><i class="tx-mes-marca" aria-hidden="true"></i>mês com aporte concluído</span></div>
+          <div class="tx-meses" id="txResumoGrafico" role="group" aria-label="Meses ${rot}"></div>
+          <div class="tx-legenda">${legendaMesesHtml(g, rot)}</div>
         </div>
         ${mesDetalheHtml(estado, dados)}
-      </div>
-    </section>`;
+      </div>`,
+  });
+}
+
+/** Gráfico "Investido por mês" (biblioteca assets/js/charts): barras empilhadas por classe; tocar/passar num mês mostra o detalhe ao lado. */
+function montarGraficoMeses(ctx) {
+  const { el, dados, estado, doc } = ctx;
+  if (el._txGrafMeses) { el._txGrafMeses.destruir(); el._txGrafMeses = null; }
+  const host = el.querySelector('#txResumoGrafico');
+  if (!host) return;
+  garantirEstilosCharts(doc);
+  const filtroEl = el.querySelector('#txPeriodo');
+  if (filtroEl && !filtroEl._ligado) {
+    filtroEl._ligado = true;
+    ligarFiltroPeriodo(doc, filtroEl, {
+      periodoInicial: estado.periodo, limites: limitesPeriodoInvestido(dados),
+      aoMudar(p) { estado.periodo = p; redesenharResumo(ctx); },
+    });
+  }
+  const g = dadosGraficoMeses(estado, dados);
+  el._txGrafMeses = criarGraficoBarras(host, {
+    modo: 'empilhadas', categorias: g.categorias, series: g.series, altura: 240, legenda: false,
+    aria: `Investido por mês ${rotuloPeriodoResumo(estado, dados.hoje)}, por classe de ativo`,
+    formatarValor: formatBRL, formatarY: eixoCompacto,
+    formatarX: (cat) => `${MESES_LONGOS[Number(cat.chave.slice(5, 7)) - 1]} de ${cat.chave.slice(0, 4)}`,
+    tooltipExtra: (i) => { const p = g.planejados[g.meses[i].chave]; return p ? [{ nome: `aporte${p.n > 1 ? 's' : ''} concluído${p.n > 1 ? 's' : ''} (planejamento)`, valor: formatBRL(p.valor) }] : []; },
+    aoSelecionar: (i) => {
+      const chave = g.meses[i] && g.meses[i].chave;
+      if (!chave || chave === estado.mesSel) return;
+      estado.mesSel = chave;
+      const det = el.querySelector('.tx-mes-detalhe');
+      if (det) det.outerHTML = mesDetalheHtml(estado, dados);
+    },
+  });
 }
 
 /** Câmbio do dia `data` (ou o mais recente antes dele) visto nos lançamentos em dólar - vem de Aportes.gs (aux_historico-patrimonio). */
@@ -602,43 +701,33 @@ function historicoHtml(estado, dados) {
     const cambioAporte = a.itens.some((it) => it.moeda === 'USD') ? (cambioDoDia(dados, a.data) || dados.cambio) : dados.cambio;
     const pago = totalAporte(a, 'final', cambioAporte);
     const planejado = totalAporte(a, 'planejado', cambioAporte);
-    const confirmando = estado.confirmando === `excluir:${a.id}`;
     return `
       <details class="tx-hist"${estado.abertos[a.id] ? ' open' : ''} data-hist="${esc(a.id)}">
         <summary>
-          <span class="tx-hist-data"><b>${dm(a.data)}</b><small>${a.data.slice(0, 4)}</small></span>
+          <span class="tx-hist-data"><b>${formatDM(a.data)}</b><small>${a.data.slice(0, 4)}</small></span>
           <span class="tx-hist-info"><span class="tx-classes">${classesDoAporte(a).map((c) => `${dotHtml(c)}${NOME_CLASSE_APORTE[c]}`).join(' · ')}</span><small>${a.itens.length} ativo${a.itens.length > 1 ? 's' : ''}${a.observacao ? ` · ${esc(a.observacao)}` : ''}</small></span>
           <span class="tx-hist-valor"><b>${formatBRL(pago)}</b>${Math.abs(pago - planejado) >= 0.01 ? `<small>planejado ${formatBRL(planejado)}</small>` : ''}</span>
+          ${ic('expand-more', 'ico tx-sec-seta')}
         </summary>
         <div class="tx-hist-corpo">
           <ul class="tx-hist-itens">${a.itens.map((it) => `
             <li>${logoItemHtml(it)}<span><b>${esc(it.ativo)}</b><small>${it.classe === 'rendaFixa' ? esc(it.instituicao || 'Renda Fixa') : `${qtdTxt(it.qtdFinal)} × ${precoTxt(it.precoFinal, it.moeda)}`}</small></span><b class="tx-mono">${dinheiro(it.valorFinal, it.moeda)}${it.moeda === 'USD' ? (() => { const c = cambioDoDia(dados, a.data) || dados.cambio; return c > 0 ? brlHtml(it.valorFinal * c, `câmbio ${formatNumeroBR(c, 2)}`) : ''; })() : ''}</b></li>`).join('')}
           </ul>
-          ${confirmando ? `
-            <div class="tx-confirmar tx-confirmar-perigo">
-              <span>Excluir este aporte do planejamento? As transações da planilha não mudam.</span>
-              <span class="tx-botoes"><button type="button" class="btn tx-btn-perigo" data-acao="excluir-sim" data-id="${esc(a.id)}">Sim, excluir</button><button type="button" class="btn btn-ghost" data-acao="voltar">Voltar</button></span>
-            </div>` : `
-            <div class="tx-hist-acoes">
-              <button type="button" class="btn btn-ghost tx-btn-sm" data-acao="repetir" data-id="${esc(a.id)}">Repetir no carrinho</button>
-              <button type="button" class="btn btn-ghost tx-btn-sm tx-btn-perigo-ghost" data-acao="excluir" data-id="${esc(a.id)}">${ICONE_LIXO}Excluir</button>
-            </div>`}
+          <div class="tx-hist-acoes">
+            <button type="button" class="btn btn-tonal btn-sm" data-acao="repetir" data-id="${esc(a.id)}">${ic('refresh')}Repetir no carrinho</button>
+            <button type="button" class="btn btn-text btn-sm tx-btn-perigo-txt" data-acao="excluir" data-id="${esc(a.id)}">${ic('delete')}Excluir</button>
+          </div>
         </div>
       </details>`;
   };
-  return `
-    <section class="tx-secao" id="txHistorico" aria-labelledby="txHistTitulo">
-      <div class="tx-secao-cab">
-        <h2 id="txHistTitulo">Aportes concluídos</h2>
-        <span class="hint">${lista.length} no planejamento</span>
-      </div>
-      ${lista.length ? visiveis.map((m) => `
+  const corpo = lista.length ? `${visiveis.map((m) => `
         <div class="tx-hist-mes">
           <h3>${MESES_LONGOS[Number(m.slice(5, 7)) - 1]} <small>${m.slice(0, 4)}</small></h3>
           ${porMes[m].map(cartao).join('')}
-        </div>`).join('') : '<p class="tx-vazio">Nenhum aporte concluído ainda. Eles aparecem aqui depois do passo "Concluir compra".</p>'}
-      ${meses.length > visiveis.length ? `<button type="button" class="tx-mais" data-acao="historico-todos">Ver todos os ${meses.length} meses</button>` : ''}
-    </section>`;
+        </div>`).join('')}
+      ${meses.length > visiveis.length ? `<button type="button" class="btn btn-outlined tx-mais" data-acao="historico-todos">Ver todos os ${meses.length} meses</button>` : ''}`
+    : estadoVazioHtml({ icone: 'savings', titulo: 'Nenhum aporte concluído ainda', texto: 'Eles aparecem aqui depois do passo "Concluir compra".', acao: { rotulo: 'Montar um aporte', atributos: 'data-rolar="txNovoAporte"' } });
+  return secaoHtml({ id: 'txHistorico', chave: 'hist', titulo: 'Aportes concluídos', dica: `${lista.length} no planejamento`, aberta: estado.secoes.hist, corpo });
 }
 
 // ---------------------------------------------------------------------------
@@ -653,14 +742,11 @@ export function estadoInicialAportes(dados, carrinho) {
     carrinho: carrinho && carrinho.data && carrinho.data < dados.hoje ? carrinho : atualizarPrecos(carrinho, dados.classes), carrinhoAberto: false,
     eua: estadoInicialEua(dados, typeof globalThis !== 'undefined' ? globalThis.localStorage : null),
     digitados: {}, confirmando: null, abertos: {}, historicoTodos: false,
-    ano: Number(dados.hoje.slice(0, 4)), mesSel: dados.hoje.slice(0, 7),
-    mensagem: null, ocupado: false, mapa: estadoInicialMapa(),
-  };
-}
+    periodo: 'ano', mesSel: dados.hoje.slice(0, 7), // 06/10/2026 (A-67): período canônico do "Investido por mês" (era o ano, com setas)
 
-function mensagemHtml(estado) {
-  if (!estado.mensagem) return '';
-  return `<div class="tx-aviso ${estado.mensagem.tipo || ''}" role="status">${estado.mensagem.html}<button type="button" class="tx-aviso-fechar" data-acao="fechar-aviso" aria-label="Fechar">×</button></div>`;
+    mensagem: null, ocupado: false, mapa: estadoInicialMapa(),
+    secoes: null, // 06/10/2026: seções recolhíveis (abertas no computador; no celular começam fechadas) - definido no 1º desenho
+  };
 }
 
 /**
@@ -669,20 +755,38 @@ function mensagemHtml(estado) {
  */
 export function renderAportes(ctx) {
   const { doc, el, dados, estado } = ctx;
+  if (!estado.secoes) { const fechado = ehCelular(doc.defaultView); estado.secoes = { mapa: !fechado, hist: !fechado, resumo: !fechado }; }
+  destruirKpis(el);
+  if (el._txGrafMeses) { el._txGrafMeses.destruir(); el._txGrafMeses = null; }
+  garantirEstilosCharts(doc);
   el.innerHTML = `
-    ${mensagemHtml(estado)}
-    ${etapasHtml(estado, dados)}
+    ${kpisHtml(estado, dados)}
     ${andamentoHtml(estado, dados)}
     ${novoAporteHtml(estado, dados)}
-    ${mapaHtml(estado.mapa, dados)}
+    ${mapaHtml(estado.mapa, dados, { aberta: estado.secoes.mapa })}
     ${historicoHtml(estado, dados)}
     ${resumoHtml(estado, dados)}`;
+  montarKpis(ctx);
+  montarGraficoMeses(ctx);
+  avisarMensagem(ctx);
   // os eventos ficam no contêiner (delegados) e são ligados UMA vez; cada
   // redesenho só troca o contexto que eles leem
   el._txCtx = ctx;
   if (!el._txAportesLigado) { el._txAportesLigado = true; ligarAportes(el); }
   aposDesenharMapa(ctx);
   garantirMetasMomento(ctx);
+}
+
+/** Mensagens de resultado ("Aporte confirmado...", erros) saem como toast do kit (A-62), não mais como faixa na página. */
+function avisarMensagem(ctx) {
+  const { doc, estado } = ctx;
+  const m = estado.mensagem;
+  if (!m) return;
+  estado.mensagem = null;
+  const texto = textoDeHtml(doc, m.html);
+  if (m.tipo === 'erro') toast.erro(texto, { doc });
+  else if (m.tipo === 'aviso') toast.aviso(texto, { doc });
+  else toast.ok(texto, { doc });
 }
 
 function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {
@@ -699,8 +803,7 @@ function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {
     s.hidden = !c;
     s.textContent = c ? c.n : '';
   });
-  const etapa = el.querySelector('.tx-etapas');
-  if (etapa) etapa.outerHTML = etapasHtml(estado, dados);
+  atualizarKpis(ctx);
   const nec = el.querySelector('#txEuaNecessidade');
   if (nec && estado.eua) nec.innerHTML = necessidadeHtml(estado, dados, totaisCarrinho(novo, dados.cambio).totalUsd);
   if (prateleira) {
@@ -717,7 +820,7 @@ function atualizarLinhaRv(ctx, classe, ticker) {
   if (cel) {
     cel.innerHTML = it
       ? `${dinheiro(it.qtd * it.preco, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? brlHtml(it.qtd * it.preco * dados.cambio) : ''}`
-      : '<span class="tx-fraco">—</span>';
+      : '';
   }
   const linha = el.querySelector(`[data-linha="${classe}:${ticker}"]`);
   if (linha) linha.classList.toggle('no-carrinho', !!it);
@@ -759,7 +862,7 @@ function atualizarTotaisAndamento(ctx, id) {
 
 function redesenharMapa(ctx) {
   const s = ctx.el.querySelector('#txMapaCompras');
-  if (s) s.outerHTML = mapaHtml(ctx.estado.mapa, ctx.dados);
+  if (s) s.outerHTML = mapaHtml(ctx.estado.mapa, ctx.dados, { aberta: !ctx.estado.secoes || ctx.estado.secoes.mapa });
   aposDesenharMapa(ctx);
 }
 
@@ -837,7 +940,7 @@ function repetirDoMapa(ctx, ativo, mes) {
     const preco = a.precoAtual > 0 ? a.precoAtual : cel.precoMedio;
     estado.carrinho = definirQuantidade(estado.carrinho, { classe, ativo, moeda: a.moeda, preco }, cel.qtd);
     const dif = cel.precoMedio ? (preco / cel.precoMedio - 1) * 100 : null;
-    estado.mensagem = { tipo: 'ok', html: `<b>${esc(ativo)}</b> foi pro carrinho: ${qtdTxt(cel.qtd)} × ${precoTxt(preco, a.moeda)} (cotação de agora${dif != null && Math.abs(dif) >= 0.05 ? `, ${pct(dif)} vs os ${precoTxt(cel.precoMedio, a.moeda)} de ${rotulo}` : ''}).` };
+    estado.mensagem = { tipo: 'ok', html: `<b>${esc(ativo)}</b> foi pro carrinho: ${qtdTxt(cel.qtd)} × ${precoTxt(preco, a.moeda)} (cotação de agora${dif != null && Math.abs(dif) >= 0.05 ? `, ${formatPercentFromPoints(dif, 1)} vs os ${precoTxt(cel.precoMedio, a.moeda)} de ${rotulo}` : ''}).` };
   }
   ctx.salvarCarrinho(estado.carrinho);
   estado.classeAtiva = classe;
@@ -873,7 +976,7 @@ async function executar(ctx, fn, sucesso) {
     renderAportes(ctx);
     return;
   }
-  if (Array.isArray(r.aportes)) ctx.aoMudarDados(r.aportes);
+  if (Array.isArray(r.aportes)) ctx.aoMudarDados(r.aportes, r.aConfirmar);
   if (r.caixaDolar) { ctx.dados.caixaDolar = r.caixaDolar; if (typeof ctx.aoMudarCaixa === 'function') ctx.aoMudarCaixa(r.caixaDolar); }
   sucesso(r);
   renderAportes(ctx);
@@ -947,11 +1050,15 @@ function ligarAportes(el) {
     const redesenhar = () => renderAportes(ctx);
     // clicar fora do popover do mapa (e fora de outro quadrado) fecha ele
     if (estado.mapa.selecionado && !ev.target.closest('#txMapaPop') && !ev.target.closest('[data-mapa-cel]')) fecharPopMapa(ctx);
-    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-mes],[data-ano],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico],[data-mapa-repetir],[data-rem-modo]');
+    const alvo = ev.target.closest('[data-acao],[data-classe],[data-passo],[data-tirar],[data-rolar],[data-mapa-classe],[data-mapa-periodo],[data-mapa-cel],[data-mapa-fechar],[data-mapa-grafico],[data-mapa-repetir],[data-rem-modo]');
     if (!alvo || !el.contains(alvo)) return;
     if (alvo.hasAttribute('data-rolar')) {
       const destino = doc.getElementById(alvo.getAttribute('data-rolar'));
-      if (destino) { ev.preventDefault(); if (typeof destino.scrollIntoView === 'function') destino.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      if (destino) {
+        ev.preventDefault();
+        if (destino.matches && destino.matches('details.tx-sec') && !destino.open) destino.open = true; // seção recolhida: abre antes de rolar
+        if (typeof destino.scrollIntoView === 'function') destino.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       return;
     }
     if (alvo.hasAttribute('data-rem-modo')) {
@@ -1008,15 +1115,8 @@ function ligarAportes(el) {
       mudarCarrinho(ctx, removerDoCarrinho(estado.carrinho, alvo.getAttribute('data-tirar')), { prateleira: true });
       return;
     }
-    if (alvo.hasAttribute('data-mes')) { estado.mesSel = alvo.getAttribute('data-mes'); redesenharResumo(ctx); return; }
-    if (alvo.hasAttribute('data-ano')) {
-      const ano = Number(alvo.getAttribute('data-ano'));
-      if (ano) { estado.ano = ano; estado.mesSel = `${ano}-${ano === Number(dados.hoje.slice(0, 4)) ? dados.hoje.slice(5, 7) : '12'}`; redesenharResumo(ctx); }
-      return;
-    }
     const acao = alvo.getAttribute('data-acao');
     const id = alvo.getAttribute('data-id');
-    if (acao === 'fechar-aviso') { estado.mensagem = null; const av = el.querySelector('.tx-aviso'); if (av) av.remove(); return; }
     if (acao === 'abrir-carrinho' || acao === 'fechar-carrinho') {
       estado.carrinhoAberto = acao === 'abrir-carrinho';
       el.querySelector('#txCarrinho').classList.toggle('aberto', estado.carrinhoAberto);
@@ -1059,15 +1159,31 @@ function ligarAportes(el) {
       const outros = lista.filter((a) => a.id !== base.id);
       const junto = outros.reduce((acc, a) => mesclarAportes(acc, a), base);
       executar(ctx, () => salvarEExcluir(ctx, junto, outros), () => {
-        estado.mensagem = { tipo: 'ok', html: `Aportes de ${dma(base.data)} juntos em um só (${junto.itens.length} ativo${junto.itens.length > 1 ? 's' : ''}).` };
+        estado.mensagem = { tipo: 'ok', html: `Aportes de ${formatDMA(base.data)} juntos em um só (${junto.itens.length} ativo${junto.itens.length > 1 ? 's' : ''}).` };
       });
       return;
     }
     if (acao === 'esvaziar') { mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'descartar-edicao') { estado.carrinhoAberto = false; mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'historico-todos') { estado.historicoTodos = true; redesenhar(); return; }
-    if (acao === 'voltar') { estado.confirmando = null; redesenhar(); return; }
-    if (acao === 'cancelar' || acao === 'excluir') { estado.confirmando = `${acao}:${id}`; if (acao === 'excluir') estado.abertos[id] = true; redesenhar(); return; }
+    if (acao === 'cancelar' || acao === 'excluir') {
+      // 06/10/2026 (A-62): confirmação no diálogo do kit (antes era uma faixa dentro do cartão)
+      const cancelar = acao === 'cancelar';
+      confirmar({
+        titulo: cancelar ? 'Cancelar este aporte?' : 'Excluir este aporte do planejamento?',
+        mensagem: cancelar ? 'Ele sai da lista e da planilha (nada muda nas suas transações).' : 'As transações da planilha não mudam.',
+        confirmarTexto: cancelar ? 'Sim, cancelar' : 'Sim, excluir', cancelarTexto: 'Voltar', perigo: true, icone: 'delete', doc,
+      }).then((ok) => {
+        if (!ok || el._txCtx !== ctx) return;
+        executar(ctx, () => ctx.excluirAporte(id), () => {
+          if (estado.carrinho.editandoId === id) { estado.carrinho = carrinhoVazio(dados.hoje); ctx.salvarCarrinho(estado.carrinho); }
+          estado.confirmando = null;
+          delete estado.digitados[id];
+          estado.mensagem = { tipo: 'ok', html: cancelar ? 'Aporte cancelado.' : 'Aporte excluído do planejamento.' };
+        });
+      });
+      return;
+    }
     if (acao === 'confirmar-carrinho') {
       const editando = !!estado.carrinho.editandoId;
       // 05/10/2026: outro carrinho no MESMO dia soma no aporte que já está aguardando (não duplica o confirmado)
@@ -1081,7 +1197,7 @@ function ligarAportes(el) {
         ctx.salvarCarrinho(estado.carrinho);
         estado.carrinhoAberto = false;
         estado.mensagem = { tipo: 'ok', html: base
-          ? `Carrinho <b>somado</b> ao aporte de ${dma(aporte.data)} que já estava aguardando valores finais (agora com ${aporte.itens.length} ativo${aporte.itens.length > 1 ? 's' : ''}). Nada duplicado.`
+          ? `Carrinho <b>somado</b> ao aporte de ${formatDMA(aporte.data)} que já estava aguardando valores finais (agora com ${aporte.itens.length} ativo${aporte.itens.length > 1 ? 's' : ''}). Nada duplicado.`
           : `${editando ? 'Aporte atualizado' : 'Aporte confirmado'}: <b>aguardando valores finais</b>. Depois de comprar, ajuste quantidade e preço e conclua.` };
       });
       return;
@@ -1098,7 +1214,7 @@ function ligarAportes(el) {
       const a = dados.aportes.find((x) => x.id === id);
       if (!a) return;
       mudarCarrinho(ctx, carrinhoRepetindo(a, dados.hoje, dados.classes), { prateleira: true });
-      estado.mensagem = { tipo: 'ok', html: `Os ativos do aporte de ${dma(a.data)} foram pro carrinho, com a cotação de agora.` };
+      estado.mensagem = { tipo: 'ok', html: `Os ativos do aporte de ${formatDMA(a.data)} foram pro carrinho, com a cotação de agora.` };
       redesenhar();
       const alvoCart = doc.getElementById('txNovoAporte');
       if (alvoCart && typeof alvoCart.scrollIntoView === 'function') alvoCart.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1115,23 +1231,20 @@ function ligarAportes(el) {
       }
       executar(ctx, () => ctx.salvarAporte(concluido), () => {
         delete estado.digitados[id];
-        estado.mensagem = { tipo: 'ok', html: `Compra de ${dma(a.data)} concluída: <b>${formatBRL(totalAporte(concluido, 'final', dados.cambio))}</b>. Amanhã, importe o extrato na aba Lançamentos.` };
+        estado.mensagem = { tipo: 'ok', html: `Compra de ${formatDMA(a.data)} concluída: <b>${formatBRL(totalAporte(concluido, 'final', dados.cambio))}</b>. Amanhã, importe o extrato na aba Lançamentos.` };
       });
       return;
-    }
-    if (acao === 'cancelar-sim' || acao === 'excluir-sim') {
-      executar(ctx, () => ctx.excluirAporte(id), () => {
-        if (estado.carrinho.editandoId === id) { estado.carrinho = carrinhoVazio(dados.hoje); ctx.salvarCarrinho(estado.carrinho); }
-        estado.confirmando = null;
-        delete estado.digitados[id];
-        estado.mensagem = { tipo: 'ok', html: acao === 'cancelar-sim' ? 'Aporte cancelado.' : 'Aporte excluído do planejamento.' };
-      });
     }
   });
 
   el.addEventListener('keydown', (ev) => {
     const ctx = el._txCtx;
-    if (ev.key === 'Escape' && ctx && ctx.estado.mapa.selecionado) fecharPopMapa(ctx, { focar: true });
+    if (ev.key === 'Escape' && ctx && ctx.estado.mapa.selecionado) { fecharPopMapa(ctx, { focar: true }); return; }
+    if (ev.key === 'Escape' && ctx && ctx.estado.carrinhoAberto) { // carrinho aberto como folha (tela estreita)
+      ctx.estado.carrinhoAberto = false;
+      el.querySelector('#txCarrinho').classList.remove('aberto');
+      el.querySelector('.tx-recibo-fundo').hidden = true;
+    }
   });
   const win = el.ownerDocument && el.ownerDocument.defaultView;
   if (win && typeof win.addEventListener === 'function') win.addEventListener('resize', () => { if (el._txCtx) posicionarPopMapa(el._txCtx); });
@@ -1140,6 +1253,7 @@ function ligarAportes(el) {
     const { estado } = el._txCtx;
     const d = ev.target;
     if (d && d.matches && d.matches('details[data-hist]')) estado.abertos[d.getAttribute('data-hist')] = d.open;
+    if (d && d.matches && d.matches('details.tx-sec[data-secao]') && estado.secoes) estado.secoes[d.getAttribute('data-secao')] = d.open;
     if (d && d.matches && d.matches('details[data-eua-taxas]')) estado.eua.taxasAbertas = d.open;
   }, true);
 
@@ -1253,4 +1367,5 @@ function ligarAportes(el) {
 function redesenharResumo(ctx) {
   const s = ctx.el.querySelector('#txResumo');
   if (s) s.outerHTML = resumoHtml(ctx.estado, ctx.dados);
+  montarGraficoMeses(ctx);
 }

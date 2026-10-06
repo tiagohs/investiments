@@ -38,9 +38,10 @@
  * (0,1365 = 13,65%).
  */
 import {
-  mesDe, somarMeses, saldoFinanciamento, extrasFinanciamento, saldoFies, mesesRestantesFies, saqueAniversario, salarioEm, saldoFgtsEm,
+  mesDe, somarMeses, saldoFinanciamento, extrasFinanciamento, financiamentoEfetivo, mesDaDivida, saldoFies, mesesRestantesFies, saqueAniversario, salarioEm, saldoFgtsEm,
   projetarAposentadoria, prazoCaixaSac, prazoCaixaSacExato,
 } from './patrimonio-calc.js';
+import { MESES_CURTOS, formatMesAno, formatBRLMil, formatPct } from '../format.js'; // 05/10/2026 (A-68)
 
 export { prazoCaixaSac, prazoCaixaSacExato };
 
@@ -733,11 +734,11 @@ export const proximoMilhao = (v) => Math.max(1, Math.floor((num(v) ? v : 0) / 1e
  *  - fies: saldo, dataSaldo, parcela, taxaMensal, restantes/fim, inicioAmortizacao.
  */
 export function dividasDoContexto(cfg, hoje) {
-  const mes = mesDe(hoje);
   const out = {};
-  const f = cfg && cfg.financiamento;
+  const f = financiamentoEfetivo(cfg);
   if (f && num(f.saldo) && f.saldo > 0) {
-    const saldo = saldoFinanciamento(f, mes, extrasFinanciamento(f, cfg.fgts)) ?? f.saldo;
+    // 05/10/2026 (A-08): saldo de hoje = depois só das parcelas já vencidas (e não do mês cheio)
+    const saldo = saldoFinanciamento(f, mesDaDivida(f, hoje), extrasFinanciamento(f, cfg.fgts)) ?? f.saldo;
     const sistema = f.sistema === 'Price' ? 'Price' : 'SAC';
     const A = num(f.amortizacao) && f.amortizacao > 0 ? f.amortizacao : (f.prazoRestante ? f.saldo / f.prazoRestante : null);
     out.financiamento = {
@@ -749,7 +750,7 @@ export function dividasDoContexto(cfg, hoje) {
   }
   const fi = cfg && cfg.fies;
   if (fi && num(fi.saldo) && fi.saldo > 0) {
-    const saldo = saldoFies(fi, mes) ?? fi.saldo;
+    const saldo = saldoFies(fi, mesDaDivida(fi, hoje)) ?? fi.saldo;
     out.fies = {
       nome: 'FIES', sistema: 'Price', saldo, taxaMensal: fi.taxaMensal || 0, parcela: fi.parcela, meses: mesesRestantesFies(fi, hoje), seguro: 0, tr: false,
     };
@@ -817,15 +818,10 @@ export function parametrosPadrao(ctx, hoje = null) {
 // Veredito (texto)
 // ---------------------------------------------------------------------------
 
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const mesAnoTxt = (m) => (m ? `${MESES[Number(m.slice(5, 7)) - 1]}/${m.slice(0, 4)}` : '—');
-const pctTxt = (f, c = 1) => (num(f) ? `${(f * 100).toFixed(c).replace('.', ',')}%` : '—');
-const milTxt = (v) => {
-  if (!num(v)) return '—';
-  const a = Math.abs(v);
-  const s = a >= 1e6 ? `${(a / 1e6).toFixed(2).replace('.', ',')} mi` : a >= 1000 ? `${(a / 1000).toFixed(a >= 1e5 ? 0 : 1).replace('.', ',')} mil` : a.toFixed(0);
-  return `${v < 0 ? '−' : ''}R$ ${s}`;
-};
+
+const mesAnoTxt = (m) => formatMesAno(m, { anoCurto: false, vazio: '—' });
+const pctTxt = (f, c = 1) => formatPct(f, c);
+const milTxt = (v) => formatBRLMil(v);
 const mesesTxt = (m) => (m == null ? '—' : m >= 24 ? `${(m / 12).toFixed(1).replace('.', ',')} anos` : `${m} ${m === 1 ? 'mês' : 'meses'}`);
 const NOME_DIVIDA = { financiamento: 'o apê', fies: 'o FIES' };
 

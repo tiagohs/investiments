@@ -45,13 +45,14 @@ import { sinaisMacro, LIMITE_PONTOS_MACRO } from './macro.js';
 
 import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './base-acoes.js';
 import { CRITERIOS_FIIS, REGRAS_FIIS, SEGMENTOS_FII, segmentoDoFii, classeDoSegmento } from './base-fiis.js';
+import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
 
 // ---------------------------------------------------------------------------
 // Formatação (pt-BR, sem depender de format.js pra ficar puro e testável)
 // ---------------------------------------------------------------------------
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const br = (v, casas = 1) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
+const br = (v, casas = 1) => formatNumeroPt(Number(v), { minimumFractionDigits: casas, maximumFractionDigits: casas });
 const SIMBOLO = { BRL: 'R$', USD: 'US$' };
 
 /** R$ 1.234,56 / US$ 12,30 (centavos só abaixo de 1.000). */
@@ -812,10 +813,16 @@ function vinculoDoAtivo(meta, alvo) {
     if (v.tipo === 'classe') pega = v.classe === alvo.classeMeta;
     else if (v.tipo === 'marca') pega = alvo.classeMeta === 'rf' && !!alvo.marca && v.marca === alvo.marca;
     else if (v.tipo === 'ativo' || (!v.tipo && v.id)) {
+      // 05/10/2026 (A-14): metas-calc!resolverVinculos já devolve o id com o alias resolvido (ticker antigo -> atual)
       const id = normRef(String(v.id || '').split('@')[0]);
       pega = !!id && (id === normRef(alvo.ticker) || (alvo.ref && id === normRef(alvo.ref)));
     }
     if (!pega) continue;
+    // 05/10/2026 (A-11): cada ativo conta numa meta só - se este ativo ficou inteiro com outra meta (ou outro vínculo desta), esta não "ganha" com o aporte
+    if (v.fracaoPorId && Array.isArray(v.ativos)) {
+      const a = v.ativos.find((x) => (alvo.ref && normRef(x.ref) === normRef(alvo.ref)) || normRef(String(x.id || '').split('@')[0]) === normRef(alvo.ticker) || normRef(x.ref) === normRef(alvo.ticker));
+      if (a && !(v.fracaoPorId[a.id] > 0)) continue;
+    }
     if (v.modo === 'fracao') return { fator: Math.max(0, Math.min(1, Number(v.fracao) || 0)), vinculo: v };
     if (v.modo === 'valor') return { fator: 1, limite: Math.max(0, (Number(v.valor) || 0) - (Number(v.base) || 0)), vinculo: v };
     return { fator: 1, vinculo: v };

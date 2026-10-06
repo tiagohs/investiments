@@ -133,7 +133,7 @@ test('wireGraficoRentabilidade(): chip "Escolher período", comparativo e card d
   assert.match(doc.getElementById('info').querySelector('.rentab-card-label').textContent, /em 24\/08\/2026/);
   assert.match(doc.getElementById('info').textContent, /Julho era/);
   const svgTexto = doc.getElementById('chart').textContent;
-  assert.match(svgTexto, /21\/08\/2026|24\/08\/2026/);
+  assert.match(svgTexto, /24\/08/); // (a biblioteca rotula o eixo e a tabela acessível com dd/mm)
   assert.match(slot.querySelector('.ag-resumo').textContent, /de 03\/08 a 24\/08/);
   assert.equal(doc.querySelectorAll('.ag-slot').length, 1, 'não duplica o slot ao redesenhar');
 
@@ -147,6 +147,6 @@ test('renderGraficoRentabilidade(): benchmarksExtra acrescenta a linha do IPCA (
     historico: historico(), visaoId: 'total', periodoId: '12m', legendaContainer: doc.getElementById('legenda'),
     benchmarksExtra: [{ campo: 'indiceIpca', label: 'IPCA', cor: '--rf', dash: '3 3' }],
   });
-  assert.deepEqual([...doc.querySelectorAll('#legenda .li')].map((e) => e.textContent.replace(/[+−-]?\d.*$/, '').trim()), ['Portfólio', 'Ibovespa', 'CDI', 'IPCA']);
+  assert.deepEqual([...doc.querySelectorAll('#legenda .chart-leg-nome')].map((e) => e.textContent.trim()), ['Portfólio', 'Ibovespa', 'CDI', 'IPCA']);
   assert.ok(doc.querySelector('#chart path[stroke="var(--rf)"]'));
 });

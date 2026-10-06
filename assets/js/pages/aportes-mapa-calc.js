@@ -156,13 +156,13 @@ export function resumoUltimaRodada(compras, ativos, meses) {
 export function popoverMapa(compras, ativo, mesChave, { precoAtual = null, precoMedioHoje = null, cambioHoje = null } = {}) {
   const cel = celulaMapa(compras, ativo, mesChave);
   if (!cel) return null;
-  const usd = cel.moeda === 'USD';
+  const ehUsd = cel.moeda === 'USD';
   const vsHoje = !cel.rf && num(precoAtual) > 0 && cel.precoMedio ? precoAtual / cel.precoMedio - 1 : null;
   let cambioMedio = null;
   let pagoBRL = null;
   let hojeBRL = null;
   let efeitoDolar = null;
-  if (usd) {
+  if (ehUsd) {
     pagoBRL = cel.valorBRL;
     cambioMedio = cel.valor > 0 ? pagoBRL / cel.valor : null;
     hojeBRL = num(precoAtual) > 0 && num(cambioHoje) > 0 ? precoAtual * num(cel.qtd) * cambioHoje : null;

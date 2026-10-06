@@ -225,3 +225,19 @@ test('toggleTheme() with no explicit theme yet toggles away from the system pref
     });
   });
 });
+
+// 05/10/2026: a meta theme-color acompanha o tema escolhido no botão
+test('applyTheme() atualiza as metas theme-color (claro #F8FAFC, escuro #0F172A); initTheme sem preferência não mexe nelas', async () => {
+  const { JSDOM } = await import('jsdom');
+  const dom = new JSDOM('<!doctype html><html><head><meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)"></head><body></body></html>');
+  const doc = dom.window.document;
+  const cores = () => [...doc.querySelectorAll('meta[name="theme-color"]')].map((m) => m.getAttribute('content'));
+  withFakeLocalStorage(() => {
+    initTheme(doc.documentElement);
+    assert.deepEqual(cores(), ['#F8FAFC', '#0F172A'], 'sem preferência guardada: segue o sistema');
+    applyTheme(doc.documentElement, 'dark');
+    assert.deepEqual(cores(), ['#0F172A', '#0F172A']);
+    applyTheme(doc.documentElement, 'light');
+    assert.deepEqual(cores(), ['#F8FAFC', '#F8FAFC']);
+  });
+});

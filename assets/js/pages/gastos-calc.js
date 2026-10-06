@@ -16,6 +16,7 @@
  *    parcelamentos em aberto, cobertura dos documentos, essencial x real.
  */
 import { semAcento, mesesEntre } from './gastos-import.js';
+import { rotuloPeriodo } from '../periodo-personalizado.js'; // 05/10/2026 (A-67): períodos canônicos
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -163,10 +164,7 @@ export function deduplicar(existentes, novos, arquivoId) {
 // Período
 // ---------------------------------------------------------------------------
 
-export const PERIODOS = [
-  { id: 'mes', nome: 'Mês' }, { id: '3m', nome: '3M' }, { id: '6m', nome: '6M' },
-  { id: '12m', nome: '12M' }, { id: 'ano', nome: 'Ano' }, { id: 'tudo', nome: 'Tudo' },
-];
+export const PERIODOS = ['mes', '3m', '6m', '12m', 'ano', 'tudo'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
 
 /** Meses com gasto, em ordem. */
 export function mesesComDados(lancs) {

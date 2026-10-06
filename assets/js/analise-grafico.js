@@ -81,9 +81,11 @@
  *  - real, risco (vol/queda vs índice, reserva, pós-fixado), sharpe, alfa/beta, consistencia,
  *    tir (TIR + PME), cambio, descolamento, proventosAReceber (data-ex), impostos.
  */
-import { formatBRL, formatNumeroBR, formatDateBR } from './format.js';
+import { formatBRL, formatNumeroBR, formatDateBR, formatNumeroPt, formatPctSinal, formatPctAbs } from './format.js';
 import { ehPeriodoPersonalizado, garantirEstilosComponentesGrafico } from './periodo-personalizado.js';
 import { BENCHMARK_POR_CLASSE, criterio, familiaDaClasse, classificar, mesesParaJulgar } from './criterios/base-rentabilidade.js';
+import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
+
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const MAX_PONTOS = 4;
@@ -106,16 +108,6 @@ const ROTULO_FAMILIA = {
 // Formatação
 // ---------------------------------------------------------------------------
 
-function pct(fracao, casas = 2) {
-  if (!num(fracao)) return '—';
-  const v = fracao * 100;
-  const t = Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
-  const zero = Math.abs(v) < 0.5 * 10 ** -casas; // "0,00%" sem sinal
-  return `${zero ? '' : (v > 0 ? '+' : '−')}${t}%`;
-}
-function pctAbs(fracao, casas = 2) {
-  return `${Math.abs(fracao * 100).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
-}
 function pp(pontos) {
   return `${formatNumeroBR(Math.abs(pontos), Math.abs(pontos) >= 10 ? 1 : 2)} p.p.`;
 }
@@ -566,16 +558,16 @@ function regraComparacao(ctx) {
   if (acima.length) curtas.push(`acima ${juntarLista(acima.map((x) => `do ${x.idx}`))}`);
   if (abaixo.length) curtas.push(`abaixo ${juntarLista(abaixo.map((x) => `do ${x.idx}`))}`);
   if (empate.length) curtas.push(`empatado com ${juntarLista(empate.map((x) => `o ${x.idx}`))}`);
-  const verbo = R >= 0 || pct(R) === pct(0) ? 'rendeu' : 'recuou';
+  const verbo = R >= 0 || formatPctSinal(R, 2) === formatPctSinal(0, 2) ? 'rendeu' : 'recuou';
   const texto = partes.length
-    ? `${nome} ${verbo} ${pct(R)} ${descPeriodo} — ${juntarLista(partes)}.`
-    : `${nome} ${verbo} ${pct(R)} ${descPeriodo}.`;
+    ? `${nome} ${verbo} ${formatPctSinal(R, 2)} ${descPeriodo} — ${juntarLista(partes)}.`
+    : `${nome} ${verbo} ${formatPctSinal(R, 2)} ${descPeriodo}.`;
   let tom = 'neutro';
   if (retIndices.length) {
     if (acima.length && !abaixo.length) tom = 'bom';
     else if (abaixo.length && !acima.length) tom = 'atencao';
   } else if (R < -0.01) tom = 'atencao';
-  const resumo = `${pct(R)} ${descPeriodo}${curtas.length ? `, ${juntarLista(curtas)}` : ''}`;
+  const resumo = `${formatPctSinal(R, 2)} ${descPeriodo}${curtas.length ? `, ${juntarLista(curtas)}` : ''}`;
   return { tipo: 'comparacao', tom, texto, resumo, peso: 60, criterios: ['retorno_twr_cota'] };
 }
 
@@ -613,7 +605,7 @@ function regraComparacaoClasse(ctx) {
   const exc = (R - Rb) * 100;
   const excAa = anos >= 1 ? (((1 + R) ** (1 / anos)) - ((1 + Rb) ** (1 / anos))) * 100 : null;
   const cedo = meses < julgar;
-  const verbo = R >= 0 || pct(R) === pct(0) ? 'rendeu' : 'recuou';
+  const verbo = R >= 0 || formatPctSinal(R, 2) === formatPctSinal(0, 2) ? 'rendeu' : 'recuou';
   const criterios = [];
   let rel;
   let resumoRel;
@@ -624,8 +616,8 @@ function regraComparacaoClasse(ctx) {
     // patrimônio: a régua é o poder de compra
     const real = (1 + R) / (1 + Rb) - 1;
     const realAa = anos >= 1 ? (1 + real) ** (1 / anos) - 1 : null;
-    rel = `${real >= 0 ? 'ganho' : 'perda'} real de ${pctAbs(real)} (IPCA de ${pct(Rb)})${realAa != null ? `, ${pct(realAa)} ao ano acima da inflação` : ''}`;
-    resumoRel = `${real >= 0 ? 'ganho' : 'perda'} real de ${pctAbs(real, 1)}`;
+    rel = `${real >= 0 ? 'ganho' : 'perda'} real de ${formatPctAbs(real, 2)} (IPCA de ${formatPctSinal(Rb, 2)})${realAa != null ? `, ${formatPctSinal(realAa, 2)} ao ano acima da inflação` : ''}`;
+    resumoRel = `${real >= 0 ? 'ganho' : 'perda'} real de ${formatPctAbs(real, 1)}`;
     if (!cedo) nivel = classificar('retorno_real_ipca', (realAa != null ? realAa : real) * 100, 'padrao');
     criterios.push('retorno_real_ipca');
     m.real = real;
@@ -675,8 +667,8 @@ function regraComparacaoClasse(ctx) {
   const ref = bench.tipo === 'composto'
     ? `uma carteira passiva com os mesmos pesos (${juntarLista(bench.componentes || [])})`
     : (bench.contratada || ctx.forcado ? '' : `o índice de referência de ${ROTULO_FAMILIA[familia]}`);
-  let texto = `${nome} ${verbo} ${pct(R)} ${descPeriodo} — ${rel}${ref && bench.tipo !== 'composto' && !ehTaxaCdi && familia !== 'patrimonio' ? `, ${ref}` : ''}.`;
-  if (bench.tipo === 'composto') texto = `${nome} ${verbo} ${pct(R)} ${descPeriodo} — ${rel}: ${ref}${num(bench.ret) ? `, que rendeu ${pct(bench.ret)}` : ''}.`;
+  let texto = `${nome} ${verbo} ${formatPctSinal(R, 2)} ${descPeriodo} — ${rel}${ref && bench.tipo !== 'composto' && !ehTaxaCdi && familia !== 'patrimonio' ? `, ${ref}` : ''}.`;
+  if (bench.tipo === 'composto') texto = `${nome} ${verbo} ${formatPctSinal(R, 2)} ${descPeriodo} — ${rel}: ${ref}${num(bench.ret) ? `, que rendeu ${formatPctSinal(bench.ret, 2)}` : ''}.`;
 
   // os outros índices desenhados (a legenda do gráfico)
   const outros = ctx.lista.filter((i) => i !== bench && num(i.ret) && (i.desenhado || (familia === 'carteira' && /^cdi$/i.test(i.nome))) && i.tipo !== 'cambio');
@@ -696,10 +688,10 @@ function regraComparacaoClasse(ctx) {
     // a oscilação típica é a da PRÓPRIA série quando dá pra medir (um ativo
     // sozinho oscila bem mais que a classe); senão, a referência da classe
     const normal = num(volPropria) && volPropria > 1.5 * (VOL_REF[familia] || Infinity)
-      ? `cabem na oscilação de ${minusculaInicial(nome)} (~${pctAbs(volPropria, 0)} ao ano)`
+      ? `cabem na oscilação de ${minusculaInicial(nome)} (~${formatPctAbs(volPropria, 0)} ao ano)`
       : `são normais para ${ROTULO_FAMILIA[familia]}`;
     if (RENDA_VARIAVEL.has(familia) && num(volPer) && volPer >= 0.005) {
-      texto += ` Com ${descreverPrazo(ctx.spanDias)}, ainda é cedo pra concluir: nesse prazo, oscilações de ±${pctAbs(volPer, 1)} ${normal} — compare em ${julgar} meses ou mais.`;
+      texto += ` Com ${descreverPrazo(ctx.spanDias)}, ainda é cedo pra concluir: nesse prazo, oscilações de ±${formatPctAbs(volPer, 1)} ${normal} — compare em ${julgar} meses ou mais.`;
     } else {
       texto += ` Com ${descreverPrazo(ctx.spanDias)}, ainda é cedo pra concluir — para ${ROTULO_FAMILIA[familia]}, compare em ${julgar} meses ou mais.`;
     }
@@ -718,7 +710,7 @@ function regraComparacaoClasse(ctx) {
     criterios.push('marcacao_mercado');
   }
   const tom = cedo ? 'neutro' : tomDoNivel(nivel);
-  const resumo = `${pct(R)} ${descPeriodo}, ${resumoRel}${cedo ? ' (cedo pra concluir)' : ''}`;
+  const resumo = `${formatPctSinal(R, 2)} ${descPeriodo}, ${resumoRel}${cedo ? ' (cedo pra concluir)' : ''}`;
   m.excesso = exc;
   m.excessoAa = excAa;
   m.nivel = nivel;
@@ -747,8 +739,8 @@ function regraMovimento(ctx) {
   const de = recentes[0].de;
   const ate = recentes[recentes.length - 1].data;
   const caiu = mov < 0;
-  const vezes = Number.isFinite(z) ? ` — cerca de ${formatNumeroBR(Math.min(z, 99), 0)}x a oscilação típica (±${pctAbs(tipico, 1)} em ${N_RECENTE} pregões)` : ' — fora do padrão da série, que quase não oscila';
-  let texto = `Nos últimos ${N_RECENTE} pregões (${diaMes(de)} a ${diaMes(ate)}) ${caiu ? 'caiu' : 'subiu'} ${pctAbs(mov)}${vezes}.`;
+  const vezes = Number.isFinite(z) ? ` — cerca de ${formatNumeroBR(Math.min(z, 99), 0)}x a oscilação típica (±${formatPctAbs(tipico, 1)} em ${N_RECENTE} pregões)` : ' — fora do padrão da série, que quase não oscila';
+  let texto = `Nos últimos ${N_RECENTE} pregões (${diaMes(de)} a ${diaMes(ate)}) ${caiu ? 'caiu' : 'subiu'} ${formatPctAbs(mov, 2)}${vezes}.`;
   const criterios = ['queda_brusca_zscore'];
   let tom = caiu ? 'atencao' : 'bom';
   let causa = '';
@@ -762,7 +754,7 @@ function regraMovimento(ctx) {
     if (soma > 0 && soma / ctx.valorFim >= 0.4 * Math.abs(mov)) {
       const pag = naJanela.map((p) => p.dataPagamento).filter(Boolean).sort()[0];
       const quem = [...new Set(naJanela.map((p) => p.ticker).filter(Boolean))];
-      causa = ` Coincide com a data-ex${quem.length ? ` de ${juntarLista(quem.slice(0, 3))}${quem.length > 3 ? ' e outros' : ''}` : ''}: a cota desconta ${ctx.formatarMoeda(soma)} em proventos (${pctAbs(soma / ctx.valorFim)} da posição), que ${pag ? `caem na conta em ${diaMes(pag)}` : 'entram no pagamento'}. Não é perda.`;
+      causa = ` Coincide com a data-ex${quem.length ? ` de ${juntarLista(quem.slice(0, 3))}${quem.length > 3 ? ' e outros' : ''}` : ''}: a cota desconta ${ctx.formatarMoeda(soma)} em proventos (${formatPctAbs(soma / ctx.valorFim, 2)} da posição), que ${pag ? `caem na conta em ${diaMes(pag)}` : 'entram no pagamento'}. Não é perda.`;
       criterios.push('diag_data_ex');
       explicado = true;
       tom = 'neutro';
@@ -773,7 +765,7 @@ function regraMovimento(ctx) {
     const dfx = retornoEntre(ctx.cambioIdx, de, ate);
     if (num(dfx) && Math.sign(dfx) === Math.sign(mov) && Math.abs(dfx) >= 0.5 * Math.abs(mov)) {
       const rUsd = (1 + mov) / (1 + dfx) - 1;
-      causa = ` Veio do câmbio: o dólar ${dfx < 0 ? 'caiu' : 'subiu'} ${pctAbs(dfx)} no mesmo intervalo; em dólar, a variação foi de ${pct(rUsd)}.`;
+      causa = ` Veio do câmbio: o dólar ${dfx < 0 ? 'caiu' : 'subiu'} ${formatPctAbs(dfx, 2)} no mesmo intervalo; em dólar, a variação foi de ${formatPctSinal(rUsd, 2)}.`;
       criterios.push('efeito_cambio', 'diag_cambio');
       explicado = true;
       tom = 'neutro';
@@ -815,14 +807,14 @@ function regraMovimento(ctx) {
       if (comMov.length) {
         comMov.sort((a, b) => Math.abs(b.r) - Math.abs(a.r));
         const mi = comMov[0];
-        if (Math.sign(mi.r) === Math.sign(mov) && Math.abs(mi.r) >= 0.5 * Math.abs(mov)) causa = ` Acompanhou o mercado: o ${mi.nome} ${mi.r < 0 ? 'caiu' : 'subiu'} ${pctAbs(mi.r)} no mesmo intervalo.`;
-        else causa = ` O mercado não explica: o ${mi.nome} variou ${pct(mi.r)} no mesmo intervalo — o movimento foi da própria carteira.`;
+        if (Math.sign(mi.r) === Math.sign(mov) && Math.abs(mi.r) >= 0.5 * Math.abs(mov)) causa = ` Acompanhou o mercado: o ${mi.nome} ${mi.r < 0 ? 'caiu' : 'subiu'} ${formatPctAbs(mi.r, 2)} no mesmo intervalo.`;
+        else causa = ` O mercado não explica: o ${mi.nome} variou ${formatPctSinal(mi.r, 2)} no mesmo intervalo — o movimento foi da própria carteira.`;
         criterios.push('diag_mercado_vs_proprio');
       }
     } else if (taxas.length) {
       const t = taxas.map((i) => ({ nome: i.nome, r: retornoEntre(i, de, ate) })).find((i) => num(i.r));
       if (t) {
-        causa = ` No mesmo intervalo o ${t.nome} ${t.r >= 0 ? 'rendeu' : 'variou'} ${pct(t.r)}, então não é o índice: ${caiu ? 'é marcação a mercado dos títulos (preço de venda antecipada), que volta ao longo do tempo se o título for levado ao vencimento' : 'é marcação a mercado favorável dos títulos'}.`;
+        causa = ` No mesmo intervalo o ${t.nome} ${t.r >= 0 ? 'rendeu' : 'variou'} ${formatPctSinal(t.r, 2)}, então não é o índice: ${caiu ? 'é marcação a mercado dos títulos (preço de venda antecipada), que volta ao longo do tempo se o título for levado ao vencimento' : 'é marcação a mercado favorável dos títulos'}.`;
         criterios.push('marcacao_mercado');
       }
     }
@@ -845,7 +837,7 @@ function regraMovimento(ctx) {
     tipo: 'movimento',
     tom,
     texto,
-    resumo: `${caiu ? 'queda' : 'alta'} forte nos últimos dias (${pct(mov)})${explicado && tom === 'neutro' ? ' explicada' : ''}`,
+    resumo: `${caiu ? 'queda' : 'alta'} forte nos últimos dias (${formatPctSinal(mov, 2)})${explicado && tom === 'neutro' ? ' explicada' : ''}`,
     peso: 85 + Math.min(15, Number.isFinite(z) ? z : 15),
     dados: { mov, z, sigma, de, ate },
     criterios,
@@ -927,7 +919,7 @@ function regraQueda(ctx, movimento) {
   if (b) {
     const rb = retornoEntre(b, c[q.pico].data, c[q.vale].data);
     if (num(rb)) {
-      noIndice = `${b.tipo === 'composto' ? 'a carteira de referência' : `o ${b.nome}`} ${rb <= -0.0005 ? `caiu ${pctAbs(rb)}` : (Math.abs(rb) < 0.0005 ? 'ficou estável' : `subiu ${pctAbs(rb)}`)} no mesmo intervalo`;
+      noIndice = `${b.tipo === 'composto' ? 'a carteira de referência' : `o ${b.nome}`} ${rb <= -0.0005 ? `caiu ${formatPctAbs(rb, 2)}` : (Math.abs(rb) < 0.0005 ? 'ficou estável' : `subiu ${formatPctAbs(rb, 2)}`)} no mesmo intervalo`;
     }
   }
   if (q.recuperou !== -1) {
@@ -935,19 +927,19 @@ function regraQueda(ctx, movimento) {
     criterios.push('tempo_recuperacao');
     return {
       tipo: 'queda', tom: 'neutro',
-      texto: `Maior queda ${ctx.descPeriodo}: −${pctAbs(q.dd)} (de ${dPico} a ${dVale}${noIndice ? `; ${noIndice}` : ''}), já recuperada em ${diaMesAno(c[q.recuperou].data, anoDif)}${dias >= 45 ? ` — ${descreverPrazo(dias)} do pico até voltar a ele` : ''}.`,
-      resumo: `queda de −${pctAbs(q.dd, 1)} já recuperada`,
+      texto: `Maior queda ${ctx.descPeriodo}: −${formatPctAbs(q.dd, 2)} (de ${dPico} a ${dVale}${noIndice ? `; ${noIndice}` : ''}), já recuperada em ${diaMesAno(c[q.recuperou].data, anoDif)}${dias >= 45 ? ` — ${descreverPrazo(dias)} do pico até voltar a ele` : ''}.`,
+      resumo: `queda de −${formatPctAbs(q.dd, 1)} já recuperada`,
       peso: 48 + Math.min(20, q.dd * 100),
       criterios,
     };
   }
-  const falta = q.altaParaVoltar >= 0.005 ? ` Precisa subir ${pctAbs(q.altaParaVoltar, 1)} pra voltar ao pico.` : '';
+  const falta = q.altaParaVoltar >= 0.005 ? ` Precisa subir ${formatPctAbs(q.altaParaVoltar, 1)} pra voltar ao pico.` : '';
   return {
     tipo: 'queda', tom: q.distancia >= 0.01 ? 'atencao' : 'neutro',
     texto: q.vale === c.length - 1
-      ? `Maior queda ${ctx.descPeriodo}: −${pctAbs(q.dd)} desde o pico de ${dPico}${noIndice ? ` (${noIndice})` : ''}, e o fim do período é o ponto mais baixo.${falta}`
-      : `Maior queda ${ctx.descPeriodo}: −${pctAbs(q.dd)} desde o pico de ${dPico} (fundo em ${dVale}${noIndice ? `; ${noIndice}` : ''}); ainda está ${pctAbs(q.distancia)} abaixo dele.`,
-    resumo: `ainda ${pctAbs(q.distancia, 1)} abaixo do pico de ${dPico}`,
+      ? `Maior queda ${ctx.descPeriodo}: −${formatPctAbs(q.dd, 2)} desde o pico de ${dPico}${noIndice ? ` (${noIndice})` : ''}, e o fim do período é o ponto mais baixo.${falta}`
+      : `Maior queda ${ctx.descPeriodo}: −${formatPctAbs(q.dd, 2)} desde o pico de ${dPico} (fundo em ${dVale}${noIndice ? `; ${noIndice}` : ''}); ainda está ${formatPctAbs(q.distancia, 2)} abaixo dele.`,
+    resumo: `ainda ${formatPctAbs(q.distancia, 1)} abaixo do pico de ${dPico}`,
     peso: 52 + Math.min(25, q.dd * 150),
     criterios,
   };
@@ -1047,7 +1039,7 @@ function regraReal(ctx) {
     const fam = familia === 'reserva' ? 'reserva' : (familia === 'carteira' && ctx.meses >= 36 ? 'carteira' : 'padrao');
     tom = tomDoNivel(classificar('retorno_real_ipca', (realAa != null ? realAa : real) * 100, fam));
   }
-  let texto = `Descontada a inflação (IPCA de ${pct(ipcaRet)} ${ctx.descPeriodo}), ${nomeMin} ${real >= 0 ? 'ganhou' : 'perdeu'} ${pctAbs(real)} de poder de compra${realAa != null ? ` (${pct(realAa)} ao ano)` : ''}.`;
+  let texto = `Descontada a inflação (IPCA de ${formatPctSinal(ipcaRet, 2)} ${ctx.descPeriodo}), ${nomeMin} ${real >= 0 ? 'ganhou' : 'perdeu'} ${formatPctAbs(real, 2)} de poder de compra${realAa != null ? ` (${formatPctSinal(realAa, 2)} ao ano)` : ''}.`;
   const cdi = ctx.cdi;
   if (real < 0 && cdi && num(cdi.ret) && ctx.R >= cdi.ret && cdi.ret < ipcaRet && ctx.meses >= 12) {
     texto += ' O próprio CDI ficou abaixo da inflação no período: juro real negativo, não erro de escolha.';
@@ -1055,7 +1047,7 @@ function regraReal(ctx) {
     criterios.push('diag_real_negativo_cdi_positivo');
   }
   const peso = real < 0 && ctx.R > 0 ? 63 : (familia === 'carteira' ? 55 : 50);
-  return { tipo: 'real', tom, texto, resumo: `${real >= 0 ? 'ganho' : 'perda'} real de ${pctAbs(real, 1)}`, peso, criterios };
+  return { tipo: 'real', tom, texto, resumo: `${real >= 0 ? 'ganho' : 'perda'} real de ${formatPctAbs(real, 1)}`, peso, criterios };
 }
 
 function regraRisco(ctx) {
@@ -1076,7 +1068,7 @@ function regraRisco(ctx) {
       return { tipo: 'risco', tom: 'atencao', texto: `${ctx.nome} teve ${m.mesesNegativos} ${m.mesesNegativos === 1 ? 'mês negativo' : 'meses negativos'} em ${m.nMeses} — inesperado para ${ROTULO_FAMILIA[familia]} (algo marcado a mercado no meio?).`, resumo: 'meses negativos', peso: 64, criterios: ['meses_negativos'] };
     }
     if (num(m.vol) && ctx.meses >= 3 && classificar('volatilidade_anualizada', m.vol * 100, familia) === 'ruim') {
-      return { tipo: 'risco', tom: 'atencao', texto: `${ctx.nome} oscila ~${pctAbs(m.vol, 1)} ao ano — muito para ${ROTULO_FAMILIA[familia]}, que deveria ficar abaixo de ~0,5%.`, resumo: 'oscilação alta para pós-fixado', peso: 62, criterios: ['volatilidade_anualizada'] };
+      return { tipo: 'risco', tom: 'atencao', texto: `${ctx.nome} oscila ~${formatPctAbs(m.vol, 1)} ao ano — muito para ${ROTULO_FAMILIA[familia]}, que deveria ficar abaixo de ~0,5%.`, resumo: 'oscilação alta para pós-fixado', peso: 62, criterios: ['volatilidade_anualizada'] };
     }
     return null;
   }
@@ -1088,15 +1080,15 @@ function regraRisco(ctx) {
   const excAa = num(m.excessoAa) ? m.excessoAa : m.excesso;
   const criterios = ['volatilidade_anualizada', 'max_drawdown'];
   if (ctx.meses >= 12 && num(excAa) && Math.abs(excAa) <= 2 && relVol <= 0.85 && (relMdd == null || relMdd <= 0.85)) {
-    return { tipo: 'risco', tom: 'bom', texto: `${ctx.nome} rendeu parecido com ${nomeB}, mas oscilou ${pctAbs(1 - relVol, 0)} menos (${pctAbs(m.vol, 1)} contra ${pctAbs(m.volBench, 1)} ao ano)${relMdd != null ? ` e caiu menos na pior fase (−${pctAbs(mdd, 1)} contra −${pctAbs(m.mddBench, 1)})` : ''} — melhor risco-retorno.`, resumo: 'mesmo retorno com menos risco', peso: 62, criterios: [...criterios, 'diag_bate_indice_com_menos_risco'] };
+    return { tipo: 'risco', tom: 'bom', texto: `${ctx.nome} rendeu parecido com ${nomeB}, mas oscilou ${formatPctAbs(1 - relVol, 0)} menos (${formatPctAbs(m.vol, 1)} contra ${formatPctAbs(m.volBench, 1)} ao ano)${relMdd != null ? ` e caiu menos na pior fase (−${formatPctAbs(mdd, 1)} contra −${formatPctAbs(m.mddBench, 1)})` : ''} — melhor risco-retorno.`, resumo: 'mesmo retorno com menos risco', peso: 62, criterios: [...criterios, 'diag_bate_indice_com_menos_risco'] };
   }
   if (ctx.meses >= 12 && num(excAa) && excAa >= 3 && (relVol >= 1.3 || (relMdd != null && relMdd >= 1.3))) {
-    return { tipo: 'risco', tom: 'neutro', texto: `${ctx.nome} ganhou ${bench.tipo === 'composto' ? 'da carteira de referência' : `do ${bench.nome}`}, mas oscilando ${pctAbs(relVol - 1, 0)} mais (${pctAbs(m.vol, 1)} contra ${pctAbs(m.volBench, 1)} ao ano) — o que sobe muito tende a cair mais quando o mercado vira.`, resumo: 'ganhou com mais risco', peso: 64, criterios: [...criterios, 'diag_bate_indice_com_mais_risco'] };
+    return { tipo: 'risco', tom: 'neutro', texto: `${ctx.nome} ganhou ${bench.tipo === 'composto' ? 'da carteira de referência' : `do ${bench.nome}`}, mas oscilando ${formatPctAbs(relVol - 1, 0)} mais (${formatPctAbs(m.vol, 1)} contra ${formatPctAbs(m.volBench, 1)} ao ano) — o que sobe muito tende a cair mais quando o mercado vira.`, resumo: 'ganhou com mais risco', peso: 64, criterios: [...criterios, 'diag_bate_indice_com_mais_risco'] };
   }
   const relTxt = relVol < 0.9 ? 'menos que' : relVol > 1.1 ? 'mais que' : 'parecido com';
   return {
     tipo: 'risco', tom: 'neutro',
-    texto: `${ctx.nome} oscila ~${pctAbs(m.vol, 1)} ao ano, ${relTxt} ${nomeB} (${pctAbs(m.volBench, 1)})${mdd >= 0.01 && num(m.mddBench) ? `; a maior queda ${ctx.descPeriodo} foi de −${pctAbs(mdd, 1)}, contra −${pctAbs(m.mddBench, 1)} ${bench.tipo === 'composto' ? 'da carteira de referência' : `do ${bench.nome}`}` : ''}.`,
+    texto: `${ctx.nome} oscila ~${formatPctAbs(m.vol, 1)} ao ano, ${relTxt} ${nomeB} (${formatPctAbs(m.volBench, 1)})${mdd >= 0.01 && num(m.mddBench) ? `; a maior queda ${ctx.descPeriodo} foi de −${formatPctAbs(mdd, 1)}, contra −${formatPctAbs(m.mddBench, 1)} ${bench.tipo === 'composto' ? 'da carteira de referência' : `do ${bench.nome}`}` : ''}.`,
     resumo: `oscila ${relTxt} ${nomeB}`,
     peso: 46,
     criterios,
@@ -1129,7 +1121,7 @@ function regraAlfaBeta(ctx) {
   }
   if (ctx.meses >= 24 && num(m.alfa) && num(m.tAlfa) && Math.abs(m.tAlfa) >= 2) {
     const bom = m.alfa > 0;
-    return { tipo: 'alfa', tom: bom ? 'bom' : 'atencao', texto: `Descontando o risco de mercado (beta ${nr(m.beta)}), ${bom ? 'sobrou' : 'faltou'} um alfa de ${pctAbs(m.alfa, 1)} ao ano nos últimos ${m.nMeses} meses — consistente o bastante pra não ser só sorte.`, resumo: `alfa ${pct(m.alfa, 1)} a.a.`, peso: 54, criterios: ['alfa_jensen', 'beta'] };
+    return { tipo: 'alfa', tom: bom ? 'bom' : 'atencao', texto: `Descontando o risco de mercado (beta ${nr(m.beta)}), ${bom ? 'sobrou' : 'faltou'} um alfa de ${formatPctAbs(m.alfa, 1)} ao ano nos últimos ${m.nMeses} meses — consistente o bastante pra não ser só sorte.`, resumo: `alfa ${formatPctSinal(m.alfa, 1)} a.a.`, peso: 54, criterios: ['alfa_jensen', 'beta'] };
   }
   return null;
 }
@@ -1151,8 +1143,8 @@ function regraTir(ctx) {
   const fmt = ctx.formatarMoeda;
   const criterios = ['retorno_mwr_tir'];
   let texto;
-  if (anos >= 1) texto = `Considerando quando cada real entrou e saiu, o dinheiro rendeu ${pct(m.tir, 1)} ao ano (TIR); na conta "por cota", ${pct(twrAa, 1)} ao ano.`;
-  else texto = `Considerando quando cada real entrou e saiu, o dinheiro rendeu ${pct(m.tirPeriodo)} ${ctx.descPeriodo} (TIR); na conta "por cota", ${pct(ctx.R)}.`;
+  if (anos >= 1) texto = `Considerando quando cada real entrou e saiu, o dinheiro rendeu ${formatPctSinal(m.tir, 1)} ao ano (TIR); na conta "por cota", ${formatPctSinal(twrAa, 1)} ao ano.`;
+  else texto = `Considerando quando cada real entrou e saiu, o dinheiro rendeu ${formatPctSinal(m.tirPeriodo, 2)} ${ctx.descPeriodo} (TIR); na conta "por cota", ${formatPctSinal(ctx.R, 2)}.`;
   let tom = 'neutro';
   if (m.pme && bench) {
     const nomeB = bench.tipo === 'composto' ? 'na carteira de referência' : `no ${bench.nome}`;
@@ -1177,7 +1169,7 @@ function regraTir(ctx) {
   }
   const rf = /^(rf|reserva)/.test(ctx.familia || '');
   if (rf && tom === 'atencao') tom = 'neutro'; // o % do CDI (comparação) já julga a renda fixa
-  return { tipo: 'tir', tom, texto, resumo: `TIR ${pct(anos >= 1 ? m.tir : m.tirPeriodo, 1)}${anos >= 1 ? ' a.a.' : ''}`, peso: rf ? 50 : (tom === 'atencao' ? 63 : 58), criterios };
+  return { tipo: 'tir', tom, texto, resumo: `TIR ${formatPctSinal(anos >= 1 ? m.tir : m.tirPeriodo, 1)}${anos >= 1 ? ' a.a.' : ''}`, peso: rf ? 50 : (tom === 'atencao' ? 63 : 58), criterios };
 }
 
 function regraCambio(ctx) {
@@ -1187,8 +1179,8 @@ function regraCambio(ctx) {
   const sp = ctx.lista.find((i) => /^s&p 500$/i.test(i.nome) && num(i.ret));
   const nomeMin = minusculaInicial(ctx.nome);
   const forte = Math.abs(m.dfx) >= 0.02 && Math.abs(m.dfx) >= 0.5 * Math.abs(ctx.R);
-  const texto = `Em dólar, ${nomeMin} ${rUsd >= 0 ? 'rendeu' : 'recuou'} ${pct(rUsd)}${sp ? ` (S&P 500 em US$: ${pct(sp.ret)})` : ''}; o dólar ${m.dfx >= 0 ? 'subiu' : 'caiu'} ${pctAbs(m.dfx)} ${ctx.descPeriodo}, levando o resultado em reais para ${pct(ctx.R)}${forte ? ' — o câmbio explica boa parte do resultado' : ''}.`;
-  return { tipo: 'cambio', tom: 'neutro', texto, resumo: `dólar ${m.dfx >= 0 ? '↑' : '↓'} ${pctAbs(m.dfx, 1)}`, peso: forte ? 68 : 52, criterios: ['efeito_cambio'] };
+  const texto = `Em dólar, ${nomeMin} ${rUsd >= 0 ? 'rendeu' : 'recuou'} ${formatPctSinal(rUsd, 2)}${sp ? ` (S&P 500 em US$: ${formatPctSinal(sp.ret, 2)})` : ''}; o dólar ${m.dfx >= 0 ? 'subiu' : 'caiu'} ${formatPctAbs(m.dfx, 2)} ${ctx.descPeriodo}, levando o resultado em reais para ${formatPctSinal(ctx.R, 2)}${forte ? ' — o câmbio explica boa parte do resultado' : ''}.`;
+  return { tipo: 'cambio', tom: 'neutro', texto, resumo: `dólar ${m.dfx >= 0 ? '↑' : '↓'} ${formatPctAbs(m.dfx, 1)}`, peso: forte ? 68 : 52, criterios: ['efeito_cambio'] };
 }
 
 function regraDescolamento(ctx) {
@@ -1215,8 +1207,8 @@ function regraProventosAReceber(ctx) {
   if (!(fracao >= 0.0015)) return null;
   const pag = ja.map((p) => p.dataPagamento).filter(Boolean).sort();
   const quem = [...new Set(ja.map((p) => p.ticker).filter(Boolean))];
-  const texto = `${ctx.formatarMoeda(soma)} em proventos${quem.length ? ` de ${juntarLista(quem.slice(0, 3))}${quem.length > 3 ? ' e outros' : ''}` : ''} já passaram da data-com e só caem na conta ${pag.length ? `a partir de ${diaMes(pag[0])}` : 'no pagamento'}: a cota já descontou esse valor, então o gráfico mostra ~${pctAbs(fracao)} a menos até lá.`;
-  return { tipo: 'proventosAReceber', tom: 'neutro', texto, resumo: `${pctAbs(fracao, 1)} em proventos a receber`, peso: fracao >= 0.005 ? 67 : 54, criterios: ['diag_data_ex', 'total_return_consistencia'] };
+  const texto = `${ctx.formatarMoeda(soma)} em proventos${quem.length ? ` de ${juntarLista(quem.slice(0, 3))}${quem.length > 3 ? ' e outros' : ''}` : ''} já passaram da data-com e só caem na conta ${pag.length ? `a partir de ${diaMes(pag[0])}` : 'no pagamento'}: a cota já descontou esse valor, então o gráfico mostra ~${formatPctAbs(fracao, 2)} a menos até lá.`;
+  return { tipo: 'proventosAReceber', tom: 'neutro', texto, resumo: `${formatPctAbs(fracao, 1)} em proventos a receber`, peso: fracao >= 0.005 ? 67 : 54, criterios: ['diag_data_ex', 'total_return_consistencia'] };
 }
 
 function regraImpostos(ctx) {
@@ -1352,17 +1344,17 @@ function montarDestaques(ctx) {
   const { m, bench } = ctx;
   const out = [];
   const push = (rotulo, valor, crit) => { if (valor) out.push({ rotulo, valor, criterio: crit }); };
-  if (num(m.anualizado)) push('Ao ano', pct(m.anualizado, 1), 'retorno_anualizado');
-  if (num(m.real)) push('Real (− IPCA)', pct(m.real, 1), 'retorno_real_ipca');
-  if (num(m.vol) && ctx.spanDias >= 85) push('Volatilidade', `${pctAbs(m.vol, 1)} a.a.`, 'volatilidade_anualizada');
-  if (m.drawdown && m.drawdown.dd >= 0.001) push('Maior queda', `−${pctAbs(m.drawdown.dd, 1)}`, 'max_drawdown');
+  if (num(m.anualizado)) push('Ao ano', formatPctSinal(m.anualizado, 1), 'retorno_anualizado');
+  if (num(m.real)) push('Real (− IPCA)', formatPctSinal(m.real, 1), 'retorno_real_ipca');
+  if (num(m.vol) && ctx.spanDias >= 85) push('Volatilidade', `${formatPctAbs(m.vol, 1)} a.a.`, 'volatilidade_anualizada');
+  if (m.drawdown && m.drawdown.dd >= 0.001) push('Maior queda', `−${formatPctAbs(m.drawdown.dd, 1)}`, 'max_drawdown');
   // Sharpe: só com 24+ meses (base: "36 meses, mínimo 24") e fora da renda
   // fixa/reserva - num pós-fixado a oscilação é quase zero e o número explode
   if (num(m.sharpe) && ctx.meses >= 24 && !/^(rf|reserva)/.test(ctx.familia || '')) push('Sharpe', nr(m.sharpe), 'sharpe');
   if (num(m.beta) && bench) push(`Beta (${bench.nome})`, nr(m.beta), 'beta');
   if (num(m.hit) && m.nMesesComparados >= 12 && bench) push(`Meses acima ${bench.tipo === 'composto' ? 'da referência' : `do ${bench.nome}`}`, `${m.mesesAcima}/${m.nMesesComparados}`, 'consistencia_meses_acima');
-  if (num(m.tir) && m.fluxosRelevantes) push('TIR', ctx.spanDias >= 365 ? `${pct(m.tir, 1)} a.a.` : pct(m.tirPeriodo, 1), 'retorno_mwr_tir');
-  if (num(m.rUsd) && ctx.moeda !== 'USD') push('Em US$', pct(m.rUsd, 1), 'efeito_cambio');
+  if (num(m.tir) && m.fluxosRelevantes) push('TIR', ctx.spanDias >= 365 ? `${formatPctSinal(m.tir, 1)} a.a.` : formatPctSinal(m.tirPeriodo, 1), 'retorno_mwr_tir');
+  if (num(m.rUsd) && ctx.moeda !== 'USD') push('Em US$', formatPctSinal(m.rUsd, 1), 'efeito_cambio');
   return out.slice(0, 7);
 }
 
@@ -1524,10 +1516,10 @@ export function analisarRendaPassiva({ porMes = {}, mesAtual, ipca12m = null, po
   const out = [];
   const criterios = ['renda_passiva_total'];
   let tom = g >= 0 ? (num(ipca12m) && g >= ipca12m ? 'bom' : 'neutro') : 'atencao';
-  let texto = `Nos últimos 12 meses fechados entraram ${formatBRL(r12)} em proventos — ${pct(g, 1)} contra os 12 meses anteriores (${formatBRL(r12a)})`;
+  let texto = `Nos últimos 12 meses fechados entraram ${formatBRL(r12)} em proventos — ${formatPctSinal(g, 1)} contra os 12 meses anteriores (${formatBRL(r12a)})`;
   if (num(ipca12m)) {
     const real = (1 + g) / (1 + ipca12m) - 1;
-    texto += `; descontado o IPCA (${pct(ipca12m, 1)}), ${real >= 0 ? 'crescimento' : 'queda'} real de ${pctAbs(real, 1)}`;
+    texto += `; descontado o IPCA (${formatPctSinal(ipca12m, 1)}), ${real >= 0 ? 'crescimento' : 'queda'} real de ${formatPctAbs(real, 1)}`;
     criterios.push('renda_passiva_real');
     if (real < -0.05) tom = 'atencao';
   }
@@ -1538,7 +1530,7 @@ export function analisarRendaPassiva({ porMes = {}, mesAtual, ipca12m = null, po
     if (c12a > 0) {
       const gc = c12 / c12a - 1;
       criterios.push('renda_por_cota_constante');
-      texto += ` Por cota, o pagamento foi de ${formatBRL(c12a)} para ${formatBRL(c12)} (${pct(gc, 1)})`;
+      texto += ` Por cota, o pagamento foi de ${formatBRL(c12a)} para ${formatBRL(c12)} (${formatPctSinal(gc, 1)})`;
       if (g >= (num(ipca12m) ? ipca12m : 0) && gc < -0.02) {
         texto += ' — a renda subiu só pelos aportes; o próprio ativo está pagando menos.';
         tom = 'atencao';
@@ -1546,7 +1538,7 @@ export function analisarRendaPassiva({ porMes = {}, mesAtual, ipca12m = null, po
       } else texto += gc >= 0 ? ' — o ativo também está pagando mais.' : '.';
     }
   }
-  out.push({ tipo: 'rendaPassiva', tom, texto, resumo: `renda de 12 meses ${pct(g, 0)}`, peso: 59, criterios });
+  out.push({ tipo: 'rendaPassiva', tom, texto, resumo: `renda de 12 meses ${formatPctSinal(g, 0)}`, peso: 59, criterios });
   return out;
 }
 
@@ -1569,7 +1561,6 @@ export function complementarAnalise(analise, extras) {
 // Card
 // ---------------------------------------------------------------------------
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ICONE = {
   bom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   atencao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',

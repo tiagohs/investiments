@@ -190,6 +190,14 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     fixtures[nome] = { lastRow, linhas: linhas.map((linha) => linha.map(revive)) };
   }
 
+  const propriedadesFalsas = (() => {
+    const m = new Map();
+    return {
+      getProperty: (k) => (m.has(k) ? m.get(k) : null), setProperty: (k, v) => { m.set(k, String(v)); },
+      deleteProperty: (k) => { m.delete(k); }, getKeys: () => [...m.keys()],
+    };
+  })();
+
   function makeSheet(nome) {
     const dados = fixtures[nome];
     if (!dados) {
@@ -198,6 +206,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       // igual ss.insertSheet + setValues no Apps Script (23/09/2026:
       // Favoritos.gs cria "Auxiliar_favoritos" no 1º salvamento).
       return {
+        getName: () => nome, // 05/10/2026 (A-33: lerAbaUmaVez_ em Planilha.gs chaveia a leitura pelo nome da aba)
         getLastRow: () => (fixtures[nome] ? fixtures[nome].lastRow : 0),
         getMaxRows: () => (fixtures[nome] ? Math.max(1000, fixtures[nome].linhas.length) : 1000), // 05/10/2026 (Lancamentos.gs/Aportes.gs na prévia)
         getLastColumn: () => (fixtures[nome] ? Math.max(0, ...fixtures[nome].linhas.map((l) => (l || []).length)) : 0), // 24/09/2026 (Proventos.gs)
@@ -214,6 +223,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       };
     }
     return {
+      getName: () => nome, // 05/10/2026 (A-33)
       getLastRow: () => dados.lastRow,
       getMaxRows: () => Math.max(1000, dados.linhas.length), // 05/10/2026 (Lancamentos.gs/Aportes.gs na prévia)
       getLastColumn: () => Math.max(0, ...dados.linhas.map((l) => (l || []).length)), // 24/09/2026 (Proventos.gs)
@@ -286,7 +296,9 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
         return data.toISOString();
       },
     },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null, setProperty() {} }) },
+    // 05/10/2026 (A-35/A-36/A-37): Properties de verdade (em memória) - o carimbo de escrita e a geração de cache
+    // dependem de ler o que foi gravado; antes setProperty era um no-op e getProperty sempre null.
+    PropertiesService: { getScriptProperties: () => propriedadesFalsas },
     UrlFetchApp: criarUrlFetchAppFake_(fixturesRaw),
     // 23/09/2026: só pra handleHome (Home.gs) poder rodar INTEIRO no
     // harness - jsonOut (Auth.gs) embrulha a resposta num TextOutput; aqui

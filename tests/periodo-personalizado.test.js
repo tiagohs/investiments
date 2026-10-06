@@ -209,3 +209,13 @@ test('ligarFiltroPeriodo(): sem comChip só cuida dos presets; inscrever() soma 
   clicar(doc, tabs.querySelector('[data-periodo="mes"]'));
   assert.deepEqual(a, ['30d']);
 });
+
+// 05/10/2026 (auditoria A-67): catálogo único de períodos dos gráficos
+test('PERIODOS: ids/rótulos canônicos, aliases antigos e rotuloPeriodo', async () => {
+  const { PERIODOS, rotuloPeriodo, periodoCanonico } = await import('../assets/js/periodo-personalizado.js');
+  assert.deepEqual(PERIODOS.map((p) => p.rotulo), ['1 mês', '6 meses', 'No ano', '1 ano', '3 anos', '5 anos', 'Tudo', 'Escolher período']);
+  assert.equal(rotuloPeriodo('12m'), '1 ano');
+  assert.equal(rotuloPeriodo('inicio'), 'Tudo');
+  assert.equal(periodoCanonico('30d'), '1m');
+  assert.equal(rotuloPeriodo('desconhecido'), 'desconhecido');
+});

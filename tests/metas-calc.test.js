@@ -307,7 +307,7 @@ test('velocidade: no ritmo, 75% e 50% do tempo com o aporte que fecha em cada pr
   assert.equal(v.cenarios[2].data, '2027-10');
   assert.equal(v.cenarios[2].aMais, 1000);
   const dicas = dicasAcelerar(c, meta, { hoje: '2026-10-02' });
-  assert.ok(dicas.some((d) => d.id === 'aporte' && /R\$ 100 a mais/.test(d.texto) && d.mesesAMenos === 2), 'R$ 100 a mais: 22 em vez de 24 meses');
+  assert.ok(dicas.some((d) => d.id === 'aporte' && /R\$\s100 a mais/.test(d.texto) && d.mesesAMenos === 2), 'R$ 100 a mais: 22 em vez de 24 meses');
   assert.ok(dicas.some((d) => d.id === 'unico' && d.mesesAMenos === 1));
   // sem ritmo: a base é o prazo
   const semRitmo = calcularMeta({ ...meta, aporteMensal: 0, dataAlvo: '2028-10' }, CTX);
@@ -375,7 +375,7 @@ test('avaliação dos vínculos (liquidez x prazo, risco x horizonte, moeda) e a
 test('análises: histórico (aportes x rendimento x CDI), projeção (ritmo x prazo) e renda mensal; explicações', () => {
   const meses = [{ mes: '2026-06', valor: 1000, fluxo: 0 }, { mes: '2026-07', valor: 1600, fluxo: 500 }, { mes: '2026-08', valor: 2210, fluxo: 500 }, { mes: '2026-09', valor: 2800, fluxo: 500 }];
   const a = analisarHistoricoMeta({ meses, indices: [{ mes: '2026-06', cdi: 100 }, { mes: '2026-09', cdi: 103 }] });
-  assert.match(a.pontos[0].texto, /R\$ 1\.500 vieram de aportes/);
+  assert.match(a.pontos[0].texto, /R\$\s1\.500 vieram de aportes/);
   assert.ok(a.pontos.some((p) => p.tipo === 'rendimento' && /CDI/.test(p.texto)));
   assert.ok(a.resumo.length > 5);
   const c = calcularMeta({ id: 'x', tipo: 'acumulo', nome: 'x', valorAlvo: 12000, dataAlvo: '2027-10', aporteMensal: 500, rendimentoAnual: 0 }, CTX);

@@ -118,6 +118,8 @@ function comRetry_(fn, contexto) {
     } catch (erro) {
       ultimoErro = erro;
       Logger.log(contexto + ': tentativa ' + tentativa + '/' + MAX_TENTATIVAS + ' falhou - ' + erro);
+      // 05/10/2026 (A-47): DNS/403/404 (fonte fora do ar ou bloqueada) não melhora em 20 s - 1 retry só, não 2
+      if (tentativa >= 2 && typeof agendaErroTransitorio_ === 'function' && !agendaErroTransitorio_(String(erro))) break;
       if (tentativa < MAX_TENTATIVAS) Utilities.sleep(ESPERA_MS);
     }
   }
@@ -312,8 +314,17 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.' + codigoSerie +
     '/dados?formato=json&dataInicial=' + formatarDataBcbRF_(dataInicial) +
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
-  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  var dados = JSON.parse(resposta.getContentText());
+  // 05/10/2026 (A-51): Fontes.gs - valida o HTTP e o formato (Array.isArray) ANTES do .map, passa pelo disjuntor
+  // persistente do BCB e trata "sem lista" (fim de semana/feriado: o BCB responde um objeto, não uma lista) como
+  // "sem dado no período", nunca como erro. Sem cache e sem "último bom": o intervalo muda a cada chamada.
+  // Falha de verdade (DNS, 5xx, bloqueio) continua lançando - quem chamou (comRetry_/Agenda) decide repetir.
+  var busca = buscarFonte_('bcb', url, { ttl: 0, ultimoBom: false, ttlNegativo: 0, validar: Array.isArray, semListaComoVazio: true });
+  if (!busca.ok && busca.codigo === 404) { // o BCB também responde 404 quando o período não tem publicação: o mesmo "sem dado"
+    Logger.log('AVISO: BCB respondeu 404 pra ' + nomeIndice + ' entre ' + formatarDataIndice_(dataInicial) + ' e ' + formatarDataIndice_(dataFinal) + ' - tratando como sem dado disponível no período.');
+    return [];
+  }
+  if (!busca.ok) throw new Error('BCB indisponível para ' + nomeIndice + ' (' + busca.aviso + ')');
+  var dados = busca.dados;
   // 14/09/2026 (revisado no mesmo dia): a 1ª versão disto lançava um erro
   // quando o BCB devolvia algo que não é lista (era um "TypeError:
   // dados.map is not a function" ainda menos claro antes desta checagem
@@ -324,14 +335,8 @@ function buscarTaxasBcbComoLinhas_(nomeIndice, dataInicial, dataFinal) {
   // diária pode perfeitamente pedir um intervalo que é só fim de semana.
   // Não é transitório, então retry não resolve - trata como "sem dado
   // disponível pro período" (mesmo padrão já usado pros ativos individuais
-  // em Sync.gs), só logando o corpo bruto pra quem quiser investigar um
-  // erro de fonte externa de verdade nas Execuções do Apps Script.
-  if (!Array.isArray(dados)) {
-    Logger.log('AVISO: BCB devolveu resposta inesperada (não é lista) pra ' + nomeIndice + ' entre ' +
-      formatarDataIndice_(dataInicial) + ' e ' + formatarDataIndice_(dataFinal) + ': ' +
-      resposta.getContentText().slice(0, 200) + ' — tratando como sem dado disponível no período.');
-    return [];
-  }
+  // em Sync.gs).
+  if (busca.vazio) return [];
   return dados.map(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa
     // 23/09/2026: SEM o "+1 dia" de 13/09/2026 - ver comentário acima da
@@ -516,7 +521,9 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
   // tempo é o que corrompia preço (ex.: BBAS3 com R$5,1256 em vez de
   // ~R$22,78 em 17/09/2026, achado comparando com dados reais do
   // Tiago).
-  var lock = LockService.getScriptLock();
+  // 05/10/2026 (A-45): trava do recurso "precos" (a MESMA da sync de ativos: mesma célula de rascunho),
+  // não mais o lock do script inteiro - salvar aporte/meta/despesa não espera mais esta rotina.
+  var lock = travaRecurso_('precos', 'Renda Fixa + Índices (' + origem + ')', { ttlMs: 6.5 * 60 * 1000 });
   var conseguiuLock = false;
   try {
     conseguiuLock = lock.tryLock(10000);
@@ -524,8 +531,8 @@ function atualizarRendaFixaEIndicesDiario_(origem) {
     conseguiuLock = false;
   }
   if (!conseguiuLock) {
-    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora (gatilho automático ou o botão "Sincronizar agora") — pulado de propósito pra não arriscar corromper preço nenhum (as duas usam a MESMA célula de rascunho do GOOGLEFINANCE). Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
-    gravarRegistroControle_('Atenção', origem, detalheOcupado);
+    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora — ocupado por ' + lock.donoAtual() + ' (gatilho automático ou o botão "Sincronizar agora": usam a MESMA célula de rascunho do GOOGLEFINANCE) — pulado de propósito pra não arriscar corromper preço nenhum. Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
+    gravarRegistroControle_('Atenção', origem, detalheOcupado, { etapa: 'rendaFixaIndices', fonte: 'trava' });
     return { status: 'Atenção', detalhe: detalheOcupado };
   }
 
@@ -778,7 +785,7 @@ function ultimaDataIndiceSalvo_(aba, nomeIndice, mapaCache) {
 function ultimoValorIndiceSalvo_(aba, nomeIndice) {
   var ultimaLinha = aba.getLastRow();
   if (ultimaLinha < 2) return null;
-  var dados = aba.getRange(2, 1, ultimaLinha - 1, 3).getValues(); // A=Data, B=Índice, C=Valor
+  var dados = lerAbaUmaVez_(aba, 2, ultimaLinha - 1, 3); // A=Data, B=Índice, C=Valor (05/10/2026, A-33: 1 leitura por execução)
   var ultimaData = null;
   var ultimoValor = null;
   for (var i = 0; i < dados.length; i++) {
@@ -861,10 +868,13 @@ function buscarIpcaAcumulado12Meses_() {
 
   var valor = null;
   try {
+    // 05/10/2026 (A-51): Fontes.gs - HTTP e Array.isArray validados antes do .map ("dados.map is not a function" de
+    // 14/09), disjuntor persistente do BCB (DNS fora do ar não faz cada abertura de tela esperar de novo) e sem
+    // cache próprio aqui (já há o de 6 h acima). O "último bom" é o benchmark_ipca12m abaixo.
     var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados/ultimos/13?formato=json';
-    var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    if (resposta.getResponseCode() === 200) valor = ipca12MesesDeValores_(JSON.parse(resposta.getContentText()).map(function (i) { return parseFloat(i.valor); }));
-  } catch (e1) { valor = null; } // DNS/timeout do BCB: cai pros dados que já temos
+    var busca = buscarFonte_('bcb', url, { ttl: 0, ultimoBom: false, validar: Array.isArray });
+    if (busca.ok && !busca.vazio) valor = ipca12MesesDeValores_(busca.dados.map(function (i) { return parseFloat(i.valor); }));
+  } catch (e1) { valor = null; } // formato inesperado: cai pros dados que já temos
   if (valor == null) valor = ipca12MesesDaAba_();
 
   var props = null;

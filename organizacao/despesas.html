@@ -2,26 +2,32 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dDiaH52PRY2FFMMcIm/4Q5IqGSyLK2uCTljTWFxHMyc=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br; frame-src https://www.youtube-nocookie.com https://drive.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Organização Financeira</title>
 
 <!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
 <link rel="manifest" href="../manifest.json">
-<meta name="theme-color" content="#2A78D6">
+<meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32.png">
+<link rel="icon" href="../favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Patrimônio">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
+<link rel="stylesheet" href="../assets/css/m3-tokens.css">
 <link rel="stylesheet" href="../assets/css/shell.css">
-<!-- 26/09/2026: inicio.css (.skel) e carteiras.css (.status-pill,
-     carregando/erro) entram pelas classes reaproveitadas; organizacao.css
-     tem só o que é desta tela. -->
-<link rel="stylesheet" href="../assets/css/inicio.css">
-<link rel="stylesheet" href="../assets/css/carteiras.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<!-- 06/10/2026 (Onda 3): inicio.css e carteiras.css saíram (.skel, estados e chips vêm de components.css); charts.css = biblioteca de gráficos;
+     organizacao.css tem só o que é desta tela. -->
+<link rel="stylesheet" href="../assets/css/charts.css">
 <link rel="stylesheet" href="../assets/css/organizacao.css">
 <link rel="stylesheet" href="../assets/css/patrimonio.css">
 <!-- 03/10/2026: peças das abas reorganizadas (gastos reais, simulador,
@@ -37,37 +43,24 @@
   <div id="shell-header"></div>
 
   <main class="og-pagina">
-    <div class="og-titulo">
-      <div>
-        <h1>Organização Financeira</h1>
-        <p>Patrimônio, gastos e despesas, renda e orçamentos - e os documentos que o site precisa de você.</p>
-      </div>
-      <div id="refreshControlOrganizacao" class="refresh-control"></div>
-    </div>
-    <!-- 03/10/2026: painel Documentos (organizacao-documentos.js), vale pras 4 abas -->
+    <!-- 06/10/2026 (Onda 3): cabeçalho padrão (montarCabecalhoPagina), abas em pílula no topo (criarTabs) e Documentos recolhível;
+         tudo montado por organizacao.js. Endereços antigos continuam: #patrimonio, #despesas, #salario (= Renda); novos: #gastos, #renda. -->
+    <header id="ogCabecalho"></header>
+    <nav id="ogAbas" aria-label="Organização Financeira"></nav>
     <section id="ogDocumentos" aria-label="Documentos"></section>
-    <!-- 03/10/2026: abas renomeadas e reorganizadas (Tiago). Endereços antigos
-         continuam: #patrimonio, #despesas, #salario (= Renda); novos: #gastos, #renda. -->
-    <div class="og-abas" role="tablist" aria-label="Organização Financeira" id="ogAbas">
-      <button type="button" role="tab" class="og-aba active" data-aba="patrimonio" aria-selected="true" aria-controls="painelPatrimonio" id="abaPatrimonio">Patrimônio</button>
-      <button type="button" role="tab" class="og-aba" data-aba="despesas" aria-selected="false" aria-controls="painelDespesas" id="abaDespesas" tabindex="-1"><span class="og-aba-longo">Gastos e Despesas</span><span class="og-aba-curto" aria-hidden="true">Gastos</span></button>
-      <button type="button" role="tab" class="og-aba" data-aba="renda" aria-selected="false" aria-controls="painelRenda" id="abaRenda" tabindex="-1"><span class="og-aba-longo">Renda e Orçamentos</span><span class="og-aba-curto" aria-hidden="true">Renda</span></button>
-      <!-- 03/10/2026: 4ª aba (Tiago: "Gastos e Despesas ficou muito grande.. jogue tudo que tem a parte de simulações ... pra uma nova aba"); #simulador continua levando pra cá -->
-      <button type="button" role="tab" class="og-aba" data-aba="simulacoes" aria-selected="false" aria-controls="painelSimulacoes" id="abaSimulacoes" tabindex="-1"><span class="og-aba-longo">Simulações</span><span class="og-aba-curto" aria-hidden="true">Simular</span></button>
-    </div>
-    <div id="painelPatrimonio" role="tabpanel" aria-labelledby="abaPatrimonio"><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
-    <div id="painelDespesas" role="tabpanel" aria-labelledby="abaDespesas" hidden>
-      <div class="carteiras-loading" id="organizacaoLoading" aria-hidden="true">
-        <div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
-        <span class="skel" style="height:110px;border-radius:14px"></span>
-        <span class="skel" style="height:420px;border-radius:14px"></span>
+    <div id="painelPatrimonio" role="tabpanel" aria-labelledby="ogAbas-tab-patrimonio"><div id="patrimonioConteudo" class="pt-conteudo"></div></div>
+    <div id="painelDespesas" role="tabpanel" aria-labelledby="ogAbas-tab-despesas" hidden>
+      <div class="og-carregando" id="organizacaoLoading" aria-hidden="true">
+        <div class="grid-kpi"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+        <span class="skel skel-bloco og-skel-110"></span>
+        <span class="skel skel-bloco og-skel-420"></span>
       </div>
-      <div class="carteiras-erro" id="organizacaoErro" hidden></div>
+      <div id="organizacaoErro" hidden></div>
       <div id="organizacaoConteudo" hidden></div>
       <div id="gastosConteudo" class="og-gastos"></div>
       <p class="og-link-sim"><a href="#simulacoes" class="pt-link">Simular amortizar × investir → Simulações</a></p>
     </div>
-    <div id="painelRenda" role="tabpanel" aria-labelledby="abaRenda" hidden>
+    <div id="painelRenda" role="tabpanel" aria-labelledby="ogAbas-tab-renda" hidden>
       <div class="pt-conteudo og-renda">
         <div id="rendaTopo"></div>
         <div id="carreiraFgts"></div>
@@ -76,7 +69,7 @@
         <div id="rendaContas"></div>
       </div>
     </div>
-    <div id="painelSimulacoes" role="tabpanel" aria-labelledby="abaSimulacoes" hidden>
+    <div id="painelSimulacoes" role="tabpanel" aria-labelledby="ogAbas-tab-simulacoes" hidden>
       <div class="pt-conteudo og-simulacoes">
         <div id="simulacoesHero" aria-live="polite"></div>
         <div id="simulador" class="og-simulador"></div>

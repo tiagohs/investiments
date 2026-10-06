@@ -13,7 +13,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { montarSandboxComFixtures_ } from './gas-vm-harness.mjs';
-import { resolverVinculos, calcularMeta } from '../../assets/js/pages/metas-calc.js';
+import { resolverVinculos, alocarMetas, calcularMeta } from '../../assets/js/pages/metas-calc.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -51,7 +51,7 @@ function sandbox({ cache = new Map(), fetch = null } = {}) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  for (const f of ['Metas.gs', 'Proventos.gs']) { // Proventos.gs: mediaRendaPassiva12Meses_ (janela de 12 meses)
+  for (const f of ['Metas.gs', 'Proventos.gs', 'RendaFixaIR.gs', 'Incorporacoes.gs']) { // RendaFixaIR.gs: tabela única de IOF; Incorporacoes.gs: aliases de ticker (A-13/A-14) // Proventos.gs: mediaRendaPassiva12Meses_ (janela de 12 meses)
     new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
   }
   // dependências de outros .gs (só o que montarTelaMetas_ chama quando não recebe tudo pronto)
@@ -208,7 +208,8 @@ test('Metas (planilha real): GET action=metas pelo Router, POST salvarMeta/exclu
   r = get();
   const meta = r.metas.find((m) => m.id === s.id);
   assert.ok(meta);
-  assert.ok(Math.abs(meta.progresso.valorVinculado - resolverVinculos(vinculos, r.ativos).total) < 0.02);
+  // 05/10/2026 (A-11): a mesma alocação exclusiva do front (metas de prioridade maior pegam primeiro)
+  assert.ok(Math.abs(meta.progresso.valorVinculado - resolverVinculos(vinculos, r.ativos, r.cambio, { ocupado: alocarMetas(r.metas, r.ativos, r.cambio, r.aliasesTicker).ocupadoPorMeta[s.id] }).total) < 0.02);
   assert.equal(post({ action: 'excluirMeta', id: s.id }).ok, true);
   r = get();
   assert.ok(!r.metas.some((m) => m.id === s.id));

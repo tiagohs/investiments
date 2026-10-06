@@ -95,13 +95,35 @@ export function valorImovel(imovel, indices, mes) {
 // Financiamento (SAC) e FIES (Price)
 // ---------------------------------------------------------------------------
 
+/**
+ * 05/10/2026 (auditoria A-07): o financiamento "efetivo" - sem `dataInicio`,
+ * vale o mês da compra do apê (`imovel.dataCompra`), e o teto do saldo passado
+ * é o valor financiado (informado) ou compra − entrada. `inicioEstimado` marca
+ * que a data veio da compra (a tela avisa). Idempotente; devolve o mesmo
+ * objeto quando não há o que completar.
+ */
+export function financiamentoEfetivo(cfg) {
+  const fin = cfg && cfg.financiamento;
+  if (!fin) return fin || null;
+  const imo = cfg.imovel || {};
+  let out = fin;
+  if (!fin.dataInicio && imo.dataCompra) out = { ...out, dataInicio: mesDe(imo.dataCompra), inicioEstimado: true };
+  if (!num(out.tetoSaldo)) {
+    const teto = num(out.valorFinanciado) ? out.valorFinanciado
+      : (num(imo.valorCompra) ? imo.valorCompra - (num(imo.entrada) ? imo.entrada : 0) : null);
+    if (num(teto) && teto > 0) out = { ...out, tetoSaldo: teto };
+  }
+  return out;
+}
+
 /** Amortizações extras (manuais + usos do FGTS na moradia depois do início do financiamento). */
 export function extrasFinanciamento(fin, fgts) {
   if (!fin) return [];
   const inicio = fin.dataInicio ? mesDe(fin.dataInicio) : null;
   const manuais = (fin.amortizacoesExtras || []).filter((e) => e && num(e.valor) && e.data).map((e) => ({ data: e.data, valor: e.valor, origem: e.origem || 'manual' }));
   const doFgts = fin.usarFgtsComoExtra === false ? [] : usosMoradiaFgts(fgts)
-    .filter((u) => inicio && mesDe(u.data) > inicio)
+    // 05/10/2026 (A-07): sem data de início o uso do FGTS continua valendo (antes ele sumia do histórico)
+    .filter((u) => !inicio || mesDe(u.data) > inicio)
     .filter((u) => !manuais.some((m) => mesDe(m.data) === mesDe(u.data)))
     .map((u) => ({ data: u.data, valor: u.valor, origem: 'fgts' }));
   return [...manuais, ...doFgts].sort((a, b) => (a.data < b.data ? -1 : 1));
@@ -115,7 +137,7 @@ export function extrasFinanciamento(fin, fgts) {
  * financiamento (antes é entrada do imóvel).
  */
 export function usosFgtsNoApe(cfg, de = null, ate = null) {
-  const fin = cfg && cfg.financiamento;
+  const fin = financiamentoEfetivo(cfg);
   if (!fin) return [];
   const inicio = fin.dataInicio ? mesDe(fin.dataInicio) : null;
   return usosMoradiaFgts(cfg.fgts)
@@ -146,7 +168,15 @@ export function saldoFinanciamento(fin, mes, extras = []) {
     const depois = soma(extras.filter((e) => mesDe(e.data) > ultima.mes && mesDe(e.data) <= mes), (e) => e.valor);
     return r2(Math.max(0, ultima.saldo - A * difMeses(ultima.mes, mes) - depois));
   }
-  if (mes <= ancoras[0].mes) return r2(ancoras[0].saldo);
+  if (mes <= ancoras[0].mes) {
+    // 05/10/2026 (A-07): antes da primeira âncora (só o saldo do extrato, sem início/valor financiado) o saldo NÃO é
+    // constante: SAC pra trás - saldo + amortização × meses + extras pagos depois daquele mês (limitado ao valor financiado)
+    const prim = ancoras[0];
+    const A = num(fin.amortizacao) && fin.amortizacao > 0 ? fin.amortizacao : (fin.prazoRestante ? fin.saldo / fin.prazoRestante : 0);
+    if (!(A > 0) || mes === prim.mes) return r2(prim.saldo);
+    const antes = prim.ajustado + A * difMeses(mes, prim.mes) - acum(mes);
+    return r2(Math.max(0, num(fin.tetoSaldo) ? Math.min(antes, fin.tetoSaldo) : antes));
+  }
   let k = 0;
   while (ancoras[k + 1].mes < mes) k += 1;
   const a = ancoras[k]; const b = ancoras[k + 1];
@@ -159,6 +189,44 @@ export function mesesRestantesFinanciamento(fin) {
   if (!fin || !num(fin.saldo)) return null;
   if (num(fin.amortizacao) && fin.amortizacao > 0) return Math.ceil(fin.saldo / fin.amortizacao - 1e-9);
   return fin.prazoRestante || null;
+}
+
+const diasNoMes = (mes) => { const [y, m] = mes.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+
+/**
+ * 05/10/2026 (auditoria A-08): quantas parcelas já venceram desde o extrato.
+ * `dataSaldo` é o dia da última parcela paga (saldo DEPOIS dela); as próximas
+ * vencem no mesmo dia dos meses seguintes - ou na data de `proximoVenc`
+ * (a "próxima parcela" do extrato da Caixa), quando existe. Conta as com
+ * vencimento <= hoje (e não o mês cheio: no dia 5 a parcela do dia 20 ainda
+ * não foi paga). Sem dia (só 'aaaa-mm'), cai na conta por mês.
+ */
+export function parcelasVencidas(dataSaldo, hoje, proximoVenc = null) {
+  const ds = String(dataSaldo || '');
+  const h = String(hoje || '');
+  if (!ds || !h) return 0;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(ds) || !/^\d{4}-\d{2}-\d{2}/.test(h)) return Math.max(0, difMeses(ds, h));
+  const pv = String(proximoVenc || '');
+  const usaProx = /^\d{4}-\d{2}-\d{2}/.test(pv) && pv.slice(0, 10) > ds.slice(0, 10);
+  const primeiro = usaProx ? pv : `${somarMeses(ds, 1)}-${ds.slice(8, 10)}`;
+  const dia = Number(primeiro.slice(8, 10));
+  const k = difMeses(primeiro, h);
+  if (k < 0) return 0;
+  const diaVenc = Math.min(dia, diasNoMes(mesDe(h)));
+  return k + (Number(h.slice(8, 10)) >= diaVenc ? 1 : 0);
+}
+
+/**
+ * O mês ('aaaa-mm') ao qual o saldo de HOJE de uma dívida corresponde: o mês da
+ * última parcela paga (extrato + parcelas vencidas desde então). Usado no lugar
+ * de `mesDe(hoje)`, que já descontava a parcela do mês corrente mesmo antes do
+ * vencimento. Antes do extrato, devolve o próprio mês de `hoje`.
+ */
+export function mesDaDivida(div, hoje) {
+  const mh = mesDe(hoje);
+  if (!div || !div.dataSaldo || mh < mesDe(div.dataSaldo)) return mh;
+  const venc = div.proximaParcela && div.proximaParcela.vencimento;
+  return somarMeses(div.dataSaldo, parcelasVencidas(div.dataSaldo, hoje, venc));
 }
 
 /** Saldo do FIES no fim de `mes` (Price: s(k) = s0(1+i)^k − P((1+i)^k − 1)/i; pra trás, a mesma conta invertida). */
@@ -178,11 +246,13 @@ export function saldoFies(fies, mes) {
 
 export function mesesRestantesFies(fies, hoje) {
   if (!fies) return null;
-  if (fies.fim && hoje) return Math.max(0, difMeses(hoje, fies.fim));
-  if (num(fies.restantes)) return fies.restantes;
+  // 05/10/2026 (A-08): parcelas que faltam = as do extrato menos as que já venceram desde então (não o mês cheio)
+  const pagas = hoje && fies.dataSaldo ? Math.max(0, difMeses(fies.dataSaldo, mesDaDivida(fies, hoje))) : 0;
+  if (fies.fim && hoje) return Math.max(0, difMeses(fies.dataSaldo ? mesDaDivida(fies, hoje) : hoje, fies.fim));
+  if (num(fies.restantes)) return Math.max(0, fies.restantes - pagas);
   const i = fies.taxaMensal; const P = fies.parcela; const S = fies.saldo;
   if (!(i > 0) || !(P > S * i)) return null;
-  return Math.ceil(-Math.log(1 - (S * i) / P) / Math.log(1 + i));
+  return Math.max(0, Math.ceil(-Math.log(1 - (S * i) / P) / Math.log(1 + i)) - pagas);
 }
 
 const pmt = (s, i, n) => (n <= 0 ? s : i > 0 ? (s * i) / (1 - (1 + i) ** -n) : s / n);
@@ -242,11 +312,13 @@ export function cronogramaDivida({ sistema = 'SAC', saldo, taxaMensal, meses, se
 /** Os parâmetros do cronograma a partir do que está salvo (financiamento/FIES). */
 export function parametrosDivida(qual, cfg, hoje) {
   if (qual === 'financiamento') {
-    const meses = mesesRestantesFinanciamento(cfg);
-    return { sistema: 'SAC', saldo: saldoFinanciamento(cfg, mesDe(hoje)) ?? cfg.saldo, taxaMensal: (cfg.taxaAnual || 0) / 12, meses, seguro: cfg.seguroTaxas || 0, amortizacao: cfg.amortizacao };
+    // 05/10/2026 (A-08): saldo/prazo de HOJE = depois só das parcelas já vencidas (mesDaDivida), não do mês cheio
+    const saldo = saldoFinanciamento(cfg, mesDaDivida(cfg, hoje)) ?? cfg.saldo;
+    const meses = mesesRestantesFinanciamento({ ...cfg, saldo });
+    return { sistema: 'SAC', saldo, taxaMensal: (cfg.taxaAnual || 0) / 12, meses, seguro: cfg.seguroTaxas || 0, amortizacao: cfg.amortizacao };
   }
   const meses = mesesRestantesFies(cfg, hoje);
-  return { sistema: 'Price', saldo: saldoFies(cfg, mesDe(hoje)) ?? cfg.saldo, taxaMensal: cfg.taxaMensal || 0, meses, seguro: 0, parcela: cfg.parcela };
+  return { sistema: 'Price', saldo: saldoFies(cfg, mesDaDivida(cfg, hoje)) ?? cfg.saldo, taxaMensal: cfg.taxaMensal || 0, meses, seguro: 0, parcela: cfg.parcela };
 }
 
 /**
@@ -465,10 +537,12 @@ export function balanco(d) {
   const fg = saldoFgtsEm(cfg.fgts, mes);
   if (fg != null) ativos.push({ id: 'fgts', nome: 'FGTS', valor: fg });
   (cfg.outros || []).filter((o) => o && o.tipo !== 'divida' && num(o.valor)).forEach((o) => ativos.push({ id: `outro:${o.id}`, nome: o.nome, valor: o.valor, outro: o }));
-  const extras = extrasFinanciamento(cfg.financiamento, cfg.fgts);
-  const fin = saldoFinanciamento(cfg.financiamento, mes, extras);
+  const finEf = financiamentoEfetivo(cfg);
+  const extras = extrasFinanciamento(finEf, cfg.fgts);
+  // 05/10/2026 (A-08): a dívida de HOJE desconta só as parcelas já vencidas (mesDaDivida), não a do mês cheio
+  const fin = saldoFinanciamento(finEf, mesDaDivida(finEf, d.hoje), extras);
   if (fin != null) dividas.push({ id: 'financiamento', nome: 'Financiamento do apê', valor: fin });
-  const fi = saldoFies(cfg.fies, mes);
+  const fi = saldoFies(cfg.fies, mesDaDivida(cfg.fies, d.hoje));
   if (fi != null) dividas.push({ id: 'fies', nome: 'FIES', valor: fi });
   (cfg.outros || []).filter((o) => o && o.tipo === 'divida' && num(o.valor)).forEach((o) => dividas.push({ id: `outro:${o.id}`, nome: o.nome, valor: o.valor, outro: o }));
   const totalAtivos = r2(soma(ativos, (a) => a.valor));
@@ -496,7 +570,8 @@ export function historicoAnual(d) {
   const irs = ((cfg.ir && cfg.ir.anos) || []).filter((a) => num(a.ano) && a.ano < anoHoje);
   const site = new Map((d.historicoMensal || []).filter((p) => /-12$/.test(p.mes)).map((p) => [Number(p.mes.slice(0, 4)), p]));
   const anos = [...new Set([...irs.map((a) => a.ano), ...site.keys()])].filter((a) => a < anoHoje).sort((a, b) => a - b);
-  const extras = extrasFinanciamento(cfg.financiamento, cfg.fgts);
+  const finEf = financiamentoEfetivo(cfg);
+  const extras = extrasFinanciamento(finEf, cfg.fgts);
   // entrada paga com FGTS antes da escritura (até 12 meses antes): já é do apê
   const compra = cfg.imovel && cfg.imovel.dataCompra ? mesDe(cfg.imovel.dataCompra) : null;
   const entradaAntes = (mes) => (compra && mes < compra
@@ -507,7 +582,7 @@ export function historicoAnual(d) {
     const s = site.get(ano);
     const investimentos = ir ? r2(ir.bens - imoveisIr(ir)) : (s ? s.patrimonio : null);
     const imo = valorImovel(cfg.imovel, d.indices, mes);
-    const fin = saldoFinanciamento(cfg.financiamento, mes, extras);
+    const fin = saldoFinanciamento(finEf, mes, extras);
     const fi = saldoFies(cfg.fies, mes);
     const fg = saldoFgtsEm(cfg.fgts, mes);
     return {
@@ -637,10 +712,10 @@ export function idadeEm(nascimento, data) {
  * (mes = nº da parcela, 1 = a do mês que vem) ou null.
  */
 export function projetarApeComFgts(cfg, hoje, { salario = null, nascimento = null } = {}) {
-  const fin = cfg && cfg.financiamento;
+  const fin = financiamentoEfetivo(cfg);
   if (!fin || !num(fin.saldo)) return null;
   const mesHoje = mesDe(hoje);
-  const saldo0 = saldoFinanciamento(fin, mesHoje, extrasFinanciamento(fin, cfg.fgts)) ?? fin.saldo;
+  const saldo0 = saldoFinanciamento(fin, mesDaDivida(fin, hoje), extrasFinanciamento(fin, cfg.fgts)) ?? fin.saldo; // 05/10/2026 (A-08): só as parcelas já vencidas
   const A0 = num(fin.amortizacao) && fin.amortizacao > 0 ? fin.amortizacao : (fin.prazoRestante ? fin.saldo / fin.prazoRestante : null);
   if (!A0) return fin.prazoRestante ? { meses: fin.prazoRestante, semFgts: fin.prazoRestante, usos: [] } : null;
   const semFgts = Math.ceil(saldo0 / A0 - 1e-9);
@@ -682,8 +757,8 @@ export function liberacoesDividas(d, meta) {
     if (n != null) out.push({ id: 'fies', nome: 'FIES quitado', mes: n, valor: r2(v) });
   }
   if (cfg.financiamento && num(cfg.financiamento.saldo)) {
-    const hojeMes = mesDe(d.hoje);
-    const saldoHoje = saldoFinanciamento(cfg.financiamento, hojeMes, extrasFinanciamento(cfg.financiamento, cfg.fgts));
+    const finEf = financiamentoEfetivo(cfg);
+    const saldoHoje = saldoFinanciamento(finEf, mesDaDivida(finEf, d.hoje), extrasFinanciamento(finEf, cfg.fgts)); // A-08
     const A = cfg.financiamento.amortizacao || (cfg.financiamento.prazoRestante ? cfg.financiamento.saldo / cfg.financiamento.prazoRestante : null);
     const n = A ? Math.ceil(saldoHoje / A - 1e-9) : cfg.financiamento.prazoRestante;
     const v = valorDespesa(/^(?!.*fies)/i) || cfg.financiamento.parcela || 0;
@@ -736,9 +811,10 @@ export function origemCrescimento(d, meses = 12) {
   const periodo = hist.filter((p) => p.mes > ini.mes && p.mes <= fim.mes);
   const aportes = r2(soma(periodo, (p) => p.aporte));
   const varInv = r2(fim.patrimonio - ini.patrimonio);
-  const extras = extrasFinanciamento(cfg.financiamento, cfg.fgts);
+  const finEf = financiamentoEfetivo(cfg);
+  const extras = extrasFinanciamento(finEf, cfg.fgts);
   const dif = (f) => { const a = f(ini.mes); const b = f(fim.mes); return num(a) && num(b) ? r2(b - a) : 0; };
-  const fin = dif((m) => saldoFinanciamento(cfg.financiamento, m, extras));
+  const fin = dif((m) => saldoFinanciamento(finEf, m, extras));
   const fies = dif((m) => saldoFies(cfg.fies, m));
   const imovel = dif((m) => { const v = valorImovel(cfg.imovel, d.indices, m); return v ? v.valor : null; });
   const fgtsVar = dif((m) => saldoFgtsEm(cfg.fgts, m));

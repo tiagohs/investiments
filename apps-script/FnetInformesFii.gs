@@ -42,6 +42,12 @@ var CABECALHO_INFORMES_FII = ['Ticker', 'Categoria/Tipo', 'Assunto', 'Data', 'Do
 var FNET_INFORMES_POR_FII_ = 8;
 var FNET_INFORMES_LIMITE_MS_ = 5 * 60 * 1000;
 var FNET_INFORMES_FOLGA_POR_CHAMADA_MS_ = 75 * 1000;
+// 05/10/2026 (A-48): a lista de cada FII sai em paralelo (UrlFetchApp.fetchAll em lotes de 10, Fontes.gs) com cota de
+// tempo própria; guarda nas Propriedades um HASH da lista de cada FII - lista igual à da última vez = não regrava a aba
+// nem apaga o cache das telas de ativo; FII que não respondeu/ficou sem tempo MANTÉM os informes que já estavam na aba
+// (antes a aba era refeita só com o que veio, e o fundo "sumia" da tela até a próxima execução boa).
+var PROP_FNET_INFORMES_HASH_ = 'FNET_INFORMES_HASH';
+var PROP_FNET_PENDENTES_INF_ = 'FNET_PENDENTES_INF';
 
 /** Rodar UMA vez no editor: gatilho diário ~12h20 (depois do de proventos, ~12h). */
 function instalarGatilhoDiarioInformesFnet() {
@@ -78,37 +84,69 @@ function atualizarInformesFiiFnet_(origem) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tickers = tickersFiiDaCarteira_(ss); // FnetProventos.gs
   var cnpjs = garantirCnpjsFii_(ss, tickers); // FnetProventos.gs
+  var pend = lerListaPropFnet_(PROP_FNET_PENDENTES_INF_); // FnetProventos.gs
+  tickers = tickers.filter(function (t) { return pend.indexOf(t) !== -1; }).concat(tickers.filter(function (t) { return pend.indexOf(t) === -1; }));
 
-  var informes = [];
+  var atuais = lerInformesPorTicker_(ss);
+  var hashes = lerMapaPropFnet_(PROP_FNET_INFORMES_HASH_);
+  var porTicker = {}; // ticker -> [informe]
   var falhas = [], semCnpj = [], naoProcessados = [];
+  var motivoFalha = {};
   var agora = new Date();
+  var mudaram = 0, iguais = 0;
   var temTempo = function () { return Date.now() - inicio < FNET_INFORMES_LIMITE_MS_ - FNET_INFORMES_FOLGA_POR_CHAMADA_MS_; };
 
-  tickers.forEach(function (ticker) {
-    if (!temTempo()) { naoProcessados.push(ticker); return; }
-    var cnpj = cnpjs[ticker];
-    if (!cnpj) { semCnpj.push(ticker); return; }
-    try {
-      var docs = comTentativasFnet_(function () { return listarInformesFnet_(cnpj, FNET_INFORMES_POR_FII_); }, temTempo); // FnetProventos.gs
-      docs.forEach(function (d) {
-        informes.push({ ticker: ticker, tipo: d.tipo, assunto: d.assunto, data: d.data, documento: d.id, atualizadoEm: agora });
-      });
-    } catch (erro) {
-      falhas.push(ticker + ' (' + String(erro).slice(0, 80) + ')');
+  var comCnpj = [];
+  tickers.forEach(function (t) { if (cnpjs[t]) comCnpj.push(t); else semCnpj.push(t); });
+  var respostas = fnetBuscarEmLotes_(comCnpj.map(function (t) { return fnetPedidoInformes_(cnpjs[t], FNET_INFORMES_POR_FII_); }), temTempo); // FnetProventos.gs
+  respostas.forEach(function (r, i) {
+    var ticker = comCnpj[i];
+    if (r.pulado && r.porTempo) { naoProcessados.push(ticker); return; }
+    if (!r.ok) { falhas.push(ticker); motivoFalha[ticker] = r.erro || 'sem resposta'; return; }
+    var docs;
+    try { docs = fnetInformesDeTexto_(r.texto, FNET_INFORMES_POR_FII_); } catch (eJ) { falhas.push(ticker); motivoFalha[ticker] = 'resposta ilegível'; return; }
+    var h = fonteHash_(JSON.stringify(docs)); // Fontes.gs
+    var antes = atuais[ticker];
+    if (hashes[ticker] === h && antes && antes.length === docs.length) { // mesma lista da última vez: aproveita o que já está na aba
+      porTicker[ticker] = antes; iguais++; return;
     }
+    hashes[ticker] = h;
+    mudaram++;
+    porTicker[ticker] = docs.map(function (d) { return { ticker: ticker, tipo: d.tipo, assunto: d.assunto, data: d.data, documento: d.id, atualizadoEm: agora }; });
   });
+  // quem não respondeu (ou ficou sem tempo) mantém o que já estava na aba
+  tickers.forEach(function (t) { if (!porTicker[t] && atuais[t]) porTicker[t] = atuais[t]; });
+  var informes = [];
+  tickers.forEach(function (t) { (porTicker[t] || []).forEach(function (i) { informes.push(i); }); });
 
-  gravarInformesFii_(ss, informes);
-  if (typeof invalidarCacheAtivos_ === 'function') invalidarCacheAtivos_(); // Ativo.gs (informes aparecem na tela do FII)
+  var abaExiste = !!ss.getSheetByName(ABA_INFORMES_FII);
+  var removidos = Object.keys(atuais).some(function (t) { return tickers.indexOf(t) === -1; }); // saiu da carteira
+  var regravou = mudaram > 0 || removidos || !abaExiste;
+  if (regravou) {
+    gravarInformesFii_(ss, informes);
+    if (typeof invalidarCacheAtivos_ === 'function') invalidarCacheAtivos_(); // Ativo.gs (informes aparecem na tela do FII)
+  }
+  gravarMapaPropFnet_(PROP_FNET_INFORMES_HASH_, hashes);
+  gravarListaPropFnet_(PROP_FNET_PENDENTES_INF_, naoProcessados.concat(falhas)); // FnetProventos.gs
 
-  var partes = ['FNet (informes de fundo): ' + informes.length + ' documento(s) de ' + tickers.length + ' FII(s)'];
+  var partes = ['FNet (informes de fundo): ' + informes.length + ' documento(s) de ' + tickers.length + ' FII(s)' +
+    (iguais ? ' (' + iguais + ' FII(s) sem novidade - aba não regravada)' : '')];
   if (semCnpj.length) partes.push('sem CNPJ (digite na aba ' + ABA_FII_CNPJ + '): ' + semCnpj.join(', '));
-  if (falhas.length) partes.push('FNet não respondeu para: ' + falhas.join('; ') + ' - tenta de novo amanhã');
+  if (falhas.length) partes.push('FNet não respondeu para: ' + falhas.map(function (t) { return t + ' (' + String(motivoFalha[t]).slice(0, 80) + ')'; }).join('; ') + ' - tenta de novo amanhã (os informes anteriores ficam na tela)');
   if (naoProcessados.length) partes.push('ficou pra próxima (tempo): ' + naoProcessados.join(', '));
   var status = (falhas.length === tickers.length && tickers.length) ? 'Erro' : ((falhas.length || semCnpj.length || naoProcessados.length) ? 'Atenção' : 'Sucesso');
   var detalhe = partes.join(' — ');
   try { gravarRegistroControle_(status, origem, detalhe); } catch (e) { Logger.log('Registro de Controle: ' + e); }
-  return { status: status, detalhe: detalhe, total: informes.length };
+  return { status: status, detalhe: detalhe, total: informes.length, regravou: regravou };
+}
+
+/** Pedido (UrlFetchApp) dos documentos do fundo, qualquer categoria: pede 3x `quantos` (o "Aviso aos Cotistas" é filtrado depois). */
+function fnetPedidoInformes_(cnpj, quantos) {
+  return {
+    url: FNET_BASE_URL_ + 'pesquisarGerenciadorDocumentosDados?d=0&s=0&l=' + (quantos * 3) +
+      '&o%5B0%5D%5BdataEntrega%5D=desc&tipoFundo=1&cnpjFundo=' + cnpj,
+    muteHttpExceptions: true, headers: FNET_CABECALHOS_ // FnetProventos.gs
+  };
 }
 
 /**
@@ -116,13 +154,19 @@ function atualizarInformesFiiFnet_(origem) {
  * `quantos` (a lista vem sem filtro de categoria) e filtra o "Aviso aos
  * Cotistas" (proventos, já mostrado em Proventos) pelo texto do tipo, até
  * ter `quantos`. Ver a nota grande no topo do arquivo sobre os campos.
+ * (Uma consulta só; a rotina diária usa fetchAll via fnetPedidoInformes_.)
  */
 function listarInformesFnet_(cnpj, quantos) {
-  var url = FNET_BASE_URL_ + 'pesquisarGerenciadorDocumentosDados?d=0&s=0&l=' + (quantos * 3) +
-    '&o%5B0%5D%5BdataEntrega%5D=desc&tipoFundo=1&cnpjFundo=' + cnpj;
-  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  var p = fnetPedidoInformes_(cnpj, quantos);
+  var resp = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true, headers: p.headers });
   if (resp.getResponseCode() !== 200) throw new Error('FNet HTTP ' + resp.getResponseCode());
-  var json = JSON.parse(resp.getContentText());
+  return fnetInformesDeTexto_(resp.getContentText(), quantos);
+}
+
+/** Resposta da listagem -> [{ id, tipo, assunto, data }] (lança se não for o JSON esperado). */
+function fnetInformesDeTexto_(texto, quantos) {
+  var json = JSON.parse(texto);
+  if (!json || (json.data != null && !Array.isArray(json.data))) throw new Error('FNet: resposta inesperada');
   // 03/10/2026 (conferido ao vivo no FNet): o aviso de provento vem como
   // categoriaDocumento "Aviso aos Cotistas - Estruturado" + tipoDocumento
   // "Rendimentos e Amortizações". O filtro antigo testava SÓ o tipo quando
@@ -179,4 +223,29 @@ function lerInformesFundoFii_(ss, ticker) {
       };
     });
   return { ok: true, itens: itens };
+}
+
+/** Lê aux_informes-fii inteira, agrupada por ticker: { TICKER: [{ ticker, tipo, assunto, data, documento, atualizadoEm }] }. */
+function lerInformesPorTicker_(ss) {
+  var aba = ss.getSheetByName(ABA_INFORMES_FII);
+  var out = {};
+  if (!aba || aba.getLastRow() < 2) return out;
+  aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_INFORMES_FII.length).getValues().forEach(function (l) {
+    var t = String(l[0] || '').trim().toUpperCase();
+    if (!t) return;
+    (out[t] = out[t] || []).push({ ticker: t, tipo: String(l[1] || ''), assunto: String(l[2] || ''), data: chaveDeCelulaProvento_(l[3]), documento: String(l[4] || ''), atualizadoEm: l[5] }); // FnetProventos.gs
+  });
+  return out;
+}
+
+function lerMapaPropFnet_(chave) {
+  try {
+    var bruto = PropertiesService.getScriptProperties().getProperty(chave);
+    var m = bruto ? JSON.parse(bruto) : {};
+    return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+  } catch (e) { return {}; }
+}
+
+function gravarMapaPropFnet_(chave, mapa) {
+  try { PropertiesService.getScriptProperties().setProperty(chave, JSON.stringify(mapa || {})); } catch (e) { Logger.log('Propriedades: ' + e); }
 }

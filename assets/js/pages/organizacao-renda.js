@@ -39,37 +39,30 @@
  * (injetado sozinho se a página ainda não tiver o <link>).
  */
 import { getArquivosIrPatrimonio, getArquivoIrPatrimonio, salvarPatrimonio } from '../api-client.js';
-import { formatBRL, formatNumeroBR } from '../format.js';
-import { ligarFiltroPeriodo } from '../periodo-personalizado.js';
+import { formatBRL, formatNumeroBR, MESES_CURTOS, formatPct, formatPctSinal, formatMesAno } from '../format.js';
+import { ligarFiltroPeriodo, rotuloPeriodo } from '../periodo-personalizado.js';
 import { carregarPdfJs, extrairLinhasPdf } from './holerite.js';
 import { lerDeclaracaoIr, identificarDocumento } from './patrimonio-import.js';
-import { mil, brl0, mesAno } from './patrimonio-graficos.js';
+import { mil, brl0, mesAno, eixoMil, barrasOp, montarBarrasOp } from './patrimonio-graficos.js';
+import { montarGrafico, limparGrafico } from './metas-graficos.js'; // 06/10/2026 (Onda 3): gráficos da biblioteca (criam e morfam)
+import { kpiHtml, chipHtml, tornarRecolhiveis } from './organizacao-ui.js';
 import {
   IPCA_MENSAL, URL_IPCA_BCB, mesclarIpca, ultimoMesIpca, serieRendaAnual, recortarAnos, linhaInflacao, cagrSalario, salarioAtual,
   investimentoDoSalario, recortarMeses, contasDoIr, documentosRenda, analisarSalario,
 } from './renda-calc.js';
 import { renderAnalise } from '../analise-grafico.js'; // 03/10/2026: card de Análise embaixo do gráfico do salário
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const f1 = (v) => v.toFixed(1);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
-const pctSinal = (f, casas = 1) => (num(f) ? `${f > 0.00005 ? '+' : f < -0.00005 ? '−' : ''}${formatNumeroBR(Math.abs(f) * 100, casas)}%` : '—');
 const dec = (texto) => { const m = String(texto).match(/^(.*?)(,\d{2})$/); return m ? `${esc(m[1])}<span class="dec">${esc(m[2])}</span>` : esc(texto); };
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const mesCurto = (m) => { const [a, mm] = String(m || '').split('-'); return a && mm ? `${MESES[Number(mm) - 1]}/${a.slice(2)}` : ''; };
-const NOME_FONTE = { holerite: 'holerite', ctps: 'Carteira de Trabalho', ir: 'declaração do IR' };
-const eixoK = (v) => (v === 0 ? '0' : `${formatNumeroBR(v / 1000, Math.abs(v) < 10000 && v % 1000 ? 1 : 0)} mil`);
-function passoRedondo(max, n = 4) {
-  const bruto = max / n;
-  const pot = 10 ** Math.floor(Math.log10(bruto || 1));
-  return [1, 2, 2.5, 5, 10].map((k) => k * pot).find((p) => p >= bruto) || pot * 10;
-}
-const linhaTt = (rot, valor) => `<div class="pt-tt-l"><span>${esc(rot)}</span><b>${esc(valor)}</b></div>`;
 
+const mesCurto = (m) => formatMesAno(m);
+const NOME_FONTE = { holerite: 'holerite', ctps: 'Carteira de Trabalho', ir: 'declaração do IR' };
 export const SECOES_RENDA = ['hero', 'salario', 'investimento', 'contas', 'documentos'];
-export const PERIODOS_SALARIO = [{ id: '5a', nome: '5 anos' }, { id: '10a', nome: '10 anos' }, { id: 'tudo', nome: 'Tudo' }];
-export const PERIODOS_INVESTIMENTO = [{ id: '6m', nome: '6 meses' }, { id: '12m', nome: '12 meses' }, { id: '24m', nome: '24 meses' }, { id: '36m', nome: '36 meses' }];
+export const PERIODOS_SALARIO = ['5a', '10a', 'tudo'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
+export const PERIODOS_INVESTIMENTO = ['6m', '12m', '24m', '36m'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
 
 // ---------------------------------------------------------------------------
 // Contas de tudo (sem DOM)
@@ -108,91 +101,98 @@ export function resumoRenda({ patrimonio = null, salario = null, hoje = new Date
 export function htmlHeroRenda(r) {
   const a = r.atual;
   if (!a) {
-    return `<div class="rd-hero-num"><span class="pt-rot">Renda</span><span class="pt-grande">—</span>
-      <span class="pt-hero-sub">Importe um holerite (Orçamento do salário, logo abaixo), a Carteira de Trabalho ou as declarações do IR: o site monta a linha do seu salário.</span></div>`;
+    return `<div class="estado rd-hero-vazio"><h3 class="estado-titulo">Renda</h3>
+      <p class="estado-texto">Importe um holerite (Orçamento do salário, logo abaixo), a Carteira de Trabalho ou as declarações do IR: o site monta a linha do seu salário.</p></div>`;
   }
-  const pill = (v, rot) => (num(v) ? `<span class="pt-pill ${v >= 0 ? 'good' : 'bad'}">${esc(pctSinal(v))} ${esc(rot)}</span>` : '');
+  const chip = (v, rot) => (num(v) ? chipHtml(v >= 0 ? 'good' : 'bad', `${esc(formatPctSinal(v))} ${esc(rot)}`, v >= 0 ? 'north-east' : 'south-east') : '');
   const ir = r.ultimoIr;
   const c = r.cagr;
   const origem = a.fonte === 'holerite' ? `holerite de ${mesAno(a.mes)}` : a.fonte === 'ctps' ? 'salário da Carteira de Trabalho' : `média de ${a.mes.slice(0, 4)}`;
-  return `
-    <div class="rd-hero-num">
-      <span class="pt-rot">Salário líquido${a.liquidoEstimado ? ' (estimado)' : ''}</span>
-      <span class="pt-grande">${dec(formatBRL(a.liquido))}<small>/mês</small></span>
-      <span class="pt-hero-sub">Bruto <b>${esc(formatBRL(a.bruto))}</b> · ${esc(origem)}</span>
-      <span class="rd-pills">${pill(a.nominal12m, 'em 12 meses')}${pill(a.real12m, 'acima da inflação')}</span>
-    </div>
-    <div class="rd-hero-tiles">
-      <div><span class="pt-rot">Em 12 meses</span><b>${esc(pctSinal(a.nominal12m))}</b><small>${a.antes ? `de ${esc(mil(a.antes.bruto))} (${esc(mesAno(a.antes.mes))}) · IPCA ${esc(pct(a.ipca12m))} → <b class="${(a.real12m || 0) >= 0 ? 'good' : 'bad'}">${esc(pctSinal(a.real12m))} real</b>` : 'sem o salário de 12 meses atrás'}</small></div>
-      <div><span class="pt-rot">${c ? `Desde ${esc(c.de)}` : 'Crescimento'}</span><b>${c ? `${esc(pctSinal(c.nominal))}/ano` : '—'}</b><small>${c ? `${esc(pctSinal(c.acumulado, 0))} no total; inflação ${esc(pct(c.inflacaoAcumulada, 0))} → <b class="${c.acimaInflacao >= 0 ? 'good' : 'bad'}">${esc(pctSinal(c.acimaInflacao, 0))} de poder de compra</b>` : 'precisa de 2 anos de histórico'}</small></div>
-      <div><span class="pt-rot">${ir ? `Renda em ${esc(ir.ano)} (IR)` : 'Renda no ano'}</span><b>${ir ? esc(mil(ir.declaracao.bruto)) : '—'}</b><small>${ir ? `${esc(mil(ir.declaracao.bruto / 12))}/mês em média${ir.declaracao.decimoTerceiro ? ` · 13º ${esc(mil(ir.declaracao.decimoTerceiro))}` : ''}${ir.declaracao.plr ? ` · PLR ${esc(mil(ir.declaracao.plr))}` : ''}` : 'importe a declaração do IR'}</small></div>
-    </div>`;
+  const tom = (v) => ((v || 0) >= 0 ? 'good' : 'bad');
+  return `<div class="grid-kpi rd-kpis">
+    ${kpiHtml({
+    classe: 'rd-kpi-sal', rotulo: `Salário líquido${a.liquidoEstimado ? ' (estimado)' : ''}`, valorHtml: `${dec(formatBRL(a.liquido))}<small class="rd-por-mes">/mês</small>`,
+    extraHtml: `<div class="rd-pills">${chip(a.nominal12m, 'em 12 meses')}${chip(a.real12m, 'acima da inflação')}</div>`,
+    subHtml: `Bruto <b>${esc(formatBRL(a.bruto))}</b> · ${esc(origem)}`,
+  })}
+    ${kpiHtml({
+    rotulo: 'Em 12 meses', valorHtml: esc(formatPctSinal(a.nominal12m)),
+    subHtml: a.antes ? `de ${esc(mil(a.antes.bruto))} (${esc(mesAno(a.antes.mes))}) · IPCA ${esc(formatPct(a.ipca12m))} → <b class="${tom(a.real12m)}">${esc(formatPctSinal(a.real12m))} real</b>` : 'sem o salário de 12 meses atrás',
+  })}
+    ${kpiHtml({
+    rotulo: c ? `Desde ${c.de}` : 'Crescimento', valorHtml: c ? `${esc(formatPctSinal(c.nominal))}/ano` : '—',
+    subHtml: c ? `${esc(formatPctSinal(c.acumulado, 0))} no total; inflação ${esc(formatPct(c.inflacaoAcumulada, 0))} → <b class="${c.acimaInflacao >= 0 ? 'good' : 'bad'}">${esc(formatPctSinal(c.acimaInflacao, 0))} de poder de compra</b>` : 'precisa de 2 anos de histórico',
+  })}
+    ${kpiHtml({
+    rotulo: ir ? `Renda em ${ir.ano} (IR)` : 'Renda no ano', valorHtml: ir ? esc(mil(ir.declaracao.bruto)) : '—',
+    subHtml: ir ? `${esc(mil(ir.declaracao.bruto / 12))}/mês em média${ir.declaracao.decimoTerceiro ? ` · 13º ${esc(mil(ir.declaracao.decimoTerceiro))}` : ''}${ir.declaracao.plr ? ` · PLR ${esc(mil(ir.declaracao.plr))}` : ''}` : 'importe a declaração do IR',
+  })}
+  </div>`;
 }
 
-/** Barras do salário do mês por ano (bruto atrás, líquido na frente) + linha da inflação. */
-export function graficoSalarioAnual(linhas, inflacao, { largura = 720, altura = 250 } = {}) {
-  if (!linhas.length) return { svg: '', dicas: [] };
-  const W = Math.max(300, largura);
-  const H = altura;
-  const mg = { t: 24, r: 14, b: 26, l: 50 };
-  const n = linhas.length;
-  const maxV = Math.max(1, ...linhas.map((l) => l.brutoMensal || 0), ...inflacao.map((p) => p.valor || 0)) * 1.08;
-  const passo = passoRedondo(maxV, 4);
-  const topo = Math.ceil(maxV / passo) * passo;
-  const y = (v) => mg.t + (1 - v / topo) * (H - mg.t - mg.b);
-  const bw = (W - mg.l - mg.r) / n;
-  const larg = Math.min(46, bw * 0.62);
-  const xc = (k) => mg.l + bw * k + bw / 2;
-  let s = '';
-  for (let v = 0; v <= topo + 0.5; v += passo) s += `<line class="${v === 0 ? 'pt-zero' : 'pt-grade'}" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(v))}" y2="${f1(y(v))}"/><text class="pt-eixo" x="${mg.l - 7}" y="${f1(y(v) + 3.5)}" text-anchor="end">${eixoK(v)}</text>`;
-  const pulo = n > 14 ? 3 : n > 8 ? 2 : 1;
-  const dicas = [];
-  linhas.forEach((l, k) => {
-    const x0 = xc(k) - larg / 2;
-    s += `<rect class="rd-bar-bruto${l.parcial ? ' parcial' : ''}" x="${f1(x0)}" y="${f1(y(l.brutoMensal))}" width="${f1(larg)}" height="${f1(Math.max(1, y(0) - y(l.brutoMensal)))}" rx="3"/>`;
-    if (num(l.liquidoMensal)) {
-      const li = larg * 0.58;
-      s += `<rect class="rd-bar-liq${l.liquidoEstimado ? ' estimado' : ''}${l.parcial ? ' parcial' : ''}" x="${f1(xc(k) - li / 2)}" y="${f1(y(l.liquidoMensal))}" width="${f1(li)}" height="${f1(Math.max(1, y(0) - y(l.liquidoMensal)))}" rx="2"/>`;
-    }
-    if (k % pulo === (n - 1) % pulo) s += `<text class="pt-eixo${k === n - 1 ? ' pt-eixo-forte' : ''}" x="${f1(xc(k))}" y="${H - 8}" text-anchor="middle">${esc(l.ano)}${l.parcial ? '*' : ''}</text>`;
-    s += `<rect class="pt-hit" tabindex="0" data-i="${k}" x="${f1(mg.l + bw * k)}" y="${mg.t}" width="${f1(bw)}" height="${H - mg.t - mg.b}"><title>${esc(`${l.ano}: bruto ${brl0(l.brutoMensal)}/mês`)}</title></rect>`;
-    const inf = inflacao[k];
+/**
+ * Salário do mês por ano (06/10/2026, Onda 3 - biblioteca de gráficos): em cima as linhas "bruto/mês" x "se só tivesse acompanhado a
+ * inflação (IPCA)"; embaixo as barras agrupadas bruto x líquido. -> spec de montarGrafico ({ tipo:'linha+barras', opcoes, aporte }).
+ */
+export function opcoesSalarioAnual(linhas, inflacao) {
+  if (!linhas.length) return null;
+  const rotulo = (l) => `${l.ano}${l.parcial ? '*' : ''}`;
+  const eixoX = linhas.map((l) => ({
+    rotulo: rotulo(l),
+    titulo: `${l.ano}${l.parcial ? ' (até agora)' : ''}`,
+  }));
+  const tit = (item) => (item && item.titulo) || '';
+  const inf = (k) => (inflacao && inflacao[k] && num(inflacao[k].valor) ? inflacao[k].valor : null);
+  const ult = linhas[linhas.length - 1];
+  const extraDe = (k) => {
+    const l = linhas[k];
     const d = l.declaracao;
-    dicas.push(`<b class="pt-tt-t">${esc(l.ano)}${l.parcial ? ' <small>(até agora)</small>' : ''}</b>`
-      + `${linhaTt('Bruto/mês', brl0(l.brutoMensal))}${num(l.liquidoMensal) ? linhaTt(`Líquido/mês${l.liquidoEstimado ? ' (estim.)' : ''}`, brl0(l.liquidoMensal)) : ''}`
-      + `${num(l.nominal) ? linhaTt('Vs. ano anterior', pctSinal(l.nominal)) : ''}${num(l.real) ? linhaTt('Acima do IPCA', pctSinal(l.real)) : ''}`
-      + `${inf && k > 0 ? linhaTt(`Só com a inflação desde ${linhas[0].ano}`, brl0(inf.valor)) : ''}`
-      + `${d ? `<div class="pt-tt-l pt-tt-total"><span>No ano (IR)</span><b>${esc(brl0(d.bruto))}</b></div>` : ''}`
-      + `<div class="pt-tt-n">fonte: ${esc(NOME_FONTE[l.fonte] || l.fonte)}${l.fonte === 'holerite' ? ` (${l.holerites} ${l.holerites === 1 ? 'mês' : 'meses'})` : ''}</div>`);
-  });
-  if (inflacao.length > 1) {
-    const pts = inflacao.map((p, k) => `${f1(xc(k))},${f1(y(p.valor))}`);
-    s += `<polyline class="rd-inf" points="${pts.join(' ')}"/>`;
-    inflacao.forEach((p, k) => { if (k) s += `<circle class="rd-inf-pt" cx="${f1(xc(k))}" cy="${f1(y(p.valor))}" r="2.6"/>`; });
-  }
-  const ult = linhas[n - 1];
-  s += `<text class="pt-rot-v" x="${f1(Math.min(Math.max(xc(n - 1), mg.l + 24), W - mg.r - 24))}" y="${f1(y(ult.brutoMensal) - 7)}" text-anchor="middle">${esc(mil(ult.brutoMensal))}</text>`;
-  const rot = `Salário bruto por mês de ${brl0(linhas[0].brutoMensal)} em ${linhas[0].ano} para ${brl0(ult.brutoMensal)} em ${ult.ano}`;
-  return { svg: `<svg class="pt-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(rot)}">${s}</svg>`, dicas };
+    const e = [];
+    if (num(l.nominal)) e.push({ nome: 'Vs. ano anterior', valor: formatPctSinal(l.nominal) });
+    if (num(l.real)) e.push({ nome: 'Acima do IPCA', valor: formatPctSinal(l.real) });
+    if (d) e.push({ nome: 'No ano (IR)', valor: brl0(d.bruto) });
+    e.push({ nome: 'Fonte', valor: `${NOME_FONTE[l.fonte] || l.fonte}${l.fonte === 'holerite' ? ` (${l.holerites} ${l.holerites === 1 ? 'mês' : 'meses'})` : ''}` });
+    return e;
+  };
+  return {
+    tipo: 'linha+barras',
+    opcoes: {
+      series: [
+        { id: 'bruto', nome: 'Bruto/mês', valores: linhas.map((l) => l.brutoMensal), principal: true, area: true, cor: 1, largura: 3 },
+        ...(inflacao && inflacao.length > 1 ? [{ id: 'ipca', nome: 'Se só tivesse acompanhado a inflação (IPCA)', valores: linhas.map((l, k) => inf(k)), pontilhada: true, cor: 'var(--chart-axis)', largura: 2 }] : []),
+      ],
+      eixoX, formatarX: tit, formatarValor: (v) => brl0(v), formatarY: eixoMil, altura: 220, zero: true,
+      tooltipExtra: (k) => extraDe(k),
+      aria: `Salário bruto por mês de ${brl0(linhas[0].brutoMensal)} em ${linhas[0].ano} para ${brl0(ult.brutoMensal)} em ${ult.ano}`,
+    },
+    aporte: {
+      modo: 'agrupadas', categorias: eixoX, formatarX: tit, formatarValor: (v) => brl0(v), formatarY: eixoMil, altura: 220,
+      series: [
+        { id: 'bruto', nome: 'Bruto/mês', valores: linhas.map((l) => l.brutoMensal), cor: 1 },
+        { id: 'liq', nome: 'Líquido/mês (barras claras = estimado)', valores: linhas.map((l) => (num(l.liquidoMensal) ? l.liquidoMensal : null)), cor: 3 },
+      ],
+      aria: 'Salário bruto e líquido por mês, ano a ano',
+    },
+  };
 }
 
 export function htmlLegendaSalario() {
-  return `<div class="pt-leg pt-leg-graf"><span><i class="rd-leg-bruto"></i>Bruto/mês</span><span><i class="rd-leg-liq"></i>Líquido/mês</span><span><i class="rd-leg-inf"></i>Se só tivesse acompanhado a inflação (IPCA)</span><span class="pt-fraco">* ano em andamento</span></div>`;
+  return '<p class="pt-nota pt-nota-pad rd-nota-graf">* ano em andamento · barras: bruto e líquido do mês · linha pontilhada: o que o salário seria se só acompanhasse a inflação.</p>';
 }
 
 /** Tabela compacta: salário do mês por ano, crescimento nominal e real. */
 export function htmlCrescimentoTabela(linhas) {
   if (!linhas.length) return '<p class="pt-nota">Sem salário ainda.</p>';
-  const cel = (v) => (num(v) ? `<span class="${v >= 0 ? 'good' : 'bad'}">${esc(pctSinal(v))}</span>` : '<span class="pt-fraco">—</span>');
+  const cel = (v) => (num(v) ? `<span class="${v >= 0 ? 'good' : 'bad'}">${esc(formatPctSinal(v))}</span>` : '<span class="pt-fraco">—</span>');
   const linhasHtml = linhas.slice().reverse().map((l) => `<tr${l.parcial ? ' class="pt-hoje"' : ''}>
-      <td class="esq">${esc(l.ano)}${l.parcial ? '<small>até agora</small>' : ''}</td>
-      <td>${esc(brl0(l.brutoMensal))}<small>${esc(NOME_FONTE[l.fonte] || '')}</small></td>
-      <td class="rd-col-opc">${num(l.liquidoMensal) ? esc(brl0(l.liquidoMensal)) : '—'}${l.liquidoEstimado ? '<small>estimado</small>' : ''}</td>
-      <td>${cel(l.nominal)}</td>
-      <td class="rd-col-opc">${l.ipca ? esc(pct(l.ipca.taxa)) : '—'}${l.ipca && !l.ipca.completo ? `<small>${l.ipca.meses} meses</small>` : ''}</td>
-      <td>${cel(l.real)}</td></tr>`).join('');
+      <td>${esc(l.ano)}${l.parcial ? '<small>até agora</small>' : ''}</td>
+      <td class="num">${esc(brl0(l.brutoMensal))}<small>${esc(NOME_FONTE[l.fonte] || '')}</small></td>
+      <td class="num col-opc">${num(l.liquidoMensal) ? esc(brl0(l.liquidoMensal)) : '—'}${l.liquidoEstimado ? '<small>estimado</small>' : ''}</td>
+      <td class="num">${cel(l.nominal)}</td>
+      <td class="num col-opc">${l.ipca ? esc(formatPct(l.ipca.taxa)) : '—'}${l.ipca && !l.ipca.completo ? `<small>${l.ipca.meses} meses</small>` : ''}</td>
+      <td class="num">${cel(l.real)}</td></tr>`).join('');
   return `<div class="pt-card-cab"><h3>Ano a ano</h3><span class="pt-hint">salário do mês · real = acima da inflação</span></div>
-    <div class="pt-tab-wrap rd-tab-wrap"><table class="pt-tab rd-tab"><thead><tr><th class="esq">Ano</th><th>Bruto/mês</th><th class="rd-col-opc">Líquido/mês</th><th>Cresceu</th><th class="rd-col-opc">IPCA</th><th>Real</th></tr></thead><tbody>${linhasHtml}</tbody></table></div>`;
+    <div class="tabela-wrap rd-tab-wrap"><table class="tabela tabela-baixa rd-tab"><thead><tr><th scope="col">Ano</th><th scope="col" class="num">Bruto/mês</th><th scope="col" class="num col-opc">Líquido/mês</th><th scope="col" class="num">Cresceu</th><th scope="col" class="num col-opc">IPCA</th><th scope="col" class="num">Real</th></tr></thead><tbody>${linhasHtml}</tbody></table></div>`;
 }
 
 /** Carga de impostos por ano (pela declaração) e a de hoje (holerite). */
@@ -208,54 +208,51 @@ export function htmlCargaImpostos(r) {
   const d = ult ? ult.declaracao : null;
   const total = d ? d.inss + d.ir : null;
   const mesesTrab = d ? d.carga * 12 : null;
-  const max = Math.max(0.0001, ...comCarga.map((l) => l.declaracao.carga));
-  const barras = comCarga.slice(-8).map((l) => {
-    const x = l.declaracao;
-    const wI = (x.inss / x.bruto / max) * 100; const wR = (x.ir / x.bruto / max) * 100;
-    return `<li><span class="pt-barra-nome">${esc(l.ano)}</span><span class="pt-barra-trilho rd-trilho-pilha"><i style="left:0;width:${wI.toFixed(2)}%;background:var(--pt-div1)"></i><i style="left:${wI.toFixed(2)}%;width:${wR.toFixed(2)}%;background:var(--pt-neg)"></i></span><b class="pt-barra-valor">${esc(pct(x.carga))}</b></li>`;
-  }).join('');
+  const ultimos = comCarga.slice(-8);
+  const barras = ultimos.length ? barrasOp({
+    modo: 'empilhadas', pct: true, altura: 190, tons: 'categorica', categorias: ultimos.map((l) => String(l.ano)),
+    series: [
+      { id: 'inss', nome: 'INSS', cor: 'var(--chart-axis)', valores: ultimos.map((l) => l.declaracao.inss / l.declaracao.bruto) },
+      { id: 'ir', nome: 'Imposto de renda (no ajuste + 13º)', cor: 8, valores: ultimos.map((l) => l.declaracao.ir / l.declaracao.bruto) },
+    ],
+    aria: 'Carga de impostos sobre o salário por ano: INSS e imposto de renda, em % do bruto',
+  }) : '';
   return `${cab}
-    <div class="pt-mini-tiles rd-tiles-2">
-      ${d ? `<div><span class="pt-rot">Em ${esc(ult.ano)}</span><b>${esc(mil(total))}</b><small>${esc(pct(d.carga))} do bruto = <b>${esc(formatNumeroBR(mesesTrab, 1))} meses</b> de trabalho${d.ajuste ? ` · ${d.ajuste > 0 ? 'restituiu' : 'pagou'} ${esc(mil(Math.abs(d.ajuste)))} no ajuste` : ''}</small></div>` : ''}
-      ${a && num(a.cargaAtual) ? `<div><span class="pt-rot">No último holerite</span><b>${esc(pct(a.cargaAtual))}</b><small>INSS + IR retido de ${esc(mesAno(a.mes))}</small></div>` : ''}
+    <div class="grid-kpi rd-tiles-2">
+      ${d ? kpiHtml({ rotulo: `Em ${ult.ano}`, valorHtml: esc(mil(total)), subHtml: `${esc(formatPct(d.carga))} do bruto = <b>${esc(formatNumeroBR(mesesTrab, 1))} meses</b> de trabalho${d.ajuste ? ` · ${d.ajuste > 0 ? 'restituiu' : 'pagou'} ${esc(mil(Math.abs(d.ajuste)))} no ajuste` : ''}` }) : ''}
+      ${a && num(a.cargaAtual) ? kpiHtml({ rotulo: 'No último holerite', valorHtml: esc(formatPct(a.cargaAtual)), subHtml: `INSS + IR retido de ${esc(mesAno(a.mes))}` }) : ''}
     </div>
-    ${barras ? `<ul class="pt-barras rd-barras-carga">${barras}</ul><div class="pt-leg rd-leg-carga"><span><i style="background:var(--pt-div1)"></i>INSS</span><span><i style="background:var(--pt-neg)"></i>Imposto de renda (no ajuste + 13º)</span></div>` : ''}`;
+    ${barras}`;
 }
 
-/** Barras do % do líquido investido por mês, com a meta e a média. */
-export function graficoInvestimentoMensal(meses, { meta = null, media = null, largura = 720, altura = 220 } = {}) {
+/**
+ * Barras do % do líquido investido por mês (06/10/2026, Onda 3 - biblioteca de gráficos): empilhadas só pra dar uma cor por situação
+ * (na meta ou acima / abaixo da meta / resgatou mais do que aportou). A meta e a média entram no balão e na nota embaixo.
+ * -> spec de montarGrafico ({ tipo:'barras', opcoes }) ou null.
+ */
+export function opcoesInvestimentoMensal(meses, { meta = null, media = null } = {}) {
   const ms = meses.filter((m) => num(m.pct));
-  if (!ms.length) return { svg: '', dicas: [] };
-  const W = Math.max(300, largura);
-  const H = altura;
-  const mg = { t: 18, r: 54, b: 26, l: 40 };
-  const n = ms.length;
-  const maxP = Math.max(0.05, ...ms.map((m) => m.pct), num(meta) ? meta : 0) * 1.12;
-  const minP = Math.min(0, ...ms.map((m) => m.pct)) * 1.12;
-  const passo = passoRedondo(maxP - minP, 4);
-  const topo = Math.ceil(maxP / passo) * passo;
-  const fundo = Math.floor(minP / passo) * passo;
-  const y = (v) => mg.t + ((topo - v) / (topo - fundo || 1)) * (H - mg.t - mg.b);
-  const bw = (W - mg.l - mg.r) / n;
-  const larg = Math.min(30, bw * 0.66);
-  const xc = (k) => mg.l + bw * k + bw / 2;
-  let s = '';
-  for (let v = fundo; v <= topo + 1e-9; v += passo) s += `<line class="${Math.abs(v) < 1e-9 ? 'pt-zero' : 'pt-grade'}" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(v))}" y2="${f1(y(v))}"/><text class="pt-eixo" x="${mg.l - 6}" y="${f1(y(v) + 3.5)}" text-anchor="end">${formatNumeroBR(v * 100, 0)}%</text>`;
-  const pulo = Math.max(1, Math.ceil(n / Math.max(4, Math.floor((W - mg.l - mg.r) / 46))));
-  const dicas = [];
-  ms.forEach((m, k) => {
-    const cls = m.pct < 0 ? 'neg' : num(meta) && m.pct >= meta ? 'meta' : 'abaixo';
-    const y0 = y(0); const yv = y(m.pct);
-    s += `<rect class="rd-inv-bar ${cls}${m.parcial ? ' parcial' : ''}" x="${f1(xc(k) - larg / 2)}" y="${f1(Math.min(y0, yv))}" width="${f1(larg)}" height="${f1(Math.max(1, Math.abs(y0 - yv)))}" rx="2"/>`;
-    if (k % pulo === (n - 1) % pulo) s += `<text class="pt-eixo${k === n - 1 ? ' pt-eixo-forte' : ''}" x="${f1(xc(k))}" y="${H - 8}" text-anchor="middle">${esc(mesCurto(m.mes))}</text>`;
-    s += `<rect class="pt-hit" tabindex="0" data-i="${k}" x="${f1(mg.l + bw * k)}" y="${mg.t}" width="${f1(bw)}" height="${H - mg.t - mg.b}"><title>${esc(`${mesCurto(m.mes)}: ${pct(m.pct)}`)}</title></rect>`;
-    dicas.push(`<b class="pt-tt-t">${esc(mesAno(m.mes))}${m.parcial ? ' <small>(mês em andamento)</small>' : ''}</b>${linhaTt('Investido', brl0(m.valor))}${linhaTt(`Líquido (${m.fonteLiquido === 'holerite' ? 'holerite' : 'base'})`, brl0(m.liquido))}<div class="pt-tt-l pt-tt-total"><span>Do salário</span><b>${esc(pct(m.pct))}</b></div>${num(meta) ? `<div class="pt-tt-n">meta ${esc(pct(meta, 0))}${m.proventos ? ` · proventos no mês ${esc(brl0(m.proventos))}` : ''}</div>` : ''}`);
-  });
-  const ref = (v, cls, rot) => (num(v) ? `<line class="${cls}" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(v))}" y2="${f1(y(v))}"/><text class="pt-rot-m" x="${W - mg.r + 4}" y="${f1(y(v) + 3.5)}">${esc(rot)}</text>` : '');
-  const proximas = num(meta) && num(media) && Math.abs(y(meta) - y(media)) < 12;
-  s += ref(meta, 'pt-alvo', `meta ${pct(meta, 0)}`);
-  s += num(media) ? `<line class="rd-media" x1="${mg.l}" x2="${W - mg.r}" y1="${f1(y(media))}" y2="${f1(y(media))}"/><text class="pt-rot-m" x="${W - mg.r + 4}" y="${f1(y(media) + 3.5 + (proximas ? (media >= meta ? -10 : 10) : 0))}">média ${esc(pct(media, 0))}</text>` : '';
-  return { svg: `<svg class="pt-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Porcentagem do salário líquido investida por mês, ${mesAno(ms[0].mes)} a ${mesAno(ms[n - 1].mes)}`)}">${s}</svg>`, dicas };
+  if (!ms.length) return null;
+  const classe = (m) => (m.pct < 0 ? 'neg' : num(meta) && m.pct >= meta ? 'meta' : 'abaixo');
+  const serie = (id, nome, cor) => ({ id, nome, cor, valores: ms.map((m) => (classe(m) === id ? m.pct : null)) });
+  const pct = (v) => formatPct(v, 1);
+  return {
+    tipo: 'barras',
+    opcoes: {
+      modo: 'empilhadas', categorias: ms.map((m) => ({ rotulo: mesCurto(m.mes), titulo: `${mesAno(m.mes)}${m.parcial ? ' (mês em andamento)' : ''}` })),
+      formatarX: (item) => (item && item.titulo) || '', formatarValor: pct, formatarY: (v) => `${formatNumeroBR(v * 100, 0)}%`, altura: 230, tons: 'categorica',
+      series: [serie('meta', num(meta) ? `Na meta (${formatPct(meta, 0)}) ou acima` : 'Investiu', 'var(--chart-up)'), serie('abaixo', 'Abaixo da meta', 6), serie('neg', 'Resgatou mais do que aportou', 'var(--chart-down)')]
+        .filter((sr) => sr.valores.some((v) => v != null)),
+      tooltipExtra: (k) => {
+        const m = ms[k];
+        const e = [{ nome: 'Investido', valor: brl0(m.valor) }, { nome: `Líquido (${m.fonteLiquido === 'holerite' ? 'holerite' : 'base'})`, valor: brl0(m.liquido) }];
+        if (num(meta)) e.push({ nome: 'Meta', valor: formatPct(meta, 0) });
+        if (num(media)) e.push({ nome: 'Média do período', valor: formatPct(media, 0) });
+        return e;
+      },
+      aria: `Porcentagem do salário líquido investida por mês, ${mesAno(ms[0].mes)} a ${mesAno(ms[ms.length - 1].mes)}`,
+    },
+  };
 }
 
 export function htmlInvestimentoTiles(inv) {
@@ -263,12 +260,12 @@ export function htmlInvestimentoTiles(inv) {
   const t = inv.tendencia;
   const seta = t ? (t.sentido === 'subindo' ? '↗' : t.sentido === 'caindo' ? '↘' : '→') : '';
   const estado = num(inv.meta) && m12 && num(m12.pct) ? (m12.pct >= inv.meta ? 'good' : 'bad') : '';
-  return `<div class="pt-tiles rd-inv-tiles">
-      <div class="pt-tile dest"><span class="pt-rot">Média 12 meses</span><b>${esc(pct(m12 && m12.pct))}</b><small>do líquido · ${esc(brl0(m12 && m12.valor))}/mês${m12 && m12.n < 12 ? ` (${m12.n} meses)` : ''}</small></div>
-      <div class="pt-tile"><span class="pt-rot">Últimos 6 meses</span><b>${esc(pct(m6 && m6.pct))}</b><small>${esc(brl0(m6 && m6.valor))}/mês${m6 && m12 && num(m6.pct) && num(m12.pct) ? ` · ${m6.pct >= m12.pct ? 'acima' : 'abaixo'} da média de 12` : ''}</small></div>
-      <div class="pt-tile"><span class="pt-rot">Meta</span><b class="${estado}">${esc(pct(inv.meta, 0))}</b><small>${num(inv.metaValor) ? `${esc(brl0(inv.metaValor))}/mês · ` : ''}${inv.acimaDaMeta12 != null ? `bateu em ${inv.acimaDaMeta12} dos últimos ${Math.min(12, inv.meses.filter((x) => !x.parcial).length)} meses` : 'defina no Orçamento do salário'}</small></div>
-      <div class="pt-tile"><span class="pt-rot">Tendência</span><b>${t ? `${seta} ${t.sentido === 'estavel' ? 'estável' : t.sentido}` : '—'}</b><small>${t ? `${t.inclinacao >= 0 ? '+' : '−'}${esc(formatNumeroBR(Math.abs(t.inclinacao) * 100, 1))} p.p. por mês nos últimos ${t.meses} meses` : 'precisa de 4 meses'}</small></div>
-    </div>`;
+  return `<div class="grid-kpi rd-inv-tiles">
+    ${kpiHtml({ rotulo: 'Média 12 meses', valorHtml: esc(formatPct(m12 && m12.pct)), subHtml: `do líquido · ${esc(brl0(m12 && m12.valor))}/mês${m12 && m12.n < 12 ? ` (${m12.n} meses)` : ''}` })}
+    ${kpiHtml({ rotulo: 'Últimos 6 meses', valorHtml: esc(formatPct(m6 && m6.pct)), subHtml: `${esc(brl0(m6 && m6.valor))}/mês${m6 && m12 && num(m6.pct) && num(m12.pct) ? ` · ${m6.pct >= m12.pct ? 'acima' : 'abaixo'} da média de 12` : ''}` })}
+    ${kpiHtml({ rotulo: 'Meta', valorHtml: `<span class="${estado}">${esc(formatPct(inv.meta, 0))}</span>`, subHtml: `${num(inv.metaValor) ? `${esc(brl0(inv.metaValor))}/mês · ` : ''}${inv.acimaDaMeta12 != null ? `bateu em ${inv.acimaDaMeta12} dos últimos ${Math.min(12, inv.meses.filter((x) => !x.parcial).length)} meses` : 'defina no Orçamento do salário'}` })}
+    ${kpiHtml({ rotulo: 'Tendência', valorHtml: esc(t ? `${seta} ${t.sentido === 'estavel' ? 'estável' : t.sentido}` : '—'), subHtml: t ? `${t.inclinacao >= 0 ? '+' : '−'}${esc(formatNumeroBR(Math.abs(t.inclinacao) * 100, 1))} p.p. por mês nos últimos ${t.meses} meses` : 'precisa de 4 meses' })}
+  </div>`;
 }
 
 const CORES_BANCO = {
@@ -300,7 +297,7 @@ export function htmlContas(info, { drive = false } = {}) {
     const msg = info && info.semDados
       ? 'As declarações salvas são de antes desta tela e não têm banco, agência e conta. Leia de novo as declarações pra trazer as contas.'
       : 'Importe as declarações do IR: as contas declaradas em Bens e Direitos (banco, agência, conta e saldo em 31/12) aparecem aqui.';
-    return `<div class="pt-card pt-pad"><p class="pt-nota rd-nota-topo">${esc(msg)}</p>${info && info.semDados && drive ? '<button type="button" class="btn btn-ghost pt-btn-sm" data-acao="ler-ir-drive">Ler de novo do Drive</button>' : ''}</div>`;
+    return `<div class="card pt-card pt-pad"><p class="pt-nota rd-nota-topo">${esc(msg)}</p>${info && info.semDados && drive ? '<button type="button" class="btn btn-outlined pt-btn-sm" data-acao="ler-ir-drive">Ler de novo do Drive</button>' : ''}</div>`;
   }
   return `<ul class="rd-contas">${info.contas.map((c) => cartaoConta(c)).join('')}</ul>
     ${info.antigas.length ? `<details class="rd-antigas"><summary>${info.antigas.length} ${info.antigas.length === 1 ? 'conta que só aparece' : 'contas que só aparecem'} em declarações antigas</summary><ul class="rd-contas">${info.antigas.map((c) => cartaoConta(c, { antiga: true })).join('')}</ul></details>` : ''}
@@ -384,7 +381,6 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     soLongoPrazo: lerLocal(storage, CHAVE_LONGO) === '1',
     lendo: null,
   };
-  const dicas = {};
   let r = null;
   garantirCss(doc);
 
@@ -394,26 +390,25 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     if (salvo && salvo.tabela) est.ipca = mesclarIpca(IPCA_MENSAL, Object.entries(salvo.tabela).flatMap(([a, l]) => l.map((v, i) => ({ data: `01/${String(i + 1).padStart(2, '0')}/${a}`, valor: String(v) }))));
   } catch (e) { /* ok */ }
 
-  const largura = (sel, padrao) => { const e = raiz.querySelector(sel); return (e && e.clientWidth) || padrao; };
-
   function esqueleto() {
     const blocos = {
-      hero: '<section class="pt-card rd-hero" id="rdHero"></section>',
+      hero: '<section class="rd-hero" id="rdHero" aria-label="Resumo da renda"></section>',
       salario: `<section class="pt-sec" id="rdSecSalario"><div class="pt-sec-cab"><h2>Como seu salário cresceu</h2><span class="pt-hint">holerite › Carteira de Trabalho › declaração do IR · contra a inflação (IPCA)</span></div>
-          <div class="pt-card"><div class="rd-graf-cab">${tabsHtml(PERIODOS_SALARIO, est.perSal, 'Período do gráfico do salário')}</div>
-            <div class="pt-grafico" data-grafico="sal" id="rdGSal"></div>${htmlLegendaSalario()}<div class="ag-slot pt-analise" id="rdAnaliseSal" hidden></div></div>
-          <div class="rd-duas"><div class="pt-card pt-pad" id="rdTabela"></div><div class="pt-card pt-pad" id="rdCarga"></div></div></section>`,
+          <div class="card pt-card"><div class="rd-graf-cab">${tabsHtml(PERIODOS_SALARIO, est.perSal, 'Período do gráfico do salário')}</div>
+            <div class="pt-grafico" id="rdGSal"></div>${htmlLegendaSalario()}<div class="ag-slot pt-analise" id="rdAnaliseSal" hidden></div></div>
+          <div class="rd-duas"><div class="card pt-card pt-pad" id="rdTabela"></div><div class="card pt-card pt-pad" id="rdCarga"></div></div></section>`,
       investimento: `<section class="pt-sec" id="rdSecInv"><div class="pt-sec-cab"><h2>Quanto do salário você investe por mês</h2><span class="pt-hint">aportes − resgates do mês ÷ salário líquido do mês</span></div>
-          <div class="pt-card"><div class="rd-inv-topo" id="rdInvTiles"></div>
+          <div class="card pt-card"><div class="rd-inv-topo" id="rdInvTiles"></div>
             <div class="rd-graf-cab">${tabsHtml(PERIODOS_INVESTIMENTO, est.perInv, 'Período do gráfico de investimento')}
               <span class="rd-chks"><label class="pt-chk rd-chk"><input type="checkbox" id="rdDescProv"${est.descontarProventos ? ' checked' : ''}><span>descontar proventos (só o que saiu do salário)</span></label>
               <label class="pt-chk rd-chk"><input type="checkbox" id="rdSoLongo"${est.soLongoPrazo ? ' checked' : ''}><span>só longo prazo (sem mexer na reserva)</span></label></span></div>
-            <div class="pt-grafico" data-grafico="inv" id="rdGInv"></div>
-            <div class="pt-leg pt-leg-graf"><span><i style="background:var(--pt-inv)"></i>Na meta ou acima</span><span><i class="rd-leg-abaixo"></i>Abaixo da meta</span><span><i style="background:var(--pt-neg)"></i>Resgatou mais do que aportou</span><span><i class="pt-leg-tracejado"></i>Meta</span><span><i class="rd-leg-media"></i>Média do período</span></div></div></section>`,
+            <div class="pt-grafico" id="rdGInv"></div>
+            <p class="pt-nota pt-nota-pad" id="rdInvNota"></p></div></section>`,
       contas: '<section class="pt-sec" id="rdSecContas"><div class="pt-sec-cab"><h2>Suas contas</h2><span class="pt-hint">pela declaração do IR mais recente</span></div><div id="rdContas"></div></section>',
-      documentos: '<section class="pt-sec" id="rdSecDocs"><div class="pt-card pt-pad" id="rdDocs"></div></section>',
+      documentos: '<section class="pt-sec" id="rdSecDocs"><div class="card pt-card pt-pad" id="rdDocs"></div></section>',
     };
     raiz.innerHTML = `<div class="rd pt-conteudo">${secoes.map((s) => blocos[s]).join('')}</div>`;
+    tornarRecolhiveis(raiz, { seletor: '.rd > .pt-sec', cabecalho: '.pt-sec-cab', abertasNoCelular: secoes.includes('salario') ? 1 : 0, doc }); // a Renda é montada em pedaços (topo, investimento, contas): só o 1º seção fica aberta no celular
     ligarFiltros();
   }
 
@@ -422,11 +417,13 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     return r;
   }
 
-  function desenharGrafico(sel, chave, g) {
+  /** Desenha `spec` na caixa (cria na 1ª vez e morfa depois); sem spec, uma frase no lugar. */
+  function desenharGrafico(sel, spec, vazio = 'Sem dados pra este período.') {
     const box = raiz.querySelector(sel);
     if (!box) return;
-    box.innerHTML = g.svg ? `${g.svg}<div class="pt-tt" hidden></div>` : '<p class="pt-nota">Sem dados pra este período.</p>';
-    dicas[chave] = g.dicas;
+    if (!spec) { limparGrafico(box); box.innerHTML = `<p class="pt-nota pt-nota-pad">${esc(vazio)}</p>`; return; }
+    if (box.querySelector('.pt-nota') && !box.querySelector('.mt-g-principal')) box.textContent = '';
+    montarGrafico(box, spec);
   }
 
   function desenharSalario() {
@@ -434,9 +431,9 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     const anoHoje = Number(r.hoje.slice(0, 4));
     const recorte = recortarAnos(r.linhas, est.perSal, anoHoje);
     if (!r.linhas.length) {
-      raiz.querySelector('#rdGSal').innerHTML = '<p class="pt-nota">Importe um holerite (Orçamento do salário, logo abaixo), a Carteira de Trabalho ou as declarações do IR pra montar a linha do salário.</p>';
+      desenharGrafico('#rdGSal', null, 'Importe um holerite (Orçamento do salário, logo abaixo), a Carteira de Trabalho ou as declarações do IR pra montar a linha do salário.');
     } else {
-      desenharGrafico('#rdGSal', 'sal', graficoSalarioAnual(recorte, linhaInflacao(recorte, est.ipca), { largura: largura('#rdGSal', 720) - 36 }));
+      desenharGrafico('#rdGSal', opcoesSalarioAnual(recorte, linhaInflacao(recorte, est.ipca)));
     }
     // 03/10/2026: card de Análise (salário x IPCA no período do filtro)
     let analise = null;
@@ -444,6 +441,7 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     renderAnalise(doc, raiz.querySelector('#rdAnaliseSal'), analise);
     raiz.querySelector('#rdTabela').innerHTML = htmlCrescimentoTabela(recorte);
     raiz.querySelector('#rdCarga').innerHTML = htmlCargaImpostos(r);
+    montarBarrasOp(raiz.querySelector('#rdCarga'));
   }
 
   function desenharInvestimento() {
@@ -454,8 +452,10 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     const fech = recorte.filter((m) => !m.parcial && num(m.pct));
     const liq = fech.reduce((s, m) => s + m.liquido, 0);
     const media = liq > 0 ? fech.reduce((s, m) => s + m.valor, 0) / liq : null;
-    if (!inv.meses.length) raiz.querySelector('#rdGInv').innerHTML = '<p class="pt-nota">Sem aportes no site ainda (vêm das Transações).</p>';
-    else desenharGrafico('#rdGInv', 'inv', graficoInvestimentoMensal(recorte, { meta: inv.meta, media, largura: largura('#rdGInv', 720) - 36 }));
+    if (!inv.meses.length) desenharGrafico('#rdGInv', null, 'Sem aportes no site ainda (vêm das Transações).');
+    else desenharGrafico('#rdGInv', opcoesInvestimentoMensal(recorte, { meta: inv.meta, media }));
+    const nota = raiz.querySelector('#rdInvNota');
+    if (nota) nota.textContent = inv.meses.length ? `${num(inv.meta) ? `Meta: ${formatPct(inv.meta, 0)} do líquido. ` : ''}${num(media) ? `Média do período: ${formatPct(media, 0)}.` : ''}` : '';
   }
 
   function desenhar() {
@@ -505,24 +505,6 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     const lims = { sal: limitesDe(r.linhas, 'ano'), inv: limitesDe(r.investimento.meses, 'mes') };
     Object.entries(filtros).forEach(([q, ctl]) => { if (lims[q]) try { ctl.definirLimites(lims[q]); } catch (e) { /* ok */ } });
   }
-
-  // balão dos gráficos
-  function mostrarDica(alvo) {
-    const box = alvo.closest('[data-grafico]');
-    const tt = box && box.querySelector('.pt-tt');
-    const lista = box && dicas[box.dataset.grafico];
-    const html = lista && lista[Number(alvo.dataset.i)];
-    if (!tt || !html) return;
-    tt.innerHTML = html;
-    tt.hidden = false;
-    const rb = box.getBoundingClientRect ? box.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
-    const ra = alvo.getBoundingClientRect ? alvo.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
-    let x = ra.left - rb.left + ra.width / 2 + 12;
-    if (x > rb.width - 210) x = Math.max(4, ra.left - rb.left + ra.width / 2 - 222);
-    tt.style.left = `${x}px`;
-    tt.style.top = '12px';
-  }
-  function esconderDicas() { raiz.querySelectorAll('.pt-tt').forEach((t) => { t.hidden = true; }); }
 
   async function copiar(btn) {
     const v = btn.dataset.copiar;
@@ -585,10 +567,6 @@ export function montarSecaoRenda(raiz, opcoes = {}) {
     atualizarLimitesFiltros();
   }
 
-  raiz.addEventListener('pointermove', (e) => { const h = e.target.closest && e.target.closest('.pt-hit'); if (h) mostrarDica(h); else esconderDicas(); });
-  raiz.addEventListener('pointerleave', esconderDicas);
-  raiz.addEventListener('focusin', (e) => { if (e.target.classList && e.target.classList.contains('pt-hit')) mostrarDica(e.target); });
-  raiz.addEventListener('focusout', esconderDicas);
   raiz.addEventListener('click', (e) => {
     const c = e.target.closest('[data-copiar]');
     if (c) { copiar(c); return; }

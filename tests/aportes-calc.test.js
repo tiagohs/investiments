@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, removerDoCarrinho, atualizarPrecos, itensDoCarrinho,
   totaisCarrinho, aporteDoCarrinho, carrinhoDoAporte, carrinhoRepetindo, finalDoItem, concluirAporte, totalAporte,
-  classesDoAporte, anosDoResumo, mesesDoAno, aportesPorMes, chaveItem, momentoAporte, totalRanking,
+  classesDoAporte, anosDoResumo, mesesDoAno, mesesDoPeriodo, aportesPorMes, chaveItem, momentoAporte, totalRanking,
 } from '../assets/js/pages/aportes-calc.js';
 
 const CLASSES = {
@@ -89,6 +89,20 @@ test('resumo: 12 meses do ano, anos disponíveis e aportes concluídos por mês'
   assert.deepEqual(aportesPorMes(aportes, 5), { '2026-09': { n: 1, valor: 350 } });
 });
 
+test('"Investido por mês": meses do período canônico (no ano, últimos N meses, desde o início, intervalo escolhido)', () => {
+  const resumo = { '2026-09': { acoes: 100, total: 100 }, '2025-11': { fiis: 10, total: 10 } };
+  const chaves = (p) => mesesDoPeriodo(resumo, p, '2026-09-26').map((m) => m.chave);
+  assert.equal(chaves('ano').length, 12);
+  assert.equal(chaves('ano')[0], '2026-01');
+  const u12 = chaves('12m');
+  assert.deepEqual([u12.length, u12[0], u12[11]], [12, '2025-10', '2026-09']);
+  assert.equal(chaves('36m').length, 36);
+  assert.deepEqual(chaves('inicio').slice(0, 2), ['2025-11', '2025-12']);
+  assert.equal(chaves('inicio').pop(), '2026-09');
+  assert.deepEqual(chaves({ inicio: '2026-07-15', fim: '2027-02-01' }), ['2026-07', '2026-08', '2026-09']);
+  assert.equal(mesesDoPeriodo(resumo, '12m', '2026-09-26')[11].total, 100);
+});
+
 test('momento de aporte: teto, meta do Radar (com o R$ que falta), preço médio, última compra, P/L; no limite do teto não conta como folga', () => {
   const a = { ticker: 'ABCD3', moeda: 'BRL', precoAtual: 20, precoTeto: 25, precoMedio: 22, quantidade: 10, ultimoPago: { preco: 21 }, variacaoDia: -0.025,
     radar: { percentualDesejado: 0.1, percentualAtual: 0.03, valorInvestir: 5000, pl: 6, descontoPl: '15% (2% acima - retorno)' } };
@@ -97,13 +111,13 @@ test('momento de aporte: teto, meta do Radar (com o R$ que falta), preço médio
   assert.equal(m.rotulo, 'Bom momento');
   assert.equal(m.pontos, 6.5, 'retorno pelo lucro acima da renda fixa = com desconto (mesma regra da coluna Desc. P/L do Radar)');
   assert.ok(m.sinais.some((x) => x.tom === 'bom' && x.texto === 'Desconto sobre P/L: com desconto (P/L 6,0)'));
-  assert.deepEqual(m.sinais.slice(0, 2).map((x) => x.texto), ['Abaixo do preço-teto (R$ 25,00): margem de 25,0%', 'Abaixo do % desejado no Radar (3,0% de 10,0%): faltam R$ 5.000']);
+  assert.deepEqual(m.sinais.slice(0, 2).map((x) => x.texto), ['Abaixo do preço-teto (R$ 25,00): margem de 25,0%', 'Abaixo do % desejado no Radar (3,0% de 10,0%): faltam R$ 5.000']);
   assert.equal(m.sinais[m.sinais.length - 1].tom, 'ruim', 'o que pesa contra vem por último');
   const limite = momentoAporte({ ...a, precoAtual: 24.9, radar: null, precoMedio: null, ultimoPago: null, variacaoDia: 0 }, 'acoes');
-  assert.deepEqual(limite.sinais.map((x) => [x.tom, x.texto]), [['neutro', 'No limite do preço-teto (R$ 25,00): margem de 0,4%']]);
+  assert.deepEqual(limite.sinais.map((x) => [x.tom, x.texto]), [['neutro', 'No limite do preço-teto (R$ 25,00): margem de 0,4%']]);
   assert.equal(limite.nivel, 'neutro');
   const eua = momentoAporte({ ticker: 'AAA', moeda: 'USD', precoAtual: 10, precoTeto: 12, radar: { percentualDesejado: 0.2, percentualAtual: 0.1, valorInvestir: 70.26 } }, 'acoesEua');
-  assert.match(eua.sinais[1].texto, /faltam US\$ 70,26/);
+  assert.match(eua.sinais[1].texto, /faltam US\$\s70,26/);
 });
 
 test('momento de aporte: ranking da Suno - primeiros somam, últimos pesam contra e nunca deixam ser "Bom momento"', () => {

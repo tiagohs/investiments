@@ -1,205 +1,206 @@
 /**
- * shell.css — shared chrome for every page: design tokens (color/type),
- * base resets, topbar (brand, refresh pill, sync badge),
- * main nav (6 top-level sections, no dropdown), the contextual sidebar
- * used by sections that have subpages (Carteiras/Transações/Proventos/
- * Organização Financeira), and the theme toggle. Loaded by every page
- * via shell.js (item 8f) alongside shell.html.
+ * shell.css — chrome compartilhado de todas as páginas: base (reset/tipografia), top app bar, trilho de navegação
+ * (80px) + gaveta (280px), popovers do topo (sync, carrinho, conta), busca global e blocos globais (links de ativo,
+ * "momento de aporte", vídeos, consolidação, carrinho no header).
  *
- * Tokens and every rule here were validated in docs/direcao-visual.html
- * (categorical palette already run through the dataviz palette
- * validator) — copied here as the single source of truth instead of
- * duplicated per page. Custom property names (--acoes, --fiis, --rf,
- * --usa) are kept exactly as validated there, to stay consistent with
- * that reference rather than diverging into an English rename.
- *
- * Navigation architecture (revised after visual review — see commit
- * history for the dropdown attempt this replaced): the main nav has
- * only the 6 top-level sections and never opens a dropdown. A section
- * that has subpages (Carteiras, Transações, Proventos, Organização
- * Financeira) renders its own contextual sidebar as normal in-flow
- * page content (.side-nav + .section-content) — not an overlay. Início
- * and Distribuições e Metas have no subpages, so no sidebar. This
- * avoids overlay/clipping bugs entirely for navigation: the only real
- * overlay left is the sync popover, a transient action, not
- * navigation, so a popover is the right pattern for it. (A global
- * period filter used to live here too — removed 13/09/2026, each
- * page with a chart gets its own contextual filter instead, see
- * docs/plano-implementacao.html, Fase 2.)
- *
- * Page-specific styles (stat tiles, dropzone, alerts, generic status
- * badges, etc.) are NOT here — they belong to each page when it's built.
+ * 05/10/2026 (Onda 3 - pedido do Tiago: "seguir o design do Material Design", "navegação estilo Google com navigation
+ * drawer recolhível", "menus internos (submenus) no topo"; padrão do kit Figma "Material You"):
+ *   - TOKENS: assets/css/m3-tokens.css. COMPONENTES (botões, chips, abas, cartões, tabela, diálogo, snackbar...):
+ *     assets/css/components.css. Ordem de carga em todo HTML: fontes -> m3-tokens.css -> shell.css -> components.css -> CSS da página.
+ *   - navegação: trilho de ícones 80px sempre visível >= 840px (☰ no topo) + gaveta 280px que abre AO LADO (>= 1200px
+ *     empurra o conteúdo; 840-1199px abre por cima com scrim); no celular a gaveta é MODAL (scrim, Esc, toque fora).
+ *     Estado lembrado em localStorage (shell.js!setupNavDrawer escreve body[data-nav="aberto|fechado"]).
+ *   - submenus internos (Carteiras: visão/ações/FIIs/RF/EUA...) são ABAS no topo do conteúdo (ui/tabs.js), nunca na gaveta.
+ * Contrato de markup que continua valendo: #mainnav .nav-item[data-section] > a.nav-link[data-section] (.current/.active
+ * na seção atual; a gaveta tem o mesmo), #shell-backdrop, .overlay-panel[.open], [data-toggle-panel].
  */
 
-/* ---- Design tokens ---- */
-:root {
-  --bg:#F7F6F2; --surface:#FFFFFF; --surface-2:#E7EEF7; --surface-3:#F1F0EC;
-  --border:#E2E0D9; --ink:#1B2430; --ink-muted:#6C7686; --ink-faint:#98A0AC;
-
-  /* categorical — one per asset class */
-  --acoes:#2A78D6;  --acoes-soft:#E6EFFB;
-  --fiis:#1BAF7A;   --fiis-soft:#E1F5EC;
-  --rf:#C98500;     --rf-soft:#FBEED2;
-  --usa:#4A3AA7;    --usa-soft:#EBE8F7;
-
-  /* status triad — favorable / wait / unfavorable */
-  --good:#0CA30C;   --good-soft:#E3F3E1; --good-ink:#046B04;
-  --warn:#FAB219;   --warn-soft:#FEF0D6; --warn-ink:#8A5A06;
-  --bad:#D03B3B;    --bad-soft:#FBE7E6;  --bad-ink:#A32E2E;
-  --na:#98A0AC;     --na-soft:#EEEEEC;
-
-  --shadow: 0 1px 2px rgba(27,36,48,.06), 0 6px 20px -8px rgba(27,36,48,.12);
-  --shadow-lg: 0 8px 30px -6px rgba(27,36,48,.22), 0 2px 8px rgba(27,36,48,.08);
-  --display:'Fraunces', Georgia, 'Times New Roman', serif;
-  --body-f:'Public Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --mono:'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  color-scheme: light;
-}
-
-/* System dark mode, unless the user explicitly picked light via the
-   theme toggle (data-theme="light" on <html>). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg:#0E1520; --surface:#151F2C; --surface-2:#1D3350; --surface-3:#1A2432;
-    --border:#283344; --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
-
-    --acoes:#3987E5;  --acoes-soft:#1E3A57;
-    --fiis:#199E70;   --fiis-soft:#153A2C;
-    --rf:#DDAE63;     --rf-soft:#3B2E18;
-    --usa:#9085E9;    --usa-soft:#2A2650;
-
-    --good:#57C79A;   --good-soft:#123326; --good-ink:#7FE0B9;
-    --warn:#F0C46B;   --warn-soft:#3B2E18; --warn-ink:#F6D998;
-    --bad:#E5786C;    --bad-soft:#3A1E1A;  --bad-ink:#F0988D;
-    --na:#6E7A8A;     --na-soft:#1D2734;
-
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
-    --shadow-lg: 0 12px 36px -6px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.35);
-    color-scheme: dark;
-  }
-}
-
-/* Explicit dark via the theme toggle — wins over system preference in
-   both directions (see shell.js, which sets data-theme on <html>). */
-:root[data-theme="dark"] {
-  --bg:#0E1520; --surface:#151F2C; --surface-2:#1D3350; --surface-3:#1A2432;
-  --border:#283344; --ink:#EDEFF2; --ink-muted:#9AA5B4; --ink-faint:#6E7A8A;
-
-  --acoes:#3987E5;  --acoes-soft:#1E3A57;
-  --fiis:#199E70;   --fiis-soft:#153A2C;
-  --rf:#DDAE63;     --rf-soft:#3B2E18;
-  --usa:#9085E9;    --usa-soft:#2A2650;
-
-  --good:#57C79A;   --good-soft:#123326; --good-ink:#7FE0B9;
-  --warn:#F0C46B;   --warn-soft:#3B2E18; --warn-ink:#F6D998;
-  --bad:#E5786C;    --bad-soft:#3A1E1A;  --bad-ink:#F0988D;
-  --na:#6E7A8A;     --na-soft:#1D2734;
-
-  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -10px rgba(0,0,0,.5);
-  --shadow-lg: 0 12px 36px -6px rgba(0,0,0,.55), 0 2px 10px rgba(0,0,0,.35);
-  color-scheme: dark;
-}
-
-/* ---- Base reset ---- */
+/* ---- Base ---- */
 *{ box-sizing:border-box; }
+html{ -webkit-text-size-adjust:100%; scroll-padding-top:calc(var(--topbar-h) + 12px); }
 body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--body-f);
-      font-size:14.5px; line-height:1.5; overflow-x:hidden; }
-h1,h2,h3{ font-family:var(--display); font-weight:600; text-wrap:balance; margin:0; }
+      font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; letter-spacing:var(--md-sys-typescale-body-medium-tracking);
+      overflow-x:hidden; -webkit-font-smoothing:antialiased; }
+h1,h2,h3{ font-family:var(--display); font-weight:500; text-wrap:balance; margin:0; }
 .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
-/* 13/09/2026: 1080px -> 1360px a pedido do Tiago ("a tela nao usa
-   todo o espaco horizontal, utilize-o, pra ter mais espaco pra
-   trabalhar") - mais espaco pras grades de indices/ativos e pros
-   2 cartoes lado a lado de Rentabilidade. */
-/* 19/09/2026 #3 (pedido do Tiago - "ainda acho que tem pouco espaço [de
-   conteúdo] em desktop"): margem horizontal era 24px, foi pra 16px -
-   não mudou muito (ele pediu só um respiro a mais, não uma reforma),
-   mas dá mais respiro real pra tabela de Ativos de Carteiras, que é a
-   mais larga do app. */
-/* 19/09/2026 #5 (pedido do Tiago - "preciso ainda de mais espaço dos
-   lados, pois a tabela de fiis começou com scroll"): a tabela de FIIs
-   ganhou colunas nessa mesma rodada (Status/DY/P-VP/Patrim.fundo) e
-   passou a rolar horizontalmente em telas largas - então além de
-   apertar mais a margem (16px -> 12px), o max-width do conteúdo
-   subiu de 1360 pra 1520px, pra usar mais da tela em monitores
-   grandes em vez de deixar espaço sobrando dos dois lados enquanto a
-   tabela precisa rolar (ver também o ajuste de padding/fonte em
-   .cc-tabela th/td, em carteiras.css). */
-.wrap{ max-width:1520px; margin:0 auto; padding:18px 12px 40px; }
-.eyebrow{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
+/* largura útil do conteúdo (a tela de FIIs/Ações é a mais larga do app; margem lateral de 16px no compacto, 24px a partir de 600px) */
+.wrap{ max-width:var(--pag-max); margin:0 auto; padding:20px 16px 48px; }
+@media (min-width:600px){ .wrap{ padding:24px 24px 56px; } }
+.eyebrow{ font-size:var(--md-sys-typescale-label-medium-size); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; }
 svg{ display:block; }
+:root{ --sticky-top:calc(var(--topbar-h) + 12px); --busca-h:0px; } /* topo de elementos sticky das páginas (abaixo da top bar) */
+@media (max-width:839.98px){ :root{ --busca-h:60px; --sticky-top:calc(var(--topbar-h) + 8px); } }
 
-/* ---- Top bar ---- */
-.topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px;
-         padding:16px 0 12px; margin-bottom:6px; flex-wrap:wrap; }
-.brand{ display:flex; align-items:center; gap:10px; }
-.brand-mark{ width:30px; height:30px; border-radius:9px; background:var(--acoes); color:#fff;
-      display:flex; align-items:center; justify-content:center; font-family:var(--display);
-      font-weight:700; font-size:16px; flex:none; box-shadow:var(--shadow); }
-.brand-text{ display:flex; flex-direction:column; line-height:1.15; }
-.brand-text h1{ font-size:19px; color:var(--ink); }
-.brand-text span{ color:var(--ink-faint); font-size:11px; }
-.topbar-right{ display:flex; align-items:center; gap:8px; }
+/* ---- Compensação do shell fixo (só nas páginas que montam o shell: body[data-section]) ---- */
+body[data-section]{ padding-top:calc(var(--topbar-h) + var(--busca-h)); }
+@media (min-width:840px){ body[data-section]{ padding-left:var(--rail-w); } }
+@media (min-width:1200px){ body[data-section][data-nav="aberto"]{ padding-left:calc(var(--rail-w) + var(--nav-w)); } }
+@media (prefers-reduced-motion:no-preference){
+  body[data-section]{ transition:padding-left var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized); }
+}
+#shell-header{ display:contents; }
 
-/* refresh pill — minimal text ("12min"), full context lives in the title tooltip */
-.refresh-pill{ display:flex; align-items:center; gap:5px; color:var(--ink-faint); font-size:11.5px; padding:4px 2px; }
-.refresh-pill svg{ width:13px; height:13px; stroke:var(--good); flex:none; }
+/* ================= TOP APP BAR =================
+   Desktop/tablet (>= 840px): marca + busca em pílula + ações; começa depois do trilho. Celular: ☰ + título + ações na 1ª
+   faixa e a busca na 2ª (some ao rolar pra baixo, volta ao rolar pra cima). Linha divisória fina embaixo (outline-variant). */
+.topbar{ position:fixed; top:0; left:0; right:0; z-index:var(--z-header); min-height:var(--topbar-h);
+         display:flex; align-items:center; flex-wrap:wrap; gap:0 8px; padding:0 8px; background:var(--md-sys-color-surface);
+         color:var(--md-sys-color-on-surface); border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.topbar-menu{ order:1; }
+.brand{ display:none; align-items:center; gap:10px; flex:none; border-radius:12px; text-decoration:none; color:var(--ink); }
+.brand-mark{ width:32px; height:32px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; flex:none; }
+.brand-mark img{ width:100%; height:100%; display:block; object-fit:contain; }
+.brand-nome{ font-family:var(--display); font-size:var(--md-sys-typescale-title-medium-size); font-weight:600; letter-spacing:.01em; white-space:nowrap; }
+.topbar-titulo{ order:2; flex:1 1 0; min-width:0; font-family:var(--display); font-size:var(--md-sys-typescale-title-medium-size);
+         line-height:24px; font-weight:500; color:var(--md-sys-color-on-surface); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 4px; }
+.topbar-right{ order:3; display:flex; align-items:center; gap:4px; flex:none; }
+/* busca: 2ª faixa no celular */
+.busca{ order:4; flex:1 0 100%; position:relative; padding:0 8px 10px; }
+.topbar.busca-oculta .busca{ display:none; }
+.busca-campo{ position:relative; display:flex; align-items:center; gap:12px; height:48px; padding:0 18px; margin:0; border-radius:var(--md-sys-shape-corner-full);
+         background:var(--md-sys-color-surface-container); border:1px solid transparent; color:var(--ink-muted); }
+.busca-campo:hover{ background:var(--md-sys-color-surface-container-high); }
+.busca-campo:focus-within{ background:var(--md-ext-color-card); border-color:var(--md-sys-color-primary); box-shadow:0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent); }
+.busca-lupa{ width:22px; height:22px; fill:currentColor; flex:none; }
+.busca-input{ flex:1 1 auto; min-width:0; height:100%; border:0; outline:0 !important; background:transparent; color:var(--ink); font:inherit;
+         font-size:var(--md-sys-typescale-body-medium-size); -webkit-appearance:none; appearance:none; }
+.busca-input::placeholder{ color:var(--ink-muted); opacity:1; }
+.busca-input::-webkit-search-cancel-button{ -webkit-appearance:none; }
+.busca-atalho{ display:none; font:600 12px/1 var(--mono); color:var(--ink-muted); padding:4px 7px; border-radius:6px; border:1px solid var(--md-sys-color-outline-variant); background:var(--md-ext-color-card); }
+.busca-campo:focus-within .busca-atalho{ display:none; }
+/* resultados da busca (listbox) */
+.busca-lista{ position:absolute; z-index:1; left:8px; right:8px; top:calc(100% - 6px); max-height:min(420px, calc(100vh - var(--topbar-h) - 24px)); max-height:min(420px, calc(100dvh - var(--topbar-h) - 24px));
+         overflow-y:auto; overscroll-behavior:contain; padding:8px; border-radius:var(--md-sys-shape-corner-large); background:var(--md-ext-color-card);
+         border:1px solid var(--md-sys-color-outline-variant); box-shadow:var(--md-sys-elevation-level3); }
+.busca-lista[hidden]{ display:none; }
+.busca-grupo{ margin:0; padding:10px 12px 4px; font-size:var(--md-sys-typescale-label-medium-size); font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-muted); }
+.busca-item{ display:flex; align-items:center; gap:12px; min-height:48px; padding:6px 12px; border-radius:12px; color:var(--ink); text-decoration:none; cursor:pointer; position:relative; }
+.busca-item[aria-selected="true"], .busca-item:hover{ background:var(--md-sys-color-surface-container); }
+.busca-item .busca-ico{ width:32px; height:32px; border-radius:50%; display:grid; place-items:center; flex:none; background:var(--md-sys-color-surface-container); color:var(--ink-muted); }
+.busca-item .busca-ico svg{ width:18px; height:18px; fill:currentColor; }
+.busca-item[aria-selected="true"] .busca-ico{ background:var(--md-sys-color-primary-container); color:var(--md-sys-color-on-primary-container); }
+.busca-item-texto{ display:flex; flex-direction:column; min-width:0; flex:1; line-height:1.25; }
+.busca-item-texto b{ font-weight:500; font-size:var(--md-sys-typescale-body-medium-size); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.busca-item-texto b mark{ background:transparent; color:var(--md-sys-color-primary); font-weight:600; }
+.busca-item-texto small{ font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.busca-vazio{ margin:0; padding:14px 12px; font-size:var(--md-sys-typescale-body-medium-size); color:var(--ink-muted); }
 
-/* Botão "Atualizar dados" + "Atualizado às HH:MM" (shell.js!mountRefreshControl) —
-   fica no topo do conteúdo de cada página (Início/Distribuições e Metas),
-   não no topbar (é por página, cada uma busca o próprio dado). */
-.refresh-control{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
-.refresh-btn{ font-family:var(--body-f); font-weight:700; font-size:11.5px; padding:7px 14px;
-      border-radius:100px; cursor:pointer; border:1px solid var(--border); background:var(--surface);
-      color:var(--ink-muted); display:inline-flex; align-items:center; gap:6px; }
-.refresh-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
-.refresh-btn.carregando{ opacity:.75; cursor:default; color:var(--acoes); border-color:var(--acoes); }
+/* celular: título centralizado entre ☰ e as ações */
+@media (max-width:839.98px){
+  .topbar{ padding-top:4px; } /* 4 + 52 = 56px na 1ª faixa (--topbar-h); a busca fica na 2ª (--busca-h) */
+  .topbar-menu{ margin:6px 0; }
+  .topbar-titulo{ line-height:52px; }
+  .topbar-right{ min-height:52px; }
+}
+/* tablet/desktop */
+@media (min-width:840px){
+  .topbar{ left:var(--rail-w); flex-wrap:nowrap; gap:12px; padding:0 20px 0 20px; height:var(--topbar-h); }
+  .topbar .topbar-menu, .topbar .topbar-titulo{ display:none; } /* .icon-btn (components.css) vem depois: precisa de mais especificidade */
+  .brand{ display:flex; order:1; }
+  .busca{ order:2; flex:1 1 auto; max-width:620px; padding:0; }
+  .topbar-right{ order:3; margin-left:auto; gap:8px; }
+  .busca-lista{ left:0; right:0; top:calc(100% + 6px); }
+  .busca-atalho{ display:block; }
+  .topbar.busca-oculta .busca{ display:block; }
+}
+@media (min-width:1200px){
+  body[data-nav="aberto"] .brand{ width:calc(var(--nav-w) - 20px - 12px); } /* alinha a busca com o começo do conteúdo */
+}
+@media (prefers-reduced-motion:no-preference){ .topbar{ transition:box-shadow var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard); } }
+.topbar.rolou{ box-shadow:0 1px 0 0 var(--md-sys-color-outline-variant), 0 4px 12px -6px rgb(var(--shadow-color) / .18); }
+
+/* barra de progresso linear fina sob o header (ui/progresso.js) */
+.topbar-progresso{ position:absolute; left:0; right:0; bottom:-1px; height:3px; overflow:hidden; background:color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent); }
+.topbar-progresso[hidden]{ display:none; }
+.topbar-progresso span{ position:absolute; inset:0 auto 0 0; width:35%; background:var(--md-sys-color-primary); border-radius:0 3px 3px 0; animation:progressoTopo 1.3s var(--md-sys-motion-easing-standard) infinite; }
+.topbar-progresso[data-valor] span{ width:var(--p, 0%); animation:none; transition:width var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard); }
+@keyframes progressoTopo{ 0%{ transform:translateX(-100%); } 100%{ transform:translateX(300%); } }
+
+/* "cotações atualizadas há ..." (texto discreto; no celular fica só no title do selo de sync) */
+.refresh-pill{ display:none; align-items:center; gap:6px; color:var(--ink-muted); font-size:var(--md-sys-typescale-label-medium-size); padding:0 8px; white-space:nowrap; }
+.refresh-pill svg{ width:16px; height:16px; fill:var(--md-ext-color-good); flex:none; }
+@media (min-width:1100px){ .refresh-pill{ display:inline-flex; } }
+
+/* Botão "Atualizar dados" + "Atualizado às HH:MM" (shell.js!mountRefreshControl) — vai no cabeçalho padrão de cada
+   página (ui/pagina.js); é por página, cada uma busca o próprio dado. */
+.refresh-control{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin:0; }
+.refresh-btn{ font-family:var(--body-f); font-weight:500; font-size:var(--md-sys-typescale-label-large-size); min-height:40px; padding:0 18px;
+      border-radius:var(--md-sys-shape-corner-full); cursor:pointer; border:1px solid var(--md-sys-color-outline); background:transparent;
+      color:var(--md-sys-color-primary); display:inline-flex; align-items:center; gap:8px; position:relative; }
+.refresh-btn::after{ content:''; position:absolute; inset:-4px 0; }
+.refresh-btn:hover{ background:color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent); }
+.refresh-btn.carregando{ cursor:default; opacity:.8; }
 .refresh-btn:disabled{ cursor:default; }
-.refresh-status{ font-size:11px; color:var(--ink-faint); }
+.refresh-status{ font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); }
+.refresh-status.erro{ color:var(--bad-ink); }
 
-/* ---- Sync badge — a colored circle + icon only, no status text.
-   The text ("Atenção"/"Sucesso"/"Erro") lives inside the popover, on
-   each log row, next to its own status icon. Color + icon carries the
-   state at a glance; the tooltip/title carries the summary for anyone
-   who needs the words. ---- */
+/* ---- Selo de sincronização — ícone com o estado (✓ / ! / ×); o texto ("Sucesso"/"Atenção"/"Erro") vive no popover, em cada
+   linha do log. Cor + ícone dão o estado de relance; o title traz o resumo. Alvo de toque 48px (A-59), círculo de 40px. ---- */
 .sync-wrap{ position:relative; }
-.sync-badge{ width:32px; height:32px; border-radius:50%; border:1px solid var(--border);
-      background:var(--surface); display:flex; align-items:center; justify-content:center;
-      cursor:pointer; box-shadow:var(--shadow); padding:0; flex:none; }
-.sync-badge svg{ width:15px; height:15px; stroke:currentColor; }
-.sync-badge.good{ color:var(--good); background:var(--good-soft); border-color:transparent; }
-.sync-badge.warn{ color:var(--warn-ink); background:var(--warn-soft); border-color:transparent; }
-.sync-badge.bad{ color:var(--bad); background:var(--bad-soft); border-color:transparent; }
+.sync-badge{ isolation:isolate; position:relative; display:inline-grid; place-items:center; width:40px; height:40px; padding:0; border:0; border-radius:50%; background:transparent; color:var(--md-sys-color-on-surface-variant); cursor:pointer; }
+.sync-badge::before{ content:''; position:absolute; inset:-4px; } /* alvo de toque 48px (A-59) */
+.sync-badge .ico, .sync-badge svg{ width:22px; height:22px; fill:currentColor; }
+.sync-badge:hover{ background:color-mix(in srgb, currentColor 8%, transparent); }
+.sync-badge::after{ content:''; position:absolute; inset:4px; border-radius:50%; z-index:-1; background:transparent; }
+.sync-badge.good{ color:var(--good-ink); } .sync-badge.good::after{ background:var(--good-soft); }
+.sync-badge.warn{ color:var(--warn-ink); } .sync-badge.warn::after{ background:var(--warn-soft); }
+.sync-badge.bad{ color:var(--bad-ink); }  .sync-badge.bad::after{ background:var(--bad-soft); }
 
-/* ---- External-link chip — small "G. Finance"/"Suno"/etc pill next to
-   a label or inside a popover link. Shared across pages (moved here
-   13/09/2026 from inicio.css so it also works inside shell chrome,
-   e.g. the sync popover's "ver registro completo" link, not just
-   Início's widget-tiles). ---- */
-.ext-link{ display:inline-flex; align-items:center; gap:3px; font-size:10.5px; font-weight:600;
-      color:var(--ink-faint); text-decoration:none; }
-.ext-link:hover{ color:var(--acoes); }
-.ext-link svg{ width:9px; height:9px; }
+/* ---- Chip de link externo ("G. Finance"/"Suno"...) ao lado de um rótulo ou dentro de um popover ---- */
+.ext-link{ display:inline-flex; align-items:center; gap:4px; font-size:var(--md-sys-typescale-label-medium-size); font-weight:500;
+      color:var(--ink-muted); text-decoration:none; }
+.ext-link:hover{ color:var(--md-sys-color-primary); }
+.ext-link svg{ width:14px; height:14px; fill:currentColor; }
 
-/* ---- Overlay popovers — used for the sync popover (transient
-   action, not navigation) and any future popover that reuses this
-   same pattern. Fixed + centered on the viewport by default (works
-   at any width, never clipped by an ancestor); from 640px up,
-   anchored next to its trigger instead via position:absolute (needs
-   an explicit position:absolute here — inheriting "fixed" from the
-   base rule would compute "top:100%" against the whole viewport
-   height instead of the trigger, pushing the panel off-screen below).
-   Do NOT reuse .overlay-panel for navigation menus — that was tried
-   and reverted; see the nav / sidebar sections below instead. ---- */
-.overlay-panel{ position:fixed; z-index:60; top:64px; left:50%; transform:translateX(-50%);
-      width:min(320px, calc(100vw - 32px)); background:var(--surface); border:1px solid var(--border);
-      border-radius:14px; box-shadow:var(--shadow-lg); padding:10px; display:none;
-      max-height:calc(100vh - 90px); overflow-y:auto; }
+/* ---- Popovers do topo (sync, carrinho, conta, consolidação) — ação transitória, não navegação. No celular: fixo e
+   centralizado abaixo da 1ª faixa da top bar (nunca cortado por um ancestral); de 640px pra cima: ancorado no gatilho.
+   Superfície = cartão com contorno fino + sombra suave. NÃO reutilize pra menu de navegação (isso é a gaveta) nem pra
+   menu de ações de linha (isso é ui/menu.js). O backdrop e os painéis moram dentro da .topbar (A-01): backdrop z 0, painel z 1. ---- */
+.overlay-panel{ position:fixed; z-index:1; top:calc(var(--topbar-h) + 4px); left:50%; transform:translateX(-50%);
+      width:min(340px, calc(100vw - 32px)); background:var(--md-ext-color-card); color:var(--ink); border:1px solid var(--md-sys-color-outline-variant);
+      border-radius:var(--md-sys-shape-corner-large); box-shadow:var(--md-sys-elevation-level3); padding:12px; display:none;
+      max-height:calc(100vh - var(--topbar-h) - 16px); max-height:calc(100dvh - var(--topbar-h) - 16px); overflow-y:auto; }
 .overlay-panel.open{ display:block; }
-.overlay-backdrop{ position:fixed; inset:0; background:rgba(14,21,32,.28); z-index:55; display:none; }
+@media (prefers-reduced-motion:no-preference){
+  .overlay-panel.open{ animation:painelEntra var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-emphasized-decelerate); }
+}
+@keyframes painelEntra{ from{ opacity:0; margin-top:-6px; } to{ opacity:1; margin-top:0; } }
+.overlay-backdrop{ position:fixed; inset:0; background:transparent; z-index:0; display:none; }
 .overlay-backdrop.open{ display:block; }
 @media (min-width:640px){
   .sync-wrap .overlay-panel{ position:absolute; left:auto; right:0; transform:none; top:calc(100% + 8px); max-height:none; }
 }
+/* menu da conta (avatar + tema/planilha/sair) */
+.conta-panel{ width:min(280px, calc(100vw - 32px)); padding:8px 0; }
+.conta-cab{ display:flex; align-items:center; gap:12px; padding:8px 16px 12px; margin-bottom:4px; border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.conta-cab .conta-texto{ display:flex; flex-direction:column; min-width:0; line-height:1.3; }
+.conta-cab .conta-texto b{ font-size:var(--md-sys-typescale-title-small-size); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conta-cab .conta-texto small{ font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.menu-item{ display:flex; align-items:center; gap:12px; width:100%; min-height:48px; padding:0 16px; border:0; background:transparent; color:var(--ink);
+      font:inherit; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; text-align:left; cursor:pointer; position:relative; text-decoration:none; }
+.menu-item:hover{ background:color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+.menu-item svg{ width:22px; height:22px; fill:var(--ink-muted); flex:none; }
+.menu-item#logoutBtn:hover svg{ fill:var(--bad); }
+/* botões de tema (ícone na top bar e item do menu da conta): mostram o ícone do tema PARA ONDE vão */
+[data-tema-toggle] .tema-sol{ display:none; }
+.menu-item[data-tema-toggle] .txt::after{ content:'Tema escuro'; }
+:root[data-theme="dark"] [data-tema-toggle] .tema-sol{ display:block; }
+:root[data-theme="dark"] [data-tema-toggle] .tema-lua{ display:none; }
+:root[data-theme="dark"] .menu-item[data-tema-toggle] .txt::after{ content:'Tema claro'; }
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) [data-tema-toggle] .tema-sol{ display:block; }
+  :root:not([data-theme="light"]) [data-tema-toggle] .tema-lua{ display:none; }
+  :root:not([data-theme="light"]) .menu-item[data-tema-toggle] .txt::after{ content:'Tema claro'; }
+}
+/* avatar + nome/subtítulo (nome só >= 1100px) */
+.conta-btn{ display:inline-flex; align-items:center; gap:10px; min-height:48px; padding:4px; border:0; border-radius:var(--md-sys-shape-corner-full); background:transparent; color:var(--ink); cursor:pointer; font:inherit; position:relative; }
+.conta-btn::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--md-sys-color-on-surface); opacity:0; pointer-events:none; }
+.conta-btn:hover::before{ opacity:var(--md-sys-state-hover-opacity); }
+.conta-texto{ display:none; flex-direction:column; text-align:left; line-height:1.25; min-width:0; max-width:160px; padding-right:8px; }
+.conta-texto b{ font-size:var(--md-sys-typescale-title-small-size); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conta-texto small{ font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (min-width:1100px){ .conta-btn .conta-texto{ display:flex; } }
+.conta-cab .conta-texto{ display:flex; max-width:none; padding:0; }
 
 .sync-panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:10px; padding:2px 4px 0; }
 /* 17/09/2026: .sync-panel-actions agrupa "Limpar cache" + "Sincronizar
@@ -211,11 +212,11 @@ svg{ display:block; }
 /* 25/09/2026: "Forçar só:" - um botão por sincronização diária, logo
    abaixo do cabeçalho (o "Sincronizar tudo" continua lá em cima). */
 .sync-individuais{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:0 4px 10px; margin-bottom:4px; border-bottom:1px solid var(--border); }
-.sync-individuais-rotulo{ font-size:10.5px; color:var(--ink-faint); font-weight:600; letter-spacing:.02em; margin-right:2px; }
-.sync-chip{ font-family:var(--body-f); font-size:11px; font-weight:600; color:var(--ink-muted); background:transparent;
+.sync-individuais-rotulo{ font-size:12px; color:var(--ink-faint); font-weight:600; letter-spacing:.02em; margin-right:2px; }
+.sync-chip{ font-family:var(--body-f); font-size:12px; font-weight:600; color:var(--ink-muted); background:transparent;
       border:1px solid var(--border); border-radius:100px; padding:4px 10px; cursor:pointer; white-space:nowrap; }
 .sync-chip:hover:not(:disabled){ background:var(--surface-2); color:var(--ink); }
-.sync-chip:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.sync-chip:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
 .sync-chip:disabled{ opacity:.6; cursor:default; }
 /* 16/09/2026: o popover passou a listar o histórico inteiro (antes só a
    última sincronização - ver shell.js!renderSyncLog), não só 1 linha -
@@ -229,8 +230,8 @@ svg{ display:block; }
 .sync-log-row .body{ flex:1; min-width:0; }
 .sync-log-row .top-line{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-size:12px; font-weight:600; }
 .sync-log-row .top-line-text{ flex:1; min-width:0; }
-.sync-log-row .origin{ font-size:10.5px; color:var(--ink-faint); font-weight:500; }
-.sync-log-row .detail{ font-size:11px; color:var(--ink-muted); margin-top:4px; line-height:1.4; }
+.sync-log-row .origin{ font-size:12px; color:var(--ink-faint); font-weight:500; }
+.sync-log-row .detail{ font-size:12px; color:var(--ink-muted); margin-top:4px; line-height:1.4; }
 /* Categoria (Renda Fixa / Renda Variável) inferida do texto de Detalhe -
    ver shell.js!categoriaSync_ - reusa as mesmas cores de Renda Fixa/Ações
    já usadas no resto do app (ver as variáveis --rf/--acoes no topo deste
@@ -242,114 +243,82 @@ svg{ display:block; }
    Tiago, 16/09/2026 - a lista inteira com Detalhe sempre visível ficava
    grande demais pra escanear rápido). */
 .sync-info-btn{ flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--border);
-      background:var(--surface); color:var(--ink-muted); font-size:10px; font-weight:700; font-style:italic;
+      background:var(--surface); color:var(--ink-muted); font-size:12px; font-weight:700; font-style:italic;
       line-height:1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; padding:0; }
 .sync-info-btn:hover{ color:var(--ink); border-color:var(--ink-faint); }
-.sync-info-btn.active{ background:var(--acoes-soft); color:var(--acoes); border-color:transparent; }
+.sync-info-btn.active{ background:var(--md-sys-color-primary-container); color:var(--md-sys-color-primary); border-color:transparent; }
 .sync-wrap .ext-link{ padding:2px 4px; }
-.hint{ font-size:11.5px; color:var(--ink-faint); padding:0 4px; }
+.hint{ font-size:12px; color:var(--ink-faint); padding:0 4px; }
 
-/* ---- Filter tabs (pills de aba/filtro - visão do hero, período do
-   gráfico, categoria de Meus Ativos) ----
-   BUG (13/09/2026, achado a partir do print do Tiago): inicio.css tinha
-   um comentário dizendo que ".filter-tabs/.filter-tab já vêm de
-   shell.css" - mas essa regra nunca tinha sido portada de
-   docs/direcao-visual.html pra cá, só existia no mockup. Sem CSS
-   nenhum, os botões caíam no estilo padrão do navegador (cinza,
-   quadrado, sem nenhum destaque quando "active") - daí o print
-   parecendo "sem formato" e sem estado selecionado. Portado aqui
-   (chrome compartilhado, os 3 grupos de pills do projeto usam essa
-   mesma classe) exatamente como validado no mockup. */
-.filter-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
-.filter-tab{ font-size:11.5px; font-weight:700; padding:6px 12px; border-radius:100px; border:1px solid var(--border);
-      background:var(--surface); color:var(--ink-muted); cursor:pointer; font-family:var(--body-f); }
-.filter-tab.active{ background:var(--acoes); border-color:var(--acoes); color:#fff; }
-:root[data-theme="dark"] .filter-tab.active, :root:not([data-theme="light"]) .filter-tab.active{ color:#071522; }
-
-/* status icon — reused for the sync badge and for each Registro de
-   Controle log row. Exclamation mark (rounded terminals) = attention,
-   never a question mark. The actual <symbol> defs (#ico-check /
-   #ico-warn / #ico-bad) live once per page, in shell.html. */
-.status-ico{ width:21px; height:21px; border-radius:50%; flex:none; display:flex; align-items:center;
-      justify-content:center; margin-top:1px; }
-.status-ico svg{ width:12px; height:12px; stroke:currentColor; }
-.status-ico.good{ background:var(--good-soft); color:var(--good-ink); }
-.status-ico.warn{ background:var(--warn-soft); color:var(--warn-ink); }
-.status-ico.bad{ background:var(--bad-soft); color:var(--bad-ink); }
-
-
-/* ---- Buttons w/ loading state (used by "Sincronizar agora" etc.) ---- */
-.btn{ display:inline-flex; align-items:center; gap:8px; border:none; border-radius:100px; padding:9px 16px;
-      font-family:var(--body-f); font-weight:700; font-size:12.5px; cursor:pointer; }
-.btn-primary{ background:var(--acoes); color:#fff; }
-:root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary{ color:#071522; }
-/* 17/09/2026: variante secundária/discreta - pro botão "Limpar cache", que
-   não deve competir visualmente com o CTA principal ("Sincronizar agora",
-   .btn-primary) ao lado dele. */
-.btn-ghost{ background:transparent; color:var(--ink-muted); border:1px solid var(--border); }
-.btn-ghost:hover{ background:var(--surface-2); color:var(--ink); }
-.btn:disabled{ opacity:.75; cursor:default; }
-.btn .spinner{ width:13px; height:13px; border-radius:50%; border:2px solid rgba(255,255,255,.4);
-      border-top-color:#fff; animation:spin .7s linear infinite; flex:none; }
-:root[data-theme="dark"] .btn-primary .spinner, :root:not([data-theme="light"]) .btn-primary .spinner{
-      border-color:rgba(7,21,34,.35); border-top-color:#071522; }
-@keyframes spin{ to{ transform:rotate(360deg); } }
-@media (prefers-reduced-motion: reduce){ .btn .spinner{ animation-duration:2s; } }
-
-/* ---- Toast (sync completed/failed notification) ---- */
-.toast-demo-row{ display:flex; flex-direction:column; gap:12px; align-items:stretch; }
-.toast{ display:flex; gap:10px; background:var(--surface); border:1px solid var(--border);
-      border-radius:14px; padding:13px 14px; box-shadow:var(--shadow); align-items:flex-start; position:relative; overflow:hidden; }
-.toast .tico{ width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex:none; }
-.toast.good .tico{ background:var(--good-soft); color:var(--good-ink); }
-.toast.warn .tico{ background:var(--warn-soft); color:var(--warn-ink); }
-.toast.bad .tico{ background:var(--bad-soft); color:var(--bad-ink); }
-.toast .tico svg{ width:15px; height:15px; }
-.toast .body{ flex:1; min-width:0; }
-.toast .title{ font-size:13px; font-weight:700; }
-.toast .desc{ font-size:11.5px; color:var(--ink-muted); margin-top:2px; line-height:1.4; }
-.toast .close{ border:none; background:transparent; color:var(--ink-faint); cursor:pointer; padding:2px; flex:none; }
-.toast .close svg{ width:14px; height:14px; }
-.toast .bar{ position:absolute; left:0; bottom:0; height:3px; background:var(--good); animation:toastbar 5s linear forwards; }
-.toast.warn .bar{ background:var(--warn); }
-.toast.bad .bar{ background:var(--bad); }
-@keyframes toastbar{ from{ width:100%; } to{ width:0%; } }
-
-/* ================= MAIN NAV — 6 top-level sections, no dropdown =================
-   Início, Distribuições e Metas, Carteiras, Transações, Proventos,
-   Organização Financeira. Icon-only below 900px (never a horizontal
-   scroll — items use flex:1 1 0 + min-width:0, so they always shrink
-   to fit); icon + label from 900px up. Sections with subpages render
-   their own .side-nav further down the page instead of a dropdown. */
-.mainnav{ display:flex; align-items:stretch; gap:2px; border-top:1px solid var(--border);
-      border-bottom:1px solid var(--border); margin-bottom:22px; }
-.nav-item{ position:relative; flex:1 1 0; min-width:0; }
-.nav-link{ all:unset; box-sizing:border-box; display:flex; align-items:center; justify-content:center; gap:7px;
-      width:100%; padding:11px 6px; cursor:pointer; color:var(--ink-muted); font-size:12.5px; font-weight:600;
-      white-space:nowrap; }
-.nav-link:hover{ color:var(--ink); background:var(--surface-3); }
-.nav-link.active{ color:var(--acoes); }
-.nav-link svg.nav-icon{ width:17px; height:17px; flex:none; stroke:currentColor; }
-.nav-active-bar{ position:absolute; left:10%; right:10%; bottom:-1px; height:2px; background:var(--acoes);
-      border-radius:2px 2px 0 0; opacity:0; }
-.nav-item.current .nav-active-bar{ opacity:1; }
-.nav-item.current .nav-link{ color:var(--acoes); }
-
-@media (min-width:900px){
-  .nav-link{ justify-content:flex-start; padding:12px 16px; }
-  .nav-item{ flex:0 0 auto; }
+/* ================= TRILHO (80px) + GAVETA (280px) =================
+   Trilho (#mainnav): >= 840px, sempre visível, ☰ no topo, ícones das seções (ativo = pílula tonal + ícone preenchido).
+   Gaveta (#navDrawer): rótulos + ação principal; abre AO LADO do trilho. shell.js!setupNavDrawer escreve body[data-nav="aberto|fechado"]
+   e #navDrawer[data-aberto]; < 840px a gaveta é modal (toggle na top bar). Submenus internos NÃO ficam aqui (ficam nas abas da página). */
+.nav-scrim{ position:fixed; inset:0; z-index:var(--z-backdrop); background:color-mix(in srgb, var(--md-sys-color-scrim) 40%, transparent); opacity:0; visibility:hidden; }
+.nav-scrim.aberto, .nav-scrim.open{ opacity:1; visibility:visible; }
+body.nav-modal-aberta{ overflow:hidden; }
+@media (prefers-reduced-motion:no-preference){
+  .nav-scrim{ transition:opacity var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-standard), visibility 0s linear var(--md-sys-motion-duration-medium2); }
+  .nav-scrim.aberto, .nav-scrim.open{ transition-delay:0s; }
 }
-/* 02/10/2026: 7º item no menu (Metas e Objetivos) - entre 900 e 1180px os
-   rótulos não cabem numa linha: cada item divide a largura e o rótulo quebra. */
-@media (min-width:900px) and (max-width:1179.98px){
-  .nav-item{ flex:1 1 0; }
-  .nav-link{ justify-content:center; padding:9px 4px; white-space:normal; text-align:center; line-height:1.2; font-size:11.5px; gap:6px; }
+/* trilho */
+.nav-rail{ display:none; position:fixed; z-index:var(--z-drawer-modal); top:0; bottom:0; left:0; width:var(--rail-w); flex-direction:column; align-items:center; gap:4px;
+      padding:14px 0 12px; overflow-y:auto; overflow-x:hidden; background:var(--md-sys-color-surface); border-right:1px solid var(--md-sys-color-outline-variant); scrollbar-width:none; }
+.nav-rail::-webkit-scrollbar{ display:none; }
+.nav-toggle{ margin-bottom:10px; }
+.nav-rail-itens{ display:flex; flex-direction:column; align-items:center; gap:6px; width:100%; }
+.nav-rail .nav-item{ display:flex; justify-content:center; width:100%; }
+.nav-rail .nav-link{ position:relative; display:grid; place-items:center; width:48px; height:48px; border-radius:14px; color:var(--md-sys-color-on-surface-variant); -webkit-tap-highlight-color:transparent; }
+.nav-rail .nav-sep{ width:32px; margin:6px 0; }
+@media (min-width:840px){ .nav-rail{ display:flex; } }
+/* gaveta */
+.nav-drawer{ position:fixed; z-index:var(--z-drawer-modal); top:var(--topbar-h); bottom:0; left:var(--rail-w); width:var(--nav-w); display:flex; flex-direction:column; gap:4px; padding:16px 12px 12px;
+      overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; background:var(--md-sys-color-surface); color:var(--md-sys-color-on-surface-variant);
+      border-right:1px solid var(--md-sys-color-outline-variant); visibility:hidden; transform:translateX(-12px); opacity:0; }
+.nav-drawer[data-aberto="true"]{ visibility:visible; transform:none; opacity:1; }
+@media (prefers-reduced-motion:no-preference){
+  .nav-drawer{ transition:transform var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-accelerate), opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard), visibility 0s linear var(--md-sys-motion-duration-medium2); }
+  .nav-drawer[data-aberto="true"]{ transition:transform var(--md-sys-motion-duration-medium4) var(--md-sys-motion-easing-emphasized-decelerate), opacity var(--md-sys-motion-duration-short4) var(--md-sys-motion-easing-standard), visibility 0s; }
 }
-@media (max-width:899.98px){
-  .nav-label{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-  .nav-link{ flex-direction:column; gap:4px; padding:9px 2px 8px; }
-  .nav-link svg.nav-icon{ width:19px; height:19px; }
+.nav-drawer-topo{ display:none; align-items:center; gap:12px; padding:4px 8px 12px 12px; }
+.nav-drawer-nome{ display:flex; flex-direction:column; line-height:1.25; min-width:0; flex:1; }
+.nav-drawer-nome b{ font-family:var(--display); font-size:var(--md-sys-typescale-title-medium-size); font-weight:600; color:var(--ink); }
+.nav-drawer-nome small{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
+.nav-drawer-acao{ align-self:stretch; justify-content:flex-start; margin:0 0 8px; padding-inline:18px; min-height:48px; }
+.nav-drawer-lista{ display:flex; flex-direction:column; gap:2px; }
+.nav-drawer-fim{ margin-top:auto; display:flex; flex-direction:column; gap:2px; padding-top:8px; }
+.nav-drawer .nav-link{ position:relative; display:flex; align-items:center; gap:16px; min-height:48px; padding:8px 16px; border-radius:12px; color:var(--md-sys-color-on-surface-variant); text-decoration:none; cursor:pointer;
+      font-size:var(--md-sys-typescale-label-large-size); font-weight:500; line-height:20px; letter-spacing:.1px; -webkit-tap-highlight-color:transparent; }
+.nav-label{ min-width:0; line-height:1.25; }
+.nav-sep{ border:0; border-top:1px solid var(--md-sys-color-outline-variant); margin:10px 8px; }
+/* estado (hover/foco/ativo) comum ao trilho e à gaveta */
+.nav-link::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--md-sys-color-on-surface); opacity:0; pointer-events:none; }
+.nav-link:hover::before{ opacity:var(--md-sys-state-hover-opacity); }
+.nav-link:focus-visible::before, .nav-link:active::before{ opacity:var(--md-sys-state-pressed-opacity); }
+.nav-ind{ position:relative; display:grid; place-items:center; width:24px; height:24px; flex:none; }
+.nav-icon{ width:24px; height:24px; fill:currentColor; grid-area:1/1; }
+.nav-icon-on{ display:none; }
+.nav-item.current .nav-link{ background:var(--md-sys-color-secondary-container); color:var(--md-sys-color-on-secondary-container); }
+.nav-item.current .nav-icon-on{ display:block; }
+.nav-item.current .nav-icon-off{ display:none; }
+.nav-item.current .nav-link .nav-label{ font-weight:600; }
+.nav-link:focus-visible{ outline-offset:-2px !important; }
+
+/* ≥ 1200px com a gaveta aberta ela EMPURRA o conteúdo (padding do body); 840–1199px abre por cima do conteúdo (com scrim) */
+@media (min-width:840px) and (max-width:1199.98px){
+  .nav-drawer{ box-shadow:var(--md-sys-elevation-level3); border-radius:0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large) 0; top:0; padding-top:20px; }
+  .nav-drawer-topo{ display:flex; }
+  .nav-drawer .nav-fechar{ display:none; }
 }
+/* celular: gaveta MODAL (< 840px) */
+@media (max-width:839.98px){
+  .nav-drawer{ top:0; left:0; width:min(320px, calc(100vw - 48px)); padding:12px 12px calc(12px + env(safe-area-inset-bottom)); transform:translateX(-102%); opacity:1;
+        border-right:0; border-radius:0 var(--md-sys-shape-corner-extra-large) var(--md-sys-shape-corner-extra-large) 0; background:var(--md-sys-color-surface); }
+  .nav-drawer[data-aberto="true"]{ box-shadow:var(--md-sys-elevation-level4); }
+  .nav-drawer-topo{ display:flex; }
+  .nav-drawer .nav-link{ min-height:52px; }
+}
+@media (min-width:1200px){ .nav-drawer-topo{ display:none; } }
 
 /* ================= CONTEXTUAL SIDEBAR — Carteiras / Transações /
    Proventos / Organização Financeira only (pages with subpages).
@@ -369,7 +338,7 @@ svg{ display:block; }
 .side-item.active{ background:var(--surface); color:var(--ink); box-shadow:var(--shadow); }
 .side-ico{ width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center;
       flex:none; background:var(--surface-3); color:var(--ink-muted); }
-.side-item.active .side-ico{ background:var(--accent-soft, var(--acoes-soft)); color:var(--accent, var(--acoes)); }
+.side-item.active .side-ico{ background:var(--accent-soft, var(--md-sys-color-primary-container)); color:var(--accent, var(--md-sys-color-primary)); }
 .side-ico svg{ width:15px; height:15px; stroke:currentColor; }
 .side-label{ overflow:hidden; text-overflow:ellipsis; }
 .side-chev{ margin-left:auto; width:13px; height:13px; stroke:var(--ink-faint); opacity:.55; flex:none; }
@@ -409,31 +378,9 @@ svg{ display:block; }
   .section-content{ padding:16px; }
 }
 
-/* ================= THEME TOGGLE — end of page, in normal flow (not
-   floating). Only visible after scrolling all the way down, alongside
-   whatever else lives in the page footer. ================= */
-.theme-footer{ display:flex; justify-content:center; margin-top:40px; padding-top:24px; border-top:1px solid var(--border); }
-.theme-fab{ display:flex; align-items:center; gap:8px; border:1px solid var(--border); background:var(--surface);
-      color:var(--ink-muted); border-radius:100px; padding:10px 18px; cursor:pointer; box-shadow:var(--shadow); }
-.theme-fab svg{ width:16px; height:16px; stroke:currentColor; }
-.theme-fab .txt::after{ content:'Tema escuro'; }
-:root[data-theme="dark"] .theme-fab .txt::after{ content:'Tema claro'; }
-@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .theme-fab .txt::after{ content:'Tema claro'; } }
-.theme-fab .sun{ display:none; }
-:root[data-theme="dark"] .theme-fab .sun{ display:block; }
-:root[data-theme="dark"] .theme-fab .moon{ display:none; }
-:root:not([data-theme="light"]) .theme-fab .sun{ display:none; }
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .theme-fab .sun{ display:block; }
-  :root:not([data-theme="light"]) .theme-fab .moon{ display:none; }
-}
-
-/* 25/09/2026: ticker/título que leva pra tela Detalhe do ativo
-   (ativo/index.html) - em todas as telas; a cor só muda no hover/foco pra
-   não pintar as tabelas inteiras de azul. */
 a.link-ativo{ color:inherit; text-decoration:none; }
-a.link-ativo:hover{ color:var(--acoes); text-decoration:underline; text-underline-offset:2px; }
-a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; border-radius:4px; }
+a.link-ativo:hover{ color:var(--md-sys-color-primary); text-decoration:underline; text-underline-offset:2px; }
+a.link-ativo:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; border-radius:4px; }
 /* 25/09/2026: ícone "abrir em nova aba" ao lado do ticker (link-ativo.js!
    linkNovaAbaHtml) - só com mouse (desktop), invisível até passar o mouse
    na linha ou no ticker; no celular não existe (toque abre a tela normal). */
@@ -444,8 +391,8 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
         border-radius:4px; line-height:0; flex:none; }
   tr:hover .link-ativo-nova-aba, li:hover .link-ativo-nova-aba, .link-ativo-grupo:hover .link-ativo-nova-aba,
   .link-ativo-nova-aba:focus-visible{ opacity:1; }
-  .link-ativo-nova-aba:hover{ color:var(--acoes); }
-  .link-ativo-nova-aba:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+  .link-ativo-nova-aba:hover{ color:var(--md-sys-color-primary); }
+  .link-ativo-nova-aba:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
 }
 @media (prefers-reduced-motion: reduce){ .link-ativo-nova-aba{ transition:none; } }
 /* 25/09/2026: botão Sair (mesmo círculo do sync-badge) */
@@ -464,15 +411,15 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .vd-thumb{ all:unset; box-sizing:border-box; position:relative; display:block; width:100%; aspect-ratio:16 / 9; border-radius:10px;
   overflow:hidden; cursor:pointer; background:var(--surface-3); }
 .vd-thumb img{ display:block; width:100%; height:100%; object-fit:cover; }
-.vd-thumb:focus-visible{ outline:2px solid var(--accent, var(--acoes)); outline-offset:2px; }
+.vd-thumb:focus-visible{ outline:2px solid var(--accent, var(--md-sys-color-primary)); outline-offset:2px; }
 .vd-play{ position:absolute; left:50%; top:50%; width:46px; height:46px; margin:-23px 0 0 -23px; border-radius:50%;
   display:flex; align-items:center; justify-content:center; background:rgba(12,18,28,.72); color:#fff; transition:transform .15s ease, background .15s ease; }
 .vd-play svg{ width:20px; height:20px; fill:currentColor; margin-left:2px; }
 .vd-thumb:hover .vd-play{ transform:scale(1.08); background:rgba(12,18,28,.88); }
 .vd-titulo{ font-size:13px; font-weight:700; line-height:1.35; color:var(--ink); text-decoration:none;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.vd-titulo:hover{ color:var(--accent, var(--acoes)); }
-.vd-meta{ font-size:11.5px; color:var(--ink-faint); overflow-wrap:anywhere; }
+.vd-titulo:hover{ color:var(--accent, var(--md-sys-color-primary)); }
+.vd-meta{ font-size:12px; color:var(--ink-faint); overflow-wrap:anywhere; }
 .vd-player{ display:block; width:100%; aspect-ratio:16 / 9; border:0; border-radius:10px; background:#000; }
 .vd-card .skel{ border-radius:8px; }
 .vd-card .skel.vd-thumb{ border-radius:10px; }
@@ -482,11 +429,11 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 @media (prefers-reduced-motion: reduce){ .vd-play{ transition:none; } }
 /* 26/09/2026: página da carteira - tickers citados no cartão + 2 grupos */
 .vd-ativos{ display:flex; flex-wrap:wrap; gap:4px; }
-.vd-ativo{ font:700 10.5px var(--mono); letter-spacing:.02em; padding:2px 7px; border-radius:100px; text-decoration:none;
-  background:var(--accent-soft, var(--acoes-soft)); color:var(--accent, var(--acoes)); }
+.vd-ativo{ font:700 12px var(--mono); letter-spacing:.02em; padding:2px 7px; border-radius:100px; text-decoration:none;
+  background:var(--accent-soft, var(--md-sys-color-primary-container)); color:var(--accent, var(--md-sys-color-primary)); }
 .vd-ativo:hover, .vd-ativo:focus-visible{ text-decoration:underline; }
 .vd-grupo + .vd-grupo{ margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
-.vd-grupo-titulo{ font:700 11px var(--body-f); text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); margin:0 0 10px; }
+.vd-grupo-titulo{ font:700 12px var(--body-f); text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); margin:0 0 10px; }
 
 /* ---- 26/09/2026: "Consolidação necessária" (shell.js!setupConsolidacao).
    Pílula âmbar no topo, só aparece com pendência; o painel reaproveita o
@@ -494,7 +441,7 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .consol-wrap[hidden]{ display:none; }
 .consol-pill{ display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 13px 0 11px; border-radius:100px;
       border:1px solid color-mix(in srgb, var(--warn) 55%, transparent); background:var(--warn-soft); color:var(--warn-ink);
-      font-family:var(--body-f); font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; box-shadow:var(--shadow); }
+      font-family:var(--body-f); font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap; box-shadow:var(--shadow); }
 .consol-pill:hover{ border-color:var(--warn); }
 .consol-pill:focus-visible{ outline:2px solid var(--warn); outline-offset:2px; }
 .consol-dot{ width:8px; height:8px; border-radius:50%; background:var(--warn); flex:none; position:relative; }
@@ -508,10 +455,10 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .consol-oque:empty{ display:none; }
 .consol-explica{ font-size:12px; line-height:1.5; color:var(--ink-muted); padding:0 4px 10px; }
 .consol-motivos{ list-style:none; margin:0 0 10px; padding:8px 10px; border-radius:10px; background:var(--surface-3); display:flex; flex-direction:column; gap:6px; }
-.consol-motivos li{ display:flex; flex-direction:column; gap:1px; font-size:11.5px; color:var(--ink); }
-.consol-motivos small{ font-size:10.5px; color:var(--ink-faint); }
+.consol-motivos li{ display:flex; flex-direction:column; gap:1px; font-size:12px; color:var(--ink); }
+.consol-motivos small{ font-size:12px; color:var(--ink-faint); }
 .consol-progresso{ display:flex; flex-direction:column; gap:5px; margin:0 0 10px; padding:0 4px; max-height:220px; overflow-y:auto; }
-.consol-passo{ font-size:11.5px; line-height:1.45; color:var(--ink-muted); padding-left:16px; position:relative; }
+.consol-passo{ font-size:12px; line-height:1.45; color:var(--ink-muted); padding-left:16px; position:relative; }
 .consol-passo::before{ content:''; position:absolute; left:3px; top:.5em; width:6px; height:6px; border-radius:50%; background:var(--ink-faint); }
 .consol-passo.ok{ color:var(--ink); } .consol-passo.ok::before{ background:var(--good); }
 .consol-passo.aviso{ color:var(--warn-ink); } .consol-passo.aviso::before{ background:var(--warn); }
@@ -526,7 +473,7 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
    larga, um embaixo do outro no celular; "+N" abre o resto ali mesmo. ---- */
 .momento{ position:relative; display:flex; flex-direction:column; align-items:stretch; gap:8px; min-width:0; text-align:left; white-space:normal;
       padding:10px 14px 11px; border-radius:12px; background:var(--surface-3); }
-.momento-selo{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-family:var(--body-f); font-size:10.5px; font-weight:700;
+.momento-selo{ align-self:flex-start; display:inline-flex; align-items:center; gap:6px; font-family:var(--body-f); font-size:12px; font-weight:700;
       letter-spacing:.02em; line-height:1; white-space:nowrap; padding:5px 10px 5px 8px; border-radius:100px; background:var(--surface); color:var(--ink-muted); cursor:help; }
 .momento-selo i{ width:7px; height:7px; border-radius:50%; background:var(--na); flex:none; }
 .momento.nivel-bom .momento-selo{ background:var(--good-soft); color:var(--good-ink); }
@@ -542,11 +489,11 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 .momento-sinal.ruim .momento-ico{ color:var(--bad); }
 .momento-sinal.neutro .momento-ico{ color:var(--ink-faint); }
 .momento-mais-li{ display:flex; }
-.momento-mais summary{ list-style:none; cursor:pointer; font-family:var(--body-f); font-size:10.5px; font-weight:700; line-height:1; color:var(--ink-muted);
+.momento-mais summary{ list-style:none; cursor:pointer; font-family:var(--body-f); font-size:12px; font-weight:700; line-height:1; color:var(--ink-muted);
       padding:4px 9px; border-radius:100px; border:1px solid var(--border); background:var(--surface); }
 .momento-mais summary::-webkit-details-marker{ display:none; }
 .momento-mais summary:hover{ color:var(--ink); border-color:var(--ink-faint); }
-.momento-mais summary:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
+.momento-mais summary:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
 .momento-mais-li:has(> .momento-mais[open]){ grid-column:1 / -1; }
 .momento-mais[open]{ width:100%; }
 .momento-mais[open] summary{ display:none; }
@@ -554,63 +501,39 @@ a.link-ativo:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; 
 /* 05/10/2026: botão "i" que abre a explicação do ponto ali mesmo (criterios/macro.js!ajudaHtml) - momento de aporte e Análise do ativo */
 .ctx-i{ display:inline; margin-left:5px; }
 .ctx-i summary{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%; list-style:none; cursor:pointer;
-  font-family:var(--body-f); font-size:9.5px; font-weight:700; font-style:italic; line-height:1; color:var(--ink-muted); background:var(--surface-3); border:1px solid var(--border); vertical-align:1px; }
+  font-family:var(--body-f); font-size:12px; font-weight:700; font-style:italic; line-height:1; color:var(--ink-muted); background:var(--surface-3); border:1px solid var(--border); vertical-align:1px; }
 .ctx-i summary::-webkit-details-marker{ display:none; }
 .ctx-i summary:hover, .ctx-i[open] summary{ color:var(--ink); border-color:var(--ink-faint); }
-.ctx-i summary:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
-.ctx-i p{ display:block; margin:5px 0 0; padding:7px 9px; border-radius:8px; background:var(--surface-2); color:var(--ink-muted); font-size:11.5px; line-height:1.45; font-weight:400; font-style:normal; }
+.ctx-i summary:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
+.ctx-i p{ display:block; margin:5px 0 0; padding:7px 9px; border-radius:8px; background:var(--surface-2); color:var(--ink-muted); font-size:12px; line-height:1.45; font-weight:400; font-style:normal; }
 .momento-sinal.macro .momento-txt{ color:var(--ink-muted); }
 @media (max-width:640px){
   .momento{ padding:9px 11px 10px; gap:7px; }
   .momento-sinais{ grid-template-columns:minmax(0, 1fr); gap:5px; }
 }
 
-/* ================= 05/10/2026: header e menu FIXOS no celular =================
-   Tiago: "no mobile, ao dar scroll, o header e o menu no topo ficam fixos".
-   O topbar e o menu principal ficam juntos em .shell-fixo (shell.html); o
-   #shell-header vira display:contents pra o bloco grudar relativo ao .wrap
-   inteiro (se o pai fosse só o #shell-header, o sticky não teria por onde
-   andar). Sangra 12px pros lados (a margem do .wrap) pra cobrir a largura toda
-   e esconder o conteúdo que passa por trás. */
-#shell-header{ display:contents; }
-@media (max-width:640px){
-  .shell-fixo{ position:sticky; top:0; z-index:50; background:var(--bg); margin:0 -12px 14px; padding:0 12px; }
-  .shell-fixo .topbar{ padding:8px 0 8px; margin-bottom:0; }
-  .shell-fixo .mainnav{ margin-bottom:0; border-bottom-color:var(--border); }
-  .shell-fixo .brand-text span{ display:none; } /* só o nome: o header fica numa linha só */
-}
-
 /* ================= 05/10/2026: carrinho em andamento no header =================
    Ícone + contagem (e o valor em telas largas); o popover lista os itens, o
    total e leva pra Transações. No celular o popover vira uma folha presa embaixo
    (o dedo alcança). Pendente (passou do horário) fica em âmbar. */
-.carrinho-btn{ position:relative; display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 11px 0 9px; border-radius:100px;
-      border:1px solid transparent; background:var(--acoes-soft); color:var(--acoes); cursor:pointer; box-shadow:var(--shadow); font:inherit; }
-.carrinho-btn:hover{ border-color:var(--acoes); }
-.carrinho-ico{ width:17px; height:17px; flex:none; }
-.carrinho-badge{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--acoes); color:#fff; font:700 10.5px var(--mono);
-      display:inline-flex; align-items:center; justify-content:center; }
-.carrinho-valor{ font:600 12px var(--mono); font-variant-numeric:tabular-nums; color:var(--ink); }
-.carrinho-wrap.pendente .carrinho-btn{ background:var(--warn-soft); color:var(--warn-ink); }
-.carrinho-wrap.pendente .carrinho-badge{ background:var(--warn); color:#fff; }
 .carrinho-panel{ width:min(360px, calc(100vw - 32px)); }
 .carrinho-cab{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:2px 4px 8px; }
 .carrinho-cab h3{ font-size:14px; }
-.carrinho-cab small{ font-size:11px; color:var(--ink-faint); }
-.carrinho-pendente{ margin:0 0 8px; padding:8px 10px; border-radius:10px; background:var(--warn-soft); color:var(--warn-ink); font-size:11.5px; }
-.carrinho-itens{ list-style:none; margin:0; padding:8px 0; border-top:1px dashed var(--border); max-height:44vh; overflow:auto; display:flex; flex-direction:column; gap:9px; }
+.carrinho-cab small{ font-size:12px; color:var(--ink-faint); }
+.carrinho-pendente{ margin:0 0 8px; padding:8px 10px; border-radius:10px; background:var(--warn-soft); color:var(--warn-ink); font-size:12px; }
+.carrinho-itens{ list-style:none; margin:0; padding:8px 0; border-top:1px dashed var(--border); max-height:44vh; max-height:44dvh; overflow:auto; display:flex; flex-direction:column; gap:9px; }
 .carrinho-item{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:start; padding:0 4px; }
 .carrinho-item-nome{ display:flex; flex-direction:column; min-width:0; }
 .carrinho-item-nome b{ font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.carrinho-item-nome small{ font-size:11px; color:var(--ink-faint); }
+.carrinho-item-nome small{ font-size:12px; color:var(--ink-faint); }
 .carrinho-item-valor{ display:flex; flex-direction:column; align-items:flex-end; font:600 12.5px var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
-.carrinho-item-valor small{ font-size:10.5px; font-weight:500; color:var(--ink-faint); }
+.carrinho-item-valor small{ font-size:12px; font-weight:500; color:var(--ink-faint); }
 .carrinho-total{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; border-top:3px double var(--border); padding:10px 4px 8px; }
-.carrinho-total span{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--ink-muted); }
+.carrinho-total span{ font-size:12px; text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:var(--ink-muted); }
 .carrinho-total b{ font:600 20px var(--mono); font-variant-numeric:tabular-nums; }
-.carrinho-nota{ margin:0 4px 8px; font-size:11px; color:var(--ink-muted); }
+.carrinho-nota{ margin:0 4px 8px; font-size:12px; color:var(--ink-muted); }
 a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:center; text-decoration:none; box-sizing:border-box; }
-.carrinho-aviso{ position:fixed; z-index:70; top:12px; left:50%; transform:translateX(-50%); width:min(480px, calc(100vw - 24px)); }
+.carrinho-aviso{ position:fixed; z-index:var(--z-painel); top:calc(var(--topbar-h) + 8px); left:50%; transform:translateX(-50%); width:min(480px, calc(100vw - 24px)); }
 .carrinho-aviso[hidden]{ display:none; }
 .carrinho-aviso-card{ background:var(--surface); border:1px solid var(--warn); border-radius:14px; box-shadow:var(--shadow-lg); padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
 .carrinho-aviso-titulo{ font-family:var(--display); font-size:16px; }
@@ -619,10 +542,62 @@ a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:cen
 .carrinho-aviso-botoes .btn{ flex:1 1 auto; justify-content:center; }
 @media (max-width:639.98px){
   .carrinho-valor{ display:none; }
-  .carrinho-panel{ top:auto; bottom:0; left:0; right:0; transform:none; width:100%; border-radius:18px 18px 0 0; max-height:78vh;
+  .carrinho-panel{ top:auto; bottom:0; left:0; right:0; transform:none; width:100%; border-radius:18px 18px 0 0; max-height:78vh; max-height:78dvh;
         padding:14px 14px calc(14px + env(safe-area-inset-bottom)); }
 }
 
 /* 06/10/2026: aportes aguardando valores finais também no carrinho do header */
 .carrinho-sep{ border:0; border-top:1px solid var(--border); margin:10px 0; }
-.carrinho-wrap.pendente .carrinho-btn{ border-color:var(--warn, #c98a00); }
+
+.brand-mark{ border-radius:50%; }
+.brand-mark img{ width:100%; height:100%; display:block; object-fit:contain; }
+
+/* ================= Header: carrinho (pílula preenchida), consolidação, foco ================= */
+/* carrinho em andamento: pílula FILLED primary com ícone + rótulo + badge (+ valor em telas largas); alvo de toque 48px via ::after */
+.carrinho-btn{ position:relative; display:inline-flex; align-items:center; gap:8px; height:40px; padding:0 8px 0 14px; border:0; border-radius:var(--md-sys-shape-corner-full);
+      background:var(--md-sys-color-primary); color:var(--md-sys-color-on-primary); font:inherit; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; cursor:pointer; white-space:nowrap; }
+.carrinho-btn::after{ content:''; position:absolute; inset:-4px 0; }
+.carrinho-btn::before{ content:''; position:absolute; inset:0; border-radius:inherit; background:var(--md-sys-color-on-primary); opacity:0; pointer-events:none; }
+.carrinho-btn:hover::before{ opacity:var(--md-sys-state-hover-opacity); }
+.carrinho-btn:active::before{ opacity:var(--md-sys-state-pressed-opacity); }
+.carrinho-btn:hover{ box-shadow:var(--md-sys-elevation-level1); }
+.carrinho-ico{ width:20px; height:20px; fill:currentColor; flex:none; }
+.carrinho-rotulo{ display:none; }
+.carrinho-badge{ min-width:24px; height:24px; padding:0 7px; border-radius:12px; background:var(--md-sys-color-on-primary); color:var(--md-sys-color-primary);
+      font:600 12px/1 var(--body-f); display:inline-flex; align-items:center; justify-content:center; }
+.carrinho-valor{ display:none; font-size:13px; font-weight:500; line-height:1; padding:0 6px 0 2px; }
+.carrinho-valor:empty{ display:none !important; }
+@media (min-width:600px){ .carrinho-rotulo{ display:inline; } }
+@media (min-width:1200px){ .carrinho-valor{ display:inline; } }
+.carrinho-wrap.pendente .carrinho-btn{ background:var(--warn-soft); color:var(--warn-ink); box-shadow:inset 0 0 0 1px var(--warn); }
+.carrinho-wrap.pendente .carrinho-btn::before{ background:var(--warn-ink); }
+.carrinho-wrap.pendente .carrinho-badge{ background:var(--warn-ink); color:var(--warn-soft); }
+/* consolidação pendente: pílula âmbar */
+.consol-pill{ height:40px; box-shadow:none; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; position:relative; }
+.consol-pill::after{ content:''; position:absolute; inset:-4px 0; }
+.sync-chip, .sync-info-btn{ position:relative; }
+.sync-chip{ min-height:32px; }
+.sync-info-btn::after{ content:''; position:absolute; inset:-14px; } /* alvo de toque (A-59) sem mudar o visual */
+@media (max-width:599.98px){
+  .consol-pill{ padding:0 12px 0 10px; }
+  .topbar-right{ gap:0; }
+  .carrinho-btn{ padding:0 6px 0 12px; }
+}
+
+/* ================= FOCO VISÍVEL GLOBAL (A-58) =================
+   Navegação por teclado (inclusive bluetooth no iPad) precisa ver onde está. !important de propósito: 17 componentes antigos
+   usam all:unset/outline:none e perdiam o foco; quem tiver um indicador próprio (campos .input/.select/.textarea e a busca) marca .sem-anel-global. */
+:is(a[href], button, summary, [tabindex]:not([tabindex="-1"]), [role="tab"], [role="button"], [role="menuitem"], [role="option"], input, select, textarea):focus-visible:not(.sem-anel-global, .input, .select, .textarea){
+  outline:2px solid var(--md-sys-color-primary) !important; outline-offset:2px !important; }
+.nav-link:focus-visible{ outline-offset:-2px !important; }
+
+/* ================= Movimento reduzido ================= */
+@media (prefers-reduced-motion:reduce){
+  *, *::before, *::after{ transition-duration:.01ms !important; transition-delay:0s !important; scroll-behavior:auto !important;
+        animation-duration:.01ms !important; animation-iteration-count:1 !important; }
+  /* progresso indeterminado continua girando/brilhando, só mais devagar (senão parece travado) */
+  .spinner, .progress-circular, .progress-circular *, .skel, .skel::after, .progress-linear.indeterminado::after{ animation-duration:2.4s !important; animation-iteration-count:infinite !important; }
+}
+
+/* 05/10/2026: no trilho o rótulo existe só pra leitor de tela / testes (o ícone tem title e aria-label) */
+.nav-rail .nav-label{ position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }

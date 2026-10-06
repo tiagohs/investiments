@@ -92,7 +92,8 @@ test('lerHoleritesDoDrive(): sem pasta no Drive / erro ao listar / nada novo - r
   assert.match(semPasta.erro, /configurarPastaHoleritesDireto/);
   const erro = await lerHoleritesDoDrive({ ...e.args, listar: async () => { throw new Error('sem rede'); } });
   assert.equal(erro.ok, false);
-  assert.match(erro.erro, /sem rede/);
+  assert.match(erro.erro, /Não consegui ver a pasta do Drive/); // 06/10/2026 (Onda 3): texto humano; o motivo técnico vai em `detalhe` (mostrado num <details>)
+  assert.match(erro.detalhe, /sem rede/);
   const nada = await lerHoleritesDoDrive({ ...e.args, listar: async () => ({ ok: true, configurado: true, arquivos: [arq('a1', '01-2026.pdf', { novo: false, importado: true })] }) });
   assert.equal(nada.ok, true);
   assert.equal(nada.nada, true);

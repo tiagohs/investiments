@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, totaisCarrinho, usaHorarioVeraoEUA, fechamentoMercado,
-  situacaoCarrinho, dataBRT, minutosBRT, horaTxt,
+  situacaoCarrinho, dataBRT, minutosBRT, horaTxt, itensDoCarrinho,
 } from '../assets/js/carrinho-global.js';
 
 // "agora" em Brasília (UTC-3) a partir de 'aaaa-mm-dd hh:mm'
@@ -98,4 +98,21 @@ test('carrinho guardado: mantém o dólar da hora e o "perguntado"; renda fixa d
   assert.deepEqual(carrinhoValido({ itens: 'x' }, '2026-10-05'), carrinhoVazio('2026-10-05'));
   const t = totaisCarrinho(carrinhoComItens('2026-10-05', [{ classe: 'acoesEua', ativo: 'AAA', qtd: 2 }]), 5);
   assert.deepEqual([t.totalUsd, t.totalBrl, t.n], [20, 100, 1]);
+});
+
+test('A-23: quantidade fracionada trunca em 4 casas com tolerância (0,29 não vira 0,2899) e o subtotal fecha ao centavo', () => {
+  let c = carrinhoVazio('2026-10-05');
+  c = definirQuantidade(c, { classe: 'acoesEua', ativo: 'AAA', moeda: 'USD', preco: 10 }, 0.29);
+  assert.equal(c.itens['acoesEua:AAA'].qtd, 0.29, '0,29 × 10000 = 2899,999… em ponto flutuante');
+  c = definirQuantidade(c, { classe: 'acoesEua', ativo: 'AAA', moeda: 'USD', preco: 10 }, 1.1);
+  assert.equal(c.itens['acoesEua:AAA'].qtd, 1.1);
+  c = definirQuantidade(c, { classe: 'acoesEua', ativo: 'AAA', moeda: 'USD', preco: 10 }, 0.12345);
+  assert.equal(c.itens['acoesEua:AAA'].qtd, 0.1234, 'o que passa da 4ª casa continua sendo cortado');
+  // dois itens fracionados: o total é a soma dos subtotais em centavos (nada de 0,0001 sobrando)
+  let d = carrinhoVazio('2026-10-05');
+  d = definirQuantidade(d, { classe: 'acoesEua', ativo: 'AAA', moeda: 'USD', preco: 33.33 }, 0.3333);
+  d = definirQuantidade(d, { classe: 'acoesEua', ativo: 'BBB', moeda: 'USD', preco: 12.34 }, 0.7777);
+  const t = totaisCarrinho(d, 5);
+  assert.deepEqual(itensDoCarrinho(d).map((i) => i.subtotal), [11.11, 9.6]);
+  assert.equal(t.totalUsd, 20.71);
 });

@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { montarPaginaCarteirasAcoesEua } from '../assets/js/pages/carteiras-acoes-eua.js';
+import { montarPaginaCarteirasAcoesEua, custoBrlLinha_, lucroBrlLinha_ } from '../assets/js/pages/carteiras-acoes-eua.js';
 
 function withFakeSessionStorage(run) {
   const store = new Map();
@@ -27,6 +27,8 @@ function makeDom() {
     <div id="refreshControlAcoesEua" class="refresh-control"></div>
     <div id="acoesEuaConteudo" hidden></div>
   </body></html>`);
+  // movimento reduzido: os números dos KPIs saem finais (sem animação a partir de 0)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return dom.window.document;
 }
 
@@ -86,21 +88,19 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     assert.equal(doc.getElementById('acoesEuaLoading').hidden, true);
     assert.equal(doc.getElementById('acoesEuaConteudo').hidden, false);
     const html = doc.getElementById('acoesEuaConteudo').innerHTML;
-    assert.match(html, /\$3,303\.79/); // Total do AAPL em US$
+    assert.match(html, /US\$(?:\s|&nbsp;)3\.303,79/); // Total do AAPL em US$
     assert.match(html, /class="moeda-conv">\(R\$&nbsp;16\.988,09\)/); // equivalente em R\$ do Total (câmbio 5,142) - innerHTML serializa NBSP (U+00A0) como &nbsp; (não U+00A0 cru)
     assert.equal(doc.querySelectorAll('.cc-benchmark-chip').length, 3);
     assert.match(html, /R\$ 5,14/); // dólar hoje, formatado em BRL
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
 
-    // Resumo em destaque (19/09/2026 #4), mas em US$ (formatarValor:
-    // formatUSD - página inteira é em dólar) - sem "Proventos recebidos"
-    // (Ações EUA não traz esse dado à parte).
-    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
+    // Resumo (06/10/2026, kit: grade de KPIs), mas em US$ (formatarValor: formatUSD - página inteira é em dólar) - sem "Proventos
+    // recebidos" (Ações EUA não traz esse dado à parte).
     const textoResumo = doc.getElementById('acoesEuaResumo').textContent;
-    assert.match(textoResumo, /\$4,103\.79/);
-    assert.match(textoResumo, /Valor aplicado: \$3,701\.85/);
+    assert.match(textoResumo, /US\$(?:\s|&nbsp;)4\.103,79/);
+    assert.match(textoResumo, /Valor aplicado: US\$(?:\s|&nbsp;)3\.701,85/);
     assert.ok(!textoResumo.includes('Proventos recebidos'));
-    assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 2); // só Lucro/Prejuízo + Ativos na carteira
+    assert.equal(doc.querySelectorAll('#acoesEuaResumo .card-kpi').length, 3); // Valor atual + Lucro/Prejuízo + Ativos na carteira (e proventos, se vierem)
 
     // cabeçalhos novos (Status/DY/P-VP com tooltip) - sem P/L (EUA nunca teve)
     const cabecalhos = [...doc.querySelectorAll('.cc-tabela thead th')].map((th) => th.textContent);
@@ -119,7 +119,7 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     // (não escrito por extenso) - o texto da tooltip fica em
     // data-tooltip, não mais em `title`.
     const linhaAapl = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('AAPL'));
-    assert.match(linhaAapl.innerHTML, /\$200\.12/);
+    assert.match(linhaAapl.innerHTML, /US\$(?:\s|&nbsp;)200,12/);
     const iconePrecoMedio = linhaAapl.querySelector('td:nth-child(4) .info-alvo');
     assert.ok(iconePrecoMedio, 'célula de Pr. médio deveria ter o ícone de equivalente em reais');
     assert.match(iconePrecoMedio.dataset.tooltip, /Equivalente em reais:\sR\$\s1\.029,02/);
@@ -129,10 +129,9 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     assert.equal(doc.querySelectorAll('.cc-filtro-chips').length, 0);
     assert.ok(doc.querySelector('.cc-busca-input'));
 
-    // 19/09/2026 #4: só a célula (<td>) da coluna Ativo fica alinhada à
-    // esquerda - resto centraliza por padrão, sem sobrar .right.
+    // tabela do kit: só a coluna do Ativo é a "cabeça" da linha (.cc-col-ativo), sem sobrar .right.
     const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
-    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.ok(tdAtivo.classList.contains('cc-col-ativo'));
     assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0);
 
     // ordenado por padrão (totalAtualizado desc): AAPL (3303,79) antes de GPRK (800)
@@ -144,7 +143,7 @@ test('montarPaginaCarteirasAcoesEua() formata Total/Lucro em US$ com o equivalen
     const totalRow = doc.querySelector('.cc-tabela tfoot tr');
     assert.ok(totalRow, 'deveria ter uma linha de totais no tfoot');
     assert.match(totalRow.textContent, /Total \(2 ativos\)/);
-    assert.match(totalRow.innerHTML, /\$4,103\.79/);
+    assert.match(totalRow.innerHTML, /US\$(?:\s|&nbsp;)4\.103,79/);
     assert.match(totalRow.innerHTML, /moeda-conv/);
   });
 });
@@ -161,15 +160,14 @@ test('montarPaginaCarteirasAcoesEua() acrescenta o "i" com o equivalente em reai
     const getCarteirasAcoesEuaImpl = async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO });
     await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl: GET_HOME_VAZIO });
 
-    // Resumo: Total atualizado + Total investido (bloco .cc-resumo-principal)
-    // e o stat de Lucro/Prejuízo ganham cada um o seu próprio "i".
+    // Resumo (kit): o KPI "Valor atual" (e o "Valor aplicado" embaixo dele) e o Lucro/Prejuízo ganham cada um o seu próprio "i".
     const resumoEl = doc.getElementById('acoesEuaResumo');
-    const iconesPrincipal = resumoEl.querySelector('.cc-resumo-principal').querySelectorAll('.info-alvo');
+    const kpis = resumoEl.querySelectorAll('.card-kpi');
+    const iconesPrincipal = kpis[0].querySelectorAll('.info-alvo');
     assert.equal(iconesPrincipal.length, 2);
     assert.match(iconesPrincipal[0].dataset.tooltip, /R\$\s21\.101,69/); // Total atualizado (4103,79 * 5,142)
     assert.match(iconesPrincipal[1].dataset.tooltip, /R\$\s19\.034,91/); // Total investido (3701,85 * 5,142)
-    const statLucro = resumoEl.querySelectorAll('.cc-resumo-stat')[0];
-    assert.match(statLucro.querySelector('.info-alvo').dataset.tooltip, /R\$\s2\.066,78/); // Lucro/Prejuízo (401,94 * 5,142)
+    assert.match(kpis[1].querySelector('.info-alvo').dataset.tooltip, /R\$\s2\.066,78/); // Lucro/Prejuízo (401,94 * 5,142)
 
     // Tabela: coluna Preço/dia (2ª coluna) ganha o mesmo botão "i" que já
     // existia em Pr. médio/teto.
@@ -182,11 +180,10 @@ test('montarPaginaCarteirasAcoesEua() acrescenta o "i" com o equivalente em reai
     // de um número que já era dólar), com o equivalente em reais no "i"
     // de cada item da legenda.
     const distribEl = doc.getElementById('acoesEuaDistribuicao');
-    const valores = [...distribEl.querySelectorAll('.distrib-valor')].map((el) => el.textContent);
-    assert.ok(valores.some((v) => v.includes('$3,303.79')), 'Tecnologia deveria aparecer em US$');
-    assert.equal(valores.some((v) => v.includes('R$')), false, 'a legenda não deveria mais mostrar "R$" na frente de um valor que é dólar');
-    const itemTecnologia = [...distribEl.querySelectorAll('.distrib-item')].find((el) => el.textContent.includes('Tecnologia'));
-    assert.match(itemTecnologia.dataset.tooltip, /R\$\s16\.988,09/); // 3303,79 * 5,142
+    const valores = [...distribEl.querySelectorAll('.chart-leg-val')].map((el) => el.textContent.replace(/\s/g, ' '));
+    assert.ok(valores.some((v) => v.includes('US$ 3.303,79')), 'Tecnologia deveria aparecer em US$');
+    const itemTecnologia = [...distribEl.querySelectorAll('.chart-leg-item')].find((el) => el.textContent.includes('Tecnologia'));
+    assert.match(itemTecnologia.textContent.replace(/\s/g, ' '), /\(R\$ 16\.988,09\)/); // 3303,79 * 5,142: o equivalente em reais entre parênteses
   });
 });
 
@@ -205,7 +202,7 @@ test('montarPaginaCarteirasAcoesEua(): digitar na busca filtra por ticker e reca
     assert.match(linhas[0].textContent, /GPRK/);
     const totalRow = doc.querySelector('.cc-tabela tfoot tr');
     assert.match(totalRow.textContent, /Total \(1 ativo\)/);
-    assert.match(totalRow.innerHTML, /\$800\.00/);
+    assert.match(totalRow.innerHTML, /US\$(?:\s|&nbsp;)800,00/);
   });
 });
 
@@ -222,7 +219,7 @@ test('montarPaginaCarteirasAcoesEua(): clicar no cabeçalho de uma coluna ordena
     const linhas = doc.querySelectorAll('.cc-tabela tbody tr');
     assert.match(linhas[0].textContent, /AAPL/);
     assert.match(linhas[1].textContent, /GPRK/);
-    assert.match(doc.querySelector('.cc-tabela thead th[data-campo="quantidade"]').textContent, /▲/);
+    assert.equal(doc.querySelector('.cc-tabela thead th[data-campo="quantidade"]').getAttribute('aria-sort'), 'ascending');
   });
 });
 
@@ -264,16 +261,18 @@ test('montarPaginaCarteirasAcoesEua(): desenha os gráficos de Rentabilidade/Evo
 
     await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl, getHomeImpl });
 
-    assert.ok(doc.getElementById('acoesEuaRentabChart').querySelector('svg'));
-    assert.ok(doc.getElementById('acoesEuaEvolucaoChart').querySelector('svg'));
-    assert.match(doc.getElementById('acoesEuaRentabLegenda').textContent, /S&P 500/);
+    // 06/10/2026: gráficos da biblioteca (charts/) via criarGraficosCarteira, no #acoesEuaGraficos, com o seletor de período canônico
+    const graficos = doc.getElementById('acoesEuaGraficos');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
+    assert.match(graficos.querySelector('.cg-painel-rentabilidade .chart-legenda').textContent, /S&P 500/);
 
-    const periodoTabs = doc.getElementById('acoesEuaPeriodoTabs');
-    assert.ok(periodoTabs);
-    const botao30d = periodoTabs.querySelector('.filter-tab[data-periodo="30d"]');
+    const botao30d = graficos.querySelector('.cg-periodo [data-periodo="30d"]');
+    assert.ok(botao30d, 'seletor de período acima dos gráficos');
     assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
-    assert.ok(doc.getElementById('acoesEuaRentabChart').querySelector('svg'));
-    assert.ok(doc.getElementById('acoesEuaEvolucaoChart').querySelector('svg'));
+    assert.equal(botao30d.getAttribute('aria-pressed'), 'true');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
   });
 });
 
@@ -294,24 +293,26 @@ test('Ações EUA: botão R$ | US$ troca o resumo e os valores em cima dos gráf
       getHomeImpl: async () => ({ ok: true, historico }),
     });
     const toggle = doc.getElementById('acoesEuaMoeda');
-    assert.equal(toggle.hidden, false);
+    assert.equal(toggle.parentElement.hidden, false);
+    const evolucao = () => doc.querySelector('#acoesEuaGraficos .cg-painel-evolucao').textContent.replace(/\s/g, ' ');
+    const rentab = () => doc.querySelector('#acoesEuaGraficos .cg-painel-rentabilidade .chart-card-rot').textContent;
     const clicar = (moeda) => toggle.querySelector(`[data-moeda="${moeda}"]`).dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
 
     clicar('USD');
     assert.equal(toggle.querySelector('[data-moeda="USD"]').getAttribute('aria-pressed'), 'true');
-    assert.match(doc.getElementById('acoesEuaResumo').textContent, /\$4,103\.79/); // resumo da planilha, em US$
-    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /\$3,500\.00/); // 17.500 / 5
-    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /Valor aplicado: \$3,060\.00/); // 15.300 / 5
-    assert.ok(!/R\$/.test(doc.getElementById('acoesEuaRentabInfo').textContent));
-    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em dólar/);
+    assert.match(doc.getElementById('acoesEuaResumo').textContent, /US\$(?:\s|&nbsp;)4\.103,79/); // resumo da planilha, em US$
+    assert.match(evolucao(), /US\$ 3\.500,00/); // 17.500 / 5
+    assert.match(evolucao(), /Valor aplicado: US\$ 3\.060,00/); // 15.300 / 5
+    assert.ok(!/R\$/.test(evolucao()));
+    assert.match(rentab(), /em dólar/);
 
     clicar('BRL');
     assert.equal(toggle.querySelector('[data-moeda="BRL"]').getAttribute('aria-pressed'), 'true');
     const resumo = doc.getElementById('acoesEuaResumo').textContent;
     assert.match(resumo, /R\$\s*17\.500,00/); // último ponto do histórico
     assert.match(resumo, /Valor aplicado: R\$\s*15\.300,00/); // soma do aplicado
-    assert.match(doc.getElementById('acoesEuaEvolucaoInfo').textContent, /R\$\s*17\.500,00/);
-    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em reais/);
+    assert.match(evolucao(), /R\$ 17\.500,00/);
+    assert.match(rentab(), /em reais/);
   });
 
   await withFakeSessionStorage(async () => {
@@ -321,8 +322,35 @@ test('Ações EUA: botão R$ | US$ troca o resumo e os valores em cima dos gráf
       getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EUA_EXEMPLO }),
       getHomeImpl: async () => ({ ok: true, historico: historicoAcoesEuaExemplo() }), // sem cambioUsd
     });
-    assert.equal(doc.getElementById('acoesEuaMoeda').hidden, true);
-    assert.match(doc.getElementById('acoesEuaResumo').textContent, /\$4,103\.79/);
-    assert.match(doc.getElementById('acoesEuaRentabInfo').textContent, /em reais/);
+    assert.equal(doc.getElementById('acoesEuaMoeda').parentElement.hidden, true);
+    assert.match(doc.getElementById('acoesEuaResumo').textContent, /US\$(?:\s|&nbsp;)4\.103,79/);
+    assert.match(doc.querySelector('#acoesEuaGraficos .cg-painel-rentabilidade .chart-card-rot').textContent, /em reais/);
+  });
+});
+
+// 05/10/2026 (A-22, auditoria): o "investido em R$" de cada linha vem do back-end com o câmbio do dia de
+// cada compra (totalCompradoBrl) e não muda quando o dólar de hoje muda.
+test('A-22: custo e lucro em reais da linha usam o custo com o câmbio da compra; sem ele, caem no câmbio de hoje', () => {
+  const linha = { totalComprado: 100, totalAtualizado: 120, lucroPrejuizo: 20, totalCompradoBrl: 520 };
+  assert.equal(custoBrlLinha_(linha, 5), 520);
+  assert.equal(custoBrlLinha_(linha, 6), 520, 'o dólar de hoje não mexe no custo');
+  assert.equal(lucroBrlLinha_(linha, 5), 80, '120 × 5 − 520');
+  assert.equal(lucroBrlLinha_(linha, 6), 200, '120 × 6 − 520: já com a variação do dólar desde a compra');
+  const semBrl = { totalComprado: 100, totalAtualizado: 120, lucroPrejuizo: 20 };
+  assert.equal(custoBrlLinha_(semBrl, 5), 500);
+  assert.equal(lucroBrlLinha_(semBrl, 5), 100);
+  assert.equal(custoBrlLinha_(semBrl, null), null);
+  assert.equal(lucroBrlLinha_(linha, null), null);
+});
+
+test('A-22: tabela de Ações EUA mostra o investido em R$ com o câmbio da compra (totalCompradoBrl)', async () => {
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    const carteira = JSON.parse(JSON.stringify(CARTEIRA_ACOES_EUA_EXEMPLO));
+    carteira.ativos[0].totalCompradoBrl = 12345.67;
+    await montarPaginaCarteirasAcoesEua('token-fake', { doc, getCarteirasAcoesEuaImpl: async () => ({ ok: true, carteira }), getHomeImpl: GET_HOME_VAZIO });
+    const texto = doc.getElementById('acoesEuaConteudo').textContent.replace(/\s+/g, ' ').replace(/ /g, ' ');
+    assert.match(texto, /12\.345,67/, 'custo em R$ do back-end (câmbio de cada compra), não US$ 3.001,85 × 5');
+    assert.doesNotMatch(texto, /15\.436,5/, '3.001,85 × 5,142 (câmbio de hoje) não aparece no investido da linha');
   });
 });

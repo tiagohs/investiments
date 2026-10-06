@@ -31,6 +31,9 @@ const pular = (t) => t.skip('tests/harness/fixtures.json ausente - ver tests/har
 function serieCom(linhasExtras) {
   const raw = JSON.parse(fs.readFileSync(FIXTURES_PATH, 'utf8'));
   const aba = raw['aux_historico-indices'];
+  // A aba real já pode ter linhas de IVVB11 (backfill rodado): os testes partem de uma aba SEM elas
+  // pra controlar a série (A-73).
+  aba.linhas = aba.linhas.filter((l, i) => i === 0 || String(l[1] || '').trim().toUpperCase() !== 'IVVB11');
   aba.linhas.push(...linhasExtras);
   aba.lastRow = aba.linhas.length;
   const sb = { console: { ...console, log() {} } };

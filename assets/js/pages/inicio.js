@@ -131,37 +131,22 @@ import { getHome, getHistoricoAtivo, getIntradia } from '../api-client.js';
 import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
+import { icone, mostrarErroCarga, montarCabecalhoPagina, mostrarEstadoVazio, toast } from '../ui/index.js'; // 06/10/2026 (Onda 3)
+import { criarGraficoLinha } from '../charts/index.js'; // 06/10/2026 (Onda 3): biblioteca única de gráficos
+import { logoCirculoHtml } from './logo-circulo.js';
+import { renderAvisosParciais } from './avisos-parciais.js';
 import { htmlBotaoFavorito, montarFavoritos, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import { renderProventosAnunciados } from './inicio-proventos.js';
 import { renderFaixaMercado, completarFaixaComIntradia, renderResumoCompacto, wireListaAtivos } from './inicio-painel.js';
 import { CHAVES_MERCADO, chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
-import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR } from '../format.js';
+import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR, variacaoNula, hojeSP } from '../format.js';
 // 02/10/2026 (pedidos A-D do Tiago - "Escolher período", "Ontem era" +
 // meses, card de Análise, IPCA na Visão geral de Carteiras): os 2 módulos
 // compartilhados (sem dependência de página) e o comparativo da Início.
-import { ligarFiltroPeriodo, recortarPorIntervalo, ehPeriodoPersonalizado } from '../periodo-personalizado.js';
+import { ligarFiltroPeriodo, recortarPorIntervalo, ehPeriodoPersonalizado, rotuloPeriodo, botoesSegmentadoHtml } from '../periodo-personalizado.js';
 import { analisarSerie, renderAnalise, proventosAReceberDe } from '../analise-grafico.js';
 import { calcularComparativo, htmlComparativo, ajusteMarcacaoDoCampo } from './inicio-comparativo.js';
 
-const ARROW_UP_PATH = 'M12 19V5M5 12l7-7 7 7';
-const ARROW_DOWN_PATH = 'M12 5v14M5 12l7 7 7-7';
-
-/**
- * Cria o elemento-base de um widget-tile: <a> (cartão inteiro clicável,
- * indo direto pra cotação) quando há extLinkHref, ou <div> normal quando
- * não há (nunca um link vazio) - mesmo padrão do .ativo-card discutido em
- * docs/direcao-visual.html pra Meus Ativos, aplicado aqui em 13/09/2026 a
- * pedido do Tiago (antes cada tile tinha um "G. Finance ↗" escrito solto
- * dentro do rótulo em vez do cartão inteiro ser o link).
- */
-function criarElementoTile(doc, extLinkHref) {
-  if (!extLinkHref) return doc.createElement('div');
-  const tile = doc.createElement('a');
-  tile.href = extLinkHref;
-  tile.target = '_blank';
-  tile.rel = 'noopener';
-  return tile;
-}
 
 /**
  * Separa um valor já formatado ("R$ 5,09", "185.600,00") na parte
@@ -185,124 +170,6 @@ function setValorComDec(el, formatted) {
     span.className = 'dec';
     span.textContent = dec;
     el.appendChild(span);
-  }
-}
-
-function arrowSvg(good) {
-  return `<svg viewBox="0 0 24 24"><path d="${good ? ARROW_UP_PATH : ARROW_DOWN_PATH}"/></svg>`;
-}
-
-/**
- * Widget-tile de índice (Ibovespa/IFIX/S&P 500) - têm variação do dia
- * em PONTOS PERCENTUAIS (ver format.js!formatPercentFromPoints, e o
- * risco de escala documentado lá - nunca passar isso pra
- * formatPercentFromFraction).
- */
-export function criarTileIndice(doc, { label, valor, variacaoDia, extLinkHref }) {
-  const tile = criarElementoTile(doc, extLinkHref);
-  tile.className = 'widget-tile';
-
-  const temVariacao = typeof variacaoDia === 'number' && Number.isFinite(variacaoDia);
-  const good = temVariacao && variacaoDia >= 0;
-  const arrowHtml = temVariacao ? `<span class="arrow-badge ${good ? 'good' : 'bad'}">${arrowSvg(good)}</span>` : '';
-
-  tile.innerHTML = `
-    <div class="widget-tile-top">
-      <div>
-        <div class="widget-value"></div>
-        <div class="widget-label">${label}</div>
-      </div>
-      ${arrowHtml}
-    </div>
-    <div class="widget-delta"></div>
-  `;
-
-  setValorComDec(tile.querySelector('.widget-value'), formatNumeroBR(valor));
-  const deltaEl = tile.querySelector('.widget-delta');
-  if (temVariacao) {
-    deltaEl.textContent = `${formatPercentFromPoints(variacaoDia)} hoje`;
-    deltaEl.style.color = good ? 'var(--good-ink)' : 'var(--bad-ink)';
-  } else {
-    deltaEl.textContent = '—';
-    deltaEl.style.color = 'var(--ink-faint)';
-  }
-  return tile;
-}
-
-/**
- * Widget-tile de câmbio (USD/EUR) - só valor; a API de hoje não devolve
- * variação do dia pra esses dois (ver Home.gs!montarHome_). `valor` É um
- * número em reais (quantos R$ vale 1 unidade da moeda), mas o SÍMBOLO
- * exibido é o da própria moeda do card (US$/€), não R$ - pedido do
- * Tiago (16/09/2026): "o card do dólar está com a chave R$ ao invés do
- * dólar, mesma coisa no card Euro". `simbolo` default 'R$' só por
- * segurança (nunca deveria ser usado sem um símbolo explícito - ver
- * renderIndicesCambio).
- */
-export function criarTileCambio(doc, { label, valor, simbolo = 'R$', extLinkHref }) {
-  const tile = criarElementoTile(doc, extLinkHref);
-  tile.className = 'widget-tile';
-
-  tile.innerHTML = `
-    <div class="widget-tile-top">
-      <div>
-        <div class="widget-value"></div>
-        <div class="widget-label">${label}</div>
-      </div>
-    </div>
-    <div class="widget-delta" style="color:var(--ink-faint)">câmbio</div>
-  `;
-  setValorComDec(tile.querySelector('.widget-value'), `${simbolo} ${formatNumeroBR(valor)}`);
-  return tile;
-}
-
-/** Renderiza os cards de Índices & Câmbio dentro de `container` (esvazia antes). Cada campo ausente (ver "avisos") simplesmente não gera um tile - nunca quebra os outros. */
-export function renderIndicesCambio(doc, container, { indices, cambio } = {}) {
-  container.innerHTML = '';
-
-  if (indices?.ibovespa) {
-    container.appendChild(criarTileIndice(doc, {
-      label: 'Ibovespa',
-      valor: indices.ibovespa.valor,
-      variacaoDia: indices.ibovespa.variacaoDia,
-      extLinkHref: 'https://www.google.com/finance/quote/IBOV:INDEXBVMF',
-    }));
-  }
-  if (indices?.ifix) {
-    container.appendChild(criarTileIndice(doc, {
-      label: 'IFIX',
-      valor: indices.ifix.valor,
-      variacaoDia: indices.ifix.variacaoDia,
-      extLinkHref: 'https://www.google.com/finance/quote/IFIX:INDEXBVMF',
-    }));
-  }
-  if (indices?.spx) {
-    container.appendChild(criarTileIndice(doc, {
-      label: 'S&P 500',
-      valor: indices.spx.valor,
-      variacaoDia: indices.spx.variacaoDia,
-      extLinkHref: 'https://www.google.com/finance/quote/.INX:INDEXSP',
-    }));
-  }
-  if (typeof cambio?.usd === 'number') {
-    container.appendChild(criarTileCambio(doc, {
-      label: 'Dólar (USD/BRL)',
-      valor: cambio.usd,
-      simbolo: 'US$',
-      extLinkHref: 'https://www.google.com/finance/quote/USD-BRL',
-    }));
-  }
-  if (typeof cambio?.eur === 'number') {
-    container.appendChild(criarTileCambio(doc, {
-      label: 'Euro (EUR/BRL)',
-      valor: cambio.eur,
-      simbolo: '€',
-      extLinkHref: 'https://www.google.com/finance/quote/EUR-BRL',
-    }));
-  }
-
-  if (!container.children.length) {
-    container.innerHTML = '<p class="hint">Sem dado de índices/câmbio nesta chamada.</p>';
   }
 }
 
@@ -621,6 +488,21 @@ function wirePointerTooltipDistrib_(doc, container) {
     esconder_();
   }
 
+  /** 06/10/2026 (A-59, teclado): Enter/Espaço no "i" abre e fecha a tooltip; Esc fecha. */
+  function aoTecla_(ev) {
+    if (ev.key === 'Escape') { esconder_(); return; }
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-info-icon') : null;
+    const card = icone && icone.closest('.ativo-card');
+    if (!card) return;
+    ev.preventDefault();
+    if (cardAberto === card) { esconder_(); return; }
+    cardAberto = card;
+    const r = icone.getBoundingClientRect();
+    mostrar_(card, r.left, r.bottom);
+  }
+
+  container.addEventListener('keydown', aoTecla_);
   container.addEventListener('pointermove', aoMoverOuTocar_);
   container.addEventListener('pointerdown', aoMoverOuTocar_);
   container.addEventListener('pointerleave', aoSairPonteiro_);
@@ -641,81 +523,6 @@ function wirePointerTooltipDistrib_(doc, container) {
  * handleHome) - o front-end só lê `ontem[visaoId]` direto, ver
  * renderResumoPatrimonio logo abaixo.
  */
-
-/**
- * Renderiza o resumo de patrimônio (Total / Longo Prazo / Nacional /
- * Renda Emergencial) dentro de `container` (esvazia antes) - as divisões
- * lado a lado, sempre visíveis de cara, sem aba/clique nenhum (mudança
- * de 13/09/2026 a pedido do Tiago: "mostre também os números das três
- * divisões, sem eu precisar clicar em botão"). Cada cartão traz também
- * a distribuição (donut) da própria divisão - Total/Longo Prazo/Nacional
- * por classe, Renda Emergencial por tipo de investimento (ver
- * calcularDistribuicaoPorClasse/calcularDistribuicaoRendaEmergencial).
- *
- * 17/09/2026 #2: abaixo do valor atual, uma linha menor "ontem era: R$ X
- * - Y%" (a pedido do Tiago) - compara o valor ATUAL (patrimonio, tempo
- * real) com `ontem[visaoId]` (snapshot diário vindo do backend, ver nota
- * de 18/09/2026 acima). Verde/vermelho no mesmo padrão de
- * .rentab-card-delta/.ativo-delta já usado no resto do app.
- */
-export function renderResumoPatrimonio(doc, container, { patrimonio, ativos, cambio, ontem } = {}) {
-  container.innerHTML = '';
-  wirePointerTooltipDistrib_(doc, container);
-  if (!patrimonio) {
-    container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
-    return;
-  }
-
-  const cambioUsd = cambio?.usd;
-  const grid = doc.createElement('div');
-  grid.className = 'resumo-grid';
-
-  ORDEM_RESUMO.forEach((visaoId) => {
-    const { valor, label } = resolverVisao(patrimonio, visaoId);
-    const card = doc.createElement('div');
-    card.className = `resumo-card${visaoId === 'total' ? ' resumo-card-total' : ''}`;
-    card.innerHTML = `
-      <div class="resumo-label">${label}</div>
-      <div class="resumo-value"></div>
-      <div class="resumo-ontem"></div>
-      <div class="resumo-distrib"></div>
-    `;
-    setValorComDec(card.querySelector('.resumo-value'), formatBRL(valor));
-
-    const ontemEl = card.querySelector('.resumo-ontem');
-    const valorOntem = ontem && typeof ontem[visaoId] === 'number' && Number.isFinite(ontem[visaoId]) ? ontem[visaoId] : null;
-    if (typeof valor === 'number' && typeof valorOntem === 'number' && valorOntem !== 0) {
-      const variacao = (valor - valorOntem) / valorOntem;
-      const good = variacao >= 0;
-      ontemEl.className = `resumo-ontem ${good ? 'good' : 'bad'}`;
-      ontemEl.textContent = `ontem era: ${formatBRL(valorOntem)} - ${formatPercentFromFraction(variacao)}`;
-    } else {
-      ontemEl.className = 'resumo-ontem na';
-      ontemEl.textContent = '';
-    }
-
-    const distribContainer = card.querySelector('.resumo-distrib');
-    if (visaoId === 'rendaEmergencial') {
-      renderDistribuicao(doc, distribContainer, calcularDistribuicaoRendaEmergencial(ativos));
-    } else {
-      const pc = patrimonio.porClasse;
-      const totaisPorClasse = pc ? {
-        acoes: pc.acoes, fiis: pc.fiis, usa: pc.acoesEua,
-        rf: (visaoId === 'longoPrazo' || visaoId === 'nacional') ? pc.rendaFixa - (patrimonio.rendaEmergencial || 0) : pc.rendaFixa,
-      } : null;
-      renderDistribuicao(doc, distribContainer, calcularDistribuicaoPorClasse(ativos, {
-        cambioUsd,
-        totaisPorClasse,
-        excluirEmergencial: visaoId === 'longoPrazo' || visaoId === 'nacional',
-        excluirInternacional: visaoId === 'nacional',
-      }));
-    }
-
-    grid.appendChild(card);
-  });
-
-  container.appendChild(grid);
-}
 
 // ============================================================================
 // Gráfico de Rentabilidade
@@ -906,7 +713,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
 /** Benchmarks por visão - Total/Longo Prazo/Nacional contra Ibovespa+CDI,
  * Renda Emergencial contra CDI+Selic (decisão registrada em
  * docs/plano-implementacao.html - não compara reserva de emergência com bolsa). */
-const BENCHMARKS_POR_VISAO = {
+export const BENCHMARKS_POR_VISAO = {
   total: [
     { campo: 'ibovespa', label: 'Ibovespa', cor: '--fiis', dash: '1.5 4.5' },
     { campo: 'indiceCdi', label: 'CDI', cor: '--usa', dash: '6 4' },
@@ -1014,7 +821,7 @@ export const COR_PRINCIPAL_POR_VISAO = {
  * zero de `campo` em `historico` - zero como base de "% desde o início"
  * dividiria por zero; ibovespa também pode vir null antes do 1º pregão da
  * janela. -1 quando não existe nenhum valor válido. */
-function primeiroIndiceValidoInicio_(historico, campo) {
+export function primeiroIndiceValidoInicio_(historico, campo) {
   for (let i = 0; i < historico.length; i += 1) {
     const v = historico[i][campo];
     if (typeof v === 'number' && Number.isFinite(v) && v !== 0) return i;
@@ -1026,7 +833,7 @@ function primeiroIndiceValidoInicio_(historico, campo) {
  * ponto anterior a ela, no histórico completo, vale 0/não existe, e o dia
  * tem aporte) - aí a rentabilidade mede a partir do custo desse aporte,
  * não do fechamento do dia (ver normalizarSerieRentabilidade). */
-function inicioEhAbertura_(historicoCompleto, janela, campo, campoFluxo) {
+export function inicioEhAbertura_(historicoCompleto, janela, campo, campoFluxo) {
   const idx = primeiroIndiceValidoInicio_(janela, campo);
   if (idx === -1) return false;
   const pos = historicoCompleto.indexOf(janela[idx]);
@@ -1084,6 +891,8 @@ export function normalizarSerieRentabilidade(historico, campo, campoFluxo, { abe
   if (idxBase === -1) return historico.map(() => null);
 
   const resultado = new Array(historico.length).fill(null);
+  const suspeitos = [];
+  Object.defineProperty(resultado, 'suspeitos', { value: suspeitos, enumerable: false });
   resultado[idxBase] = 0;
   let cumulativo = 0;
   let anterior = historico[idxBase][campo];
@@ -1156,9 +965,15 @@ export function normalizarSerieRentabilidade(historico, campo, campoFluxo, { abe
       // casos com dado real que provam isso.
       const RETORNO_DIARIO_MIN_PLAUSIVEL = -0.5;
       const RETORNO_DIARIO_MAX_PLAUSIVEL = 1;
-      const retornoDia = (retornoDiaBruto < RETORNO_DIARIO_MIN_PLAUSIVEL || retornoDiaBruto > RETORNO_DIARIO_MAX_PLAUSIVEL)
-        ? 0
-        : retornoDiaBruto;
+      const suspeito = retornoDiaBruto < RETORNO_DIARIO_MIN_PLAUSIVEL || retornoDiaBruto > RETORNO_DIARIO_MAX_PLAUSIVEL;
+      // 05/10/2026 (A-20, auditoria): o dia fora da faixa continua neutro na
+      // CADEIA do % (senão um único dado ruim trava o acumulado em -100%, ver
+      // acima), mas deixou de ser um corte SILENCIOSO: fica registrado em
+      // `suspeitos` (propriedade não enumerável do resultado) e a tela avisa
+      // - o ganho em R$ (calcularResumoRentabilidade) não corta nada, então
+      // os dois podem divergir justamente nesses dias.
+      if (suspeito) suspeitos.push({ indice: i, data: historico[i].data || null, retorno: retornoDiaBruto * 100 });
+      const retornoDia = suspeito ? 0 : retornoDiaBruto;
       cumulativo = (1 + cumulativo) * (1 + retornoDia) - 1;
       resultado[i] = cumulativo * 100;
     } else {
@@ -1174,133 +989,43 @@ export function normalizarSerieRentabilidade(historico, campo, campoFluxo, { abe
  * período") - usado tanto pro delta do portfólio (renderInfoRentabilidade)
  * quanto pro delta de cada benchmark na legenda (renderGraficoRentabilidade),
  * uma implementação só pros dois nunca divergirem. */
-function ultimoValidoDe_(serieNormalizada) {
+export function ultimoValidoDe_(serieNormalizada) {
   for (let i = serieNormalizada.length - 1; i >= 0; i -= 1) {
     if (serieNormalizada[i] != null) return serieNormalizada[i];
   }
   return null;
 }
 
-/** Monta o "d" de um <path> a partir de uma série normalizada, pulando nulos
- * à toa (só existem no começo, antes do 1º valor válido - ver acima) sem
- * quebrar o desenho do resto da linha. */
-function pathDRentabilidade_(valores, x, y) {
-  let d = '';
-  let comecou = false;
-  valores.forEach((v, i) => {
-    if (v == null) return;
-    d += `${comecou ? 'L' : 'M'}${x(i, valores.length).toFixed(1)} ${y(v).toFixed(1)} `;
-    comecou = true;
-  });
-  return d.trim();
+/** "30/09" - rótulo curto do eixo X (a data inteira vai no título da tooltip). */
+function dataCurta_(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}` : '';
 }
 
-/** Largura real (em px) de `container` - clientWidth/getBoundingClientRect
- * num navegador de verdade já refletem o layout (grid de 1 ou 2 colunas,
- * `.wrap` etc.) no momento em que o gráfico é desenhado. Em ambiente sem
- * layout de verdade (jsdom dos testes) essas leituras vêm 0 - cai num valor
- * fixo só pra ter uma medida determinística nos testes. */
-function larguraReal_(container) {
-  const w = container.clientWidth || (container.getBoundingClientRect && container.getBoundingClientRect().width) || 0;
-  return w > 40 ? Math.round(w) : 640;
-}
-
-/**
- * Liga o hover (mouse) e o touch do gráfico de Rentabilidade - Pointer
- * Events cobre os dois com a mesma API, sem precisar de handlers
- * separados de mouse/touch. `.rentab-hitarea` é um <rect> transparente
- * cobrindo a área de plotagem; como o viewBox do SVG já usa a largura
- * REAL do cartão (W - ver o cabeçalho do arquivo), 1 unidade de SVG =
- * 1px de tela, então dá pra converter clientX direto pra coordenada do
- * gráfico sem nenhuma conta de escala - só subtrair a borda esquerda do
- * próprio <svg> (svgEl.getBoundingClientRect().left).
- */
-function ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal = '--acoes', labelPrincipal = 'Portfólio' }) {
-  const svgEl = container.querySelector('svg.rentab-chart');
-  const hitarea = container.querySelector('.rentab-hitarea');
-  const hoverGroup = container.querySelector('.rentab-hover');
-  const linhaHover = container.querySelector('.rentab-hover-linha');
-  const tooltip = container.querySelector('.rentab-tooltip');
-  if (!svgEl || !hitarea || !hoverGroup || !linhaHover || !tooltip) return;
-
-  const pontoPrincipal = container.querySelector('.rentab-hover-ponto[data-serie="principal"]');
-  const pontosBenchmark = seriesBenchmark.map((b) => container.querySelector(`.rentab-hover-ponto[data-serie="${b.campo}"]`));
-
-  function indiceNoClientX_(clientX) {
-    const rect = svgEl.getBoundingClientRect();
-    const svgX = clientX - rect.left;
-    const fracao = plotW > 0 ? (svgX - padL) / plotW : 0;
-    return Math.min(janela.length - 1, Math.max(0, Math.round(fracao * (janela.length - 1))));
+/** 06/10/2026 (Onda 3): o gráfico (instância da biblioteca) mora no próprio contêiner - redesenhar = `atualizar` (a linha MORFA). */
+function destruirGraficoDe_(container) {
+  if (container && container._graficoLib) {
+    try { container._graficoLib.destruir(); } catch (e) { /* já saiu do DOM */ }
+    container._graficoLib = null;
   }
-
-  function posicionarPonto_(el, valor, i) {
-    if (!el) return;
-    if (typeof valor !== 'number') {
-      el.setAttribute('hidden', '');
-      return;
-    }
-    el.removeAttribute('hidden');
-    el.setAttribute('cx', x(i, janela.length).toFixed(1));
-    el.setAttribute('cy', y(valor).toFixed(1));
-  }
-
-  function mostrar_(clientX) {
-    const i = indiceNoClientX_(clientX);
-    const xx = x(i, janela.length);
-
-    linhaHover.setAttribute('x1', xx.toFixed(1));
-    linhaHover.setAttribute('x2', xx.toFixed(1));
-    posicionarPonto_(pontoPrincipal, seriePrincipal[i], i);
-    seriesBenchmark.forEach((b, idx) => posicionarPonto_(pontosBenchmark[idx], b.valores[i], i));
-    hoverGroup.removeAttribute('hidden');
-
-    const linhasTooltip = [
-      { label: labelPrincipal, cor: `var(${corPrincipal})`, valor: seriePrincipal[i] },
-      ...seriesBenchmark.map((b) => ({ label: b.label, cor: `var(${b.cor})`, valor: b.valores[i] })),
-    ].map((linha) => `
-      <div class="rentab-tooltip-item">
-        <span class="dot" style="background:${linha.cor}"></span>${linha.label}
-        <b>${typeof linha.valor === 'number' ? formatPercentFromPoints(linha.valor) : '—'}</b>
-      </div>
-    `).join('');
-    tooltip.innerHTML = `<div class="rentab-tooltip-data">${formatDateBR(janela[i].data)}</div>${linhasTooltip}`;
-    tooltip.hidden = false;
-
-    const larguraTooltip = tooltip.offsetWidth || 150;
-    const esquerda = Math.min(Math.max(xx - larguraTooltip / 2, 4), Math.max(W - larguraTooltip - 4, 4));
-    tooltip.style.left = `${esquerda}px`;
-  }
-
-  function esconder_() {
-    hoverGroup.setAttribute('hidden', '');
-    tooltip.hidden = true;
-  }
-
-  hitarea.addEventListener('pointermove', (ev) => mostrar_(ev.clientX));
-  hitarea.addEventListener('pointerdown', (ev) => mostrar_(ev.clientX));
-  hitarea.addEventListener('pointerleave', esconder_);
 }
 
 /**
  * Desenha o gráfico de Rentabilidade (Portfólio vs benchmarks da visão) em
- * `container` - SVG desenhado à mão (mesma técnica validada em
- * docs/direcao-visual.html!renderChart, sem depender de biblioteca nenhuma).
+ * `container` com a biblioteca única de gráficos (assets/js/charts/, kit
+ * Figma): linha principal grossa + comparativos pontilhados, crosshair,
+ * tooltip escura multilinha com a data, setas do teclado e "ver como tabela".
+ * Chamar de novo no mesmo contêiner (troca de período, Atualizar dados) só
+ * ATUALIZA a instância - a linha morfa em vez de redesenhar do zero.
  *
- * viewBox na LARGURA REAL do cartão (13/09/2026, ver cabeçalho do arquivo):
- * antes o viewBox era fixo (0 0 1000 220) e o CSS esticava esse desenho pra
- * caber no cartão (preserveAspectRatio="none") - num cartão mais estreito
- * (Longo Prazo/Renda Emergencial, lado a lado) a MESMA unidade de SVG virava
- * menos pixels de tela, encolhendo a fonte dos rótulos junto. Agora o
- * viewBox usa a largura medida de verdade (W = larguraReal_(container)) e a
- * altura fixa do CSS (H, igual .rentab-chart{height:...} em inicio.css) -
- * 1 unidade de SVG = 1px de tela sempre, não importa a largura do cartão, e
- * o número de rótulos do eixo X se adapta (menos rótulo em cartão estreito,
- * pra não amontoar). Some com um aviso, sem lançar, quando não há histórico
- * (ou histórico de menos de 2 dias, onde uma linha não diz nada). Liga
- * também o hover/touch (ver ligarInteracaoGrafico_, logo acima) depois de
- * montar o SVG.
+ * A legenda (bolinha + nome + o quanto o PORTFÓLIO ganhou ou perdeu EM
+ * RELAÇÃO a cada benchmark - ver a correção de 13/09 no cabeçalho do arquivo)
+ * é a própria legenda da biblioteca; com `legendaContainer` ela é MOVIDA pra
+ * lá (as telas de Carteiras reaproveitam esta função e guardam a legenda num
+ * lugar próprio). Some com um aviso, sem lançar, quando não há histórico
+ * (ou menos de 2 dias, onde uma linha não diz nada).
  */
-export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio', benchmarksExtra = null, analiseContainer = null, nomeAnalise = null, formatarMoeda = formatBRL, analiseExtra = null } = {}) {
+export function renderGraficoRentabilidade(doc, container, { historico, visaoId = 'total', periodoId = '12m', legendaContainer, labelPrincipal = 'Portfólio', benchmarksExtra = null, analiseContainer = null, nomeAnalise = null, formatarMoeda = formatBRL, analiseExtra = null, altura = 220 } = {}) {
   // 20/09/2026: campoPrincipal precisa existir ANTES de filtrar - "Desde o
   // início" (periodoId:'tudo') corta pro início desta visão específica
   // (ver comentário de filtrarHistoricoPorPeriodo) - sem isso, o gráfico
@@ -1322,6 +1047,7 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
   const idxNascimento = primeiroIndiceValidoInicio_(janela, campoPrincipal);
   if (idxNascimento > 0) janela = janela.slice(idxNascimento);
   if (janela.length < 2) {
+    destruirGraficoDe_(container);
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
     if (legendaContainer) legendaContainer.innerHTML = '';
     if (analiseContainer) renderAnalise(doc, analiseContainer, null);
@@ -1336,100 +1062,42 @@ export function renderGraficoRentabilidade(doc, container, { historico, visaoId 
     return { ...b, valores, delta: ultimoValidoDe_(valores) };
   });
 
-  const W = larguraReal_(container);
-  const H = 190;
-  const padL = 44, padR = 8, padT = 12, padB = 22;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
+  // 13/09/2026 (2ª rodada): a % ao lado do benchmark é RELATIVA ao
+  // portfólio (retorno do portfólio − retorno do benchmark, mesma
+  // série "% desde o início do período") - não o retorno absoluto do
+  // próprio benchmark. Positiva = portfólio bateu o benchmark no
+  // período; negativa = ficou atrás.
+  const deltaPrincipal = ultimoValidoDe_(seriePrincipal);
+  const series = [
+    { id: 'principal', nome: labelPrincipal, valores: seriePrincipal, principal: true, cor: `var(${corPrincipal})` },
+    ...seriesBenchmark.map((b) => {
+      const relativo = (typeof deltaPrincipal === 'number' && typeof b.delta === 'number') ? deltaPrincipal - b.delta : null;
+      return {
+        id: b.campo, nome: b.label, valores: b.valores, principal: false, pontilhada: !!b.dash, cor: `var(${b.cor})`,
+        valorLegenda: typeof relativo === 'number' ? formatPercentFromPoints(relativo) : undefined,
+        tomLegenda: typeof relativo === 'number' && !variacaoNula(relativo) ? (relativo >= 0 ? 'up' : 'down') : undefined,
+      };
+    }),
+  ];
+  const eixoX = janela.map((p) => ({ rotulo: dataCurta_(p.data), data: p.data }));
+  const dados = { series, eixoX };
 
-  const todosValores = [seriePrincipal, ...seriesBenchmark.map((b) => b.valores)].flat().filter((v) => v != null);
-  let minV = Math.min(0, ...todosValores);
-  let maxV = Math.max(0, ...todosValores);
-  const folga = (maxV - minV) * 0.15 || 1;
-  minV -= folga; maxV += folga;
-
-  const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
-  const x = (i, n) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
-
-  const ticks = 4;
-  let gridSvg = '';
-  for (let t = 0; t <= ticks; t += 1) {
-    const v = minV + (maxV - minV) * (t / ticks);
-    const yy = y(v);
-    gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
-    gridSvg += `<text class="axislabel" x="${padL - 8}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatNumeroBR(v, 1)}%</text>`;
+  if (container._graficoLib && container.querySelector('svg')) {
+    container._graficoLib.atualizar(dados);
+  } else {
+    destruirGraficoDe_(container);
+    container.innerHTML = '';
+    container._graficoLib = criarGraficoLinha(container, {
+      ...dados, altura, zero: true, ticksY: 4,
+      formatarY: (v) => `${formatNumeroBR(v, 1)}%`, formatarValor: (v) => formatPercentFromPoints(v),
+      formatarX: (item) => (item && item.data ? formatDateBR(item.data) : ''),
+      aria: `Rentabilidade (% desde o início do período): ${labelPrincipal} contra ${benchmarks.map((b) => b.label).join(' e ')}`,
+    });
   }
-
-  // Cartão estreito (2 lado a lado) cabe menos rótulo de data sem amontoar.
-  const passos = W < 460 ? 3 : (W < 720 ? 4 : 5);
-  let xLabelsSvg = '';
-  for (let i = 0; i < passos; i += 1) {
-    const idx = Math.round((janela.length - 1) * (i / (passos - 1)));
-    const xx = padL + plotW * (i / (passos - 1));
-    const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
-    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 7}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
-  }
-
-  const benchmarkPathsSvg = seriesBenchmark
-    .map((b) => `<path d="${pathDRentabilidade_(b.valores, x, y)}" fill="none" stroke="var(${b.cor})" stroke-width="2"${b.dash ? ` stroke-dasharray="${b.dash}"` : ''}/>`)
-    .join('');
-  const principalPathSvg = `<path d="${pathDRentabilidade_(seriePrincipal, x, y)}" fill="none" stroke="var(${corPrincipal})" stroke-width="2.6"/>`;
-
-  // Hover/touch (13/09/2026, 3ª rodada - Tiago reportou que passar o mouse ou
-  // tocar no gráfico não mostrava nada): um <g> com a linha-guia vertical +
-  // um ponto por série, escondido até o 1º movimento, e um <rect>
-  // transparente (`.rentab-hitarea`) cobrindo a área de plotagem que
-  // escuta Pointer Events (mouse e touch pela mesma API) - ver
-  // ligarInteracaoGrafico_ logo abaixo, que calcula o índice mais próximo
-  // do ponteiro e monta a tooltip (HTML normal, fora do SVG, mesmo
-  // cuidado com escala de fonte do gráfico em si).
-  const pontosHoverSvg = [
-    `<circle class="rentab-hover-ponto" data-serie="principal" r="3.6" fill="var(${corPrincipal})" hidden/>`,
-    ...seriesBenchmark.map((b) => `<circle class="rentab-hover-ponto" data-serie="${b.campo}" r="3.2" fill="var(${b.cor})" hidden/>`),
-  ].join('');
-
-  container.innerHTML = `
-    <svg class="rentab-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      ${gridSvg}${xLabelsSvg}${benchmarkPathsSvg}${principalPathSvg}
-      <g class="rentab-hover" hidden>
-        <line class="rentab-hover-linha" x1="0" x2="0" y1="${padT}" y2="${H - padB}"/>
-        ${pontosHoverSvg}
-      </g>
-      <rect class="rentab-hitarea" x="${padL}" y="${padT}" width="${Math.max(plotW, 0)}" height="${Math.max(plotH, 0)}" fill="transparent" pointer-events="all"/>
-    </svg>
-    <div class="rentab-tooltip" hidden></div>
-  `;
-
-  ligarInteracaoGrafico_(container, { janela, seriePrincipal, seriesBenchmark, x, y, padL, plotW, W, corPrincipal, labelPrincipal });
-
   if (legendaContainer) {
-    // 13/09/2026 (2ª rodada): a % ao lado do benchmark é RELATIVA ao
-    // portfólio (retorno do portfólio − retorno do benchmark, mesma
-    // série "% desde o início do período") - não o retorno absoluto do
-    // próprio benchmark. Positiva = portfólio bateu o benchmark no
-    // período; negativa = ficou atrás. Ver correção no cabeçalho do
-    // arquivo (Tiago apontou que "+12,03%" ao lado do Ibovespa lia como
-    // um ganho, quando na verdade o portfólio estava atrás dele).
-    const deltaPrincipal = ultimoValidoDe_(seriePrincipal);
-    const liBenchmarks = seriesBenchmark.map((b) => {
-      // 19/09/2026: b.dash agora pode vir vazio/null (linha sólida, sem
-      // stroke-dasharray - ver visões carteiraX abaixo, mockup de
-      // Carteiras usa linha cheia pro benchmark de "índice de mercado"
-      // tipo Ibovespa/IFIX) - sem esse guard, .startsWith quebraria.
-      // Classe vazia = .chart-legend2 .swline já é sólida por padrão
-      // (inicio.css), não precisa de classe nenhuma.
-      const cls = !b.dash ? '' : (b.dash.startsWith('1.5') ? 'dot' : 'dash');
-      const relativo = (typeof deltaPrincipal === 'number' && typeof b.delta === 'number')
-        ? deltaPrincipal - b.delta
-        : null;
-      const deltaHtml = typeof relativo === 'number'
-        ? `<b class="li-delta ${relativo >= 0 ? 'good' : 'bad'}">${formatPercentFromPoints(relativo)}</b>`
-        : '';
-      return `<span class="li"><span class="swline ${cls}" style="border-color:var(${b.cor})"></span>${b.label}${deltaHtml}</span>`;
-    }).join('');
-    legendaContainer.innerHTML = `
-      <span class="li"><span class="swline" style="border-color:var(${corPrincipal})"></span>${labelPrincipal}</span>
-      ${liBenchmarks}
-    `;
+    const leg = container._graficoLib.casca && container._graficoLib.casca.legenda && container._graficoLib.casca.legenda.el;
+    legendaContainer.classList.add('chart', 'chart-legenda-ext');
+    if (leg) legendaContainer.replaceChildren(leg);
   }
 
   // 02/10/2026 (pedido C): card "Análise" embaixo do gráfico - os MESMOS
@@ -1457,7 +1125,7 @@ const COMPONENTES_ANALISE_POR_VISAO = {
 };
 
 /** Monta as entradas de analisarSerie a partir do que o gráfico já calculou. */
-function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda, analiseExtra = null }) {
+export function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda, analiseExtra = null }) {
   // 03/10/2026: `ajuste` = ajuste de marcação da Renda Fixa embutido no fluxo
   // do último ponto (valor da planilha x projeção do histórico - Home.gs e
   // ativo-calc.js): o card diz que é ajuste, não aporte/resgate
@@ -1542,7 +1210,7 @@ const BENCHMARK_COMPONENTES_POR_VISAO = {
   nacional: { 'Ações': 'Ibovespa', FIIs: 'IFIX', 'Renda Fixa': 'CDI' },
 };
 
-const LABEL_POR_VISAO_RENTABILIDADE = {
+export const LABEL_POR_VISAO_RENTABILIDADE = {
   total: 'Patrimônio total',
   longoPrazo: 'Patrimônio de Longo Prazo',
   nacional: 'Patrimônio Nacional',
@@ -1613,6 +1281,7 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
   const abertura = janela.length >= 2 && inicioEhAbertura_(historico, janela, campo, campoFluxo);
   const serieNormalizada = janela.length >= 2 ? normalizarSerieRentabilidade(janela, campo, campoFluxo, { abertura }) : [];
   const percentual = ultimoValidoDe_(serieNormalizada);
+  const diasSuspeitos = (serieNormalizada.suspeitos || []).map((d) => ({ data: d.data, retorno: d.retorno })); // A-20
 
   // 13/09/2026 (correção Gorilla): o ganho em R$ também precisa descontar o
   // fluxo de caixa líquido do período (mesma lógica da % acima, TWR) - senão
@@ -1645,7 +1314,7 @@ export function calcularResumoRentabilidade(patrimonio, historico, { visaoId = '
     }
   }
 
-  return { valorAtual, ganhoReais, percentual, dataFim: terminaAntes ? fimJanela : null };
+  return { valorAtual, ganhoReais, percentual, dataFim: terminaAntes ? fimJanela : null, diasSuspeitos };
 }
 
 /**
@@ -1666,7 +1335,7 @@ export function somarProventosNoPeriodo(historico, periodoId, campoCorte, campos
 
 export function renderInfoRentabilidade(doc, container, { patrimonio, historico, visaoId = 'total', periodoId = '12m', label = null, formatarMoeda = formatBRL, camposProventos = null, comparativo = null } = {}) {
   if (!container) return;
-  const { valorAtual, ganhoReais, percentual: ultimoValido, dataFim } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
+  const { valorAtual, ganhoReais, percentual: ultimoValido, dataFim, diasSuspeitos } = calcularResumoRentabilidade(patrimonio, historico, { visaoId, periodoId });
 
   // 02/10/2026: intervalo personalizado que termina antes de hoje - o valor é o do fim dele
   const sufixoData = dataFim ? ` <span class="rentab-card-em">em ${formatDateBR(dataFim)}</span>` : '';
@@ -1689,17 +1358,19 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
     // e um "-R$ 107,39" aparecia verde.
     const good = ultimoValido >= 0;
     const misto = typeof ganhoReais === 'number' && Math.abs(ganhoReais) >= 0.005 && (ganhoReais >= 0) !== good;
-    deltaEl.className = `rentab-card-delta ${misto ? 'misto' : (good ? 'good' : 'bad')}`;
+    deltaEl.className = `rentab-card-delta ${misto ? 'misto' : (variacaoNula(ultimoValido) ? 'na' : (good ? 'good' : 'bad'))}`;
     deltaEl.textContent = '';
     if (typeof ganhoReais === 'number') {
       const reaisEl = doc.createElement('span');
       reaisEl.className = `delta-reais ${ganhoReais >= 0 ? 'good' : 'bad'}`;
-      reaisEl.textContent = `${ganhoReais >= 0 ? '+' : '-'}${formatarMoeda(Math.abs(ganhoReais))}`;
+      reaisEl.textContent = `${ganhoReais >= 0 ? '+' : '−'}${formatarMoeda(Math.abs(ganhoReais))}`;
       deltaEl.append(reaisEl, ' ');
     }
     const pctEl = doc.createElement('span');
     pctEl.className = `delta-pct ${good ? 'good' : 'bad'}`;
-    pctEl.textContent = formatPercentFromPoints(ultimoValido);
+    // 06/10/2026 (kit): variação sempre com ícone de tendência (nunca só cor)
+    if (!variacaoNula(ultimoValido)) pctEl.append(icone(doc, good ? 'trending-up' : 'trending-down'));
+    pctEl.append(formatPercentFromPoints(ultimoValido));
     deltaEl.append(pctEl, ' no período');
     // 24/09/2026: proventos recebidos na mesma janela (Carteiras)
     const proventos = camposProventos ? somarProventosNoPeriodo(historico, periodoId, CAMPO_PRINCIPAL_POR_VISAO[visaoId] || 'patrimonio', camposProventos) : null;
@@ -1708,6 +1379,16 @@ export function renderInfoRentabilidade(doc, container, { patrimonio, historico,
       sub.className = 'rentab-card-sub rentab-card-proventos';
       sub.textContent = `Proventos recebidos no período: ${formatarMoeda(proventos)}`;
       container.append(sub);
+    }
+    // 05/10/2026 (A-20): dia com variação fora da faixa plausível = dado ruim no histórico; o % o
+    // desconsidera (0% naquele dia), o ganho em R$ não - avisa em vez de esconder.
+    if (diasSuspeitos && diasSuspeitos.length) {
+      const aviso = doc.createElement('div');
+      aviso.className = 'rentab-card-sub rentab-card-aviso';
+      const exemplos = diasSuspeitos.slice(0, 3).map((d) => `${d.data ? formatDateBR(d.data) : '?'} (${formatPercentFromPoints(d.retorno)})`).join(', ');
+      aviso.textContent = `Atenção: ${diasSuspeitos.length} dia${diasSuspeitos.length === 1 ? '' : 's'} com variação fora do normal no histórico (${exemplos}${diasSuspeitos.length > 3 ? '…' : ''}). O % desconsidera ${diasSuspeitos.length === 1 ? 'esse dia' : 'esses dias'}; o ganho em R$ não, então os dois podem divergir.`;
+      aviso.title = 'Variação diária fora de -50% a +100%: provável defeito nos dados (preço ou fluxo de caixa desalinhados).';
+      container.append(aviso);
     }
   } else {
     deltaEl.className = 'rentab-card-delta na';
@@ -1779,8 +1460,8 @@ export function renderInfoEvolucao(doc, container, { label = 'Patrimônio', valo
     return;
   }
   setValorComDec(container.querySelector('.rentab-card-value'), formatarMoeda(r.final));
-  const sinal = (v) => (v >= 0 ? '+' : '-');
-  deltaEl.className = `rentab-card-delta ${r.variacao >= 0 ? 'good' : 'bad'}`;
+  const sinal = (v) => (v >= 0 ? '+' : '−');
+  deltaEl.className = `rentab-card-delta ${Math.abs(r.variacao) < 0.005 ? 'na' : (r.variacao >= 0 ? 'good' : 'bad')}`;
   // Sem % na variação da linha: com aporte no meio, "subiu 5.000%" (desde
   // o início) não diz nada - o % que importa aqui é a distância pro Valor
   // aplicado; o rendimento do período (sem aporte) é o do gráfico de
@@ -1832,7 +1513,7 @@ function comparativoDoPainel_(estado, visaoId) {
 }
 
 /**
- * Liga os pills de período (#periodoTabs) - um filtro só, compartilhado
+ * Liga o seletor de período segmentado (#periodoTabs) - um filtro só, compartilhado
  * pelos 3 cartões de Rentabilidade (Total/Longo Prazo/Renda Emergencial),
  * sempre visíveis ao mesmo tempo. `paineis` é um array com um item por
  * visão - { visaoId, chartContainer, legendaContainer, infoContainer } -
@@ -1843,11 +1524,6 @@ function comparativoDoPainel_(estado, visaoId) {
  * montarPaginaInicio agora passa periodoInicial:'mes' explicitamente, e o
  * default do parâmetro também foi atualizado pra "mes" por segurança, caso
  * algum outro chamador não passe o valor).
- *
- * Também escuta "resize" da janela (com debounce de 150ms) e redesenha -
- * necessário porque cada gráfico agora usa a largura REAL do cartão no
- * momento do desenho (ver renderGraficoRentabilidade); sem isso, redimen-
- * sionar a janela deixaria o desenho com a medida antiga.
  *
  * 14/09/2026 (botão "Atualizar dados" + timer automático - ver
  * shell.js!mountRefreshControl): montarPaginaInicio agora pode chamar
@@ -1919,42 +1595,9 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
     if (filtro) estado.periodoAtual = filtro.periodo;
   }
 
-  const janela = doc.defaultView;
-  if (janela && typeof janela.addEventListener === 'function') {
-    let timerResize = null;
-    janela.addEventListener('resize', () => {
-      if (timerResize) janela.clearTimeout(timerResize);
-      timerResize = janela.setTimeout(estado.atualizar, 150);
-    });
-  }
-
+  // 06/10/2026 (Onda 3): sem ouvir "resize" nem a troca de fonte - os gráficos da biblioteca acompanham a largura do
+  // cartão sozinhos (ResizeObserver) e redesenham sem recriar.
   estado.atualizar();
-
-  // 19/09/2026 (bug relatado pelo Tiago com print): ao entrar na Início,
-  // o gráfico às vezes desenha "torto" por alguns segundos e depois volta
-  // ao normal sozinho, sem o usuário redimensionar a janela. Causa:
-  // larguraReal_ mede clientWidth do cartão no momento do 1º desenho
-  // (linha acima), mas a fonte 'IBM Plex Mono'/'Fraunces' (index.html usa
-  // display=swap no Google Fonts) pode ainda não ter carregado - o
-  // primeiro desenho usa a fonte de fallback do navegador, e quando a
-  // fonte troca (font swap) o layout do cartão pode mudar de largura o
-  // suficiente pra deixar o SVG (que usa 1 unidade = 1px da largura
-  // MEDIDA naquele instante) com a proporção errada, até algo redesenhar
-  // de novo - hoje só "resize" da janela fazia isso, então sem o usuário
-  // redimensionar, ficava torto pro resto da visita. document.fonts.ready
-  // resolve assim que as 3 fontes terminam de carregar (1x só, sem
-  // religar o listener de novo em cada refresh - por isso está fora de
-  // periodoTabsContainer._graficoEstado, que já lida com "não religar 2x").
-  // Ambiente sem essa API (jsdom dos testes) - document.fonts não existe -
-  // simplesmente não redesenha de novo, sem erro (fica só o desenho normal).
-  const fontsReady = doc.fonts && typeof doc.fonts.ready?.then === 'function' ? doc.fonts.ready : null;
-  if (fontsReady && !(periodoTabsContainer && periodoTabsContainer._fontsReadyLigado)) {
-    if (periodoTabsContainer) periodoTabsContainer._fontsReadyLigado = true;
-    fontsReady.then(() => {
-      const estadoAtual = periodoTabsContainer ? periodoTabsContainer._graficoEstado : estado;
-      if (estadoAtual) estadoAtual.atualizar();
-    });
-  }
 }
 
 // ============================================================================
@@ -1962,9 +1605,6 @@ export function wireGraficoRentabilidade(doc, { patrimonio, historico, periodoTa
 // ============================================================================
 
 const CLASSE_LABEL_ATIVO = { acoes: 'Ação', fiis: 'FII', usa: 'EUA', rf: 'RF' };
-
-/** Ícone do botão "ver gráfico" (.ativo-grafico-icon, criarAtivoCard) - eixo + linha subindo, mesmo padrão de SVG inline (stroke, sem fill) já usado no botão "Editar" do Radar (distribuicoes-metas.js). */
-const ICONE_GRAFICO_ATIVO_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>';
 
 /**
  * Linhas do tooltip de hover/touch de cada .ativo-card, por classe - layout
@@ -2039,34 +1679,38 @@ export function criarAtivoCard(doc, ativo, { favorito = false } = {}) {
   card.href = urlAtivo(refAtivo(ativo)); // 25/09/2026: tela Detalhe do ativo (ativo/index.html)
 
   const viesHtml = ativo.vies
-    ? `<span class="vies-badge ${ativo.vies}">${ativo.vies === 'comprar' ? 'Comprar' : 'Aguardar'}</span>`
+    ? `<span class="vies-badge chip-tonal ${ativo.vies === 'comprar' ? 'chip-good' : 'chip-warn'} ${ativo.vies}">${ativo.vies === 'comprar' ? 'Comprar' : 'Aguardar'}</span>`
     : '';
 
   let precoHtml;
   let deltaHtml;
   let detalheHtml;
 
+  // 06/10/2026 (kit): variação do dia com ícone de tendência (nunca só cor) - 0,00% é neutro
+  const deltaDoDia = () => {
+    const tem = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia);
+    if (!tem) return '<div class="ativo-delta na">—</div>';
+    const nulo = variacaoNula(ativo.variacaoDia, { fracao: true });
+    const sobe = ativo.variacaoDia >= 0;
+    const tom = nulo ? 'na' : (sobe ? 'good' : 'bad');
+    const ico = nulo ? 'trending-flat' : (sobe ? 'trending-up' : 'trending-down');
+    return `<div class="ativo-delta ${tom}"><svg class="ico" aria-hidden="true"><use href="#ico-${ico}"/></svg>${formatPercentFromFraction(ativo.variacaoDia)} <span class="dim">hoje</span></div>`;
+  };
+
   if (ativo.classe === 'rf') {
     precoHtml = `<div class="ativo-price"></div>`;
-    const temVariacao = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia);
-    const good = temVariacao && ativo.variacaoDia >= 0;
-    deltaHtml = temVariacao
-      ? `<div class="ativo-delta ${good ? 'good' : 'bad'}">${formatPercentFromFraction(ativo.variacaoDia)} <span class="dim">hoje</span></div>`
-      : '';
+    deltaHtml = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia) ? deltaDoDia() : '';
     detalheHtml = `<div class="ativo-detalhe">${[ativo.indexador, ativo.vencimento ? `vence ${ativo.vencimento}` : null].filter(Boolean).join(' · ')}</div>`;
   } else {
-    const temVariacao = typeof ativo.variacaoDia === 'number' && Number.isFinite(ativo.variacaoDia);
-    const good = temVariacao && ativo.variacaoDia >= 0;
     precoHtml = `<div class="ativo-price"></div>`;
-    deltaHtml = temVariacao
-      ? `<div class="ativo-delta ${good ? 'good' : 'bad'}">${formatPercentFromFraction(ativo.variacaoDia)} <span class="dim">hoje</span></div>`
-      : '<div class="ativo-delta na">—</div>';
+    deltaHtml = deltaDoDia();
     const desconto = ativo.classe === 'usa' || ativo.classe === 'acoes' ? ativo.descontoPL : ativo.descontoPVp;
     detalheHtml = desconto ? `<div class="ativo-detalhe">Desconto: ${desconto}</div>` : '';
   }
 
   card.innerHTML = `
     <div class="ativo-card-top">
+      ${ativo.classe === 'rf' ? '' : logoCirculoHtml(ativo.ticker)}
       <div class="ativo-id">
         <span class="ativo-ticker">${ativo.ticker}</span>
         <span class="ativo-classe ${ativo.classe}">${CLASSE_LABEL_ATIVO[ativo.classe] || ativo.classe}</span>
@@ -2078,8 +1722,8 @@ export function criarAtivoCard(doc, ativo, { favorito = false } = {}) {
     ${detalheHtml}
     <div class="ativo-card-acoes">
       ${htmlBotaoFavorito(ativo, favorito)}
-      <span class="ativo-grafico-icon" aria-label="Ver gráfico de preço">${ICONE_GRAFICO_ATIVO_SVG}</span>
-      <span class="ativo-info-icon" aria-label="Informações rápidas">i</span>
+      <span class="ativo-grafico-icon" role="button" tabindex="0" aria-label="Ver gráfico de preço" title="Ver gráfico de preço"><svg class="ico" aria-hidden="true"><use href="#ico-show-chart"/></svg></span>
+      <span class="ativo-info-icon" role="button" tabindex="0" aria-label="Informações rápidas" title="Informações rápidas"><svg class="ico" aria-hidden="true"><use href="#ico-info"/></svg></span>
     </div>
   `;
 
@@ -2104,47 +1748,6 @@ export function criarAtivoCard(doc, ativo, { favorito = false } = {}) {
   card._ativoTooltip = ativo;
 
   return card;
-}
-
-/** Renderiza a grade de Meus Ativos, filtrando por classe ('todos' mostra tudo). Esvazia `container` antes. */
-export function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos') {
-  container.innerHTML = '';
-  const lista = (ativos || []).filter((a) => filtroClasse === 'todos' || a.classe === filtroClasse);
-
-  if (!lista.length) {
-    container.innerHTML = '<p class="hint">Nenhum ativo nessa categoria.</p>';
-    return;
-  }
-
-  // 23/09/2026: estrela acesa pros favoritos (container._favoritosIds vem de
-  // montarFavoritos, inicio-favoritos.js - vale também quando a aba de
-  // classe troca e a grade é redesenhada)
-  const favs = container._favoritosIds;
-  lista.forEach((ativo) => container.appendChild(criarAtivoCard(doc, ativo, { favorito: !!(favs && favs.has(idFavoritoDoAtivo(ativo))) })));
-}
-
-/** Liga as abas de categoria (#filtroAtivosTabs) à re-renderização da grade - ativos já veio inteiro na primeira chamada, nunca busca de novo. */
-export function wireFiltroAtivos(doc, tabsContainer, gridContainer, ativos) {
-  if (!tabsContainer) return;
-  tabsContainer._ativosAtuais = ativos;
-
-  if (tabsContainer._filtroWired) {
-    // Refresh (dado novo) - a aba clicada continua a mesma, só redesenha
-    // a grade com o `ativos` novo, sem religar o clique (ver
-    // wireGraficoRentabilidade acima pro mesmo raciocínio completo).
-    const ativa = tabsContainer.querySelector('.filter-tab.active');
-    renderMeusAtivos(doc, gridContainer, ativos, ativa ? ativa.dataset.classe : 'todos');
-    return;
-  }
-  tabsContainer._filtroWired = true;
-
-  const botoes = Array.from(tabsContainer.querySelectorAll('.filter-tab'));
-  botoes.forEach((botao) => {
-    botao.addEventListener('click', () => {
-      botoes.forEach((b) => b.classList.toggle('active', b === botao));
-      renderMeusAtivos(doc, gridContainer, tabsContainer._ativosAtuais, botao.dataset.classe);
-    });
-  });
 }
 
 /**
@@ -2306,158 +1909,51 @@ export function wireTooltipAtivos(doc, container) {
  * mes atual". Gerado aqui em JS (não em pages.html) porque o popover
  * inteiro é montado dinamicamente - 1 popover só, reaproveitado pra
  * qualquer card, nunca um HTML estático por ativo. */
-const PERIODOS_GRAFICO_ATIVO = [
-  { id: 'mes', label: 'Mês atual' },
-  { id: '30d', label: '30 dias' },
-  { id: '6m', label: '6 meses' },
-  { id: '12m', label: '12 meses' },
-  { id: '3a', label: '3 anos' },
-  { id: 'tudo', label: 'Desde o início' },
-];
-
-/** Rótulo compacto do eixo Y do gráfico de preço - só o número (sem
- * "R$"/"US$" repetido em cada marca, a moeda já aparece no tooltip ao
- * passar o mouse) porque o popover é bem mais estreito (300px) que um
- * cartão de Rentabilidade. */
-function formatEixoPrecoAtivo_(v) {
-  return formatNumeroBR(v, 2);
-}
-
-/**
- * Liga o hover (mouse) e o touch do gráfico de preço de 1 ativo -
- * adaptado de ligarInteracaoGrafico_ (gráfico de Rentabilidade, acima):
- * mesma técnica de Pointer Events sobre um <rect> transparente, mas com
- * 1 série só (sem benchmark) e tooltip mostrando o preço bruto
- * (formatMoeda: formatBRL ou formatUSD, conforme ativo.classe) em vez
- * de %. Não reaproveita ligarInteracaoGrafico_ direto porque aquela
- * função é específica da Rentabilidade (várias séries, tooltip em %) -
- * ver decisão registrada na 1ª rodada desta feature (17/09/2026).
- */
-function ligarInteracaoGraficoAtivo_(container, { janela, valores, x, y, padL, plotW, W, formatMoeda }) {
-  const svgEl = container.querySelector('svg.ativo-grafico-chart');
-  const hitarea = container.querySelector('.ativo-grafico-hitarea');
-  const hoverGroup = container.querySelector('.ativo-grafico-hover');
-  const linhaHover = container.querySelector('.ativo-grafico-hover-linha');
-  const pontoHover = container.querySelector('.ativo-grafico-hover-ponto');
-  const tooltip = container.querySelector('.ativo-grafico-tooltip');
-  if (!svgEl || !hitarea || !hoverGroup || !linhaHover || !pontoHover || !tooltip) return;
-
-  function indiceNoClientX_(clientX) {
-    const rect = svgEl.getBoundingClientRect();
-    const svgX = clientX - rect.left;
-    const fracao = plotW > 0 ? (svgX - padL) / plotW : 0;
-    return Math.min(janela.length - 1, Math.max(0, Math.round(fracao * (janela.length - 1))));
-  }
-
-  function mostrar_(clientX) {
-    const i = indiceNoClientX_(clientX);
-    const xx = x(i, janela.length);
-
-    linhaHover.setAttribute('x1', xx.toFixed(1));
-    linhaHover.setAttribute('x2', xx.toFixed(1));
-    pontoHover.removeAttribute('hidden');
-    pontoHover.setAttribute('cx', xx.toFixed(1));
-    pontoHover.setAttribute('cy', y(valores[i]).toFixed(1));
-    hoverGroup.removeAttribute('hidden');
-
-    tooltip.innerHTML = `<div class="ativo-grafico-tooltip-data">${formatDateBR(janela[i].data)}</div><b>${formatMoeda(valores[i])}</b>`;
-    tooltip.hidden = false;
-
-    const larguraTooltip = tooltip.offsetWidth || 90;
-    const esquerda = Math.min(Math.max(xx - larguraTooltip / 2, 4), Math.max(W - larguraTooltip - 4, 4));
-    tooltip.style.left = `${esquerda}px`;
-  }
-
-  function esconder_() {
-    hoverGroup.setAttribute('hidden', '');
-    tooltip.hidden = true;
-  }
-
-  hitarea.addEventListener('pointermove', (ev) => mostrar_(ev.clientX));
-  hitarea.addEventListener('pointerdown', (ev) => mostrar_(ev.clientX));
-  hitarea.addEventListener('pointerleave', esconder_);
-}
+const PERIODOS_GRAFICO_ATIVO = ['mes', '30d', '6m', '12m', '3a', 'tudo'].map((id) => ({ id, label: rotuloPeriodo(id) }));
 
 /**
  * Desenha o gráfico de PREÇO BRUTO (não %) de 1 ativo só, dentro do
  * popover "Ver gráfico" (pedido do Tiago, 17/09/2026: "Preço bruto (R$
- * ou US$, conforme o ativo)"). Reaproveita os primitivos já validados
- * do gráfico de Rentabilidade (filtrarHistoricoPorPeriodo, larguraReal_,
- * pathDRentabilidade_), mas SEM normalizar pra % - a série (`serie`,
- * vinda de getHistoricoAtivo) já está na unidade final (preço cru), só
- * plota direto. Layout mais simples (1 série, sem benchmark/legenda) e
- * mais compacto (popover é bem mais estreito que um cartão de
- * Rentabilidade) que renderGraficoRentabilidade.
+ * ou US$, conforme o ativo)"). 06/10/2026 (Onda 3): agora com a biblioteca
+ * única de gráficos (linha + área suave, crosshair, tooltip escura); trocar
+ * de período só atualiza a instância (a linha morfa). A série (`serie`,
+ * vinda de getHistoricoAtivo) já está na unidade final (preço cru).
  */
 function renderGraficoPrecoAtivo_(doc, container, { serie, periodoId = 'mes', formatMoeda }) {
   const janela = filtrarHistoricoPorPeriodo(serie, periodoId);
   if (janela.length < 2) {
+    destruirGraficoDe_(container);
     container.innerHTML = '<p class="hint">Sem histórico suficiente ainda pra desenhar o gráfico nesse período.</p>';
     return;
   }
-
-  const valores = janela.map((item) => item.preco);
-  const W = larguraReal_(container);
-  const H = 140;
-  const padL = 42, padR = 8, padT = 10, padB = 20;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-
-  let minV = Math.min(...valores);
-  let maxV = Math.max(...valores);
-  const folga = (maxV - minV) * 0.12 || Math.abs(maxV) * 0.05 || 1;
-  minV -= folga; maxV += folga;
-
-  const y = (v) => padT + plotH * (1 - (v - minV) / (maxV - minV));
-  const x = (i, n) => padL + plotW * (n > 1 ? i / (n - 1) : 0);
-
-  const ticks = 3;
-  let gridSvg = '';
-  for (let t = 0; t <= ticks; t += 1) {
-    const v = minV + (maxV - minV) * (t / ticks);
-    const yy = y(v);
-    gridSvg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${yy.toFixed(1)}" y2="${yy.toFixed(1)}"/>`;
-    gridSvg += `<text class="axislabel" x="${padL - 6}" y="${(yy + 3).toFixed(1)}" text-anchor="end">${formatEixoPrecoAtivo_(v)}</text>`;
+  const dados = {
+    series: [{ id: 'preco', nome: 'Preço', valores: janela.map((item) => item.preco), cor: 'var(--md-sys-color-primary)', area: true }],
+    eixoX: janela.map((p) => ({ rotulo: dataCurta_(p.data), data: p.data })),
+  };
+  if (container._graficoLib && container.querySelector('svg')) {
+    container._graficoLib.atualizar(dados);
+    return;
   }
-
-  const passos = 3;
-  let xLabelsSvg = '';
-  for (let i = 0; i < passos; i += 1) {
-    const idx = Math.round((janela.length - 1) * (i / (passos - 1)));
-    const xx = padL + plotW * (i / (passos - 1));
-    const ancora = i === 0 ? 'start' : (i === passos - 1 ? 'end' : 'middle');
-    xLabelsSvg += `<text class="axislabel" x="${xx.toFixed(1)}" y="${H - 5}" text-anchor="${ancora}">${formatDateBR(janela[idx].data)}</text>`;
-  }
-
-  const pathSvg = `<path d="${pathDRentabilidade_(valores, x, y)}" fill="none" stroke="var(--acoes)" stroke-width="2.2"/>`;
-
-  container.innerHTML = `
-    <svg class="ativo-grafico-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-      ${gridSvg}${xLabelsSvg}${pathSvg}
-      <g class="ativo-grafico-hover" hidden>
-        <line class="ativo-grafico-hover-linha" x1="0" x2="0" y1="${padT}" y2="${H - padB}"/>
-        <circle class="ativo-grafico-hover-ponto" r="3.4" fill="var(--acoes)" hidden/>
-      </g>
-      <rect class="ativo-grafico-hitarea" x="${padL}" y="${padT}" width="${Math.max(plotW, 0)}" height="${Math.max(plotH, 0)}" fill="transparent" pointer-events="all"/>
-    </svg>
-    <div class="ativo-grafico-tooltip" hidden></div>
-  `;
-
-  ligarInteracaoGraficoAtivo_(container, { janela, valores, x, y, padL, plotW, W, formatMoeda });
+  destruirGraficoDe_(container);
+  container.innerHTML = '';
+  container._graficoLib = criarGraficoLinha(container, {
+    ...dados, altura: 160, ticksY: 3, area: true, legenda: false, botaoTabela: false, maxRotulosX: 3,
+    formatarY: (v) => formatNumeroBR(v, 2), formatarValor: (v) => formatMoeda(v),
+    formatarX: (item) => (item && item.data ? formatDateBR(item.data) : ''),
+    aria: 'Preço do ativo no período',
+  });
 }
 
 /**
- * Monta o corpo "carregado" do popover: filtro de período (filter-tabs,
+ * Monta o corpo "carregado" do popover: filtro de período (segmentado,
  * mesmo componente/CSS de #periodoTabs) + o gráfico de preço bruto.
  * `serie` já veio inteira do back-end (getHistoricoAtivo) numa única
  * chamada - trocar de período aqui é só filtrar/redesenhar em memória,
  * sem nova chamada de rede (mesmo padrão de wireGraficoRentabilidade).
  */
 function montarCorpoGraficoAtivo_(doc, corpo, { ativo, serie }) {
-  const pillsHtml = PERIODOS_GRAFICO_ATIVO
-    .map(({ id, label }) => `<button class="filter-tab${id === 'mes' ? ' active' : ''}" type="button" data-periodo="${id}">${label}</button>`)
-    .join('');
   corpo.innerHTML = `
-    <div class="ativo-grafico-periodo filter-tabs">${pillsHtml}</div>
+    <div class="ativo-grafico-periodo">${botoesSegmentadoHtml(PERIODOS_GRAFICO_ATIVO.map(({ id }) => id), 'mes')}</div>
     <div class="ativo-grafico-chart-wrap"></div>
   `;
 
@@ -2514,7 +2010,7 @@ export function wireGraficoAtivo(doc, container, { token, getHistoricoAtivoImpl 
   popover.innerHTML = `
     <div class="ativo-grafico-popover-head">
       <span class="ativo-grafico-popover-ticker"></span>
-      <button type="button" class="ativo-grafico-popover-fechar" aria-label="Fechar">×</button>
+      <button type="button" class="ativo-grafico-popover-fechar" aria-label="Fechar"><svg class="ico" aria-hidden="true"><use href="#ico-close"/></svg></button>
     </div>
     <div class="ativo-grafico-popover-corpo"></div>
   `;
@@ -2619,22 +2115,31 @@ export function wireGraficoAtivo(doc, container, { token, getHistoricoAtivoImpl 
     esconder_();
   }
 
+  /** 06/10/2026 (A-59, teclado): o ícone é um role=button num <span> - Enter/Espaço fazem o mesmo que o clique; Esc fecha. */
+  function aoTecla_(ev) {
+    if (ev.key === 'Escape') { if (cardAberto) esconder_(); return; }
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const icone = typeof ev.target.closest === 'function' ? ev.target.closest('.ativo-grafico-icon') : null;
+    if (!icone) return;
+    ev.preventDefault();
+    icone.click();
+  }
+
   container.addEventListener('click', aoClicar_);
+  container.addEventListener('keydown', aoTecla_);
   popover.addEventListener('click', aoClicar_);
+  popover.addEventListener('keydown', aoTecla_);
   (doc.body ? doc : container).addEventListener('pointerdown', aoTocarFora_, true);
 }
 
-/** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. */
+const NOMES_AVISOS = {
+  home: 'dados gerais', historico: 'histórico de rentabilidade', historicoAoVivo: 'último ponto do histórico', ativos: 'meus ativos',
+  ontem: 'comparação com o último fechamento', favoritos: 'favoritos', proventosAnunciados: 'proventos anunciados',
+};
+
+/** Banner de avisos (falha parcial de alguma seção) - some quando não há nenhum. Texto de gente; detalhe técnico num <details>. */
 export function renderAvisos(container, avisos) {
-  if (!avisos || Object.keys(avisos).length === 0) {
-    container.innerHTML = '';
-    container.hidden = true;
-    return;
-  }
-  container.innerHTML = `Algumas seções não carregaram agora: ${Object.entries(avisos)
-    .map(([secao, erro]) => `<b>${secao}</b>: ${erro}`)
-    .join(' · ')}`;
-  container.hidden = false;
+  renderAvisosParciais(container, avisos, NOMES_AVISOS);
 }
 
 /**
@@ -2647,7 +2152,18 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   const loadingEl = doc.getElementById('inicioLoading');
   const erroEl = doc.getElementById('inicioErro');
   const conteudoEl = doc.getElementById('inicioConteudo');
-  const refreshControlEl = doc.getElementById('refreshControlInicio');
+  // 06/10/2026 (Onda 3): cabeçalho padrão da página (título + "Atualizar dados" à direita). Sem o contêiner (HTML antigo em
+  // cache), o botão cai no espaço antigo.
+  const cabecalhoEl = doc.getElementById('inicioCabecalho');
+  const cabecalho = cabecalhoEl ? montarCabecalhoPagina(cabecalhoEl, {
+    secao: 'Início', titulo: 'Início', subtitulo: 'Sua carteira e o mercado de hoje', refresh: true,
+  }) : null;
+  const refreshControlEl = (cabecalho && cabecalho.refreshEl) || doc.getElementById('refreshControlInicio');
+  const periodoEl = doc.getElementById('periodoTabs');
+  if (periodoEl && !periodoEl.querySelector('[data-periodo]')) periodoEl.innerHTML = botoesSegmentadoHtml(['mes', '30d', '6m', '12m', '3a', 'tudo'], 'mes');
+  // celular: "Por visão" começa recolhido (o gráfico do patrimônio total já está à vista)
+  const maisEl = doc.getElementById('rentabMais');
+  try { if (maisEl && doc.defaultView && doc.defaultView.matchMedia && doc.defaultView.matchMedia('(max-width: 700px)').matches) maisEl.open = false; } catch (e) { /* sem matchMedia */ }
   // Partial antigo em cache (HTML de antes de 26/09 com o JS novo): desenha a
   // faixa no lugar dos cartões antigos em vez de deixar "Índices & câmbio" vazio.
   const faixaEl = doc.getElementById('faixaMercado') || doc.getElementById('indicesCambioGrid');
@@ -2661,7 +2177,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   let ultimaBuscaIntradia = 0;
   let pendentesIntradia = new Set();
   let agendado = false;
-  const hojeISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const hojeISO = () => hojeSP(); // 05/10/2026: o mesmo "hoje" (São Paulo) de format.js
   function aplicarIntradia(series) {
     if (!conteudoEl) return;
     preencherIntradia(conteudoEl, series, { hojeISO: hojeISO() });
@@ -2710,10 +2226,7 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
     if (loadingEl) loadingEl.hidden = true;
 
     if (!resposta.ok) {
-      if (erroEl) {
-        erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar a Início agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
-      }
+      if (erroEl) mostrarErroCarga(erroEl, { tela: 'Início', resposta, aoTentar: carregarERedesenhar, doc });
       return;
     }
 
@@ -2727,7 +2240,8 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
       ativos: resposta.ativos,
       cambio: resposta.cambio,
       ontem: resposta.ontem,
-    });
+      historico: resposta.historico,
+    }, { distribuicaoEl: doc.getElementById('resumoDistribuicao') });
 
     const PAINEIS_RENTABILIDADE = [
       { visaoId: 'total', sufixo: 'Total' },
@@ -2806,7 +2320,8 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   // a última resposta guardada (cache-dados.js, IndexedDB) e busca a nova por
   // trás; se a nova falhar, o que já está na tela fica (com o aviso de erro).
   async function carregarERedesenhar() {
-    const resposta = await getHomeImpl(token);
+    let resposta;
+    try { resposta = await getHomeImpl(token); } catch (erro) { resposta = { ok: false, etapa: 'network', erro: erro && erro.message ? erro.message : String(erro) }; }
     if (resposta && resposta.ok) gravarCacheDados('home', resposta);
     desenharResposta(resposta);
   }

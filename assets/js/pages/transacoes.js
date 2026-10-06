@@ -16,7 +16,7 @@
 // e shell.js); aqui a gente escuta, troca pra aba Lançamentos, filtra pelo
 // ativo e abre o gráfico (busca o histórico de preço via getHistoricoAtivo).
 
-import { publicarAportesPendentes } from '../carrinho-header.js';
+import { publicarAportesPendentes, EVENTO_ABRIR_LANCAMENTOS } from '../carrinho-header.js';
 import { getTransacoes, salvarAporte, excluirAporte, salvarCaixaDolar, excluirCaixaDolar, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -24,10 +24,12 @@ import { carrinhoValido } from './aportes-calc.js';
 import { CHAVE_CARRINHO, EVENTO_CARRINHO, EVENTO_ABRIR_CARRINHO } from '../carrinho-global.js';
 import { renderAportes, estadoInicialAportes } from './aportes.js';
 import { renderLancamentos, estadoInicialLancamentos, carregarSheetJs, abrirGraficoPara } from './lancamentos.js';
+import { montarCabecalhoPagina, mostrarErroCarga, toast } from '../ui/index.js'; // 06/10/2026 (Onda 3, kit Figma)
 
 const CHAVE_CACHE = 'transacoes';
 const CHAVE_ABA = 'transacoes.aba.v1';
 const ABAS = [{ id: 'aportes', nome: 'Aportes' }, { id: 'lancamentos', nome: 'Lançamentos' }];
+const SECAO = 'Transações';
 
 function lerLocal(chave) {
   try { return JSON.parse(globalThis.localStorage.getItem(chave) || 'null'); } catch (e) { return null; }
@@ -57,13 +59,7 @@ function baixarArquivo(doc, nome, conteudo) {
   if (url && win.URL.revokeObjectURL) setTimeout(() => win.URL.revokeObjectURL(url), 1000);
 }
 
-function topoHtml(estado, dados) {
-  const aguardando = (dados.aportes || []).filter((a) => a.status === 'aguardando').length;
-  return `
-    <div class="tx-abas" role="tablist" aria-label="Transações">
-      ${ABAS.map((a) => `<button type="button" role="tab" class="tx-aba${estado.aba === a.id ? ' active' : ''}" data-aba="${a.id}" aria-selected="${estado.aba === a.id}" aria-controls="txPainel-${a.id}">${a.nome}${a.id === 'aportes' && aguardando ? `<span class="tx-aba-n" title="Aportes aguardando valores finais">${aguardando}</span>` : ''}</button>`).join('')}
-    </div>`;
-}
+const aguardandoDe = (dados) => ((dados && dados.aportes) || []).filter((a) => a.status === 'aguardando').length;
 
 /**
  * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, salvarCaixaDolarImpl, excluirCaixaDolarImpl, importarImpl, carregarXlsx, getHistoricoAtivoImpl }
@@ -71,15 +67,32 @@ function topoHtml(estado, dados) {
 export async function montarPaginaTransacoes(token, {
   doc = document, getTransacoesImpl = getTransacoes, salvarAporteImpl = salvarAporte, excluirAporteImpl = excluirAporte,
   salvarCaixaDolarImpl = salvarCaixaDolar, excluirCaixaDolarImpl = excluirCaixaDolar,
-  importarImpl = importarLancamentos, carregarXlsx = carregarSheetJs, getHistoricoAtivoImpl = getHistoricoAtivo,
+  importarImpl = importarLancamentos, carregarXlsx = carregarSheetJs, getHistoricoAtivoImpl = getHistoricoAtivo, carregarMetas = undefined,
 } = {}) {
   const loadingEl = doc.getElementById('transacoesLoading');
   const erroEl = doc.getElementById('transacoesErro');
   const conteudo = doc.getElementById('transacoesConteudo');
-  const refreshEl = doc.getElementById('refreshControlTransacoes');
   const win = doc.defaultView;
   const estado = { aba: abaInicial(win), aportes: null, lancamentos: estadoInicialLancamentos() };
   let dados = null;
+
+  // 06/10/2026 (Onda 3): cabeçalho padrão (título, subtítulo, Atualizar dados) com as abas em pílula = subpáginas;
+  // document.title "<Subaba> · Transações · Patrimônio" (A-69)
+  let cabEl = doc.getElementById('txCabecalho');
+  if (!cabEl) { cabEl = doc.createElement('div'); cabEl.id = 'txCabecalho'; conteudo.parentNode.insertBefore(cabEl, conteudo.parentNode.firstChild); }
+  const cab = montarCabecalhoPagina(cabEl, {
+    secao: SECAO, subaba: (ABAS.find((a) => a.id === estado.aba) || ABAS[0]).nome, titulo: 'Transações',
+    subtitulo: 'Monte o aporte do dia, confira o que aguarda valores finais e lance os extratos da B3 e da Interactive Brokers.',
+    refresh: true,
+    abas: {
+      pilula: {
+        rotulo: 'Transações', ativo: estado.aba, idBase: 'txAbas',
+        itens: ABAS.map((a) => ({ id: a.id, rotulo: a.nome })),
+        aoMudar(id) { trocarAba(id, { sincronizarAbas: false }); },
+      },
+    },
+    doc,
+  });
 
   // 05/10/2026: o carrinho guarda o dólar da hora (o header soma os itens em US$ com ele) e avisa o
   // header de todas as telas (evento carrinho:mudou) pra atualizar o ícone/contagem.
@@ -91,9 +104,27 @@ export async function montarPaginaTransacoes(token, {
     }
   };
 
+  /** A contagem de "aguardando valores finais" fica na aba Aportes (como o selo das abas do kit). */
   function desenharTopo() {
-    const topo = conteudo.querySelector('#txTopo');
-    if (topo) topo.innerHTML = topoHtml(estado, dados);
+    const n = aguardandoDe(dados);
+    cab.abas.pilula.atualizarItem('aportes', { contagem: n || '' });
+    const botaoAportes = cab.abas.pilula.botao('aportes');
+    const marca = botaoAportes && botaoAportes.querySelector('.tab-n');
+    if (marca) marca.title = 'Aportes aguardando valores finais';
+  }
+
+  /** Troca a aba (clique, atalho do header ou gráfico do mapa): guarda a escolha, atualiza #hash, título e painel. */
+  function trocarAba(id, { sincronizarAbas = true, persistirHash = true } = {}) {
+    estado.aba = id;
+    gravarLocal(CHAVE_ABA, id);
+    if (persistirHash && win && win.history && typeof win.history.replaceState === 'function') {
+      try { win.history.replaceState(null, '', `#${id}`); } catch (e) { /* ok */ }
+    }
+    if (sincronizarAbas) cab.abas.pilula.selecionar(id);
+    cab.definirTitulo('Transações', { subaba: (ABAS.find((a) => a.id === id) || ABAS[0]).nome, secao: SECAO });
+    if (!dados) return; // ainda carregando: o painel aparece quando os dados chegarem
+    desenharTopo();
+    desenharPainel();
   }
 
   function desenharPainel() {
@@ -103,13 +134,19 @@ export async function montarPaginaTransacoes(token, {
     pL.hidden = estado.aba !== 'lancamentos';
     if (estado.aba === 'aportes') {
       renderAportes({
-        doc, el: pA, dados, estado: estado.aportes, salvarCarrinho,
+        doc, el: pA, dados, estado: estado.aportes, salvarCarrinho, carregarMetas,
         salvarAporte: (aporte) => salvarAporteImpl(token, aporte),
         excluirAporte: (id) => excluirAporteImpl(token, id),
         salvarCaixaDolar: (mov) => salvarCaixaDolarImpl(token, mov),
         excluirCaixaDolar: (id) => excluirCaixaDolarImpl(token, id),
         aoMudarCaixa: (caixa) => { dados.caixaDolar = caixa; gravarCacheDados(CHAVE_CACHE, dados); },
-        aoMudarDados: (aportes) => { dados.aportes = aportes; gravarCacheDados(CHAVE_CACHE, dados); desenharTopo(); publicarAportesPendentes(aportes, { win }); },
+        aoMudarDados: (aportes, aConfirmar) => {
+          dados.aportes = aportes;
+          if (Array.isArray(aConfirmar)) dados.aConfirmar = aConfirmar; // 05/10/2026 (A-24)
+          gravarCacheDados(CHAVE_CACHE, dados);
+          desenharTopo();
+          publicarAportesPendentes(aportes, { win, aConfirmar: dados.aConfirmar });
+        },
       });
     } else {
       renderLancamentos({
@@ -124,7 +161,7 @@ export async function montarPaginaTransacoes(token, {
 
   function desenhar(novos) {
     dados = novos;
-    publicarAportesPendentes(dados && dados.aportes, { win }); // 06/10/2026: aviso do header
+    publicarAportesPendentes(dados && dados.aportes, { win, aConfirmar: dados && dados.aConfirmar }); // 06/10/2026: aviso do header (+ 05/10/2026, A-24: lançamentos a confirmar)
     if (!estado.aportes) {
       estado.aportes = estadoInicialAportes(dados, carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje));
       if (String((win && win.location && win.location.hash) || '') === '#carrinho') estado.aportes.carrinhoAberto = true;
@@ -137,20 +174,8 @@ export async function montarPaginaTransacoes(token, {
     conteudo.hidden = false;
     if (!conteudo.querySelector('#txTopo')) {
       conteudo.innerHTML = `
-        <div id="txTopo"></div>
-        <div class="tx-painel" id="txPainel-aportes" role="tabpanel"></div>
-        <div class="tx-painel" id="txPainel-lancamentos" role="tabpanel" hidden></div>`;
-      conteudo.querySelector('#txTopo').addEventListener('click', (ev) => {
-        const b = ev.target.closest('[data-aba]');
-        if (!b) return;
-        estado.aba = b.getAttribute('data-aba');
-        gravarLocal(CHAVE_ABA, estado.aba);
-        if (win && win.history && typeof win.history.replaceState === 'function') {
-          try { win.history.replaceState(null, '', `#${estado.aba}`); } catch (e) { /* ok */ }
-        }
-        desenharTopo();
-        desenharPainel();
-      });
+        <div class="tx-painel" id="txPainel-aportes" role="tabpanel" aria-labelledby="txAbas-tab-aportes"></div>
+        <div class="tx-painel" id="txPainel-lancamentos" role="tabpanel" aria-labelledby="txAbas-tab-lancamentos" hidden></div>`;
       if (win && typeof win.addEventListener === 'function') {
         // 05/10/2026: o header (carrinho em andamento) pode descartar o carrinho ("Não comprei"), pedir
         // pra abrir ("Ir para Transações" estando aqui) ou mudar o carrinho em outra aba do navegador.
@@ -159,12 +184,17 @@ export async function montarPaginaTransacoes(token, {
           estado.aportes.carrinho = carrinhoValido(lerLocal(CHAVE_CARRINHO), dados.hoje);
           if (estado.aba === 'aportes') desenharPainel();
         });
+        // 05/10/2026 (A-24): "Ver em Lançamentos" do aviso "a confirmar" do header, estando aqui
+        win.addEventListener(EVENTO_ABRIR_LANCAMENTOS, () => {
+          if (!dados) return;
+          trocarAba('lancamentos', { persistirHash: false });
+          const lista = conteudo.querySelector('#txLista');
+          if (lista && typeof lista.scrollIntoView === 'function') lista.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
         win.addEventListener(EVENTO_ABRIR_CARRINHO, () => {
           if (!dados || !estado.aportes) return;
-          estado.aba = 'aportes';
           estado.aportes.carrinhoAberto = true;
-          desenharTopo();
-          desenharPainel();
+          trocarAba('aportes', { persistirHash: false });
           const alvo = conteudo.querySelector('#txNovoAporte');
           if (alvo && typeof alvo.scrollIntoView === 'function') alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
@@ -173,13 +203,7 @@ export async function montarPaginaTransacoes(token, {
         win.addEventListener('transacoes:verGrafico', (ev) => {
           const ticker = ev.detail && ev.detail.ativo;
           if (!ticker || !dados) return;
-          estado.aba = 'lancamentos';
-          gravarLocal(CHAVE_ABA, 'lancamentos');
-          if (win.history && typeof win.history.replaceState === 'function') {
-            try { win.history.replaceState(null, '', '#lancamentos'); } catch (e) { /* ok */ }
-          }
-          desenharTopo();
-          desenharPainel();
+          trocarAba('lancamentos');
           const pL = conteudo.querySelector('#txPainel-lancamentos');
           if (pL && pL._txCtx) abrirGraficoPara(pL._txCtx, ticker);
           const lista = conteudo.querySelector('#txLista');
@@ -191,19 +215,24 @@ export async function montarPaginaTransacoes(token, {
     desenharPainel();
   }
 
+  /** Devolve false quando a busca falha (o "Atualizar dados" mostra "Falhou"); true quando desenhou. */
   async function carregar() {
-    const r = await getTransacoesImpl(token);
+    let r;
+    try { r = await getTransacoesImpl(token); } catch (e) { r = { ok: false, erro: String((e && e.message) || e) }; }
     if (!r || !r.ok) {
       loadingEl.hidden = true;
       if (!dados) {
-        erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar as transações agora (${(r && r.etapa) || '?'}): ${(r && r.erro) || 'erro desconhecido'}.`;
+        // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica recolhido
+        mostrarErroCarga(erroEl, { tela: 'Transações', resposta: r, aoTentar: async () => { loadingEl.hidden = false; erroEl.hidden = true; await carregar(); }, doc });
+      } else {
+        toast.erro('Não consegui atualizar as transações agora. Mostrando os últimos dados.', { doc });
       }
-      return;
+      return false;
     }
     erroEl.hidden = true;
     gravarCacheDados(CHAVE_CACHE, r);
     desenhar(r);
+    return true;
   }
 
   const cache = await lerCacheDados(CHAVE_CACHE);
@@ -211,5 +240,5 @@ export async function montarPaginaTransacoes(token, {
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
-  await mountRefreshControl(doc, refreshEl, carregar, { setIntervalImpl: null }).atualizar();
+  await mountRefreshControl(doc, cab.refreshEl, carregar, { setIntervalImpl: null }).atualizar();
 }

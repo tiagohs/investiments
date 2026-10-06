@@ -1,310 +1,134 @@
 /**
- * carteiras-fiis.js — subpágina Carteiras > FIIs (action=carteirasFiis,
- * ver apps-script/CarteirasClasses.gs!montarCarteirasFiis_). Mesmo
- * molde de carteiras-acoes.js — a diferença real é P/VP no lugar de
- * P/L (FIIs não tem P/L) e Patrimônio do fundo no lugar de %/P-L, além
- * dos chips de filtro por segmento (Papel/Shopping/etc.), que só FIIs
- * tem (19/09/2026 #3, fiel ao mockup + pedido do Tiago: "lembre-se dos
- * filtros dos FIIS por tipo").
+ * carteiras-fiis.js — subpágina Carteiras > FIIs (action=carteirasFiis, ver apps-script/CarteirasClasses.gs!montarCarteirasFiis_).
+ * Mesmo molde de carteiras-acoes.js — a diferença real é P/VP no lugar de P/L (FIIs não têm P/L) e Patrimônio do fundo, além dos chips
+ * de filtro por segmento (Papel/Shopping/etc.), que só FIIs têm (19/09/2026 #3). 06/10/2026 (Onda 3, fase 2): kit Material 3.
  */
 
 import { getCarteirasFiis, getHome } from '../api-client.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatBRLCompacto, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
-import { mountRefreshControl } from '../shell.js';
-import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
+import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
 import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
 import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
-import { botaoInfoHtml,
-  proventosDoHistorico_,
-  renderResumoClasseCarteiras,
-  renderBenchmarksClasseCarteiras,
-  renderDistribuicaoGrupoCarteiras,
-  renderTabelaAtivosCarteiras,
-  renderFiltrosTabelaCarteiras,
-  filtrarAtivosPorBusca,
-  wirePointerTooltipCarteiras_,
-  wireGraficosClasseCarteiras,
-  logoAtivoHtml,
-  notaAtivoHtml,
-  statusVies,
-  contarVies_,
+import { criarGraficosCarteira } from './carteiras-graficos.js';
+import {
+  proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
+  wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, statusVies, seloViesHtml, variacaoHtml, linhaTotalHtml,
+  contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_FIIS = 'carteiras_fiis_v2';
 
-// 25/09/2026 (Tiago, ponto 3): link da carteira recomendada da Suno pra esta subpágina.
-const LINKS_RELEVANTES_FIIS = `<div class="cc-links-relevantes">
-  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/fiis" target="_blank" rel="noopener">Carteira recomendada: FIIs ↗</a>
-</div>`;
+// 25/09/2026 (Tiago, ponto 3): carteira recomendada da Suno pra esta subpágina.
+const LINKS_RELEVANTES_FIIS = [{ rotulo: 'Carteira recomendada: FIIs', href: 'https://investidor.suno.com.br/carteiras/fiis' }];
 
 const COLUNAS_ATIVOS_FIIS = [
+  { label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, topo: true, formatar: celulaAtivoRendaVariavelHtml },
   {
-    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
-      const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
-      return `<div class="cc-ativo-cel"><a class="link-ativo" href="${urlAtivoTicker(a.ticker)}" tabindex="-1" aria-hidden="true">${logoAtivoHtml(a.ticker)}</a><div><b>${notaAtivoHtml(a.ticker)}${linkAtivoComNovaAbaHtml(urlAtivoTicker(a.ticker), a.ticker, a.ticker)}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
-    },
+    label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, num: true, opc: true,
+    formatar: (a) => `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub">${variacaoHtml(a.variacaoDia)}</span>` : ''}`,
   },
+  { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, num: true, opc: true, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
   {
-    label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
-      const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
-      return `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
-    },
-  },
-  { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
-  {
-    label: 'Pr. médio', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
+    label: 'Pr. médio', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio, num: true, opc: true,
     ajuda: 'Preço médio pago por cota, ponderado por todas as compras feitas.',
     formatar: (a) => formatBRL(a.precoMedio),
   },
   {
-    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto,
+    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto, opc: true,
     ajuda: 'Compara o preço atual com o preço-teto definido por você: abaixo do teto = Comprar, acima = Aguardar.',
-    formatar: (a) => {
-      const status = statusVies(a.vies);
-      const badge = status.classe ? `<span class="status-pill ${status.classe}">${status.texto}</span>` : (status.texto || '—');
-      const teto = typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : '';
-      return `${badge}${teto}`;
-    },
+    formatar: (a) => `${seloViesHtml(a.vies) || '—'}${typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : ''}`,
   },
   {
-    label: 'DY', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
+    label: 'DY', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual, num: true, opc: true,
     ajuda: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pelo preço atual da cota.',
-    formatar: (a) => {
-      const cor = typeof a.dyPercentual === 'number' ? (a.dyPercentual >= 0 ? 'good' : 'bad') : '';
-      const pct = typeof a.dyPercentual === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.dyPercentual)}</span>` : '';
-      return `${formatBRL(a.dyValor)}${pct}`;
-    },
+    formatar: (a) => `${formatBRL(a.dyValor)}${typeof a.dyPercentual === 'number' ? `<span class="cc-sub">${formatPercentFromFraction(a.dyPercentual)}</span>` : ''}`,
   },
   {
-    label: 'P/VP', campo: 'pvp', ordenarPor: (a) => a.pvp,
+    label: 'P/VP', campo: 'pvp', ordenarPor: (a) => a.pvp, num: true, opc: true,
     ajuda: 'Preço/Valor Patrimonial: preço da cota dividido pelo valor patrimonial por cota do fundo.',
     formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—'),
   },
   {
-    label: 'Patrim. fundo', campo: 'patrimonio', ordenarPor: (a) => a.patrimonio,
+    label: 'Patrim. fundo', campo: 'patrimonio', ordenarPor: (a) => a.patrimonio, num: true, opc: true,
     formatar: (a) => (typeof a.patrimonio === 'number' ? formatBRLCompacto(a.patrimonio) : '—'),
   },
-  { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
+  { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, num: true, opc: true, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
   {
-    label: 'Total', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
+    label: 'Total', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado, num: true,
     formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
   },
   {
-    label: 'Lucro / Prejuízo', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
-    formatar: (a) => {
-      const cor = a.lucroPrejuizo >= 0 ? 'good' : 'bad';
-      return `<span class="${cor}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub ${cor}">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>`;
-    },
+    label: 'Lucro / Prejuízo', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo, num: true,
+    formatar: (a) => `<span class="${a.lucroPrejuizo >= 0 ? 'num-bom' : 'num-ruim'}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub">${variacaoHtml(a.percentualLucroPrejuizo)}</span>`,
   },
 ];
 
-/** Linha de totais no rodapé - somada a partir da lista efetivamente
- * exibida (não de dados.resumo direto), pra continuar batendo com o
- * filtro de segmento OU a busca aplicados (19/09/2026 #3: "o filtro
- * por segmento também recalcula os totais no rodapé da tabela",
- * dica do próprio mockup). Sem filtro nenhum dá exatamente igual ao
- * resumo, já que é a mesma soma. */
+/** Linha de totais no rodapé - somada da lista EXIBIDA, pra bater com o filtro de segmento OU a busca (19/09/2026 #3). */
 function montarLinhaTotalAtivos_(ativosExibidos) {
   const somaAtualizado = ativosExibidos.reduce((s, a) => s + (a.totalAtualizado || 0), 0);
   const somaComprado = ativosExibidos.reduce((s, a) => s + (a.totalComprado || 0), 0);
   const somaLucro = somaAtualizado - somaComprado;
   const percLucro = somaComprado ? somaLucro / somaComprado : 0;
-  const corLucro = somaLucro >= 0 ? 'good' : 'bad';
-  const qtd = ativosExibidos.length;
-  return `<tr>
-    <td colspan="${COLUNAS_ATIVOS_FIIS.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td data-label="Total atualizado">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
-    <td data-label="Lucro / Prejuízo"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
-  </tr>`;
+  return linhaTotalHtml(COLUNAS_ATIVOS_FIIS, `Total (${contagemTexto(ativosExibidos.length)})`, {
+    totalAtualizado: `${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span>`,
+    lucroPrejuizo: `<span class="${somaLucro >= 0 ? 'num-bom' : 'num-ruim'}">${formatBRL(somaLucro)}</span><span class="cc-sub">${variacaoHtml(percLucro)}</span>`,
+  });
 }
 
-/** Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução
- * do patrimônio) - ver o comentário grande no equivalente de
- * carteiras-acoes.js (mesmo motivo/posição no HTML, cópia deliberada). */
-function montarBlocoGraficosHtml_() {
-  return `
-    <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
-    <div class="filter-tabs" id="fiisPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
-      <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
-      <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
-      <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
-      <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
-    </div>
-    <div class="cg-chart-card">
-      <div class="rentab-card-info" id="fiisRentabInfo"></div>
-      <div id="fiisRentabChart"></div>
-      <div class="chart-legend2" id="fiisRentabLegenda"></div>
-    </div>
-
-    <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
-    <div class="cg-chart-card">
-      <div class="rentab-card-info" id="fiisEvolucaoInfo"></div>
-      <div id="fiisEvolucaoChart"></div>
-      <div class="chart-legend2" id="fiisEvolucaoLegenda"></div>
-    </div>
-  `;
-}
-
-function desenhar(doc, dados) {
+function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = null } = {}) {
   const conteudoEl = doc.getElementById('fiisConteudo');
-  conteudoEl.innerHTML = `
-    <div class="area-header"><h2>FIIs</h2><span class="hint">fundos de investimento imobiliário</span></div>
-    ${LINKS_RELEVANTES_FIIS}
-    <div id="fiisResumo"></div>
-    <div id="fiisBenchmarks" class="cc-benchmarks"></div>
-    ${montarBlocoGraficosHtml_()}
-    <div class="cc-layout-donut-tabela">
-      <div class="cc-donut-card">
-        <div class="area-header" style="margin-top:0"><h2>Por tipo</h2></div>
-        <div id="fiisDistribuicao"></div>
-      </div>
-      <div class="cc-tabela-card">
-        <div class="area-header" style="margin-top:0"><h2>Ativos</h2><span class="hint">${dados.resumo.quantidadeAtivos} ${dados.resumo.quantidadeAtivos === 1 ? 'ativo' : 'ativos'}</span></div>
-        <div id="fiisFiltros"></div>
-        <div id="fiisTabela"></div>
-      </div>
-    </div>
-    ${secaoProventosCarteiraHtml('fiisProventos')}
-    ${secaoVideosHtml('fiisVideos')}
-  `;
-
-  // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
-  // 1x no container estável (19/09/2026 #4, ver
-  // wirePointerTooltipCarteiras_ em carteiras-classe-comum.js).
+  const estadoSecoes = lerEstadoSecoes(conteudoEl);
+  conteudoEl.innerHTML = esqueletoClasseHtml({
+    prefixo: 'fiis', links: linksRelevantesHtml(LINKS_RELEVANTES_FIIS), tituloDistribuicao: 'Por tipo', tituloLista: 'Ativos', contagem: contagemTexto(dados.resumo.quantidadeAtivos),
+    extrasAposLista: `${secaoProventosCarteiraHtml('fiisProventos')}${secaoRecolhivelHtml({ nome: 'videos', id: 'fiisVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('fiisVideos') })}`,
+  });
+  const $ = (id) => doc.getElementById(id);
   wirePointerTooltipCarteiras_(doc, conteudoEl);
 
-  renderResumoClasseCarteiras(doc, doc.getElementById('fiisResumo'), dados.resumo, {
-    corToken: '--fiis',
-    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
-    // proventosDoHistorico_ em carteiras-classe-comum.js.
-    // 25/09/2026 (Tiago): proventos do mês e dos últimos 12 meses (o total desde o início fica no "i")
-    extras: [statProventosHero(dados.historico, ['proventosFiis'], { formatar: formatBRL, botaoInfoHtml })
-      || { label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosFiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais) }],
+  renderResumoClasseCarteiras(doc, $('fiisResumo'), dados.resumo, {
+    corToken: '--fiis', dono: conteudoEl,
+    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos). 25/09/2026: do mês e dos últimos 12 meses (o total desde o início fica no "i")
+    extras: [statProventosHero(dados.historico, ['proventosFiis'], { formatar: formatBRL })
+      || { rotulo: 'Proventos recebidos', valor: proventosDoHistorico_(dados.historico, 'proventosFiis', 'fluxoCaixaFiis', 'fluxoAplicadoFiis') ?? dados.resumo.proventosTotais, formatar: formatBRL }],
     vies: contarVies_(dados.ativos),
   });
-  // 19/09/2026 #2 (pedido do Tiago - FIIs ganhou Ibovespa/CDI junto do
-  // IFIX, igual às outras 3 subpáginas já tinham (só IFIX ficava
-  // sozinho antes). IFIX/Ibovespa em variação do dia (coloridos), CDI
-  // em fração a.a. (sem cor).
+  // 19/09/2026 #2: FIIs ganhou Ibovespa/CDI junto do IFIX. IFIX/Ibovespa em variação do dia (com tom), CDI em fração a.a. (neutro)
   const ifixVar = dados.benchmarks?.ifix;
   const ibovespaVar = dados.benchmarks?.ibovespa;
-  renderBenchmarksClasseCarteiras(doc, doc.getElementById('fiisBenchmarks'), [
+  renderBenchmarksClasseCarteiras(doc, $('fiisBenchmarks'), [
     { label: 'IFIX hoje', valor: typeof ifixVar === 'number' ? formatPercentFromPoints(ifixVar) : '—', cor: typeof ifixVar === 'number' ? (ifixVar >= 0 ? 'good' : 'bad') : undefined },
     { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
-  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('fiisDistribuicao'), dados.distribuicaoPorGrupo);
-  renderProventosCarteira(doc, doc.getElementById('fiisProventos'), dados.proventosAnunciados, { classes: ['fiis'] });
+
+  const graficos = criarGraficosCarteira(doc, $('fiisGraficos'), {
+    historico: dados.historico || null, chavePeriodo: 'carteiras.fiis', aoTentar: aoTentarGraficos,
+    paineis: [{
+      visaoId: 'carteiraFiis', camposProventos: ['proventosFiis'], labelInfoEvolucao: 'Patrimônio em FIIs', corToken: '--fiis',
+      analise: true, analiseExtra: { proventosAReceber: proventosAReceberDe(dados.proventosAnunciados, { classes: ['fiis'] }) }, comparativo: true,
+    }],
+  });
+  if (!(dados.historico && dados.historico.length) && !historicoPendente) graficos.erro('Não deu pra carregar os gráficos agora. O resto da página continua normal.');
+
+  renderDistribuicaoGrupoCarteiras(doc, $('fiisDistribuicao'), dados.distribuicaoPorGrupo, { dono: conteudoEl });
+  renderProventosCarteira(doc, $('fiisProventos'), dados.proventosAnunciados, { classes: ['fiis'] });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
-  const ativosBase = (dados.ativos || []).map((a) => ({
-    ...a,
-    percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0,
-  }));
-  // Chips "Todos"/segmento vêm de distribuicaoPorGrupo (já ordenada por
-  // totalAtualizado desc) - dinâmico, nunca hard-coded (se o Tiago
-  // reclassificar um FII de segmento na planilha, os chips já
-  // acompanham sem precisar mexer em código).
+  const ativosBase = (dados.ativos || []).map((a) => ({ ...a, percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0 }));
+  // Chips "Todos"/segmento vêm de distribuicaoPorGrupo (já ordenada por totalAtualizado desc) - dinâmico, nunca hard-coded
   const grupos = (dados.distribuicaoPorGrupo || []).map((d) => d.grupo);
-
-  let ordenacao = null;
-  let busca = '';
-  let filtroGrupo = null;
-
-  function renderizarTabela() {
-    let exibidos = filtroGrupo ? ativosBase.filter((a) => a.grupo === filtroGrupo) : ativosBase;
-    exibidos = filtrarAtivosPorBusca(exibidos, busca);
-    renderTabelaAtivosCarteiras(doc, doc.getElementById('fiisTabela'), exibidos, COLUNAS_ATIVOS_FIIS, {
-      linhaTotalHtml: exibidos.length ? montarLinhaTotalAtivos_(exibidos) : '',
-      ordenacao,
-      onOrdenar: (campo) => {
-        ordenacao = ordenacao && ordenacao.campo === campo
-          ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
-          : { campo, direcao: 'asc' };
-        renderizarTabela();
-      },
-    });
-  }
-
-  renderFiltrosTabelaCarteiras(doc, doc.getElementById('fiisFiltros'), {
-    busca,
-    onBuscar: (valor) => { busca = valor; renderizarTabela(); },
-    grupos,
-    filtroGrupo,
-    onFiltrarGrupo: (grupo) => { filtroGrupo = grupo; renderizarTabela(); },
+  montarTabelaFiltravel(doc, {
+    filtrosEl: $('fiisFiltros'), tabelaEl: $('fiisTabela'), ativos: ativosBase, colunas: COLUNAS_ATIVOS_FIIS, linhaTotal: montarLinhaTotalAtivos_, grupos,
+    tituloFolha: (a) => [a.ticker, a.nome].filter(Boolean).join(' · '), acaoFolha: (a) => ({ href: urlAtivoTicker(a.ticker), rotulo: 'Abrir a página do ativo' }),
   });
-  renderizarTabela();
-
-  if (dados.historico && dados.historico.length) {
-    wireGraficosClasseCarteiras(doc, {
-      historico: dados.historico,
-      periodoTabsContainer: doc.getElementById('fiisPeriodoTabs'),
-      periodoPersonalizado: { chave: 'carteiras.fiis' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
-      paineis: [{
-        visaoId: 'carteiraFiis',
-        camposProventos: ['proventosFiis'], // 24/09/2026: proventos recebidos no período
-        rentabInfoContainer: doc.getElementById('fiisRentabInfo'),
-        evolucaoInfoContainer: doc.getElementById('fiisEvolucaoInfo'),
-        labelInfoEvolucao: 'Patrimônio em FIIs',
-        rentabChartContainer: doc.getElementById('fiisRentabChart'),
-        rentabLegendaContainer: doc.getElementById('fiisRentabLegenda'),
-        evolucaoChartContainer: doc.getElementById('fiisEvolucaoChart'),
-        evolucaoLegendaContainer: doc.getElementById('fiisEvolucaoLegenda'),
-        corToken: '--fiis',
-        analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
-        analiseExtra: { proventosAReceber: proventosAReceberDe(dados.proventosAnunciados, { classes: ['fiis'] }) }, // 03/10/2026
-        comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
-      }],
-    });
-  } else {
-    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
-    doc.getElementById('fiisRentabChart').innerHTML = semHistoricoHtml;
-    doc.getElementById('fiisEvolucaoChart').innerHTML = semHistoricoHtml;
-  }
+  aplicarEstadoSecoes(doc, conteudoEl, estadoSecoes);
 }
 
 export async function montarPaginaCarteirasFiis(token, { doc = document, getCarteirasFiisImpl = getCarteirasFiis, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
   const preencherVideos = criarCarregadorVideos(token, { carteira: 'fiis' }, getVideosImpl ? { getVideosImpl } : {});
-  const loadingEl = doc.getElementById('fiisLoading');
-  const erroEl = doc.getElementById('fiisErro');
-  const conteudoEl = doc.getElementById('fiisConteudo');
-  const refreshControlEl = doc.getElementById('refreshControlFiis');
-
-  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
-  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
-  // compartilhado de carteiras-router.js, uma vez só)
-  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_FIIS), lerCacheDados('home')]);
-  if (cacheCarteira) {
-    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
-    preencherVideos(doc.getElementById('fiisVideos'));
-    loadingEl.hidden = true;
-    conteudoEl.hidden = false;
-  }
-
-  async function carregarERedesenhar() {
-    const [resposta, respostaHome] = await Promise.all([getCarteirasFiisImpl(token), getHomeImpl(token)]);
-    loadingEl.hidden = true;
-
-    if (!resposta.ok) {
-      erroEl.hidden = false;
-      erroEl.textContent = `Não deu pra carregar FIIs agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
-      return;
-    }
-
-    erroEl.hidden = true;
-    conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
-    desenhar(doc, dados);
-    preencherVideos(doc.getElementById('fiisVideos'));
-    gravarCacheDados(CHAVE_CACHE_FIIS, resposta.carteira);
-  }
-
-  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
-  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
-  // carregamento e no erro também, que é quando mais se precisa dele.
-  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
+  return montarPaginaClasseCarteiras(token, {
+    doc, prefixo: 'fiis', tela: 'Carteira de FIIs', chaveCache: CHAVE_CACHE_FIIS, buscarCarteira: getCarteirasFiisImpl, getHomeImpl, desenhar,
+    depoisDeDesenhar: () => preencherVideos(doc.getElementById('fiisVideos')),
+  });
 }

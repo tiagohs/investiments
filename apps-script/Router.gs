@@ -23,6 +23,8 @@ function doGet(e) {
   if (!auth.ok) {
     return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   }
+  // 05/10/2026 (A-33): leitura de GET é só leitura - a mesma faixa da mesma aba é lida 1 vez por execução (Planilha.gs)
+  if (typeof ativarLeituraUnica_ === 'function') ativarLeituraUnica_();
 
   if (action === 'ping') {
     return handlePing(auth);
@@ -142,16 +144,38 @@ function doGet(e) {
     return handleConsolidacaoStatus(e);
   }
 
+  if (action === 'capacidade') { // 05/10/2026 (A-37): uso do cache e das células de JSON (CacheRespostas.gs)
+    return handleCapacidade(e, auth);
+  }
+
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }
 
+/**
+ * 05/10/2026 (A-36): TODO POST carimba a "última escrita" (Planilha.gs) antes e
+ * depois de rodar a ação - as respostas cacheadas por versão (metas, gastos...)
+ * trocam de chave sozinhas, sem cada handler lembrar de invalidar.
+ */
 function doPost(e) {
+  _POST_AUTENTICADO_ = false;
+  try {
+    return doPostRotas_(e);
+  } finally {
+    if (_POST_AUTENTICADO_ && typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_();
+  }
+}
+
+var _POST_AUTENTICADO_ = false;
+
+function doPostRotas_(e) {
   var action = e.parameter.action;
 
   var auth = verificarToken(e.parameter.token);
   if (!auth.ok) {
     return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   }
+  _POST_AUTENTICADO_ = action !== 'criarSessao'; // só quem passou na autenticação carimba (antes e depois da ação); login não escreve na planilha
+  if (_POST_AUTENTICADO_ && typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_();
 
   if (action === 'criarSessao') { // 25/09/2026: login do Google (1h) -> sessão de vários dias (Auth.gs)
     return handleCriarSessao(auth);

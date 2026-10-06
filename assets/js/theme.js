@@ -57,6 +57,24 @@ export function currentTheme(rootElement) {
 /** Sets the explicit theme on the root element (<html>, in real pages). */
 export function applyTheme(rootElement, theme) {
   rootElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+  atualizarThemeColor(rootElement, theme);
+}
+
+/** Cores da barra do navegador (meta theme-color) - as mesmas dos <meta> de cada HTML. */
+export const THEME_COLOR = { light: '#F8FAFC', dark: '#0F172A' };
+
+/**
+ * 05/10/2026: os <meta name="theme-color"> dos HTMLs só seguem o tema do SISTEMA (media
+ * prefers-color-scheme). Com o tema escolhido no botão, as duas metas passam a ter a cor
+ * do tema escolhido, pra barra do navegador/PWA não destoar do site. Nunca lança.
+ */
+export function atualizarThemeColor(rootElement, theme) {
+  try {
+    const doc = rootElement && rootElement.ownerDocument;
+    if (!doc || typeof doc.querySelectorAll !== 'function') return;
+    const cor = theme === 'dark' ? THEME_COLOR.dark : THEME_COLOR.light;
+    doc.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', cor));
+  } catch (error) { /* a barra só fica na cor do sistema */ }
 }
 
 /**

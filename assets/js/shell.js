@@ -48,11 +48,14 @@
  */
 
 import { initTheme, toggleTheme } from './theme.js';
-import { getToken, clearToken } from './auth.js';
+import { getToken, clearToken, decodeTokenPayload } from './auth.js';
 import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico, consolidar } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { SPREADSHEET_URL } from './config.js';
-import { limparCacheDados } from './cache-dados.js';
+import { limparCacheDados, lerCacheDados } from './cache-dados.js';
+import { montarBuscaGlobal } from './ui/busca.js'; // 05/10/2026: busca em pílula na top bar (ativos do cache local + telas)
+// 05/10/2026: helpers de UI M3 (confirmar/toast/erro de carga/abas...) também saem daqui, pra páginas que já importam o shell
+export { confirmar, abrirFolha, toast, mostrarErroCarga, mostrarEstadoVazio, criarTabs, criarBreadcrumb, abrirMenu, ligarMenu, criarSwitch, montarCabecalhoPagina, definirTituloPagina, formatarTituloPagina, progressoTopo } from './ui/index.js';
 import { setupCarrinhoHeader } from './carrinho-header.js'; // 05/10/2026: carrinho em andamento no header de todas as telas
 
 /**
@@ -94,8 +97,15 @@ export function resolveSiteRootUrl() {
  * how deeply nested the current page is.
  */
 export function fixNavLinkHrefs(doc, rootUrl) {
-  doc.querySelectorAll('#mainnav .nav-link[href]').forEach((link) => {
-    link.setAttribute('href', new URL(link.getAttribute('href'), rootUrl).href);
+  // 05/10/2026: trilho (#mainnav) e gaveta (#navDrawer) + links de raiz avulsos (marca, "Novo aporte")
+  doc.querySelectorAll('#mainnav .nav-link[href], #navDrawer .nav-link[href], [data-href-raiz]').forEach((link) => {
+    const alvo = link.getAttribute('data-href-raiz') || link.getAttribute('href');
+    if (!alvo || alvo === '#') return;
+    link.setAttribute('href', new URL(alvo, rootUrl).href);
+  });
+  // Imagens do shell (logo) usam caminho relativo à raiz do site.
+  doc.querySelectorAll('img[data-src-raiz]').forEach((img) => {
+    img.setAttribute('src', new URL(img.getAttribute('data-src-raiz'), rootUrl).href);
   });
 }
 
@@ -155,13 +165,24 @@ export function injectShell(doc, { headerContent, footerContent, headerMountId =
  * (better an unhighlighted nav than a wrongly-highlighted one).
  */
 export function markActiveSection(doc, sectionKey) {
-  const items = doc.querySelectorAll('#mainnav .nav-item');
+  // 05/10/2026: marca trilho e gaveta; aria-current na seção atual e título da seção na top bar
+  const items = doc.querySelectorAll('#mainnav .nav-item, #navDrawer .nav-item');
+  let titulo = '';
   items.forEach((item) => {
     const isCurrent = Boolean(sectionKey) && item.getAttribute('data-section') === sectionKey;
     item.classList.toggle('current', isCurrent);
     const link = item.querySelector('.nav-link');
-    if (link) link.classList.toggle('active', isCurrent);
+    if (link) {
+      link.classList.toggle('active', isCurrent);
+      if (isCurrent) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+      if (isCurrent && !titulo) {
+        const rotulo = item.querySelector('.nav-label');
+        titulo = (rotulo && rotulo.textContent.trim()) || link.getAttribute('aria-label') || '';
+      }
+    }
   });
+  const tituloEl = doc.getElementById('shellSecaoTitulo');
+  if (tituloEl && titulo) tituloEl.textContent = titulo;
 }
 
 /**
@@ -213,10 +234,126 @@ export function setupPopovers(doc) {
  */
 export function setupThemeToggle(doc, { initTheme: init, toggleTheme: toggle }) {
   init(doc.documentElement);
-  const button = doc.getElementById('themeToggle');
-  if (button) {
+  // 05/10/2026: botão da top bar (#themeToggle) e o item de tema do menu da conta ([data-tema-toggle])
+  const botoes = new Set(doc.querySelectorAll('#themeToggle, [data-tema-toggle]'));
+  botoes.forEach((button) => {
     button.addEventListener('click', () => toggle(doc.documentElement));
+  });
+}
+
+const CHAVE_NAV = 'investiments_nav_expandido';
+const BP_GAVETA_FIXA = 1200; // >= 1200px: gaveta empurra o conteúdo
+const BP_GAVETA_PADRAO_ABERTA = 1440; // sem preferência salva: aberta só a partir daqui
+const BP_TRILHO = 840; // < 840px: sem trilho, gaveta modal
+
+/**
+ * 05/10/2026: trilho 80px + gaveta 280px (kit Figma). Estado em body[data-nav="aberto|fechado"]
+ * e #navDrawer[data-aberto]. >=1200px a gaveta empurra o conteúdo e a escolha é lembrada
+ * (localStorage, com try/catch); 840-1199px abre por cima com scrim; <840px é modal pelo ☰ da top bar.
+ * Tolera partial sem esses elementos (testes usam um shell falso).
+ */
+export function setupNavDrawer(doc, { win = doc.defaultView, storage = null } = {}) {
+  const drawer = doc.getElementById('navDrawer');
+  if (!drawer) return { abrir() {}, fechar() {}, alternar() {}, estaAberta: () => false };
+  const body = doc.body;
+  const scrim = doc.getElementById('navScrim');
+  const gatilhos = ['navToggle', 'navToggleTopo'].map((id) => doc.getElementById(id)).filter(Boolean);
+  const fecharBtn = doc.getElementById('navFechar');
+  const largura = () => (win && typeof win.innerWidth === 'number' ? win.innerWidth : 1280);
+  const store = storage || (() => { try { return win && win.localStorage; } catch (e) { return null; } })();
+  const ler = () => { try { return store ? store.getItem(CHAVE_NAV) : null; } catch (e) { return null; } };
+  const gravar = (v) => { try { if (store) store.setItem(CHAVE_NAV, v); } catch (e) { /* sem storage: só não lembra */ } };
+
+  let aberta = false;
+  function aplicar(sim, { lembrar = false } = {}) {
+    aberta = Boolean(sim);
+    const w = largura();
+    drawer.setAttribute('data-aberto', aberta ? 'true' : 'false');
+    body.setAttribute('data-nav', aberta ? 'aberto' : 'fechado');
+    gatilhos.forEach((g) => g.setAttribute('aria-expanded', aberta ? 'true' : 'false'));
+    const sobreposta = w < BP_GAVETA_FIXA;
+    if (scrim) scrim.classList.toggle('open', aberta && sobreposta);
+    if (w < BP_TRILHO) body.classList.toggle('nav-modal-aberta', aberta); else body.classList.remove('nav-modal-aberta');
+    if (lembrar && w >= BP_GAVETA_FIXA) gravar(aberta ? '1' : '0');
   }
+  function estadoInicial() {
+    const w = largura();
+    if (w < BP_GAVETA_FIXA) return false;
+    const salvo = ler();
+    if (salvo === '1') return true;
+    if (salvo === '0') return false;
+    return w >= BP_GAVETA_PADRAO_ABERTA;
+  }
+
+  const abrir = () => aplicar(true, { lembrar: true });
+  const fechar = () => aplicar(false, { lembrar: true });
+  const alternar = () => (aberta ? fechar() : abrir());
+  gatilhos.forEach((g) => g.addEventListener('click', alternar));
+  if (fecharBtn) fecharBtn.addEventListener('click', fechar);
+  if (scrim) scrim.addEventListener('click', () => aplicar(false));
+  doc.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && aberta && largura() < BP_GAVETA_FIXA) { aplicar(false); const g = gatilhos[0]; if (g && typeof g.focus === 'function') g.focus(); }
+  });
+  // Tocar num link da gaveta quando ela está por cima fecha (navegação no mesmo documento)
+  drawer.addEventListener('click', (e) => {
+    const link = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (link && largura() < BP_GAVETA_FIXA) aplicar(false);
+  });
+
+  aplicar(estadoInicial());
+  // Cruzou um breakpoint: recalcula (o fixo vira por cima e vice-versa)
+  if (win && typeof win.matchMedia === 'function') {
+    [BP_TRILHO, BP_GAVETA_FIXA].forEach((bp) => {
+      const mq = win.matchMedia(`(min-width: ${bp}px)`);
+      const aoCruzar = () => aplicar(estadoInicial());
+      if (mq && typeof mq.addEventListener === 'function') mq.addEventListener('change', aoCruzar);
+    });
+  }
+  return { abrir, fechar, alternar, estaAberta: () => aberta };
+}
+
+/**
+ * 05/10/2026: sombra na top bar ao rolar; no celular a faixa da busca some ao descer e volta ao subir.
+ */
+export function setupTopbarScroll(doc, { win = doc.defaultView } = {}) {
+  const topbar = doc.getElementById('topbar');
+  if (!topbar || !win || typeof win.addEventListener !== 'function') return () => {};
+  let ultimo = typeof win.scrollY === 'number' ? win.scrollY : 0;
+  const aoRolar = () => {
+    const y = win.scrollY || 0;
+    topbar.classList.toggle('rolou', y > 4);
+    if (y > 80 && y > ultimo + 6) topbar.classList.add('busca-oculta');
+    else if (y < ultimo - 6 || y <= 80) topbar.classList.remove('busca-oculta');
+    ultimo = y;
+  };
+  win.addEventListener('scroll', aoRolar, { passive: true });
+  aoRolar();
+  return () => win.removeEventListener('scroll', aoRolar);
+}
+
+/** Iniciais pro avatar: "tiago.silva@x.com" -> "TS"; sem nada -> "P". */
+export function iniciaisDe(texto) {
+  const base = String(texto || '').split('@')[0].split(/[^A-Za-zÀ-ÿ0-9]+/).filter(Boolean);
+  if (!base.length) return 'P';
+  const duas = base.length > 1 ? base[0][0] + base[1][0] : base[0].slice(0, 2);
+  return duas.toUpperCase();
+}
+
+/**
+ * 05/10/2026: avatar/nome da conta (a partir do token da sessão, sem chamada nova) e links da planilha.
+ */
+export function setupConta(doc, { token = null, spreadsheetUrl = SPREADSHEET_URL } = {}) {
+  const payload = token ? decodeTokenPayload(token) : null;
+  const email = payload && typeof payload.email === 'string' ? payload.email : '';
+  const nome = payload && typeof payload.name === 'string' && payload.name ? payload.name : (email ? email.split('@')[0] : 'Minha conta');
+  const ini = iniciaisDe(payload && payload.name ? payload.name : email);
+  [['contaAvatar', ini], ['contaAvatar2', ini]].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
+  [['contaNome', nome], ['contaNome2', nome]].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
+  [['contaSub', email || 'Patrimônio'], ['contaSub2', email || 'Patrimônio']].forEach(([id, v]) => { const el = doc.getElementById(id); if (el) el.textContent = v; });
+  ['planilhaLink', 'planilhaDrawer'].forEach((id) => {
+    const a = doc.getElementById(id);
+    if (a && spreadsheetUrl) a.setAttribute('href', spreadsheetUrl);
+  });
 }
 
 /**
@@ -285,7 +422,7 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
 } = {}) {
   // Sem lugar pro botão, atualizar() ainda busca: desde 26/09/2026 as páginas
   // fazem a 1ª carga por aqui (o botão aparece com "Atualizando…" já no início).
-  if (!container) return { atualizar: async () => { await aoAtualizar(); }, marcarAtualizado: () => {}, pararTimer: () => {} };
+  if (!container) return { atualizar: async () => { await aoAtualizar(); }, marcarAtualizado: () => {}, marcarFalha: () => {}, pararTimer: () => {} };
   container.innerHTML = '';
 
   const btn = doc.createElement('button');
@@ -299,7 +436,13 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
 
   container.append(btn, status);
 
+  function registrarFalha_() {
+    // 05/10/2026: falhou -> não finge "Atualizado às"; mostra o erro e deixa tentar de novo
+    status.textContent = 'Falhou ao atualizar';
+    status.classList.add('erro');
+  }
   function registrarAtualizacao_() {
+    status.classList.remove('erro');
     const d = agora();
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
@@ -315,8 +458,10 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
     const textoOriginal = btn.textContent;
     btn.textContent = 'Atualizando…';
     try {
-      await aoAtualizar();
-      registrarAtualizacao_();
+      // 05/10/2026: aoAtualizar() devolvendo `false` (ou lançando) conta como falha
+      let resultado;
+      try { resultado = await aoAtualizar(); } catch (erro) { registrarFalha_(); return; }
+      if (resultado === false) registrarFalha_(); else registrarAtualizacao_();
     } finally {
       btn.disabled = false;
       btn.classList.remove('carregando');
@@ -343,7 +488,7 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
     timer = null;
   }
 
-  return { atualizar, marcarAtualizado: registrarAtualizacao_, pararTimer };
+  return { atualizar, marcarAtualizado: registrarAtualizacao_, marcarFalha: registrarFalha_, pararTimer };
 }
 
 /**
@@ -394,6 +539,8 @@ export function categoriaSync_(detalhe) {
   return null;
 }
 
+const CHAVE_RESUMO_SYNC = 'investiments_sync_resumo';
+const VALIDADE_RESUMO_SYNC_MS = 15 * 60 * 1000;
 const CATEGORIA_CLASSE_SYNC = { 'Renda Fixa': 'rf', 'Renda Variável (Patrimônio)': 'rv' };
 
 /**
@@ -536,24 +683,59 @@ export function renderSyncStatus(doc, resultado, agora = new Date()) {
  * getSyncStatusImpl é injetável pra teste, mesmo padrão de
  * setupAuthGate/setupThemeToggle.
  */
-export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = getSyncHistorico } = {}) {
+export async function carregarStatusSync(doc, { token, getSyncHistoricoImpl = getSyncHistorico, leve = false, storage = null, agora = () => Date.now() } = {}) {
   if (!token) return;
+  const st = storage || (() => { try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch (e) { return null; } })();
+  // 05/10/2026 (A-43): na carga da página (leve) NÃO busca a lista inteira
+  // (syncHistorico, até 20 linhas): pinta o badge e o aviso de consolidação
+  // a partir do último resumo guardado (15 min de validade) e, se não há/
+  // venceu, faz UMA busca de 1 linha. A lista completa só vem ao abrir o
+  // popover (setupSyncPopoverSobDemanda).
+  if (leve) {
+    let guardado = null;
+    try { guardado = st ? JSON.parse(st.getItem(CHAVE_RESUMO_SYNC) || 'null') : null; } catch (e) { guardado = null; }
+    if (guardado && typeof guardado.ts === 'number' && agora() - guardado.ts < VALIDADE_RESUMO_SYNC_MS) {
+      renderSyncStatus(doc, guardado.ultima || null);
+      if ('consolidacao' in guardado) renderConsolidacao(doc, guardado.consolidacao);
+      return;
+    }
+  }
   try {
-    const resposta = await getSyncHistoricoImpl(token);
+    const resposta = await getSyncHistoricoImpl(token, ...(leve ? [1] : []));
     const lista = resposta.ok ? resposta.resultado : null;
     // badge/pill sempre refletem a MAIS RECENTE (lista[0], mesmo dado que
     // action=syncStatus devolvia sozinho antes) - lista vazia (nenhuma
     // sincronização ainda) e falha de rede caem no mesmo estado neutro,
     // igual antes (ver renderSyncStatus).
-    renderSyncStatus(doc, lista && lista.length ? lista[0] : null);
-    renderSyncLog(doc, lista);
+    const ultima = lista && lista.length ? lista[0] : null;
+    renderSyncStatus(doc, ultima);
+    if (!leve) renderSyncLog(doc, lista);
     // 26/09/2026: aviso "Consolidação necessária" (Consolidacao.gs) vem junto
     if (resposta.ok && 'consolidacao' in resposta) renderConsolidacao(doc, resposta.consolidacao);
+    if (resposta.ok && st) {
+      try { st.setItem(CHAVE_RESUMO_SYNC, JSON.stringify({ ts: agora(), ultima: ultima ? { timestamp: ultima.timestamp, origem: ultima.origem, status: ultima.status } : null, consolidacao: 'consolidacao' in resposta ? resposta.consolidacao : null })); } catch (e) { /* só conveniência */ }
+    }
   } catch (error) {
     console.error('shell.js: falha ao carregar o status de sincronização', error);
     renderSyncStatus(doc, null);
     renderSyncLog(doc, null);
   }
+}
+
+/**
+ * 05/10/2026 (A-43): a lista completa do Registro de Controle só é buscada
+ * quando o popover de sincronização ABRE (no máximo 1x a cada 30 s).
+ */
+export function setupSyncPopoverSobDemanda(doc, { token, carregarStatusSyncImpl = carregarStatusSync, agora = () => Date.now() } = {}) {
+  const btn = doc.querySelector('[data-toggle-panel="syncPanel"]');
+  if (!btn || !token) return;
+  let ultima = 0;
+  btn.addEventListener('click', () => {
+    if (btn.getAttribute('aria-expanded') !== 'true') return; // fechando
+    if (agora() - ultima < 30000) return;
+    ultima = agora();
+    carregarStatusSyncImpl(doc, { token });
+  });
 }
 
 /**
@@ -835,7 +1017,8 @@ export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = 
     setMainVisible(doc, true);
     setupConsolidacaoImpl(doc, { token }); // antes das telas: elas podem avisar logo no 1º carregamento
     onAuthenticated(token);
-    carregarStatusSyncImpl(doc, { token });
+    carregarStatusSyncImpl(doc, { token, leve: true }); // 05/10/2026 (A-43): carga leve; a lista inteira só ao abrir o popover
+    try { setupSyncPopoverSobDemanda(doc, { token, carregarStatusSyncImpl }); } catch (e) { /* o popover só perde a busca ao abrir */ }
     setupSyncNowButtonImpl(doc, { token });
     setupLimparCacheButtonImpl(doc, { token });
     return;
@@ -845,13 +1028,47 @@ export function setupAuthGate(doc, { onAuthenticated = () => {}, getTokenImpl = 
   redirectImpl(win);
 }
 
+/**
+ * 05/10/2026 (A-44): ao sair, o aparelho não pode continuar mostrando o
+ * patrimônio "deslogado": apaga o IndexedDB das respostas (cache-dados.js:
+ * Início com o histórico inteiro, Carteiras, Proventos, Ativo...), o Cache
+ * Storage do service worker e as chaves `investiments_*` do localStorage/
+ * sessionStorage (aportes pendentes, resumo da sincronização, token). O TEMA
+ * (`investiments_theme`) é preferência de tela, não dado - fica. Nunca lança.
+ */
+export const CHAVES_LOCAIS_MANTIDAS_NO_LOGOUT = ['investiments_theme'];
+export async function limparDadosLocaisDaSessao({ limparCacheLocalImpl = limparCacheLocalNavegador, storages = null } = {}) {
+  const lista = storages || (() => {
+    const r = [];
+    try { if (typeof localStorage !== 'undefined') r.push(localStorage); } catch (e) { /* bloqueado */ }
+    try { if (typeof sessionStorage !== 'undefined') r.push(sessionStorage); } catch (e) { /* bloqueado */ }
+    return r;
+  })();
+  lista.forEach((st) => {
+    try {
+      const chaves = [];
+      for (let i = 0; i < st.length; i += 1) chaves.push(st.key(i));
+      chaves.filter((k) => typeof k === 'string' && k.startsWith('investiments_') && !CHAVES_LOCAIS_MANTIDAS_NO_LOGOUT.includes(k))
+        .forEach((k) => { try { st.removeItem(k); } catch (e) { /* segue */ } });
+    } catch (e) { /* segue */ }
+  });
+  try { await limparCacheLocalImpl(); } catch (e) { /* segue */ }
+}
+
 /** 25/09/2026: botão "Sair" do topo - esquece a sessão deste aparelho e vai pro login. */
-export function setupLogoutButton(doc, { clearTokenImpl = clearToken, redirectImpl = redirectParaLogin, win = doc.defaultView } = {}) {
+export function setupLogoutButton(doc, { clearTokenImpl = clearToken, redirectImpl = redirectParaLogin, win = doc.defaultView, limparDadosImpl = limparDadosLocaisDaSessao, esperaMaxMs = 1500 } = {}) {
   const btn = doc.getElementById('logoutBtn');
   if (!btn) return;
   btn.addEventListener('click', () => {
     clearTokenImpl();
-    redirectImpl(win);
+    // 05/10/2026 (A-44): limpa também os dados guardados no aparelho; o login não espera mais que 1,5 s por isso
+    let limpeza = Promise.resolve();
+    try { limpeza = Promise.resolve(limparDadosImpl()); } catch (e) { /* segue */ }
+    let ja = false;
+    const ir = () => { if (!ja) { ja = true; redirectImpl(win); } };
+    limpeza.then(ir, ir);
+    const tempo = setTimeout(ir, esperaMaxMs);
+    if (tempo && typeof tempo.unref === 'function') tempo.unref();
   });
 }
 
@@ -881,6 +1098,13 @@ export async function mountShell(options = {}) {
     setupPopovers(doc);
     setupThemeToggle(doc, { initTheme, toggleTheme });
     setupLogoutButton(doc);
+    // 05/10/2026: navegação nova (trilho + gaveta), top bar, busca e conta; cada um isolado pra não derrubar o resto
+    const win = doc.defaultView;
+    const tokenSessao = (() => { try { return getToken(); } catch (e) { return null; } })();
+    try { setupNavDrawer(doc, { win }); } catch (e) { console.error('shell.js: gaveta', e); }
+    try { setupTopbarScroll(doc, { win }); } catch (e) { console.error('shell.js: scroll da top bar', e); }
+    try { setupConta(doc, { token: tokenSessao }); } catch (e) { console.error('shell.js: conta', e); }
+    try { montarBuscaGlobal(doc, { raizSite: options.siteRootUrl || resolveSiteRootUrl(), ler: lerCacheDados, win }); } catch (e) { console.error('shell.js: busca', e); }
     // 05/10/2026: carrinho em andamento (Transações) no header + aviso "Você comprou?" quando expira
     let carrinhoHeader = null;
     try { carrinhoHeader = setupCarrinhoHeader(doc); } catch (erroCarrinho) { console.error('shell.js: carrinho do header', erroCarrinho); }
@@ -889,7 +1113,13 @@ export async function mountShell(options = {}) {
       const tokenAgora = (() => { try { return getToken(); } catch (e) { return null; } })();
       if (tokenAgora) { try { carrinhoHeader.definirToken(tokenAgora); } catch (e) { /* o resto da tela segue */ } }
     }
-    setupAuthGate(doc, { onAuthenticated: options.onAuthenticated });
+    setupAuthGate(doc, {
+      onAuthenticated: (token) => {
+        try { setupConta(doc, { token }); } catch (e) { /* avatar genérico */ }
+        if (typeof options.onAuthenticated === 'function') return options.onAuthenticated(token);
+        return undefined;
+      },
+    });
   } catch (error) {
     console.error('shell.js: failed to mount the shell', error);
   }

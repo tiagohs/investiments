@@ -23,9 +23,10 @@
  */
 
 import { getMetas } from './api-client.js';
-import { formatBRL } from './format.js';
+import { formatBRL, formatNumeroPt, formatMoeda, formatPct } from './format.js';
+import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único (era esc exportado daqui)
 import { resolveSiteRootUrl } from './shell.js';
-import { calcularMeta, aparenciaMeta, rotuloMes, STATUS_META, TIPOS_META, explicarStatus } from './pages/metas-calc.js';
+import { calcularMeta, alocarMetas, aparenciaMeta, rotuloMes, STATUS_META, TIPOS_META, explicarStatus } from './pages/metas-calc.js';
 
 /** Ícones (traço 1.8, viewBox 24) - um por tipo/categoria de meta. */
 const ICONES = {
@@ -63,40 +64,24 @@ export function seloMetaHtml(meta, { tamanho = 38 } = {}) {
   return `<span class="mt-selo" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft);width:${tamanho}px;height:${tamanho}px">${iconeMetaSvg(ap.icone, { tamanho: Math.round(tamanho * 0.5) })}</span>`;
 }
 
-export function escHtml(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-const FORMATADORES_MOEDA = new Map();
-/** "€ 5.000,00" / "R$ 1.234,56" (qualquer moeda, em pt-BR). */
-export function formatMoeda(valor, moeda = 'BRL', { casas = 2 } = {}) {
-  if (typeof valor !== 'number' || !Number.isFinite(valor)) return '—';
-  if (moeda === 'BRL' && casas === 2) return formatBRL(valor);
-  const chave = `${moeda}|${casas}`;
-  if (!FORMATADORES_MOEDA.has(chave)) {
-    FORMATADORES_MOEDA.set(chave, new Intl.NumberFormat('pt-BR', { style: 'currency', currency: moeda, minimumFractionDigits: casas, maximumFractionDigits: casas }));
-  }
-  return FORMATADORES_MOEDA.get(chave).format(valor);
-}
+// formatMoeda mora em format.js desde 05/10/2026 (A-68); reexportado aqui pra não mexer nos importadores.
+export { formatMoeda };
 
 /** Valor com os centavos menores ("R$ 9.891<small>,81</small>"), como os heróis do site. */
 export function valorGrandeHtml(valor, moeda = 'BRL') {
   const txt = formatMoeda(valor, moeda);
   const m = txt.match(/^(.*?)(,\d{2})(\D*)$/);
-  return m ? `${escHtml(m[1])}<span class="mt-dec">${m[2]}</span>${escHtml(m[3])}` : escHtml(txt);
+  return m ? `${esc(m[1])}<span class="mt-dec">${m[2]}</span>${esc(m[3])}` : esc(txt);
 }
 
 /** "37%" */
-export function pct(fracao, casas = 0) {
-  if (typeof fracao !== 'number' || !Number.isFinite(fracao)) return '—';
-  return `${(fracao * 100).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
-}
+export const pct = (fracao, casas = 0) => formatPct(fracao, casas);
 
 export function statusPillHtml(status, meta = null) {
   const s = STATUS_META[status] || STATUS_META['sem-prazo'];
   // 03/10/2026: a explicação do status vai no title (hover) - a tela de Metas usa statusComDicaHtml (toque/teclado)
   const exp = meta ? explicarStatus(status, meta) : (s.explicacao || '');
-  return `<span class="mt-status ${s.classe}"${exp ? ` title="${escHtml(exp)}"` : ''}>${s.rotulo}</span>`;
+  return `<span class="mt-status ${s.classe}"${exp ? ` title="${esc(exp)}"` : ''}>${s.rotulo}</span>`;
 }
 
 /**
@@ -106,7 +91,7 @@ export function statusPillHtml(status, meta = null) {
  */
 export function infoHtml(texto, { rotulo = 'O que é isso?' } = {}) {
   if (!texto) return '';
-  return `<button type="button" class="mt-info" data-dica="${escHtml(texto)}" aria-label="${escHtml(rotulo)}" aria-expanded="false"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg></button>`;
+  return `<button type="button" class="mt-info" data-dica="${esc(texto)}" aria-label="${esc(rotulo)}" aria-expanded="false"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg></button>`;
 }
 
 /** Status + o "i" com a explicação (o texto da renda passiva é próprio). */
@@ -164,10 +149,16 @@ export function garantirEstiloMetas(doc = typeof document !== 'undefined' ? docu
 
 /** Contexto de cálculo a partir da resposta do GET metas. */
 export function contextoMetas(resposta) {
+  const ativos = resposta.ativos || [];
+  const cambio = resposta.cambio || {};
+  const aliases = resposta.aliasesTicker || null; // 05/10/2026 (A-14): ticker antigo -> atual (Incorporacoes.gs)
+  // 05/10/2026 (A-11): alocação exclusiva por prioridade - cada ativo conta numa meta só
+  const aloc = alocarMetas(resposta.metas || [], ativos, cambio, aliases);
   return {
-    ativos: resposta.ativos || [], cambio: resposta.cambio || {}, referencias: resposta.referencias || {},
+    ativos, cambio, referencias: resposta.referencias || {},
     proventos12m: resposta.proventos12m || {}, hoje: resposta.hoje,
     historico: resposta.historicoResumo || {}, // 03/10/2026: aporte real (Metas.gs, cache do metasHistorico)
+    aliases, ocupadoPorMeta: aloc.ocupadoPorMeta, alocacao: aloc,
   };
 }
 
@@ -205,7 +196,7 @@ export function cardMetaRendaPassiva(meta, { raizSite } = {}) {
   return `<article class="mt-card-rp" aria-label="Meta de renda passiva">
   <header class="mt-card-rp-cab">
     ${seloMetaHtml(meta, { tamanho: 32 })}
-    <div class="mt-card-rp-tit"><span class="mt-eyebrow">Meta de renda passiva</span><strong>${escHtml(meta.nome)}</strong></div>
+    <div class="mt-card-rp-tit"><span class="mt-eyebrow">Meta de renda passiva</span><strong>${esc(meta.nome)}</strong></div>
     ${statusPillHtml(c.status, meta)}
   </header>
   <div class="mt-card-rp-numeros">
@@ -214,6 +205,6 @@ export function cardMetaRendaPassiva(meta, { raizSite } = {}) {
   </div>
   <div class="mt-barra ${p >= 1 ? 'good' : ''}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(p * 100)}"><span style="width:${(p * 100).toFixed(1)}%"></span></div>
   <p class="mt-card-rp-sub"><b>${pct(r.percentual)}</b> da meta${falta > 0 ? ` · faltam <b>${formatMoeda(falta)}</b>/mês` : ''}${c.alvoBRL ? ` · patrimônio necessário <b>${formatMoeda(c.alvoBRL, 'BRL', { casas: 0 })}</b>` : ''}${c.dataAlvo ? ` até ${rotuloMes(c.dataAlvo)}` : ''}</p>
-  <a class="mt-card-rp-link" href="${escHtml(url)}">Ver meta <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
+  <a class="mt-card-rp-link" href="${esc(url)}">Ver meta <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
 </article>`;
 }

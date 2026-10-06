@@ -67,7 +67,8 @@ function montarMacro_(ss, agora, opcoes) {
   try {
     if (!cache) cache = CacheService.getScriptCache();
     var json = JSON.stringify(out);
-    if (json.length < 95000) cache.put(MACRO_CACHE_CHAVE_, json, MACRO_CACHE_SEGUNDOS_);
+    // com aviso (alguma fonte caiu e o macro usou dado antigo ou ficou sem o número) o cache é curto: volta a tentar logo
+    if (json.length < 95000) cache.put(MACRO_CACHE_CHAVE_, json, avisos.length ? 900 : MACRO_CACHE_SEGUNDOS_);
   } catch (e1) { /* só otimização */ }
   return out;
 }
@@ -79,14 +80,21 @@ function macroNum_(v) {
 
 function macroArred_(x, casas) { var f = Math.pow(10, casas); return Math.round(x * f) / f; }
 
-/** GET JSON de uma API pública; falha vira null (o aviso é de quem chamou). */
-function macroJson_(url) {
-  try {
-    var r = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    if (r.getResponseCode && r.getResponseCode() !== 200) return null;
-    return JSON.parse(r.getContentText());
-  } catch (e) { return null; }
+/**
+ * GET JSON de uma API pública (A-51: Fontes.gs - disjuntor persistente por fonte, valida HTTP e o formato ANTES do
+ * .map, e cai no último dado bom guardado com a data). Falha total vira null (o aviso é de quem chamou); dado
+ * antigo vira um aviso "dado de DD/MM" em `avisos` e a resposta segue com ele. Sem cache próprio: o macro inteiro já
+ * é cacheado por MACRO_CACHE_SEGUNDOS_.
+ */
+function macroJson_(url, avisos, rotulo, validar) {
+  var r = buscarFonte_(fonteNomeDaUrl_(url), url, { ttl: 0, validar: validar || Array.isArray });
+  if (!r.ok) return null;
+  if (r.origem === 'ultimo-bom' && avisos) avisos.push((rotulo || 'Fonte') + ': ' + r.aviso + '.');
+  return r.dados;
 }
+
+/** Resposta do Olinda (BCB): { value: [...] }. */
+function macroValidaOlinda_(d) { return !!d && typeof d === 'object' && Array.isArray(d.value); }
 
 /** CDI dos últimos 365 dias: composição do CDI diário (% ao dia) de aux_historico-indices. Fração; null sem 200+ dias. */
 function macroCdi12m_(ss, agora) {
@@ -105,7 +113,7 @@ function macroCdi12m_(ss, agora) {
 
 function macroJuros_(ss, agora, avisos) {
   var j = { selic: null, cdi12m: null, ipca12m: null, ipcaEsperado12m: null, selicEsperadaAnoSeguinte: null };
-  var s = macroJson_('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json');
+  var s = macroJson_('https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json', avisos, 'Selic meta (BCB)');
   var meta = s && s.length ? macroNum_(s[s.length - 1].valor) : null;
   if (meta != null && meta > 0 && meta < 60) j.selic = macroArred_(meta / 100, 4);
   if (j.selic == null) {
@@ -117,10 +125,10 @@ function macroJuros_(ss, agora, avisos) {
   try { j.ipca12m = buscarIpcaAcumulado12Meses_(); } catch (e3) { j.ipca12m = null; }
   if (j.ipca12m == null) avisos.push('IPCA 12m indisponível.');
   var ano = Number(fundChaveDia_(agora).slice(0, 4));
-  var f1 = macroJson_('https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoInflacao12Meses?$top=1&$orderby=Data%20desc&$filter=Indicador%20eq%20%27IPCA%27%20and%20Suavizada%20eq%20%27S%27%20and%20baseCalculo%20eq%200&$format=json');
+  var f1 = macroJson_('https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoInflacao12Meses?$top=1&$orderby=Data%20desc&$filter=Indicador%20eq%20%27IPCA%27%20and%20Suavizada%20eq%20%27S%27%20and%20baseCalculo%20eq%200&$format=json', avisos, 'Focus IPCA (BCB)', macroValidaOlinda_);
   var m1 = f1 && f1.value && f1.value.length ? macroNum_(f1.value[0].Mediana) : null;
   if (m1 != null && m1 > -5 && m1 < 40) j.ipcaEsperado12m = macroArred_(m1 / 100, 4);
-  var f2 = macroJson_('https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais?$top=1&$orderby=Data%20desc&$filter=Indicador%20eq%20%27Selic%27%20and%20DataReferencia%20eq%20%27' + (ano + 1) + '%27&$format=json&$select=Indicador,Data,DataReferencia,Mediana');
+  var f2 = macroJson_('https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata/ExpectativasMercadoAnuais?$top=1&$orderby=Data%20desc&$filter=Indicador%20eq%20%27Selic%27%20and%20DataReferencia%20eq%20%27' + (ano + 1) + '%27&$format=json&$select=Indicador,Data,DataReferencia,Mediana', avisos, 'Focus Selic (BCB)', macroValidaOlinda_);
   var m2 = f2 && f2.value && f2.value.length ? macroNum_(f2.value[0].Mediana) : null;
   if (m2 != null && m2 > 0 && m2 < 60) j.selicEsperadaAnoSeguinte = macroArred_(m2 / 100, 4);
   if (j.ipcaEsperado12m == null || j.selicEsperadaAnoSeguinte == null) avisos.push('Expectativas do Focus (BCB) indisponíveis agora: o juro real usa só o IPCA já realizado.');

@@ -102,13 +102,13 @@ test('Agenda e resumo da conferência: presumido é "pago" (com a situação), o
 test('ícone da situação: discreto, com explicação no tooltip (e os 2 valores quando diverge); sem situação não mostra nada', () => {
   assert.match(iconeConferenciaHtml({ conferencia: 'presumido' }), /title="Pago presumido pela data de pagamento: falta conferir com o extrato da B3\."/);
   assert.match(iconeConferenciaHtml({ conferencia: 'confirmado' }), /--good-ink/);
-  assert.match(dicaConferencia({ conferencia: 'divergente', valor: 6, valorB3: 5.5, dataB3: '2026-09-20' }), /B3: R\$ 5,50 em 20\/09 · previsto R\$ 6,00/);
+  assert.match(dicaConferencia({ conferencia: 'divergente', valor: 6, valorB3: 5.5, dataB3: '2026-09-20' }), /B3: R\$\s5,50 em 20\/09 · previsto R\$\s6,00/);
   assert.equal(iconeConferenciaHtml({}), '');
   assert.equal(iconeConferenciaHtml({ conferencia: null }), '');
 });
 
 test('Início: pago não lançado deste mês e a receber que já chegou contam no recebido; os de meses anteriores e os não confirmados ficam no aviso', () => {
-  const hoje = new Date(2026, 9, 2); // 02/10/2026 (local)
+  const hoje = new Date('2026-10-02T15:00:00Z'); // 02/10/2026 12h em São Paulo
   const r = separarPorDataInicio({
     aReceber: [anunciado({ ticker: 'HOJE11', dataPagamento: '2026-10-02' }), anunciado({ ticker: 'AMAN11', dataPagamento: '2026-10-03' })],
     recebidosNoMes: [{ ...anunciado({ ticker: 'LANC3', fonte: 'Planilha', dataPagamento: '2026-10-01' }) }],

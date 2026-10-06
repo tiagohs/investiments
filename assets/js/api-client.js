@@ -453,8 +453,9 @@ export async function getProventos(token) {
  * apps-script/Ativo.gs!montarTelaAtivo_. `ref` é o ticker (ações, FIIs,
  * ações EUA) ou `rf:<nome>|<instituição>` (um título de renda fixa).
  */
-export async function getAtivo(token, ref) {
-  return request('GET', 'ativo', token, { ref });
+export async function getAtivo(token, ref, { semIndices = false } = {}) {
+  // 05/10/2026 (A-38): semIndices - o front já tem a série da Início (home) e monta os índices dela; a resposta vem ~200 KB menor
+  return request('GET', 'ativo', token, semIndices ? { ref, semIndices: 1 } : { ref });
 }
 
 /** 25/09/2026: notícias recentes do ativo (Google Notícias, cache de 2h no Apps Script). */
@@ -742,8 +743,12 @@ export async function excluirMetaDefinitivamente(token, id) {
 }
 
 /** 02/10/2026: Organização Financeira - Gastos (Gastos.gs): lançamentos, arquivos importados e regras. */
-export async function getGastos(token) {
-  return request('GET', 'gastos', token);
+export async function getGastos(token, { de, ate } = {}) {
+  // 05/10/2026 (A-35): sem parâmetro o servidor devolve os últimos 12 meses (+1 de margem); `de` = 'aaaa-mm' (ou 'tudo').
+  const params = {};
+  if (de) params.de = de;
+  if (ate) params.ate = ate;
+  return request('GET', 'gastos', token, params);
 }
 
 /** Faturas/extratos em Documentos/Transações no Drive (marca novos e alterados). */

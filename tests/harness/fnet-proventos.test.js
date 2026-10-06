@@ -69,6 +69,13 @@ test('FNet: rotina diária grava a aba, não baixa documento repetido, aplica re
   const r = await carregarTodasAsTelasComDadosReais();
   const sb = r.sandbox;
   const fx = r.fixtures;
+  // A aba real já tem anúncios (ex.: do mesmo FII com a data com de hoje): o teste parte da aba vazia (A-73).
+  const abaAnunciados = sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('aux_proventos-anunciados');
+  if (abaAnunciados && abaAnunciados.getLastRow() > 1) {
+    const cabecalho = abaAnunciados.getRange(1, 1, 1, 8).getValues();
+    abaAnunciados.clearContents();
+    abaAnunciados.getRange(1, 1, 1, 8).setValues(cabecalho);
+  }
 
   // FIIs da carteira hoje (Auxiliar_ativos) - conta independente
   const fiis = fx.Auxiliar_ativos.linhas.slice(1).filter((l) => l[0] === 'FIIs' && Number(l[7]) > 0).map((l) => String(l[1]).trim().toUpperCase());

@@ -76,3 +76,19 @@ test('Vídeos (canal oficial): bloco no topo da seção só com link do YouTube;
   assert.match(videosHtml({ ok: true, configurado: true, canalOficial: { nome: 'X' }, videos: [] }, agora), /nem do canal oficial/);
   assert.match(videosHtml({ ok: true, configurado: false, videos: [] }, agora), /Nenhum canal cadastrado/);
 });
+
+test('Vídeos (05/10/2026): canal sem vídeos (404/lista vazia) mostra "sem vídeos disponíveis" por canal, sem tratar como erro', () => {
+  const dom = new JSDOM(`<div id="r">${videosHtml({
+    ok: true, configurado: true, videos: [v('a1', { motivo: 'ativo' })],
+    canalOficial: { id: 'UCxxxxxxxxxxxxxxxxxxxxxx', nome: 'Gestora Teste', recentes: 0, semVideos: true },
+    canaisSemVideos: ['@canalvazio'],
+  }, agora)}</div>`);
+  const t = dom.window.document.querySelector('.vd-sem-videos').textContent;
+  assert.match(t, /Canal oficial \(Gestora Teste\): sem vídeos disponíveis/);
+  assert.match(t, /@canalvazio: sem vídeos disponíveis/);
+  assert.equal(dom.window.document.querySelectorAll('.vd-card').length, 1, 'os vídeos dos outros canais seguem aparecendo');
+  const ok = new JSDOM(`<div>${videosHtml({ ok: true, configurado: true, videos: [v('a1')] }, agora)}</div>`);
+  assert.equal(ok.window.document.querySelector('.vd-sem-videos'), null);
+  const erro = new JSDOM(`<div>${videosHtml({ ok: false, erro: 'x' }, agora)}</div>`);
+  assert.equal(erro.window.document.querySelector('.vd-sem-videos'), null);
+});

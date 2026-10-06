@@ -123,6 +123,13 @@ function montarCarteirasAcoesEua_() {
   // Dólar fica como cotação (R$ x,xxxx), não variação - mesma correção
   // de Ibovespa/S&P 500 dos comentários acima.
   dados.benchmarks = { dolar: home.cambio.usd, ibovespa: home.indices.ibovespa.variacaoDia, spx: home.indices.spx.variacaoDia };
+  // 05/10/2026 (A-22): custo em REAIS de cada ação com o câmbio do dia da compra (CarteirasHome.gs!
+  // custoBrlAcoesEuaPorTicker_) - a tela mostra o "investido em R$" e o lucro em R$ por linha sem o
+  // câmbio de hoje mexendo no custo. Ticker sem câmbio de compra fica sem o campo (tela cai no câmbio de hoje).
+  try {
+    var custosBrl = custoBrlAcoesEuaPorTicker_(SpreadsheetApp.getActiveSpreadsheet());
+    (dados.ativos || []).forEach(function (a) { if (typeof custosBrl[a.ticker] === 'number') a.totalCompradoBrl = custosBrl[a.ticker]; });
+  } catch (errCusto) { Logger.log('custoBrlAcoesEuaPorTicker_: ' + errCusto); }
   return dados;
 }
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   difMeses, somarMeses, pontoAte, fatorIndice, valorImovel, saldoFinanciamento, extrasFinanciamento, saldoFies, mesesRestantesFies,
   cronogramaDivida, amortizarOuInvestir, parametrosDivida, usosMoradiaFgts, saldoFgtsEm, resumoFgts, projetarFgts, linhaSalarios,
-  crescimentoSalario, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, liberacoesDividas, idadeEm,
+  crescimentoSalario, financiamentoEfetivo, parcelasVencidas, mesDaDivida, usosFgtsNoApe, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, liberacoesDividas, idadeEm,
 } from '../assets/js/pages/patrimonio-calc.js';
 
 const perto = (a, b, tol = 0.01) => Math.abs(a - b) <= tol;
@@ -326,4 +326,61 @@ test('saque-aniversário: tabela da lei (alíquota + parcela adicional), projeç
   assert.ok(r.aniversario.estimado.saldo > 9000, 'até novembro entram depósitos');
   const velho = resumoFgts({ contas: [{ saldo: 100, saquesAniversario: [{ data: '2020-11-02', valor: 50 }] }] }, '2025-06-25');
   assert.equal(velho.aniversario.ativo, false, 'último saque há anos: saiu da modalidade');
+});
+
+// 05/10/2026 (auditoria A-07): financiamento sem data de início nem valor financiado (dados inventados)
+test('A-07: sem dataInicio vale a compra do apê; o FGTS amortizando aparece e o saldo passado não fica constante', () => {
+  const fin = { saldo: 180000, dataSaldo: '2025-06-20', taxaAnual: 0.09, amortizacao: 500 };
+  const cfg = {
+    imovel: { valorCompra: 250000, dataCompra: '2023-01', entrada: 50000 }, financiamento: fin,
+    fgts: { contas: [{ usosMoradia: [{ data: '2025-01-28', valor: 10000 }] }] },
+  };
+  const ef = financiamentoEfetivo(cfg);
+  assert.equal(ef.dataInicio, '2023-01');
+  assert.equal(ef.inicioEstimado, true);
+  assert.equal(ef.tetoSaldo, 200000, 'compra − entrada');
+  assert.equal(financiamentoEfetivo({ financiamento: fin }).dataInicio, undefined, 'sem compra também: nada a inventar');
+  const extras = extrasFinanciamento(ef, cfg.fgts);
+  assert.deepEqual(extras, [{ data: '2025-01-28', valor: 10000, origem: 'fgts' }]);
+  assert.equal(extrasFinanciamento(fin, cfg.fgts).length, 1, 'mesmo sem nenhuma data o uso do FGTS não some');
+  assert.equal(saldoFinanciamento(ef, '2022-12', extras), 0, 'antes da compra');
+  assert.equal(saldoFinanciamento(ef, '2023-01', extras), 200000, 'limitado ao valor financiado');
+  // 190.000 (extrato + o extra) + 500 × 6 meses
+  assert.equal(saldoFinanciamento(ef, '2024-12', extras), 193000);
+  assert.equal(saldoFinanciamento(ef, '2025-01', extras), 182500, 'degrau do FGTS em jan/25');
+  assert.equal(saldoFinanciamento(ef, '2025-06', extras), 180000);
+  assert.ok(saldoFinanciamento(ef, '2024-12', extras) > saldoFinanciamento(ef, '2025-12', extras));
+  // sem início e sem compra: SAC pra trás a partir do extrato (não devolve o saldo de hoje pra qualquer mês)
+  assert.equal(saldoFinanciamento(fin, '2024-12', []), 183000);
+  assert.equal(usosFgtsNoApe(cfg, '2024-12', '2025-12').length, 1);
+  const hist = historicoAnual({ hoje: '2025-06-25', config: cfg, historicoMensal: [{ mes: '2023-12', patrimonio: 1000 }, { mes: '2024-12', patrimonio: 2000 }] });
+  const h24 = hist.find((l) => l.ano === 2024);
+  assert.equal(h24.financiamento, 193000);
+  const h = hist.find((l) => l.hoje);
+  assert.equal(h.fgtsNoApe, 10000);
+});
+
+// 05/10/2026 (A-08): saldo e prazo de hoje só descontam as parcelas que já venceram
+test('A-08: parcelasVencidas / mesDaDivida e o cronograma de hoje partem do saldo e do prazo certos', () => {
+  assert.equal(parcelasVencidas('2025-06-20', '2025-07-19'), 0);
+  assert.equal(parcelasVencidas('2025-06-20', '2025-07-20'), 1, 'vencimento <= hoje conta');
+  assert.equal(parcelasVencidas('2025-06-20', '2025-08-25'), 2);
+  assert.equal(parcelasVencidas('2025-06-20', '2025-07-25', '2025-07-28'), 0, 'usa o vencimento da próxima parcela do extrato');
+  assert.equal(parcelasVencidas('2025-06-20', '2025-07-28', '2025-07-28'), 1);
+  assert.equal(parcelasVencidas('2025-06', '2025-08-10'), 2, 'sem dia: conta por mês');
+  assert.equal(mesDaDivida(FIN, '2025-07-05'), '2025-06');
+  assert.equal(mesDaDivida(FIN, '2025-07-25'), '2025-07');
+  assert.equal(mesDaDivida(FIN, '2025-05-01'), '2025-05', 'antes do extrato: o próprio mês');
+  const antes = parametrosDivida('financiamento', { ...FIN, prazoRestante: 360 }, '2025-07-05');
+  assert.equal(antes.saldo, 180000);
+  assert.equal(antes.meses, 360, 'a parcela do dia 20 ainda não foi paga');
+  const depois = parametrosDivida('financiamento', { ...FIN, prazoRestante: 360 }, '2025-07-25');
+  assert.equal(depois.saldo, 179500);
+  assert.equal(depois.meses, 359);
+  assert.equal(cronogramaDivida({ ...antes }).length, 360);
+  // FIES: parcelas que faltam
+  assert.equal(mesesRestantesFies(FIES, '2025-06-25'), 84);
+  assert.equal(mesesRestantesFies(FIES, '2025-07-05'), 84, 'a parcela do dia 10 ainda não venceu');
+  assert.equal(mesesRestantesFies(FIES, '2025-07-15'), 83);
+  assert.equal(mesesRestantesFies({ saldo: 1000, dataSaldo: '2025-06-10', restantes: 10 }, '2025-07-15'), 9);
 });

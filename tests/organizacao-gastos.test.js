@@ -226,3 +226,24 @@ test('Gastos: falha fica "com problema", "Tentar de novo só os que falharam" re
   await ate(() => /fatura\.pdf/.test(txt(el.querySelector('.gs-log'))));
   assert.ok(sv.arqs['upload:fatura.pdf:2'], 'gravado como upload');
 });
+
+test('Gastos (A-25): arquivo com "soma não bate" marca o mês (cobertura e tile) e oferece reprocessar só ele', async () => {
+  const { mesesComAviso, arquivoComAviso, htmlDocumentos, htmlHero } = await import('../assets/js/pages/organizacao-gastos.js');
+  const { coberturaDocumentos } = await import('../assets/js/pages/gastos-calc.js');
+  const arquivos = [
+    { id: 'a1', nome: '02-2025.pdf', fonte: 'ourocard', meses: ['2025-02'], situacao: 'aviso', conferencia: { ok: false, diferenca: 12.5 }, problema: '' },
+    { id: 'a2', nome: '03-2025.pdf', fonte: 'ourocard', meses: ['2025-03'], situacao: 'ok', conferencia: { ok: true, diferenca: 0 } },
+    { id: 'upload:x', nome: 'x.pdf', fonte: 'ourocard', meses: ['2025-01'], situacao: 'aviso', conferencia: { ok: false, diferenca: 1 } },
+  ];
+  assert.equal(arquivoComAviso(arquivos[0]), true);
+  assert.equal(arquivoComAviso(arquivos[1]), false);
+  assert.deepEqual(Object.keys(mesesComAviso(arquivos)).sort(), ['2025-01', '2025-02']);
+  const r = { arquivos, cobertura: coberturaDocumentos(arquivos, new Date('2025-04-05T12:00:00Z')) };
+  const html = htmlDocumentos(r, {});
+  assert.match(html, /gs-cel aviso/);
+  assert.match(html, /data-acao="reprocessar-arq" data-id="a1"/);
+  assert.doesNotMatch(html, /data-acao="reprocessar-arq" data-id="upload:x"/, 'upload do computador não tem como reprocessar');
+  const hero = htmlHero({ vazio: false, arquivos, mesRef: '2025-02', total: 0, cartao: 0, conta: 0, media: 0, media6: 0, media12: 0, mesesValidos: 1, porMes: [], recorrentes: [], doMes: { total: 0 }, intervalo: { inicio: '2025-02', fim: '2025-02' }, periodo: 'mes' });
+  assert.match(hero, /soma não bate em 1 arquivo/);
+  assert.doesNotMatch(htmlHero({ vazio: false, arquivos, mesRef: '2025-03', total: 0, cartao: 0, conta: 0, media: 0, media6: 0, media12: 0, mesesValidos: 1, porMes: [], recorrentes: [], doMes: { total: 0 }, intervalo: { inicio: '2025-03', fim: '2025-03' }, periodo: 'mes' }), /soma não bate/);
+});

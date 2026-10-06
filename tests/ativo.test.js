@@ -11,10 +11,12 @@ import { JSDOM } from 'jsdom';
 
 function montarDom(ref = 'TEST3', hash = '') {
   const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="carteiras">
-    <div id="refreshControlAtivo"></div>
+    <header id="ativoCabecalho"></header>
     <div id="ativoLoading"></div><div id="ativoErro" hidden></div><div id="ativoConteudo" hidden></div></body></html>`,
   { url: `https://exemplo.test/repo/ativo/index.html?ref=${encodeURIComponent(ref)}${hash}`, pretendToBeVisual: true });
   const w = dom.window;
+  // movimento reduzido: os números dos KPIs aparecem finais (sem animação a partir de 0)
+  w.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   globalThis.sessionStorage = w.sessionStorage;
   globalThis.localStorage = w.localStorage;
   return { dom, doc: w.document, w };
@@ -77,7 +79,7 @@ async function montar({ metas = { ok: false }, resposta = respostaAcao(), notici
   const chamadas = { ativo: [], noticias: [], teses: [], intradia: [] };
   await montarPaginaAtivo('tk', {
     doc,
-    getAtivoImpl: async (t, r) => { chamadas.ativo.push(r); return structuredClone(resposta); },
+    getAtivoImpl: async (t, r, o) => { chamadas.ativo.push(r); (chamadas.opcoesAtivo = chamadas.opcoesAtivo || []).push(o); return structuredClone(resposta); },
     getNoticiasImpl: async (t, p) => { chamadas.noticias.push(p); return noticias; },
     getTesesImpl: async (t, tk) => { chamadas.teses.push(tk); return teses; },
     getIntradiaImpl: async (t, chaves) => { chamadas.intradia.push(chaves); return intradia(chaves); },
@@ -94,32 +96,47 @@ test('ativo: cabeçalho, trilha de volta pra Carteiras › Ações, resumo da po
   assert.deepEqual(chamadas.ativo, ['TEST3'], 'o ref vem do endereço (?ref=)');
   assert.equal(doc.getElementById('ativoConteudo').hidden, false);
   assert.equal(doc.getElementById('ativoLoading').hidden, true);
-  assert.equal(txt(doc.querySelector('.at-ticker')), 'TEST3');
-  assert.match(doc.title, /TEST3/);
-  const trilha = doc.querySelectorAll('.at-trilha a');
+  // 06/10/2026 (Onda 3): cabeçalho padrão (ui/pagina.js): título = ticker, subtítulo = nome, breadcrumb "Carteiras › Ações › TEST3"
+  assert.equal(txt(doc.querySelector('#ativoCabecalho .pagina-titulo')), 'TEST3');
+  assert.equal(doc.title, 'TEST3 · Carteiras · Patrimônio');
+  const trilha = doc.querySelectorAll('#ativoCabecalho nav a');
+  assert.match(trilha[0].getAttribute('href'), /\/carteiras\/index\.html$/);
   assert.match(trilha[1].getAttribute('href'), /\/carteiras\/index\.html#acoes$/);
   assert.equal(txt(trilha[1]), 'Ações');
-  assert.match(txt(doc.querySelector('.at-resumo')), /R\$\s*270,00/);
-  assert.match(txt(doc.querySelector('.at-resumo')), /Valor aplicado: R\$\s*220,00/);
-  assert.match(txt(doc.querySelector('.at-resumo')), /R\$\s*50,00 \+22,73%/);
-  assert.match(txt(doc.querySelector('.at-resumo')), /R\$\s*55,00 com proventos/);
-  assert.match(txt(doc.querySelector('.at-resumo')), /20,0%/, '270 de 1.350 do patrimônio');
+  assert.equal(txt(doc.querySelector('#ativoCabecalho nav [aria-current="page"]')), 'TEST3');
+  const resumo = txt(doc.getElementById('atResumo'));
+  assert.match(resumo, /R\$\s*270,00/);
+  assert.match(resumo, /Valor aplicado: R\$\s*220,00/);
+  assert.match(resumo, /R\$\s*50,00/);
+  assert.match(resumo, /\+22,73%/);
+  assert.match(resumo, /R\$\s*55,00 com proventos/);
+  assert.match(txt(doc.querySelector('.at-hero')), /20,0% do patrimônio/, '270 de 1.350 do patrimônio');
   const faixa = doc.getElementById('at-faixa');
   assert.match(txt(faixa), /10,0% abaixo do seu preço-teto/);
   assert.match(txt(faixa), /Mín\. desde 05\/01\/2026/, 'menos de 1 ano de carteira: avisa');
-  assert.ok(faixa.querySelector('.status-pill.good'));
+  assert.ok(faixa.querySelector('.chip-tonal.chip-good'));
   // o nome veio da planilha com HTML: vira texto, não tag
-  assert.equal(doc.querySelector('.at-nome b'), null);
+  assert.equal(doc.querySelector('#ativoCabecalho .pagina-sub b'), null);
+  assert.equal(txt(doc.querySelector('#ativoCabecalho .pagina-sub')), 'Teste Sociedade Anônima', 'nome do "Sobre" tem prioridade');
+  const sem = await montar({ estaticos: {} });
+  assert.equal(sem.doc.querySelector('#ativoCabecalho .pagina-sub b'), null);
+  assert.match(txt(sem.doc.querySelector('#ativoCabecalho .pagina-sub')), /Teste <b>S\.A\.<\/b>/, 'sem o "Sobre": o nome da planilha entra como texto');
 });
 
 test('ativo: gráficos (rentabilidade com o ticker na legenda, aplicado x saldo), mês a mês e proventos', async () => {
   const { doc } = await montar();
-  assert.ok(doc.querySelector('#atRentabChart svg.rentab-chart'));
-  assert.match(txt(doc.getElementById('atRentabLegenda')), /TEST3/);
-  assert.match(txt(doc.getElementById('atRentabLegenda')), /Ibovespa/);
-  assert.match(txt(doc.getElementById('atRentabLegenda')), /CDI/);
-  assert.ok(doc.querySelector('#atEvolucaoChart svg.rentab-chart'));
-  assert.match(txt(doc.getElementById('atEvolucaoInfo')), /Valor aplicado: R\$\s*220,00/);
+  // 06/10/2026 (Onda 3): os gráficos vêm da biblioteca (charts/) pelo criarGraficosCarteira, com o seletor de período padrão
+  const graficos = doc.getElementById('atGraficos');
+  assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+  assert.ok(graficos.querySelector('.chart-seg [data-periodo="12m"]'), 'seletor de período canônico');
+  const leg = [...graficos.querySelectorAll('.chart-legenda')].map((l) => txt(l));
+  assert.match(leg[0], /TEST3/);
+  assert.match(leg[0], /Ibovespa/);
+  assert.match(leg[0], /CDI/);
+  assert.match(txt(graficos.querySelector('.cg-painel-rentabilidade .chart-card-rot')), /Rentabilidade · TEST3/);
+  assert.match(leg[1], /Valor aplicado/);
+  const evolucao = [...graficos.querySelectorAll('.chart-card-rot')].map((e) => txt(e)).find((t) => /Valor aplicado/.test(t));
+  assert.ok(evolucao, 'card de evolução: valor aplicado x saldo');
   const linhas = doc.querySelectorAll('#at-mensal tbody tr');
   assert.equal(linhas.length, 3);
   assert.match(txt(linhas[0]), /mar\/26 R\$\s*270,00 20 \+8,00%/);
@@ -127,7 +144,8 @@ test('ativo: gráficos (rentabilidade com o ticker na legenda, aplicado x saldo)
   assert.match(txt(prov), /Recebidos no total R\$\s*5,00/);
   assert.match(txt(prov), /\+ R\$\s*3,00 a receber/);
   assert.equal(prov.querySelectorAll('.at-lista-receber li').length, 1);
-  assert.ok(prov.querySelector('svg.at-barras .at-barra[data-tooltip*="fev/26: R$"]'));
+  assert.ok(prov.querySelector('#atBarrasProventos .chart--barras-simples svg'));
+  assert.match(txt(prov.querySelector('.chart-tabela')), /fev\/26 R\$\s*5,00/, 'valor do mês de fev/26 na tabela de apoio do gráfico');
 });
 
 test('ativo: extrato com filtro (compras e vendas / proventos)', async () => {
@@ -236,8 +254,8 @@ test('ativo: renda fixa - sem tese/notícias/faixa, com características e o sal
   assert.match(txt(doc.querySelector('.at-cotacao')), /Saldo bruto R\$\s*210,00/);
   assert.match(txt(doc.getElementById('at-indicadores')), /Características/);
   assert.match(txt(doc.getElementById('at-indicadores')), /SELIC \+ 0,1%/);
-  assert.match(txt(doc.querySelector('.at-resumo')), /Se resgatasse hoje R\$\s*208,50 IR de R\$\s*1,50/);
-  assert.match(doc.querySelectorAll('.at-trilha a')[1].getAttribute('href'), /\/carteiras\/index\.html#renda-fixa$/);
+  assert.match(txt(doc.getElementById('atResumo')), /Se resgatasse hoje R\$\s*208,50 IR de R\$\s*1,50/);
+  assert.match(doc.querySelectorAll('#ativoCabecalho nav a')[1].getAttribute('href'), /\/carteiras\/index\.html#renda-fixa$/);
   assert.match(txt(doc.getElementById('atExtratoTabela')), /Aplicação/);
 });
 
@@ -303,10 +321,10 @@ test('ativo: abas - Visão geral aberta; Extrato e Sobre escondidas; clique troc
   assert.ok(painel('visao').querySelector('#at-graficos') && painel('visao').querySelector('#at-proventos') && painel('visao').querySelector('#at-noticias') && painel('visao').querySelector('#at-tese'));
   assert.ok(painel('extrato').querySelector('#at-mensal') && painel('extrato').querySelector('#at-extrato'));
   assert.ok(painel('sobre').querySelector('#at-sobre') && painel('sobre').querySelector('#at-ir'));
-  const ordem = [...painel('visao').querySelectorAll('.at-col-principal > section')].map((s) => s.id);
+  const ordem = [...painel('visao').querySelectorAll('.at-col-principal > [id]')].map((s) => s.id);
   assert.deepEqual(ordem, ['at-graficos', 'at-proventos', 'at-noticias', 'at-videos', 'at-tese'], 'notícias logo abaixo de proventos, depois vídeos; tese no corpo');
 
-  const aba = (id) => doc.getElementById(`at-tab-${id}`);
+  const aba = (id) => doc.querySelector(`#ativoCabecalho .tabs [data-tab="${id}"]`);
   clique(w, aba('extrato'));
   assert.equal(painel('extrato').hidden, false);
   assert.equal(painel('visao').hidden, true);
@@ -323,7 +341,7 @@ test('ativo: abre direto na aba do endereço (#sobre)', async () => {
   const { doc } = await montar({ hash: '#sobre' });
   assert.equal(doc.getElementById('at-aba-sobre').hidden, false);
   assert.equal(doc.getElementById('at-aba-visao').hidden, true);
-  assert.ok(doc.getElementById('at-tab-sobre').classList.contains('active'));
+  assert.equal(doc.querySelector('#ativoCabecalho .tabs [data-tab="sobre"]').getAttribute('aria-selected'), 'true');
 });
 
 test('ativo: mês a mês - ordena pelo título da coluna, rodapé com o acumulado e alternador Tabela/Gráfico', async () => {
@@ -334,10 +352,10 @@ test('ativo: mês a mês - ordena pelo título da coluna, rodapé com o acumulad
   clique(w, thMes);
   assert.deepEqual(meses(), ['jan/26', 'fev/26', 'mar/26']);
   assert.match(txt(doc.querySelector('#atMensalTabela tfoot')), /Desde o início \(3 meses\) · rentab\./);
-  assert.ok(doc.querySelector('#atMensalTabela .status-pill'), 'rentabilidade como tag');
+  assert.ok(doc.querySelector('#atMensalTabela .var'), 'rentabilidade com seta e cor');
   clique(w, doc.querySelector('#atMensalVista [data-vista="grafico"]'));
   assert.equal(doc.getElementById('atMensalTabela').hidden, true);
-  assert.ok(doc.querySelector('#atMensalGrafico svg.at-mensal-svg'));
+  assert.ok(doc.querySelector('#atMensalGrafico .chart--barras-agrupadas svg'));
   assert.match(txt(doc.getElementById('atMensalGrafico')), /TEST3 \(rentab\. no mês\)/);
 });
 
@@ -348,14 +366,14 @@ test('ativo: extrato - tags por tipo, ordenação pelo título, filtro por ano e
   const { doc, w } = await montar({ resposta, hash: '#extrato' });
   const linhas = () => [...doc.querySelectorAll('#atExtratoTabela tbody tr')];
   assert.equal(linhas().length, 5);
-  assert.ok(linhas()[0].querySelector('.status-pill.warn'), 'venda = tag de saída');
+  assert.ok(linhas()[0].querySelector('.chip-tonal.chip-warn'), 'venda = tag de saída');
   assert.match(txt(doc.querySelector('#atExtratoTabela tfoot')), /5 lançamentos · compras R\$\s*265,00 · vendas R\$\s*65,00 · proventos R\$\s*5,00/);
   const thTotal = [...doc.querySelectorAll('#atExtratoTabela th.cc-th-ordenavel')].find((th) => /Total/.test(th.textContent));
   clique(w, thTotal);
   assert.match(txt(linhas()[0]), /R\$\s*120,00/, 'maior total primeiro');
   const selAno = doc.getElementById('atExtratoAno');
   assert.deepEqual([...selAno.options].map((o) => o.value), ['', '2026', '2025'], 'filtro de ano do lado direito do título');
-  assert.ok(selAno.closest('.area-header .at-controles'));
+  assert.ok(selAno.closest('.at-controles'));
   selAno.value = '2025';
   selAno.dispatchEvent(new w.Event('change', { bubbles: true }));
   assert.equal(linhas().length, 1);
@@ -469,16 +487,16 @@ const SERIE_DIA = { preco: 10.2, fechamentoAnterior: 10, variacao: 0.02, dia: '2
 test('ativo: gráfico do dia ao lado do cabeçalho - pede a chave do ativo, desenha a linha do pregão (verde) e o fechamento anterior, e abre o Google Finance', async () => {
   const { doc, chamadas } = await montar({ intradia: (chaves) => ({ ok: true, resultado: { [chaves[0]]: SERIE_DIA } }) });
   assert.deepEqual(chamadas.intradia, [['acoes:TEST3']]);
-  const caixa = doc.querySelector('.at-cabecalho a.at-dia');
+  const caixa = doc.querySelector('.at-hero a.at-dia');
   assert.ok(caixa, 'gráfico no cabeçalho, entre o ativo e a cotação');
   assert.equal(caixa.nextElementSibling.className, 'at-cotacao');
   assert.equal(caixa.getAttribute('href'), 'https://www.google.com/finance/quote/TEST3:BVMF');
   assert.equal(caixa.getAttribute('target'), '_blank');
   assert.equal(caixa.getAttribute('rel'), 'noopener');
   assert.ok(!caixa.classList.contains('carregando') && !caixa.classList.contains('sem-dado'));
-  const svg = caixa.querySelector('.at-dia-grafico svg.intradia-svg');
-  assert.ok(svg.classList.contains('sobe'));
-  assert.ok(svg.querySelector('line.intradia-anterior'), 'fechamento anterior pontilhado');
+  // 06/10/2026: o gráfico do dia é a sparkline da biblioteca (inicio-intradia.js); a direção fica em data-intradia-dir
+  assert.ok(caixa.querySelector('.at-dia-grafico .chart-spark svg, .at-dia-grafico svg'), 'linha do pregão desenhada');
+  assert.equal(caixa.querySelector('.at-dia-grafico').dataset.intradiaDir, 'sobe');
   assert.equal(caixa.querySelector('.intradia-dia'), null, 'pregão de hoje: sem rótulo de data');
   assert.match(txt(caixa), /Variação do dia Google Finance ↗/);
 });
@@ -500,13 +518,13 @@ test('ativo: gráfico do dia - esqueleto enquanto carrega, aviso discreto sem s�
   assert.equal(caixa.getAttribute('href'), 'https://www.google.com/finance/quote/TSTU:NYSE', 'continua abrindo o Google Finance');
   preencherGraficoDia(r, 'usa:TSTU', { ...SERIE_DIA, dia: '2026-03-09', v: [10, 9.8, 9.7, 9.6] }, { agora: new Date('2026-03-10T15:00:00Z') });
   assert.ok(!caixa.classList.contains('sem-dado'));
-  assert.ok(caixa.querySelector('svg.intradia-svg.desce'), 'abaixo do fechamento anterior: vermelho');
+  assert.equal(caixa.querySelector('.at-dia-grafico').dataset.intradiaDir, 'desce', 'abaixo do fechamento anterior: vermelho');
   assert.equal(caixa.querySelector('.intradia-dia').textContent, 'pregão 09/03');
 
   // falha na busca: tira o esqueleto e avisa (sem quebrar a página)
   const { doc } = await montar({ intradia: () => { throw new Error('rede'); } });
   assert.ok(doc.querySelector('.at-dia.sem-dado'));
-  assert.ok(doc.getElementById('at-resumo') || doc.querySelector('.at-resumo'), 'resto da página ok');
+  assert.ok(doc.getElementById('atResumo'), 'resto da página ok');
 });
 
 test('ativo: Google Finance - ações e FIIs na BVMF; EUA na bolsa do "Sobre" (sem bolsa: busca); renda fixa não tem', async () => {
@@ -567,8 +585,8 @@ test('ativo: canal oficial - bloco no topo dos vídeos (nova aba) e a busca de v
 // (rentabilidade e proventos por mês), "Ontem era" e o menu renomeado.
 test('ativo: "Escolher período" no filtro dos gráficos - chip abre o calendário; intervalo redesenha os 2 gráficos e o chip mostra o intervalo', async () => {
   const { doc, w } = await montar();
-  const tabs = doc.getElementById('atPeriodoTabs');
-  const chip = tabs.querySelector('.filter-tab.fp-chip');
+  const tabs = doc.querySelector('#atGraficos .cg-periodo');
+  const chip = tabs.querySelector('.fp-chip');
   assert.ok(chip, 'chip no fim do filtro');
   assert.match(chip.textContent, /Escolher período/);
   clique(w, chip);
@@ -582,27 +600,27 @@ test('ativo: "Escolher período" no filtro dos gráficos - chip abre o calendár
   const filtro = tabs._filtroPeriodo;
   assert.ok(filtro.definir({ inicio: '2026-01-30', fim: '2026-02-27' }));
   assert.match(chip.textContent, /30 jan–27 fev/);
-  assert.equal(chip.classList.contains('active'), true);
-  assert.equal(tabs.querySelector('[data-periodo="mes"]').classList.contains('active'), false);
+  assert.equal(chip.getAttribute('aria-pressed'), 'true');
+  assert.equal(tabs.querySelector('[data-periodo="mes"]').getAttribute('aria-pressed'), 'false');
   // período que termina antes de hoje: o valor mostrado é o do fim do intervalo
-  assert.match(txt(doc.getElementById('atEvolucaoInfo')), /em 27\/02\/2026/);
-  assert.match(txt(doc.getElementById('atRentabInfo')), /em 27\/02\/2026/);
-  assert.ok(doc.querySelector('#atRentabChart svg.rentab-chart'));
+  const rotulos = [...doc.querySelectorAll('#atGraficos .chart-card-rot')].map((e) => txt(e));
+  assert.equal(rotulos.length, 2);
+  rotulos.forEach((t) => assert.match(t, /em 27\/02\/2026/));
+  assert.ok(doc.querySelector('#atGraficos .cg-painel-rentabilidade .chart--linha svg'));
   // lembra a escolha (uma chave pra todos os ativos)
   assert.match(w.localStorage.getItem('periodo:ativo'), /2026-01-30/);
 });
 
 test('ativo: card de Análise embaixo da Rentabilidade (ativo x índices) e dos proventos por mês; "Ontem era" no saldo', async () => {
   const { doc } = await montar();
-  const ag = doc.querySelector('#atRentabAnalise details.ag');
+  const ag = doc.querySelector('#atGraficos .cg-analise details.ag');
   assert.ok(ag, 'card de análise da rentabilidade');
-  assert.equal(doc.getElementById('atRentabAnalise').hidden, false);
   assert.match(txt(ag), /TEST3 (rendeu|recuou)/);
   assert.match(txt(ag), /Ibovespa|CDI/);
   assert.match(txt(ag), /Não é recomendação/);
   // "Ontem era" + meses anteriores no bloco do saldo (Mês atual)
-  assert.ok(doc.querySelector('#atEvolucaoInfo .rentab-cmp'), 'comparativo no bloco do saldo');
-  assert.match(txt(doc.getElementById('atEvolucaoInfo')), /era/);
+  assert.ok(doc.querySelector('#atGraficos .cg-painel-evolucao .cg-cmp'), 'comparativo no bloco do saldo');
+  assert.match(txt(doc.querySelector('#atGraficos .cg-painel-evolucao .cg-cmp')), /era/);
   // proventos: 1 pagamento inventado (fev) - média do mês fechado
   const prov = doc.querySelector('#atProvAnalise details.ag');
   assert.ok(prov, 'card de análise dos proventos');
@@ -635,7 +653,7 @@ test('ativo: card "Análise do ativo" - nota, veredito, até 5 pontos, todos os 
   assert.ok(card, 'card na lateral');
   assert.equal(card.previousElementSibling && card.previousElementSibling.id, 'at-indicadores', 'logo depois dos indicadores');
   assert.match(txt(card.querySelector('.at-card-titulo')), /Análise do ativo \d+ critérios/);
-  const nota = Number(card.querySelector('.at-an-nota-num b').textContent);
+  const nota = Number(card.querySelector('.at-an-nota .chart-anel-valor').textContent);
   assert.ok(nota >= 0 && nota <= 100);
   assert.match(card.querySelector('.at-an-nota').getAttribute('aria-label'), new RegExp(`Nota ${nota} de 100`));
   assert.ok(card.querySelector('.at-an-veredito strong').textContent.length > 3);
@@ -683,4 +701,45 @@ test('ativo: análise com metas - renda fixa marcada Renda Emergencial mostra "i
   assert.ok(card, 'as metas chegam e o card aparece');
   assert.match(txt(card), /Análise do título/);
   assert.match(txt(card), /Faltam R\$ 90,00 pra meta "Reserva"; investir R\$ 90,00 aqui completa a meta\./);
+});
+
+// 05/10/2026 (A-18): a janela dos "12 meses" aparece escrita (os 12 meses fechados da meta de Renda Passiva)
+test('ativo: proventos - o card "Últimos 12 meses" diz quais meses entram (12 meses fechados, mês a mês)', async () => {
+  const { doc } = await montar();
+  const card = txt(doc.querySelector('.at-prov-stats'));
+  assert.match(card, /Últimos 12 meses/);
+  assert.match(card, /12 meses fechados: 03\/2025 a 02\/2026/);
+});
+
+// 05/10/2026 (A-38): os índices (CDI, Ibovespa...) vêm da home guardada no IndexedDB quando ela é de hoje
+test('ativo: com a home de hoje guardada pede o ativo sem `indices` e monta os índices dela; sem home (ou velha) pede completo', async () => {
+  const { usarMemoriaNoCacheDados, gravarCacheDados } = await import('../assets/js/cache-dados.js');
+  const completa = respostaAcao();
+  const enxuta = { ...structuredClone(completa), indicesDesde: '2026-01-05' };
+  delete enxuta.indices;
+  const historico = (ultimoDia) => [
+    { data: '2025-12-20', indiceCdi: 90, indiceIpca: 40, ibovespa: 900, patrimonio: 900 }, // antes da janela (5/1 - 7 dias): fica de fora
+    { data: '2026-01-02', indiceCdi: 100, indiceIpca: 50, ibovespa: 1000, ifix: null, sp500: null, cambioUsd: null, patrimonio: 1000 },
+    { data: '2026-02-27', indiceCdi: 102, indiceIpca: 51, ibovespa: 1020, patrimonio: 1250 },
+    { data: ultimoDia, indiceCdi: 102.5, indiceIpca: 51, ibovespa: 1030, patrimonio: 1350 },
+  ];
+  try {
+    // home de hoje no cache: pede sem índices e o resumo sai igual ao de antes (20,0% = 270 de 1.350)
+    usarMemoriaNoCacheDados(new Map());
+    await gravarCacheDados('home', { ok: true, historico: historico('2026-03-10') });
+    const comHome = await montar({ resposta: enxuta });
+    assert.deepEqual(comHome.chamadas.opcoesAtivo, [{ semIndices: true }]);
+    assert.match(txt(comHome.doc.querySelector('.at-hero')), /20,0%/);
+    // home de ontem: não serve (a série tem que chegar até hoje) -> pede completo
+    usarMemoriaNoCacheDados(new Map());
+    await gravarCacheDados('home', { ok: true, historico: historico('2026-03-09') });
+    const velha = await montar({ resposta: completa });
+    assert.deepEqual(velha.chamadas.opcoesAtivo, [undefined]);
+    // sem home nenhuma: idem
+    usarMemoriaNoCacheDados(new Map());
+    const sem = await montar({ resposta: completa });
+    assert.deepEqual(sem.chamadas.opcoesAtivo, [undefined]);
+  } finally {
+    usarMemoriaNoCacheDados(null);
+  }
 });

@@ -28,9 +28,11 @@ test('statProventosHero(): valor do mês, "em 12 meses" embaixo e o total desde 
   const fmt = (v) => `R$ ${v.toFixed(2)}`;
   const s = statProventosHero(HIST, ['proventosAcoes'], { formatar: fmt, botaoInfoHtml: (t) => `<i data-t="${t}"></i>` });
   assert.equal(s.label, 'Proventos no mês');
-  assert.match(s.valor, /^R\$ 4\.00/);
-  assert.match(s.valor, /R\$ 24\.00 em 12 meses/);
-  assert.match(s.valor, /Desde o início: R\$ 24\.00/);
+  // 06/10/2026 (kit): vira o KPI "Proventos no mês" - valor numérico do mês, "em 12 meses" no sub e o total desde o início no "i"
+  assert.equal(s.valor, 4);
+  assert.equal(s.formatar(s.valor), 'R$ 4.00');
+  assert.equal(s.sub, 'R$ 24.00 em 12 meses');
+  assert.match(s.info, /Desde o início: R\$ 24\.00/);
   assert.equal(statProventosHero([], ['proventosAcoes'], { formatar: fmt }), null);
 });
 
@@ -44,7 +46,7 @@ test('renderProventosCarteira(): só a classe da página; Visão geral = todas; 
     recebidosNoMes: [item('CCCC', 'acoesEua', 2, '2026-09-02')],
     pagosNaoLancados: [],
   };
-  const hoje = new Date(2026, 8, 24);
+  const hoje = new Date('2026-09-24T15:00:00Z'); // meio-dia em São Paulo
   renderProventosCarteira(doc, secao, dados, { classes: ['acoes'], hoje });
   assert.equal(secao.hidden, false);
   assert.match(secao.textContent, /AAAA3/);

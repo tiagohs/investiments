@@ -10,6 +10,8 @@
  * endereço e CNPJ do holerite são ignorados de propósito.
  */
 
+import { MESES_LONGOS_ASCII_MAIUSC } from '../format.js'; // 05/10/2026 (A-68)
+
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -51,7 +53,7 @@ export async function extrairLinhasPdf(pdfjsLib, dados) {
   return linhas;
 }
 
-const MESES = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const NUM = '\\d{1,3}(?:\\.\\d{3})*,\\d{2}';
 export const numBR = (s) => {
@@ -87,8 +89,8 @@ export function lerHolerite(linhas) {
 
   const ref = tudo.match(/REFERENTE A\s+([^\n]*?)(?:\s+DATA DE CREDITO|\n|$)/);
   if (ref) {
-    const m = ref[1].match(new RegExp(`(${MESES.join('|')})\\s+DE\\s+(\\d{4})`));
-    if (m) out.mes = `${m[2]}-${String(MESES.indexOf(m[1]) + 1).padStart(2, '0')}`;
+    const m = ref[1].match(new RegExp(`(${MESES_LONGOS_ASCII_MAIUSC.join('|')})\\s+DE\\s+(\\d{4})`));
+    if (m) out.mes = `${m[2]}-${String(MESES_LONGOS_ASCII_MAIUSC.indexOf(m[1]) + 1).padStart(2, '0')}`;
     const t = tipoDoTexto(ref[1]);
     if (t) out.tipo = t;
   }
@@ -206,7 +208,7 @@ const NOME_EMPRESA_CURTO = (a) => `${a.empresa ? `${a.empresa}/` : ''}${a.nome}`
 export async function lerHoleritesDoDrive({ listar, obter, salvar, carregarPdf, lerPdf, doc, pagamentos = [], ids = null, aoProgresso = null }) {
   let lista;
   try { lista = await listar(); } catch (e) { lista = { ok: false, erro: String(e && e.message ? e.message : e) }; }
-  if (!lista || !lista.ok) return { ok: false, erro: `Não deu pra listar o Drive: ${(lista && lista.erro) || 'erro'}`, log: [], importados: 0, avisos: 0, falhas: 0, ultima: null };
+  if (!lista || !lista.ok) return { ok: false, erro: 'Não consegui ver a pasta do Drive agora. Tente de novo em instantes.', detalhe: String((lista && lista.erro) || 'erro'), log: [], importados: 0, avisos: 0, falhas: 0, ultima: null };
   if (lista.configurado === false) return { ok: false, erro: 'Não achei a pasta Documentos/Trabalho no Drive (rode configurarPastaHoleritesDireto no editor do Apps Script).', log: [], importados: 0, avisos: 0, falhas: 0, ultima: null };
   const alvo = ids ? (lista.arquivos || []).filter((a) => ids.includes(a.id)) : holeritesNovosDrive(lista.arquivos);
   const log = [];

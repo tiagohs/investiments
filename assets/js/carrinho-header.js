@@ -19,8 +19,10 @@ import {
   CHAVE_CARRINHO, EVENTO_CARRINHO, EVENTO_ABRIR_CARRINHO, NOME_CLASSE_CARRINHO,
   lerCarrinhoLocal, carrinhoValido, totaisCarrinho, itensDoCarrinho, situacaoCarrinho, dataBRT, horaTxt,
 } from './carrinho-global.js';
-import { formatBRL, formatNumeroBR } from './format.js';
+import { formatBRL, formatNumeroBR, formatDM } from './format.js';
 import { getAportesPendentes } from './api-client.js';
+import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
+
 
 // 06/10/2026 (Tiago, com print de um aporte "Aguardando valores finais": "ainda não vejo no header,
 // ou em algum lugar visível em todo o site, que tenho um carrinho em andamento"): o header também
@@ -29,6 +31,7 @@ import { getAportesPendentes } from './api-client.js';
 // voltar pra aba). A tela Transações publica a lista sempre que muda.
 export const CHAVE_PENDENTES = 'investiments_aportes_pendentes';
 export const EVENTO_PENDENTES = 'aportes:pendentes';
+export const EVENTO_ABRIR_LANCAMENTOS = 'transacoes:abrirLancamentos'; // A-24: "Ver em Lançamentos" estando na tela Transações
 
 /** Aportes "aguardando" -> resumo { id, data, n, totalBrl, totalUsd } (valor final se já informado, senão o planejado). */
 export function resumoPendentes(aportes) {
@@ -42,19 +45,57 @@ export function resumoPendentes(aportes) {
   });
 }
 
-/** A tela Transações chama ao carregar/mudar os aportes: grava o resumo e avisa o header. */
-export function publicarAportesPendentes(aportes, { win = (typeof window !== 'undefined' ? window : null), storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : null) } = {}) {
+/**
+ * 05/10/2026 (A-24): lançamentos "a confirmar" (aporte de ação/FII ou Renda Fixa concluído que a
+ * importação da B3 ainda não trouxe; Aportes.gs!lancamentosAConfirmar_) -> resumo { n, total, itens } pro
+ * aviso do header ("N lançamentos a confirmar"), como já se faz com proventos pagos.
+ */
+export function resumoAConfirmar(lista) {
+  const itens = (Array.isArray(lista) ? lista : []).filter((l) => l && l.ativo).map((l) => ({
+    ativo: l.ativo, data: l.data, valor: Number(l.valor) || 0, rf: l.destino === 'rendaFixa',
+  }));
+  return { n: itens.length, total: itens.reduce((s, l) => s + l.valor, 0), itens };
+}
+
+/**
+ * A tela Transações chama ao carregar/mudar os aportes: grava o resumo e avisa o header.
+ * `aConfirmar` (lista do back-end) é opcional: sem ele, mantém o que já estava guardado.
+ */
+export function publicarAportesPendentes(aportes, { win = (typeof window !== 'undefined' ? window : null), storage = (typeof globalThis !== 'undefined' ? globalThis.localStorage : null), aConfirmar } = {}) {
   if (!Array.isArray(aportes)) return;
   const lista = resumoPendentes(aportes);
-  try { if (storage) storage.setItem(CHAVE_PENDENTES, JSON.stringify({ ts: Date.now(), lista })); } catch (e) { /* só conveniência */ }
-  if (win && typeof win.CustomEvent === 'function' && typeof win.dispatchEvent === 'function') win.dispatchEvent(new win.CustomEvent(EVENTO_PENDENTES, { detail: { lista } }));
+  const confirmar = Array.isArray(aConfirmar) ? resumoAConfirmar(aConfirmar) : lerPendentes(storage).aConfirmar;
+  try { if (storage) storage.setItem(CHAVE_PENDENTES, JSON.stringify({ ts: Date.now(), lista, aConfirmar: confirmar })); } catch (e) { /* só conveniência */ }
+  if (win && typeof win.CustomEvent === 'function' && typeof win.dispatchEvent === 'function') win.dispatchEvent(new win.CustomEvent(EVENTO_PENDENTES, { detail: { lista, aConfirmar: confirmar } }));
 }
 
 function lerPendentes(storage) {
+  const vazio = { ts: 0, lista: [], aConfirmar: { n: 0, total: 0, itens: [] } };
   try {
     const r = JSON.parse((storage && storage.getItem(CHAVE_PENDENTES)) || 'null');
-    return r && Array.isArray(r.lista) ? r : { ts: 0, lista: [] };
-  } catch (e) { return { ts: 0, lista: [] }; }
+    if (!r || !Array.isArray(r.lista)) return vazio;
+    const c = r.aConfirmar && Array.isArray(r.aConfirmar.itens) ? r.aConfirmar : vazio.aConfirmar;
+    return { ts: r.ts || 0, lista: r.lista, aConfirmar: c };
+  } catch (e) { return vazio; }
+}
+
+/** HTML da parte "Lançamentos a confirmar" do popover (A-24). */
+export function aConfirmarPanelHtml(resumo, { hrefTransacoes = '#', naTransacoes = false } = {}) {
+  if (!resumo || !resumo.n) return '';
+  const linhas = resumo.itens.slice(0, 6).map((l) => `
+    <li class="carrinho-item">
+      <span class="carrinho-item-nome"><b>${esc(l.ativo)}</b><small>aporte de ${formatDM(l.data, '')} · ${l.rf ? 'falta lançar a aplicação' : 'falta a importação da B3'}</small></span>
+      <span class="carrinho-item-valor">${l.valor > 0 ? formatBRL(l.valor) : ''}</span>
+    </li>`).join('');
+  const mais = resumo.n > 6 ? `<p class="carrinho-nota">e mais ${resumo.n - 6}…</p>` : '';
+  const botao = naTransacoes
+    ? '<button type="button" class="btn btn-ghost carrinho-ir" data-aconfirmar-abrir>Ver em Lançamentos</button>'
+    : `<a class="btn btn-ghost carrinho-ir" href="${esc(String(hrefTransacoes).split('#')[0])}#lancamentos">Ver em Transações</a>`;
+  return `
+    <div class="carrinho-cab"><h3>Lançamentos a confirmar</h3><small>${resumo.n} lançamento${resumo.n === 1 ? '' : 's'}</small></div>
+    <p class="carrinho-nota">Aportes concluídos que ainda não apareceram nas Transações: confirmam quando a importação da B3 trouxer o lançamento.</p>
+    <ul class="carrinho-itens">${linhas}</ul>${mais}
+    ${botao}`;
 }
 
 /** HTML da parte "Aguardando valores finais" do popover. */
@@ -62,7 +103,7 @@ export function pendentesPanelHtml(lista, { hrefTransacoes = '#', naTransacoes =
   if (!lista || !lista.length) return '';
   const linhas = lista.map((p) => `
     <li class="carrinho-item">
-      <span class="carrinho-item-nome"><b>Aporte de ${dma(p.data)}</b><small>${p.n} ativo${p.n === 1 ? '' : 's'} · comprado, falta conferir quantidade e preço</small></span>
+      <span class="carrinho-item-nome"><b>Aporte de ${formatDM(p.data, '')}</b><small>${p.n} ativo${p.n === 1 ? '' : 's'} · comprado, falta conferir quantidade e preço</small></span>
       <span class="carrinho-item-valor">${formatBRL(p.totalBrl)}${p.totalUsd > 0 ? `<small>+ US$ ${formatNumeroBR(p.totalUsd)}</small>` : ''}</span>
     </li>`).join('');
   const botao = naTransacoes
@@ -74,8 +115,6 @@ export function pendentesPanelHtml(lista, { hrefTransacoes = '#', naTransacoes =
     ${botao}`;
 }
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const dma = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '');
 const qtdTxt = (q) => formatNumeroBR(q, q % 1 ? 4 : 0);
 const precoTxt = (v, moeda) => `${moeda === 'USD' ? 'US$' : 'R$'} ${formatNumeroBR(v)}`;
 
@@ -94,7 +133,7 @@ export function carrinhoPanelHtml(carrinho, sit, { hoje, hrefTransacoes = '#', n
   const t = totaisCarrinho(carrinho, carrinho.cambio || 0);
   const semCambio = t.totalUsd > 0 && !(carrinho.cambio > 0);
   const aviso = sit && sit.expirado
-    ? `<p class="carrinho-pendente">Carrinho de ${dma(carrinho.data)} <b>aguardando você confirmar</b>: o horário de compra já passou.</p>`
+    ? `<p class="carrinho-pendente">Carrinho de ${formatDM(carrinho.data, '')} <b>aguardando você confirmar</b>: o horário de compra já passou.</p>`
     : (carrinho.editandoId ? '<p class="carrinho-pendente">Você está editando um aporte já confirmado.</p>' : '');
   const linhas = itens.map((it) => `
     <li class="carrinho-item">
@@ -105,7 +144,7 @@ export function carrinhoPanelHtml(carrinho, sit, { hoje, hrefTransacoes = '#', n
     ? '<button type="button" class="btn btn-primary carrinho-ir" data-carrinho-abrir>Abrir o carrinho</button>'
     : `<a class="btn btn-primary carrinho-ir" href="${esc(hrefTransacoes)}">Ir para Transações</a>`;
   return `
-    <div class="carrinho-cab"><h3>Carrinho em andamento</h3><small>aporte de ${dma(carrinho.data || hoje)}</small></div>
+    <div class="carrinho-cab"><h3>Carrinho em andamento</h3><small>aporte de ${formatDM(carrinho.data || hoje, '')}</small></div>
     ${aviso}
     <ul class="carrinho-itens">${linhas}</ul>
     <div class="carrinho-total"><span>Total${t.totalUsd > 0 ? ' estimado' : ''}</span><b>${formatBRL(t.totalBrl)}</b></div>
@@ -117,7 +156,7 @@ export function carrinhoPanelHtml(carrinho, sit, { hoje, hrefTransacoes = '#', n
 export function carrinhoAvisoHtml(carrinho, sit) {
   const t = totaisCarrinho(carrinho, carrinho.cambio || 0);
   const quando = sit.motivo === 'dia'
-    ? `Esse carrinho é de <b>${dma(carrinho.data)}</b> e o dia já passou`
+    ? `Esse carrinho é de <b>${formatDM(carrinho.data, '')}</b> e o dia já passou`
     : (sit.mercado === 'o dia'
       ? 'O dia de hoje terminou'
       : `O horário de compra de hoje (${sit.mercado}) terminou às <b>${horaTxt(sit.fechamento)}</b> (Brasília)`);
@@ -174,8 +213,10 @@ export function setupCarrinhoHeader(doc, {
     const c = lerCarrinho();
     const sit = c ? situacaoCarrinho(c, agora()) : { vazio: true };
     const temCarrinho = !!(c && !sit.vazio);
-    const pend = lerPendentes(storage).lista;
-    if (!temCarrinho && !pend.length) {
+    const lido = lerPendentes(storage);
+    const pend = lido.lista;
+    const conf = lido.aConfirmar;
+    if (!temCarrinho && !pend.length && !conf.n) {
       wrap.hidden = true;
       if (aviso) { aviso.hidden = true; aviso.innerHTML = ''; }
       return;
@@ -183,18 +224,21 @@ export function setupCarrinhoHeader(doc, {
     const t = temCarrinho ? totaisCarrinho(c, c.cambio || 0) : { n: 0, totalBrl: 0 };
     const totalPend = pend.reduce((s, p) => s + p.totalBrl, 0);
     wrap.hidden = false;
-    wrap.classList.toggle('pendente', !!sit.expirado || pend.length > 0);
-    if (badge) badge.textContent = String(t.n + pend.length);
-    if (totalEl) totalEl.textContent = temCarrinho ? formatBRL(t.totalBrl) : 'aguardando';
+    wrap.classList.toggle('pendente', !!sit.expirado || pend.length > 0 || conf.n > 0);
+    if (badge) badge.textContent = String(t.n + pend.length + conf.n);
+    if (totalEl) totalEl.textContent = temCarrinho ? formatBRL(t.totalBrl) : (pend.length ? 'aguardando' : 'a confirmar');
     const btn = doc.getElementById('carrinhoBtn');
     const partes = [];
     if (temCarrinho) partes.push(`carrinho com ${t.n} ite${t.n === 1 ? 'm' : 'ns'}, ${formatBRL(t.totalBrl)}`);
     if (pend.length) partes.push(`${pend.length} aporte${pend.length === 1 ? '' : 's'} aguardando valores finais (${formatBRL(totalPend)})`);
+    if (conf.n) partes.push(`${conf.n} lançamento${conf.n === 1 ? '' : 's'} a confirmar`);
     if (btn) { btn.setAttribute('aria-label', `Em andamento: ${partes.join('; ')}`); btn.title = `Em andamento: ${partes.join('; ')}`; }
     if (conteudo) {
       conteudo.innerHTML = (temCarrinho ? carrinhoPanelHtml(c, sit, { hoje: dataBRT(agora()), hrefTransacoes: hrefTransacoes(), naTransacoes }) : '')
         + (temCarrinho && pend.length ? '<hr class="carrinho-sep">' : '')
-        + pendentesPanelHtml(pend, { hrefTransacoes: hrefTransacoes(), naTransacoes });
+        + pendentesPanelHtml(pend, { hrefTransacoes: hrefTransacoes(), naTransacoes })
+        + ((temCarrinho || pend.length) && conf.n ? '<hr class="carrinho-sep">' : '')
+        + aConfirmarPanelHtml(conf, { hrefTransacoes: hrefTransacoes(), naTransacoes });
     }
     if (aviso) {
       if (temCarrinho && sit.expirado && !sit.perguntado) { aviso.innerHTML = carrinhoAvisoHtml(c, sit); aviso.hidden = false; } else { aviso.hidden = true; aviso.innerHTML = ''; }
@@ -208,7 +252,7 @@ export function setupCarrinhoHeader(doc, {
     buscando = true;
     try {
       const r = await getAportesPendentesImpl(token);
-      if (r && r.ok && Array.isArray(r.aportes)) publicarAportesPendentes(r.aportes, { win, storage });
+      if (r && r.ok && Array.isArray(r.aportes)) publicarAportesPendentes(r.aportes, { win, storage, aConfirmar: r.aConfirmar });
     } catch (e) { /* sem rede: fica o que está guardado */ } finally { buscando = false; }
   }
 
@@ -238,6 +282,11 @@ export function setupCarrinhoHeader(doc, {
   }
   if (conteudo) {
     conteudo.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-aconfirmar-abrir]')) {
+        fecharPopovers();
+        win.dispatchEvent(new win.CustomEvent(EVENTO_ABRIR_LANCAMENTOS));
+        return;
+      }
       if (ev.target.closest('[data-pendentes-abrir]')) {
         fecharPopovers();
         const alvo = doc.getElementById('txAndamento');
@@ -257,11 +306,13 @@ export function setupCarrinhoHeader(doc, {
   }
   doc.addEventListener('visibilitychange', () => { if (!doc.hidden) { atualizar(); buscarPendentes(); } });
   if (setIntervalImpl) {
-    const timer = setIntervalImpl(() => { atualizar(); buscarPendentes(); }, 60000);
+    // 05/10/2026 (A-43): aba oculta/esquecida não consulta o servidor (eram 1.440 execuções/dia por aba); ao voltar, o visibilitychange acima atualiza
+    const timer = setIntervalImpl(() => { if (doc.hidden) return; atualizar(); buscarPendentes(); }, 60000);
     if (timer && typeof timer.unref === 'function') timer.unref(); // não segura o processo em testes
   }
   atualizar();
   /** O shell chama quando o login fica disponível: a partir daí busca os aportes aguardando no servidor. */
-  function definirToken(t) { token = t || null; if (token && !naTransacoes) buscarPendentes(true); }
+  // 05/10/2026 (A-43): sem forçar - se outra tela buscou há menos de 1 min (o guardado em localStorage), não repete na carga
+  function definirToken(t) { token = t || null; if (token && !naTransacoes) buscarPendentes(false); }
   return { atualizar, responder, definirToken, buscarPendentes };
 }

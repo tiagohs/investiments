@@ -11,9 +11,10 @@
 // home.proventosAnunciados (Proventos.gs!montarProventosAnunciados_).
 import { renderProventosAnunciados } from './inicio-proventos.js';
 import { resolveSiteRootUrl } from '../shell.js';
+import { MESES_CURTOS, formatMesAno } from '../format.js'; // 05/10/2026 (A-68)
 
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const rotuloMes = (am) => `${MESES[Number(am.slice(5, 7)) - 1]}/${am.slice(2, 4)}`;
+
+const rotuloMes = (am) => formatMesAno(am);
 function somarMeses(anoMes, n) {
   const [a, m] = anoMes.split('-').map(Number);
   const t = a * 12 + (m - 1) + n;
@@ -54,35 +55,37 @@ export function proventosMesE12Meses(historico, campos) {
 }
 
 /**
- * Stat do hero: "Proventos" = R$ do mês, e embaixo "R$ ... em 12 meses".
- * O total desde o início fica no "i" (entra no Resultado desde o início).
- * `botaoInfoHtml` vem de carteiras-classe-comum.js (evita import circular).
+ * Card KPI "Proventos no mês" (06/10/2026: era um stat do hero): valor = R$ do mês e, embaixo, "R$ ... em 12 meses". O total desde
+ * o início fica no "i" (entra no Resultado desde o início). `botaoInfoHtml` segue no contrato por compatibilidade (o "i" agora é do KPI).
+ * Devolve { rotulo, valor (número), formatar, sub, info, dados } - o formato que renderResumoClasseCarteiras/montarKpis esperam.
  */
-export function statProventosHero(historico, campos, { formatar, botaoInfoHtml }) {
+export function statProventosHero(historico, campos, { formatar } = {}) {
   const p = proventosMesE12Meses(historico, campos);
   if (!p) return null;
-  const info = botaoInfoHtml
-    ? botaoInfoHtml(`${formatar(p.mes)} recebidos em ${rotuloMes(p.mesAtual)}; ${formatar(p.doze)} de ${rotuloMes(p.inicio12)} a ${rotuloMes(p.mesAtual)} (mesma janela da tela Proventos). Desde o início: ${formatar(p.desdeInicio)}.`, { pequeno: true })
-    : '';
+  const fmt = formatar || String;
   return {
+    rotulo: 'Proventos no mês',
     label: 'Proventos no mês',
-    valor: `${formatar(p.mes)}${info}<span class="cc-resumo-stat-sub">${formatar(p.doze)} em 12 meses</span>`,
+    valor: p.mes,
+    formatar: fmt,
+    sub: `${fmt(p.doze)} em 12 meses`,
+    info: `${fmt(p.mes)} recebidos em ${rotuloMes(p.mesAtual)}; ${fmt(p.doze)} de ${rotuloMes(p.inicio12)} a ${rotuloMes(p.mesAtual)} (os 12 meses que terminam no mês atual, ainda em curso - é a janela do total "12 meses" da tela Proventos; a média mensal e a meta de Renda Passiva usam só os 12 meses fechados). Desde o início: ${fmt(p.desdeInicio)}.`,
     dados: p,
   };
 }
 
-/** HTML da área "Proventos do mês" (vai logo abaixo da tabela de ativos). */
+/** HTML da área "Proventos do mês" (vai logo abaixo da tabela de ativos): seção recolhível, escondida até haver o que mostrar. */
 export function secaoProventosCarteiraHtml(id) {
   let href = '../proventos/index.html';
   try { href = new URL('proventos/index.html', resolveSiteRootUrl()).href; } catch (e) { /* mantém o relativo */ }
   return `
-    <section class="proventos-secao cc-proventos" id="${id}" hidden>
-      <div class="area-header" style="margin-top:22px">
-        <h2>Proventos do mês</h2>
-        <a class="hint cc-proventos-link" href="${href}">agenda completa em Proventos →</a>
+    <details class="cc-recolhivel cc-proventos proventos-secao" data-secao="proventos" id="${id}" hidden>
+      <summary><span class="cc-recolhivel-titulo">Proventos do mês</span><svg class="ico cc-recolhivel-seta" aria-hidden="true"><use href="#ico-expand-more"/></svg></summary>
+      <div class="cc-recolhivel-corpo">
+        <a class="cc-proventos-link" href="${href}">Ver a agenda completa em Proventos <svg class="ico" aria-hidden="true"><use href="#ico-arrow-forward"/></svg></a>
+        <div class="prov-card prov-corpo"></div>
       </div>
-      <div class="prov-card prov-corpo"></div>
-    </section>`;
+    </details>`;
 }
 
 /**

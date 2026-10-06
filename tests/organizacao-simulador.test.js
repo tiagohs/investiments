@@ -44,10 +44,10 @@ test('abre já simulado com as dívidas de hoje: cards, veredito, gráficos, tab
   assert.match(txt(cards[1]), /Renda passiva/);
   assert.equal(el.querySelectorAll('.sd-card.ganha').length, 1);
   assert.match(txt(el.querySelector('#sdVer')), /Veredito/);
-  assert.ok(el.querySelector('#sdGPat svg path.sd-linha'));
-  assert.equal(el.querySelectorAll('#sdGPat .sd-linha').length, 4);
-  assert.ok(el.querySelector('#sdGDif svg rect'));
-  assert.ok(el.querySelector('#sdGDiv svg'));
+  // 06/10/2026 (Onda 3): gráficos da biblioteca (assets/js/charts)
+  assert.ok(el.querySelector('#sdGPat svg.chart-svg'));
+  assert.ok(el.querySelector('#sdGDif svg.chart-svg'));
+  assert.ok(el.querySelector('#sdGDiv svg.chart-svg'));
   assert.equal(el.querySelectorAll('#sdTabela tbody tr').length, 11);
   assert.equal(el.querySelectorAll('#sdPerfis [data-sd-perfil]').length, 4);
   assert.ok(el.querySelectorAll('.sd-estrategias li').length >= 6);
@@ -99,10 +99,12 @@ test('premissas editáveis e FIES como alvo; balão do gráfico por ano', async 
   clique(w, el.querySelector('[data-sd-seg="alvo"] [data-v="fies"]'));
   assert.match(txt(el.querySelector('.sd-card.amort')), /Amortizar o FIES/);
   assert.match(txt(el.querySelector('#sdVer')), /FIES: não antecipe/);
-  const hit = el.querySelector('#sdGPat .sd-hit[data-i="3"]');
-  hit.dispatchEvent(new w.MouseEvent('mouseover', { bubbles: true }));
-  const tt = el.querySelector('#sdGPat .pt-tt');
-  assert.equal(tt.hidden, false);
+  // balão por teclado (biblioteca): Home vai ao 1º ano; 3 setas à direita = fim de 2028
+  const svg = el.querySelector('#sdGPat svg.chart-svg');
+  svg.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+  for (let k = 0; k < 3; k += 1) svg.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  const tt = el.querySelector('#sdGPat .chart-tip');
+  assert.ok(tt, 'tooltip da biblioteca');
   assert.match(txt(tt), /Fim de 2028/);
   assert.match(txt(tt), /Só as parcelas/);
   assert.match(txt(tt), /Investir − amortizar/);

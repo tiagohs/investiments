@@ -9,7 +9,7 @@ function secaoDom() {
   const dom = new JSDOM('<!doctype html><section id="s" hidden><div class="prov-corpo"></div></section>');
   return { dom, doc: dom.window.document, secao: dom.window.document.getElementById('s') };
 }
-const HOJE = new Date(2026, 8, 24); // 24/09/2026
+const HOJE = new Date('2026-09-24T15:00:00Z'); // 24/09/2026 12h em São Paulo (o "hoje" é o dia de SP - A-19)
 const item = (o) => ({ ticker: 'ABCD11', classe: 'fiis', tipo: 'Rendimento', dataCom: '2026-09-18', dataPagamento: '2026-09-25', valorPorCota: 0.9, quantidade: 10, valor: 9, jaLancado: false, ...o });
 
 test('diaMesDeChave(): "yyyy-MM-dd" vira "dd/MM" sem virar o dia por fuso', () => {
@@ -40,8 +40,8 @@ test('renderProventosAnunciados(): resumo do mês, a receber (com "a definir" e 
   assert.match(txt(), /Recebido em setembro R\$\s*13,00/);
   assert.match(txt(), /A receber em setembro R\$\s*9,00/);
   assert.match(txt(), /Depois R\$\s*12,00/);
-  assert.match(txt(), /ABCD11 paga 25\/09 · data com 18\/09 · Rendimento/);
-  assert.match(txt(), /EFGH3lançado pagamento a definir · Dividendo/);
+  assert.match(txt(), /ABCD11 paga 25\/09 · data com 18\/09 · Rendimento/); // (o círculo do logo vem antes: "AB ABCD11 ...")
+  assert.match(txt(), /EFGH3 ?lançado pagamento a definir · Dividendo/);
   assert.match(txt(), /10 × R\$\s*0,90/);
   assert.equal(secao.querySelectorAll('.prov-selo').length, 1);
   // recebidos: 6 visíveis (mais recentes primeiro) + botão

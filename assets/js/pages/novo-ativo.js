@@ -16,6 +16,9 @@
  */
 import { getInfoNovoAtivo, adicionarAtivo, removerAtivo } from '../api-client.js';
 import { formatBRL, formatUSD, formatNumeroBR } from '../format.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { confirmar, toast } from '../ui/index.js'; // 06/10/2026 (Onda 3): confirmar() antes de desfazer + toast no resultado
+
 
 export const CLASSES_NOVO_ATIVO = {
   acoes: { nome: 'Ações', cor: '--acoes', moeda: 'BRL', exemplo: 'ABCD3', campos: ['tipoCarteira', 'setor', 'subsetor', 'segmento'], tipos: ['Dividendos', 'Ações Internacionais'], aba: 'Carteira Ações' },
@@ -25,7 +28,6 @@ export const CLASSES_NOVO_ATIVO = {
 const ROTULOS = { tipoCarteira: 'Tipo da carteira', tipoFii: 'Tipo do FII', setor: 'Setor', subsetor: 'Subsetor', segmento: 'Segmento' };
 export const CLASSE_DA_PAGINA = { acoes: 'acoes', fiis: 'fiis', 'acoes-eua': 'acoesEua' };
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export function normalizarTickerNovo(classe, ticker) {
   let t = String(ticker || '').trim().toUpperCase();
@@ -173,17 +175,17 @@ function conteudoHtml(e, opcoes) {
 function rodapeHtml(e) {
   if (e.etapa === 'feito') {
     return `
-      <button type="button" class="btn btn-ghost" data-na="desfazer">Desfazer cadastro</button>
-      <a class="btn btn-ghost" href="../transacoes/index.html" data-na="transacoes">Lançar a compra</a>
-      <button type="button" class="btn btn-primary" data-na="fechar-recarregar">Ver na carteira</button>`;
+      <button type="button" class="btn btn-text" data-na="desfazer">Desfazer cadastro</button>
+      <a class="btn btn-text" href="../transacoes/index.html" data-na="transacoes">Lançar a compra</a>
+      <button type="button" class="btn btn-filled" data-na="fechar-recarregar">Ver na carteira</button>`;
   }
-  if (!e.classe) return '<button type="button" class="btn btn-ghost" data-na="fechar">Cancelar</button>';
+  if (!e.classe) return '<button type="button" class="btn btn-text" data-na="fechar">Cancelar</button>';
   const ocupado = e.enviando ? ' disabled' : '';
   return `
-    <button type="button" class="btn btn-ghost" data-na="fechar">Cancelar</button>
+    <button type="button" class="btn btn-text" data-na="fechar">Cancelar</button>
     ${e.etapa === 'conferido'
-    ? `<button type="button" class="btn btn-primary" data-na="cadastrar"${ocupado}>${e.enviando ? '<span class="spinner" aria-hidden="true"></span>Cadastrando…' : 'Cadastrar na planilha'}</button>`
-    : `<button type="button" class="btn btn-primary" data-na="conferir"${ocupado}>${e.enviando ? '<span class="spinner" aria-hidden="true"></span>Conferindo…' : 'Conferir'}</button>`}`;
+    ? `<button type="button" class="btn btn-filled" data-na="cadastrar"${ocupado}>${e.enviando ? '<span class="spinner" aria-hidden="true"></span>Cadastrando…' : 'Cadastrar na planilha'}</button>`
+    : `<button type="button" class="btn btn-filled" data-na="conferir"${ocupado}>${e.enviando ? '<span class="spinner" aria-hidden="true"></span>Conferindo…' : 'Conferir'}</button>`}`;
 }
 
 /**
@@ -192,7 +194,7 @@ function rodapeHtml(e) {
  * aoFechar({ cadastrou }) - Carteiras recarrega quando algo foi cadastrado.
  */
 export function ligarNovoAtivo(doc, {
-  token, getInfoImpl = getInfoNovoAtivo, adicionarImpl = adicionarAtivo, removerImpl = removerAtivo,
+  token, getInfoImpl = getInfoNovoAtivo, adicionarImpl = adicionarAtivo, removerImpl = removerAtivo, confirmarImpl = confirmar,
   classeAtual = () => '', aoFechar = null, abrirDaUrl = true, debounceMs = 450,
 } = {}) {
   const win = doc.defaultView;
@@ -216,6 +218,7 @@ export function ligarNovoAtivo(doc, {
   let timer = null;
   let ultimoFoco = null;
   let seq = 0;
+  let confirmando = false; // a folha de confirmação está aberta: Esc/Tab são dela
 
   function lerValores() {
     const form = corpo.querySelector('#naForm');
@@ -315,17 +318,30 @@ export function ligarNovoAtivo(doc, {
     e.feito = resp.resultado;
     e.etapa = 'feito';
     render();
+    toast.ok(`${e.feito.ticker} cadastrado.`, { doc });
     const pend = resp.resultado && resp.resultado.consolidacao;
     if (pend && win && typeof win.CustomEvent === 'function') win.dispatchEvent(new win.CustomEvent('consolidacao:pendente', { detail: pend }));
   }
 
   async function desfazer(btn) {
+    // 06/10/2026: desfazer apaga as linhas criadas na planilha - pede confirmação antes (antes era um clique direto)
+    confirmando = true;
+    let ok = false;
+    try {
+      ok = await confirmarImpl({
+        titulo: `Desfazer o cadastro de ${e.feito.ticker}?`,
+        mensagem: 'As linhas criadas na planilha para este ativo (carteira, Radar e Auxiliar_ativos) serão removidas. Só dá certo enquanto ele não tiver nenhuma transação.',
+        confirmarTexto: 'Desfazer cadastro', perigo: true, doc,
+      });
+    } finally { confirmando = false; }
+    if (!ok) return;
     btn.disabled = true;
     btn.textContent = 'Desfazendo…';
     const resp = await removerImpl(token, e.feito.classe, e.feito.ticker);
     if (!resp || !resp.ok) {
       e.mensagem = { tipo: 'erro', html: `Não deu pra desfazer: ${esc((resp && resp.erro) || 'erro desconhecido').replace(/^Error:\s*/, '')}` };
       render();
+      toast.erro('Não deu pra desfazer o cadastro.', { doc });
       return;
     }
     const ticker = e.feito.ticker;
@@ -336,6 +352,7 @@ export function ligarNovoAtivo(doc, {
     e.desfeito = true;
     e.mensagem = { tipo: 'ok', html: `Cadastro de <b>${esc(ticker)}</b> desfeito (${esc((resp.resultado.removidas || []).join(', '))}).` };
     render('#na-ticker');
+    toast.ok(`Cadastro de ${ticker} desfeito.`, { doc });
   }
 
   raiz.addEventListener('click', (ev) => {
@@ -374,7 +391,7 @@ export function ligarNovoAtivo(doc, {
   raiz.addEventListener('submit', (ev) => { ev.preventDefault(); conferirOuCadastrar(e.etapa !== 'conferido'); });
 
   doc.addEventListener('keydown', (ev) => {
-    if (raiz.hidden) return;
+    if (raiz.hidden || confirmando) return;
     if (ev.key === 'Escape') { fechar(); return; }
     if (ev.key === 'Tab') { // foco preso na janela
       const focaveis = [...raiz.querySelectorAll('button:not([disabled]),input,a[href],summary')].filter((x) => x.offsetParent !== null || x === doc.activeElement);

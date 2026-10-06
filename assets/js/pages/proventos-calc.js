@@ -7,6 +7,11 @@
 // Todas as datas são chaves 'yyyy-MM-dd' (texto): nada passa por Date, então
 // o dia nunca vira por fuso.
 
+import { hojeSP, formatNumeroPt, MESES_CURTOS, MESES_LONGOS, formatMesAno, formatBRL, formatPctAbs } from '../format.js'; // 05/10/2026 (A-19): helper único de "hoje"
+import { escAttr } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { rotuloPeriodo } from '../periodo-personalizado.js'; // 05/10/2026 (A-67): períodos canônicos
+
+
 export const CLASSES = [
   { id: 'acoes', nome: 'Ações', cor: '--acoes' },
   { id: 'fiis', nome: 'FIIs', cor: '--fiis' },
@@ -18,16 +23,10 @@ export const COR_CLASSE = Object.fromEntries(CLASSES.map((c) => [c.id, c.cor]));
 /** Tipos na ordem fixa das cores (--cat-1..5); o resto vira "Outros" (neutro). */
 export const TIPOS = ['Dividendo', 'JCP', 'Rendimento', 'Amortização', 'Reembolso'];
 
-export const PERIODOS = [
-  { id: 'ano', nome: 'No ano' },
-  { id: '12m', nome: '12 meses' },
-  { id: '24m', nome: '24 meses' },
-  { id: '36m', nome: '36 meses' },
-  { id: 'inicio', nome: 'Desde o início' },
-];
+export const PERIODOS = ['ano', '12m', '24m', '36m', 'inicio'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
 
-export const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-export const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+
 const MAX_ATIVOS_GRAFICO = 7;
 
 export const r2 = (n) => Math.round(n * 100) / 100;
@@ -42,8 +41,7 @@ export function somarMeses(anoMes, n) {
 
 /** 'yyyy-MM' -> "set/26" */
 export function rotuloMes(anoMes) {
-  const [a, m] = anoMes.split('-');
-  return `${MESES_CURTOS[Number(m) - 1]}/${a.slice(2)}`;
+  return formatMesAno(anoMes);
 }
 
 /** 'yyyy-MM-dd' + n dias (UTC puro, só aritmética de calendário). */
@@ -174,6 +172,10 @@ export function resumoConsolidado(dados, { classe = 'todas', periodoId = '12m' }
   const aplicado = r2(somaPorClasse(dados.aplicado, classe));
   const aReceber = filtrarClasse(dados.aReceber, classe);
   const mesHoje = hoje.slice(0, 7);
+  // 05/10/2026 (A-17): o que é "pago presumido" (pela data, sem lançamento nem extrato da B3)
+  // aparece separado do confirmado - o total continua somando os dois
+  const soPresumido = (lista) => lista.filter((p) => p.conferencia === 'presumido');
+  const doMes = rec.filter((p) => p.data.slice(0, 7) === mesHoje && p.data <= hoje);
   return {
     meses: meses.length,
     primeiroMes: meses[0],
@@ -189,7 +191,12 @@ export function resumoConsolidado(dados, { classe = 'todas', periodoId = '12m' }
     media12m: m12.media,
     yoc: aplicado > 0 ? (renda / aplicado) * 100 : null,
     yoc12m: aplicado > 0 ? (renda12m / aplicado) * 100 : null,
-    rendaMes: soma(rec.filter((p) => p.data.slice(0, 7) === mesHoje && p.data <= hoje)),
+    rendaMes: soma(doMes),
+    rendaMesPresumido: soma(soPresumido(doMes)),
+    rendaMesConfirmado: r2(soma(doMes) - soma(soPresumido(doMes))),
+    rendaPresumido: soma(soPresumido(naJanela(meses))),
+    renda12mPresumido: soma(soPresumido(naJanela(meses12))),
+    mediaRotulo: 'meses fechados', // o mês de hoje fica fora da média (igual à meta de Renda Passiva)
     aReceber: soma(aReceber),
     aReceberEsteMes: soma(aReceber.filter((p) => String(p.dataPagamento || '').slice(0, 7) === mesHoje)),
     qtdAReceber: aReceber.length,
@@ -322,12 +329,12 @@ export function receitaFutura(dados, { classe = 'todas' } = {}) {
 // (a resposta pode ter vindo do cache de ontem) e os pagos que não estão na
 // aba Proventos entram nos recebidos - contam nos totais e gráficos.
 
-const FMT_DIA_SP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
-
-/** Dia de hoje em São Paulo ('yyyy-MM-dd'), seja qual for o fuso do aparelho. */
-export function hojeSaoPaulo(agora = new Date()) {
-  return FMT_DIA_SP.format(agora);
-}
+/**
+ * Dia de hoje em São Paulo ('yyyy-MM-dd'), seja qual for o fuso do aparelho.
+ * 05/10/2026 (A-19): é o hojeSP() único de format.js (mesmo nome antigo, pros
+ * testes e importadores existentes).
+ */
+export const hojeSaoPaulo = hojeSP;
 
 /** Pagamento até hoje (inclusive) = 'pago'; depois = 'aReceber'; sem data = 'semData'. */
 export function statusPorData(dataPagamento, hoje) {
@@ -350,15 +357,13 @@ const ICONE_CONFERENCIA = {
   divergente: ['--warn-ink', '<path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.3"/>'],
   nao_confirmado: ['--warn-ink', '<path d="M12 3.5 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.3"/>'],
 };
-const escAttr = (t) => String(t).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-const brl2 = (v) => `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Texto do tooltip da situação (com os valores da B3 quando diverge). */
 export function dicaConferencia(p) {
   const c = CONFERENCIA[p && p.conferencia];
   if (!c) return '';
   if (p.conferencia === 'divergente' && p.valorB3 != null) {
-    return `${c.dica} B3: ${brl2(p.valorB3)}${p.dataB3 ? ` em ${p.dataB3.slice(8, 10)}/${p.dataB3.slice(5, 7)}` : ''} · previsto ${brl2(p.valor)}.`;
+    return `${c.dica} B3: ${formatBRL(p.valorB3)}${p.dataB3 ? ` em ${p.dataB3.slice(8, 10)}/${p.dataB3.slice(5, 7)}` : ''} · previsto ${formatBRL(p.valor)}.`;
   }
   return c.dica;
 }
@@ -567,8 +572,7 @@ export function previaExportacaoB3(linhas) {
 // pontos saem daqui, no mesmo formato ({ tom, resumo, pontos }) - quem desenha
 // é o mesmo renderAnalise (mesmo visual).
 
-const pctTxt0 = (fracao) => `${Math.abs(fracao * 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}%`;
-const vezesTxt = (x) => `${x.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`;
+const vezesTxt = (x) => `${formatNumeroPt(x, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`;
 
 /** Soma dos recebidos por mês ('yyyy-MM' -> R$), só o que já foi pago até `hoje`. */
 export function proventosPorMes(recebidos, hoje = null, { campoData = 'data' } = {}) {
@@ -625,18 +629,18 @@ export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aR
       const mediaAnt = antes.reduce((s, m) => s + val(m), 0) / n;
       const varia = mediaAnt > 0 ? media / mediaAnt - 1 : null;
       if (varia == null) {
-        comparacao = { tipo: 'comparacao', tom: 'bom', peso: 60, texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — no período anterior de mesmo tamanho não tinha entrado nada.`, resumo: `média de ${brl2(media)}/mês` };
+        comparacao = { tipo: 'comparacao', tom: 'bom', peso: 60, texto: `Média de ${formatBRL(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — no período anterior de mesmo tamanho não tinha entrado nada.`, resumo: `média de ${formatBRL(media)}/mês` };
       } else {
         const tom = varia >= 0.05 ? 'bom' : (varia <= -0.05 ? 'atencao' : 'neutro');
-        const comp = Math.abs(varia) < 0.005 ? 'igual à' : `${pctTxt0(varia)} ${varia > 0 ? 'acima da' : 'abaixo da'}`;
+        const comp = Math.abs(varia) < 0.005 ? 'igual à' : `${formatPctAbs(varia, 0)} ${varia > 0 ? 'acima da' : 'abaixo da'}`;
         comparacao = {
           tipo: 'comparacao', tom, peso: 60,
-          texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — ${comp} média dos ${n} meses anteriores (${brl2(mediaAnt)}/mês).`,
-          resumo: `média de ${brl2(media)}/mês, ${Math.abs(varia) < 0.005 ? 'estável' : `${varia > 0 ? '+' : '−'}${pctTxt0(varia)}`} vs os ${n} meses antes`,
+          texto: `Média de ${formatBRL(media)}/mês em ${rotuloJanela(fechados)} (meses fechados) — ${comp} média dos ${n} meses anteriores (${formatBRL(mediaAnt)}/mês).`,
+          resumo: `média de ${formatBRL(media)}/mês, ${Math.abs(varia) < 0.005 ? 'estável' : `${varia > 0 ? '+' : '−'}${formatPctAbs(varia, 0)}`} vs os ${n} meses antes`,
         };
       }
     } else {
-      comparacao = { tipo: 'comparacao', tom: 'neutro', peso: 60, texto: `Média de ${brl2(media)}/mês em ${rotuloJanela(fechados)} (${n} ${n === 1 ? 'mês fechado' : 'meses fechados'}).`, resumo: `média de ${brl2(media)}/mês` };
+      comparacao = { tipo: 'comparacao', tom: 'neutro', peso: 60, texto: `Média de ${formatBRL(media)}/mês em ${rotuloJanela(fechados)} (${n} ${n === 1 ? 'mês fechado' : 'meses fechados'}).`, resumo: `média de ${formatBRL(media)}/mês` };
     }
     pontos.push(comparacao);
 
@@ -652,8 +656,8 @@ export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aR
         const rot = ant12.length === 12 ? 'dos 12 meses anteriores' : `dos ${ant12.length} meses anteriores`;
         const tom = varia >= 0.15 ? 'bom' : (varia <= -0.15 ? 'atencao' : 'neutro');
         const texto = v > 0
-          ? `Em ${rotuloMes(ultimo)} entraram ${brl2(v)} — ${Math.abs(varia) < 0.005 ? 'igual à' : `${pctTxt0(varia)} ${varia > 0 ? 'acima da' : 'abaixo da'}`} média ${rot} (${brl2(media12)}/mês).`
-          : `Em ${rotuloMes(ultimo)} não entrou nenhum provento (média ${rot}: ${brl2(media12)}/mês).`;
+          ? `Em ${rotuloMes(ultimo)} entraram ${formatBRL(v)} — ${Math.abs(varia) < 0.005 ? 'igual à' : `${formatPctAbs(varia, 0)} ${varia > 0 ? 'acima da' : 'abaixo da'}`} média ${rot} (${formatBRL(media12)}/mês).`
+          : `Em ${rotuloMes(ultimo)} não entrou nenhum provento (média ${rot}: ${formatBRL(media12)}/mês).`;
         pontos.push({ tipo: 'ultimoMes', tom, peso: Math.abs(varia) >= 0.15 ? 58 : 40, texto, resumo: `${rotuloMes(ultimo)} ${varia >= 0 ? 'acima' : 'abaixo'} da média` });
       }
     }
@@ -672,7 +676,7 @@ export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aR
       const x = val(maior) / media;
       if (x >= 2) {
         const semEle = (fechados.reduce((s, m) => s + val(m), 0) - val(maior)) / (fechados.length - 1);
-        pontos.push({ tipo: 'pico', tom: 'neutro', peso: 50, texto: `${maiuscula(rotuloMes(maior))} foi fora da curva: ${brl2(val(maior))} (${vezesTxt(x)} a média). Sem ele, a média seria ${brl2(semEle)}/mês.`, resumo: `pico em ${rotuloMes(maior)}` });
+        pontos.push({ tipo: 'pico', tom: 'neutro', peso: 50, texto: `${maiuscula(rotuloMes(maior))} foi fora da curva: ${formatBRL(val(maior))} (${vezesTxt(x)} a média). Sem ele, a média seria ${formatBRL(semEle)}/mês.`, resumo: `pico em ${rotuloMes(maior)}` });
       }
     }
   }
@@ -682,8 +686,8 @@ export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aR
     const ja = val(mesAtual);
     pontos.push({
       tipo: 'mesAtual', tom: 'neutro', peso: fechados.length ? 34 : 70,
-      texto: `Neste mês (${rotuloMes(mesAtual)}), até agora: ${brl2(ja)} recebidos${aReceberMes > 0 ? ` + ${brl2(aReceberMes)} anunciados a receber` : ''}.`,
-      resumo: `${brl2(ja)} neste mês`,
+      texto: `Neste mês (${rotuloMes(mesAtual)}), até agora: ${formatBRL(ja)} recebidos${aReceberMes > 0 ? ` + ${formatBRL(aReceberMes)} anunciados a receber` : ''}.`,
+      resumo: `${formatBRL(ja)} neste mês`,
     });
   }
 
@@ -696,3 +700,6 @@ export function analisarProventosMensais({ porMes = {}, meses = [], mesAtual, aR
   const tom = alerta ? (principal.tom === 'bom' ? 'neutro' : 'atencao') : principal.tom;
   return { tom, resumo: maiuscula(resumo), pontos: lista };
 }
+
+// 05/10/2026 (A-68): os meses moram em format.js; reexportados daqui pra quem já importava.
+export { MESES_CURTOS, MESES_LONGOS };

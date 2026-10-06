@@ -158,7 +158,7 @@ test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras d
       if (/feeds\/videos\.xml\?channel_id=UCaaaaaaaaaaaaaaaaaaaaaa/.test(url)) {
         return { getResponseCode: () => 200, getContentText: () => feed('Canal A', [{ id: 'novovideo01', titulo: 'Novo', data: iso(1) }, { id: 'jaguardado1', titulo: 'Guardado', data: iso(20) }]) };
       }
-      return { getResponseCode: () => 404, getContentText: () => '' };
+      return { getResponseCode: () => 500, getContentText: () => '' }; // erro de verdade (não é 404)
     },
   });
   const r = plain(sb.atualizarVideos_('Automático'));
@@ -308,4 +308,45 @@ test('Vídeos (canal oficial): o oficial sempre aparece (até 6 quando há outro
   // canal oficial também cadastrado em aux_videos-canais: os vídeos dele que vieram de lá ganham a marca (pelo nome do canal)
   const marcados = plain(sb.mesclarVideosCanalOficial_([{ id: 'antigo00001', canal: 'Ofícial', titulo: 'TEST3', publicado: isoDias(200), ativos: [], motivo: 'ativo' }], canal, { agora: AGORA_CANAL }));
   assert.equal(marcados.find((x) => x.id === 'antigo00001').oficial, true);
+});
+
+test('Vídeos (05/10/2026): 404 ou feed vazio = "sem vídeos disponíveis", não Erro/Atenção; o sucesso também é registrado e a resposta lista os canais vazios', () => {
+  const agora = Date.now();
+  const iso = (dias) => new Date(agora - dias * 86400000).toISOString();
+  const ss = planilhaFalsa({
+    'aux_videos-canais': [['Canal', 'Carteiras', 'Obs'], ['UCaaaaaaaaaaaaaaaaaaaaaa', 'fiis', ''], ['UCbbbbbbbbbbbbbbbbbbbbbb', '', ''], ['UCcccccccccccccccccccccc', '', '']],
+  });
+  const { sb, registro } = sandbox({
+    ss,
+    fetch: (url) => {
+      if (/channel_id=UCaaaa/.test(url)) return { getResponseCode: () => 200, getContentText: () => feed('Canal A', [{ id: 'novovideo01', titulo: 'Novo', data: iso(1) }]) };
+      if (/channel_id=UCbbbb/.test(url)) return { getResponseCode: () => 404, getContentText: () => '' };
+      return { getResponseCode: () => 200, getContentText: () => feed('Canal C', []) };
+    },
+  });
+  const r = plain(sb.atualizarVideos_('Automático'));
+  assert.equal(r.status, 'Sucesso', '404 e feed vazio não são falha');
+  assert.equal(r.semVideos, 2);
+  assert.equal(registro.length, 1, 'sucesso também vai pro Registro de Controle');
+  assert.equal(registro[0][0], 'Sucesso');
+  assert.match(registro[0][2], /sem vídeos disponíveis: UCbbbb\w+ \(feed HTTP 404\); UCcccc\w+ \(feed vazio\)/);
+  const resp = plain(sb.montarRespostaVideos_({}, {}));
+  assert.deepEqual(resp.canaisSemVideos, ['UCbbbbbbbbbbbbbbbbbbbbbb', 'UCcccccccccccccccccccccc']);
+  // todos os canais sem vídeo: ainda não é Erro
+  const { sb: sb2 } = sandbox({ ss: planilhaFalsa({ 'aux_videos-canais': [['Canal'], ['UCbbbbbbbbbbbbbbbbbbbbbb']] }), fetch: () => ({ getResponseCode: () => 404, getContentText: () => '' }) });
+  assert.equal(plain(sb2.atualizarVideos_('Automático')).status, 'Sucesso');
+  // @nome que dá 404 na página do canal também é "sem vídeos"
+  const { sb: sb3 } = sandbox({ ss: planilhaFalsa({ 'aux_videos-canais': [['Canal'], ['@naoexiste']] }) });
+  assert.equal(plain(sb3.atualizarVideos_('Automático')).status, 'Sucesso');
+});
+
+test('Vídeos (05/10/2026): canal oficial com 404 ou sem vídeos vira canalOficial.semVideos (sem erroCanalOficial)', () => {
+  const { sb } = sandbox({ ss: planilhaFalsa() });
+  const r404 = plain(sb.montarRespostaVideos_({ termos: 'TEST3', ticker: 'TEST3', canal: CANAL_OFICIAL }, { fetch: () => ({ getResponseCode: () => 404, getContentText: () => '' }), semCache: true }));
+  assert.equal(r404.ok, true);
+  assert.equal(r404.erroCanalOficial, undefined);
+  assert.equal(r404.canalOficial.semVideos, true);
+  const rVazio = plain(sb.montarRespostaVideos_({ termos: 'TEST3', ticker: 'TEST3', canal: CANAL_OFICIAL }, { fetch: () => ({ getResponseCode: () => 200, getContentText: () => feed('Gestora', []) }), semCache: true }));
+  assert.equal(rVazio.canalOficial.semVideos, true);
+  assert.equal(rVazio.erroCanalOficial, undefined);
 });

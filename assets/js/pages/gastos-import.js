@@ -34,11 +34,13 @@
  * não é contado de novo.
  */
 
+import { MESES_CURTOS_MAIUSC, MESES_LONGOS_ASCII_MAIUSC } from '../format.js'; // 05/10/2026 (A-68)
+
 export const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const NUM = '\\d{1,3}(?:\\.\\d{3})*,\\d{2}';
 const r2 = (v) => Math.round(v * 100) / 100;
-const MESES_ABREV = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
-const MESES_EXT = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+
+
 const p2 = (n) => String(n).padStart(2, '0');
 
 /**
@@ -261,11 +263,11 @@ export function lerFaturaNubank(linhas) {
   const out = { tipoDoc: 'fatura', fonte: 'nubank-cartao', origem: 'cartao', mes: '', vencimento: '', total: null, lancamentos: [], conferencia: null, avisos: [] };
   const T = L.map((l) => semAcento(l).toUpperCase());
   const tudo = T.join('\n');
-  const reAbr = `(${MESES_ABREV.join('|')})`;
+  const reAbr = `(${MESES_CURTOS_MAIUSC.join('|')})`;
   let mv = tudo.match(new RegExp(`DATA (?:DE|DO) VENCIMENTO:?\\s*(\\d{2})\\s+${reAbr}\\s+(\\d{4})`));
   if (!mv) mv = tudo.match(new RegExp(`\\bFATURA\\s+(\\d{2})\\s+${reAbr}\\s+(\\d{4})`));
   if (!mv) { out.avisos.push('Não achei a data de vencimento da fatura.'); return out; }
-  const anoV = Number(mv[3]); const mesV = MESES_ABREV.indexOf(mv[2]) + 1;
+  const anoV = Number(mv[3]); const mesV = MESES_CURTOS_MAIUSC.indexOf(mv[2]) + 1;
   out.vencimento = iso(anoV, mesV, Number(mv[1]));
   out.mes = `${anoV}-${p2(mesV)}`;
   // resumo: só a partir de "RESUMO DA FATURA" (a pág. 2 das faturas novas simula parcelamentos com outro "Total a pagar")
@@ -331,7 +333,7 @@ export function lerFaturaNubank(linhas) {
     const md = u.match(reData);
     if (md) {
       fechar();
-      pend = { dia: Number(md[1]), mesC: MESES_ABREV.indexOf(md[2]) + 1, desc: '', valor: null, usd: null, orfa };
+      pend = { dia: Number(md[1]), mesC: MESES_CURTOS_MAIUSC.indexOf(md[2]) + 1, desc: '', valor: null, usd: null, orfa };
       orfa = '';
       const resto = md[3] ? l.replace(/^\d{2}\s+\S+\s*/, '') : '';
       if (resto) absorver(resto);
@@ -559,10 +561,10 @@ export function lerExtratoNubank(linhas) {
   const out = { tipoDoc: 'extrato', fonte: 'nubank-conta', origem: 'conta', periodo: null, meses: [], total: null, entradas: null, lancamentos: [], conferencia: null, avisos: [] };
   const iCpf = T.findIndex((u) => /^CPF\b/.test(u));
   const titular = iCpf > 0 ? L[iCpf - 1] : '';
-  const reExt = `(${MESES_EXT.join('|')})`;
+  const reExt = `(${MESES_LONGOS_ASCII_MAIUSC.join('|')})`;
   const mp = T.join('\n').match(new RegExp(`(\\d{2}) DE ${reExt} DE (\\d{4})\\s+A\\s+(\\d{2}) DE ${reExt} DE (\\d{4})`));
   if (mp) {
-    out.periodo = { inicio: iso(mp[3], MESES_EXT.indexOf(mp[2]) + 1, mp[1]), fim: iso(mp[6], MESES_EXT.indexOf(mp[5]) + 1, mp[4]) };
+    out.periodo = { inicio: iso(mp[3], MESES_LONGOS_ASCII_MAIUSC.indexOf(mp[2]) + 1, mp[1]), fim: iso(mp[6], MESES_LONGOS_ASCII_MAIUSC.indexOf(mp[5]) + 1, mp[4]) };
     out.meses = mesesEntre(out.periodo.inicio, out.periodo.fim);
   } else out.avisos.push('Não achei o período do extrato.');
   const totalDe = (re) => { const i = T.findIndex((u) => re.test(u)); if (i < 0) return null; const m = T[i].match(new RegExp(`([+-]?\\s?${NUM})\\s*$`)); return m ? Math.abs(valorBR(m[1])) : null; };
@@ -572,7 +574,7 @@ export function lerExtratoNubank(linhas) {
   out.total = achaResumo(/^TOTAL DE SAIDAS/) ?? totalDe(/^TOTAL DE SAIDAS/);
   out.entradas = achaResumo(/^TOTAL DE ENTRADAS/);
 
-  const reAbr = `(${MESES_ABREV.join('|')})`;
+  const reAbr = `(${MESES_CURTOS_MAIUSC.join('|')})`;
   const reDia = new RegExp(`^(\\d{2})\\s+${reAbr}\\s+(\\d{4})\\b`);
   const reFim = new RegExp(`^(.*?)\\s+([+-]?\\s?${NUM})$`);
   let dia = null; let sentido = null;
@@ -581,7 +583,7 @@ export function lerExtratoNubank(linhas) {
     let u = T[i]; let l = L[i];
     const md = u.match(reDia);
     if (md) {
-      dia = iso(md[3], MESES_ABREV.indexOf(md[2]) + 1, md[1]);
+      dia = iso(md[3], MESES_CURTOS_MAIUSC.indexOf(md[2]) + 1, md[1]);
       u = u.slice(md[0].length).trim(); l = l.replace(/^\d{2}\s+\S+\s+\d{4}\s*/, '');
       if (!u) continue;
     }

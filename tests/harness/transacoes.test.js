@@ -89,7 +89,7 @@ function sandbox(ss, extras = []) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', ...extras].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
+  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', 'Planilha.gs', ...extras].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
   return { sb, registro, caches };
 }
 
@@ -234,7 +234,7 @@ test('Caixa em dólar: envio da Remessa, uso ao concluir o aporte (regravar troc
 test('Transações: lista do Tesouro de hoje (PU de compra) e cotação por título vêm do CSV do Tesouro Transparente', () => {
   const ss = planilhaBase();
   const ssSemMetas = { getSheetByName: (n) => (n === 'Distribuição e Metas' ? null : ss.getSheetByName(n)), insertSheet: (n) => ss.insertSheet(n) };
-  const { sb } = sandbox(ssSemMetas, ['CarteiraRendaFixaSync.gs']);
+  const { sb } = sandbox(ssSemMetas, ['CarteiraRendaFixaSync.gs', 'Fontes.gs']); // 05/10/2026 (A-51): o preço do Tesouro passa por buscarFonte_ (Fontes.gs)
   const csv = ['Tipo Titulo;Data Vencimento;Data Base;Taxa Compra Manha;Taxa Venda Manha;PU Compra Manha;PU Venda Manha;PU Base Manha',
     'Tesouro Selic;01/03/2029;02/10/2026;0,05;0,06;15613,45;15600,00;15600,00',
     'Tesouro Selic;01/03/2032;02/10/2026;0,10;0,11;20142,00;20100,00;20100,00',

@@ -4,6 +4,8 @@
 // reload, mount 1x só por página, sidebar refletindo a página ativa).
 // As páginas reais (montarPaginaCarteirasVisaoGeral etc.) são cobertas
 // nos próprios arquivos de teste de cada uma.
+// 06/10/2026 (Onda 3): o submenu vertical virou o cabeçalho padrão (ui/pagina.js): título "Carteiras", subtítulo da aba aberta e abas
+// em pílula (.tabs [data-tab]); document.title = "<Aba> · Carteiras · Patrimônio".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
@@ -11,26 +13,23 @@ import { mountCarteirasRouter } from '../assets/js/carteiras-router.js';
 
 function fakePaginas({ mountA, mountB, mountC } = {}) {
   return [
-    { key: 'a', titulo: 'Página A', mount: mountA || (async () => {}) },
-    { key: 'b', titulo: 'Página B', mount: mountB || (async () => {}) },
-    { key: 'c', titulo: 'Página C', mount: mountC || (async () => {}) },
+    { key: 'a', titulo: 'Página A', refreshId: 'refreshA', subtitulo: 'Sub A', mount: mountA || (async () => {}) },
+    { key: 'b', titulo: 'Página B', refreshId: 'refreshB', subtitulo: 'Sub B', mount: mountB || (async () => {}) },
+    { key: 'c', titulo: 'Página C', refreshId: 'refreshC', subtitulo: 'Sub C', mount: mountC || (async () => {}) },
   ];
 }
 
-function makeDom() {
-  const dom = new JSDOM(`<!doctype html><html><body>
-    <h2 id="carteirasMobileTitle"></h2>
-    <nav id="sideNav">
-      <button class="side-item active" type="button" data-page="a">A</button>
-      <button class="side-item" type="button" data-page="b">B</button>
-      <button class="side-item" type="button" data-page="c">C</button>
-    </nav>
+const HTML_PAGINAS = `<header id="carteirasCabecalho"></header>
     <section id="page-a"></section>
     <section id="page-b" hidden></section>
-    <section id="page-c" hidden></section>
-  </body></html>`);
+    <section id="page-c" hidden></section>`;
+
+function makeDom() {
+  const dom = new JSDOM(`<!doctype html><html><body>${HTML_PAGINAS}</body></html>`, { url: 'https://exemplo.test/carteiras/index.html' });
   return dom.window.document;
 }
+const aba = (doc, key) => doc.querySelector(`#carteirasCabecalho .tabs [data-tab="${key}"]`);
+const subtitulo = (doc) => doc.querySelector('#carteirasCabecalho .pagina-sub').textContent;
 
 test('mountCarteirasRouter() monta a 1ª página da lista e só ela fica visível', async () => {
   const doc = makeDom();
@@ -44,8 +43,14 @@ test('mountCarteirasRouter() monta a 1ª página da lista e só ela fica visíve
   assert.equal(doc.getElementById('page-a').hidden, false);
   assert.equal(doc.getElementById('page-b').hidden, true);
   assert.equal(doc.getElementById('page-c').hidden, true);
-  assert.equal(doc.querySelector('.side-item[data-page="a"]').classList.contains('active'), true);
-  assert.equal(doc.getElementById('carteirasMobileTitle').textContent, 'Página A');
+  assert.equal(aba(doc, 'a').getAttribute('aria-selected'), 'true');
+  assert.equal(doc.querySelector('#carteirasCabecalho .pagina-titulo').textContent, 'Carteiras');
+  assert.equal(subtitulo(doc), 'Sub A');
+  assert.equal(doc.title, 'Página A · Carteiras · Patrimônio');
+  assert.deepEqual([...doc.querySelectorAll('#carteirasCabecalho .tabs [data-tab]')].map((b) => b.textContent), ['Página A', 'Página B', 'Página C']);
+  assert.ok(doc.querySelector('#carteirasCabecalho [data-novo-ativo]'), 'botão "Adicionar ativo" no cabeçalho');
+  assert.equal(doc.getElementById('refreshA').hidden, false);
+  assert.equal(doc.getElementById('refreshB').hidden, true);
 });
 
 test('mountCarteirasRouter(): clicar num item da sidebar troca de página sem re-montar a anterior', async () => {
@@ -59,16 +64,19 @@ test('mountCarteirasRouter(): clicar num item da sidebar troca de página sem re
     }),
   });
 
-  doc.querySelector('.side-item[data-page="b"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+  aba(doc, 'b').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   await Promise.resolve();
   await Promise.resolve();
 
   assert.deepEqual(chamadas, ['a', 'b']);
   assert.equal(doc.getElementById('page-a').hidden, true);
   assert.equal(doc.getElementById('page-b').hidden, false);
-  assert.equal(doc.querySelector('.side-item[data-page="a"]').classList.contains('active'), false);
-  assert.equal(doc.querySelector('.side-item[data-page="b"]').classList.contains('active'), true);
-  assert.equal(doc.getElementById('carteirasMobileTitle').textContent, 'Página B');
+  assert.equal(aba(doc, 'a').getAttribute('aria-selected'), 'false');
+  assert.equal(aba(doc, 'b').getAttribute('aria-selected'), 'true');
+  assert.equal(subtitulo(doc), 'Sub B');
+  assert.equal(doc.title, 'Página B · Carteiras · Patrimônio');
+  assert.equal(doc.getElementById('refreshA').hidden, true);
+  assert.equal(doc.getElementById('refreshB').hidden, false);
 });
 
 test('mountCarteirasRouter(): mount() de cada página só roda 1x, mesmo revisitando várias vezes', async () => {
@@ -83,7 +91,7 @@ test('mountCarteirasRouter(): mount() de cada página só roda 1x, mesmo revisit
   });
 
   const clicar = async (key) => {
-    doc.querySelector(`.side-item[data-page="${key}"]`).dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+    aba(doc, key).dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     await Promise.resolve();
     await Promise.resolve();
   };
@@ -119,7 +127,7 @@ test('mountCarteirasRouter(): erro no mount() de uma página não impede trocar 
         mountB: async () => chamadas.push('b'),
       }),
     });
-    doc.querySelector('.side-item[data-page="b"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
+    aba(doc, 'b').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     await Promise.resolve();
     await Promise.resolve();
   } finally {
@@ -133,22 +141,17 @@ test('mountCarteirasRouter(): erro no mount() de uma página não impede trocar 
 // 25/09/2026: a subpágina vai pro endereço (#b) - a tela do ativo volta
 // direto pra ela ("Carteiras › Ações") e recarregar a página não perde.
 test('mountCarteirasRouter(): abre a subpágina do endereço (#c) e troca o # ao clicar', async () => {
-  const dom = new JSDOM(`<!doctype html><html><body>
-    <h2 id="carteirasMobileTitle"></h2>
-    <button class="side-item active" type="button" data-page="a">A</button>
-    <button class="side-item" type="button" data-page="b">B</button>
-    <button class="side-item" type="button" data-page="c">C</button>
-    <section id="page-a"></section><section id="page-b" hidden></section><section id="page-c" hidden></section>
-  </body></html>`, { url: 'https://exemplo.test/carteiras/index.html#c' });
+  const dom = new JSDOM(`<!doctype html><html><body>${HTML_PAGINAS}</body></html>`, { url: 'https://exemplo.test/carteiras/index.html#c' });
   const doc = dom.window.document;
   const chamadas = [];
   await mountCarteirasRouter(doc, { token: 't', paginas: fakePaginas({ mountA: async () => chamadas.push('a'), mountC: async () => chamadas.push('c') }) });
   assert.deepEqual(chamadas, ['c'], 'não monta a 1ª à toa');
   assert.equal(doc.getElementById('page-c').hidden, false);
-  doc.querySelector('.side-item[data-page="b"]').click();
+  assert.equal(aba(doc, 'c').getAttribute('aria-selected'), 'true');
+  aba(doc, 'b').click();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(dom.window.location.hash, '#b');
-  doc.querySelector('.side-item[data-page="a"]').click();
+  aba(doc, 'a').click();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(dom.window.location.hash, '', 'a 1ª (Visão geral) fica sem #');
 });

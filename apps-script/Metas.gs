@@ -140,7 +140,7 @@ function handleMetasHistorico(e, auth) {
 }
 
 function handleExcluirMetaDefinitivo(e) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('metas', 'salvar metas');
   try { trava.waitLock(20000); } catch (eL) { return jsonOut({ ok: false, etapa: 'metas', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     var p = (e && e.parameter) || {};
@@ -173,7 +173,7 @@ function excluirMetasArquivadasDefinitivamente() {
 function handleMetas(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
   try {
-    var r = montarTelaMetas_(SpreadsheetApp.getActiveSpreadsheet(), new Date());
+    var r = montarTelaMetasComCache_(SpreadsheetApp.getActiveSpreadsheet(), new Date());
     r.ok = true;
     return jsonOut(r);
   } catch (erro) {
@@ -181,8 +181,37 @@ function handleMetas(e, auth) {
   }
 }
 
+/**
+ * 05/10/2026 (A-36): a RESPOSTA pronta de `metas` fica no CacheService (em
+ * pedaços), com chave = dia + carimbo da última escrita (todo POST carimba -
+ * Router.gs - e as importações/"Limpar cache" também) + proventos (versão e
+ * contagens) + tamanho das abas aux_metas/Auxiliar_ativos. A resposta traz o
+ * valor de hoje de cada ativo (cotação da planilha, que muda durante o pregão),
+ * por isso o TTL é curto (METAS_RESPOSTA_SEGUNDOS_): a tela nunca fica mais que
+ * isso atrás da planilha, e as 5 telas que pedem `metas` (Distribuições,
+ * Carteiras, Ativo, Transações, Metas) na mesma sessão pagam o cálculo uma vez.
+ * O pré-aquecimento da Agenda (preAquecerMetasEMacro_) enche as peças lentas
+ * (proventos, câmbio, macro) que esta montagem reaproveita.
+ */
+var METAS_RESPOSTA_SEGUNDOS_ = 10 * 60;
+
+function chaveCacheRespostaMetas_(ss, agora) {
+  var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
+  var versaoProv = '0';
+  try { versaoProv = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_PROVENTOS) || '0'; } catch (e) { /* sem versão */ }
+  return 'metas_resp_v1_' + isoDiaMeta_(agora || new Date()) + '_' + (typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '0') + '_' + versaoProv + '_' +
+    [METAS_ABA_, 'Auxiliar_ativos'].map(linhas).join('_');
+}
+
+function montarTelaMetasComCache_(ss, agora) {
+  var chave = null;
+  try { chave = chaveCacheRespostaMetas_(ss, agora); } catch (eK) { chave = null; }
+  if (!chave || typeof cacheDeResposta_ !== 'function') return montarTelaMetas_(ss, agora);
+  return cacheDeResposta_('metas_resposta', chave, METAS_RESPOSTA_SEGUNDOS_, function () { return montarTelaMetas_(ss, agora); });
+}
+
 function handleSalvarMeta(e) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('metas', 'salvar metas');
   try { trava.waitLock(20000); } catch (eL) { return jsonOut({ ok: false, etapa: 'metas', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     var p = (e && e.parameter) || {};
@@ -195,7 +224,7 @@ function handleSalvarMeta(e) {
 }
 
 function handleExcluirMeta(e) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('metas', 'salvar metas');
   try { trava.waitLock(20000); } catch (eL) { return jsonOut({ ok: false, etapa: 'metas', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     var p = (e && e.parameter) || {};
@@ -604,18 +633,21 @@ function montarTelaMetas_(ss, agora, opcoes) {
     try { referencias.salario = referenciasSalarioMetas_(ss); } catch (eSal) { avisos.salario = String(eSal); }
     try { referencias.fgts = referenciasFgtsMetas_(ss); } catch (eF) { avisos.fgts = String(eF); }
     try {
-      var rp = montarMetasCarteira_().rendaPassiva;
+      var rp = montarMetasCarteira_({ semReserva: true }).rendaPassiva;
       referencias.rendaPassiva = { metaPlanilha: typeof rp.meta === 'number' ? rp.meta : null, media12m: typeof rp.mediaUlt12Meses === 'number' ? rp.mediaUlt12Meses : null, meses: rp.mesesMedia || null };
     } catch (eR) { avisos.rendaPassiva = String(eR); }
   }
   try {
     var tela = opcoes.proventos || montarTelaProventosComCache_();
-    proventos12m = proventos12mPorTicker_(tela.recebidos, tela.hoje);
+    // 05/10/2026 (A-17): mesma base da tela Proventos (lançados + pagos presumidos pela data), todas as classes
+    proventos12m = proventos12mPorTicker_(typeof recebidosComPresumidos_ === 'function' ? recebidosComPresumidos_(tela) : tela.recebidos, tela.hoje);
   } catch (eP) { avisos.proventos = String(eP); }
 
-  metas.forEach(function (m) { m.progresso = progressoVinculosMeta_(m, ativos, cambio); });
+  alocarMetasVinculos_(metas, ativos, cambio); // 05/10/2026 (A-11): cada ativo conta numa meta só
 
   var r = { metas: metas, arquivadas: arquivadas, ativos: ativos, cambio: cambio, referencias: referencias, proventos12m: proventos12m, hoje: isoDiaMeta_(agora || new Date()) };
+  // 05/10/2026 (A-14): ticker antigo -> atual (Incorporacoes.gs), pro front achar vínculos a ticker renomeado
+  try { r.aliasesTicker = tabelaAliasesTicker_(); } catch (eAl) { r.aliasesTicker = {}; }
   // 03/10/2026: aporte real de cada meta (o último metasHistorico calculado, 6h de cache)
   var resumo = opcoes.historicoResumo !== undefined ? opcoes.historicoResumo : lerResumoHistoricoMetas_();
   if (resumo) r.historicoResumo = resumo;
@@ -670,11 +702,8 @@ function ativosParaMetas_(ss) {
 }
 
 /** IOF regressivo dos primeiros 30 dias (Decreto 6.306/2007, anexo): % do rendimento. */
-var METAS_TABELA_IOF_ = [96, 93, 90, 86, 83, 80, 76, 73, 70, 66, 63, 60, 56, 53, 50, 46, 43, 40, 36, 33, 30, 26, 23, 20, 16, 13, 10, 6, 3, 0];
 function aliquotaIofMetas_(dias) {
-  if (!(dias >= 1)) return dias === 0 ? 0.96 : 0;
-  if (dias >= 30) return 0;
-  return METAS_TABELA_IOF_[dias - 1] / 100;
+  return aliquotaIofRendaFixa_(dias); // 05/10/2026 (A-13): tabela única em RendaFixaIR.gs
 }
 
 /**
@@ -703,6 +732,21 @@ function irResgateDoAtivo_(pos, valorAtivo, vencimentoTexto) {
   var venc = irNoVencimentoMetas_(pos, vencimentoTexto, valorAtivo, fator, new Date());
   if (venc) saida.vencimento = venc;
   return saida;
+}
+
+/**
+ * 05/10/2026 (A-10): IR + IOF (se resgatasse hoje) dos títulos da Renda Emergencial - o que separa o
+ * "bruto" (E19 de Distribuição e Metas) do "líquido" que a engine de Metas usa. null sem nenhum
+ * título da reserva com estimativa.
+ */
+function impostoReservaMetas_(ativos) {
+  var soma = 0, achou = false;
+  (ativos || []).forEach(function (a) {
+    if (a.classe !== 'rf' || a.marca !== 'emergencial' || !a.irResgate) return;
+    achou = true;
+    soma += (Number(a.irResgate.ir) || 0) + (Number(a.irResgate.iof) || 0);
+  });
+  return achou ? Math.round(soma * 100) / 100 : null;
 }
 
 /** Alíquota regressiva do IR (Lei 11.033/2004) pelos dias corridos de aplicação. */
@@ -796,6 +840,12 @@ function referenciasFgtsMetas_(ss) {
   };
 }
 
+/** Ticker em maiúsculas já trocado pelo atual quando foi renomeado/incorporado (Incorporacoes.gs!resolverAliasTicker_). */
+function aliasTickerMetas_(ticker) {
+  var t = String(ticker || '').trim().toUpperCase();
+  return typeof resolverAliasTicker_ === 'function' ? resolverAliasTicker_(t) : t;
+}
+
 /** Moedas de "Saldo em conta", destinos e itens fixos de viagem (pro câmbio). */
 function moedasUsadasMeta_(m) {
   var out = [];
@@ -813,37 +863,88 @@ function proventos12mPorTicker_(recebidos, hoje) {
   (recebidos || []).forEach(function (p) {
     var m = String(p.data || '').slice(0, 7);
     if (m < janela.inicio || m > janela.fim || typeof p.valor !== 'number' || !p.ticker) return;
-    var t = String(p.ticker).toUpperCase();
+    var t = typeof resolverAliasTicker_ === 'function' ? resolverAliasTicker_(p.ticker) : String(p.ticker).toUpperCase(); // 05/10/2026 (A-14): provento de ticker antigo conta no atual
     porTicker[t] = Math.round(((porTicker[t] || 0) + p.valor) * 100) / 100;
   });
   return { inicio: janela.inicio, fim: janela.fim, porTicker: porTicker };
 }
 
-/** Mesma regra de assets/js/pages/metas-calc.js!resolverVinculos. */
-function progressoVinculosMeta_(meta, ativos, cambio) {
+/**
+ * Mesma regra de assets/js/pages/metas-calc.js!resolverVinculos.
+ * 05/10/2026 (A-11): CADA ATIVO CONTA UMA VEZ - dentro da meta vale o vínculo de maior fração; entre metas,
+ * `ocupado` ({ idDoAtivo: valorJaPegoPorMetasDeMaiorPrioridade }, alterado aqui) limita o que sobra (ver
+ * alocarMetasVinculos_). 05/10/2026 (A-14): vínculo a ticker antigo acha o ativo atual (resolverAliasTicker_).
+ */
+function progressoVinculosMeta_(meta, ativos, cambio, ocupado) {
+  ocupado = ocupado || {};
   var total = 0;
-  var itens = (meta.vinculos || []).map(function (v) {
-    if (v.tipo === 'saldo') {
-      var cot = cotacaoMetas_(v.moeda, cambio);
-      var vs = cot == null ? 0 : Math.round((Number(v.saldo) || 0) * cot * 100) / 100;
-      total += vs;
-      return { tipo: 'saldo', id: v.id || null, classe: null, marca: null, base: vs, valorBRL: vs, encontrado: cot != null };
+  var cortado = 0;
+  var pre = (meta.vinculos || []).map(function (v) {
+    if (v.tipo === 'saldo') return { v: v, saldo: true };
+    var idv = null;
+    if (v.tipo === 'ativo') {
+      var partesId = String(v.id || '').split('@');
+      idv = typeof resolverAliasTicker_ === 'function' ? resolverAliasTicker_(partesId[0]) + (partesId.length > 1 ? '@' + partesId[1] : '') : v.id;
     }
     var alvo = (ativos || []).filter(function (a) {
-      if (v.tipo === 'ativo') return a.id === v.id;
+      if (v.tipo === 'ativo') return a.id === v.id || a.id === idv;
       if (v.tipo === 'classe') return a.classe === v.classe;
       if (v.tipo === 'marca') return a.classe === 'rf' && a.marca === v.marca;
       return false;
     });
     var base = alvo.reduce(function (s, a) { return s + (Number(a.valorBRL) || 0); }, 0);
-    var valor = base;
-    if (v.modo === 'fracao') valor = base * (Number(v.fracao) || 0);
-    if (v.modo === 'valor') valor = Math.min(base, Number(v.valor) || 0);
+    var parte = 1;
+    if (v.modo === 'fracao') parte = Math.max(0, Math.min(1, Number(v.fracao) || 0));
+    if (v.modo === 'valor') parte = base > 0 ? Math.min(base, Number(v.valor) || 0) / base : 0;
+    return { v: v, alvo: alvo, base: base, parte: parte };
+  });
+  var vencedor = {};
+  pre.forEach(function (p, i) {
+    if (p.saldo) return;
+    p.alvo.forEach(function (a) {
+      if (vencedor[a.id] === undefined || p.parte > pre[vencedor[a.id]].parte + 1e-12) vencedor[a.id] = i;
+    });
+  });
+  var itens = pre.map(function (p, i) {
+    var v = p.v;
+    if (p.saldo) {
+      var cot = cotacaoMetas_(v.moeda, cambio);
+      var vs = cot == null ? 0 : Math.round((Number(v.saldo) || 0) * cot * 100) / 100;
+      total += vs;
+      return { tipo: 'saldo', id: v.id || null, classe: null, marca: null, base: vs, valorBRL: vs, encontrado: cot != null };
+    }
+    var valor = 0;
+    var pretendido = 0;
+    p.alvo.forEach(function (a) {
+      var vale = Number(a.valorBRL) || 0;
+      var quer = vale * p.parte;
+      pretendido += quer;
+      if (vencedor[a.id] !== i) return;
+      var toma = Math.max(0, Math.min(quer, vale - (Number(ocupado[a.id]) || 0)));
+      valor += toma;
+      ocupado[a.id] = (Number(ocupado[a.id]) || 0) + toma;
+    });
     valor = Math.round(valor * 100) / 100;
     total += valor;
-    return { tipo: v.tipo, id: v.id || null, classe: v.classe || null, marca: v.marca || null, base: Math.round(base * 100) / 100, valorBRL: valor, encontrado: alvo.length > 0 };
+    cortado += Math.max(0, pretendido - valor);
+    return { tipo: v.tipo, id: v.id || null, classe: v.classe || null, marca: v.marca || null, base: Math.round(p.base * 100) / 100, valorBRL: valor, pretendidoBRL: Math.round(pretendido * 100) / 100, encontrado: p.alvo.length > 0 };
   });
-  return { valorVinculado: Math.round(total * 100) / 100, vinculos: itens };
+  return { valorVinculado: Math.round(total * 100) / 100, cortadoBRL: Math.round(cortado * 100) / 100, vinculos: itens };
+}
+
+/** Ordem de prioridade quando duas metas vinculam o mesmo ativo: reserva -> renda passiva -> aposentadoria -> demais (mesma de metas-calc.js!ordemDeAlocacao). */
+var METAS_PRIORIDADE_TIPOS_ = ['reservaEmergencia', 'rendaPassiva', 'aposentadoria'];
+
+/**
+ * 05/10/2026 (A-11): calcula `progresso` de TODAS as metas ativas com alocação exclusiva por prioridade
+ * (cada ativo conta numa meta só). Mesmo critério do front (metas-calc.js!alocarMetas).
+ */
+function alocarMetasVinculos_(metas, ativos, cambio) {
+  var ocupado = {};
+  var peso = function (m) { var k = METAS_PRIORIDADE_TIPOS_.indexOf(m.tipo); return k < 0 ? METAS_PRIORIDADE_TIPOS_.length : k; };
+  metas.map(function (m, i) { return { m: m, i: i }; })
+    .sort(function (a, b) { return peso(a.m) - peso(b.m) || a.i - b.i; })
+    .forEach(function (x) { x.m.progresso = progressoVinculosMeta_(x.m, ativos, cambio, ocupado); });
 }
 
 /** Reais por 1 unidade da moeda ({ EUR: 6 } ou { EUR: { valor: 6 } }); BRL = 1; sem cotação = null. */
@@ -936,6 +1037,43 @@ function cambioAbaBolsaUsaMetas_(ss) {
     if (faixa && (v < faixa[0] || v > faixa[1])) return; // valor estranho pra essa moeda: não usa
     out[moeda] = { valor: v, celula: 'D' + linha, como: como };
   });
+  return rejeitarCambioSuspeitoMetas_(out);
+}
+
+/**
+ * 05/10/2026 (A-16): a célula "Cotação do Libra hoje" já chegou valendo EXATAMENTE o mesmo que a do
+ * dólar (fórmula copiada) e a faixa de 3 a 18 aceitava 5,00 pra libra sem reclamar. Agora uma cotação
+ * de outra moeda que seja IDÊNTICA à de outra, ou que fuja da razão plausível contra o dólar (libra
+ * 1,05-2,2x, euro 0,8-1,6x, franco 0,7-1,7x - faixas históricas largas), é descartada - a moeda cai pra aux_cambio/API em vez de
+ * entrar errada numa meta de viagem. Dólar é a âncora (nunca descartado por isso).
+ */
+var METAS_RAZAO_CAMBIO_ = { GBP: [1.05, 2.2], EUR: [0.8, 1.6], CHF: [0.7, 1.7] };
+function rejeitarCambioSuspeitoMetas_(porMoeda) {
+  var moedas = Object.keys(porMoeda);
+  var descartar = {};
+  moedas.forEach(function (a) {
+    moedas.forEach(function (b) {
+      if (a >= b) return;
+      if (Math.abs(porMoeda[a].valor - porMoeda[b].valor) < 0.0005) {
+        if (a !== 'USD') descartar[a] = true;
+        if (b !== 'USD') descartar[b] = true;
+      }
+    });
+    var razao = METAS_RAZAO_CAMBIO_[a];
+    var usd = porMoeda.USD ? porMoeda.USD.valor : null;
+    if (razao && usd > 0) {
+      var r = porMoeda[a].valor / usd;
+      if (r < razao[0] || r > razao[1]) descartar[a] = true;
+    }
+  });
+  var out = {};
+  moedas.forEach(function (m) {
+    if (descartar[m]) {
+      try { console.log('Metas: cotação de ' + m + ' (' + porMoeda[m].celula + ' = ' + porMoeda[m].valor + ') descartada - igual à de outra moeda ou fora da razão plausível contra o dólar'); } catch (eL) { /* ok */ }
+      return;
+    }
+    out[m] = porMoeda[m];
+  });
   return out;
 }
 
@@ -955,7 +1093,7 @@ function cambioAuxMetas_(ss, moedas) {
   var faltam = moedas.filter(function (m) { return !onde[m]; });
   if (faltam.length && typeof ss.insertSheet === 'function') {
     var trava = null;
-    try { trava = LockService.getScriptLock(); if (trava.tryLock && !trava.tryLock(5000)) trava = false; } catch (eT) { trava = null; }
+    try { trava = travaRecurso_('metas', 'salvar metas'); if (trava.tryLock && !trava.tryLock(5000)) trava = false; } catch (eT) { trava = null; }
     if (trava !== false) {
       try {
         var temCab = false;
@@ -1196,7 +1334,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
       var lp = opcoes.linhasPatrimonio;
       if (!lp) {
         var abaP = ss.getSheetByName('aux_historico-patrimonio');
-        lp = abaP && abaP.getLastRow() >= 2 ? abaP.getRange(2, 1, abaP.getLastRow() - 1, 8).getValues() : [];
+        lp = abaP && abaP.getLastRow() >= 2 ? lerAbaUmaVez_(abaP, 2, abaP.getLastRow() - 1, 8) : []; // 05/10/2026 (A-33): 1 leitura por execução
       }
       var ultDia = {};
       lp.forEach(function (l) {
@@ -1218,7 +1356,9 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
         var linhas = tr[cfg[0]];
         if (!linhas) {
           var aba = ss.getSheetByName(cfg[1]);
-          linhas = aba && aba.getLastRow() >= 7 ? aba.getRange(7, 1, aba.getLastRow() - 6, 8).getValues() : [];
+          // 05/10/2026 (A-31/A-33): última linha REAL (a aba tem fórmula até ~10.800) e a leitura compartilhada de 12 colunas
+          var ultimaTr = aba ? ultimaLinhaReal_(aba, [1, 2], 7) : 0;
+          linhas = ultimaTr >= 7 ? lerAbaUmaVez_(aba, 7, ultimaTr - 6, 12) : [];
         }
         linhas.forEach(function (l) {
           var t = String(l[0] || '').trim().toUpperCase();
@@ -1242,7 +1382,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
       var lr = opcoes.linhasRf;
       if (!lr) {
         var abaR = ss.getSheetByName('aux_historico-renda-fixa');
-        lr = abaR && abaR.getLastRow() >= 2 ? abaR.getRange(2, 1, abaR.getLastRow() - 1, 6).getValues() : [];
+        lr = abaR && abaR.getLastRow() >= 2 ? lerAbaUmaVez_(abaR, 2, abaR.getLastRow() - 1, 6) : []; // 05/10/2026 (A-33)
       }
       var porDia = {};
       lr.forEach(function (l) {
@@ -1264,7 +1404,8 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
       if (!linhasT) {
         var abaT = ss.getSheetByName('Transações Renda Fixa');
         var cab = typeof LINHA_CABECALHO_TRANSACOES_RF === 'number' ? LINHA_CABECALHO_TRANSACOES_RF : 6;
-        linhasT = abaT && abaT.getLastRow() > cab ? abaT.getRange(cab + 1, 1, abaT.getLastRow() - cab, 8).getValues() : [];
+        var ultimaTRf = abaT ? ultimaLinhaReal_(abaT, [1, 2], cab + 1) : 0; // 05/10/2026 (A-31/A-33)
+        linhasT = ultimaTRf > cab ? lerAbaUmaVez_(abaT, cab + 1, ultimaTRf - cab, 8) : [];
       }
       linhasT.forEach(function (l) {
         var mov = String(l[2] || '');
@@ -1285,7 +1426,11 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
   // --- proventos (renda passiva) ---
   var recebidos = null;
   if (metas.some(function (m) { return m.tipo === 'rendaPassiva'; })) {
-    try { recebidos = (opcoes.proventos || montarTelaProventosComCache_()).recebidos || []; } catch (eP) { avisos.proventos = String(eP); recebidos = []; }
+    // 05/10/2026 (A-17): mesma base da tela Proventos (lançados + pagos presumidos pela data) - o histórico da renda passiva bate com ela
+    try {
+      var telaProv = opcoes.proventos || montarTelaProventosComCache_();
+      recebidos = (typeof recebidosComPresumidos_ === 'function' ? recebidosComPresumidos_(telaProv) : telaProv.recebidos) || [];
+    } catch (eP) { avisos.proventos = String(eP); recebidos = []; }
   }
 
   var fontes = { hojeMes: hojeMes, inicioMes: inicioMes, rvMes: rvMes, rfMes: rfMes, ultimoDiaTicker: ultimoDiaTicker, cambio: cambio, recebidos: recebidos };
@@ -1412,10 +1557,10 @@ function rendaMensalMeta_(meta, fontes) {
   (fontes.recebidos || []).forEach(function (p) {
     var mes = String(p.data || '').slice(0, 7);
     if (!mes || mes > hojeMes || typeof p.valor !== 'number') return;
-    var t = String(p.ticker || '').toUpperCase();
+    var t = aliasTickerMetas_(p.ticker); // 05/10/2026 (A-14/A-17): provento de ticker antigo conta no atual
     var fator = semVinculo ? 1 : 0;
     vincs.forEach(function (v) {
-      var casa = v.tipo === 'classe' ? METAS_CLASSE_PROVENTO_[v.classe] === p.classe : String(v.id).replace(/#\d+$/, '').toUpperCase() === t;
+      var casa = v.tipo === 'classe' ? METAS_CLASSE_PROVENTO_[v.classe] === p.classe : aliasTickerMetas_(String(v.id).replace(/#\d+$/, '')) === t;
       if (!casa) return;
       if (v.modo === 'fracao') fator += Number(v.fracao) || 0;
       else if (v.modo === 'valor') {

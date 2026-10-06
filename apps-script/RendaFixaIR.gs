@@ -61,6 +61,19 @@ function aliquotaIRRendaFixa_(diasCorridos) {
 }
 
 /**
+ * 05/10/2026 (A-13): IOF regressivo dos primeiros 30 dias (Decreto 6.306/2007,
+ * anexo), % do RENDIMENTO - módulo único de IR/IOF no GS (Metas.gs usa esta
+ * mesma função em vez de ter outra cópia da tabela). Incide ANTES do IR: o IR é
+ * sobre (rendimento - IOF).
+ */
+var TABELA_IOF_RENDA_FIXA_ = [96, 93, 90, 86, 83, 80, 76, 73, 70, 66, 63, 60, 56, 53, 50, 46, 43, 40, 36, 33, 30, 26, 23, 20, 16, 13, 10, 6, 3, 0];
+function aliquotaIofRendaFixa_(diasCorridos) {
+  if (!(diasCorridos >= 1)) return diasCorridos === 0 ? 0.96 : 0;
+  if (diasCorridos >= 30) return 0;
+  return TABELA_IOF_RENDA_FIXA_[diasCorridos - 1] / 100;
+}
+
+/**
  * 05/10/2026: `leitura` (opcional) = { carteira, lotes } - as linhas JÁ LIDAS de "Carteira Renda Fixa" (A..L, a
  * partir da linha 9) e de "RF Contratada - Lotes" (A..F, a partir da 2): montarCarteirasRendaFixa_ lê as duas 1 vez
  * só e reaproveita aqui. Sem `leitura`, lê sozinho (Metas.gs, ação irRendaFixa) - mesma assinatura de antes.
@@ -86,7 +99,26 @@ function montarIRRendaFixa_(leitura) {
   var dados = leitura && leitura.carteira ? leitura.carteira : lerLinhasCarteiraRf_(ss);
   if (!dados.length) return resultado;
 
+  // 05/10/2026 (A-13): o mesmo título+instituição pode aparecer em 2 linhas (uma por marca: Renda
+  // Emergencial e Longo Prazo). Os lotes são do título TODO, então cada linha pegava o IR do total
+  // (IR em dobro). Agora as linhas de mesma chave viram UMA posição (quantidade/valores somados) e
+  // quem divide por marca (Metas.gs!irResgateDoAtivo_) reparte o IR pela fração de cada uma.
+  var agrupadas = [];
+  var indicePorChave = {};
   dados.forEach(function (linha) {
+    var chaveG = normalizarChaveRfIr_(String(linha[2] || linha[3] || '').trim(), linha[5]);
+    if (!(linha[0] || linha[3]) || indicePorChave[chaveG] === undefined) {
+      if (linha[0] || linha[3]) indicePorChave[chaveG] = agrupadas.length;
+      agrupadas.push(linha.slice());
+      return;
+    }
+    var base = agrupadas[indicePorChave[chaveG]];
+    base[6] = (Number(base[6]) || 0) + (Number(linha[6]) || 0);
+    base[8] = (Number(base[8]) || 0) + (Number(linha[8]) || 0);
+    base[11] = (Number(base[11]) || 0) + (Number(linha[11]) || 0);
+  });
+
+  agrupadas.forEach(function (linha) {
     var codigo = linha[0], nome = linha[2], tipo = linha[3],
       instituicao = linha[5], quantidade = linha[6],
       valorInvestidoTotal = linha[8], dataEmissao = linha[9],
@@ -104,6 +136,7 @@ function montarIRRendaFixa_(leitura) {
 
     var detalhes = [];
     var impostoTotal = 0;
+    var iofTotal = 0;
     var rendimentoTotal = 0;
 
     lotes.forEach(function (lote) {
@@ -114,10 +147,14 @@ function montarIRRendaFixa_(leitura) {
       var rendimentoLote = (!isento && valorAtualLote != null && lote.valorInvestido != null) ?
         Math.max(0, valorAtualLote - lote.valorInvestido) : 0;
       var aliquota = isento ? 0 : aliquotaIRRendaFixa_(diasCorridos);
-      var impostoLote = isento ? 0 : rendimentoLote * aliquota;
+      // 05/10/2026 (A-13): IOF dos primeiros 30 dias incide primeiro; o IR é sobre o que sobra do rendimento
+      var iofLote = isento ? 0 : rendimentoLote * aliquotaIofRendaFixa_(diasCorridos);
+      var irLote = isento ? 0 : Math.max(0, rendimentoLote - iofLote) * aliquota;
+      var impostoLote = irLote + iofLote;
 
       rendimentoTotal += rendimentoLote;
       impostoTotal += impostoLote;
+      iofTotal += iofLote;
 
       detalhes.push({
         dataAplicacao: Utilities.formatDate(lote.data, Session.getScriptTimeZone(), 'dd/MM/yyyy'),
@@ -126,6 +163,7 @@ function montarIRRendaFixa_(leitura) {
         valorAtual: valorAtualLote != null ? arredondarIR_(valorAtualLote) : null,
         rendimento: arredondarIR_(rendimentoLote),
         aliquota: aliquota,
+        iof: arredondarIR_(iofLote),
         imposto: arredondarIR_(impostoLote)
       });
     });
@@ -136,7 +174,9 @@ function montarIRRendaFixa_(leitura) {
       isento: isento,
       precisao: usouLotesReais ? 'por-lote' : 'aproximado',
       rendimentoTotal: arredondarIR_(rendimentoTotal),
+      // 05/10/2026 (A-13): `impostoSeResgatasseHoje` = IR + IOF (o que ele realmente perde); o IOF vai separado também
       impostoSeResgatasseHoje: arredondarIR_(impostoTotal),
+      iofSeResgatasseHoje: arredondarIR_(iofTotal),
       valorLiquidoSeResgatasseHoje: valorAtualizado != null ? arredondarIR_(valorAtualizado - impostoTotal) : null,
       detalhes: detalhes
     });

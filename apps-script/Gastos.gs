@@ -55,20 +55,62 @@ var PROP_GASTOS_EXTRATOS_ = 'GASTOS_PASTA_EXTRATOS';
 
 function handleGastos(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  // 05/10/2026 (A-35): ?de=&ate= (mês 'aaaa-mm' ou dia 'aaaa-mm-dd'; de=tudo = sem limite). Sem parâmetro: os últimos
+  // GASTOS_JANELA_PADRAO_MESES_ + 1 meses com lançamento (12 meses + 1 de margem pra média dos 12 meses anteriores).
+  var p = (e && e.parameter) || {};
+  var janela = { de: mesParametroGastos_(p.de), ate: mesParametroGastos_(p.ate) };
+  var ss;
+  var chave = null;
+  try {
+    ss = SpreadsheetApp.getActiveSpreadsheet();
+    // resposta pronta (cache de 6 h por janela; a chave muda a cada escrita - ver chaveCacheGastos_): não espera a trava
+    chave = chaveCacheGastos_(ss, janela);
+    var pronta = lerSerieHistoricoCache_(chave);
+    if (pronta) return jsonOut(pronta);
+  } catch (eC) { chave = null; }
   // 05/10/2026 (Tiago, P3: depois de importar, a seção Gastos aparecia vazia até dar reload): a gravação reescreve a aba
   // inteira (limpa e escreve); uma leitura no meio disso voltava SEM lançamentos. A leitura espera a gravação terminar.
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('gastos', 'gastos (importar/salvar/ler)');
   var travou = false;
   try { trava.waitLock(8000); travou = true; } catch (eL) { /* lê mesmo assim */ }
   try {
-    var r = lerGastos_(SpreadsheetApp.getActiveSpreadsheet());
+    var r = lerGastos_(ss || SpreadsheetApp.getActiveSpreadsheet(), { janela: true, de: janela.de, ate: janela.ate });
     r.ok = true;
+    // chave recalculada DEPOIS da trava: se uma gravação terminou enquanto esperava, a resposta vai pra chave nova
+    try { if (typeof gravarCacheGeracao_ === 'function') gravarCacheGeracao_(janela.de || janela.ate ? 'gastos_janela' : 'gastos_padrao', chaveCacheGastos_(ss || SpreadsheetApp.getActiveSpreadsheet(), janela), r, GASTOS_CACHE_SEGUNDOS_); } catch (eG) { /* só otimização */ }
     return jsonOut(r);
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'gastos', erro: String(erro) });
   } finally {
     if (travou) { try { trava.releaseLock(); } catch (eR) { /* ok */ } }
   }
+}
+
+var GASTOS_JANELA_PADRAO_MESES_ = 12;   // + 1 mês de margem (média dos 12 meses ANTES do mês de referência)
+var GASTOS_CACHE_SEGUNDOS_ = 6 * 60 * 60;
+
+/** 'aaaa-mm' | 'aaaa-mm-dd' | 'tudo' -> 'aaaa-mm' ('' = sem limite / padrão). */
+function mesParametroGastos_(v) {
+  if (/^tudo$/i.test(String(v || '').trim())) return 'tudo';
+  var m = String(v || '').trim().match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+  return m ? m[1] + '-' + m[2] : '';
+}
+
+function somarMesGastos_(mes, k) {
+  var t = Number(mes.slice(0, 4)) * 12 + Number(mes.slice(5, 7)) - 1 + k;
+  return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
+}
+
+/**
+ * Chave do cache da resposta de `gastos`: carimbo da última escrita (todo POST
+ * carimba - Router.gs; os handlers daqui também) + última linha das 3 abas
+ * (cobre uma linha digitada à mão) + a janela pedida. `de=tudo` vira 'tudo'.
+ */
+function chaveCacheGastos_(ss, janela) {
+  var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
+  var j = janela || {};
+  return 'gastos_v2_' + (typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '0') + '_' +
+    [GASTOS_ABA_, GASTOS_ABA_ARQUIVOS_, GASTOS_ABA_REGRAS_].map(linhas).join('_') + '_' + (j.de || 'p') + '_' + (j.ate || 'f');
 }
 
 function handleArquivosGastos(e, auth) {
@@ -90,13 +132,15 @@ function handleArquivoGastos(e, auth) {
 }
 
 function comTravaGastos_(fn) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('gastos', 'gastos (importar/salvar/ler)');
   try { trava.waitLock(25000); } catch (eL) { return jsonOut({ ok: false, etapa: 'gastos', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     return jsonOut(fn(SpreadsheetApp.getActiveSpreadsheet()));
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'gastos', erro: String(erro && erro.message ? erro.message : erro) });
   } finally {
+    // 05/10/2026 (A-35): carimba a escrita (o cache da resposta de `gastos` troca de chave); o Router já faz, isto cobre chamada direta
+    if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_();
     try { trava.releaseLock(); } catch (eR) { /* ok */ }
   }
 }
@@ -167,20 +211,46 @@ function textoIsoGastos_(v) {
   return v ? String(v) : '';
 }
 
-/** Tudo que a tela precisa. Lançamentos em arrays (payload menor). */
-function lerGastos_(ss) {
-  var lancs = linhasAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_.length).filter(function (l) { return l[0] !== '' || l[4] !== ''; }).map(function (l) {
+/**
+ * Tudo que a tela precisa. Lançamentos em arrays (payload menor).
+ * 05/10/2026 (A-35): com `opcoes.janela`, só devolve os lançamentos cujo MÊS
+ * (competência) está em [de, ate] ('aaaa-mm'; sem `de` = os últimos
+ * GASTOS_JANELA_PADRAO_MESES_ + 1 meses com lançamento) e acrescenta:
+ *   janela: { de, ate, primeiroMes, ultimoMes, completo, total, devolvidos }
+ *     (completo = a janela cobre todos os meses da aba: nada mais a buscar)
+ *   meses:  [[aaaa-mm, nº de lançamentos]] de TODOS os meses (agregação mensal
+ *     do histórico inteiro - a tela sabe até onde pode voltar sem baixar tudo).
+ * Sem `opcoes` (chamadas internas e testes): tudo, como sempre.
+ */
+function lerGastos_(ss, opcoes) {
+  var o = opcoes || {};
+  var todos = linhasAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_.length).filter(function (l) { return l[0] !== '' || l[4] !== ''; }).map(function (l) {
     return [textoMesGastos_(l[0]), textoDataGastos_(l[1]), String(l[2] || ''), String(l[3] || ''), String(l[4] || ''), String(l[5] || ''), Number(l[6]) || 0, String(l[7] || ''), String(l[8] || '').replace(/^'/, ''), String(l[9] || '')];
   });
-  return {
+  var r = {
     colunas: ['mes', 'data', 'origem', 'fonte', 'descricao', 'categoria', 'valor', 'tipo', 'parcela', 'arquivo'],
-    lancamentos: lancs,
+    lancamentos: todos,
     arquivos: lerArquivosImportadosGastos_(ss),
     regras: linhasAbaGastos_(ss, GASTOS_ABA_REGRAS_, 3).filter(function (l) { return String(l[0] || '').trim(); }).map(function (l) {
       return { padrao: String(l[0]).trim(), categoria: String(l[1] || '').trim(), criada: textoIsoGastos_(l[2]) };
     }),
     pastasConfiguradas: !!PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_CARTAO_)
   };
+  if (!o.janela) return r;
+  var porMes = {};
+  todos.forEach(function (l) { if (l[0]) porMes[l[0]] = (porMes[l[0]] || 0) + 1; });
+  var meses = Object.keys(porMes).sort();
+  var primeiro = meses.length ? meses[0] : '';
+  var ultimo = meses.length ? meses[meses.length - 1] : '';
+  var de = o.de === 'tudo' ? '' : (o.de || (ultimo ? somarMesGastos_(ultimo, -GASTOS_JANELA_PADRAO_MESES_) : ''));
+  var ate = o.ate || '';
+  r.lancamentos = todos.filter(function (l) { return l[0] && (!de || l[0] >= de) && (!ate || l[0] <= ate); });
+  r.janela = {
+    de: de, ate: ate, primeiroMes: primeiro, ultimoMes: ultimo,
+    completo: (!de || de <= primeiro) && (!ate || ate >= ultimo), total: todos.length, devolvidos: r.lancamentos.length
+  };
+  r.meses = meses.map(function (m) { return [m, porMes[m]]; });
+  return r;
 }
 
 function lerArquivosImportadosGastos_(ss) {
@@ -275,16 +345,69 @@ function salvarImportacaoGastos_(ss, arquivo, lancamentos, agora) {
   }) : '';
   var regs = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim() && String(l[0]) !== id; });
   var situacao = arquivo.situacao === 'aviso' || (arquivo.conferencia && arquivo.conferencia.ok === false) ? 'aviso' : 'ok';
+  var problemaArq = arquivo.problema;
+  // 05/10/2026 (auditoria A-25): a mesma fatura lida 2x (outro arquivo no Drive, mesmo total e mesma diferença) entra
+  // como "aviso" em vez de passar por ok - os lançamentos já são pulados pela chave, mas o mês ficava sem destaque.
+  var repetido = acharArquivoRepetidoGastos_(regs, id, arquivo, meses, linhasNovas.length, pulados);
+  if (repetido) {
+    situacao = 'aviso';
+    problemaArq = 'parece repetir "' + repetido.nome + '" (mesmo total' + (repetido.diferenca ? ' e diferença' : '') + ')' + (problemaArq ? ' - ' + problemaArq : '');
+  }
   regs.push([
     id, textoGastos_(arquivo.nome, 120), textoGastos_(arquivo.caminho, 160), textoGastos_(arquivo.fonte, 30),
     String(arquivo.modificado || '').slice(0, 40), agora.toISOString(), meses.join(','), linhasNovas.length,
     isFinite(Number(arquivo.total)) && arquivo.total !== null && arquivo.total !== '' ? Math.round(Number(arquivo.total) * 100) / 100 : '',
     conf, isFinite(Number(arquivo.entradas)) && arquivo.entradas !== null && arquivo.entradas !== '' ? Math.round(Number(arquivo.entradas) * 100) / 100 : '',
-    situacao, situacao === 'aviso' ? textoGastos_(arquivo.problema, 160) : ''
+    situacao, situacao === 'aviso' ? textoGastos_(problemaArq, 160) : ''
   ]);
   reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
   if (SpreadsheetApp.flush) SpreadsheetApp.flush();
   return { ok: true, id: id, gravados: linhasNovas.length, pulados: pulados, descartados: lancamentos.length - novos.length };
+}
+
+/**
+ * 05/10/2026 (A-25): outro arquivo já registrado (mesma fonte) com o MESMO total e (a mesma diferença da conferência,
+ * quando não é zero, ou os mesmos meses) - é a mesma fatura lida duas vezes. Também vale quando todos os lançamentos
+ * do arquivo novo já existiam em outro (nada novo entrou). Devolve { nome, diferenca } ou null.
+ */
+function acharArquivoRepetidoGastos_(regs, id, arquivo, meses, qtdNovas, pulados) {
+  var total = Number(arquivo.total);
+  if (!isFinite(total) || total === 0 || arquivo.total === null || arquivo.total === '') return null;
+  total = Math.round(total * 100) / 100;
+  var dif = arquivo.conferencia && typeof arquivo.conferencia === 'object' ? Math.round((Number(arquivo.conferencia.diferenca) || 0) * 100) / 100 : 0;
+  var chaveMeses = meses.slice().sort().join(',');
+  for (var i = 0; i < regs.length; i++) {
+    var r = regs[i];
+    if (String(r[0]) === id || String(r[11]) === 'erro' || String(r[3]) !== String(arquivo.fonte || '').slice(0, 30)) continue;
+    if (r[8] === '' || Math.round(Number(r[8]) * 100) / 100 !== total) continue;
+    var c = null;
+    try { c = r[9] ? JSON.parse(String(r[9])) : null; } catch (eJ) { c = null; }
+    var difR = c ? Math.round((Number(c.diferenca) || 0) * 100) / 100 : 0;
+    var mesmosMeses = String(r[6] || '').split(/[,;\s]+/).filter(String).sort().join(',') === chaveMeses;
+    if ((dif !== 0 && difR === dif) || mesmosMeses || (qtdNovas === 0 && pulados > 0)) return { nome: String(r[1] || ''), diferenca: dif !== 0 };
+  }
+  return null;
+}
+
+/**
+ * 05/10/2026 (A-25): preenche a "Situação" (ok/aviso) dos arquivos antigos que ficaram com a coluna vazia, deduzindo
+ * da "Conferência" (a mesma regra que a leitura já usa). Rodar 1x no editor; não mexe em nada além dessa coluna.
+ */
+function preencherSituacaoArquivosGastosDireto() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var regs = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim(); });
+  var preenchidos = 0;
+  regs.forEach(function (l) {
+    if (GASTOS_SITUACOES_.indexOf(String(l[11] || '')) >= 0) return;
+    var conf = null;
+    try { conf = l[9] ? JSON.parse(String(l[9])) : null; } catch (eJ) { conf = null; }
+    l[11] = conf && conf.ok === false ? 'aviso' : 'ok';
+    if (l[11] === 'aviso' && !l[12]) l[12] = 'soma não bate - diferença ' + (Number(conf.diferenca) || 0);
+    preenchidos++;
+  });
+  if (preenchidos) reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
+  Logger.log('Situação preenchida em ' + preenchidos + ' de ' + regs.length + ' arquivos.');
+  return { ok: true, preenchidos: preenchidos, total: regs.length };
 }
 
 /**

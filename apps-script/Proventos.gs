@@ -44,13 +44,13 @@ function handleProventos(e, auth) {
  */
 function montarTelaProventos_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hoje = chaveDiaISOInicio_(new Date());
+  var hoje = hojeSP_();
   var mapas = mapasDoPatrimonioParaProventos_(ss);
   var fluxo = calcularFluxoCaixaDiario_(mapas.mapaCambioUsd, mapas.classePorTicker);
   var recebidos = (fluxo.listaProventos || []).filter(function (p) { return p.data <= hoje; })
     .sort(function (a, b) { return a.data < b.data ? 1 : (a.data > b.data ? -1 : (a.ticker < b.ticker ? -1 : 1)); });
 
-  var limite12m = chaveDiaISOInicio_(new Date(Date.now() - 365 * 86400000));
+  var limite12m = diaSP_(new Date(Date.now() - 365 * 86400000));
   var somaMapa = function (mapa, desde) {
     return Object.keys(mapa || {}).reduce(function (s, k) { return (k <= hoje && (!desde || k > desde)) ? s + (Number(mapa[k]) || 0) : s; }, 0);
   };
@@ -98,7 +98,7 @@ function chaveCacheTelaProventos_(ss) {
   var versao = '0';
   try { versao = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_PROVENTOS) || '0'; } catch (e) { /* sem versão: só as contagens */ }
   // v2 (02/10/2026): resposta ganhou a conferência com o extrato da B3
-  return 'proventos_tela_v2_' + chaveDiaISOInicio_(new Date()) + '_' + contarLinhasFluxoCaixa_(ss) + '_' +
+  return 'proventos_tela_v2_' + hojeSP_() + '_' + contarLinhasFluxoCaixa_(ss) + '_' +
     [ABA_B3_PROVENTOS_A_RECEBER, 'aux_proventos-anunciados', 'aux_historico-patrimonio', 'Auxiliar_ativos', ABA_CONFERENCIA_PROVENTOS].map(linhas).join('_') + '_' + versao;
 }
 
@@ -120,8 +120,105 @@ function montarTelaProventosComCache_() {
   var marca = Date.now();
   var tela = montarTelaProventos_();
   console.log('montarTelaProventosComCache_: cache MISS (' + chave + ') - montou em ' + (Date.now() - marca) + 'ms');
-  gravarSerieHistoricoCache_(chave, tela);
+  gravarSerieHistoricoCache_(chave, tela, null, 'proventos_tela'); // A-37: apaga a geração anterior
   return tela;
+}
+
+/**
+ * 05/10/2026 (auditoria A-19): ÚNICO "hoje" do Apps Script para proventos -
+ * o dia de calendário de São Paulo ('yyyy-MM-dd'), seja qual for o fuso do
+ * projeto/servidor. Antes cada trecho calculava de um jeito (fuso do script,
+ * UTC no front): entre 21h e 24h em SP o UTC já é o dia seguinte e o mês
+ * corrente e o "pago/presumido" mudavam de lado à noite. O par no front é
+ * assets/js/format.js!hojeSP.
+ */
+var _formatadorDiaSP_ = null;
+function diaSP_(data) {
+  // Intl (como chaveDiaISOInicio_, HistoricoInicio.gs): 'en-CA' formata 'yyyy-MM-dd'
+  if (!_formatadorDiaSP_) _formatadorDiaSP_ = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+  return _formatadorDiaSP_.format(data);
+}
+
+function hojeSP_() {
+  return diaSP_(new Date());
+}
+
+/**
+ * 05/10/2026 (auditoria A-17): UMA função de janela para "proventos em 12
+ * meses". Havia 3 definições (12 meses fechados, 12 meses com o mês corrente
+ * e janela rolante de 365 dias) que davam ~4% de diferença entre telas sem
+ * dizer qual era qual. Agora toda janela sai daqui, com o rótulo junto:
+ *  - 'fechados'    : os N meses que terminam no mês passado (o mês de hoje
+ *                    ainda não acabou) - a régua da meta de Renda Passiva, da
+ *                    média mensal da tela Proventos e da tela do Ativo;
+ *  - 'comMesAtual' : os N meses que terminam no mês de hoje (inclusive, em
+ *                    curso) - o total "12 meses" da tela Proventos e das
+ *                    Carteiras.
+ * Devolve { modo, meses, inicio:'yyyy-MM', fim:'yyyy-MM', rotulo }.
+ */
+function janelaProventos_(hoje, modo, meses) {
+  var n = meses > 0 ? meses : 12;
+  var mais = function (anoMes, k) {
+    var a = Number(anoMes.slice(0, 4)), m = Number(anoMes.slice(5, 7));
+    var t = a * 12 + (m - 1) + k;
+    return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
+  };
+  var fechados = modo !== 'comMesAtual';
+  var fim = fechados ? mais(hoje.slice(0, 7), -1) : hoje.slice(0, 7);
+  var inicio = mais(fim, -(n - 1));
+  return {
+    modo: fechados ? 'fechados' : 'comMesAtual', meses: n, inicio: inicio, fim: fim,
+    rotulo: n + ' meses ' + (fechados ? 'fechados' : 'até o mês atual (em curso)')
+  };
+}
+
+/**
+ * A lista "recebidos" da tela Proventos + o que o front também conta como
+ * recebido: os a receber cujo pagamento já chegou e os pagos não lançados
+ * (B3/FNet), esses como 'presumido' (menos os que o extrato da B3 não
+ * confirmou). É a MESMA regra de assets/js/pages/proventos-calc.js!
+ * normalizarPorData - sem isso a média do servidor (só o lançado) ficava
+ * abaixo da que a tela mostra. Cada item ganha `conferencia` ('presumido' só
+ * nos que não estão na aba Proventos).
+ */
+function recebidosComPresumidos_(tela) {
+  var t = tela || {};
+  var hoje = t.hoje || hojeSP_();
+  var lista = (t.recebidos || []).slice();
+  var comoRecebido = function (p) {
+    return { data: p.dataPagamento, dataCom: p.dataCom || '', ticker: p.ticker, classe: p.classe, tipo: p.tipo, quantidade: p.quantidade,
+      valorPorCota: p.valorPorCota, liquido: p.valor, moeda: 'BRL', cambio: null, valor: p.valor, fonte: p.fonte || 'Planilha', conferencia: 'presumido' };
+  };
+  (t.aReceber || []).forEach(function (p) {
+    if (p && p.dataPagamento && p.dataPagamento <= hoje) lista.push(comoRecebido(p));
+  });
+  (t.pagosNaoLancados || []).forEach(function (p) {
+    if (p && p.dataPagamento && p.conferencia !== 'nao_confirmado') lista.push(comoRecebido(p));
+  });
+  return lista;
+}
+
+/**
+ * Soma dos proventos (R$) numa janela de janelaProventos_ - a ÚNICA conta de
+ * "proventos em N meses" do servidor. `recebidos` = itens { data, valor,
+ * conferencia? }; os com conferencia 'presumido' entram no total e também
+ * aparecem à parte (a Início/Proventos separam o confirmado do presumido).
+ * Devolve { media, total, confirmado, presumido, inicio, fim, meses, modo, rotulo }.
+ */
+function somarProventosJanela_(recebidos, hoje, modo, meses) {
+  var j = janelaProventos_(hoje, modo, meses);
+  var total = 0, presumido = 0;
+  (recebidos || []).forEach(function (p) {
+    var m = String(p.data || '').slice(0, 7);
+    if (m < j.inicio || m > j.fim || typeof p.valor !== 'number') return;
+    if (modo === 'comMesAtual' && String(p.data) > hoje) return; // pago até hoje
+    total += p.valor;
+    if (p.conferencia === 'presumido') presumido += p.valor;
+  });
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
+  total = r2(total); presumido = r2(presumido);
+  return { media: r2(total / j.meses), total: total, confirmado: r2(total - presumido), presumido: presumido,
+    inicio: j.inicio, fim: j.fim, meses: j.meses, modo: j.modo, rotulo: j.rotulo };
 }
 
 /**
@@ -132,22 +229,13 @@ function montarTelaProventosComCache_() {
  * (assets/js/pages/proventos-calc.js!mesesFechadosDoPeriodo). Antes vinha da
  * fórmula da planilha (Aux_dash_Proventos), que só via a aba Proventos
  * (sem os dividendos em dólar).
- * Devolve { media, total, inicio: 'yyyy-MM', fim: 'yyyy-MM' }.
+ * Devolve { media, total, inicio: 'yyyy-MM', fim: 'yyyy-MM' } + (05/10/2026,
+ * A-17) { confirmado, presumido, rotulo, meses }. Quem tiver a resposta
+ * inteira da tela passa `recebidosComPresumidos_(tela)` pra a base ser a
+ * mesma da tela.
  */
 function mediaRendaPassiva12Meses_(recebidos, hoje) {
-  var mais = function (anoMes, n) {
-    var a = Number(anoMes.slice(0, 4)), m = Number(anoMes.slice(5, 7));
-    var t = a * 12 + (m - 1) + n;
-    return Math.floor(t / 12) + '-' + ('0' + ((t % 12) + 1)).slice(-2);
-  };
-  var fim = mais(hoje.slice(0, 7), -1);
-  var inicio = mais(fim, -11);
-  var total = (recebidos || []).reduce(function (s, p) {
-    var m = String(p.data || '').slice(0, 7);
-    return (m >= inicio && m <= fim && typeof p.valor === 'number') ? s + p.valor : s;
-  }, 0);
-  total = Math.round(total * 100) / 100;
-  return { media: Math.round((total / 12) * 100) / 100, total: total, inicio: inicio, fim: fim };
+  return somarProventosJanela_(recebidos, hoje, 'fechados', 12);
 }
 
 /**
@@ -157,11 +245,35 @@ function mediaRendaPassiva12Meses_(recebidos, hoje) {
  */
 function mapasDoPatrimonioParaProventos_(ss) {
   if (typeof carregarListasTickersDaPlanilha_ === 'function') carregarListasTickersDaPlanilha_(ss); // FII novo (Planilha.gs)
+  // 05/10/2026 (A-33): relia aux_historico-patrimonio inteira (~135 mil células) em toda ação que mostra proventos/aportes
+  // (proventos, transacoes, carteirasHome, ativo, metas, salario...). O resultado (câmbio por dia + classe por ticker) é pequeno:
+  // fica no CacheService, com chave pela última linha da aba, o dia, a lista de FIIs e o carimbo de escrita.
+  var chave = chaveCacheMapasPatrimonio_(ss);
+  var emCache = null;
+  try { emCache = chave ? lerSerieHistoricoCache_(chave) : null; } catch (eLer) { emCache = null; }
+  if (emCache && emCache.mapaCambioUsd && emCache.classePorTicker) return emCache;
+  var r = lerMapasDoPatrimonio_(ss);
+  if (chave) { try { gravarSerieHistoricoCache_(chave, r); } catch (eGrav) { /* segue sem cache */ } }
+  return r;
+}
+
+function chaveCacheMapasPatrimonio_(ss) {
+  try {
+    var aba = ss.getSheetByName('aux_historico-patrimonio');
+    if (!aba) return null;
+    var fiis = typeof TICKERS_FIIS_BR !== 'undefined' ? TICKERS_FIIS_BR.join(',') : '', h = 5381;
+    for (var i = 0; i < fiis.length; i++) h = ((h * 33) ^ fiis.charCodeAt(i)) >>> 0;
+    return 'mapas_pat_v1_' + hojeSP_() + '_' + aba.getLastRow() + '_' + h.toString(36) + fiis.length + '_e' + carimboEscritaPlanilha_();
+  } catch (e) { return null; }
+}
+
+function lerMapasDoPatrimonio_(ss) {
   var mapaCambioUsd = {}, classePorTicker = {};
   var aba = ss.getSheetByName('aux_historico-patrimonio');
   if (!aba || aba.getLastRow() < 2) return { mapaCambioUsd: mapaCambioUsd, classePorTicker: classePorTicker };
-  var hoje = chaveDiaISOInicio_(new Date());
-  aba.getRange(2, 1, aba.getLastRow() - 1, 7).getValues().forEach(function (linha) {
+  var hoje = hojeSP_();
+  // 05/10/2026 (A-33): mesma faixa (8 colunas) que HistoricoInicio.gs/Ativo.gs leem - 1 leitura por execução
+  lerAbaUmaVez_(aba, 2, aba.getLastRow() - 1, 8).forEach(function (linha) {
     if (!(linha[0] instanceof Date)) return;
     var chave = chaveDiaISOInicio_(linha[0]);
     if (chave > hoje) return;
@@ -210,15 +322,19 @@ function ativosParaProventos_(ss) {
  */
 function montarProventosAnunciados_(historico, opcoes) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hoje = chaveDiaISOInicio_(new Date());
+  var hoje = hojeSP_();
   var mesAtual = hoje.slice(0, 7);
-  var limitePassado = chaveDiaISOInicio_(new Date(Date.now() - 60 * 86400000));
+  var limitePassado = diaSP_(new Date(Date.now() - 60 * 86400000));
   var r2 = function (n) { return Math.round(n * 100) / 100; };
 
   var classes = classesDaCarteiraParaProventos_(ss);
   var classeDe = function (ticker, moeda) {
     if (moeda === 'USD') return 'acoesEua';
-    return classes[ticker] || (/11$/.test(ticker) ? 'fiis' : 'acoes');
+    if (classes[ticker]) return classes[ticker];
+    // 05/10/2026 (A-18): classe do cadastro (listas/alias) antes do sufixo 11
+    var cx = typeof classeProventoSemHistorico_ === 'function' ? classeProventoSemHistorico_(ticker, null) : '';
+    if (cx) return cx === 'FII' ? 'fiis' : 'acoes';
+    return /11$/.test(ticker) ? 'fiis' : 'acoes';
   };
 
   var planilha = lerLinhasAbaProventos_(ss);
@@ -376,7 +492,7 @@ function lerLinhasAbaProventos_(ss) {
   [['Proventos', 'BRL'], ['Proventos - USA', 'USD']].forEach(function (par) {
     var aba = ss.getSheetByName(par[0]);
     if (!aba || aba.getLastRow() < 1) return;
-    aba.getRange(1, 1, aba.getLastRow(), 7).getValues().forEach(function (l) {
+    lerAbaUmaVez_(aba, 1, aba.getLastRow(), 7).forEach(function (l) {
       if (!(l[1] instanceof Date)) return;
       var ticker = String(l[2] || '').trim().toUpperCase();
       var liquido = Number(l[6]);
@@ -398,8 +514,10 @@ function quantidadesNaDataCom_(ss, tickersLista) {
   (tickersLista || []).forEach(function (t) { tickers[t] = 1; });
   var movimentos = {};
   var abaT = ss.getSheetByName('Transações');
-  if (abaT && abaT.getLastRow() >= LINHA_DADOS_TRANSACOES_FLUXO) {
-    abaT.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, abaT.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1, 11).getValues().forEach(function (l) {
+  // 05/10/2026 (A-31/A-33): última linha REAL (Transações tem fórmula até ~10.800) e a mesma leitura de 12 colunas do fluxo/Ativo
+  var ultimaT = abaT ? ultimaLinhaReal_(abaT, [1, 2], LINHA_DADOS_TRANSACOES_FLUXO) : 0;
+  if (abaT && ultimaT >= LINHA_DADOS_TRANSACOES_FLUXO) {
+    lerAbaUmaVez_(abaT, LINHA_DADOS_TRANSACOES_FLUXO, ultimaT - LINHA_DADOS_TRANSACOES_FLUXO + 1, 12).forEach(function (l) {
       var t = String(l[0] || '').trim().toUpperCase();
       if (!tickers[t] || !(l[1] instanceof Date)) return;
       var q = Number(l[10]);
@@ -798,7 +916,7 @@ function conferirProventosComExtratoB3_(ss, planilha, presumidos, hoje) {
 function registrarExtratoB3Proventos_(itens, opcoes) {
   var o = opcoes || {};
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hoje = chaveDiaISOInicio_(new Date());
+  var hoje = hojeSP_();
   var r2 = function (n) { return Math.round(n * 100) / 100; };
   var linhas = (itens || []).filter(function (it) {
     return it && it.destino === 'proventos' && it.arquivo && it.ticker && /^\d{4}-\d{2}-\d{2}$/.test(String(it.dataPagamento || '')) && Number(it.valor) > 0 && String(it.dataPagamento) <= hoje;
@@ -810,7 +928,7 @@ function registrarExtratoB3Proventos_(itens, opcoes) {
   var chave = function (l) { return l.ticker + '|' + l.data + '|' + l.tipo + '|' + l.valor.toFixed(2); };
 
   var trava = null;
-  if (!o.semTrava) { try { trava = LockService.getScriptLock(); trava.waitLock(20000); } catch (e) { trava = null; } } // semTrava: quem chama já segura
+  if (!o.semTrava) { try { trava = travaRecurso_('carteira', 'proventos'); trava.waitLock(20000); } catch (e) { trava = null; } } // semTrava: quem chama já segura
   try {
     var atual = lerConferenciaB3Proventos_(ss);
     // quantas vezes cada linha aparece: maior contagem entre os arquivos do lote

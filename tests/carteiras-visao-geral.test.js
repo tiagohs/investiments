@@ -31,41 +31,27 @@ function withFakeSessionStorage(run) {
   return run(store).finally(() => { delete globalThis.sessionStorage; });
 }
 
+// 06/10/2026 (Onda 3): DOM mínimo com os ids reais da seção "Visão geral" de carteiras/index.html; o cabeçalho (abas) é do router.
 function makeDom() {
   const dom = new JSDOM(`<!doctype html><html><body>
-    <button class="side-item" type="button" data-page="acoes"></button>
-
-    <div class="carteiras-loading" id="vgLoading"></div>
-    <div class="carteiras-erro" id="vgErro" hidden></div>
+    <header id="carteirasCabecalho"><div class="pagina-abas"><button class="tab" type="button" data-tab="acoes"></button></div><div id="refreshControlVisaoGeral" class="refresh-control"></div></header>
+    <div class="cart-esq" id="vgLoading" aria-hidden="true"></div>
+    <div id="vgErro" hidden></div>
     <div id="vgConteudo" hidden>
-      <div id="refreshControlVisaoGeral" class="refresh-control"></div>
-      <div class="avisos-banner" id="vgAvisos" hidden></div>
-
-      <div class="cg-hero-grid">
-        <div class="cg-hero-card">
-          <div class="cg-hero-valor" id="vgPatrimonioTotal">—</div>
-          <div class="cg-hero-stats" id="vgResumo"></div>
-          <div id="vgBenchmarks" class="cc-benchmarks"></div>
-        </div>
-        <div class="cg-hero-card cg-hero-donut" id="vgDonut"></div>
+      <div id="vgAvisos" class="avisos-banner" role="status" hidden></div>
+      <div id="vgResumo"></div>
+      <div id="vgBenchmarks" class="cc-benchmarks"></div>
+      <div class="vg-topo">
+        <section class="card vg-composicao"><div id="vgDonut" class="cc-distribuicao"></div></section>
+        <div class="vg-cards" id="vgCardsGrid"></div>
       </div>
-
-      <div class="filter-tabs" id="vgPeriodoTabs">
-        <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
-        <button class="filter-tab active" type="button" data-periodo="12m">12 meses</button>
-        <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
-      </div>
-
-      <div id="vgEvolucaoChart"></div>
-      <div class="chart-legend2" id="vgEvolucaoLegenda"></div>
-
-      <div class="rentab-card-info" id="vgInfoRentabilidade"></div>
-      <div id="vgRentabChart"></div>
-      <div class="chart-legend2" id="vgRentabLegenda"></div>
-
-      <div class="cg-cards-grid" id="vgCardsGrid"></div>
+      <div id="vgGraficos" class="cc-graficos"></div>
+      <div id="vgMetaRenda" class="vg-meta-renda" hidden></div>
+      <div id="vgProventosWrap"></div>
     </div>
   </body></html>`);
+  // movimento reduzido: os números dos KPIs saem finais (sem animação a partir de 0)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return dom.window.document;
 }
 
@@ -127,98 +113,88 @@ test('montarPaginaCarteirasVisaoGeral() renderiza os 2 cartões do hero, donut, 
     assert.equal(doc.getElementById('vgErro').hidden, true);
     assert.equal(doc.getElementById('vgAvisos').hidden, true);
 
-    // cartão 1: valor do patrimônio + resumo (Investido/Resultado desde o
-    // início/Rentabilidade) + benchmarks - SEM repetir o mesmo valor 2x.
-    //
-    // 19/09/2026 (bug relatado pelo Tiago): o resumo NÃO soma mais
-    // card.totalInvestido/lucroPrejuizo (isso é só a posição atual, sem
-    // realizado/proventos - ficava muito menor que o "desde o início" de
-    // verdade) - agora vem de calcularResumoRentabilidade (inicio.js,
-    // periodoId:'tudo'), a MESMA conta TWR já validada contra o Gorila.
-    // Com o historicoExemplo()/HOME_EXEMPLO deste arquivo (ver acima):
-    // ganhoReais=11.700 (valor bruto final 148.200 − base 135.000 − fluxo
-    // acumulado 1.500), investido = valorAtual(148.234,71) − 11.700 =
-    // 136.534,71, rentabilidade ≈ +8,64% (TWR composto, não uma divisão
-    // simples) - conferido calculando a série à mão em Python.
-    assert.match(doc.getElementById('vgPatrimonioTotal').textContent, /148\.234,71/);
-    const resumoTexto = doc.getElementById('vgResumo').textContent;
-    // 23/09/2026: rótulo virou "Valor aplicado"; sem fluxoAplicado* no
-    // historico de exemplo, o valor cai no cálculo antigo (patrimônio −
-    // resultado) - ver renderHeroStats_.
+    // 06/10/2026 (kit): o resumo é uma grade de KPIs - Patrimônio em carteiras (com o valor aplicado embaixo), Resultado desde o início
+    // (com a rentabilidade) e Proventos no mês. Os números vêm de calcularResumoRentabilidade (inicio.js, periodoId:'tudo'), a MESMA
+    // conta TWR já validada contra o Gorila: ganhoReais=11.700 (valor bruto final 148.200 − base 135.000 − fluxo acumulado 1.500),
+    // investido = valorAtual(148.234,71) − 11.700 = 136.534,71, rentabilidade ≈ +8,64% (TWR composto).
+    const resumo = doc.getElementById('vgResumo');
+    assert.ok(resumo.classList.contains('grid-kpi'));
+    const kpis = [...resumo.querySelectorAll('.card-kpi')];
+    assert.equal(kpis[0].querySelector('.chart-kpi-rot').textContent, 'Patrimônio em carteiras');
+    assert.match(kpis[0].querySelector('.chart-kpi-val').textContent, /148\.234,71/);
+    const resumoTexto = resumo.textContent;
     assert.match(resumoTexto, /Valor aplicado/);
     assert.match(resumoTexto, /136\.534,71/);
-    assert.match(resumoTexto, /Resultado \(desde o início\)/);
+    assert.match(resumoTexto, /Resultado desde o início/);
     assert.match(resumoTexto, /\+R\$\s*11\.700,00/);
-    assert.match(resumoTexto, /Rentabilidade/);
     assert.match(resumoTexto, /\+8,6\d%/);
+    assert.ok(kpis[1].querySelector('.chart-kpi-delta.is-up'));
     const chipsBenchmark = doc.querySelectorAll('#vgBenchmarks .cc-benchmark-chip');
     assert.equal(chipsBenchmark.length, 2); // Ibovespa hoje + CDI a.a.
     assert.match(doc.getElementById('vgBenchmarks').textContent, /Ibovespa hoje/);
     assert.match(doc.getElementById('vgBenchmarks').textContent, /CDI/);
 
-    // cartão 2: donut, num cartão SEPARADO do hero-stats (bug reportado:
-    // "os 2 cards do topo deveriam estar separados").
-    assert.equal(doc.querySelectorAll('#vgDonut .distrib-item').length, 4);
+    // composição: anel da biblioteca (charts/anel.js) com a legenda dele
+    assert.ok(doc.querySelector('#vgDonut .chart--anel svg'));
+    assert.equal(doc.querySelectorAll('#vgDonut .chart-leg-item').length, 4);
 
-    assert.equal(doc.querySelectorAll('#vgCardsGrid .cg-card').length, 4);
+    assert.equal(doc.querySelectorAll('#vgCardsGrid .vg-card').length, 4);
 
     // 19/09/2026 #2 (correção do Tiago: cada carteira tem seus próprios
     // índices, não o Ibovespa/CDI globais repetidos nos 4) - confere o
     // rodapé de benchmarks de CADA card contra a lista específica da
     // classe (mesma que CarteirasHome.gs manda em card.benchmarks).
     const cardsPorNome = {};
-    doc.querySelectorAll('#vgCardsGrid .cg-card').forEach((card) => {
-      cardsPorNome[card.querySelector('.cg-card-nome').textContent] = card;
+    doc.querySelectorAll('#vgCardsGrid .vg-card').forEach((card) => {
+      cardsPorNome[card.querySelector('.vg-card-nome').textContent] = card;
     });
 
     // 19/09/2026 #3: valores agora são variação do dia (%), coloridos
     // verde/vermelho (bad quando negativo) - CDI/Selic/IPCA continuam
     // sem cor (taxa de referência, não "ganho/perda do dia").
     const cardAcoesEl = cardsPorNome['Ações'];
-    const bmAcoes = cardAcoesEl.querySelector('.cg-card-benchmarks').textContent;
+    const bmAcoes = cardAcoesEl.querySelector('.vg-card-bm').textContent;
     assert.match(bmAcoes, /Ibovespa/);
-    assert.match(bmAcoes, /-0,41%/);
+    assert.match(bmAcoes, /\u22120,41%/);
     assert.match(bmAcoes, /CDI/);
     assert.doesNotMatch(bmAcoes, /IFIX|S&P|Selic|IPCA/);
-    assert.ok(cardAcoesEl.querySelector('.cg-card-benchmarks b.bad')); // Ibovespa negativo hoje
+    assert.ok(cardAcoesEl.querySelector('.vg-card-bm b.bad')); // Ibovespa negativo hoje
 
     const cardFiisEl = cardsPorNome['FIIs'];
-    const bmFiis = cardFiisEl.querySelector('.cg-card-benchmarks').textContent;
+    const bmFiis = cardFiisEl.querySelector('.vg-card-bm').textContent;
     assert.match(bmFiis, /IFIX/);
     assert.match(bmFiis, /\+0,18%/);
     assert.match(bmFiis, /Ibovespa/);
     assert.match(bmFiis, /CDI/);
-    assert.ok(cardFiisEl.querySelector('.cg-card-benchmarks b.good')); // IFIX positivo hoje
-    assert.ok(cardFiisEl.querySelector('.cg-card-benchmarks b.bad')); // Ibovespa negativo hoje
+    assert.ok(cardFiisEl.querySelector('.vg-card-bm b.good')); // IFIX positivo hoje
+    assert.ok(cardFiisEl.querySelector('.vg-card-bm b.bad')); // Ibovespa negativo hoje
 
-    const bmAcoesEua = cardsPorNome['Ações Internacionais'].querySelector('.cg-card-benchmarks').textContent;
+    const bmAcoesEua = cardsPorNome['Ações Internacionais'].querySelector('.vg-card-bm').textContent;
     assert.match(bmAcoesEua, /S&P 500/);
     assert.match(bmAcoesEua, /\+0,72%/);
     assert.match(bmAcoesEua, /Ibovespa/);
     assert.doesNotMatch(bmAcoesEua, /CDI|IFIX|Selic|IPCA/);
 
-    const bmRendaFixa = cardsPorNome['Renda Fixa'].querySelector('.cg-card-benchmarks').textContent;
+    const bmRendaFixa = cardsPorNome['Renda Fixa'].querySelector('.vg-card-bm').textContent;
     assert.match(bmRendaFixa, /CDI/);
     assert.match(bmRendaFixa, /Selic/);
     assert.match(bmRendaFixa, /IPCA/);
     assert.doesNotMatch(bmRendaFixa, /Ibovespa|IFIX|S&P/);
 
-    // Evolução do patrimônio: 2 séries (patrimônio + investido) + legenda.
-    const evolucaoSvg = doc.getElementById('vgEvolucaoChart').querySelector('svg');
-    assert.ok(evolucaoSvg);
-    assert.equal(evolucaoSvg.querySelectorAll('path').length, 3); // área + linha investido (tracejada) + linha patrimônio
-    const legendaEvolucao = doc.querySelectorAll('#vgEvolucaoLegenda .li');
-    assert.equal(legendaEvolucao.length, 2);
-    assert.match(doc.getElementById('vgEvolucaoLegenda').textContent, /Quanto tenho hoje/);
-    assert.match(doc.getElementById('vgEvolucaoLegenda').textContent, /Valor aplicado/);
-
-    // vgInfoRentabilidade agora mora junto do gráfico de Rentabilidade,
-    // não duplicado no hero - e continua sendo preenchido de verdade.
-    assert.notEqual(doc.getElementById('vgInfoRentabilidade').textContent.trim(), '');
-    assert.ok(doc.getElementById('vgRentabChart').querySelector('svg'));
+    // Gráficos (06/10/2026): da biblioteca (charts/) via criarGraficosCarteira, no #vgGraficos - Rentabilidade acumulada (Portfólio +
+    // Ibovespa + CDI + IPCA) e Evolução do patrimônio (Portfólio + Valor aplicado), com o seletor de período canônico.
+    const graficos = doc.getElementById('vgGraficos');
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
+    const legendaEvolucao = graficos.querySelector('.cg-painel-evolucao .chart-legenda');
+    assert.equal(legendaEvolucao.querySelectorAll('.chart-leg-item').length, 2);
+    assert.match(legendaEvolucao.textContent, /Portfólio/);
+    assert.match(legendaEvolucao.textContent, /Valor aplicado/);
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
     // 02/10/2026 (pedido D): + IPCA no Patrimônio total de Carteiras
-    assert.equal(doc.querySelectorAll('#vgRentabLegenda .li').length, 4); // Portfólio + Ibovespa + CDI + IPCA
-    assert.match(doc.getElementById('vgRentabLegenda').textContent, /IPCA/);
+    const legendaRentab = graficos.querySelector('.cg-painel-rentabilidade .chart-legenda');
+    assert.equal(legendaRentab.querySelectorAll('.chart-leg-item').length, 4); // Portfólio + Ibovespa + CDI + IPCA
+    assert.match(legendaRentab.textContent, /IPCA/);
+    assert.match(graficos.querySelector('.cg-painel-rentabilidade .chart-card-val').textContent, /R\$/);
   });
 });
 
@@ -231,15 +207,15 @@ test('montarPaginaCarteirasVisaoGeral(): card de Ações mostra o badge de renta
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const cards = doc.querySelectorAll('#vgCardsGrid .cg-card');
+    const cards = doc.querySelectorAll('#vgCardsGrid .vg-card');
     const cardAcoes = Array.from(cards).find((c) => c.textContent.includes('Ações') && !c.textContent.includes('Internacionais'));
     assert.ok(cardAcoes);
-    assert.ok(cardAcoes.querySelector('.cg-card-rentab'), 'deveria ter o badge de rentabilidade');
-    assert.match(cardAcoes.querySelector('.cg-card-rentab').textContent, /16,8%|16,80%/);
-    assert.ok(cardAcoes.querySelector('.cg-card-vies-bar'), 'deveria ter a barra comprar/aguardar');
-    assert.match(cardAcoes.querySelector('.cg-card-vies-legenda').textContent, /3 comprar/);
-    assert.match(cardAcoes.querySelector('.cg-card-vies-legenda').textContent, /11 aguardar/);
-    assert.ok(cardAcoes.querySelector('.cg-card-ver-detalhes'));
+    assert.ok(cardAcoes.querySelector('.vg-card-rentab .var.sobe'), 'deveria ter a rentabilidade com seta e cor');
+    assert.match(cardAcoes.querySelector('.vg-card-rentab').textContent, /16,8%|16,80%/);
+    assert.ok(cardAcoes.querySelector('.cc-vies'), 'deveria ter a barra comprar/aguardar');
+    assert.match(cardAcoes.querySelector('.vg-card-vies-legenda').textContent, /3 comprar/);
+    assert.match(cardAcoes.querySelector('.vg-card-vies-legenda').textContent, /11 aguardar/);
+    assert.ok(cardAcoes.querySelector('.vg-card-ver'));
   });
 });
 
@@ -257,14 +233,12 @@ test('montarPaginaCarteirasVisaoGeral(): card de Renda Fixa (sem Vies) desenha u
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const cards = doc.querySelectorAll('#vgCardsGrid .cg-card');
+    const cards = doc.querySelectorAll('#vgCardsGrid .vg-card');
     const cardRf = Array.from(cards).find((c) => c.textContent.includes('Renda Fixa'));
     assert.ok(cardRf);
-    assert.ok(cardRf.querySelector('.cg-card-vies-bar'));
-    assert.ok(cardRf.querySelector('.cg-card-vies-bar .neutro'));
-    assert.equal(cardRf.querySelector('.cg-card-vies-bar .comprar'), null);
-    assert.equal(cardRf.querySelector('.cg-card-vies-legenda'), null);
-    assert.ok(cardRf.querySelector('.cg-card-rentab'));
+    assert.ok(cardRf.querySelector('.vg-card-rentab'));
+    assert.equal(cardRf.querySelector('.cc-vies .comprar'), null, 'sem viés: nada de faixa comprar/aguardar');
+    assert.equal(cardRf.querySelector('.vg-card-vies-legenda'), null);
   });
 });
 
@@ -277,18 +251,18 @@ test('montarPaginaCarteirasVisaoGeral(): card de Ações Internacionais mostra o
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const cards = doc.querySelectorAll('#vgCardsGrid .cg-card');
+    const cards = doc.querySelectorAll('#vgCardsGrid .vg-card');
     const cardEua = Array.from(cards).find((c) => c.textContent.includes('Ações Internacionais'));
     assert.ok(cardEua);
-    assert.match(cardEua.querySelector('.cg-card-usd').textContent, /US\$ 3,303\.79/);
+    assert.match(cardEua.textContent, /US\$\s3\.303,79/);
   });
 });
 
-test('montarPaginaCarteirasVisaoGeral(): clicar num card leva pra sidebar da classe correspondente', () => {
+test('montarPaginaCarteirasVisaoGeral(): clicar num card leva pra aba da classe correspondente', () => {
   return withFakeSessionStorage(async () => {
     const doc = makeDom();
-    let cliqueSidebar = 0;
-    doc.querySelector('.side-item[data-page="acoes"]').addEventListener('click', () => { cliqueSidebar += 1; });
+    let cliqueAba = 0;
+    doc.querySelector('.pagina-abas [data-tab="acoes"]').addEventListener('click', () => { cliqueAba += 1; });
 
     await montarPaginaCarteirasVisaoGeral('token-fake', {
       doc,
@@ -296,9 +270,9 @@ test('montarPaginaCarteirasVisaoGeral(): clicar num card leva pra sidebar da cla
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const cardAcoes = Array.from(doc.querySelectorAll('#vgCardsGrid .cg-card')).find((c) => c.dataset.irPara === 'acoes');
+    const cardAcoes = Array.from(doc.querySelectorAll('#vgCardsGrid .vg-card')).find((c) => c.dataset.irPara === 'acoes');
     cardAcoes.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-    assert.equal(cliqueSidebar, 1);
+    assert.equal(cliqueAba, 1, 'o clique no card aciona a aba da classe no cabeçalho');
   });
 });
 
@@ -311,12 +285,12 @@ test('montarPaginaCarteirasVisaoGeral(): trocar o período redesenha os 2 gráfi
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const botao30d = doc.querySelector('#vgPeriodoTabs .filter-tab[data-periodo="30d"]');
+    const botao30d = doc.querySelector('#vgGraficos .cg-periodo [data-periodo="30d"]');
     assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
 
-    assert.equal(botao30d.classList.contains('active'), true);
-    assert.ok(doc.getElementById('vgEvolucaoChart').querySelector('svg'));
-    assert.ok(doc.getElementById('vgRentabChart').querySelector('svg'));
+    assert.equal(botao30d.getAttribute('aria-pressed'), 'true');
+    assert.ok(doc.querySelector('#vgGraficos .cg-painel-evolucao .chart--linha svg'));
+    assert.ok(doc.querySelector('#vgGraficos .cg-painel-rentabilidade .chart--linha svg'));
   });
 });
 
@@ -329,14 +303,15 @@ test('montarPaginaCarteirasVisaoGeral(): trocar o período 2 vezes não dobra os
       getHomeImpl: async () => HOME_EXEMPLO,
     });
 
-    const botao30d = doc.querySelector('#vgPeriodoTabs .filter-tab[data-periodo="30d"]');
-    const botao12m = doc.querySelector('#vgPeriodoTabs .filter-tab[data-periodo="12m"]');
+    const botao30d = doc.querySelector('#vgGraficos .cg-periodo [data-periodo="30d"]');
+    const botao12m = doc.querySelector('#vgGraficos .cg-periodo [data-periodo="12m"]');
     assert.doesNotThrow(() => {
       botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
       botao12m.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
       botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
     });
-    assert.ok(doc.getElementById('vgEvolucaoChart').querySelector('svg'));
+    assert.equal(doc.querySelectorAll('#vgGraficos .cg-painel-evolucao .chart--linha svg').length, 1);
+    assert.equal(doc.querySelectorAll('#vgGraficos .cg-periodo').length, 1);
   });
 });
 
@@ -351,7 +326,7 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
 
     assert.equal(doc.getElementById('vgConteudo').hidden, false);
     assert.equal(doc.getElementById('vgAvisos').hidden, false);
-    assert.equal(doc.querySelectorAll('#vgCardsGrid .cg-card').length, 4);
+    assert.equal(doc.querySelectorAll('#vgCardsGrid .vg-card').length, 4);
     // Sem `home`, calcularResumoRentabilidade (que precisa de historico)
     // não roda - renderHeroStats_ cai pro fallback (soma de
     // card.totalInvestido/lucroPrejuizo, ver comentário na função) -
@@ -359,7 +334,7 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
     // mostrar nada.
     const resumoTexto = doc.getElementById('vgResumo').textContent;
     assert.match(resumoTexto, /135\.064,83/); // soma dos 4 totalInvestido dos cards
-    assert.match(resumoTexto, /Resultado \(desde o início\)/);
+    assert.match(resumoTexto, /Resultado desde o início/);
     assert.match(resumoTexto, /\+R\$\s*13\.169,88/); // soma dos 4 lucroPrejuizo dos cards
     // Sem home, o benchmark "Ibovespa hoje" (hero E cada card) cai pro
     // placeholder "—", mas o chip de CDI (que só depende de
@@ -370,13 +345,13 @@ test('montarPaginaCarteirasVisaoGeral(): quando getHome() falha, mostra avisos m
     // (card.benchmarks), então não dependem de getHome() - mesmo com
     // getHome() falhando, o card de Ações mostra os valores reais da
     // fixture (Ibovespa e CDI), não "—".
-    const primeiroCard = doc.querySelector('#vgCardsGrid .cg-card');
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /Ibovespa/);
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /-0,41%/);
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /CDI/);
-    assert.match(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /\+10,75%/);
-    assert.doesNotMatch(primeiroCard.querySelector('.cg-card-benchmarks').textContent, /—/);
-    assert.equal(doc.getElementById('vgEvolucaoChart').querySelector('svg'), null);
+    const primeiroCard = doc.querySelector('#vgCardsGrid .vg-card');
+    assert.match(primeiroCard.querySelector('.vg-card-bm').textContent, /Ibovespa/);
+    assert.match(primeiroCard.querySelector('.vg-card-bm').textContent, /\u22120,41%/);
+    assert.match(primeiroCard.querySelector('.vg-card-bm').textContent, /CDI/);
+    assert.match(primeiroCard.querySelector('.vg-card-bm').textContent, /\+10,75%/);
+    assert.doesNotMatch(primeiroCard.querySelector('.vg-card-bm').textContent, /—/);
+    assert.equal(doc.querySelector('#vgGraficos .chart--linha'), null);
   });
 });
 
@@ -427,7 +402,6 @@ const RESPOSTA_METAS = {
 async function montarComMeta(respostaMetas) {
   const { carregarMetasParaCard } = await import('../assets/js/metas-card.js');
   const doc = makeDom();
-  doc.getElementById('vgCardsGrid').insertAdjacentHTML('afterend', '<div id="vgMetaRenda" hidden></div>');
   let liberar;
   const segurar = new Promise((r) => { liberar = r; });
   const chamadas = [];
@@ -448,7 +422,7 @@ test('montarPaginaCarteirasVisaoGeral(): card da meta de renda passiva chega em 
   const { doc, chamadas, liberar } = await montarComMeta(RESPOSTA_METAS);
   // a página já desenhou com as metas ainda pendentes
   assert.equal(doc.getElementById('vgConteudo').hidden, false);
-  assert.ok(doc.querySelector('#vgCardsGrid .cg-card, #vgCardsGrid > *'));
+  assert.ok(doc.querySelector('#vgCardsGrid .vg-card'));
   assert.equal(doc.getElementById('vgMetaRenda').hidden, true);
   assert.deepEqual(chamadas, ['token-fake'], 'mesmo token da página');
   liberar();
@@ -477,4 +451,28 @@ test('montarPaginaCarteirasVisaoGeral(): sem meta de renda passiva só um convit
   await esperar(); await esperar();
   assert.equal(erro.doc.getElementById('vgMetaRenda').hidden, true);
   assert.equal(erro.doc.getElementById('vgMetaRenda').innerHTML, '');
+});
+
+// 05/10/2026 (A-41): os cards pintam com carteirasHome; resultado e gráficos, quando o home chega
+test('montarPaginaCarteirasVisaoGeral(): cards pintam sem esperar o getHome (resultado e gráficos em "carregando") e completam quando ele chega', () => {
+  return withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    let resolverHome;
+    const montagem = montarPaginaCarteirasVisaoGeral('token-fake', {
+      doc,
+      getCarteirasHomeImpl: async () => ({ ok: true, carteiras: CARTEIRAS_HOME_EXEMPLO }),
+      getHomeImpl: () => new Promise((resolve) => { resolverHome = resolve; }),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(doc.getElementById('vgConteudo').hidden, false);
+    assert.equal(doc.querySelectorAll('#vgCardsGrid .vg-card').length, 4);
+    assert.match(doc.getElementById('vgResumo').textContent, /Calculando/);
+    assert.equal(doc.querySelectorAll('#vgGraficos .chart-card[data-estado="carregando"]').length, 2, 'gráficos em "carregando"');
+    resolverHome(HOME_EXEMPLO);
+    await montagem;
+    assert.doesNotMatch(doc.getElementById('vgResumo').textContent, /Calculando/);
+    assert.match(doc.getElementById('vgResumo').textContent, /Valor aplicado/);
+    assert.ok(doc.querySelector('#vgGraficos .cg-painel-rentabilidade .chart--linha svg'));
+    assert.equal(doc.getElementById('vgAvisos').hidden, true);
+  });
 });

@@ -56,7 +56,7 @@ function normalizarListaFavoritos_(bruto) {
 /** Grava a lista inteira (substitui a anterior) e devolve o que ficou salvo. */
 function salvarFavoritos_(ids) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var lock = LockService.getScriptLock();
+  var lock = travaRecurso_('favoritos', 'salvar favoritos');
   lock.waitLock(10000);
   try {
     var aba = ss.getSheetByName(ABA_FAVORITOS) || ss.insertSheet(ABA_FAVORITOS);

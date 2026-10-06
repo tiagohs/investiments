@@ -22,4 +22,4 @@ export const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.goo
 // histórico completo/contagem de sincronizações mora só na planilha
 // mesmo — mesma URL já usada em docs/direcao-visual.html ("Planilha
 // original").
-export const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1HZEaQD9nvnkLovlCr-ybB6wW96kGv-u6b2zX90GGKSY/edit?usp=sharing';
+export const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1HZEaQD9nvnkLovlCr-ybB6wW96kGv-u6b2zX90GGKSY/edit';

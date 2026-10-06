@@ -24,6 +24,8 @@ function makeDom() {
     <div id="refreshControlAcoes" class="refresh-control"></div>
     <div id="acoesConteudo" hidden></div>
   </body></html>`);
+  // movimento reduzido: os números dos KPIs saem finais (sem animação a partir de 0)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return dom.window.document;
 }
 
@@ -84,12 +86,9 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     assert.equal(doc.getElementById('acoesLoading').hidden, true);
     assert.equal(doc.getElementById('acoesConteudo').hidden, false);
     assert.equal(doc.getElementById('acoesErro').hidden, true);
-    // Resumo em destaque (19/09/2026 #4): 1 cartão .cc-resumo (Total
-    // atualizado em destaque + Total investido embaixo) com 3 stats do
-    // lado (Lucro/Prejuízo, Ativos na carteira, Proventos recebidos via
-    // extras) - substituiu a grade antiga de .cc-tile.
-    assert.equal(doc.querySelectorAll('.cc-resumo').length, 1);
-    assert.equal(doc.querySelectorAll('.cc-resumo-stat').length, 3);
+    // Resumo (06/10/2026, kit): grade de KPIs - Valor atual (com o valor aplicado embaixo), Lucro/Prejuízo, Proventos no mês (extras)
+    // e Ativos na carteira.
+    assert.equal(doc.querySelectorAll('#acoesResumo .card-kpi').length, 4);
     const textoResumo = doc.getElementById('acoesResumo').textContent;
     assert.match(textoResumo, /29\.968,40/);
     assert.match(textoResumo, /Valor aplicado:\sR\$\s25\.657,39/);
@@ -116,7 +115,7 @@ test('montarPaginaCarteirasAcoes() renderiza resumo/benchmarks/donut/tabela e es
     assert.ok(cabecalhos.some((t) => t.includes('DY')));
     assert.ok(!cabecalhos.some((t) => t.includes('Preço teto')));
     // logo do ativo (LOGOS_ATIVOS/fallback de iniciais) - 19/09/2026 #2
-    assert.equal(doc.querySelectorAll('.cc-logo').length, 2);
+    assert.equal(doc.querySelectorAll('.cc-tabela .logo-circulo').length, 2);
     // linha de totais no rodapé (19/09/2026 #2 - "você não trouxe os totais")
     // - somada a partir da lista de ativos EXIBIDA (não de dados.resumo
     // direto), pra continuar batendo quando a busca filtra a tabela
@@ -161,14 +160,10 @@ test('montarPaginaCarteirasAcoes(): tooltips "i" funcionam por Pointer Events (n
     const linhasDepois = [...doc.querySelectorAll('.cc-tabela tbody tr')].map((tr) => tr.textContent);
     assert.deepEqual(linhasDepois, linhasAntes, 'clicar no ícone de ajuda não deveria reordenar a tabela');
 
-    // 19/09/2026 #4: "todas as colunas, tirando o Ativo, centralize o
-    // conteúdo. Em ativo, só centralize o título" - só a célula (<td>) da
-    // coluna Ativo tem a classe de alinhamento à esquerda; o <th> nunca
-    // tem (fica centralizado por padrão, igual as outras colunas).
-    const thAtivo = doc.querySelector('.cc-tabela thead th');
-    assert.ok(!thAtivo.classList.contains('cc-td-esquerda'));
+    // tabela do kit: só a coluna do Ativo é a "cabeça" da linha (.cc-col-ativo); as numéricas ficam à direita (.num)
     const tdAtivo = doc.querySelector('.cc-tabela tbody tr td');
-    assert.ok(tdAtivo.classList.contains('cc-td-esquerda'));
+    assert.ok(tdAtivo.classList.contains('cc-col-ativo'));
+    assert.ok(doc.querySelector('.cc-tabela tbody tr td.num'));
     assert.equal(doc.querySelectorAll('.cc-tabela td.right').length, 0, 'não deveria sobrar nenhuma célula com a classe antiga .right');
   });
 });
@@ -259,30 +254,25 @@ test('montarPaginaCarteirasAcoes(): desenha os gráficos de Rentabilidade/Evolu�
 
     await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl });
 
-    assert.ok(doc.getElementById('acoesRentabChart').querySelector('svg'), 'deveria desenhar o SVG de Rentabilidade acumulada');
-    assert.ok(doc.getElementById('acoesEvolucaoChart').querySelector('svg'), 'deveria desenhar o SVG de Evolução do patrimônio');
-    assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Portfólio/);
-    assert.match(doc.getElementById('acoesRentabLegenda').textContent, /Ibovespa/);
-    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Portfólio/);
-    assert.match(doc.getElementById('acoesEvolucaoLegenda').textContent, /Valor aplicado/);
+    // 06/10/2026: gráficos da biblioteca (charts/) via criarGraficosCarteira, no #acoesGraficos, com o seletor de período canônico
+    const graficos = doc.getElementById('acoesGraficos');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'), 'deveria desenhar a Rentabilidade acumulada');
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'), 'deveria desenhar a Evolução do patrimônio');
+    const legendas = [...graficos.querySelectorAll('.chart-legenda')].map((l) => l.textContent);
+    assert.match(legendas[0], /Portfólio/);
+    assert.match(legendas[0], /Ibovespa/);
+    assert.match(legendas[1], /Portfólio/);
+    assert.match(legendas[1], /Valor aplicado/);
 
-    // O filtro de período fica acima do 1º gráfico (Rentabilidade
-    // acumulada) e afeta os 2 - mesmo botão redesenha as 2 séries.
-    const periodoTabs = doc.getElementById('acoesPeriodoTabs');
-    assert.ok(periodoTabs, 'deveria ter #acoesPeriodoTabs acima do 1º gráfico');
-    const botao3a = periodoTabs.querySelector('.filter-tab[data-periodo="3a"]');
+    // O filtro de período fica acima dos gráficos e afeta os 2 - o mesmo botão redesenha as 2 séries.
+    const botao3a = graficos.querySelector('.cg-periodo [data-periodo="3a"]');
+    assert.ok(botao3a, 'deveria ter o seletor de período acima dos gráficos');
     assert.doesNotThrow(() => botao3a.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
-    assert.equal(botao3a.classList.contains('active'), true);
-    assert.ok(doc.getElementById('acoesRentabChart').querySelector('svg'));
-    assert.ok(doc.getElementById('acoesEvolucaoChart').querySelector('svg'));
-
-    // Tooltip do gráfico de Evolução mostra o período (data) ao passar o
-    // mouse - pedido explícito do Tiago ("quero ver o periodo").
-    const hitarea = doc.getElementById('acoesEvolucaoChart').querySelector('.rentab-hitarea');
-    hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', clientX: 10, clientY: 10 }));
-    const tooltip = doc.getElementById('acoesEvolucaoChart').querySelector('.rentab-tooltip');
-    assert.equal(tooltip.hidden, false);
-    assert.ok(tooltip.querySelector('.rentab-tooltip-data').textContent.length > 0);
+    assert.equal(botao3a.getAttribute('aria-pressed'), 'true');
+    assert.ok(graficos.querySelector('.cg-painel-rentabilidade .chart--linha svg'));
+    assert.ok(graficos.querySelector('.cg-painel-evolucao .chart--linha svg'));
+    // cada gráfico mostra o rótulo, o valor e a variação no cabeçalho do card
+    assert.equal(graficos.querySelectorAll('.chart-card-val').length, 2);
   });
 });
 
@@ -295,8 +285,10 @@ test('montarPaginaCarteirasAcoes(): sem histórico (getHome falhou), mostra avis
     await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl, getHomeImpl });
 
     assert.equal(doc.getElementById('acoesConteudo').hidden, false);
-    assert.equal(doc.getElementById('acoesRentabChart').querySelector('svg'), null);
-    assert.match(doc.getElementById('acoesRentabChart').textContent, /Não deu pra carregar/);
+    const graficos = doc.getElementById('acoesGraficos');
+    assert.equal(graficos.querySelector('.chart--linha'), null);
+    assert.equal(graficos.querySelectorAll('.chart-card[data-estado="erro"]').length, 2);
+    assert.match(graficos.textContent, /Não deu pra carregar os gráficos agora/);
     // resto da página (resumo/tabela) continua normal mesmo sem home.
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
@@ -315,4 +307,39 @@ test('montarPaginaCarteirasAcoes(): ticker abre na mesma aba e o ↗ ao lado abr
     assert.equal(novaAba.getAttribute('href'), ticker.getAttribute('href'));
     assert.match(novaAba.getAttribute('aria-label'), new RegExp(`Abrir ${ticker.textContent} em nova aba`));
   });
+});
+
+// 05/10/2026 (A-41): a tabela pinta quando a ação da tela (carteirasAcoes) chega; os gráficos, quando o home chega
+test('montarPaginaCarteirasAcoes(): a tabela pinta sem esperar o getHome; os gráficos mostram "Carregando" e são desenhados quando o home chega', async () => {
+  usarMemoriaNoCacheDados(new Map());
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    let resolverHome;
+    const getHomeImpl = () => new Promise((resolve) => { resolverHome = resolve; });
+    const montagem = montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO }), getHomeImpl });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(doc.getElementById('acoesLoading').hidden, true);
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2, 'tabela já na tela, home ainda pendente');
+    const graficos = doc.getElementById('acoesGraficos');
+    assert.equal(graficos.querySelectorAll('.chart-card[data-estado="carregando"]').length, 2, 'gráficos em "carregando" até o home chegar');
+    assert.equal(graficos.querySelector('.chart--linha'), null);
+    resolverHome({ ok: true, historico: historicoAcoesExemplo() });
+    await montagem;
+    const depois = doc.getElementById('acoesGraficos'); // a página redesenha quando o home chega
+    assert.ok(depois.querySelector('.cg-painel-rentabilidade .chart--linha svg'), 'gráfico desenhado quando o home chegou');
+    assert.ok(depois.querySelector('.cg-painel-evolucao .chart--linha svg'));
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
+  });
+  usarMemoriaNoCacheDados(null);
+});
+
+test('montarPaginaCarteirasAcoes(): se o getHome falhar (rejeitar), a tabela fica e os gráficos trocam o "Carregando" pelo aviso', async () => {
+  usarMemoriaNoCacheDados(new Map());
+  await withFakeSessionStorage(async () => {
+    const doc = makeDom();
+    await montarPaginaCarteirasAcoes('token-fake', { doc, getCarteirasAcoesImpl: async () => ({ ok: true, carteira: CARTEIRA_ACOES_EXEMPLO }), getHomeImpl: async () => { throw new Error('rede'); } });
+    assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
+    assert.match(doc.getElementById('acoesGraficos').textContent, /Não deu pra carregar os gráficos/);
+  });
+  usarMemoriaNoCacheDados(null);
 });

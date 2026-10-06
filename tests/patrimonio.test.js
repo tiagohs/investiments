@@ -79,7 +79,9 @@ test('Aba Patrimônio: herói (tem − deve = líquido), balanço com apê pelo 
   const bal = txt(el.querySelector('#ptBalanco'));
   assert.match(bal, /Apê teste/);
   assert.match(bal, /Média dos dois índices/);
-  assert.match(bal, /R\$ 229\.300/, 'saldo de ago (230.000) menos 1 mês de amortização (700)');
+  // 05/10/2026 (A-08): hoje é 15/09 e a parcela de set (dia 20) ainda não venceu - o saldo é o do extrato, não menos 1 amortização
+  assert.match(bal, /R\$ 230\.000/, 'saldo do extrato de 20/08 (230.000): a parcela de set ainda não venceu');
+  assert.match(bal, /329 parcelas/, 'prazo = saldo ÷ amortização, sem tirar a parcela que ainda não venceu');
   assert.match(bal, /Quanto do apê já é seu/);
   assert.ok(el.querySelector('#ptBalanco [data-acao="importar"]'), 'FGTS sem extrato: botão de importar');
   assert.equal(el.querySelector('#ptFontesTopo').hidden, false, 'sem IR ainda: "Monte o seu patrimônio" aparece no topo');
@@ -256,5 +258,9 @@ test('montarCarreiraFgts: desenha Carreira e FGTS em outro lugar (aba Renda) e o
 
 test('Aba Patrimônio: erro ao carregar vira aviso', async () => {
   const { el } = await montar({ getPatrimonioImpl: async () => ({ ok: false, etapa: 'patrimonio', erro: 'falhou' }) });
-  assert.match(txt(el), /Não deu pra carregar o patrimônio agora \(patrimonio\): falhou/);
+  // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica no <details>
+  assert.ok(el.querySelector('.estado-erro'), 'estado de erro padrão');
+  assert.match(txt(el), /Patrimônio/);
+  assert.match(txt(el.querySelector('.estado-detalhe')), /falhou/);
+  assert.ok([...el.querySelectorAll('button')].some((b) => /Tentar de novo/.test(b.textContent)));
 });

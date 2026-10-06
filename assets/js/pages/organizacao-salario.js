@@ -18,24 +18,26 @@
  * Contas em salario-calc.js; back-end em apps-script/Salario.gs.
  */
 import { getSalario, salvarSalarioBase, salvarPagamentoSalario, excluirPagamentoSalario, getArquivosHolerites, getArquivoHolerite, salvarHoleriteDrive } from '../api-client.js';
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, MESES_CURTOS, formatMesAno, formatPct } from '../format.js';
 import { carregarPdfJs, extrairLinhasPdf, lerHolerite, TIPOS_PAGAMENTO, lerHoleritesDoDrive, holeritesNovosDrive } from './holerite.js';
 import {
   metaMensal, mediaInvestida, mesesAteAlvo, trajetoria, ultimoHolerite, orcamentoSalario, extrasDoAno,
 } from './salario-calc.js';
 import { lerValorBR } from './organizacao-calc.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { confirmar as confirmarUi, mostrarErroCarga } from '../ui/index.js'; // 06/10/2026 (Onda 3): diálogo de confirmação e erro de carga padrão do kit
+import { kpiHtml, chipHtml, compAttr, montarComposicoes, recolherRedesenhavel } from './organizacao-ui.js';
+import { montarGrafico, limparGrafico } from './metas-graficos.js';
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const brl = (v) => formatBRL(v);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
 const dec = (texto) => { const m = String(texto).match(/^(.*?)(,\d{2})$/); return m ? `${esc(m[1])}<span class="dec">${esc(m[2])}</span>` : esc(texto); };
-const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-export const rotuloMes = (m) => { const [a, mm] = String(m || '').split('-'); return a && mm ? `${MESES_CURTOS[Number(mm) - 1]}/${a.slice(2)}` : String(m || ''); };
+
+export const rotuloMes = (m) => formatMesAno(m, { vazio: String(m || '') });
 const brlK = (v) => {
   if (!num(v)) return '—';
   if (Math.abs(v) >= 1e6) return `R$ ${formatNumeroBR(v / 1e6, 2)} mi`;
-  return Math.abs(v) >= 1000 ? `R$ ${formatNumeroBR(v / 1000, 1)} mil` : brl(v);
+  return Math.abs(v) >= 1000 ? `R$ ${formatNumeroBR(v / 1000, 1)} mil` : formatBRL(v);
 };
 const anosTxt = (m) => { if (m == null) return 'não chega'; if (m === 0) return 'já chegou'; const a = m / 12; return a < 1 ? `${m} ${m === 1 ? 'mês' : 'meses'}` : `${formatNumeroBR(a, 1)} anos`; };
 
@@ -49,27 +51,29 @@ export function htmlHeroSalario(d, { editando }) {
   const hol = ultimoHolerite(d.pagamentos);
   const difHol = hol && num(hol.liquido) && num(d.base.liquido) ? d.base.liquido - hol.liquido : null;
   return `
-    <article class="og-tile">
-      <span class="og-rotulo">Salário líquido (base das contas) <button type="button" class="tx-link" data-acao="editar-base">${editando ? 'Fechar' : 'Editar'}</button></span>
-      <span class="og-grande">${dec(brl(d.base.liquido))}<small>/mês</small></span>
-      <span class="og-sub">${hol ? `holerite de ${esc(rotuloMes(hol.mes))}: <b>${esc(brl(hol.liquido))}</b>${num(difHol) && Math.abs(difHol) >= 0.01 ? ` · base ${difHol > 0 ? 'acima' : 'abaixo'} em ${esc(brl(Math.abs(difHol)))}` : ' · igual à base'}` : 'base das contas da planilha (aba Distribuição e Metas)'}</span>
-    </article>
-    <article class="og-tile">
-      <span class="og-rotulo">Meta de investimento <span class="status-pill na">${esc(pct(d.base.percentualInvestir, 0))} do líquido</span></span>
-      <span class="og-grande">${dec(brl(meta))}<small>/mês</small></span>
-      <span class="og-sub">${esc(brl(num(meta) ? meta * 12 : null))} por ano · quanto você investe de fato está em <a class="tx-link" href="#rdSecInv">Quanto do salário você investe</a></span>
-    </article>`;
+    ${kpiHtml({
+    classe: 'og-tile', rotulo: 'Salário líquido (base das contas)',
+    rotuloExtraHtml: `<button type="button" class="tx-link" data-acao="editar-base">${editando ? 'Fechar' : 'Editar'}</button>`,
+    valorHtml: `${dec(formatBRL(d.base.liquido))}<small>/mês</small>`,
+    subHtml: hol ? `holerite de ${esc(rotuloMes(hol.mes))}: <b>${esc(formatBRL(hol.liquido))}</b>${num(difHol) && Math.abs(difHol) >= 0.01 ? ` · base ${difHol > 0 ? 'acima' : 'abaixo'} em ${esc(formatBRL(Math.abs(difHol)))}` : ' · igual à base'}` : 'base das contas da planilha (aba Distribuição e Metas)',
+  })}
+    ${kpiHtml({
+    classe: 'og-tile', rotulo: 'Meta de investimento',
+    rotuloExtraHtml: chipHtml('info', `${esc(formatPct(d.base.percentualInvestir, 0))} do líquido`),
+    valorHtml: `${dec(formatBRL(meta))}<small>/mês</small>`,
+    subHtml: `${esc(formatBRL(num(meta) ? meta * 12 : null))} por ano · quanto você investe de fato está em <a class="tx-link" href="#rdSecInv">Quanto do salário você investe</a>`,
+  })}`;
 }
 
 export function htmlFormBase(d) {
   const hol = ultimoHolerite(d.pagamentos);
   const meta = metaMensal(d.base);
   return `
-    <form class="og-card sl-base-form" id="slBaseForm" novalidate>
+    <form class="card sl-base-form" id="slBaseForm" novalidate>
       <div class="sl-form-cab"><h2>Base das contas</h2><span class="hint">grava na planilha, aba Distribuição e Metas (salário líquido e % pra investir) - o resto do site acompanha</span></div>
       <div class="sl-campos">
         <label class="sl-campo"><span>Salário líquido</span><span class="sl-input"><i>R$</i><input id="slLiquido" inputmode="decimal" value="${esc(formatNumeroBR(d.base.liquido))}"></span>
-          ${hol && num(hol.liquido) && Math.abs(hol.liquido - d.base.liquido) >= 0.01 ? `<button type="button" class="og-sug" data-acao="usar-holerite" data-valor="${hol.liquido}">usar o do holerite de ${esc(rotuloMes(hol.mes))} (${esc(brl(hol.liquido))})</button>` : ''}
+          ${hol && num(hol.liquido) && Math.abs(hol.liquido - d.base.liquido) >= 0.01 ? `<button type="button" class="og-sug" data-acao="usar-holerite" data-valor="${hol.liquido}">usar o do holerite de ${esc(rotuloMes(hol.mes))} (${esc(formatBRL(hol.liquido))})</button>` : ''}
         </label>
         <label class="sl-campo"><span>Quero investir</span><span class="sl-input"><input id="slPct" inputmode="decimal" value="${esc(formatNumeroBR((d.base.percentualInvestir || 0) * 100, 1))}"><i>%</i></span></label>
         <span class="sl-igual" aria-hidden="true">=</span>
@@ -77,8 +81,8 @@ export function htmlFormBase(d) {
       </div>
       <p class="og-nota" id="slBasePrevia"></p>
       <div class="sl-form-botoes"><span class="sl-msg" id="slBaseMsg" role="status"></span>
-        <button type="button" class="btn btn-ghost og-btn-sm" data-acao="editar-base">Cancelar</button>
-        <button type="submit" class="btn btn-primary og-btn-sm">Salvar</button></div>
+        <button type="button" class="btn btn-outlined og-btn-sm" data-acao="editar-base">Cancelar</button>
+        <button type="submit" class="btn btn-filled og-btn-sm">Salvar</button></div>
     </form>`;
 }
 
@@ -87,44 +91,48 @@ export function htmlFormBase(d) {
  * não veio), { configurado, arquivos, lendo, msg, log }. "Ler holerites do Drive" importa só os novos, com 1 clique;
  * "Importar holerite (PDF)" (manual) continua.
  */
+/** 06/10/2026 (Onda 3): detalhe técnico de uma falha (texto da API) fica recolhido; o texto principal é humano. */
+function detalheTecnicoHtml(detalhe) {
+  return detalhe ? `<details class="og-detalhe"><summary>Detalhes técnicos</summary><code>${esc(detalhe)}</code></details>` : '';
+}
 export function htmlDriveHolerites(drive) {
   if (!drive) return '';
-  if (drive.erro) return `<p class="og-nota bad sl-drive-msg">${esc(drive.erro)}</p>`;
+  if (drive.erro) return `<p class="og-nota bad sl-drive-msg">${esc(drive.erro)}</p>${detalheTecnicoHtml(drive.detalhe)}`;
   if (drive.configurado === false) return '<p class="og-nota sl-drive-msg">Pasta <b>Documentos/Trabalho</b> do Drive não encontrada - rode <code>configurarPastaHoleritesDireto</code> no editor do Apps Script pra o site ler os holerites sozinho.</p>';
   const novos = holeritesNovosDrive(drive.arquivos);
   const total = (drive.arquivos || []).length;
   const log = drive.log && drive.log.length ? `<ul class="sl-drive-log">${drive.log.map((x) => `<li class="${esc(x.status)}"><span aria-hidden="true">${x.status === 'ok' ? '✓' : x.status === 'aviso' ? '!' : '✕'}</span> <b>${esc(x.empresa ? `${x.empresa} · ` : '')}${esc(x.nome)}</b> <small>${esc(x.msg)}</small></li>`).join('')}</ul>` : '';
   const botao = drive.lendo
-    ? `<button type="button" class="btn btn-primary og-btn-sm" disabled>${esc(drive.lendo)}</button>`
-    : `<button type="button" class="btn ${novos.length ? 'btn-primary' : 'btn-ghost'} og-btn-sm" data-acao="ler-holerites-drive">Ler holerites do Drive${novos.length ? ` (${novos.length} ${novos.length === 1 ? 'novo' : 'novos'})` : ''}</button>`;
+    ? `<button type="button" class="btn btn-filled og-btn-sm" disabled>${esc(drive.lendo)}</button>`
+    : `<button type="button" class="btn ${novos.length ? 'btn-filled' : 'btn-outlined'} og-btn-sm" data-acao="ler-holerites-drive">Ler holerites do Drive${novos.length ? ` (${novos.length} ${novos.length === 1 ? 'novo' : 'novos'})` : ''}</button>`;
   const resumo = drive.msg ? esc(drive.msg) : (novos.length ? `${novos.length} ${novos.length === 1 ? 'holerite novo' : 'holerites novos'} no Drive (de ${total}).` : `${total} ${total === 1 ? 'holerite' : 'holerites'} no Drive, todos já importados.`);
-  return `<div class="sl-drive"><div class="sl-drive-linha">${botao}<span class="og-nota sl-drive-msg" role="status">${resumo}</span></div>${log}</div>`;
+  return `<div class="sl-drive"><div class="sl-drive-linha">${botao}<span class="og-nota sl-drive-msg" role="status">${resumo}</span></div>${detalheTecnicoHtml(drive.detalhe)}${log}</div>`;
 }
 
 export function htmlHolerite(d, { form, drive = null }) {
   if (form) return htmlFormPagamento(form, d);
   const hol = ultimoHolerite(d.pagamentos);
-  const botoes = `${htmlDriveHolerites(drive)}<div class="tx-botoes"><button type="button" class="btn ${drive && drive.configurado !== false && !drive.erro ? 'btn-ghost' : 'btn-primary'} og-btn-sm" data-acao="importar">Importar holerite (PDF)</button><button type="button" class="btn btn-ghost og-btn-sm" data-acao="novo-pagamento">Adicionar à mão</button><input type="file" id="slArquivo" accept="application/pdf,.pdf" hidden></div>`;
+  const botoes = `${htmlDriveHolerites(drive)}<div class="tx-botoes"><button type="button" class="btn ${drive && drive.configurado !== false && !drive.erro ? 'btn-outlined' : 'btn-filled'} og-btn-sm" data-acao="importar">Importar holerite (PDF)</button><button type="button" class="btn btn-outlined og-btn-sm" data-acao="novo-pagamento">Adicionar à mão</button><input type="file" id="slArquivo" accept="application/pdf,.pdf" hidden></div>`;
   if (!hol) {
     return `<div class="lateral-cab"><h2>Holerite</h2></div><p class="og-nota">Nenhum holerite salvo ainda. Importe o PDF do mês (é lido aqui no navegador) ou preencha à mão.</p>${botoes}${htmlPagamentos(d)}`;
   }
   const o = orcamentoSalario({ holerite: hol }).bruto;
-  const linha = (rot, v, cls = '', extra = '') => `<li class="${cls}"><span>${rot}</span><b>${dec(brl(v))}</b><small>${extra}</small></li>`;
-  const itensHtml = (hol.itens || []).filter((i) => i.vencimento || i.desconto).map((i) => `<tr><td>${esc(i.descricao)}</td><td class="n">${i.vencimento ? esc(brl(i.vencimento)) : ''}</td><td class="n">${i.desconto ? esc(brl(i.desconto)) : ''}</td></tr>`).join('');
+  const linha = (rot, v, cls = '', extra = '') => `<li class="${cls}"><span>${rot}</span><b>${dec(formatBRL(v))}</b><small>${extra}</small></li>`;
+  const itensHtml = (hol.itens || []).filter((i) => i.vencimento || i.desconto).map((i) => `<tr><td>${esc(i.descricao)}</td><td class="num">${i.vencimento ? esc(formatBRL(i.vencimento)) : ''}</td><td class="num">${i.desconto ? esc(formatBRL(i.desconto)) : ''}</td></tr>`).join('');
   return `
     <div class="lateral-cab"><h2>Holerite · ${esc(rotuloMes(hol.mes))}</h2><span class="hint">${hol.dataCredito ? `crédito em ${esc(hol.dataCredito.split('-').reverse().join('/'))}` : ''}</span></div>
     <ul class="sl-cascata">
       ${linha('Salário base', hol.salarioBase)}
       ${hol.outrosVencimentos ? linha('+ Outros vencimentos', hol.outrosVencimentos) : ''}
       ${linha('= Total de vencimentos', o.vencimentos, 'sub')}
-      ${linha('− INSS', hol.inss, 'menos', pct(o.aliquotaINSS))}
-      ${linha('− Imposto de renda', hol.irrf, 'menos', pct(o.aliquotaIR))}
+      ${linha('− INSS', hol.inss, 'menos', formatPct(o.aliquotaINSS))}
+      ${linha('− Imposto de renda', hol.irrf, 'menos', formatPct(o.aliquotaIR))}
       ${hol.outrosDescontos ? linha('− Outros descontos', hol.outrosDescontos, 'menos') : ''}
       ${linha('= Líquido', hol.liquido, 'total')}
       ${hol.fgts ? linha('+ FGTS (depósito da empresa)', hol.fgts, 'fora', 'fora da carteira') : ''}
     </ul>
-    <p class="og-nota">Impostos levam <b>${esc(pct(o.aliquotaImpostos))}</b> do bruto (alíquota efetiva de IR ${esc(pct(o.aliquotaIR))}, bem abaixo dos 27,5% da tabela). Somando o FGTS, o pacote do mês é ${esc(brl(o.pacote))}.</p>
-    ${itensHtml ? `<details class="sl-verbas"><summary>Ver todas as verbas</summary><table><thead><tr><th>Verba</th><th class="n">Vencimento</th><th class="n">Desconto</th></tr></thead><tbody>${itensHtml}</tbody></table></details>` : ''}
+    <p class="og-nota">Impostos levam <b>${esc(formatPct(o.aliquotaImpostos))}</b> do bruto (alíquota efetiva de IR ${esc(formatPct(o.aliquotaIR))}, bem abaixo dos 27,5% da tabela). Somando o FGTS, o pacote do mês é ${esc(formatBRL(o.pacote))}.</p>
+    ${itensHtml ? `<details class="sl-verbas"><summary>Ver todas as verbas</summary><div class="tabela-wrap"><table class="tabela tabela-baixa"><thead><tr><th scope="col">Verba</th><th scope="col" class="num">Vencimento</th><th scope="col" class="num">Desconto</th></tr></thead><tbody>${itensHtml}</tbody></table></div></details>` : ''}
     ${botoes}
     ${htmlPagamentos(d)}`;
 }
@@ -135,7 +143,7 @@ function htmlPagamentos(d) {
   const li = (p) => `
     <li data-mes="${esc(p.mes)}" data-tipo="${esc(p.tipo)}">
       <span class="sl-pag-mes">${esc(rotuloMes(p.mes))}</span><span class="sl-pag-tipo">${esc(p.tipo)}${p.status === 'Previsto' ? ' <span class="status-pill warn">previsto</span>' : ''}</span>
-      <b>${esc(brl(p.liquido))}</b>
+      <b>${esc(formatBRL(p.liquido))}</b>
       <span class="og-acoes"><button type="button" class="tx-link" data-acao="editar-pagamento">editar</button><button type="button" class="og-remover" data-acao="excluir-pagamento" aria-label="Excluir ${esc(p.tipo)} de ${esc(rotuloMes(p.mes))}" title="Excluir">×</button></span>
     </li>`;
   // 03/10/2026: só os 6 mais recentes à vista; o resto num "ver todos" (a lista crescia um holerite por mês)
@@ -165,33 +173,65 @@ export function htmlFormPagamento(f, d) {
         <label class="sl-campo"><span>Data de crédito</span><input type="date" name="dataCredito" value="${esc(p.dataCredito || '')}"></label>
         ${CAMPOS_PAG.map(([k, rot]) => `<label class="sl-campo${k === 'liquido' ? ' destaque' : ''}"><span>${esc(rot)}</span><span class="sl-input"><i>R$</i><input name="${k}" inputmode="decimal" value="${num(p[k]) ? esc(formatNumeroBR(p[k])) : ''}"></span></label>`).join('')}
       </div>
-      <p class="og-nota ${confere ? 'good' : 'bad'}" id="slPagConfere">${num(p.liquido) ? (confere ? `Confere: ${brl(venc)} − ${brl(desc)} = ${brl(p.liquido)}` : `Vencimentos − descontos = ${brl(venc - desc)}, mas o líquido informado é ${brl(p.liquido)}`) : ''}</p>
-      <label class="sl-check"><input type="checkbox" name="usarComoBase"${f.usarComoBase ? ' checked' : ''}> Usar este líquido como salário base das contas (hoje ${esc(brl(d.base.liquido))})</label>
+      <p class="og-nota ${confere ? 'good' : 'bad'}" id="slPagConfere">${num(p.liquido) ? (confere ? `Confere: ${formatBRL(venc)} − ${formatBRL(desc)} = ${formatBRL(p.liquido)}` : `Vencimentos − descontos = ${formatBRL(venc - desc)}, mas o líquido informado é ${formatBRL(p.liquido)}`) : ''}</p>
+      <label class="sl-check"><input type="checkbox" name="usarComoBase"${f.usarComoBase ? ' checked' : ''}> Usar este líquido como salário base das contas (hoje ${esc(formatBRL(d.base.liquido))})</label>
       <div class="sl-form-botoes"><span class="sl-msg" id="slPagMsg" role="status">${esc(f.erro || '')}</span>
-        <button type="button" class="btn btn-ghost og-btn-sm" data-acao="cancelar-pagamento">Cancelar</button>
-        <button type="submit" class="btn btn-primary og-btn-sm"${f.salvando ? ' disabled' : ''}>${f.salvando ? 'Salvando…' : 'Salvar'}</button></div>
+        <button type="button" class="btn btn-outlined og-btn-sm" data-acao="cancelar-pagamento">Cancelar</button>
+        <button type="submit" class="btn btn-filled og-btn-sm"${f.salvando ? ' disabled' : ''}>${f.salvando ? 'Salvando…' : 'Salvar'}</button></div>
     </form>`;
 }
 
 export function htmlOrcamento(d) {
   const hol = ultimoHolerite(d.pagamentos);
   const o = orcamentoSalario({ holerite: hol, base: d.base, despesasReal: d.despesas && d.despesas.totalReal });
-  const barra = (partes, total) => `<div class="og-sal-barra">${partes.map(([cls, v, rot]) => (v > 0 ? `<span class="${cls}" style="width:${Math.min(100, (v / total) * 100).toFixed(2)}%" title="${esc(`${rot}: ${brl(v)} (${pct(v / total, 0)})`)}"></span>` : '')).join('')}</div>`;
-  const leg = (itens, total) => `<ul class="og-sal-leg">${itens.map(([cls, v, rot]) => `<li><i class="${cls}"></i><span>${esc(rot)}</span><b>${esc(brl(v))}</b><small>${esc(pct(v / total, 0))}</small></li>`).join('')}</ul>`;
+  // 06/10/2026 (Onda 3): a barra é da biblioteca de gráficos (montarComposicoes depois do innerHTML); a cor segue a legenda (.imp/.out/.liq/.ess/.inv/.liv)
+  const COR_FATIA = { imp: 'var(--chart-8)', out: 'var(--chart-axis)', liq: 'var(--chart-1)', ess: 'var(--chart-3)', inv: 'var(--chart-1)', liv: 'var(--chart-2)' };
+  const barra = (partes) => `<div class="og-sal-barra" ${compAttr(partes.filter(([, v]) => v > 0).map(([cls, v, rot]) => ({ id: cls, nome: rot, valor: v, cor: COR_FATIA[cls] })))}></div>`;
+  const leg = (itens, total) => `<ul class="og-sal-leg">${itens.map(([cls, v, rot]) => `<li><i class="${cls}"></i><span>${esc(rot)}</span><b>${esc(formatBRL(v))}</b><small>${esc(formatPct(v / total, 0))}</small></li>`).join('')}</ul>`;
   let html = '<div class="lateral-cab"><h2>Orçamento do salário</h2></div>';
   if (o.bruto) {
     const b = o.bruto;
     const itens = [['imp', b.inss + b.irrf, 'Impostos (INSS + IR)'], ['out', b.outrosDescontos, 'Outros descontos'], ['liq', b.liquido, 'Líquido']].filter((x) => x[1] > 0);
-    html += `<h3 class="sl-sub">Do bruto (${esc(brl(b.vencimentos))})</h3>${barra(itens, b.vencimentos)}${leg(itens, b.vencimentos)}`;
+    html += `<h3 class="sl-sub">Do bruto (${esc(formatBRL(b.vencimentos))})</h3>${barra(itens, b.vencimentos)}${leg(itens, b.vencimentos)}`;
   }
   if (o.liquido) {
     const l = o.liquido;
     const itens = [['ess', l.essenciais, 'Despesas essenciais'], ['inv', l.aporte, 'Meta de investimento'], ['liv', Math.max(0, l.livre), l.livre >= 0 ? 'Livre' : 'Falta']];
-    html += `<h3 class="sl-sub">Do líquido (${esc(brl(l.total))})</h3>${barra(itens, l.total)}${leg(itens, l.total)}
-      <p class="og-nota fraca">Despesas pelo gasto real (Gastos e Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(brl(-l.livre))}.</b>` : `Sobram ${esc(brl(l.livre))} livres por mês.`}</p>
+    html += `<h3 class="sl-sub">Do líquido (${esc(formatBRL(l.total))})</h3>${barra(itens, l.total)}${leg(itens, l.total)}
+      <p class="og-nota fraca">Despesas pelo gasto real (Gastos e Despesas). ${l.livre < 0 ? `<b class="bad">Despesas + meta passam do líquido em ${esc(formatBRL(-l.livre))}.</b>` : `Sobram ${esc(formatBRL(l.livre))} livres por mês.`}</p>
       ${d.despesas && d.despesas.erroFormula ? `<p class="og-nota bad">O total da aba Despesas Essenciais está com erro na planilha (${esc(d.despesas.erroFormula)}); aqui entrou a soma das despesas. Salvar as despesas de novo em Organização (ou rodar repararFormulasDespesas) conserta a planilha.</p>` : ''}`;
   }
   return html;
+}
+
+/**
+ * Projeção até o objetivo (06/10/2026, Onda 3): as duas trajetórias (no seu ritmo x na meta) e o alvo, pela biblioteca de gráficos.
+ * -> spec de montarGrafico ({ tipo:'linha', opcoes }) ou null.
+ */
+export function opcoesProjecaoSalario(d, med) {
+  const p = d.patrimonio || {};
+  if (!num(p.atual) || !num(p.desejado)) return null;
+  const meta = metaMensal(d.base);
+  const ritmo = med.media;
+  const tR = trajetoria({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: ritmo }, 45);
+  const tM = trajetoria({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: meta }, 45);
+  const maxAno = Math.max(tR[tR.length - 1].ano, tM[tM.length - 1].ano, 1);
+  const anoHoje = Number(String(d.hoje || '').slice(0, 4)) || new Date().getFullYear();
+  const em = (t) => { const m = new Map(t.map((q) => [q.ano, q.valor])); return Array.from({ length: maxAno + 1 }, (_, a) => (m.has(a) ? m.get(a) : null)); };
+  const anos = Array.from({ length: maxAno + 1 }, (_, a) => a);
+  return {
+    tipo: 'linha',
+    opcoes: {
+      series: [
+        { id: 'ritmo', nome: `No seu ritmo (${formatBRL(ritmo)}/mês)`, valores: em(tR), principal: true, area: true, cor: 1, largura: 3 },
+        { id: 'meta', nome: `Na meta (${formatBRL(meta)}/mês)`, valores: em(tM), cor: 3, largura: 2.5 },
+        { id: 'alvo', nome: 'Objetivo', valores: anos.map(() => p.desejado), pontilhada: true, cor: 'var(--chart-axis)', largura: 1.5 },
+      ],
+      eixoX: anos.map((a) => ({ rotulo: a === 0 ? 'hoje' : (a % 5 === 0 ? `+${a}a` : ''), titulo: a === 0 ? `Hoje (${anoHoje})` : `Daqui a ${a} ${a === 1 ? 'ano' : 'anos'} (${anoHoje + a})` })),
+      formatarX: (item) => (item && item.titulo) || '', formatarValor: (v) => brlK(v), formatarY: brlK, altura: 190, zero: true, ticksY: 3,
+      aria: `Projeção: no ritmo atual ${anosTxt(mesesAteAlvo({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: ritmo }))}, na meta ${anosTxt(mesesAteAlvo({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: meta }))}`,
+    },
+  };
 }
 
 export function htmlProjecao(d, med) {
@@ -204,27 +244,14 @@ export function htmlProjecao(d, med) {
   const anoHoje = Number(String(d.hoje || '').slice(0, 4)) || new Date().getFullYear();
   const quando = (m) => (m == null || m === 0 ? '' : `em ${anoHoje + Math.ceil(m / 12)}`);
   const ganho = mRitmo != null && mMeta != null ? mRitmo - mMeta : null;
-  // gráfico: 2 trajetórias até o alvo
-  const tR = trajetoria({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: ritmo }, 45);
-  const tM = trajetoria({ atual: p.atual, alvo: p.desejado, rendimentoAnual: p.rendimento, aporte: meta }, 45);
-  const W = 320; const H = 120; const mg = { t: 12, r: 8, b: 18, l: 8 };
-  const maxAno = Math.max(tR[tR.length - 1].ano, tM[tM.length - 1].ano, 1);
-  const maxV = Math.max(p.desejado, ...tR.map((x) => x.valor), ...tM.map((x) => x.valor));
-  const x = (a) => mg.l + (a / maxAno) * (W - mg.l - mg.r);
-  const y = (v) => mg.t + (1 - v / maxV) * (H - mg.t - mg.b);
-  const caminho = (t) => t.map((q, i) => `${i ? 'L' : 'M'}${x(q.ano).toFixed(1)},${y(q.valor).toFixed(1)}`).join('');
   return `
     <div class="lateral-cab"><h2>Projeção até o objetivo</h2><a class="hint" href="../distribuicoes-metas.html">${esc(brlK(p.desejado))} ›</a></div>
     <ul class="sl-proj">
-      <li><i class="k-ritmo"></i><span>No seu ritmo <small>${esc(brl(ritmo))}/mês</small></span><b>${esc(anosTxt(mRitmo))}</b><small>${esc(quando(mRitmo))}</small></li>
-      <li><i class="k-meta2"></i><span>Na meta <small>${esc(brl(meta))}/mês</small></span><b>${esc(anosTxt(mMeta))}</b><small>${esc(quando(mMeta))}</small></li>
+      <li><i class="k-ritmo"></i><span>No seu ritmo <small>${esc(formatBRL(ritmo))}/mês</small></span><b>${esc(anosTxt(mRitmo))}</b><small>${esc(quando(mRitmo))}</small></li>
+      <li><i class="k-meta2"></i><span>Na meta <small>${esc(formatBRL(meta))}/mês</small></span><b>${esc(anosTxt(mMeta))}</b><small>${esc(quando(mMeta))}</small></li>
     </ul>
-    <svg class="og-hist sl-proj-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Projeção: no ritmo atual ${anosTxt(mRitmo)}, na meta ${anosTxt(mMeta)}`)}">
-      <line class="sl-alvo" x1="${mg.l}" x2="${W - mg.r}" y1="${y(p.desejado).toFixed(1)}" y2="${y(p.desejado).toFixed(1)}"/>
-      <path class="sl-traj-meta" d="${caminho(tM)}"/><path class="sl-traj-ritmo" d="${caminho(tR)}"/>
-      <text class="og-hist-rot" x="${mg.l}" y="${H - 4}">hoje</text><text class="og-hist-rot" x="${W - mg.r}" y="${H - 4}" text-anchor="end">+${maxAno} anos</text>
-    </svg>
-    <p class="og-nota fraca">Parte de ${esc(brl(p.atual))} hoje, rendendo ${esc(pct(p.rendimento, 1))} ao ano (aba Distribuição e Metas da planilha)${ganho != null && ganho > 0 ? `. Bater a meta te adianta <b>${esc(anosTxt(ganho))}</b>.` : '.'} O FGTS não entra na conta.</p>`;
+    <div class="sl-proj-grafico" id="slProjGrafico"></div>
+    <p class="og-nota fraca">Parte de ${esc(formatBRL(p.atual))} hoje, rendendo ${esc(formatPct(p.rendimento, 1))} ao ano (aba Distribuição e Metas da planilha)${ganho != null && ganho > 0 ? `. Bater a meta te adianta <b>${esc(anosTxt(ganho))}</b>.` : '.'} O FGTS não entra na conta.</p>`;
 }
 
 export function htmlExtras(d) {
@@ -240,11 +267,11 @@ export function htmlExtras(d) {
           <span class="sl-extra-tipo">${esc(l.tipo)}${l.status ? ` <span class="status-pill ${l.status === 'Recebido' ? 'good' : 'warn'}">${l.status === 'Recebido' ? 'recebido' : 'previsto'}</span>` : ''}</span>
           <input type="month" name="mes" value="${esc(l.mes)}" aria-label="Mês do ${esc(l.tipo)}"${l.status === 'Recebido' ? ' disabled' : ''}>
           <span class="sl-input"><i>R$</i><input name="valor" inputmode="decimal" value="${num(l.valor) ? esc(formatNumeroBR(l.valor)) : ''}" placeholder="${num(l.estimativa) ? `≈ ${esc(formatNumeroBR(l.estimativa, 0))}` : 'valor'}" aria-label="Líquido do ${esc(l.tipo)}"${l.status === 'Recebido' ? ' disabled' : ''}></span>
-          <span class="sl-input"><input name="pct" inputmode="decimal" value="${num(l.percentualInvestir) ? esc(formatNumeroBR(l.percentualInvestir * 100, 0)) : ''}" aria-label="% do ${esc(l.tipo)} pra investir"><i>%</i><small data-out="investir">${num(l.investir) ? `= ${esc(brl(l.investir))}` : ''}</small></span>
+          <span class="sl-input"><input name="pct" inputmode="decimal" value="${num(l.percentualInvestir) ? esc(formatNumeroBR(l.percentualInvestir * 100, 0)) : ''}" aria-label="% do ${esc(l.tipo)} pra investir"><i>%</i><small data-out="investir">${num(l.investir) ? `= ${esc(formatBRL(l.investir))}` : ''}</small></span>
           <button type="submit" class="tx-link">salvar</button>
         </form>`).join('')}
     </div>
-    <p class="og-nota">${ex.total > 0 ? `Previsto no ano: <b>${esc(brl(ex.total))}</b> líquidos, <b>${esc(brl(ex.totalInvestir))}</b> pra investir (≈ ${esc(brl(ex.totalInvestir / 12))}/mês a mais na média).` : 'Preencha o líquido previsto (a estimativa do 13º vem do seu último holerite) e quanto quer investir de cada um.'}</p>
+    <p class="og-nota">${ex.total > 0 ? `Previsto no ano: <b>${esc(formatBRL(ex.total))}</b> líquidos, <b>${esc(formatBRL(ex.totalInvestir))}</b> pra investir (≈ ${esc(formatBRL(ex.totalInvestir / 12))}/mês a mais na média).` : 'Preencha o líquido previsto (a estimativa do 13º vem do seu último holerite) e quanto quer investir de cada um.'}</p>
     <p class="sl-msg" id="slExtrasMsg" role="status"></p>`;
 }
 
@@ -269,11 +296,21 @@ export function montarAbaSalario({
   doc, el, token, getSalarioImpl = getSalario, salvarBaseImpl = salvarSalarioBase, salvarPagamentoImpl = salvarPagamentoSalario,
   excluirPagamentoImpl = excluirPagamentoSalario, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf,
   listarHoleritesImpl = getArquivosHolerites, obterHoleriteImpl = getArquivoHolerite, salvarHoleriteDriveImpl = salvarHoleriteDrive,
-  confirmar = (msg) => (doc.defaultView && doc.defaultView.confirm ? doc.defaultView.confirm(msg) : true),
+  // 06/10/2026 (A-62): diálogo do kit (confirmar) no lugar de window.confirm; devolve Promise<boolean> (os testes injetam () => true)
+  confirmar = (msg) => confirmarUi({ titulo: 'Excluir este pagamento?', mensagem: msg, confirmarTexto: 'Excluir', perigo: true, doc }),
   aoMudarDados = null, aoMudarDrive = null,
 }) {
   let dados = null;
   const est = { editandoBase: false, form: null, drive: null };
+  // 06/10/2026 (Onda 3, A-59): Holerite, Extras, Orçamento e Projeção são recolhíveis (no celular só o Holerite começa aberto); o <details> é
+  // refeito a cada redesenho e o aberto/fechado escolhido é lembrado. Com o formulário do pagamento aberto, o Holerite fica aberto.
+  const recAberto = {};
+  function recolherCartoes() {
+    ['#slHolerite', '#slExtras', '#slOrcamento', '#slProjecao'].forEach((sel) => {
+      const det = recolherRedesenhavel(el, sel, { abertoNoCelular: sel === '#slHolerite', memoria: recAberto, doc });
+      if (sel === '#slHolerite') { const d = det || el.querySelector('#slHolerite > details.og-rec'); if (d && est.form) d.open = true; }
+    });
+  }
   const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados); } catch (e) { /* ok */ } } };
 
   // "No seu ritmo" da projeção: média dos últimos 12 meses fechados (tudo, com proventos)
@@ -283,16 +320,16 @@ export function montarAbaSalario({
     el.innerHTML = `
       <section class="pt-sec sl-sec" id="slSecOrcamento">
         <div class="pt-sec-cab"><h2>Orçamento do salário</h2><span class="pt-hint">a base das contas do site (aba Distribuição e Metas da planilha), o holerite e pra onde vai o líquido</span></div>
-        <section class="og-hero sl-hero" id="slHero"></section>
+        <section class="og-hero grid-kpi sl-hero" id="slHero"></section>
         <div id="slBase"></div>
         <div class="og-colunas">
           <div class="sl-principal">
-            <section class="og-card" id="slHolerite"></section>
-            <section class="og-card" id="slExtras"></section>
+            <section class="card" id="slHolerite"></section>
+            <section class="card" id="slExtras"></section>
           </div>
           <aside class="og-lateral">
-            <section class="og-card" id="slOrcamento"></section>
-            <section class="og-card" id="slProjecao"></section>
+            <section class="card" id="slOrcamento"></section>
+            <section class="card" id="slProjecao"></section>
           </aside>
         </div>
         <p class="og-nota bad" id="slAvisos" hidden></p>
@@ -302,7 +339,13 @@ export function montarAbaSalario({
 
   function desenharTopo() {
     el.querySelector('#slHero').innerHTML = htmlHeroSalario(dados, { editando: est.editandoBase });
-    el.querySelector('#slProjecao').innerHTML = htmlProjecao(dados, med());
+    const caixaProj = el.querySelector('#slProjecao');
+    limparGrafico(caixaProj.querySelector('#slProjGrafico'));
+    caixaProj.innerHTML = htmlProjecao(dados, med());
+    const alvoGraf = caixaProj.querySelector('#slProjGrafico');
+    const spec = alvoGraf ? opcoesProjecaoSalario(dados, med()) : null;
+    if (alvoGraf && spec) montarGrafico(alvoGraf, spec);
+    recolherCartoes();
   }
 
   function desenhar() {
@@ -313,6 +356,8 @@ export function montarAbaSalario({
     el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form, drive: est.drive });
     el.querySelector('#slExtras').innerHTML = htmlExtras(dados);
     el.querySelector('#slOrcamento').innerHTML = htmlOrcamento(dados);
+    montarComposicoes(el.querySelector('#slOrcamento'), formatBRL);
+    recolherCartoes();
     const av = el.querySelector('#slAvisos');
     av.hidden = !dados.avisos;
     av.textContent = dados.avisos ? `Parte dos dados não veio: ${Object.entries(dados.avisos).map(([k, v]) => `${k}: ${v}`).join(' · ')}` : '';
@@ -328,7 +373,7 @@ export function montarAbaSalario({
     const ess = dados.despesas && dados.despesas.totalReal;
     const livre = num(meta) && num(ess) ? liq - ess - meta : null;
     f.querySelector('#slBasePrevia').innerHTML = num(meta)
-      ? `Meta de <b>${esc(brl(meta))}/mês</b> (${esc(brl(meta * 12))} por ano)${num(livre) ? ` · depois das despesas essenciais sobram <b>${esc(brl(livre))}</b> livres` : ''}.`
+      ? `Meta de <b>${esc(formatBRL(meta))}/mês</b> (${esc(formatBRL(meta * 12))} por ano)${num(livre) ? ` · depois das despesas essenciais sobram <b>${esc(formatBRL(livre))}</b> livres` : ''}.`
       : '';
   }
 
@@ -336,7 +381,8 @@ export function montarAbaSalario({
     let r;
     try { r = await getSalarioImpl(token); } catch (e) { r = { ok: false, erro: String(e) }; }
     if (!r || !r.ok) {
-      if (!dados) el.innerHTML = `<div class="carteiras-erro">Não deu pra carregar o salário agora (${esc((r && r.etapa) || '?')}): ${esc((r && r.erro) || 'erro desconhecido')}.</div>`;
+      // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica num <details>
+      if (!dados) mostrarErroCarga(el, { tela: 'Renda e Orçamentos', resposta: r, aoTentar: () => carregar(), doc });
       return;
     }
     dados = r;
@@ -353,6 +399,7 @@ export function montarAbaSalario({
   function abrirForm(pagamento, extra = {}) {
     est.form = { pagamento: { ...pagamento }, usarComoBase: false, ...extra };
     el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: est.form, drive: est.drive });
+    recolherCartoes();
     const alvo = el.querySelector('#slHolerite');
     if (alvo.scrollIntoView) try { alvo.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { /* ok */ }
   }
@@ -367,7 +414,7 @@ export function montarAbaSalario({
     if (!num(liq)) { p.textContent = ''; return; }
     const ok = Math.abs(venc - desc - liq) <= 0.02;
     p.className = `og-nota ${ok ? 'good' : 'bad'}`;
-    p.textContent = ok ? `Confere: ${brl(venc)} − ${brl(desc)} = ${brl(liq)}` : `Vencimentos − descontos = ${brl(venc - desc)}, mas o líquido informado é ${brl(liq)}`;
+    p.textContent = ok ? `Confere: ${formatBRL(venc)} − ${formatBRL(desc)} = ${formatBRL(liq)}` : `Vencimentos − descontos = ${formatBRL(venc - desc)}, mas o líquido informado é ${formatBRL(liq)}`;
   }
 
   async function salvarForm(form) {
@@ -419,7 +466,7 @@ export function montarAbaSalario({
   function redesenharHolerite() {
     if (est.form || !dados) return;
     const box = el.querySelector('#slHolerite');
-    if (box) box.innerHTML = htmlHolerite(dados, { form: null, drive: est.drive });
+    if (box) { box.innerHTML = htmlHolerite(dados, { form: null, drive: est.drive }); recolherCartoes(); }
     if (typeof aoMudarDrive === 'function') { try { aoMudarDrive(est.drive); } catch (e) { /* ok */ } }
   }
 
@@ -430,7 +477,7 @@ export function montarAbaSalario({
     const manter = est.drive && (est.drive.lendo || est.drive.log) ? { lendo: est.drive.lendo, log: est.drive.log, msg: est.drive.msg } : {};
     // 05/10/2026: Apps Script sem a versão nova ainda não conhece 'holeritesArquivos'
     const motivo = (r && r.erro) || 'erro';
-    if (!r || !r.ok) est.drive = { erro: /a[cç][aã]o desconhecida|unknown action/i.test(motivo) ? 'O Apps Script ainda não tem a leitura de holerites do Drive: publique a NOVA VERSÃO da implantação (Salario.gs e Router.gs).' : `Não deu pra listar os holerites do Drive: ${motivo}`, arquivos: [] };
+    if (!r || !r.ok) est.drive = { erro: /a[cç][aã]o desconhecida|unknown action/i.test(motivo) ? 'O Apps Script ainda não tem a leitura de holerites do Drive: publique a NOVA VERSÃO da implantação (Salario.gs e Router.gs).' : 'Não consegui ver os holerites do Drive agora. Tente de novo em instantes.', detalhe: motivo, arquivos: [] }; // 06/10/2026 (Onda 3): texto humano + o texto técnico num <details>
     else est.drive = { configurado: r.configurado !== false, arquivos: r.arquivos || [], ...manter };
     redesenharHolerite();
     return est.drive;
@@ -455,7 +502,7 @@ export function montarAbaSalario({
       if (r.avisos) partes.push(`${r.avisos} com aviso (confira abaixo)`);
       if (r.falhas) partes.push(`${r.falhas} não ${r.falhas === 1 ? 'deu' : 'deram'} pra ler`);
     }
-    est.drive = { ...(est.drive || {}), lendo: '', msg: partes.join(' · '), log: r.log && r.log.length ? r.log : null };
+    est.drive = { ...(est.drive || {}), lendo: '', msg: partes.join(' · '), detalhe: !r.ok ? r.detalhe : null, log: r.log && r.log.length ? r.log : null };
     await carregarDrive();
     return r;
   }
@@ -473,14 +520,14 @@ export function montarAbaSalario({
       } else if (acao === 'ler-holerites-drive') await lerDoDrive();
       else if (acao === 'importar') el.querySelector('#slArquivo')?.click();
       else if (acao === 'novo-pagamento') abrirForm({ mes: String(dados.hoje || '').slice(0, 7), tipo: 'Mensal', status: 'Recebido' }, { origem: 'manual' });
-      else if (acao === 'cancelar-pagamento') { est.form = null; el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: null, drive: est.drive }); }
+      else if (acao === 'cancelar-pagamento') { est.form = null; el.querySelector('#slHolerite').innerHTML = htmlHolerite(dados, { form: null, drive: est.drive }); recolherCartoes(); }
       else if (acao === 'editar-pagamento') {
         const li = b.closest('[data-mes]');
         const p = dados.pagamentos.find((x) => x.mes === li.dataset.mes && x.tipo === li.dataset.tipo);
         if (p) abrirForm(p, { origem: 'editar', editando: true });
       } else if (acao === 'excluir-pagamento') {
         const li = b.closest('[data-mes]');
-        if (!confirmar(`Excluir ${li.dataset.tipo} de ${rotuloMes(li.dataset.mes)} da aba Salário?`)) return;
+        if (!(await confirmar(`Excluir ${li.dataset.tipo} de ${rotuloMes(li.dataset.mes)} da aba Salário?`))) return;
         let r;
         try { r = await excluirPagamentoImpl(token, li.dataset.mes, li.dataset.tipo); } catch (e) { r = { ok: false, erro: String(e) }; }
         if (aplicarResposta(r)) desenhar();
@@ -505,7 +552,7 @@ export function montarAbaSalario({
       else if (f && f.classList.contains('sl-extra')) {
         const v = lerValorBR(f.elements.valor.value);
         const p = lerValorBR(f.elements.pct.value);
-        f.querySelector('[data-out="investir"]').textContent = num(v) && num(p) ? `= ${brl((v * p) / 100)}` : '';
+        f.querySelector('[data-out="investir"]').textContent = num(v) && num(p) ? `= ${formatBRL((v * p) / 100)}` : '';
       }
     });
     el.addEventListener('submit', async (ev) => {
@@ -543,7 +590,7 @@ export function montarAbaSalario({
     });
   }
 
-  el.innerHTML = '<div class="carteiras-loading"><div class="og-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div><span class="skel" style="height:260px;border-radius:14px"></span></div>';
+  el.innerHTML = '<div class="og-carregando" aria-hidden="true"><div class="grid-kpi"><span class="skel"></span><span class="skel"></span><span class="skel"></span></div><span class="skel skel-bloco og-skel-260"></span></div>';
   const pronto = carregar();
   /** Rola até o card do holerite (o painel Documentos usa). */
   function rolarAteHolerite() {

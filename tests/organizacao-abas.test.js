@@ -104,8 +104,14 @@ test('Abas: Patrimônio | Gastos e Despesas | Renda e Orçamentos | Simulações
   const { doc, pagina } = await montar();
   const abas = [...doc.querySelectorAll('#ogAbas [data-aba]')];
   assert.deepEqual(abas.map((b) => b.dataset.aba), ['patrimonio', 'despesas', 'renda', 'simulacoes']);
-  assert.deepEqual(abas.map((b) => txt(b.querySelector('.og-aba-longo') || b)), ['Patrimônio', 'Gastos e Despesas', 'Renda e Orçamentos', 'Simulações']);
-  assert.equal(txt(abas[3].querySelector('.og-aba-curto')), 'Simular', 'rótulo curto no celular');
+  assert.deepEqual(abas.map((b) => txt(b)), ['Patrimônio', 'Gastos e Despesas', 'Renda e Orçamentos', 'Simulações']);
+  // 06/10/2026 (Onda 3): abas em pílula do kit (criarTabs) - role=tab, aria-selected e título da página "<Subaba> · <Seção> · Patrimônio"
+  assert.ok(doc.querySelector('#ogAbas.tabs-pilula[role="tablist"]'));
+  assert.deepEqual(abas.map((b) => b.getAttribute('aria-selected')), ['true', 'false', 'false', 'false']);
+  assert.equal(doc.title, 'Organização Financeira · Patrimônio', 'a subaba "Patrimônio" coincide com o nome do app e some do título');
+  pagina.mostrarAba('renda');
+  assert.equal(doc.title, 'Renda e Orçamentos · Organização Financeira · Patrimônio');
+  pagina.mostrarAba('patrimonio');
   assert.equal(pagina.abaAtual, 'patrimonio');
   assert.equal(doc.getElementById('painelPatrimonio').hidden, false);
   assert.equal(doc.getElementById('painelDespesas').hidden, true);
@@ -150,6 +156,16 @@ test('Gastos e Despesas: despesas essenciais "para a renda de emergência" + lin
   assert.equal(chamadas.patrimonio, 1, 'getPatrimonio uma vez só');
   assert.equal(chamadas.salario, 1, 'getSalario uma vez só');
   assert.equal(chamadas.gastos, 1, 'getGastos uma vez só (painel + seção)');
+});
+
+// 05/10/2026 (A-39): a carga inicial não repete as chamadas que o painel Documentos já pediu
+test('Carga inicial: cada ação (patrimônio, salário, gastos, Drive) é pedida uma vez só, mesmo com o "Atualizar dados" da 1ª pintura', async () => {
+  const { chamadas } = await montar('', { refresh: true });
+  await esperar(50);
+  assert.equal(chamadas.patrimonio, 1, 'getPatrimonio 1x');
+  assert.equal(chamadas.salario, 1, 'getSalario 1x');
+  assert.equal(chamadas.gastos, 1, 'getGastos 1x');
+  assert.equal(chamadas.drive, 1, 'getArquivosGastos 1x');
 });
 
 test('Renda e Orçamentos: seção Renda (salário pelo IR, crescimento), Carreira e FGTS movidos, orçamento do salário, quanto investe (um só) e contas', async () => {

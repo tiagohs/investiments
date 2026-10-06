@@ -192,19 +192,19 @@ test('analisarProventosMensais(): média x período anterior, último mês x mé
   assert.ok(a.pontos.length <= 4);
   const comp = a.pontos[0];
   assert.equal(comp.tom, 'bom');
-  assert.match(comp.texto, /Média de R\$ 156,36\/mês em out\/25 a ago\/26 \(meses fechados\) — 54% acima da média dos 11 meses anteriores \(R\$ 101,82\/mês\)/);
+  assert.match(comp.texto, /Média de R\$\s156,36\/mês em out\/25 a ago\/26 \(meses fechados\) — 54% acima da média dos 11 meses anteriores \(R\$\s101,82\/mês\)/);
   const ult = a.pontos.find((p) => p.tipo === 'ultimoMes');
   assert.equal(ult.tom, 'atencao');
-  assert.match(ult.texto, /Em ago\/26 entraram R\$ 40,00 — \d+% abaixo da média dos 12 meses anteriores/);
-  assert.ok(a.pontos.some((p) => p.tipo === 'pico' && /Mar\/26 foi fora da curva: R\$ 600,00/.test(p.texto)));
+  assert.match(ult.texto, /Em ago\/26 entraram R\$\s40,00 — \d+% abaixo da média dos 12 meses anteriores/);
+  assert.ok(a.pontos.some((p) => p.tipo === 'pico' && /Mar\/26 foi fora da curva: R\$\s600,00/.test(p.texto)));
   assert.equal(a.tom, 'neutro', 'comparação a favor + um alerta pontual');
-  assert.match(a.resumo, /^Média de R\$ 156,36\/mês, \+54% vs os 11 meses antes · ago\/26 abaixo da média$/);
+  assert.match(a.resumo, /^Média de R\$\s156,36\/mês, \+54% vs os 11 meses antes · ago\/26 abaixo da média$/);
   // janela sem nada recebido: sem pontos (a tela não mostra o card)
   assert.deepEqual(analisarProventosMensais({ porMes: {}, meses, mesAtual: '2026-09' }).pontos, []);
   // histórico curto: sem comparação com período anterior, mas com a média e o mês corrente
   const curto = analisarProventosMensais({ porMes: { '2026-08': 10, '2026-09': 4 }, meses, mesAtual: '2026-09', aReceberMes: 6 });
-  assert.match(curto.pontos[0].texto, /Média de R\$ 10,00\/mês em ago\/26 \(1 mês fechado\)/);
-  assert.ok(curto.pontos.some((p) => p.tipo === 'mesAtual' && /até agora: R\$ 4,00 recebidos \+ R\$ 6,00 anunciados a receber/.test(p.texto)));
+  assert.match(curto.pontos[0].texto, /Média de R\$\s10,00\/mês em ago\/26 \(1 mês fechado\)/);
+  assert.ok(curto.pontos.some((p) => p.tipo === 'mesAtual' && /até agora: R\$\s4,00 recebidos \+ R\$\s6,00 anunciados a receber/.test(p.texto)));
   // regularidade: todos os meses fechados com provento
   const reg = analisarProventosMensais({ porMes: Object.fromEntries(meses.map((m) => [m, 10])), meses, mesAtual: '2026-09' });
   assert.ok(reg.pontos.some((p) => p.tipo === 'regularidade' && p.tom === 'bom'));

@@ -28,10 +28,10 @@
  * Contas em patrimonio-calc.js; gráficos em patrimonio-graficos.js.
  */
 import { getPatrimonio, salvarPatrimonio, getArquivosIrPatrimonio, getArquivoIrPatrimonio } from '../api-client.js';
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, formatDMA, formatPct } from '../format.js';
 import { carregarPdfJs, extrairLinhasPdf } from './holerite.js';
 import { lerValorBR } from './organizacao-calc.js';
-import { ligarFiltroPeriodo } from '../periodo-personalizado.js';
+import { ligarFiltroPeriodo, rotuloPeriodo } from '../periodo-personalizado.js'; // 05/10/2026 (A-67): rótulos canônicos
 import { analisarSerie, renderAnalise } from '../analise-grafico.js';
 import { montarPatrimonioVsInflacao, seriesReais } from './patrimonio-inflacao.js';
 import {
@@ -40,16 +40,18 @@ import {
 import {
   mesDe, somarMeses, difMeses, balanco, historicoAnual, metaAposentadoria, aporteMedio, projetarAposentadoria, coastFi, idadeEm,
   liberacoesDividas, resumoFgts, projetarFgts, linhaSalarios, salarioEm, crescimentoSalario, origemCrescimento, parametrosDivida,
-  amortizarOuInvestir, cronogramaDivida, saldoFinanciamento, extrasFinanciamento, mesesRestantesFinanciamento, mesesRestantesFies,
+  amortizarOuInvestir, cronogramaDivida, saldoFinanciamento, extrasFinanciamento, financiamentoEfetivo, mesesRestantesFinanciamento, mesesRestantesFies,
   valorImovel, METODOS_IMOVEL, projetarFgtsMensal,
 } from './patrimonio-calc.js';
-import { graficoHistorico, graficoProjecao, graficoSalarios, barrasDivergentes, SERIES_HISTORICO, mil, brl0, mesAno } from './patrimonio-graficos.js';
+import { opcoesHistoricoPatrimonio, opcoesProjecaoPatrimonio, opcoesSalarios, barrasDivergentes, montarBarrasDivergentes, mil, brl0, mesAno } from './patrimonio-graficos.js';
+import { montarGrafico, limparGrafico } from './metas-graficos.js'; // 06/10/2026 (Onda 3): gerenciador de gráficos da biblioteca (cria e morfa)
+import { mostrarErroCarga } from '../ui/index.js';
+import { compAttr, montarComposicoes, kpiHtml, chipHtml, tornarRecolhiveis } from './organizacao-ui.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const brl = (v) => formatBRL(v);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
-const dataBR = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : (/^\d{4}-\d{2}$/.test(String(iso || '')) ? mesAno(iso) : ''); };
+const dataBR = (iso) => formatDMA(iso, '') || (/^\d{4}-\d{2}$/.test(String(iso || '')) ? mesAno(iso) : '');
 const anosTxt = (a) => (a == null ? '—' : `${formatNumeroBR(Math.abs(a), Math.abs(a) < 10 ? 1 : 0)} ${Math.abs(a) >= 2 || Math.abs(a) < 1 ? 'anos' : 'ano'}`);
 const mesesTxt = (m) => (m == null ? '—' : m >= 24 ? `${formatNumeroBR(m / 12, 1)} anos` : `${m} ${m === 1 ? 'mês' : 'meses'}`);
 const numCampo = (v, casas = 2) => (num(v) ? formatNumeroBR(v, casas) : '');
@@ -118,7 +120,7 @@ export function dicasAcelerar(ctx) {
   const g3 = ganho(rodar({ crescimentoAporte: 0.03 }));
   dicas.push({
     id: 'aumentos', titulo: 'Aumentos de salário', destaque: false,
-    html: `${cresc ? `Seu salário cresceu <b>${esc(pct(cresc.taxa, 1))} ao ano</b> nos últimos ${cresc.anos} anos. ` : ''}Se o aporte subir junto, <b>3% acima da inflação</b> por ano, você chega <b>${esc(anosTxt(g3))} antes</b>. Regra simples: metade de cada aumento vai pro aporte.`,
+    html: `${cresc ? `Seu salário cresceu <b>${esc(formatPct(cresc.taxa, 1))} ao ano</b> nos últimos ${cresc.anos} anos. ` : ''}Se o aporte subir junto, <b>3% acima da inflação</b> por ano, você chega <b>${esc(anosTxt(g3))} antes</b>. Regra simples: metade de cada aumento vai pro aporte.`,
   });
   const g1 = ganho(rodar({ rendimentoReal: rendimento + 0.01 }));
   dicas.push({
@@ -137,10 +139,11 @@ export function dicasAcelerar(ctx) {
   // FGTS no financiamento a cada 2 anos (descontando os saques-aniversário do caminho)
   const fg = ctx.fgts;
   const temFin = cfg.financiamento && num(cfg.financiamento.saldo);
-  const par = temFin ? parametrosDivida('financiamento', cfg.financiamento, d.hoje) : null;
+  const par = temFin ? parametrosDivida('financiamento', financiamentoEfetivo(cfg), d.hoje) : null;
   const efeitoAmortizar = (valor, mesAlvo) => {
     const faltam = Math.max(0, difMeses(d.hoje, mesAlvo));
-    const saldoLa = saldoFinanciamento(cfg.financiamento, mesAlvo, extrasFinanciamento(cfg.financiamento, cfg.fgts));
+    const finEf = financiamentoEfetivo(cfg);
+    const saldoLa = saldoFinanciamento(finEf, mesAlvo, extrasFinanciamento(finEf, cfg.fgts));
     const mesesLa = Math.max(1, (par.meses || 0) - faltam);
     const base2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa });
     const com2 = cronogramaDivida({ ...par, saldo: saldoLa, meses: mesesLa, extras: { 0: valor } });
@@ -157,7 +160,7 @@ export function dicasAcelerar(ctx) {
     const saiu = proj.saques.reduce((s, x) => s + x.valor, 0);
     dicas.push({
       id: 'fgts', titulo: 'FGTS no financiamento', destaque: true,
-      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Amortizando no prazo (a Caixa recalcula o prazo e a prestação não sobe), isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(pct(cfg.financiamento.taxaAnual, 2))} + TR.`,
+      html: `A Caixa libera o FGTS pra amortizar a cada 2 anos. ${fg.ultimoUsoMoradia ? `O último uso foi em ${esc(mesAno(mesDe(fg.ultimoUsoMoradia.data)))}, então o próximo é` : 'O próximo pode ser'} em <b>${esc(mesAno(mesProx))}</b>, com uns <b>${esc(mil(proj.saldo))}</b> (8% do salário por mês + juros${proj.saques.length ? `, já descontando ${proj.saques.length} ${proj.saques.length === 1 ? 'saque-aniversário' : 'saques-aniversário'} no caminho, ~${esc(mil(saiu))}` : ''}). Amortizando no prazo (a Caixa recalcula o prazo e a prestação não sobe), isso tira <b>${esc(mesesTxt(ef.meses))}</b> do financiamento e <b>${esc(mil(ef.juros))} de juros</b>. Parado, o FGTS rende ~3% + TR (+ a distribuição de lucro); o financiamento custa ${esc(formatPct(cfg.financiamento.taxaAnual, 2))} + TR.`,
     });
   }
   const aniv = fg && fg.aniversario;
@@ -166,11 +169,11 @@ export function dicasAcelerar(ctx) {
     const est = aniv.estimado;
     const valor = est ? est.valor : hoje.valor;
     const ef = temFin ? efeitoAmortizar(valor, aniv.proximo) : null;
-    const faixa = (x) => `${formatNumeroBR(x.aliquota * 100, 0)}% do saldo + ${brl(x.adicional)}`;
+    const faixa = (x) => `${formatNumeroBR(x.aliquota * 100, 0)}% do saldo + ${formatBRL(x.adicional)}`;
     const mudaFaixa = est && est.aliquota !== hoje.aliquota;
     dicas.push({
       id: 'aniversario', titulo: 'Saque-aniversário', destaque: true,
-      html: `Cai em <b>${esc(mesAno(aniv.proximo))}</b> (do 1º dia útil até o fim de ${esc(mesAno(aniv.ate))}). Com o saldo de hoje (${esc(brl(hoje.saldo))}) dá <b>${esc(brl(hoje.valor))}</b> (${esc(faixa(hoje))}) - é o que o app do FGTS simula. Mas o valor é calculado com o saldo do dia do saque${est ? `: com os depósitos e o juro que entram até lá, o saldo vai a ~${esc(brl0(est.saldo))}${mudaFaixa ? ', passa pra faixa de cima' : ''} e o saque fica em <b>~${esc(brl0(est.valor))}</b> (${esc(faixa(est))})` : ''}. ${ef ? `Mande direto pro financiamento como amortização extra (com dinheiro não tem a espera de 2 anos): tira <b>${esc(mesesTxt(ef.meses))}</b> e <b>${esc(mil(ef.juros))} de juros</b>.` : 'Invista ou amortize - não deixe na conta.'} <b>Não antecipe</b> (os bancos cobram ~1,3% ao mês). O preço dessa modalidade: numa demissão sem justa causa você saca só a multa de 40%, o saldo fica preso (pra moradia continua valendo), e voltar pro saque-rescisão leva 25 meses. Com a sua reserva de ${esc(num(d.investimentos && d.investimentos.reserva) && d.despesas && d.despesas.totalComFolga ? formatNumeroBR(d.investimentos.reserva / d.despesas.totalComFolga, 1) : '?')} meses e o FGTS indo pro apê de qualquer jeito, ficar vale a pena - desde que o dinheiro vá pro financiamento.`,
+      html: `Cai em <b>${esc(mesAno(aniv.proximo))}</b> (do 1º dia útil até o fim de ${esc(mesAno(aniv.ate))}). Com o saldo de hoje (${esc(formatBRL(hoje.saldo))}) dá <b>${esc(formatBRL(hoje.valor))}</b> (${esc(faixa(hoje))}) - é o que o app do FGTS simula. Mas o valor é calculado com o saldo do dia do saque${est ? `: com os depósitos e o juro que entram até lá, o saldo vai a ~${esc(brl0(est.saldo))}${mudaFaixa ? ', passa pra faixa de cima' : ''} e o saque fica em <b>~${esc(brl0(est.valor))}</b> (${esc(faixa(est))})` : ''}. ${ef ? `Mande direto pro financiamento como amortização extra (com dinheiro não tem a espera de 2 anos): tira <b>${esc(mesesTxt(ef.meses))}</b> e <b>${esc(mil(ef.juros))} de juros</b>.` : 'Invista ou amortize - não deixe na conta.'} <b>Não antecipe</b> (os bancos cobram ~1,3% ao mês). O preço dessa modalidade: numa demissão sem justa causa você saca só a multa de 40%, o saldo fica preso (pra moradia continua valendo), e voltar pro saque-rescisão leva 25 meses. Com a sua reserva de ${esc(num(d.investimentos && d.investimentos.reserva) && d.despesas && d.despesas.totalComFolga ? formatNumeroBR(d.investimentos.reserva / d.despesas.totalComFolga, 1) : '?')} meses e o FGTS indo pro apê de qualquer jeito, ficar vale a pena - desde que o dinheiro vá pro financiamento.`,
     });
   }
   // amortizar ou investir: dívidas
@@ -179,15 +182,15 @@ export function dicasAcelerar(ctx) {
     const taxaAno = (1 + cfg.fies.taxaMensal) ** 12 - 1;
     dicas.push({
       id: 'fies', titulo: 'FIES: não precisa antecipar', destaque: false,
-      html: `O FIES custa <b>~${esc(pct(taxaAno, 1))} ao ano</b>${cdiLiq ? `, bem menos que o CDI líquido de hoje (~${esc(pct(cdiLiq, 1))})` : ''}: investir o dinheiro rende mais do que quitar antes. Deixe ele terminar no prazo (${esc(mesAno(cfg.fies.fim || ''))}).`,
+      html: `O FIES custa <b>~${esc(formatPct(taxaAno, 1))} ao ano</b>${cdiLiq ? `, bem menos que o CDI líquido de hoje (~${esc(formatPct(cdiLiq, 1))})` : ''}: investir o dinheiro rende mais do que quitar antes. Deixe ele terminar no prazo (${esc(mesAno(cfg.fies.fim || ''))}).`,
     });
   }
   if (cfg.financiamento && num(cfg.financiamento.saldo)) {
-    const r = amortizarOuInvestir(parametrosDivida('financiamento', cfg.financiamento, d.hoje), { valor: 10000, rendimentoAnual: cdiLiq || 0.1 });
+    const r = amortizarOuInvestir(parametrosDivida('financiamento', financiamentoEfetivo(cfg), d.hoje), { valor: 10000, rendimentoAnual: cdiLiq || 0.1 });
     if (r && r.taxaEmpate) {
       dicas.push({
         id: 'amortizar', titulo: 'Financiamento: amortizar ou investir?', destaque: false,
-        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(pct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(pct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule na aba Simulações ›</a>`,
+        html: `Amortizar o apê só perde pra investir se o investimento render mais que <b>~${esc(formatPct(r.taxaEmpate, 1))} líquido ao ano</b>${cdiLiq ? ` (o CDI líquido está em ~${esc(formatPct(cdiLiq, 1))})` : ''}. R$ 10 mil a mais hoje tiram ${esc(mesesTxt(r.mesesAMenos))} e <b>${esc(mil(r.jurosEconomizados))} de juros</b>. <a href="#simulador" class="pt-link">Simule na aba Simulações ›</a>`,
       });
     }
   }
@@ -195,12 +198,12 @@ export function dicasAcelerar(ctx) {
   const c4 = rodar({ alvo: alvo4 });
   dicas.push({
     id: 'saque', titulo: 'Quanto sacar por ano', destaque: false,
-    html: `A meta usa <b>${esc(pct(meta.taxa, 0))} ao ano</b> (o rendimento da aba Distribuição e Metas da planilha). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
+    html: `A meta usa <b>${esc(formatPct(meta.taxa, 0))} ao ano</b> (o rendimento da aba Distribuição e Metas da planilha). A regra mais usada pra o dinheiro não acabar é <b>4%</b>: a meta vira ${esc(mil(alvo4))}${base != null && c4 != null ? `, ${esc(anosTxt((c4 - base) / 12))} a mais` : ''}. 5% é um meio-termo comum com renda fixa brasileira (IPCA+). Isso vai pra tela de Metas.`,
   });
   if (num(ctx.coast)) {
     dicas.push({
       id: 'coast', titulo: 'Coast FI', destaque: false,
-      html: `Com <b>${esc(mil(ctx.coast))}</b> investidos você já poderia parar de aportar e ainda chegar na meta aos ${esc(p.idadeAlvo)} (só com o rendimento). Hoje você tem <b>${esc(pct(inicial / ctx.coast, 0))}</b> disso.`,
+      html: `Com <b>${esc(mil(ctx.coast))}</b> investidos você já poderia parar de aportar e ainda chegar na meta aos ${esc(p.idadeAlvo)} (só com o rendimento). Hoje você tem <b>${esc(formatPct(inicial / ctx.coast, 0))}</b> disso.`,
     });
   }
   const inv = d.investimentos || {};
@@ -229,35 +232,38 @@ export function htmlHero(ctx) {
     ...b.ativos.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'imovel' ? 'var(--pt-imo)' : a.id === 'fgts' ? 'var(--pt-fgts)' : a.outro ? 'var(--pt-out)' : 'var(--pt-inv)' })),
     ...b.dividas.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)' })),
   ].filter((x) => x.valor > 0);
-  const tot = partes.reduce((s, x) => s + x.valor, 0) || 1;
   const legenda = [
     { nome: 'Investimentos e reserva', cor: 'var(--pt-inv)', valor: b.ativos.filter((a) => a.id === 'investimentos' || a.id === 'reserva').reduce((s, a) => s + a.valor, 0) },
     ...b.ativos.filter((a) => a.id === 'imovel' || a.id === 'fgts').map((a) => ({ nome: a.nome, cor: a.id === 'imovel' ? 'var(--pt-imo)' : 'var(--pt-fgts)', valor: a.valor })),
     ...(b.ativos.some((a) => a.outro) ? [{ nome: 'Outros bens', cor: 'var(--pt-out)', valor: b.ativos.filter((a) => a.outro).reduce((s, a) => s + a.valor, 0) }] : []),
     ...b.dividas.map((a) => ({ nome: a.nome, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)', valor: -a.valor })),
   ].filter((x) => x.valor);
-  return `
-    <div class="pt-hero-num">
-      <span class="pt-rot">Patrimônio líquido hoje</span>
-      <span class="pt-grande">${esc(mil(b.liquido))}</span>
-      <span class="pt-hero-sub">${num(delta) ? `<span class="pt-pill ${delta >= 0 ? 'good' : 'bad'}">${delta >= 0 ? '+' : '−'}${esc(mil(Math.abs(delta)).replace('−', ''))} desde dez/${esc(ultimoAno.ano)}</span>` : ''}
-        ${primeiro && !primeiro.hoje ? ` Era <b>${esc(mil(primeiro.liquido))}</b> no fim de ${esc(primeiro.ano)}.` : ''}</span>
-    </div>
-    <div class="pt-hero-eq">
-      <div class="pt-eq">
-        <div class="pt-eq-item"><span class="pt-rot">Tudo que você tem</span><b>${esc(mil(b.totalAtivos))}</b></div><span class="pt-eq-op" aria-hidden="true">−</span>
-        <div class="pt-eq-item"><span class="pt-rot">Tudo que você deve</span><b>${esc(mil(b.totalDividas))}</b></div><span class="pt-eq-op" aria-hidden="true">=</span>
-        <div class="pt-eq-item"><span class="pt-rot">É seu de verdade</span><b>${esc(mil(b.liquido))}</b><small>${esc(pct(b.totalAtivos ? b.liquido / b.totalAtivos : null, 0))} do que você tem</small></div>
-      </div>
-      <div class="pt-barra-bal" role="img" aria-label="${esc(partes.map((x) => `${x.nome} ${brl0(x.valor)}`).join(', '))}">${partes.map((x) => `<span style="width:${((x.valor / tot) * 100).toFixed(2)}%;background:${x.cor}" title="${esc(`${x.nome}: ${brl0(x.valor)}`)}"></span>`).join('')}</div>
-      <div class="pt-leg">${legenda.map((x) => `<span><i style="background:${x.cor}"></i>${esc(x.nome)} <b>${esc(mil(x.valor))}</b></span>`).join('')}</div>
-    </div>`;
+  const deltaChip = num(delta) ? chipHtml(delta >= 0 ? 'good' : 'bad', `${delta >= 0 ? '+' : '−'}${esc(mil(Math.abs(delta)).replace('−', ''))} desde dez/${esc(ultimoAno.ano)}`, delta >= 0 ? 'north-east' : 'south-east') : '';
+  const era = primeiro && !primeiro.hoje ? `Era <b>${esc(mil(primeiro.liquido))}</b> no fim de ${esc(primeiro.ano)}.` : '';
+  return `<div class="grid-kpi pt-kpis">
+    ${kpiHtml({ classe: 'pt-kpi-liq', rotulo: 'Patrimônio líquido hoje', valorHtml: esc(mil(b.liquido)), extraHtml: deltaChip ? `<div class="pt-kpi-chip">${deltaChip}</div>` : '', subHtml: era })}
+    ${kpiHtml({ rotulo: 'Tudo que você tem', valorHtml: esc(mil(b.totalAtivos)) })}
+    ${kpiHtml({ rotulo: 'Tudo que você deve', valorHtml: esc(mil(b.totalDividas)) })}
+    ${kpiHtml({ rotulo: 'É seu de verdade', valorHtml: esc(mil(b.liquido)), subHtml: `${esc(formatPct(b.totalAtivos ? b.liquido / b.totalAtivos : null, 0))} do que você tem` })}
+  </div>
+  <div class="card pt-pad pt-composicao">
+    <div class="pt-barra-bal" ${compAttr(partes.map((x, i) => ({ ...x, id: `p${i}` })))}></div>
+    <div class="pt-leg">${legenda.map((x) => `<span><span class="pt-leg-cor" style="--cor:${x.cor}"></span>${esc(x.nome)} <b>${esc(mil(x.valor))}</b></span>`).join('')}</div>
+  </div>`;
 }
 
 const pillEditar = (acao, rot = 'editar') => `<button type="button" class="pt-mini" data-acao="${esc(acao)}">${esc(rot)}</button>`;
 const pillFalta = (acao, rot = 'informar') => `<button type="button" class="pt-mini falta" data-acao="${esc(acao)}">${esc(rot)}</button>`;
 function linhaBal({ cor, nome, sub, valor, vsub = '', acao = '' }) {
   return `<div class="pt-linha"><i style="background:${cor}"></i><span class="pt-linha-n"><b>${esc(nome)}${acao}</b><small>${sub}</small></span><span class="pt-linha-v">${valor}${vsub ? `<small>${vsub}</small>` : ''}</span></div>`;
+}
+
+/** 05/10/2026 (A-07): sem a data de início do financiamento o histórico é estimado - a tela diz isso. */
+function avisoInicioFinanciamento(cfg) {
+  const f = cfg && cfg.financiamento;
+  if (!f || f.dataInicio) return '';
+  const compra = cfg.imovel && cfg.imovel.dataCompra;
+  return compra ? ` · ⚠ sem data de início do financiamento: histórico estimado desde a compra do apê (${mesAno(compra)})` : ' · ⚠ sem data de início do financiamento: o histórico da dívida é só uma estimativa (edite e informe o mês)';
 }
 
 export function htmlBalanco(ctx) {
@@ -275,7 +281,7 @@ export function htmlBalanco(ctx) {
   const imo = achar('imovel');
   if (imo) {
     const v = imo.imovel;
-    const origem = v.metodo === 'manual' ? 'valor que você informou' : v.metodo === 'compra' ? 'valor de compra (sem índice)' : `${METODOS_IMOVEL[v.metodo]} · ${v.valorizacao >= 0 ? '+' : ''}${pct(v.valorizacao, 1)} desde a compra`;
+    const origem = v.metodo === 'manual' ? 'valor que você informou' : v.metodo === 'compra' ? 'valor de compra (sem índice)' : `${METODOS_IMOVEL[v.metodo]} · ${v.valorizacao >= 0 ? '+' : ''}${formatPct(v.valorizacao, 1)} desde a compra`;
     ativos.push(linhaBal({ cor: 'var(--pt-imo)', nome: imo.nome, sub: esc(`comprado por ${mil(v.compra)} em ${mesAno(cfg.imovel.dataCompra)} · ${origem}`), valor: esc(brl0(imo.valor)), vsub: 'valor de mercado estimado', acao: pillEditar('editar:imovel') }));
   } else ativos.push(linhaBal({ cor: 'var(--pt-imo)', nome: 'Apartamento', sub: 'valor de compra e mês - o site corrige pelos índices', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('editar:imovel') }));
   const fg = achar('fgts');
@@ -291,8 +297,8 @@ export function htmlBalanco(ctx) {
     const n = mesesRestantesFinanciamento({ ...f, saldo: fin.valor });
     dividas.push(linhaBal({
       cor: 'var(--pt-div1)', nome: `Financiamento do apê${f.banco ? ` (${f.banco})` : ''}`,
-      sub: esc(`${num(f.taxaAnual) ? `${pct(f.taxaAnual, 2)} a.a.${f.indexador ? ` + ${f.indexador}` : ''} · ` : ''}${f.sistema || 'SAC'}${n ? ` · ${n} parcelas (até ${mesAno(somarMeses(d.hoje, n))})` : ''}`),
-      valor: esc(brl0(fin.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${brl(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:financiamento'),
+      sub: esc(`${num(f.taxaAnual) ? `${formatPct(f.taxaAnual, 2)} a.a.${f.indexador ? ` + ${f.indexador}` : ''} · ` : ''}${f.sistema || 'SAC'}${n ? ` · ${n} parcelas (até ${mesAno(somarMeses(d.hoje, n))})` : ''}${avisoInicioFinanciamento(cfg)}`),
+      valor: esc(brl0(fin.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${formatBRL(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:financiamento'),
     }));
   } else dividas.push(linhaBal({ cor: 'var(--pt-div1)', nome: 'Financiamento do apê', sub: 'importe o "Demonstrativo de Evolução" da Caixa ou digite', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('editar:financiamento') }));
   const fi = achar('fies');
@@ -301,8 +307,8 @@ export function htmlBalanco(ctx) {
     const taxaAno = num(f.taxaMensal) ? (1 + f.taxaMensal) ** 12 - 1 : null;
     dividas.push(linhaBal({
       cor: 'var(--pt-div2)', nome: `FIES${f.banco ? ` (${f.banco})` : ''}`,
-      sub: esc(`${taxaAno != null ? `~${pct(taxaAno, 1)} a.a. · ` : ''}Price · ${mesesRestantesFies(f, d.hoje) || '?'} parcelas (até ${mesAno(f.fim)})`),
-      valor: esc(brl0(fi.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${brl(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:fies'),
+      sub: esc(`${taxaAno != null ? `~${formatPct(taxaAno, 1)} a.a. · ` : ''}Price · ${mesesRestantesFies(f, d.hoje) || '?'} parcelas (até ${mesAno(f.fim)})`),
+      valor: esc(brl0(fi.valor)), vsub: esc(`${num(f.parcela) ? `parcela ${formatBRL(f.parcela)} · ` : ''}extrato de ${dataBR(f.dataSaldo)}, anda sozinho`), acao: pillEditar('editar:fies'),
     }));
   }
   b.dividas.filter((a) => a.outro).forEach((a) => dividas.push(linhaBal({ cor: 'var(--pt-div2)', nome: a.nome, sub: esc(a.outro.obs || 'outra dívida'), valor: esc(brl0(a.valor)) })));
@@ -310,8 +316,8 @@ export function htmlBalanco(ctx) {
   const apHtml = ap && ap.valor > 0 ? `
     <div class="pt-apto">
       <b>Quanto do apê já é seu</b>
-      <div class="pt-apto-barra" role="img" aria-label="${esc(`${pct(ap.pct, 0)} é seu, ${brl0(ap.saldo)} ainda é do banco`)}"><span style="width:${(Math.max(0, ap.pct) * 100).toFixed(2)}%;background:var(--pt-imo)"></span><span style="width:${((ap.saldo / ap.valor) * 100).toFixed(2)}%;background:var(--pt-div1)"></span></div>
-      <span><b class="pt-num">${esc(brl0(ap.seu))}</b> (${esc(pct(ap.pct, 0))}) é seu · ${esc(brl0(ap.saldo))} ainda é do banco.${num(cfg.financiamento && cfg.financiamento.amortizacao) ? ` Cada parcela abate <b class="pt-num">${esc(brl(cfg.financiamento.amortizacao))}</b> da dívida; o resto é juros, seguro e taxa.` : ''}</span>
+      <div class="pt-apto-barra" ${compAttr([{ id: 'seu', nome: 'É seu', valor: Math.max(0, ap.seu), cor: 'var(--pt-imo)' }, { id: 'banco', nome: 'Ainda é do banco', valor: Math.max(0, ap.saldo), cor: 'var(--pt-div1)' }])}></div>
+      <span><b class="pt-num">${esc(brl0(ap.seu))}</b> (${esc(formatPct(ap.pct, 0))}) é seu · ${esc(brl0(ap.saldo))} ainda é do banco.${num(cfg.financiamento && cfg.financiamento.amortizacao) ? ` Cada parcela abate <b class="pt-num">${esc(formatBRL(cfg.financiamento.amortizacao))}</b> da dívida; o resto é juros, seguro e taxa.` : ''}</span>
     </div>` : '';
   return `
     <div><h3>O que você tem <span>${esc(mil(b.totalAtivos))}</span></h3>${ativos.join('')}</div>
@@ -321,11 +327,11 @@ export function htmlBalanco(ctx) {
 export function htmlHistoricoTabela(hist) {
   const linhas = hist.map((l) => `<tr${l.hoje ? ' class="pt-hoje"' : ''}>
     <td class="esq"><b>${esc(l.hoje ? 'Hoje' : l.ano)}</b>${l.compraImovel ? '<small>compra do apê</small>' : ''}${l.entradaImovel ? '<small>entrada do apê (FGTS)</small>' : ''}${l.fgtsNoApe > 0 ? `<small>FGTS usado na amortização do apê: ${esc(brl0(l.fgtsNoApe))} (transferência)</small>` : ''}${l.fonte === 's' ? '<small>pelo site</small>' : ''}</td>
-    <td>${esc(brl0(l.ativos))}</td><td>${l.dividas ? `−${esc(brl0(l.dividas))}` : '—'}</td><td><b>${esc(brl0(l.liquido))}</b></td>
-    <td class="${num(l.noAno) ? (l.noAno >= 0 ? 'good' : 'bad') : ''}">${num(l.noAno) ? `${l.noAno >= 0 ? '+' : '−'}${esc(brl0(Math.abs(l.noAno)))}` : '—'}</td>
-    <td>${num(l.renda) ? esc(brl0(l.renda)) : '<span class="pt-fraco">—</span>'}</td>
-    <td>${num(l.convertido) ? (l.compraImovel ? '<span class="pt-fraco">(apê)</span>' : esc(pct(l.convertido, 0))) : '<span class="pt-fraco">—</span>'}</td></tr>`).join('');
-  return `<table class="pt-tab"><thead><tr><th class="esq">Ano</th><th>O que tinha</th><th>O que devia</th><th>Líquido</th><th>No ano</th><th>Renda bruta (IR)</th><th>Virou patrimônio</th></tr></thead><tbody>${linhas}</tbody></table>`;
+    <td class="num col-opc">${esc(brl0(l.ativos))}</td><td class="num col-opc">${l.dividas ? `−${esc(brl0(l.dividas))}` : '—'}</td><td class="num"><b>${esc(brl0(l.liquido))}</b></td>
+    <td class="num ${num(l.noAno) ? (l.noAno >= 0 ? 'good' : 'bad') : ''}">${num(l.noAno) ? `${l.noAno >= 0 ? '+' : '−'}${esc(brl0(Math.abs(l.noAno)))}` : '—'}</td>
+    <td class="num col-opc">${num(l.renda) ? esc(brl0(l.renda)) : '<span class="pt-fraco">—</span>'}</td>
+    <td class="num col-opc">${num(l.convertido) ? (l.compraImovel ? '<span class="pt-fraco">(apê)</span>' : esc(formatPct(l.convertido, 0))) : '<span class="pt-fraco">—</span>'}</td></tr>`).join('');
+  return `<table class="tabela tabela-baixa pt-tab"><thead><tr><th scope="col">Ano</th><th scope="col" class="num col-opc">O que tinha</th><th scope="col" class="num col-opc">O que devia</th><th scope="col" class="num">Líquido</th><th scope="col" class="num">No ano</th><th scope="col" class="num col-opc">Renda bruta (IR)</th><th scope="col" class="num col-opc">Virou patrimônio</th></tr></thead><tbody>${linhas}</tbody></table>`;
 }
 
 export function htmlHistoricoNota(ctx) {
@@ -350,31 +356,31 @@ export function htmlCrescimento(o) {
     <p class="pt-nota">De ${esc(mesAno(o.de))} a ${esc(mesAno(o.ate))} o patrimônio líquido ${o.total >= 0 ? 'cresceu' : 'caiu'} <b class="pt-num">${esc(brl0(Math.abs(o.total)))}</b>. "Dívidas abatidas" é o saldo que caiu (parcelas + amortizações extras).${(o.transferencias || []).map((t) => ` <b>${esc(t.nome)}: ${esc(brl0(t.valor))}</b> - é transferência (saiu do FGTS e abateu a dívida do mesmo tamanho), não é perda nem entra nas barras.`).join('')}</p>`;
 }
 
-export function htmlCarreira(ctx, largura = 520) {
+export function htmlCarreira(ctx) {
   const car = ctx.cfg.carreira;
   const linha = linhaSalarios(car);
   if (!linha.length) {
-    return { html: `<div class="pt-card-cab"><h3>Carreira</h3></div><p class="pt-nota">Importe a Carteira de Trabalho Digital (app ou gov.br → Contratos de trabalho → PDF): o site monta a linha do salário e usa no FGTS e nos cenários.</p><button type="button" class="btn btn-ghost pt-btn-sm" data-acao="importar">Importar PDF</button>`, dicas: [] };
+    return { html: `<div class="pt-card-cab"><h3>Carreira</h3></div><p class="pt-nota">Importe a Carteira de Trabalho Digital (app ou gov.br → Contratos de trabalho → PDF): o site monta a linha do salário e usa no FGTS e nos cenários.</p><button type="button" class="btn btn-outlined btn-sm" data-acao="importar">Importar PDF</button>`, dicas: [] };
   }
-  const g = graficoSalarios(linha, car.contratos, { largura, hoje: ctx.d.hoje });
+  const spec = opcoesSalarios(linha, car.contratos, { hoje: ctx.d.hoje });
   const c5 = crescimentoSalario(car, ctx.d.hoje, 5);
   const atual = linha[linha.length - 1];
   const cargo = (car.contratos || []).flatMap((c) => c.cargos || []).filter((x) => !x.fim).pop();
   return {
     html: `<div class="pt-card-cab"><h3>Carreira</h3><span class="pt-hint">salário contratual, pela Carteira de Trabalho</span></div>
-      <div class="pt-mini-tiles">
-        <div><span class="pt-rot">Hoje</span><b>${esc(brl0(atual.valor))}</b><small>${esc(cargo ? cargo.cargo.toLowerCase() : atual.empregador)}</small></div>
-        <div><span class="pt-rot">Cresceu</span><b>${c5 ? esc(`${pct(c5.taxa, 1)}/ano`) : '—'}</b><small>${c5 ? `nos últimos ${c5.anos} anos (de ${esc(mil(c5.antes))})` : ''}</small></div>
-        <div><span class="pt-rot">Empresas</span><b>${(car.contratos || []).length}</b><small>desde ${esc(mesAno(mesDe(linha[0].data)))}</small></div>
+      <div class="grid-kpi pt-kpis-3">
+        ${kpiHtml({ rotulo: 'Hoje', valorHtml: esc(brl0(atual.valor)), subHtml: esc(cargo ? cargo.cargo.toLowerCase() : atual.empregador) })}
+        ${kpiHtml({ rotulo: 'Cresceu', valorHtml: c5 ? esc(`${formatPct(c5.taxa, 1)}/ano`) : '—', subHtml: c5 ? `nos últimos ${c5.anos} anos (de ${esc(mil(c5.antes))})` : '' })}
+        ${kpiHtml({ rotulo: 'Empresas', valorHtml: String((car.contratos || []).length), subHtml: `desde ${esc(mesAno(mesDe(linha[0].data)))}` })}
       </div>
-      <div class="pt-grafico" data-grafico="sal">${g.svg}<div class="pt-tt" hidden></div></div>`,
-    dicas: g.dicas,
+      <div class="pt-grafico" id="ptGSal"></div>`,
+    spec,
   };
 }
 
 export function htmlFgts(ctx) {
   const fg = ctx.fgts;
-  if (!fg) return `<div class="pt-card-cab"><h3>FGTS</h3></div><p class="pt-nota">Importe os extratos do app FGTS (um PDF por empresa, inclusive as antigas): saldo, quanto foi pro apê, saques e a próxima vez que dá pra amortizar.</p><button type="button" class="btn btn-ghost pt-btn-sm" data-acao="importar">Importar extratos</button>`;
+  if (!fg) return `<div class="pt-card-cab"><h3>FGTS</h3></div><p class="pt-nota">Importe os extratos do app FGTS (um PDF por empresa, inclusive as antigas): saldo, quanto foi pro apê, saques e a próxima vez que dá pra amortizar.</p><button type="button" class="btn btn-outlined btn-sm" data-acao="importar">Importar extratos</button>`;
   const destino = [
     { id: 'moradia', nome: 'Usado na amortização do apê', valor: fg.usadoMoradia, cor: 'var(--pt-imo)' },
     ...Object.entries(fg.saques).filter(([k, v]) => k !== 'moradia' && v > 0).map(([k, v]) => ({ id: k, nome: `Sacado: ${MOTIVOS_SAQUE_FGTS[k] || k}`, valor: v, cor: 'var(--pt-div2)' })),
@@ -382,12 +388,12 @@ export function htmlFgts(ctx) {
   ].filter((x) => x.valor > 0);
   const prox = fg.proximaAmortizacao < mesDe(ctx.d.hoje) ? 'já pode' : mesAno(fg.proximaAmortizacao);
   return `<div class="pt-card-cab"><h3>FGTS</h3><span class="pt-hint">${esc(`${(ctx.cfg.fgts.contas || []).length} contas, desde ${mesAno(mesDe(fg.desde))}`)}</span></div>
-    <div class="pt-mini-tiles">
-      <div><span class="pt-rot">Saldo</span><b>${esc(brl0(fg.saldo))}</b><small>${esc(fg.contaAtiva ? fg.contaAtiva.empregador : '')}</small></div>
-      <div><span class="pt-rot">Já entrou</span><b>${esc(mil(fg.depositos + fg.rendimentos))}</b><small>${esc(mil(fg.depositos))} depósitos + ${esc(mil(fg.rendimentos))} de juros</small></div>
-      <div><span class="pt-rot">Próximo uso no apê</span><b>${esc(prox)}</b><small>a Caixa libera a cada 2 anos</small></div>
+    <div class="grid-kpi pt-kpis-3">
+      ${kpiHtml({ rotulo: 'Saldo', valorHtml: esc(brl0(fg.saldo)), subHtml: esc(fg.contaAtiva ? fg.contaAtiva.empregador : '') })}
+      ${kpiHtml({ rotulo: 'Já entrou', valorHtml: esc(mil(fg.depositos + fg.rendimentos)), subHtml: `${esc(mil(fg.depositos))} depósitos + ${esc(mil(fg.rendimentos))} de juros` })}
+      ${kpiHtml({ rotulo: 'Próximo uso no apê', valorHtml: esc(prox), subHtml: 'a Caixa libera a cada 2 anos' })}
     </div>
-    ${fg.aniversario && fg.aniversario.ativo && fg.aniversario.proximo ? `<p class="pt-nota">Saque-aniversário: <b>${esc(mesAno(fg.aniversario.proximo))}</b>, ~<b class="pt-num">${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).valor))}</b> (${esc(formatNumeroBR((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).aliquota * 100, 0))}% do saldo + ${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).adicional))}). Pelo saldo de hoje o app do FGTS mostra ${esc(brl(fg.aniversario.comSaldoDeHoje.valor))}.</p>` : ''}
+    ${fg.aniversario && fg.aniversario.ativo && fg.aniversario.proximo ? `<p class="pt-nota">Saque-aniversário: <b>${esc(mesAno(fg.aniversario.proximo))}</b>, ~<b class="pt-num">${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).valor))}</b> (${esc(formatNumeroBR((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).aliquota * 100, 0))}% do saldo + ${esc(brl0((fg.aniversario.estimado || fg.aniversario.comSaldoDeHoje).adicional))}). Pelo saldo de hoje o app do FGTS mostra ${esc(formatBRL(fg.aniversario.comSaldoDeHoje.valor))}.</p>` : ''}
     <p class="pt-sub-t">Pra onde foi</p>
     ${barrasDivergentes(destino, { sinal: false })}`;
 }
@@ -400,51 +406,26 @@ export function htmlFgts(ctx) {
  * aoAcao('importar') leva pra importação de documentos (aba Patrimônio).
  *   const cf = montarCarreiraFgts(raiz, { doc, aoAcao });  cf.atualizar(ctx);
  */
-export function montarCarreiraFgts(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null } = {}) {
-  const win = doc && doc.defaultView;
+export function montarCarreiraFgts(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null } = {}) { // eslint-disable-line no-unused-vars
   let ctx = null;
-  const dicas = {};
   raiz.innerHTML = `<section class="pt-sec" id="ptSecCarreira"><div class="pt-sec-cab"><h2>Carreira e FGTS</h2><span class="pt-hint">pela Carteira de Trabalho e pelos extratos do FGTS</span></div>
-      <div class="pt-duas"><div class="pt-card pt-pad" id="ptCarreira"><span class="skel" style="height:180px;border-radius:12px"></span></div><div class="pt-card pt-pad" id="ptFgts"><span class="skel" style="height:180px;border-radius:12px"></span></div></div></section>`;
-  const largura = () => { const e = raiz.querySelector('#ptCarreira'); return (e && e.clientWidth) || 520; };
+      <div class="pt-duas"><div class="card pt-card pt-pad" id="ptCarreira"><span class="skel skel-bloco og-skel-180"></span></div><div class="card pt-card pt-pad" id="ptFgts"><span class="skel skel-bloco og-skel-180"></span></div></div></section>`;
   function desenhar() {
     if (!ctx) return;
-    const car = htmlCarreira(ctx, largura() - 32);
-    raiz.querySelector('#ptCarreira').innerHTML = car.html;
-    dicas.sal = car.dicas;
-    raiz.querySelector('#ptFgts').innerHTML = htmlFgts(ctx);
+    const car = htmlCarreira(ctx);
+    const boxCar = raiz.querySelector('#ptCarreira');
+    limparGrafico(boxCar.querySelector('#ptGSal'));
+    boxCar.innerHTML = car.html;
+    const caixa = boxCar.querySelector('#ptGSal');
+    if (caixa && car.spec) montarGrafico(caixa, car.spec);
+    const boxFgts = raiz.querySelector('#ptFgts');
+    boxFgts.innerHTML = htmlFgts(ctx);
+    montarBarrasDivergentes(boxFgts);
   }
-  function mostrar(alvo) {
-    const box = alvo.closest('[data-grafico]');
-    const tt = box && box.querySelector('.pt-tt');
-    const html = box && dicas[box.dataset.grafico] && dicas[box.dataset.grafico][Number(alvo.dataset.i)];
-    if (!tt || !html) return;
-    tt.innerHTML = html;
-    tt.hidden = false;
-    const rb = box.getBoundingClientRect ? box.getBoundingClientRect() : { left: 0, width: 0 };
-    const ra = alvo.getBoundingClientRect ? alvo.getBoundingClientRect() : { left: 0, width: 0 };
-    let x = ra.left - rb.left + ra.width / 2 + 12;
-    if (x > rb.width - 210) x = Math.max(4, ra.left - rb.left + ra.width / 2 - 222);
-    tt.style.left = `${x}px`;
-    tt.style.top = '24px';
-  }
-  const esconder = () => raiz.querySelectorAll('.pt-tt').forEach((t) => { t.hidden = true; });
-  raiz.addEventListener('mouseover', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrar(h); });
-  raiz.addEventListener('mouseout', (ev) => { if (ev.target.closest && ev.target.closest('.pt-hit')) esconder(); });
-  raiz.addEventListener('focusin', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrar(h); });
-  raiz.addEventListener('focusout', esconder);
   raiz.addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-acao]');
     if (b && raiz.contains(b) && typeof aoAcao === 'function') aoAcao(b.dataset.acao);
   });
-  if (win && typeof win.addEventListener === 'function') {
-    let t = null; let antes = 0;
-    win.addEventListener('resize', () => {
-      if (!ctx || !raiz.offsetParent) return;
-      clearTimeout(t);
-      t = setTimeout(() => { const w = largura(); if (Math.abs(w - antes) >= 8) { antes = w; desenhar(); } }, 200);
-    });
-  }
   return {
     atualizar(novoCtx) { ctx = novoCtx; desenhar(); },
     erro(msg) { raiz.querySelectorAll('#ptCarreira, #ptFgts').forEach((e) => { e.innerHTML = `<p class="pt-nota">${esc(msg)}</p>`; }); },
@@ -456,28 +437,28 @@ export function htmlMeta(ctx) {
   const { meta, p, libs, d } = ctx;
   const fmtp = (v) => formatNumeroBR(v, 2);
   const marcados = meta.itens.filter((i) => i.descontar);
-  const opcoes = meta.itens.map((i) => `<label class="pt-chk-item"><input type="checkbox" data-descontar="${esc(i.nome)}"${i.descontar ? ' checked' : ''}><span>${esc(i.nome)}</span><b>${esc(brl(i.mensal))}</b></label>`).join('');
+  const opcoes = meta.itens.map((i) => `<label class="pt-chk-item"><input type="checkbox" data-descontar="${esc(i.nome)}"${i.descontar ? ' checked' : ''}><span>${esc(i.nome)}</span><b>${esc(formatBRL(i.mensal))}</b></label>`).join('');
   const quita = libs.map((l) => `${l.id === 'fies' ? 'o FIES' : 'o apê'} em ${mesAno(somarMeses(d.hoje, l.mes))}`).join(' e ');
   return `
     <div class="pt-meta-conta">
-      <p>A meta da planilha (aba Distribuição e Metas) parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(brl(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
+      <p>A meta da planilha (aba Distribuição e Metas) parte do custo de vida de <em>hoje</em>, que inclui <b>${esc(formatBRL(meta.parcelas))}/mês</b> de parcelas de dívida (${esc(marcados.map((i) => `${i.nome} ${brl0(i.mensal)}`).join(' + ') || 'nenhuma marcada')}). Aposentado, ${esc(quita || 'com as dívidas quitadas')}, essas parcelas já acabaram - então a renda que você precisa é menor:</p>
       <ol class="pt-meta-passos">
         <li><span>Planilha hoje</span><code>(${esc(fmtp(meta.custoComFolga))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaDM))}/mês</b><small>precisa de ${esc(mil(meta.patrimonioDM))}</small></li>
         <li class="pt-meta-final"><span>Sem as parcelas</span><code>(${esc(fmtp(meta.custoComFolga))} − ${esc(fmtp(meta.parcelas))} × ${esc(formatNumeroBR(1 + meta.folga, 2))} + ${esc(fmtp(meta.extra))}) × ${esc(formatNumeroBR(1 + meta.reinvestimento, 2))}</code><b>${esc(brl0(meta.rendaSem))}/mês</b><small>precisa de <b>${esc(mil(meta.patrimonioSem))}</b></small></li>
       </ol>
-      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(pct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(pct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da aba Distribuição e Metas da planilha)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - quem acompanha a meta é a tela <a href="../metas.html">Metas e Objetivos</a>.</p>
+      <p class="pt-nota">Custo de vida com folga + extra, mais ${esc(formatPct(meta.reinvestimento, 0))} pra reinvestir; o patrimônio é a renda de 12 meses ÷ ${esc(formatPct(meta.taxa, 0))} ao ano${p.taxaSaque ? ' (a taxa de saque escolhida abaixo)' : ' (o rendimento da aba Distribuição e Metas da planilha)'}. Aqui vale a meta <b>sem as parcelas</b>; a planilha continua como está - quem acompanha a meta é a tela <a href="../metas.html">Metas e Objetivos</a>.</p>
     </div>
     <details class="pt-descontar"><summary>O que conta como parcela de dívida (${marcados.length})</summary><div class="pt-chk-lista">${opcoes}</div></details>`;
 }
 
 export function htmlFuturoControles(ctx) {
   const { p, meta, ritmo, aporteMeta, aporte, rendimento } = ctx;
-  const seg = (grupo, itens, atual) => `<div class="pt-seg" role="group" data-seg="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
+  const seg = (grupo, itens, atual) => `<div class="segmented" role="group" data-seg="${grupo}">${itens.map(([v, rot]) => `<button type="button" data-v="${esc(v)}" class="${String(atual) === String(v) ? 'on' : ''}" aria-pressed="${String(atual) === String(v)}">${esc(rot)}</button>`).join('')}</div>`;
   const taxa = p.taxaSaque || meta.rendimento;
   return `
-    <label class="pt-ctl"><span class="pt-ctl-row">Quanto sacar por ano <b>${esc(pct(taxa, 0))}</b></span>
+    <label class="pt-ctl"><span class="pt-ctl-row">Quanto sacar por ano <b>${esc(formatPct(taxa, 0))}</b></span>
       ${seg('taxaSaque', [['0.04', '4%'], ['0.05', '5%'], ['', `${formatNumeroBR(meta.rendimento * 100, 0)}% (planilha)`]], p.taxaSaque ? String(p.taxaSaque) : '')}</label>
-    <label class="pt-ctl" for="ptRend"><span class="pt-ctl-row">Rendimento real ao ano <b id="ptRendV">${esc(pct(rendimento, 1))}</b></span>
+    <label class="pt-ctl" for="ptRend"><span class="pt-ctl-row">Rendimento real ao ano <b id="ptRendV">${esc(formatPct(rendimento, 1))}</b></span>
       <input type="range" id="ptRend" min="0.02" max="0.09" step="0.005" value="${rendimento}"></label>
     <label class="pt-ctl" for="ptAporte"><span class="pt-ctl-row">Aporte por mês <b id="ptAporteV">${esc(brl0(aporte))}</b></span>
       ${seg('aporteModo', [['ritmo', 'Seu ritmo (12m)'], ['meta', 'Sua meta']], p.aporteModo)}
@@ -492,11 +473,12 @@ export function htmlFuturoTiles(ctx) {
   const { proj, quando, alvo, inicial, meta, d, p } = ctx;
   const q = quando(proj.chegou);
   const passiva = num(d.proventos12m) ? d.proventos12m / 12 : null;
-  return `
-    <div class="pt-tile dest"><span class="pt-rot">Você chega lá</span><b>${esc(proj.chegou == null ? 'não chega' : proj.chegou === 0 ? 'já chegou' : q.ano)}</b><small>${proj.chegou ? `${q.idade != null ? `aos ${esc(q.idade)} anos · ` : ''}em ${esc(anosTxt(proj.chegou / 12))}` : 'em 50 anos, com esses números'}</small></div>
-    <div class="pt-tile"><span class="pt-rot">Precisa ter</span><b>${esc(mil(alvo))}</b><small>${esc(brl0(meta.rendaSem))}/mês sacando ${esc(pct(p.taxaSaque || meta.rendimento, 0))} ao ano</small></div>
-    <div class="pt-tile"><span class="pt-rot">Hoje você tem</span><b>${esc(pct(alvo ? inicial / alvo : null, 1))}</b><small>${esc(mil(inicial))} investidos${p.incluirReservaNaAposentadoria ? ' (com a reserva)' : ' (sem a reserva; o apê onde você mora não paga a aposentadoria)'}</small></div>
-    <div class="pt-tile"><span class="pt-rot">Renda passiva hoje</span><b>${esc(passiva != null ? `${brl0(passiva)}/mês` : '—')}</b><small>${passiva != null ? `${esc(pct(passiva / meta.rendaSem, 1))} da renda que você quer · proventos de 12 meses` : ''}</small></div>`;
+  return [
+    kpiHtml({ classe: 'pt-kpi-dest', rotulo: 'Você chega lá', valorHtml: esc(proj.chegou == null ? 'não chega' : proj.chegou === 0 ? 'já chegou' : q.ano), subHtml: proj.chegou ? `${q.idade != null ? `aos ${esc(q.idade)} anos · ` : ''}em ${esc(anosTxt(proj.chegou / 12))}` : 'em 50 anos, com esses números' }),
+    kpiHtml({ rotulo: 'Precisa ter', valorHtml: esc(mil(alvo)), subHtml: `${esc(brl0(meta.rendaSem))}/mês sacando ${esc(formatPct(p.taxaSaque || meta.rendimento, 0))} ao ano` }),
+    kpiHtml({ rotulo: 'Hoje você tem', valorHtml: esc(formatPct(alvo ? inicial / alvo : null, 1)), subHtml: `${esc(mil(inicial))} investidos${p.incluirReservaNaAposentadoria ? ' (com a reserva)' : ' (sem a reserva; o apê onde você mora não paga a aposentadoria)'}` }),
+    kpiHtml({ rotulo: 'Renda passiva hoje', valorHtml: esc(passiva != null ? `${brl0(passiva)}/mês` : '—'), subHtml: passiva != null ? `${esc(formatPct(passiva / meta.rendaSem, 1))} da renda que você quer · proventos de 12 meses` : '' }),
+  ].join('');
 }
 
 export function htmlDicas(dicas) {
@@ -531,8 +513,8 @@ function resumoImportado(item) {
   }
   if (item.tipo === 'fgts') return `${esc(`${x.empregador}: saldo ${brl0(x.saldo)} em ${dataBR(x.dataSaldo)} · ${x.movimentos.length} lançamentos`)}<small>${esc(`depósitos ${brl0(x.depositos)} · usado no apê ${brl0(x.saques.moradia)} · saque-aniversário ${brl0(x.saques.aniversario)}`)}</small>`;
   if (item.tipo === 'ctps') return `${esc(`${x.contratos.length} contratos`)}<small>${esc(x.contratos.map((c) => `${c.empregador} (${mesAno(mesDe(c.inicio))}–${c.fim ? mesAno(mesDe(c.fim)) : 'hoje'})`).join(' · '))}</small>`;
-  if (item.tipo === 'caixa') return `${esc(`Saldo ${brl(x.saldo)} em ${dataBR(x.dataSaldo)} · ${pct(x.taxaAnual, 2)} a.a. · ${x.sistema}`)}<small>${esc(`amortização ${brl(x.amortizacao)}/mês · ${x.prazoRestante} de ${x.prazoTotal} meses · parcela ${brl(x.parcela)}`)}</small>`;
-  if (item.tipo === 'fies') return `${esc(`Saldo ${brl(x.saldo)} em ${dataBR(x.dataSaldo)} · parcela ${brl(x.parcela)}`)}<small>${esc(`${x.restantes} parcelas até ${mesAno(x.fim)} · ~${pct((1 + x.taxaMensal) ** 12 - 1, 2)} a.a.`)}</small>`;
+  if (item.tipo === 'caixa') return `${esc(`Saldo ${formatBRL(x.saldo)} em ${dataBR(x.dataSaldo)} · ${formatPct(x.taxaAnual, 2)} a.a. · ${x.sistema}`)}<small>${esc(`amortização ${formatBRL(x.amortizacao)}/mês · ${x.prazoRestante} de ${x.prazoTotal} meses · parcela ${formatBRL(x.parcela)}`)}</small>`;
+  if (item.tipo === 'fies') return `${esc(`Saldo ${formatBRL(x.saldo)} em ${dataBR(x.dataSaldo)} · parcela ${formatBRL(x.parcela)}`)}<small>${esc(`${x.restantes} parcelas até ${mesAno(x.fim)} · ~${formatPct((1 + x.taxaMensal) ** 12 - 1, 2)} a.a.`)}</small>`;
   return '';
 }
 
@@ -543,16 +525,16 @@ export function htmlImportacao(imp) {
   return `<div class="pt-card-cab"><h3>Conferir antes de salvar</h3><span class="pt-hint">só os totais vão pra planilha</span></div>
     <ul class="pt-imp">${itens}</ul>${lendo}
     ${imp.msg ? `<p class="pt-nota ${imp.erroSalvar ? 'bad' : ''}">${esc(imp.msg)}</p>` : ''}
-    <div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="imp-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-acao="imp-salvar"${ok && !imp.salvando ? '' : ' disabled'}>${imp.salvando ? 'Salvando…' : `Salvar ${ok} ${ok === 1 ? 'documento' : 'documentos'}`}</button></div>`;
+    <div class="pt-form-botoes"><button type="button" class="btn btn-outlined" data-acao="imp-cancelar">Cancelar</button><button type="button" class="btn btn-filled" data-acao="imp-salvar"${ok && !imp.salvando ? '' : ' disabled'}>${imp.salvando ? 'Salvando…' : `Salvar ${ok} ${ok === 1 ? 'documento' : 'documentos'}`}</button></div>`;
 }
 
 export function htmlDriveIr(drive) {
   if (drive.carregando) return '<p class="pt-nota">Procurando as declarações na sua pasta do IR…</p>';
-  if (drive.erro) return `<p class="pt-nota bad">${esc(drive.erro)}</p><div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="drive-fechar">Fechar</button></div>`;
+  if (drive.erro) return `<p class="pt-nota bad">${esc(drive.erro)}</p>${drive.detalhe ? `<details class="og-detalhe"><summary>Detalhes técnicos</summary><code>${esc(drive.detalhe)}</code></details>` : ''}<div class="pt-form-botoes"><button type="button" class="btn btn-outlined" data-acao="drive-fechar">Fechar</button></div>`;
   const lista = drive.arquivos.map((a, k) => `<label class="pt-chk-item"><input type="checkbox" data-drive="${k}"${a.marcado ? ' checked' : ''}><span>${esc(a.pasta)} / ${esc(a.nome)}</span><b>${esc(formatNumeroBR(a.tamanho / 1024, 0))} KB</b></label>`).join('');
   return `<div class="pt-card-cab"><h3>Declarações no seu Drive</h3><span class="pt-hint">${drive.arquivos.length} encontradas</span></div>
     <div class="pt-chk-lista">${lista || '<p class="pt-nota">Nenhuma "Cópia da Declaração" na pasta.</p>'}</div>
-    <div class="pt-form-botoes"><button type="button" class="btn btn-ghost" data-acao="drive-fechar">Fechar</button><button type="button" class="btn btn-primary" data-acao="drive-ler"${drive.arquivos.some((a) => a.marcado) ? '' : ' disabled'}>Ler as marcadas</button></div>`;
+    <div class="pt-form-botoes"><button type="button" class="btn btn-outlined" data-acao="drive-fechar">Fechar</button><button type="button" class="btn btn-filled" data-acao="drive-ler"${drive.arquivos.some((a) => a.marcado) ? '' : ' disabled'}>Ler as marcadas</button></div>`;
 }
 
 // --- formulários de edição ---------------------------------------------------
@@ -562,7 +544,7 @@ const campoTexto = (id, rot, valor) => `<label class="pt-campo" for="${id}"><spa
 
 export function htmlEditor(tipo, ctx) {
   const { cfg, d } = ctx;
-  const botoes = (msg = '') => `<div class="pt-form-botoes"><span class="pt-nota pt-form-msg">${msg}</span><button type="button" class="btn btn-ghost" data-acao="editor-fechar">Cancelar</button><button type="submit" class="btn btn-primary">Salvar</button></div>`;
+  const botoes = (msg = '') => `<div class="pt-form-botoes"><span class="pt-nota pt-form-msg">${msg}</span><button type="button" class="btn btn-outlined" data-acao="editor-fechar">Cancelar</button><button type="submit" class="btn btn-filled">Salvar</button></div>`;
   if (tipo === 'imovel') {
     const i = cfg.imovel || { cidade: 'São Paulo', metodo: 'media' };
     const v = cfg.imovel ? valorImovel(cfg.imovel, d.indices, mesDe(d.hoje)) : null;
@@ -607,7 +589,7 @@ export function htmlEditor(tipo, ctx) {
     const lista = (cfg.outros || []).map((o, k) => `<div class="pt-outro" data-k="${k}"><span class="pt-input largo"><input data-o="nome" value="${esc(o.nome)}" aria-label="Nome" maxlength="60"></span><select data-o="tipo" aria-label="Tipo"><option value="bem"${o.tipo !== 'divida' ? ' selected' : ''}>Bem</option><option value="divida"${o.tipo === 'divida' ? ' selected' : ''}>Dívida</option></select><span class="pt-input"><i>R$</i><input data-o="valor" inputmode="decimal" value="${esc(numCampo(o.valor))}" aria-label="Valor"></span><button type="button" class="pt-mini" data-acao="outro-remover" aria-label="Remover ${esc(o.nome)}">remover</button></div>`).join('');
     return `<form class="pt-form" data-form="outros"><div class="pt-card-cab"><h3>Outros bens e dívidas</h3><span class="pt-hint">carro, cripto, móveis, empréstimos… (valores de hoje)</span></div>
       <div class="pt-outros">${lista || '<p class="pt-nota">Nada ainda.</p>'}</div>
-      <button type="button" class="btn btn-ghost pt-btn-sm" data-acao="outro-adicionar">+ adicionar</button>
+      <button type="button" class="btn btn-outlined btn-sm" data-acao="outro-adicionar">+ adicionar</button>
       ${botoes()}</form>`;
   }
   return '';
@@ -731,8 +713,8 @@ export function lerDocumento(linhas) {
 // padrão das outras telas")
 // ---------------------------------------------------------------------------
 
-export const PERIODOS_HISTORICO = [{ id: '5a', nome: '5 anos' }, { id: '10a', nome: '10 anos' }, { id: 'tudo', nome: 'Tudo' }];
-export const PERIODOS_ORIGEM = [{ id: '6m', nome: '6 meses' }, { id: '12m', nome: '12 meses' }, { id: '24m', nome: '24 meses' }, { id: 'tudo', nome: 'Tudo' }];
+export const PERIODOS_HISTORICO = ['5a', '10a', 'tudo'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
+export const PERIODOS_ORIGEM = ['6m', '12m', '24m', 'tudo'].map((id) => ({ id, nome: rotuloPeriodo(id) }));
 const fimDoMes = (mes) => { const [a, m] = String(mes).split('-').map(Number); const d = new Date(Date.UTC(a, m, 0)); return `${mes}-${String(d.getUTCDate()).padStart(2, '0')}`; };
 const dataLinhaHist = (l, hoje) => (l.hoje ? String(hoje).slice(0, 10) : `${l.ano}-12-31`);
 
@@ -830,36 +812,31 @@ export function montarAbaPatrimonio({
     prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '', perHist: 'tudo', perOrigem: '12m',
   };
   let timerPrefs = null;
-  const win = doc.defaultView;
-  el._ptDicas = {};
   let inflacao = null;
   const filtros = {};
   const avisar = () => { if (typeof aoMudarDados === 'function') { try { aoMudarDados(dados, ctx); } catch (e) { /* a aba continua */ } } };
 
-  const largura = (sel, padrao) => { const e = el.querySelector(sel); return (e && e.clientWidth) || padrao; };
-
   function esqueleto() {
     el.innerHTML = `
-      <section class="pt-card pt-hero" id="ptHero"></section>
-      <section class="pt-card pt-fontes-card" id="ptFontesTopo" hidden></section>
+      <section class="pt-hero" id="ptHero" aria-label="Resumo do patrimônio"></section>
+      <section class="card pt-card pt-fontes-card" id="ptFontesTopo" hidden></section>
       <div id="ptPainel"></div>
       <section class="pt-sec"><div class="pt-sec-cab"><h2>O que você tem e o que você deve</h2><span class="pt-hint">investimentos vêm do site; financiamento e FIES andam sozinhos mês a mês</span></div>
-        <div class="pt-card pt-bal" id="ptBalanco"></div></section>
+        <div class="card pt-card pt-bal" id="ptBalanco"></div></section>
       <section class="pt-sec" id="ptSecHist"><div class="pt-sec-cab"><h2>Como seu patrimônio cresceu</h2><span class="pt-hint">31/12 de cada ano · hoje pelo site</span></div>
-        <div class="pt-card"><div class="pt-graf-cab">${tabsPeriodo(PERIODOS_HISTORICO, 'ptFiltroHist', 'Período do histórico')}<span class="pt-hint" id="ptHistHint"></span></div>
-          <div class="pt-grafico" data-grafico="hist" id="ptGHist"></div>
-          <div class="pt-leg pt-leg-graf">${SERIES_HISTORICO.map((x) => `<span><i style="background:${x.cor}"></i>${esc(x.nome)}</span>`).join('')}<span><i class="pt-leg-linha"></i>Patrimônio líquido</span></div>
+        <div class="card pt-card"><div class="pt-graf-cab">${tabsPeriodo(PERIODOS_HISTORICO, 'ptFiltroHist', 'Período do histórico')}<span class="pt-hint" id="ptHistHint"></span></div>
+          <div class="pt-grafico" id="ptGHist"></div>
           <div class="pt-analise" id="ptAnaliseHist" hidden></div>
-          <div class="pt-tab-wrap" id="ptTHist"></div><p class="pt-nota pt-nota-pad" id="ptNotaHist"></p></div>
-        <div class="pt-card pt-pad"><div class="pt-card-cab pt-card-cab-filtro"><h3>De onde veio o crescimento</h3><span class="pt-hint" id="ptOrigemHint"></span>${tabsPeriodo(PERIODOS_ORIGEM, 'ptFiltroOrigem', 'Período de "de onde veio o crescimento"')}</div><div id="ptOrigem"></div></div></section>
+          <div class="tabela-wrap" id="ptTHist"></div><p class="pt-nota pt-nota-pad" id="ptNotaHist"></p></div>
+        <div class="card pt-card pt-pad"><div class="pt-card-cab pt-card-cab-filtro"><h3>De onde veio o crescimento</h3><span class="pt-hint" id="ptOrigemHint"></span>${tabsPeriodo(PERIODOS_ORIGEM, 'ptFiltroOrigem', 'Período de "de onde veio o crescimento"')}</div><div id="ptOrigem"></div></div></section>
       <div id="ptInflacao" class="pt-inflacao"></div>
       <section class="pt-sec"><div class="pt-sec-cab"><h2>Aposentadoria: quanto, quando e o que muda o prazo</h2><span class="pt-hint">em dinheiro de hoje (rendimento acima da inflação)</span><a class="pt-link pt-sec-link" href="../metas.html">Ver ou criar a meta de aposentadoria em Metas e Objetivos ›</a></div>
-        <div class="pt-card pt-pad" id="ptMeta"></div>
-        <div class="pt-card pt-fut"><div class="pt-fut-ctl" id="ptCtl"></div><div class="pt-fut-res"><div class="pt-tiles" id="ptTiles"></div><div class="pt-grafico" data-grafico="proj" id="ptGProj"></div>
-          <div class="pt-leg"><span><i style="background:var(--pt-inv)"></i>Seus investimentos</span><span><i class="pt-leg-tracejado"></i>Patrimônio necessário</span><span><i style="background:var(--ink-faint)"></i>Marcos</span></div></div></div></section>
+        <div class="card pt-card pt-pad" id="ptMeta"></div>
+        <div class="card pt-card pt-fut"><div class="pt-fut-ctl" id="ptCtl"></div><div class="pt-fut-res"><div class="grid-kpi" id="ptTiles"></div><div class="pt-grafico" id="ptGProj"></div></div></div></section>
       <section class="pt-sec"><div class="pt-sec-cab"><h2>Como acelerar</h2><span class="pt-hint">calculado com os seus números - quanto cada coisa muda o prazo</span></div><div class="pt-dicas" id="ptDicas"></div></section>
-      <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números · importe aqui o IR, o FGTS, a Carteira de Trabalho e os extratos do financiamento e do FIES</span></div><div class="pt-card pt-pad" id="ptFontes"></div></section>
+      <section class="pt-sec" id="ptSecFontes"><div class="pt-sec-cab"><h2>Seus documentos</h2><span class="pt-hint">de onde vêm os números · importe aqui o IR, o FGTS, a Carteira de Trabalho e os extratos do financiamento e do FIES</span></div><div class="card pt-card pt-pad" id="ptFontes"></div></section>
       <input type="file" id="ptArquivo" accept="application/pdf,.pdf" multiple hidden>`;
+    tornarRecolhiveis(el, { seletor: ':scope > .pt-sec', cabecalho: '.pt-sec-cab', doc });
     ligar();
     ligarFiltros();
   }
@@ -901,10 +878,11 @@ export function montarAbaPatrimonio({
     if (!ctx || !el.querySelector('#ptGHist')) return;
     const linhas = recortarHistorico(ctx.hist, est.perHist, dados.hoje);
     const hint = el.querySelector('#ptHistHint');
+    const caixaHist = el.querySelector('#ptGHist');
     if (linhas.length < 2) {
-      el.querySelector('#ptGHist').innerHTML = '<p class="pt-nota pt-nota-pad">Pouco histórico neste período (precisa de pelo menos 2 fins de ano). Escolha um período maior.</p>';
-      el._ptDicas.hist = [];
-    } else desenharGrafico('#ptGHist', 'hist', graficoHistorico(linhas, { largura: largura('#ptGHist', 720) }));
+      limparGrafico(caixaHist);
+      caixaHist.innerHTML = '<p class="pt-nota pt-nota-pad">Pouco histórico neste período (precisa de pelo menos 2 fins de ano). Escolha um período maior.</p>';
+    } else montarGrafico(caixaHist, opcoesHistoricoPatrimonio(linhas));
     if (hint) hint.textContent = linhas.length >= 2 ? `${linhas[0].ano} → ${linhas[linhas.length - 1].hoje ? 'hoje' : linhas[linhas.length - 1].ano}` : '';
     el.querySelector('#ptTHist').innerHTML = linhas.length ? htmlHistoricoTabela(linhas) : '';
     const box = el.querySelector('#ptAnaliseHist');
@@ -920,22 +898,16 @@ export function montarAbaPatrimonio({
     let o = null;
     try { o = origemCrescimento(dados, est.perOrigem); } catch (e) { o = null; }
     el.querySelector('#ptOrigem').innerHTML = o ? htmlCrescimento(o) : '<p class="pt-nota">Sem meses suficientes neste período (o site começa a contar no 1º mês do histórico da Início).</p>';
+    montarBarrasDivergentes(el.querySelector('#ptOrigem'));
     el.querySelector('#ptOrigemHint').textContent = rotuloPeriodoOrigem(o, est.perOrigem);
   }
 
   function recalcular() { ctx = contextoPatrimonio(dados, est.prefs); }
 
-  function desenharGrafico(sel, chave, g) {
-    const box = el.querySelector(sel);
-    if (!box) return;
-    box.innerHTML = `${g.svg}<div class="pt-tt" hidden></div>`;
-    el._ptDicas[chave] = g.dicas;
-  }
-
   function desenharFuturo({ controles = true } = {}) {
     if (controles) el.querySelector('#ptCtl').innerHTML = htmlFuturoControles(ctx);
     else {
-      el.querySelector('#ptRendV').textContent = pct(ctx.rendimento, 1);
+      el.querySelector('#ptRendV').textContent = formatPct(ctx.rendimento, 1);
       el.querySelector('#ptAporteV').textContent = brl0(ctx.aporte);
     }
     el.querySelector('#ptTiles').innerHTML = htmlFuturoTiles(ctx);
@@ -945,16 +917,18 @@ export function montarAbaPatrimonio({
     const cruza = (lim) => { const p = proj.pontos.find((x) => x.v >= lim); return p ? p.m : null; };
     [5e5, 1e6, 2e6].filter((lim) => lim < alvo * 0.95).forEach((lim) => { const m = cruza(lim); if (m) marcos.push({ m, titulo: mil(lim), texto: quando(m).rotulo }); });
     if (num(ctx.coast)) { const m = cruza(ctx.coast); if (m && (proj.chegou == null || m < proj.chegou)) marcos.push({ m, titulo: 'Coast FI', texto: `daí pra frente, sem aportar, chega na meta aos ${ctx.p.idadeAlvo}` }); }
-    desenharGrafico('#ptGProj', 'proj', graficoProjecao({ pontos: proj.pontos, alvo, chegou: proj.chegou, marcos, fim, quando }, { largura: largura('#ptGProj', 720) }));
+    const caixaProj = el.querySelector('#ptGProj');
+    const specProj = opcoesProjecaoPatrimonio({ pontos: proj.pontos, alvo, chegou: proj.chegou, marcos, fim, quando });
+    if (specProj) montarGrafico(caixaProj, specProj); else { limparGrafico(caixaProj); caixaProj.innerHTML = '<p class="pt-nota pt-nota-pad">Sem dados pra projetar.</p>'; }
     el.querySelector('#ptDicas').innerHTML = htmlDicas(dicasAcelerar(ctx));
   }
 
   function desenharPainel() {
     const painel = el.querySelector('#ptPainel');
     let html = '';
-    if (est.importacao) html += `<section class="pt-card pt-pad pt-painel">${htmlImportacao(est.importacao)}</section>`;
-    if (est.drive) html += `<section class="pt-card pt-pad pt-painel">${htmlDriveIr(est.drive)}</section>`;
-    if (est.editando) html += `<section class="pt-card pt-pad pt-painel">${htmlEditor(est.editando, ctx)}</section>`;
+    if (est.importacao) html += `<section class="card pt-card pt-pad pt-painel">${htmlImportacao(est.importacao)}</section>`;
+    if (est.drive) html += `<section class="card pt-card pt-pad pt-painel">${htmlDriveIr(est.drive)}</section>`;
+    if (est.editando) html += `<section class="card pt-card pt-pad pt-painel">${htmlEditor(est.editando, ctx)}</section>`;
     painel.innerHTML = html;
     if (est.msgEditor) { const m = painel.querySelector('.pt-form-msg'); if (m) { m.textContent = est.msgEditor; m.classList.add('bad'); } }
   }
@@ -963,6 +937,7 @@ export function montarAbaPatrimonio({
     if (!el.querySelector('#ptHero')) esqueleto();
     recalcular();
     el.querySelector('#ptHero').innerHTML = htmlHero(ctx);
+    montarComposicoes(el.querySelector('#ptHero'), brl0);
     const faltando = !ctx.cfg.imovel || !ctx.cfg.financiamento || !(ctx.cfg.ir && ctx.cfg.ir.anos && ctx.cfg.ir.anos.length);
     const fontes = htmlFontes(ctx, { driveConfigurado: !!dados.pastaIrConfigurada });
     const topo = el.querySelector('#ptFontesTopo');
@@ -971,6 +946,7 @@ export function montarAbaPatrimonio({
     el.querySelector('#ptSecFontes').hidden = faltando;
     el.querySelector('#ptFontes').innerHTML = faltando ? '' : fontes;
     el.querySelector('#ptBalanco').innerHTML = htmlBalanco(ctx);
+    montarComposicoes(el.querySelector('#ptBalanco'), brl0);
     desenharHistorico();
     el.querySelector('#ptNotaHist').innerHTML = htmlHistoricoNota(ctx);
     desenharOrigem();
@@ -1079,7 +1055,7 @@ export function montarAbaPatrimonio({
     desenharPainel();
     let r;
     try { r = await getArquivosIrImpl(token); } catch (e) { r = { ok: false, erro: String(e) }; }
-    if (!r || !r.ok) { est.drive = { erro: `Não deu pra listar a pasta: ${(r && r.erro) || 'erro'}`, arquivos: [] }; desenharPainel(); return; }
+    if (!r || !r.ok) { est.drive = { erro: 'Não consegui ver a pasta do Drive agora. Tente de novo em instantes.', detalhe: String((r && r.erro) || 'erro'), arquivos: [] }; desenharPainel(); return; }
     if (!r.configurado) { est.drive = { erro: 'A pasta do IR ainda não foi configurada: rode configurarPastaIrDireto() uma vez no editor do Apps Script.', arquivos: [] }; desenharPainel(); return; }
     const anos = new Set(((dados.config.ir && dados.config.ir.anos) || []).map((a) => String(a.exercicio || '')));
     est.drive = { arquivos: (r.arquivos || []).map((a) => ({ ...a, marcado: !anos.has(String((String(a.pasta).match(/\d{4}/) || [])[0])) })) };
@@ -1104,34 +1080,7 @@ export function montarAbaPatrimonio({
     await lerArquivos(arquivos);
   }
 
-  function mostrarDica(alvo) {
-    const box = alvo.closest('[data-grafico]');
-    const tt = box && box.querySelector('.pt-tt');
-    const lista = box && el._ptDicas[box.dataset.grafico];
-    if (!tt || !lista) return;
-    const html = lista[Number(alvo.dataset.i)];
-    if (!html) return;
-    tt.innerHTML = html;
-    tt.hidden = false;
-    const rb = box.getBoundingClientRect ? box.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
-    const ra = alvo.getBoundingClientRect ? alvo.getBoundingClientRect() : { left: 0, top: 0, width: 0 };
-    let x = ra.left - rb.left + ra.width / 2 + 12;
-    if (x > rb.width - 210) x = Math.max(4, ra.left - rb.left + ra.width / 2 - 222);
-    tt.style.left = `${x}px`;
-    tt.style.top = `${Math.max(4, 24)}px`;
-  }
-  function esconderDica(alvo) {
-    const box = alvo && alvo.closest && alvo.closest('[data-grafico]');
-    const tt = box && box.querySelector('.pt-tt');
-    if (tt) tt.hidden = true;
-  }
-
   function ligar() {
-    el.addEventListener('mouseover', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrarDica(h); });
-    el.addEventListener('mouseout', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) esconderDica(h); });
-    el.addEventListener('focusin', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) mostrarDica(h); });
-    el.addEventListener('focusout', (ev) => { const h = ev.target.closest && ev.target.closest('.pt-hit'); if (h) esconderDica(h); });
-
     el.addEventListener('click', async (ev) => {
       const seg = ev.target.closest('[data-seg] [data-v]');
       if (seg) {
@@ -1201,17 +1150,14 @@ export function montarAbaPatrimonio({
       if (t.id === 'ptRend') { Object.assign(est.prefs, { rendimentoReal: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); }
       else if (t.id === 'ptAporte') { Object.assign(est.prefs, { aporteModo: 'manual', aporteManual: Number(t.value) }); recalcular(); desenharFuturo({ controles: false }); el.querySelectorAll('[data-seg="aporteModo"] button').forEach((x) => x.classList.remove('on')); }
     });
-    if (win && typeof win.addEventListener === 'function') {
-      let t = null;
-      win.addEventListener('resize', () => { if (!dados || !el.offsetParent) return; clearTimeout(t); t = setTimeout(() => desenhar(), 200); });
-    }
   }
 
   async function carregar() {
     let r;
     try { r = await getPatrimonioImpl(token); } catch (e) { r = { ok: false, erro: String(e) }; }
     if (!r || !r.ok) {
-      if (!dados) el.innerHTML = `<div class="carteiras-erro">Não deu pra carregar o patrimônio agora (${esc((r && r.etapa) || '?')}): ${esc((r && r.erro) || 'erro desconhecido')}.</div>`;
+      // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica num <details>
+      if (!dados) mostrarErroCarga(el, { tela: 'Patrimônio', resposta: r, aoTentar: () => carregar(), doc });
       return;
     }
     dados = r;
@@ -1219,7 +1165,7 @@ export function montarAbaPatrimonio({
     desenhar();
   }
 
-  el.innerHTML = '<div class="carteiras-loading" aria-hidden="true"><span class="skel" style="height:150px;border-radius:14px"></span><span class="skel" style="height:320px;border-radius:14px"></span></div>';
+  el.innerHTML = '<div class="og-carregando" aria-hidden="true"><span class="skel skel-bloco og-skel-150"></span><span class="skel skel-bloco og-skel-320"></span></div>';
   const pronto = carregar();
   /** Abre a importação de PDFs (o seletor de arquivos) e rola até os documentos. */
   function abrirImportacao() {

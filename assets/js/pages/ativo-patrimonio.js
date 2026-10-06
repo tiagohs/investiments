@@ -23,8 +23,10 @@ import {
   ROTULO_TIPO, montarVisao, baseDisponivel, divisaoImoveis, resumoImoveis, pontosDoMapa,
   consultasNavegador, urlNominatim, lerRespostaNominatim, pctTexto, areaTexto, urlPublica,
 } from './ativo-patrimonio-calc.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { criarAnel, criarBarraComposicao } from '../charts/index.js'; // 06/10/2026 (Onda 3): donut e faixa de composição da biblioteca
 
-const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 
 const LEAFLET_VERSAO = '1.9.4';
 const LEAFLET_CSS = { url: `https://cdnjs.cloudflare.com/ajax/libs/leaflet/${LEAFLET_VERSAO}/leaflet.min.css`, sri: 'sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==' };
@@ -44,19 +46,35 @@ const ICONE_MAPA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
 /** Aba vazia (antes de abrir): o controlador preenche. */
 export function patrimonioPlaceholderHtml() {
-  return '<div class="pf-raiz" id="pfRaiz" aria-live="polite"><div class="pf-carregando"><span class="skel" style="height:96px;border-radius:14px"></span><span class="skel" style="height:240px;border-radius:14px"></span></div></div>';
+  return '<div class="pf-raiz" id="pfRaiz" aria-live="polite"><div class="pf-carregando"><span class="skel pf-esq-resumo"></span><span class="skel pf-esq-bloco"></span></div></div>';
 }
 
+// 06/10/2026 (Onda 3): o donut e a faixa de composição são da biblioteca de gráficos (charts/anel.js, charts/progresso.js). O HTML só reserva
+// o espaço (data-pf-graf) e guarda os dados em GRAFICOS_DA_RENDER; montarGraficosPatrimonio() desenha depois do innerHTML.
+let GRAFICOS_DA_RENDER = [];
+const fatiasDe = (itens) => itens.map((it) => ({ id: it.rotulo, nome: it.rotulo, valor: it.share }));
 function donutHtml(itens) {
-  const R = 40, C = 2 * Math.PI * R;
-  let acc = 0;
-  const arcos = itens.map((it, i) => {
-    const len = Math.max(0, it.share * C - (itens.length > 1 ? 0.8 : 0)); // 0,8 = frestinha entre as fatias
-    const s = `<circle class="pf-seg pf-c${i % 8}" cx="50" cy="50" r="${R}" fill="none" stroke-width="16" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-acc).toFixed(2)}"></circle>`;
-    acc += len;
-    return s;
-  }).join('');
-  return `<svg class="pf-donut" viewBox="0 0 100 100" role="img" aria-label="Divisão: ${esc(itens.map((i) => `${i.rotulo} ${pctTexto(i.share)}`).join(', '))}"><g transform="rotate(-90 50 50)"><circle cx="50" cy="50" r="${R}" fill="none" stroke-width="16" class="pf-trilho"></circle>${arcos}</g></svg>`;
+  GRAFICOS_DA_RENDER.push({ tipo: 'anel', itens });
+  return `<div class="pf-donut" data-pf-graf="${GRAFICOS_DA_RENDER.length - 1}" role="img" aria-label="Divisão: ${esc(itens.map((i) => `${i.rotulo} ${pctTexto(i.share)}`).join(', '))}"></div>`;
+}
+function barraComposicaoHtml(itens) {
+  GRAFICOS_DA_RENDER.push({ tipo: 'barra', itens });
+  return `<div class="pf-barra" data-pf-graf="${GRAFICOS_DA_RENDER.length - 1}"></div>`;
+}
+
+/** Desenha (charts) os gráficos reservados pela última renderização dentro de `raiz`. Devolve a lista pra destruir depois. */
+export function montarGraficosPatrimonio(raiz) {
+  const feitos = [];
+  if (!raiz) return feitos;
+  raiz.querySelectorAll('[data-pf-graf]').forEach((slot) => {
+    const g = GRAFICOS_DA_RENDER[Number(slot.dataset.pfGraf)];
+    if (!g) return;
+    try {
+      if (g.tipo === 'anel') feitos.push(criarAnel(slot, { fatias: fatiasDe(g.itens), legenda: false, tamanho: 180, espessura: 24, centro: { rotulo: 'Divisão' }, formatarValor: (v) => pctTexto(v), aria: slot.getAttribute('aria-label') || 'Divisão' }));
+      else feitos.push(criarBarraComposicao(slot, { fatias: fatiasDe(g.itens), legenda: false, formatarValor: (v) => pctTexto(v) }));
+    } catch (_) { /* sem gráfico: a legenda ao lado continua dizendo tudo */ }
+  });
+  return feitos;
 }
 
 function legendaDivisaoHtml(itens, { notaEstimado = false } = {}) {
@@ -73,9 +91,9 @@ function blocoDivisaoHtml(visao, estado) {
   const por = estado.por;
   const div = divisaoImoveis(visao.imoveis, { por, base: baseAtual });
   const baseTabs = base.receita && base.area ? `
-        <div class="filter-tabs pf-base" role="group" aria-label="Base da divisão">
-          <button type="button" class="filter-tab${baseAtual === 'receita' ? ' active' : ''}" data-pf-base="receita" aria-pressed="${baseAtual === 'receita'}">% da receita</button>
-          <button type="button" class="filter-tab${baseAtual === 'area' ? ' active' : ''}" data-pf-base="area" aria-pressed="${baseAtual === 'area'}">Área</button>
+        <div class="segmented pf-base" role="group" aria-label="Base da divisão">
+          <button type="button" data-pf-base="receita" aria-pressed="${baseAtual === 'receita'}">% da receita</button>
+          <button type="button" data-pf-base="area" aria-pressed="${baseAtual === 'area'}">Área</button>
         </div>` : '';
   const tem = div.itens.length > 0;
   const nota = [
@@ -84,10 +102,10 @@ function blocoDivisaoHtml(visao, estado) {
     por === 'segmento' && div.itens.some((i) => i.estimado) ? '* Segmento estimado pelo nome - a CVM não informa o tipo do imóvel.' : '',
   ].filter(Boolean).join(' ');
   return `
-    <section class="at-card pf-card" aria-labelledby="pf-divisao-titulo">
+    <section class="card at-card pf-card" aria-labelledby="pf-divisao-titulo">
       <div class="at-card-titulo"><h2 id="pf-divisao-titulo">Divisão dos imóveis</h2>
         <div class="pf-filtros">
-          <div class="filter-tabs" role="group" aria-label="Agrupar por">${MODOS_DIVISAO.map(([id, rot]) => `<button type="button" class="filter-tab${por === id ? ' active' : ''}" data-pf-por="${id}" aria-pressed="${por === id}">${rot}</button>`).join('')}</div>
+          <div class="segmented" role="group" aria-label="Agrupar por">${MODOS_DIVISAO.map(([id, rot]) => `<button type="button" data-pf-por="${id}" aria-pressed="${por === id}">${rot}</button>`).join('')}</div>
           ${baseTabs}
         </div>
       </div>
@@ -111,9 +129,9 @@ function imovelCardHtml(im, maxReceita) {
     im.inadimplencia != null ? ['Inadimplência', pctTexto(im.inadimplencia)] : null,
   ].filter(Boolean);
   const chips = [
-    im.segmento ? `<span class="pf-chip" title="${im.segmentoFonte === 'nome' ? 'Estimado pelo nome do imóvel' : 'Informado na curadoria'}">${esc(im.segmento)}${im.segmentoFonte === 'nome' ? '*' : ''}</span>` : '',
-    im.classe && im.classe !== 'Renda' ? `<span class="pf-chip pf-chip-aviso">${esc(im.classe)}</span>` : '',
-    im.participacao ? `<span class="pf-chip">Fração ${esc(im.participacao)}</span>` : '',
+    im.segmento ? `<span class="chip-tonal" title="${im.segmentoFonte === 'nome' ? 'Estimado pelo nome do imóvel' : 'Informado na curadoria'}">${esc(im.segmento)}${im.segmentoFonte === 'nome' ? '*' : ''}</span>` : '',
+    im.classe && im.classe !== 'Renda' ? `<span class="chip-tonal chip-warn">${esc(im.classe)}</span>` : '',
+    im.participacao ? `<span class="chip-tonal">Fração ${esc(im.participacao)}</span>` : '',
   ].filter(Boolean).join('');
   const largura = im.pctReceita > 0 && maxReceita > 0 ? Math.max(3, Math.round((im.pctReceita / maxReceita) * 100)) : 0;
   const temPonto = typeof im.lat === 'number' && typeof im.lon === 'number';
@@ -126,7 +144,7 @@ function imovelCardHtml(im, maxReceita) {
         <dl class="pf-metricas">${metricas.map(([r, v]) => `<div><dt>${r}</dt><dd>${v}</dd></div>`).join('')}</dl>
         ${largura ? `<div class="pf-barrinha" aria-hidden="true"><span style="width:${largura}%"></span></div>` : ''}
         <div class="pf-imovel-rodape">
-          ${temPonto ? `<button type="button" class="pf-btn-mapa" data-pf-ver="${esc(im.k || '')}">${ICONE_MAPA}<span>Ver no mapa${im.precisao === 'cidade' ? ' (cidade)' : ''}</span></button>` : '<span class="pf-sem-mapa">Sem posição no mapa</span>'}
+          ${temPonto ? `<button type="button" class="btn btn-tonal btn-sm pf-btn-mapa" data-pf-ver="${esc(im.k || '')}">${ICONE_MAPA}<span>Ver no mapa${im.precisao === 'cidade' ? ' (cidade)' : ''}</span></button>` : '<span class="pf-sem-mapa">Sem posição no mapa</span>'}
           ${link ? `<a class="pf-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Site oficial</a>` : ''}
         </div>
       </article>`;
@@ -150,7 +168,7 @@ function blocoImoveisHtml(visao, estado) {
     ? `${mp.pontos.length} de ${im.length} imóveis no mapa${mp.aproximados ? ` · ${mp.aproximados} com posição aproximada (cidade)` : ''}.`
     : '';
   return `
-    <section class="at-card pf-card" id="pf-imoveis" aria-labelledby="pf-imoveis-titulo">
+    <section class="card at-card pf-card" id="pf-imoveis" aria-labelledby="pf-imoveis-titulo">
       <div class="at-card-titulo"><h2 id="pf-imoveis-titulo">Imóveis do fundo</h2><span class="hint">informe trimestral à CVM</span></div>
       <div class="pf-stats">${stats.map(([r2, v]) => `<div class="pf-stat"><span class="pf-stat-rot">${r2}</span><span class="pf-stat-val">${v}</span></div>`).join('')}</div>
       <div class="pf-mapa-wrap">
@@ -158,7 +176,7 @@ function blocoImoveisHtml(visao, estado) {
         <p class="pf-nota pf-mapa-nota" id="pfMapaNota">${esc(estado.geocodificando ? `Localizando imóveis no mapa… ${estado.geocodificando}` : notaMapa)}${mp.pontos.length ? ' <a class="pf-link" id="pfAbrirOsm" target="_blank" rel="noopener noreferrer" href="#">Abrir no OpenStreetMap</a>' : ''}</p>
       </div>
       <div class="pf-lista" id="pfLista">${mostrar.map((i) => imovelCardHtml(i, maxReceita)).join('')}</div>
-      ${ordenados.length > IMOVEIS_VISIVEIS ? `<button type="button" class="pf-mais" id="pfMais" aria-expanded="${estado.expandido}">${estado.expandido ? 'Mostrar só os maiores' : `Ver todos os ${ordenados.length} imóveis`}</button>` : ''}
+      ${ordenados.length > IMOVEIS_VISIVEIS ? `<button type="button" class="btn btn-tonal pf-mais" id="pfMais" aria-expanded="${estado.expandido}">${estado.expandido ? 'Mostrar só os maiores' : `Ver todos os ${ordenados.length} imóveis`}</button>` : ''}
       ${visao.imoveisOmitidos ? `<p class="pf-nota">Mais ${visao.imoveisOmitidos} imóvel(is) menores não cabem na lista guardada.</p>` : ''}
     </section>`;
 }
@@ -173,12 +191,12 @@ function papelHtml(visao) {
     const nome = t.securitizadora || '—';
     const emi = t.emissao ? `${t.emissao}ª emissão${t.serie ? ` · série ${t.serie}` : ''}` : '';
     return `<tr><td data-rot="CRI"><span class="pf-cri-nome">${esc(nome)}</span><span class="pf-cri-sub">${esc([t.codigo, emi].filter(Boolean).join(' · '))}</span></td>
-        <td data-rot="Taxa">${t.taxa ? `<span class="pf-taxa pf-idx-${esc(String(t.indexador || '').toLowerCase().replace(/[^a-z]/g, ''))}">${esc(t.indexador || '')}</span> <span class="pf-taxa-txt">${esc(t.taxa)}</span>` : '<span class="pf-sem-mapa">não identificada</span>'}</td>
-        <td data-rot="Vencimento">${t.vencimento ? esc(formatDateBR(t.vencimento)) : '—'}</td>
-        <td class="pf-num" data-rot="Valor">${formatBRL(t.valor)}</td><td class="pf-num" data-rot="% do papel">${pctTexto(t.pct)}</td></tr>`;
+        <td data-rot="Taxa">${t.taxa ? `<span class="chip-tonal pf-taxa">${esc(t.indexador || '')}</span> <span class="pf-taxa-txt">${esc(t.taxa)}</span>` : '<span class="pf-sem-mapa">não identificada</span>'}</td>
+        <td class="col-opc" data-rot="Vencimento">${t.vencimento ? esc(formatDateBR(t.vencimento)) : '—'}</td>
+        <td class="num" data-rot="Valor">${formatBRL(t.valor)}</td><td class="num col-opc" data-rot="% do papel">${pctTexto(t.pct)}</td></tr>`;
   }).join('');
   return `
-    <section class="at-card pf-card" id="pf-papel" aria-labelledby="pf-papel-titulo">
+    <section class="card at-card pf-card" id="pf-papel" aria-labelledby="pf-papel-titulo">
       <div class="at-card-titulo"><h2 id="pf-papel-titulo">Carteira de papel (CRI/CRA)</h2><span class="hint">${p.n ? `${formatNumeroBR(p.n, 0)} papéis · ` : ''}${p.total ? formatBRLCompacto(p.total) : ''}</span></div>
       <h3 class="pf-sub">Divisão por indexador</h3>
       <div class="pf-divisao">${donutHtml(idx)}
@@ -186,7 +204,7 @@ function papelHtml(visao) {
       </div>
       <p class="pf-nota">${esc(cobertura)}</p>
       ${linhas ? `<h3 class="pf-sub">Principais papéis</h3>
-      <div class="pf-tabela-wrap"><table class="pf-tabela"><thead><tr><th>CRI/CRA</th><th>Taxa</th><th>Vencimento</th><th class="pf-num">Valor</th><th class="pf-num">% do papel</th></tr></thead><tbody>${linhas}</tbody></table></div>
+      <div class="card card-flat pf-tabela-card"><div class="tabela-wrap"><table class="tabela pf-tabela"><thead><tr><th scope="col">CRI/CRA</th><th scope="col">Taxa</th><th scope="col" class="col-opc">Vencimento</th><th scope="col" class="num">Valor</th><th scope="col" class="num col-opc">% do papel</th></tr></thead><tbody>${linhas}</tbody></table></div></div>
       ${p.titulosOmitidos ? `<p class="pf-nota">Mais ${p.titulosOmitidos} papéis menores não aparecem na lista.</p>` : ''}` : ''}
     </section>`;
 }
@@ -195,7 +213,7 @@ function cotasHtml(visao) {
   const c = visao.cotas;
   if (!c || !c.itens || !c.itens.length) return '';
   return `
-    <section class="at-card pf-card" id="pf-cotas" aria-labelledby="pf-cotas-titulo">
+    <section class="card at-card pf-card" id="pf-cotas" aria-labelledby="pf-cotas-titulo">
       <div class="at-card-titulo"><h2 id="pf-cotas-titulo">Cotas de outros FIIs</h2><span class="hint">${formatBRLCompacto(c.total)} em ${c.n} fundo(s)</span></div>
       <ul class="pf-cotas">${c.itens.map((i) => `<li><span class="pf-cota-ticker">${esc(i.ticker || '—')}</span><span class="pf-cota-nome">${esc(i.nome)}</span><span class="pf-cota-val">${formatBRLCompacto(i.valor)}</span><span class="pf-leg-pct">${pctTexto(i.pct)}</span></li>`).join('')}</ul>
       ${c.omitidos ? `<p class="pf-nota">Mais ${c.omitidos} fundo(s) menores não aparecem.</p>` : ''}
@@ -216,9 +234,9 @@ function composicaoHtml(visao) {
   }
   if (!itens || !itens.length) return '';
   return `
-    <section class="at-card pf-card" aria-labelledby="pf-comp-titulo">
+    <section class="card at-card pf-card" aria-labelledby="pf-comp-titulo">
       <div class="at-card-titulo"><h2 id="pf-comp-titulo">${titulo}</h2><span class="hint">${ref}</span></div>
-      <div class="pf-barra" role="img" aria-label="${esc(itens.map((i) => `${i.rotulo} ${pctTexto(i.share)}`).join(', '))}">${itens.map((i, k) => `<span class="pf-c${k % 8}" style="flex:${Math.max(i.share, 0.004)}" title="${esc(i.rotulo)} ${pctTexto(i.share)}"></span>`).join('')}</div>
+      ${barraComposicaoHtml(itens)}
       <ul class="pf-legenda pf-legenda-larga">${itens.map((i, k) => `<li><span class="pf-bolinha pf-c${k % 8}" aria-hidden="true"></span><span class="pf-leg-nome">${esc(i.rotulo)}</span><span class="pf-leg-pct">${pctTexto(i.share)}</span><span class="pf-leg-val">${formatBRLCompacto(i.valor)}</span></li>`).join('')}</ul>
     </section>`;
 }
@@ -233,9 +251,9 @@ function cabecalhoHtml(visao) {
       </div>` : '';
   const ref = visao.ref && visao.ref.trimestre ? `Informe de ${formatDateBR(visao.ref.trimestre)}` : '';
   return `
-    <section class="at-card pf-card pf-resumo" aria-labelledby="pf-resumo-titulo">
+    <section class="card at-card pf-card pf-resumo" aria-labelledby="pf-resumo-titulo">
       <div class="at-card-titulo"><h2 id="pf-resumo-titulo">Patrimônio do fundo</h2>
-        <div class="pf-chips"><span class="pf-chip pf-chip-tipo">${esc(tipo)}</span>${visao.segmentoCvm ? `<span class="pf-chip">${esc(visao.segmentoCvm)}</span>` : ''}${ref ? `<span class="pf-chip">${esc(ref)}</span>` : ''}</div>
+        <div class="pf-chips"><span class="chip-tonal chip-primary">${esc(tipo)}</span>${visao.segmentoCvm ? `<span class="chip-tonal">${esc(visao.segmentoCvm)}</span>` : ''}${ref ? `<span class="chip-tonal">${esc(ref)}</span>` : ''}</div>
       </div>
       ${fotoHtml(visao.fotoFundo)}
       ${visao.nome ? `<p class="pf-nome-fundo">${esc(visao.nome)}</p>` : ''}
@@ -260,12 +278,13 @@ function rodapeHtml(visao) {
 
 /** Conteúdo completo da aba, conforme a fase. */
 export function patrimonioHtml(estado) {
+  GRAFICOS_DA_RENDER = [];
   if (estado.fase === 'carregando' || estado.fase === 'inicial') return patrimonioPlaceholderHtml();
   if (estado.fase === 'erro') {
-    return `<div class="pf-raiz" id="pfRaiz"><div class="pf-estado pf-estado-erro" role="alert"><p>Não deu pra carregar o patrimônio deste fundo agora${estado.erro ? ` (${esc(estado.erro)})` : ''}.</p><button type="button" class="pf-mais" id="pfTentar">Tentar de novo</button></div></div>`;
+    return `<div class="pf-raiz" id="pfRaiz"><div class="estado estado-erro" role="alert"><span class="estado-ico"><svg class="ico" aria-hidden="true"><use href="#ico-error"/></svg></span><h3 class="estado-titulo">Não consegui carregar o patrimônio do fundo</h3><p class="estado-texto">Não deu pra carregar o patrimônio deste fundo agora${estado.erro ? ` (${esc(estado.erro)})` : ''}. Tente de novo em instantes.</p><div class="estado-acoes"><button type="button" class="btn btn-tonal" id="pfTentar"><svg class="ico" aria-hidden="true"><use href="#ico-refresh"/></svg>Tentar de novo</button></div></div></div>`;
   }
   if (estado.fase === 'vazio') {
-    return `<div class="pf-raiz" id="pfRaiz"><div class="pf-estado"><h3>Portfólio ainda não montado</h3><p>${esc(estado.mensagem || 'Este fundo ainda não tem o portfólio guardado.')}</p><p class="pf-nota">Ele é montado a partir do informe trimestral da CVM, pela agenda diária do Apps Script, para os FIIs que estão na carteira.</p></div></div>`;
+    return `<div class="pf-raiz" id="pfRaiz"><div class="estado"><span class="estado-ico"><svg class="ico" aria-hidden="true"><use href="#ico-inbox"/></svg></span><h3 class="estado-titulo">Portfólio ainda não montado</h3><p class="estado-texto">${esc(estado.mensagem || 'Este fundo ainda não tem o portfólio guardado.')}</p><p class="estado-texto">Ele é montado a partir do informe trimestral da CVM, pela agenda diária do Apps Script, para os FIIs que estão na carteira.</p></div></div>`;
   }
   const v = estado.visao;
   const blocos = [];
@@ -279,7 +298,7 @@ export function patrimonioHtml(estado) {
   const ordemPapel = [comp, papel, cotas, div, imoveis];
   blocos.push(...(v.tipo === 'papel' || v.tipo === 'fof' ? ordemPapel : ordemTijolo));
   const sem = !imoveis && !papel && !cotas && !comp;
-  return `<div class="pf-raiz" id="pfRaiz">${cabecalhoHtml(v)}${sem ? '<div class="pf-estado"><p>A CVM não trouxe imóveis nem papéis deste fundo no último informe.</p></div>' : blocos.join('')}${rodapeHtml(v)}</div>`;
+  return `<div class="pf-raiz" id="pfRaiz">${cabecalhoHtml(v)}${sem ? '<div class="estado"><p class="estado-texto">A CVM não trouxe imóveis nem papéis deste fundo no último informe.</p></div>' : blocos.join('')}${rodapeHtml(v)}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +354,7 @@ export function criarControladorPatrimonio({
 }) {
   const chaveCache = `fiiPortfolio_v1:${ticker}`;
   const estado = { fase: 'inicial', visao: null, resposta: null, manual: null, por: 'imovel', base: null, expandido: false, geocodificando: '', erro: '', mensagem: '' };
-  let painel = null, mapa = null, camada = null, marcadores = new Map(), carregando = false, geoRodou = false, mapaPedido = 0;
+  let painel = null, graficos = [], mapa = null, camada = null, marcadores = new Map(), carregando = false, geoRodou = false, mapaPedido = 0;
 
   const geoCache = () => { try { return JSON.parse((storage && storage.getItem(CHAVE_GEO_LS)) || '{}') || {}; } catch (_) { return {}; } };
   const geoGuardar = (m) => { try { if (storage) storage.setItem(CHAVE_GEO_LS, JSON.stringify(m)); } catch (_) { /* sem storage */ } };
@@ -363,11 +382,17 @@ export function criarControladorPatrimonio({
     painel.querySelectorAll('[data-pf-ver]').forEach((b) => b.addEventListener('click', () => verNoMapa(b.dataset.pfVer)));
   }
 
+  function montarGraficos() {
+    graficos.forEach((g) => { try { g.destruir(); } catch (_) { /* já saiu */ } });
+    graficos = montarGraficosPatrimonio(painel);
+  }
+
   function redesenhar() {
     if (!painel) return;
     // o mapa vive dentro do HTML da aba: ao redesenhar, é recriado (se a aba está visível)
     if (mapa) { try { mapa.remove(); } catch (_) { /* já foi */ } mapa = null; camada = null; marcadores = new Map(); }
     painel.innerHTML = patrimonioHtml(estado);
+    montarGraficos();
     ligar();
     if (aberta()) iniciarMapa();
   }
@@ -405,7 +430,7 @@ export function criarControladorPatrimonio({
     const maxR = pontos.reduce((m, i) => Math.max(m, i.pctReceita || 0), 0);
     pontos.forEach((im) => {
       const raio = maxR > 0 && im.pctReceita > 0 ? 6 + Math.round((im.pctReceita / maxR) * 8) : 7;
-      const m = L.circleMarker([im.lat, im.lon], { radius: raio, weight: 2, color: '#0b6e4f', fillColor: im.precisao === 'cidade' ? '#9aa5b4' : '#1bAF7A', fillOpacity: 0.75 }).bindPopup(popupHtml(im));
+      const m = L.circleMarker([im.lat, im.lon], { radius: raio, weight: 2, color: 'var(--good-ink)', fillColor: im.precisao === 'cidade' ? 'var(--ink-faint)' : 'var(--good)', fillOpacity: 0.75 }).bindPopup(popupHtml(im));
       m.addTo(camada);
       marcadores.set(im.k, m);
     });
@@ -510,7 +535,7 @@ export function criarControladorPatrimonio({
     desenhar(raiz) {
       painel = raiz;
       if (estado.fase === 'inicial' || estado.fase === 'carregando') painel.innerHTML = patrimonioPlaceholderHtml();
-      else { painel.innerHTML = patrimonioHtml(estado); ligar(); }
+      else { painel.innerHTML = patrimonioHtml(estado); montarGraficos(); ligar(); }
     },
     /** A aba virou visível. */
     mostrar() {

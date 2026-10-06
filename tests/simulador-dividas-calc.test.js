@@ -229,6 +229,22 @@ test('parâmetros padrão a partir do contexto do patrimônio (dados inventados)
   assert.ok(v.bullets.some((b) => /FIES: não antecipe/.test(b.html)));
 });
 
+// 05/10/2026 (auditoria A-08): saldo e prazo de hoje só descontam as parcelas já vencidas
+test('dividasDoContexto: antes do dia da parcela o saldo e o prazo são os do extrato; depois, uma parcela a menos', () => {
+  const fin = { saldo: 120000, dataSaldo: '2025-06-20', taxaAnual: 0.09, amortizacao: 500, prazoRestante: 240, seguroTaxas: 100, proximaParcela: { vencimento: '2025-07-20', valor: 1000 } };
+  const antes = dividasDoContexto({ financiamento: fin }, '2025-07-05').financiamento;
+  assert.equal(antes.saldo, 120000);
+  assert.equal(antes.meses, 240, 'o prazo restante do extrato');
+  const depois = dividasDoContexto({ financiamento: fin }, '2025-07-20').financiamento;
+  assert.equal(depois.saldo, 119500);
+  assert.equal(depois.meses, 239);
+  const fies = { saldo: 30000, dataSaldo: '2025-06-10', parcela: 400, taxaMensal: 0.003, restantes: 84 };
+  assert.equal(dividasDoContexto({ fies }, '2025-07-05').fies.saldo, 30000);
+  assert.equal(dividasDoContexto({ fies }, '2025-07-05').fies.meses, 84);
+  assert.equal(dividasDoContexto({ fies }, '2025-07-12').fies.meses, 83);
+  assert.ok(dividasDoContexto({ fies }, '2025-07-12').fies.saldo < 30000);
+});
+
 test('estratégias do vídeo e referências com link', () => {
   assert.ok(ESTRATEGIAS_VIDEO.length >= 6);
   ESTRATEGIAS_VIDEO.forEach((e) => assert.ok(e.titulo && e.video && e.conta && /^\d\d:\d\d$/.test(e.min)));

@@ -132,6 +132,18 @@ function lerCanaisVideos_(ss) {
     .filter(function (c) { return c.entrada; });
 }
 
+/**
+ * 05/10/2026 (Tiago): 404 ou lista vazia de vídeos de um canal = "sem vídeos disponíveis" - NÃO é erro: não vira
+ * Erro/Atenção na execução, só fica registrado (e a tela mostra "sem vídeos disponíveis" no canal).
+ */
+function erroSemVideos_(mensagem) {
+  var e = new Error(mensagem);
+  e.semVideos = true;
+  return e;
+}
+
+var PROP_VIDEOS_SEM_VIDEOS_ = 'YT_CANAIS_SEM_VIDEOS';
+
 /** ID do canal (UC...) a partir de link, @nome ou do próprio ID - guardado nas propriedades do script. */
 function resolverCanalYoutube_(entrada) {
   var e = String(entrada || '').trim();
@@ -146,6 +158,7 @@ function resolverCanalYoutube_(entrada) {
   else if (e.charAt(0) === '@') url = 'https://www.youtube.com/' + encodeURIComponent(e).replace('%40', '@');
   else url = 'https://www.youtube.com/@' + encodeURIComponent(e);
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'pt-BR' } });
+  if (resp.getResponseCode() === 404) throw erroSemVideos_('canal não encontrado (404): ' + e);
   if (resp.getResponseCode() !== 200) throw new Error('canal não encontrado (' + resp.getResponseCode() + '): ' + e);
   var id = extrairIdCanalDoHtml_(resp.getContentText());
   if (!id) throw new Error('não achei o ID do canal na página: ' + e);
@@ -170,6 +183,7 @@ function extrairIdCanalDoHtml_(html) {
 
 function buscarVideosCanal_(channelId) {
   var resp = UrlFetchApp.fetch('https://www.youtube.com/feeds/videos.xml?channel_id=' + channelId, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (resp.getResponseCode() === 404) throw erroSemVideos_('feed HTTP 404');
   if (resp.getResponseCode() !== 200) throw new Error('feed HTTP ' + resp.getResponseCode());
   return extrairVideosDoFeed_(resp.getContentText());
 }
@@ -223,19 +237,25 @@ function atualizarVideos_(origem) {
   if (!canais.length) return { status: 'Atenção', detalhe: 'Nenhum canal na aba ' + ABA_VIDEOS_CANAIS + ' (rode configurarVideosDireto() e cadastre os canais).', total: 0 };
   var porId = {};
   lerVideos_(ss).forEach(function (v) { porId[v.id] = v; });
-  var falhas = [], novos = 0;
+  var falhas = [], semVideos = [], novos = 0;
   canais.forEach(function (c) {
     try {
       var id = resolverCanalYoutube_(c.entrada);
-      buscarVideosCanal_(id).forEach(function (v) {
+      var doCanal = buscarVideosCanal_(id);
+      if (!doCanal.length) semVideos.push(c.entrada + ' (feed vazio)');
+      doCanal.forEach(function (v) {
         if (!porId[v.id]) novos++;
         v.carteiras = c.carteiras;
         porId[v.id] = v;
       });
     } catch (erro) {
-      falhas.push(c.entrada + ' (' + String(erro).slice(0, 80) + ')');
+      // 404 ou lista vazia = "sem vídeos disponíveis": registra, mas não é falha da execução
+      if (erro && erro.semVideos) semVideos.push(c.entrada + ' (' + String(erro.message || erro).slice(0, 80) + ')');
+      else falhas.push(c.entrada + ' (' + String(erro).slice(0, 80) + ')');
     }
   });
+  // a tela lê daqui o "sem vídeos disponíveis" por canal (montarRespostaVideos_)
+  try { PropertiesService.getScriptProperties().setProperty(PROP_VIDEOS_SEM_VIDEOS_, JSON.stringify(semVideos.map(function (x) { return x.replace(/ \([^)]*\)$/, ''); }))); } catch (eP) { /* só informativo */ }
   var limite = new Date(Date.now() - VIDEOS_DIAS_GUARDAR * 86400000).toISOString();
   var lista = Object.keys(porId).map(function (k) { return porId[k]; })
     .filter(function (v) { return v.publicado >= limite; })
@@ -249,14 +269,15 @@ function atualizarVideos_(origem) {
       return [v.id, v.canal, v.titulo, new Date(v.publicado), v.descricao, (v.carteiras || []).join(', '), agora];
     }));
   }
-  var status = falhas.length === canais.length ? 'Erro' : (falhas.length ? 'Atenção' : 'Sucesso');
+  // canal sem vídeos disponíveis não conta nem como falha nem como sucesso pra decidir Erro/Atenção
+  var consultados = canais.length - semVideos.length;
+  var status = !falhas.length ? 'Sucesso' : (falhas.length >= consultados ? 'Erro' : 'Atenção');
   var detalhe = 'YouTube: ' + novos + ' vídeo(s) novo(s), ' + lista.length + ' guardados de ' + canais.length + ' canal(is)' +
+    (semVideos.length ? ' — sem vídeos disponíveis: ' + semVideos.join('; ') : '') +
     (falhas.length ? ' — falharam: ' + falhas.join('; ') : '');
-  // só entra no Registro de Controle quando algo deu errado ou foi rodado à mão (a cada 6h seria só ruído)
-  if (status !== 'Sucesso' || origem !== 'Automático') {
-    try { gravarRegistroControle_(status, origem, detalhe); } catch (e) { Logger.log('Registro de Controle: ' + e); }
-  }
-  return { status: status, detalhe: detalhe, total: lista.length, novos: novos };
+  // 05/10/2026 (Tiago): o sucesso também é registrado (antes só entrava falha ou execução manual)
+  try { gravarRegistroControle_(status, origem, detalhe); } catch (e) { Logger.log('Registro de Controle: ' + e); }
+  return { status: status, detalhe: detalhe, total: lista.length, novos: novos, semVideos: semVideos.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +437,13 @@ function videosCanalOficial_(entrada, opcoes) {
   var o = opcoes || {};
   var valida = entradaCanalOficialValida_(entrada);
   if (!valida) throw new Error('canal inválido: ' + String(entrada).slice(0, 80));
-  var id = /^UC[\w-]{22}$/.test(valida) ? valida : resolverCanalYoutube_(valida); // resolvido 1x e guardado nas propriedades do script
+  var id;
+  try {
+    id = /^UC[\w-]{22}$/.test(valida) ? valida : resolverCanalYoutube_(valida); // resolvido 1x e guardado nas propriedades do script
+  } catch (eRes) {
+    if (eRes && eRes.semVideos) return { id: '', nome: '', videos: [], semVideos: true }; // 404 = sem vídeos disponíveis
+    throw eRes;
+  }
   var cache = null;
   try { cache = CacheService.getScriptCache(); } catch (e1) { cache = null; }
   if (cache && !o.semCache) {
@@ -427,6 +454,7 @@ function videosCanalOficial_(entrada, opcoes) {
   }
   var buscar = o.fetch || function (url, params) { return UrlFetchApp.fetch(url, params); };
   var resp = buscar('https://www.youtube.com/feeds/videos.xml?channel_id=' + id, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (resp.getResponseCode() === 404) return { id: id, nome: '', videos: [], semVideos: true }; // 404 = sem vídeos disponíveis (não é erro)
   if (resp.getResponseCode() !== 200) throw new Error('feed do canal oficial HTTP ' + resp.getResponseCode());
   var xml = resp.getContentText();
   var titulo = String(xml || '').split('<entry>')[0].match(/<title>([\s\S]*?)<\/title>/);
@@ -435,6 +463,7 @@ function videosCanalOficial_(entrada, opcoes) {
     nome: titulo ? titulo[1].replace(/&amp;/g, '&').trim() : '',
     videos: extrairVideosDoFeed_(xml).map(function (v) { return { id: v.id, canal: v.canal, titulo: v.titulo, publicado: v.publicado, descricao: String(v.descricao || '').slice(0, 300) }; })
   };
+  if (!saida.videos.length) saida.semVideos = true; // lista vazia = sem vídeos disponíveis
   if (cache) { try { cache.put(VIDEOS_FEED_CACHE_PREFIXO + id, JSON.stringify(saida), VIDEOS_FEED_CACHE_TTL); } catch (e3) { /* só otimização */ } }
   return saida;
 }
@@ -518,10 +547,17 @@ function montarRespostaVideos_(p, opcoes) {
     carteira: filtro.carteira || null,
     videos: filtrarVideos_(videos, filtro)
   };
+  // 05/10/2026: canais de aux_videos-canais que a última atualização achou sem vídeos disponíveis (404 / feed vazio)
+  try {
+    var semV = JSON.parse(PropertiesService.getScriptProperties().getProperty(PROP_VIDEOS_SEM_VIDEOS_) || '[]');
+    if (Array.isArray(semV) && semV.length) resposta.canaisSemVideos = semV.map(function (x) { return String(x).slice(0, 80); }).slice(0, 30);
+  } catch (eS) { /* sem a lista, a tela só não avisa */ }
   if (!filtro.carteira && p.canal) {
     try {
       var canal = videosCanalOficial_(p.canal, opcoes);
       resposta.canalOficial = { id: canal.id, nome: canal.nome, recentes: canal.videos.length };
+      if (canal.semVideos || !canal.videos.length) resposta.canalOficial.semVideos = true; // a tela mostra "sem vídeos disponíveis"
+
       // pede mais dos seus canais (o corte final é depois de juntar com o oficial)
       var maisFiltrados = filtrarVideos_(videos, { alvos: filtro.alvos, descartar: filtro.descartar, max: VIDEOS_MAX_RESPOSTA * 2 });
       resposta.videos = mesclarVideosCanalOficial_(maisFiltrados, canal, {

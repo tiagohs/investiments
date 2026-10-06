@@ -20,6 +20,7 @@
  *   volta pro último estado salvo e avisa.
  */
 import { salvarFavoritos as salvarFavoritosApi } from '../api-client.js';
+import { toast } from '../ui/index.js'; // 06/10/2026 (Onda 3, A-62): feedback de salvar vira toast
 
 /** "classe:ref" - ref = código do título em Renda Fixa, ticker no resto
  * (mesma ref do link pro Detalhe do Ativo). */
@@ -54,9 +55,11 @@ export function resolverFavoritos(ids, ativos) {
   return (ids || []).map((id) => porId.get(id)).filter(Boolean);
 }
 
-const ICONE_ESTRELA_SVG = '<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>';
-const ICONE_EDITAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
-const ICONE_CONCLUIR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>';
+// 06/10/2026 (Onda 3, kit): ícones do sprite (estrela vazia/cheia, lápis, check), como no resto do app
+const ico_ = (nome) => `<svg class="ico" aria-hidden="true"><use href="#ico-${nome}"/></svg>`;
+const ICONE_ESTRELA_SVG = `<span class="fav-vazia">${ico_('star')}</span><span class="fav-cheia">${ico_('star-fill')}</span>`;
+const ICONE_EDITAR_SVG = ico_('edit');
+const ICONE_CONCLUIR_SVG = ico_('check');
 
 /** HTML da estrela, usado por criarAtivoCard (inicio.js). */
 export function htmlBotaoFavorito(ativo, favorito = false) {
@@ -120,7 +123,7 @@ export function montarFavoritos(doc, {
     const lista = resolverFavoritos(estado.ids, estado.ativos);
     grid.innerHTML = '';
     if (!lista.length) {
-      grid.innerHTML = '<p class="hint favoritos-vazio">Toque na estrela de um ativo em "Meus ativos" pra fixá-lo aqui.</p>';
+      grid.innerHTML = '<p class="hint favoritos-vazio">Nenhum favorito ainda. Toque na estrela de um ativo em "Meus ativos" para fixá-lo aqui.</p>';
     } else {
       lista.forEach((ativo) => {
         const card = criarCard(doc, ativo, { favorito: true });
@@ -167,12 +170,13 @@ export function montarFavoritos(doc, {
       estado.salvando -= 1;
       if (resposta && resposta.ok) {
         estado.confirmados = Array.isArray(resposta.favoritos) ? resposta.favoritos : ids;
-        if (!estado.salvando) avisar_('Favoritos salvos', 'ok');
+        if (!estado.salvando) { avisar_('Favoritos salvos', 'ok'); toast('Favoritos salvos', { tipo: 'ok', doc }); }
       } else {
         // volta pro último estado que a planilha confirmou
         estado.ids = [...estado.confirmados];
         if (!estado.editando) desenhar_();
         avisar_(`Não deu pra salvar os favoritos (${(resposta && resposta.erro) || 'erro desconhecido'}). Tente de novo.`, 'erro');
+        toast('Não consegui salvar os favoritos. A lista voltou ao último estado salvo; tente de novo.', { tipo: 'erro', doc });
       }
     });
     return estado.fila;

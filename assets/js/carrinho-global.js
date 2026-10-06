@@ -68,7 +68,9 @@ export function carrinhoValido(c, hoje) {
 export function definirQuantidade(carrinho, { classe, ativo, moeda = 'BRL', preco }, qtd) {
   const itens = { ...carrinho.itens };
   const k = chaveItem(classe, ativo);
-  const q = Math.max(0, Math.floor(num(qtd) * 10000) / 10000);
+  // 05/10/2026 (A-23): trunca em 4 casas com tolerância - 0,29 × 10000 dá 2899,9999…
+  // em ponto flutuante e o floor puro perdia 1 passo de 0,0001 numa ação fracionada.
+  const q = Math.max(0, Math.floor(num(qtd) * 10000 + 1e-6) / 10000);
   if (q > 0) itens[k] = { classe, ativo, moeda, qtd: q, preco: num(preco) || (itens[k] && itens[k].preco) || 0 };
   else delete itens[k];
   return { ...carrinho, itens };
@@ -97,10 +99,10 @@ export function removerDoCarrinho(carrinho, chave) {
 
 export const valorItemCarrinho = (it) => (it.classe === 'rendaFixa' ? num(it.valor) : num(it.qtd) * num(it.preco));
 
-/** Itens em ordem de classe e nome, com o subtotal. */
+/** Itens em ordem de classe e nome, com o subtotal (ao centavo, como a corretora cobra: 05/10/2026, A-23, pros totais fecharem). */
 export function itensDoCarrinho(carrinho) {
   return Object.entries(carrinho.itens)
-    .map(([chave, it]) => ({ chave, ...it, subtotal: arred(valorItemCarrinho(it), 4) }))
+    .map(([chave, it]) => ({ chave, ...it, subtotal: arred(valorItemCarrinho(it), 2) }))
     .sort((a, b) => ordemClasse(a.classe) - ordemClasse(b.classe) || a.ativo.localeCompare(b.ativo));
 }
 
@@ -120,6 +122,38 @@ export function totaisCarrinho(carrinho, cambio) {
   });
   Object.values(porClasse).forEach((p) => { p.valor = arred(p.valor); p.brl = arred(p.brl); });
   return { porClasse, n: Object.keys(carrinho.itens).length, totalBrl: arred(totalBrl), totalUsd: arred(totalUsd) };
+}
+
+/**
+ * 05/10/2026 (A-11): aviso de sobrecomprometimento. Um ativo do carrinho que está vinculado a MAIS DE UMA meta
+ * (ex.: um FII na renda passiva e na aposentadoria) só "vale" na meta de maior prioridade (reserva -> renda
+ * passiva -> aposentadoria -> demais; ver metas-calc!alocarMetas) - o aporte não avança as outras. `metas` = lista
+ * com `calc` (metas-card!metasComCalculo). Devolve [{ chave, ativo, metas: [nome], dona: nome|null, texto }].
+ */
+export function avisosSobrecomprometimento(carrinho, metas) {
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const ativas = (metas || []).filter((m) => m && m.calc && Array.isArray(m.calc.vinculos) && m.status !== 'arquivada' && m.status !== 'pausada');
+  if (!ativas.length) return [];
+  const out = [];
+  itensDoCarrinho(carrinho || { itens: {} }).forEach((it) => {
+    const alvo = norm(it.ativo);
+    const doAtivo = [];
+    ativas.forEach((m) => {
+      m.calc.vinculos.forEach((v) => {
+        (v.ativos || []).forEach((a) => {
+          if (norm(a.ref) !== alvo && norm(String(a.id || '').split('@')[0]) !== alvo && norm(a.nome) !== alvo) return;
+          const conta = !v.fracaoPorId || num(v.fracaoPorId[a.id]) > 0;
+          const x = doAtivo.find((d) => d.nome === m.nome);
+          if (x) x.conta = x.conta || conta; else doAtivo.push({ nome: m.nome, conta });
+        });
+      });
+    });
+    if (doAtivo.length < 2) return;
+    const dona = (doAtivo.find((d) => d.conta) || {}).nome || null;
+    const nomes = doAtivo.map((d) => d.nome);
+    out.push({ chave: it.chave, ativo: it.ativo, metas: nomes, dona, texto: `${it.ativo} está em ${nomes.join(' e ')}${dona ? `: o aporte só conta em "${dona}" (maior prioridade)` : ''}` });
+  });
+  return out;
 }
 
 // ---------------------------------------------------------------------------

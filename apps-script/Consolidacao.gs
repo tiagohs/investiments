@@ -185,7 +185,7 @@ function consolidar_(opcoes) {
   var o = opcoes || {};
   var inicio = Date.now();
   var agora = o.agora || Date.now; // injetável nos testes
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_(['precos', 'carteira'], 'consolidação', { ttlMs: 6.5 * 60 * 1000 });
   var conseguiu = false;
   try { conseguiu = trava.tryLock(15000); } catch (eL) { conseguiu = false; }
   if (!conseguiu) {

@@ -23,19 +23,20 @@
  *    foto mensal: <= 0,85 barato, >= 1,15 caro.
  */
 
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { formatNumeroPt, formatPct } from '../format.js'; // 05/10/2026 (A-68)
+
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const br = (v, casas = 1) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas });
-const pct = (f, casas = 1) => `${br(f * 100, casas)}%`;
+const br = (v, casas = 1) => formatNumeroPt(Number(v), { minimumFractionDigits: casas, maximumFractionDigits: casas });
 const PREFIXO = 'Contexto de mercado: ';
 
-const escHtml = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
  * Botão "i" que abre a explicação do ponto ali mesmo (sem JS: <details>), pro
  * momento de aporte e pro card de análise do ativo (estilo .ctx-i em shell.css).
  */
 export function ajudaHtml(texto) {
-  return texto ? `<details class="ctx-i"><summary aria-label="Por que isso pesa?" title="Por que isso pesa?">i</summary><p>${escHtml(texto)}</p></details>` : '';
+  return texto ? `<details class="ctx-i"><summary aria-label="Por que isso pesa?" title="Por que isso pesa?">i</summary><p>${esc(texto)}</p></details>` : '';
 }
 
 export const LIMIARES_MACRO = Object.freeze({
@@ -192,7 +193,7 @@ const AJUDA_JUROS = 'Juro real = juro nominal descontada a inflação. Aqui: Sel
 function sinalJurosParaRv(m, classe) {
   const j = m.juros;
   if (!j) return null;
-  const real = `${pct(j.real)} a.a.${j.base === 'realizado' ? ' (realizado)' : ''}`;
+  const real = `${formatPct(j.real)} a.a.${j.base === 'realizado' ? ' (realizado)' : ''}`;
   if (j.nivel === 'muito-alto' || j.nivel === 'alto') {
     const alvo = classe === 'fiis' ? 'FIIs disputam o dinheiro com a renda fixa' : 'exija mais desconto nas ações';
     return sinal('juro-real', 'ruim', `juro real de ${real}: a renda fixa paga muito; ${alvo}.`, j.nivel === 'muito-alto' ? -0.3 : -0.2, AJUDA_JUROS);
@@ -209,7 +210,7 @@ function sinalBolsa(t, classe, juros = null) {
   if (t.nivel === 'sem-historico') {
     // ainda não há foto mensal suficiente: só informa o retorno pelo lucro contra a Selic (peso zero, fica no "+N")
     if (classe !== 'acoes' || t.retornoLucro == null || !juros || juros.selic == null) return null;
-    return sinal('bolsa', 'neutro', `P/L médio das suas ações em ${br(t.atual, 1)} (retorno pelo lucro de ${pct(t.retornoLucro)} a.a. contra Selic de ${pct(juros.selic, 2)}); ainda sem média histórica pra dizer se está caro ou barato.`, 0,
+    return sinal('bolsa', 'neutro', `P/L médio das suas ações em ${br(t.atual, 1)} (retorno pelo lucro de ${formatPct(t.retornoLucro)} a.a. contra Selic de ${formatPct(juros.selic, 2)}); ainda sem média histórica pra dizer se está caro ou barato.`, 0,
       'O retorno pelo lucro é 1 ÷ P/L: quanto a carteira de ações "rende" em lucro por ano sobre o preço. A comparação com a Selic mostra se as ações pagam mais ou menos que a renda fixa. A média histórica própria (foto mensal do P/L, guardada na planilha) só aparece depois de alguns meses de fotos.');
   }
   const atual = br(t.atual, t.metrica === 'P/L' ? 1 : 2);
@@ -224,7 +225,7 @@ function sinalBolsa(t, classe, juros = null) {
 function sinalSelicEmQueda(m, texto) {
   const j = m.juros;
   if (!j || j.quedaEsperada == null || j.quedaEsperada < LIMIARES_MACRO.selicQueda) return null;
-  return sinal('selic-queda', 'bom', `o Focus espera a Selic em ${pct(j.selicEsperada, 2)} no fim do próximo ano (hoje ${pct(j.selic, 2)}): ${texto}`, 0.3,
+  return sinal('selic-queda', 'bom', `o Focus espera a Selic em ${formatPct(j.selicEsperada, 2)} no fim do próximo ano (hoje ${formatPct(j.selic, 2)}): ${texto}`, 0.3,
     'Focus = pesquisa semanal do Banco Central com economistas do mercado. Juros em queda tendem a valorizar títulos de taxa já travada e a ajudar quem vive de desconto (FIIs, ações).');
 }
 
@@ -250,13 +251,13 @@ export function sinaisMacro(macro, classe, { indexador = '', taxaPropria = false
     const j = macro.juros;
     const ix = String(indexador || '').toUpperCase();
     if (ix === 'SELIC' || ix === 'CDI') {
-      if (j && (j.nivel === 'alto' || j.nivel === 'muito-alto')) add(sinal('selic-alta', 'bom', `Selic em ${pct(j.selic, 2)} (juro real de ${pct(j.real)} a.a.): o pós-fixado paga muito e não sofre marcação a mercado.`, 0.2, AJUDA_JUROS));
-      else if (j && j.nivel === 'baixo') add(sinal('selic-baixa', 'neutro', `juro real de ${pct(j.real)} a.a.: o pós-fixado rende pouco acima da inflação.`, 0, AJUDA_JUROS));
+      if (j && (j.nivel === 'alto' || j.nivel === 'muito-alto')) add(sinal('selic-alta', 'bom', `Selic em ${formatPct(j.selic, 2)} (juro real de ${formatPct(j.real)} a.a.): o pós-fixado paga muito e não sofre marcação a mercado.`, 0.2, AJUDA_JUROS));
+      else if (j && j.nivel === 'baixo') add(sinal('selic-baixa', 'neutro', `juro real de ${formatPct(j.real)} a.a.: o pós-fixado rende pouco acima da inflação.`, 0, AJUDA_JUROS));
     } else if (ix === 'IPCA' || ix === 'PRE' || ix === 'PRÉ') {
       add(sinalSelicEmQueda(macro, 'travar a taxa de um título longo tende a valorizá-lo.'));
       if (ix === 'IPCA' && !taxaPropria && macro.ntnb) {
         const n = macro.ntnb;
-        const txt = `Tesouro IPCA+ longo (${n.longa.nome}) paga IPCA + ${pct(n.longa.taxa)}`;
+        const txt = `Tesouro IPCA+ longo (${n.longa.nome}) paga IPCA + ${formatPct(n.longa.taxa)}`;
         const ajuda = 'Prêmio da NTN-B = taxa real que o Tesouro paga acima do IPCA nos títulos IPCA+ de 5 anos ou mais. Régua fixa: a partir de 7% é alto, até 5% é baixo (o histórico dessas taxas não está na planilha).';
         if (n.nivel === 'alto') add(sinal('ntnb', 'bom', `${txt}: prêmio alto para travar.`, 0.4, ajuda));
         else if (n.nivel === 'baixo') add(sinal('ntnb', 'ruim', `${txt}: prêmio baixo; vale esperar taxa melhor.`, -0.3, ajuda));
@@ -275,16 +276,16 @@ export function resumoMacro(macro) {
   const out = [];
   const j = macro.juros;
   if (j) {
-    out.push({ id: 'juro-real', rotulo: 'Juro real', valor: `${pct(j.real)} a.a.`, tom: j.nivel === 'baixo' ? 'bom' : (j.nivel === 'medio' ? 'neutro' : 'atencao'), ajuda: `${AJUDA_JUROS} Selic ${pct(j.selic, 2)}${j.ipcaEsperado != null ? `, IPCA esperado ${pct(j.ipcaEsperado, 2)}` : ''}.` });
+    out.push({ id: 'juro-real', rotulo: 'Juro real', valor: `${formatPct(j.real)} a.a.`, tom: j.nivel === 'baixo' ? 'bom' : (j.nivel === 'medio' ? 'neutro' : 'atencao'), ajuda: `${AJUDA_JUROS} Selic ${formatPct(j.selic, 2)}${j.ipcaEsperado != null ? `, IPCA esperado ${formatPct(j.ipcaEsperado, 2)}` : ''}.` });
   }
-  if (macro.ntnb) out.push({ id: 'ntnb', rotulo: 'NTN-B longa', valor: `IPCA + ${pct(macro.ntnb.longa.taxa)}`, tom: macro.ntnb.nivel === 'alto' ? 'bom' : (macro.ntnb.nivel === 'baixo' ? 'atencao' : 'neutro'), ajuda: `${macro.ntnb.longa.nome}: taxa de compra de hoje. Régua: 7% ou mais é alto, 5% ou menos é baixo.` });
+  if (macro.ntnb) out.push({ id: 'ntnb', rotulo: 'NTN-B longa', valor: `IPCA + ${formatPct(macro.ntnb.longa.taxa)}`, tom: macro.ntnb.nivel === 'alto' ? 'bom' : (macro.ntnb.nivel === 'baixo' ? 'atencao' : 'neutro'), ajuda: `${macro.ntnb.longa.nome}: taxa de compra de hoje. Régua: 7% ou mais é alto, 5% ou menos é baixo.` });
   const nomes = { acoes: 'Bolsa BR', fiis: 'FIIs', acoesEua: 'Bolsa EUA' };
   Object.keys(nomes).forEach((c) => {
     const t = macro.bolsa[c];
     if (!t) return;
     const casas = t.metrica === 'P/L' ? 1 : 2;
     const tom = t.nivel === 'barato' ? 'bom' : (t.nivel === 'caro' ? 'atencao' : 'neutro');
-    const semMedia = t.medio == null && t.retornoLucro != null && macro.juros && macro.juros.selic != null ? ` · retorno ${pct(t.retornoLucro)} x Selic ${pct(macro.juros.selic, 2)}` : '';
+    const semMedia = t.medio == null && t.retornoLucro != null && macro.juros && macro.juros.selic != null ? ` · retorno ${formatPct(t.retornoLucro)} x Selic ${formatPct(macro.juros.selic, 2)}` : '';
     out.push({ id: `bolsa-${c}`, rotulo: nomes[c], valor: `${t.metrica} ${br(t.atual, casas)}${t.medio != null ? ` · média ${br(t.medio, casas)}` : semMedia}`, tom, ajuda: `${t.metrica} médio ponderado do que você tem em ${nomes[c]}${t.medio != null ? `, contra a mediana dos últimos ${t.meses} meses da foto mensal` : '; a média histórica própria só aparece com alguns meses de fotos mensais (a planilha guarda 1 por mês)'}.` });
   });
   return out;

@@ -45,6 +45,12 @@ var FNET_LIMITE_MS_ = 5 * 60 * 1000;
 // então nem uma execução interrompida perde o que já leu)
 var FNET_FOLGA_POR_CHAMADA_MS_ = 75 * 1000;
 var PROP_FNET_DOCS_PROCESSADOS_ = 'FNET_DOCS_PROCESSADOS';
+// 05/10/2026 (A-48): consultas em paralelo (UrlFetchApp.fetchAll em lotes de 10, Fontes.gs) e cota de
+// tempo PRÓPRIA desta rotina (FNET_LIMITE_MS_ acima - não depende de quanto os ativos gastaram: a
+// Agenda roda esta etapa em execução separada). O que não coube no tempo (ou não respondeu) fica
+// numa lista nas Propriedades e é o PRIMEIRO da fila na próxima execução.
+var FNET_LOTE_ = 10;
+var PROP_FNET_PENDENTES_PROV_ = 'FNET_PENDENTES_PROV';
 
 // CNPJs conferidos em 24/09/2026 (o XML do FNet de cada um traz o próprio
 // ticker em CodNegociacao). Dado público do fundo - pode ficar no código.
@@ -111,58 +117,80 @@ function atualizarProventosAnunciadosFii_(origem) {
   var cnpjs = garantirCnpjsFii_(ss, tickers);
   var processados = lerDocsFnetProcessados_();
 
+  // 05/10/2026 (A-48): quem ficou pendente da última execução vai primeiro
+  var pend = lerListaPropFnet_(PROP_FNET_PENDENTES_PROV_);
+  tickers = tickers.filter(function (t) { return pend.indexOf(t) !== -1; }).concat(tickers.filter(function (t) { return pend.indexOf(t) === -1; }));
+
   var anunciados = lerProventosAnunciados_(ss);
   var porChave = {};
   anunciados.forEach(function (p, i) { porChave[chaveProventoAnunciado_(p)] = i; });
 
-  var novos = 0, atualizados = 0, docsLidos = 0;
+  var novos = 0, atualizados = 0, docsLidos = 0, docsJaVistos = 0;
   var falhas = [], semCnpj = [], naoProcessados = [];
+  var motivoFalha = {}; // ticker -> motivo (1 linha por FII no relatório)
   var agora = new Date();
-
   var temTempo = function () { return Date.now() - inicio < FNET_LIMITE_MS_ - FNET_FOLGA_POR_CHAMADA_MS_; };
-  tickers.forEach(function (ticker) {
-    if (!temTempo()) { naoProcessados.push(ticker); return; }
-    var cnpj = cnpjs[ticker];
-    if (!cnpj) { semCnpj.push(ticker); return; }
+  var adiar = function (t) { if (naoProcessados.indexOf(t) === -1) naoProcessados.push(t); };
+  var falhar = function (t, m) { if (!motivoFalha[t]) { motivoFalha[t] = m; falhas.push(t); } };
+
+  // 1) a lista dos documentos mais recentes de TODOS os FIIs, em paralelo (fetchAll, lotes de 10)
+  var comCnpj = [];
+  tickers.forEach(function (t) { if (cnpjs[t]) comCnpj.push(t); else semCnpj.push(t); });
+  var listas = fnetBuscarEmLotes_(comCnpj.map(function (t) { return fnetPedidoLista_(cnpjs[t], FNET_DOCS_POR_FII_); }), temTempo);
+  var pendentesDoc = []; // [{ ticker, id }] - só o que ainda não foi lido
+  listas.forEach(function (r, i) {
+    var t = comCnpj[i];
+    if (r.pulado && r.porTempo) { adiar(t); return; }
+    if (!r.ok) { falhar(t, r.erro || 'sem resposta'); return; }
+    var docs;
+    try { docs = fnetDocsDeTexto_(r.texto); } catch (eJ) { falhar(t, 'resposta ilegível'); return; }
+    docs.forEach(function (doc) {
+      if (processados[doc.id]) { docsJaVistos++; return; }
+      pendentesDoc.push({ ticker: t, id: doc.id });
+    });
+  });
+
+  // 2) os documentos novos, também em paralelo; a aba é gravada a cada lote (uma execução interrompida não perde o que já leu)
+  for (var i = 0; i < pendentesDoc.length; i += FNET_LOTE_) {
+    var lote = pendentesDoc.slice(i, i + FNET_LOTE_);
+    if (!temTempo()) { lote.forEach(function (d) { adiar(d.ticker); }); continue; }
+    var baixados = fnetBuscarEmLotes_(lote.map(function (d) { return fnetPedidoDocumento_(d.id); }), temTempo);
     var mudou = false;
-    try {
-      var docs = comTentativasFnet_(function () { return listarDocumentosFnet_(cnpj, FNET_DOCS_POR_FII_); }, temTempo);
-      docs.forEach(function (doc) {
-        if (processados[doc.id]) return;
-        if (!temTempo()) { if (naoProcessados.indexOf(ticker) === -1) naoProcessados.push(ticker); return; }
-        var xml = comTentativasFnet_(function () { return baixarDocumentoFnet_(doc.id); }, temTempo);
-        docsLidos++;
-        extrairProventosDoXmlFnet_(xml, ticker).forEach(function (p) {
-          p.documento = doc.id;
-          p.atualizadoEm = agora;
-          var chave = chaveProventoAnunciado_(p);
-          if (porChave.hasOwnProperty(chave)) {
-            var atual = anunciados[porChave[chave]];
-            if (Number(doc.id) >= Number(atual.documento || 0)) { // retificação: o documento mais novo vale
-              if (atual.valor !== p.valor || atual.isento !== p.isento) atualizados++;
-              anunciados[porChave[chave]] = p;
-            }
-          } else {
-            porChave[chave] = anunciados.length;
-            anunciados.push(p);
-            novos++;
+    baixados.forEach(function (r, j) {
+      var d = lote[j];
+      if (r.pulado && r.porTempo) { adiar(d.ticker); return; }
+      if (!r.ok) { falhar(d.ticker, r.erro || 'sem resposta'); return; }
+      docsLidos++;
+      extrairProventosDoXmlFnet_(fnetTextoDoDocumento_(r.texto), d.ticker).forEach(function (p) {
+        p.documento = d.id;
+        p.atualizadoEm = agora;
+        var chave = chaveProventoAnunciado_(p);
+        if (porChave.hasOwnProperty(chave)) {
+          var atual = anunciados[porChave[chave]];
+          if (Number(d.id) >= Number(atual.documento || 0)) { // retificação: o documento mais novo vale
+            if (atual.valor !== p.valor || atual.isento !== p.isento) atualizados++;
+            anunciados[porChave[chave]] = p;
           }
-        });
-        processados[doc.id] = 1;
-        mudou = true;
+        } else {
+          porChave[chave] = anunciados.length;
+          anunciados.push(p);
+          novos++;
+        }
       });
-    } catch (erro) {
-      falhas.push(ticker + ' (' + String(erro).slice(0, 80) + ')');
-    }
+      processados[d.id] = 1;
+      mudou = true;
+    });
     if (mudou) {
       gravarProventosAnunciados_(ss, anunciados);
       gravarDocsFnetProcessados_(processados);
     }
-  });
+  }
+  gravarListaPropFnet_(PROP_FNET_PENDENTES_PROV_, naoProcessados.concat(falhas.filter(function (t) { return naoProcessados.indexOf(t) === -1; })));
 
-  var partes = ['FNet (proventos de FIIs): ' + novos + ' novo(s), ' + atualizados + ' atualizado(s), ' + docsLidos + ' documento(s) lido(s) de ' + tickers.length + ' FII(s)'];
+  var partes = ['FNet (proventos de FIIs): ' + novos + ' novo(s), ' + atualizados + ' atualizado(s), ' + docsLidos + ' documento(s) lido(s) de ' + tickers.length + ' FII(s)' +
+    (docsJaVistos ? ' (' + docsJaVistos + ' já visto(s), não baixado(s) de novo)' : '')];
   if (semCnpj.length) partes.push('sem CNPJ (digite na aba ' + ABA_FII_CNPJ + '): ' + semCnpj.join(', '));
-  if (falhas.length) partes.push('FNet não respondeu para: ' + falhas.join('; ') + ' - tenta de novo amanhã');
+  if (falhas.length) partes.push('FNet não respondeu para: ' + falhas.map(function (t) { return t + ' (' + String(motivoFalha[t]).slice(0, 80) + ')'; }).join('; ') + ' - tenta de novo amanhã');
   if (naoProcessados.length) partes.push('ficou pra próxima (tempo): ' + naoProcessados.join(', '));
   var status = (falhas.length === tickers.length && tickers.length) ? 'Erro' : ((falhas.length || semCnpj.length || naoProcessados.length) ? 'Atenção' : 'Sucesso');
   var detalhe = partes.join(' — ');
@@ -274,25 +302,69 @@ function comTentativasFnet_(fn, temTempo) {
   }
 }
 
-/** Documentos "Aviso aos Cotistas - Estruturado" mais recentes de um FII: [{ id, dataEntrega }]. */
-function listarDocumentosFnet_(cnpj, quantos) {
-  var url = FNET_BASE_URL_ + 'pesquisarGerenciadorDocumentosDados?d=0&s=0&l=' + quantos +
-    '&o%5B0%5D%5BdataEntrega%5D=desc&tipoFundo=1&idCategoriaDocumento=14&idTipoDocumento=41&cnpjFundo=' + cnpj;
-  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (resp.getResponseCode() !== 200) throw new Error('FNet HTTP ' + resp.getResponseCode());
-  var json = JSON.parse(resp.getContentText());
+var FNET_CABECALHOS_ = { 'User-Agent': 'Mozilla/5.0' };
+
+/** Pedido (UrlFetchApp) da lista de documentos "Aviso aos Cotistas - Estruturado" de um FII. */
+function fnetPedidoLista_(cnpj, quantos) {
+  return {
+    url: FNET_BASE_URL_ + 'pesquisarGerenciadorDocumentosDados?d=0&s=0&l=' + quantos +
+      '&o%5B0%5D%5BdataEntrega%5D=desc&tipoFundo=1&idCategoriaDocumento=14&idTipoDocumento=41&cnpjFundo=' + cnpj,
+    muteHttpExceptions: true, headers: FNET_CABECALHOS_
+  };
+}
+
+function fnetPedidoDocumento_(id) {
+  return { url: FNET_BASE_URL_ + 'downloadDocumento?id=' + id, muteHttpExceptions: true, headers: FNET_CABECALHOS_ };
+}
+
+/** Resposta da lista -> [{ id, dataEntrega }] (lança se não for o JSON esperado). */
+function fnetDocsDeTexto_(texto) {
+  var json = JSON.parse(texto);
+  if (!json || (json.data != null && !Array.isArray(json.data))) throw new Error('FNet: resposta inesperada');
   return (json.data || []).map(function (d) { return { id: String(d.id), dataEntrega: d.dataEntrega }; });
 }
 
-function baixarDocumentoFnet_(id) {
-  var resp = UrlFetchApp.fetch(FNET_BASE_URL_ + 'downloadDocumento?id=' + id, { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (resp.getResponseCode() !== 200) throw new Error('FNet documento ' + id + ' HTTP ' + resp.getResponseCode());
-  var texto = resp.getContentText('UTF-8');
-  // alguns documentos vêm em base64 em vez do XML direto
+/**
+ * Faz os pedidos em paralelo (fetchAll em lotes de 10 - Fontes.gs, com o disjuntor da fonte "fnet" e a cota
+ * de tempo `temTempo`) e repete UMA vez, depois de 5 s, só o que falhou por motivo passageiro
+ * (exceção/5xx/429) e ainda cabe no tempo. Devolve [{ ok, texto, erro, pulado, porTempo }] na ordem dos pedidos.
+ */
+function fnetBuscarEmLotes_(pedidos, temTempo) {
+  if (!pedidos.length) return [];
+  var res = fonteFetchEmLotes_('fnet', pedidos, { temTempo: temTempo, tamanhoLote: FNET_LOTE_ });
+  var de = [];
+  res.forEach(function (r, i) { if (!r.ok && !r.pulado && r.transitorio) de.push(i); });
+  if (de.length && (!temTempo || temTempo())) {
+    Utilities.sleep(5000);
+    var segunda = fonteFetchEmLotes_('fnet', de.map(function (i) { return pedidos[i]; }), { temTempo: temTempo, tamanhoLote: FNET_LOTE_ });
+    // pulado (disjuntor/tempo) na 2ª rodada: fica a falha original
+    segunda.forEach(function (r2, k) { if (!r2.pulado) res[de[k]] = r2; });
+  }
+  return res;
+}
+
+/** Documentos "Aviso aos Cotistas - Estruturado" mais recentes de um FII: [{ id, dataEntrega }]. (Uma consulta só; a rotina diária usa fetchAll.) */
+function listarDocumentosFnet_(cnpj, quantos) {
+  var p = fnetPedidoLista_(cnpj, quantos);
+  var resp = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true, headers: p.headers });
+  if (resp.getResponseCode() !== 200) throw new Error('FNet HTTP ' + resp.getResponseCode());
+  return fnetDocsDeTexto_(resp.getContentText());
+}
+
+/** Alguns documentos vêm em base64 em vez do XML direto. */
+function fnetTextoDoDocumento_(texto) {
+  texto = String(texto == null ? '' : texto);
   if (texto.indexOf('<') === -1) {
     try { texto = Utilities.newBlob(Utilities.base64Decode(texto.trim())).getDataAsString('UTF-8'); } catch (e) { /* segue como veio */ }
   }
   return texto;
+}
+
+function baixarDocumentoFnet_(id) {
+  var p = fnetPedidoDocumento_(id);
+  var resp = UrlFetchApp.fetch(p.url, { muteHttpExceptions: true, headers: p.headers });
+  if (resp.getResponseCode() !== 200) throw new Error('FNet documento ' + id + ' HTTP ' + resp.getResponseCode());
+  return fnetTextoDoDocumento_(resp.getContentText('UTF-8'));
 }
 
 /**
@@ -409,3 +481,16 @@ function gravarDocsFnetProcessados_(mapa) {
 
 // A leitura pro site (a receber, pagos não lançados, recebidos no mês) mora em
 // Proventos.gs!montarProventosAnunciados_ - junta FNet, a exportação da B3 e a aba Proventos.
+
+/** Lista de tickers guardada nas Propriedades (pendências da última execução). */
+function lerListaPropFnet_(chave) {
+  try {
+    var bruto = PropertiesService.getScriptProperties().getProperty(chave);
+    var l = bruto ? JSON.parse(bruto) : [];
+    return Array.isArray(l) ? l : [];
+  } catch (e) { return []; }
+}
+
+function gravarListaPropFnet_(chave, lista) {
+  try { PropertiesService.getScriptProperties().setProperty(chave, JSON.stringify(lista || [])); } catch (e) { Logger.log('Propriedades: ' + e); }
+}

@@ -69,7 +69,11 @@ var FUND_UA_SEC_ = 'investiments-app contato@exemplo.com';
 var FUND_UA_ = 'Mozilla/5.0';
 var FUND_LIMITE_MS_ = 4.5 * 60 * 1000;
 var FUND_FOLGA_MS_ = 40 * 1000;
-var FUND_VALIDADE_DIAS_ = { fundamentus: 1, yahoo: 1, planilha: 1, sec: 7 }; // cvm: mês do calendário
+// 05/10/2026 (A-49): Yahoo/Fundamentus de 1 -> 7 dias (cai ~85% das chamadas ao Yahoo, que é a fonte única de fato e não
+// tem SLA nem autorização de uso); "planilha" fica em 1 dia porque é só leitura do GOOGLEFINANCE, sem rede.
+var FUND_VALIDADE_DIAS_ = { fundamentus: 7, yahoo: 7, planilha: 1, sec: 7 }; // cvm: mês do calendário
+// dado mais velho que isto, com a fonte em pausa, deixa de ser "dado de DD/MM" informativo e vira "Atenção" no Registro
+var FUND_DADO_ANTIGO_DIAS_ = 14;
 // 04/10/2026 (Tiago: "falharam: WIZC3|fundamentus (Error: HTTP 403 ...); isso rolou em todos"):
 // o Fundamentus bloqueia (403) qualquer User-Agent que contenha "Google-Apps-Script" - e o
 // UrlFetchApp SEMPRE acrescenta isso ao User-Agent, não tem como contornar daqui. As ações
@@ -234,39 +238,75 @@ function atualizarFundamentos_(origem, opcoes) {
   } else if (acoesCvm.length) acoesCvm.forEach(function (a) { pendentes.push(a.ticker + '|cvm'); });
 
   // 3) por ticker: Yahoo (BR com ".SA" e EUA) + SEC (EUA); Fundamentus só se religado (ver FUND_USAR_FUNDAMENTUS_)
-  // 04/10/2026: fonte que bloqueia o Apps Script (403 pelo User-Agent "Google-Apps-Script", ex. SEC)
-  // é desligada pro resto da execução com UM aviso - sem 30 linhas de "falharam" e sem gastar tempo.
-  var bloqueadas = {};
+  // 05/10/2026 (A-49): fonte que bloqueia (403/429) abre o DISJUNTOR PERSISTENTE (Fontes.gs): vale em todas as
+  // execuções por 12 h (403) / 1 h (429), não só nesta. Enquanto pausada, o ticker mantém o último dado bom
+  // ("dado de DD/MM") em vez de virar "falhou" - e a fonte nem é consultada (sem espera, sem cota).
+  var emPausa = {};      // fonte -> descrição da pausa (1 por fonte, vai pro Registro)
+  var mantidos = {};     // fonte -> [{ ticker, dia }] com dado anterior mantido
+  var semDadoPausa = []; // ticker|fonte em pausa SEM nenhum dado anterior (aí sim é problema)
+  var avisosPausa = [];  // informativos: não mudam o status (a menos que o dado fique velho demais)
+  // contador honesto (A-49): conta ATIVOS, não "fonte x ativo" (antes saía "53/60 de 30 ativos")
+  var atualizadosPor = {}; // ticker -> true: recebeu dado novo de fonte externa (a planilha/GOOGLEFINANCE não conta: é leitura local)
+  var precisou = {};       // ticker -> true: tinha alguma fonte externa vencida
+  var consultas = 0;
+  ok.forEach(function (k) { var p = k.split('|'); if (p[1] !== 'planilha') { atualizadosPor[p[0]] = true; precisou[p[0]] = true; } });
+  ativos.forEach(function (a) { if (vencido(a.ticker, 'cvm') && a.classe !== 'acoesEua') precisou[a.ticker] = true; });
   ativos.forEach(function (a) {
     var fontes = a.classe === 'acoesEua' ? ['yahoo', 'sec'] : (FUND_USAR_FUNDAMENTUS_ ? ['yahoo', 'fundamentus'] : ['yahoo']);
     fontes.forEach(function (fonte) {
-      if (bloqueadas[fonte] || !vencido(a.ticker, fonte)) return;
+      if (!vencido(a.ticker, fonte)) return;
+      precisou[a.ticker] = true;
+      var pausa = fundFontePausada_(fonte);
+      if (pausa) {
+        emPausa[fonte] = pausa;
+        var ant = tabela.mapa[a.ticker + '|' + fonte];
+        var dia = ant && ant.atualizadoEm && typeof ant.atualizadoEm.getTime === 'function' ? fundChaveDia_(ant.atualizadoEm) : null;
+        if (dia) (mantidos[fonte] = mantidos[fonte] || []).push({ ticker: a.ticker, dia: dia });
+        else semDadoPausa.push(a.ticker + '|' + fonte);
+        return;
+      }
       if (!temTempo()) { pendentes.push(a.ticker + '|' + fonte); return; }
+      consultas++;
       try {
         var dados = fonte === 'fundamentus' ? fundColetarFundamentus_(a, ctx)
           : (fonte === 'yahoo' ? fundColetarYahoo_(a, ctx) : fundColetarSec_(a, ctx));
-        if (dados) salvar(a.ticker, fonte, dados);
+        if (dados) { salvar(a.ticker, fonte, dados); atualizadosPor[a.ticker] = true; }
         else falhas.push(a.ticker + '|' + fonte + ' (sem dado na fonte)');
       } catch (eT) {
-        if (fonte !== 'yahoo' && /HTTP 403/.test(String(eT))) {
-          bloqueadas[fonte] = true;
-          avisosGerais.push(({ sec: 'SEC', fundamentus: 'Fundamentus' }[fonte] || fonte) + ' bloqueia o Apps Script (HTTP 403) - ignorada nesta execução; o Yahoo cobre o principal.');
-        } else falhas.push(a.ticker + '|' + fonte + ' (' + String(eT).slice(0, 80) + ')');
+        var pausaAgora = fundFontePausada_(fonte); // o próprio fundBuscar_ registrou a falha no disjuntor (Fontes.gs)
+        if (pausaAgora && /HTTP (401|403|429|451)/.test(String(eT))) emPausa[fonte] = pausaAgora; // 1 aviso por fonte, não 1 falha por ticker
+        else falhas.push(a.ticker + '|' + fonte + ' (' + String(eT).slice(0, 80) + ')');
       }
       gravarAgora();
     });
   });
+  // linhas "dado de DD/MM" por fonte em pausa (informativo; só vira Atenção se o dado ficou velho demais)
+  var dadoAntigo = false;
+  Object.keys(emPausa).forEach(function (fonte) {
+    var rotulo = ({ sec: 'SEC', fundamentus: 'Fundamentus', yahoo: 'Yahoo' }[fonte] || fonte);
+    var m = mantidos[fonte] || [];
+    var dias = m.map(function (x) { return x.dia; }).sort();
+    var txt = rotulo + ' em pausa: ' + emPausa[fonte] + '.';
+    if (m.length) txt += ' Mantido o dado de ' + (dias[0] === dias[dias.length - 1] ? fundDiaBr_(dias[0]) : fundDiaBr_(dias[0]) + ' a ' + fundDiaBr_(dias[dias.length - 1])) + ' em ' + m.length + ' ativo(s).';
+    if (dias.length && fundDiasEntre_(dias[0], ctx.hoje) > FUND_DADO_ANTIGO_DIAS_) dadoAntigo = true;
+    avisosPausa.push(txt);
+  });
+  semDadoPausa.forEach(function (k) { falhas.push(k + ' (fonte em pausa e sem dado anterior)'); });
 
   // 4) foto mensal (P/L, P/VP, DY) - barato
   try { fundGravarFotoMensal_(ss, ativos, tabela, agora); } catch (eH) { avisosGerais.push('foto mensal: ' + String(eH).slice(0, 120)); }
   gravarAgora();
 
-  var partes = ['Fundamentos: ' + ok.length + ' atualizado(s) de ' + ativos.length + ' ativo(s)'];
+  var nAtualizados = Object.keys(atualizadosPor).length;
+  var nEmDia = ativos.filter(function (a) { return !precisou[a.ticker]; }).length;
+  var partes = ['Fundamentos: ' + nAtualizados + ' de ' + ativos.length + ' ativo(s) com dado novo agora (' + ok.length + ' fonte(s) gravada(s), ' + consultas + ' consulta(s) a Yahoo/SEC); ' +
+    nEmDia + ' ainda dentro da validade (Yahoo/SEC ' + FUND_VALIDADE_DIAS_.yahoo + ' dias, CVM até virar o mês)'];
   if (falhas.length) partes.push('falharam: ' + falhas.join('; '));
   if (pendentes.length) partes.push('ficou pra próxima (tempo): ' + pendentes.join(', '));
+  if (avisosPausa.length) partes.push(avisosPausa.join(' '));
   if (avisosGerais.length) partes.push(avisosGerais.join('; '));
   var totalTentado = ok.length + falhas.length;
-  var status = (totalTentado && !ok.length) ? 'Erro' : ((falhas.length || pendentes.length || avisosGerais.length) ? 'Atenção' : 'Sucesso');
+  var status = (totalTentado && !ok.length) ? 'Erro' : ((falhas.length || pendentes.length || avisosGerais.length || dadoAntigo) ? 'Atenção' : 'Sucesso');
   var detalhe = partes.join(' — ');
   try { if (typeof gravarRegistroControle_ === 'function') gravarRegistroControle_(status, origem, detalhe); } catch (eR) { Logger.log('Registro de Controle: ' + eR); }
   return { status: status, detalhe: detalhe, atualizados: ok, falhas: falhas, pendentes: pendentes, porTempo: pendentes.length > 0 };
@@ -326,7 +366,7 @@ function fundGravarTabela_(ss, tabela) {
   if (linhas.length) aba.getRange(2, 1, linhas.length, CABECALHO_FUNDAMENTOS.length).setValues(linhas);
 }
 
-/** Validade: CVM vale até virar o mês; SEC 7 dias; o resto 1 dia (dia do calendário de SP). */
+/** Validade: CVM vale até virar o mês; Yahoo/Fundamentus/SEC 7 dias; planilha 1 dia (dia do calendário de SP). */
 function fundEstaFresco_(fonte, atualizadoEm, agora) {
   if (!(atualizadoEm instanceof Date) || isNaN(atualizadoEm.getTime())) return false;
   var d1 = fundChaveDia_(atualizadoEm), d2 = fundChaveDia_(agora);
@@ -389,6 +429,8 @@ function fundMontarDoTicker_(tabela, ticker, classe) {
     var usou = false;
     Object.keys(v).forEach(function (k) {
       if (v[k] == null || valores[k] != null || FUND_CHAVES_INTERNAS_.indexOf(k) !== -1) return;
+      // 05/10/2026 (A-26): P/VP absurdo vindo só da planilha não entra (sem outra fonte pra comparar, vale o teto de 10 em BR)
+      if (k === 'pvp' && fonte === 'planilha') { var mp = fundPvpPlanilhaSuspeito_(v[k], null, classe); if (mp) { avisos.push('P/VP da planilha descartado: ' + mp + '.'); return; } }
       valores[k] = v[k];
       usou = true;
     });
@@ -469,12 +511,18 @@ function fundGravarFotoMensal_(ss, ativos, tabela, agora) {
       return o[chave] == null ? null : n;
     };
     var pl = ehFii ? null : (limpo(a.pl, 'pl') != null ? limpo(a.pl, 'pl') : limpo(v.pl, 'pl'));
-    var pvp = limpo(a.pvp, 'pvp') != null ? limpo(a.pvp, 'pvp') : limpo(v.pvp, 'pvp');
+    var pvpPlanilha = limpo(a.pvp, 'pvp');
+    var pvpOutras = limpo(v.pvp, 'pvp');
+    // 05/10/2026 (auditoria A-26): P/VP da planilha absurdo (> 10 em BR) ou > 50% distante do das outras fontes é
+    // descartado (foi gravado ~30 contra ~2 do Yahoo) - vira aviso no log e a foto usa a outra fonte.
+    var motivoPvp = fundPvpPlanilhaSuspeito_(pvpPlanilha, pvpOutras, a.classe);
+    if (motivoPvp) { Logger.log('Foto mensal: P/VP de ' + a.ticker + ' na planilha descartado - ' + motivoPvp + '.'); pvpPlanilha = null; }
+    var pvp = pvpPlanilha != null ? pvpPlanilha : pvpOutras;
     var dyPl = limpo(a.dy, 'dy');
     var dy = dyPl != null && dyPl > 0 ? dyPl : limpo(ehFii ? v.dy12m : v.dy, 'dy');
     var vp = ehFii ? limpo(v.vpCota, 'vpCota') : null;
     if (pl == null && pvp == null && dy == null && vp == null) return;
-    var fonte = (a.pvp != null && a.pvp !== '') || (a.pl != null && a.pl !== '') ? 'planilha' : ((m && m.fontes[0]) || '');
+    var fonte = (pvpPlanilha != null) || (a.pl != null && a.pl !== '') ? 'planilha' : ((m && m.fontes[0]) || '');
     var linha = ["'" + mes, a.ticker, pl == null ? '' : pl, pvp == null ? '' : pvp, dy == null ? '' : dy, vp == null ? '' : vp, fonte, agora];
     var k = mes + '|' + a.ticker;
     if (indice[k] != null) linhas[indice[k]] = linha;
@@ -1342,6 +1390,20 @@ var FUND_NOMES_ = { pl: 'P/L', pvp: 'P/VP', dy: 'DY', dy12m: 'DY 12m', payout: '
   margemBruta: 'Margem bruta', margemEbit: 'Margem EBIT', margemEbitda: 'Margem EBITDA', margemLiquida: 'Margem líquida',
   vacanciaFisica: 'Vacância', taxaAdministracao: 'Taxa de administração', alavancagem: 'Alavancagem', pctCaixa: '% em caixa' };
 
+/**
+ * 05/10/2026 (A-26): o P/VP que veio da planilha (Auxiliar_ativos / GOOGLEFINANCE) é suspeito? Devolve o motivo (texto)
+ * ou null. Suspeito = acima de 10 numa ação/FII brasileiro (nas ações dos EUA o P/VP alto é normal, só vale a
+ * comparação) ou mais de 50% distante do P/VP das outras fontes (Yahoo, Fundamentus, CVM).
+ */
+function fundPvpPlanilhaSuspeito_(pvpPlanilha, pvpOutras, classe) {
+  if (pvpPlanilha == null || !isFinite(pvpPlanilha)) return null;
+  if (pvpOutras != null && isFinite(pvpOutras) && pvpOutras > 0 && Math.abs(pvpPlanilha - pvpOutras) / pvpOutras > 0.5) {
+    return 'P/VP ' + fundArred_(pvpPlanilha, 2) + ' contra ' + fundArred_(pvpOutras, 2) + ' das outras fontes (diferença acima de 50%)';
+  }
+  if (classe !== 'acoesEua' && pvpPlanilha > 10) return 'P/VP ' + fundArred_(pvpPlanilha, 2) + ' acima de 10';
+  return null;
+}
+
 /** Descarta o absurdo (com aviso): P/VP > 50, P/L fora de ±200, NaN, "#DIV/0!", fração que veio em % (> 500%). fonte: só pro texto do aviso. */
 function fundSanidade_(valores, avisos, fonte) {
   var de = fonte ? ' (' + fonte + ')' : '';
@@ -1413,15 +1475,51 @@ function fundChaveDia_(d) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: fuso, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
-/** GET com 1 nova tentativa em 429/5xx. Erro (HTTP != 200) vira exceção com o host. */
+/** 'aaaa-mm-dd' -> 'DD/MM'. */
+function fundDiaBr_(iso) {
+  var m = String(iso || '').match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? m[2] + '/' + m[1] : '';
+}
+
+/** Nome da fonte no disjuntor (Fontes.gs): chart e timeseries do Yahoo saem pelo mesmo host (query1). */
+function fundNomeDisjuntor_(fonte) { return fonte === 'yahoo' ? 'yahoo-query1' : fonte; }
+
+/** null = fonte liberada; texto = "HTTP 403 desde 03/10; nova tentativa 04/10 às 02:00" (disjuntor persistente aberto). */
+function fundFontePausada_(fonte) {
+  if (typeof fonteAberta_ !== 'function') return null;
+  var est = fonteAberta_(fundNomeDisjuntor_(fonte));
+  if (!est) return null;
+  return (est.motivo || 'falhas seguidas') + (est.desde ? ' desde ' + fundDiaBr_(fundChaveDia_(new Date(est.desde))) : '') + '; nova tentativa ' + fonteHoraBr_(est.ate);
+}
+
+/**
+ * GET com 1 nova tentativa em 5xx (429 não: é limite, o disjuntor cuida). Erro (HTTP != 200) vira exceção com o host.
+ * 05/10/2026 (A-49): passa pelo disjuntor persistente (Fontes.gs) - fonte em pausa falha na hora, sem rede,
+ * e 401/403/429/451/erro de rede registram a pausa para as PRÓXIMAS execuções também.
+ */
 function fundBuscar_(url, userAgent) {
+  var nome = typeof fonteNomeDaUrl_ === 'function' ? fonteNomeDaUrl_(url) : null;
+  if (nome) {
+    var aberta = fonteAberta_(nome);
+    if (aberta) throw new Error('Fonte ' + fonteDescreverPausa_(nome, aberta));
+  }
   var opcoes = { muteHttpExceptions: true, followRedirects: true, headers: { 'User-Agent': userAgent || FUND_UA_ } };
-  var resp = UrlFetchApp.fetch(url, opcoes);
-  var code = resp.getResponseCode();
-  if (code === 429 || code >= 500) {
-    Utilities.sleep(2000);
+  var resp, code;
+  try {
     resp = UrlFetchApp.fetch(url, opcoes);
     code = resp.getResponseCode();
+    if (code >= 500) {
+      Utilities.sleep(2000);
+      resp = UrlFetchApp.fetch(url, opcoes);
+      code = resp.getResponseCode();
+    }
+  } catch (eRede) {
+    if (nome) fonteFalhou_(nome, { erro: String(eRede) });
+    throw eRede;
+  }
+  if (nome) {
+    if (code === 200 || !fonteClassificar_(code, null)) fonteDeuCerto_(nome);
+    else fonteFalhou_(nome, { codigo: code });
   }
   if (code !== 200) throw new Error('HTTP ' + code + ' (' + String(url).replace(/^https?:\/\/([^/]+).*$/, '$1') + ')');
   return resp;

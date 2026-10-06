@@ -139,7 +139,7 @@ function montarCarteirasRendaFixa_() {
   try { chave = chaveCacheCarteirasRf_(ss, leitura); emCache = lerSerieHistoricoCache_(chave); } catch (eChave) { chave = null; emCache = null; }
   if (emCache) return emCache;
   var resultado = calcularCarteirasRendaFixa_(ss, leitura);
-  if (chave) { try { gravarSerieHistoricoCache_(chave, resultado); } catch (eGrava) { /* segue sem cache */ } }
+  if (chave) { try { gravarSerieHistoricoCache_(chave, resultado, null, 'carteiras_rf'); } catch (eGrava) { /* segue sem cache */ } }
   return resultado;
 }
 
@@ -215,6 +215,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
         } : null,
         irSeResgatasseHoje: ir ? {
           impostoSeResgatasseHoje: ir.impostoSeResgatasseHoje,
+          iofSeResgatasseHoje: ir.iofSeResgatasseHoje, // 05/10/2026 (A-13): parte do imposto que é IOF (primeiros 30 dias)
           valorLiquidoSeResgatasseHoje: ir.valorLiquidoSeResgatasseHoje,
           precisao: ir.precisao,
           detalhes: ir.detalhes

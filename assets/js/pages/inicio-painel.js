@@ -15,18 +15,22 @@
  *    filtro por classe, ordem (alta/queda/posição) e a estrela de favorito.
  * As contas (distribuição, visões, valor de posição) são as de inicio.js.
  */
-import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints } from '../format.js';
+import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, variacaoNula } from '../format.js';
 import { urlAtivo, refAtivo } from '../link-ativo.js';
-import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
+import { logoCirculoHtml, iniciaisDe } from './logo-circulo.js';
 import { htmlBotaoFavorito, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import {
-  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao,
+  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao, CAMPO_PRINCIPAL_POR_VISAO,
 } from './inicio.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+// 06/10/2026 (Onda 3, kit): KPI com contagem + sparkline, anel de composição e abas sublinhadas vêm da biblioteca/ui do kit.
+import { criarKpi, criarAnel } from '../charts/index.js';
+import { criarTabs } from '../ui/index.js';
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const valorComDec = (texto) => { const { principal, dec } = splitValorExibicao(texto); return `${esc(principal)}${dec ? `<span class="dec">${esc(dec)}</span>` : ''}`; };
-const SETA = { sobe: '▲', desce: '▼' };
+// 06/10/2026 (kit): variação sempre com ícone de tendência do sprite (nunca só cor nem só texto)
+const icoTendencia = (tom) => `<svg class="ico" aria-hidden="true"><use href="#ico-${tom === 'bad' ? 'trending-down' : tom === 'good' ? 'trending-up' : 'trending-flat'}"/></svg>`;
 
 // ---------------------------------------------------------------------------
 // Faixa de mercado
@@ -46,8 +50,9 @@ export function itensFaixaMercado({ indices, cambio } = {}) {
 
 function variacaoHtml(pontos) {
   if (!num(pontos)) return '';
+  if (variacaoNula(pontos)) return `<span class="mkt-var na">${icoTendencia('na')}${esc(formatPercentFromPoints(0))}</span>`; // 05/10/2026 (A-04): 0,00% = neutro
   const sobe = pontos >= 0;
-  return `<span class="mkt-var ${sobe ? 'good' : 'bad'}"><i aria-hidden="true">${sobe ? SETA.sobe : SETA.desce}</i>${esc(formatPercentFromPoints(Math.abs(pontos)).replace(/^\+/, ''))}</span>`;
+  return `<span class="mkt-var chip-tonal ${sobe ? 'good chip-good' : 'bad chip-bad'}">${icoTendencia(sobe ? 'good' : 'bad')}${esc(formatPercentFromPoints(Math.abs(pontos)).replace(/^\+/, ''))}</span>`;
 }
 
 export function renderFaixaMercado(doc, container, dados = {}) {
@@ -119,68 +124,152 @@ export function numerosDaVisao(visaoId, patrimonio, ontem) {
   };
 }
 
-function deltaVisaoHtml(n, { compacto = false } = {}) {
-  if (!num(n.variacao)) return '<span class="rc-delta na">—</span>';
+/** Textos do KPI de uma visão (valor, variação desde o último fechamento) - os mesmos números de antes. */
+function textoDeltaVisao_(n, { compacto = false } = {}) {
+  if (!num(n.variacao)) return null;
+  const nulo = variacaoNula(n.variacao, { fracao: true }); // 05/10/2026 (A-04): 0,00% = neutro
   const sobe = n.variacao >= 0;
   const dia = n.dataOntem ? `${n.dataOntem.slice(8, 10)}/${n.dataOntem.slice(5, 7)}` : '';
   const pct = formatPercentFromFraction(Math.abs(n.variacao)).replace(/^\+/, '');
   const dif = formatBRL(Math.abs(n.diferenca));
-  return `<span class="rc-delta ${sobe ? 'good' : 'bad'}" title="Desde o fechamento de ${dia}: ${sobe ? '+' : '−'}${dif}"><i aria-hidden="true">${sobe ? SETA.sobe : SETA.desce}</i>${compacto ? pct : `${sobe ? '+' : '−'}${dif} · ${pct}`}${!compacto && dia ? ` <small>desde ${dia}</small>` : ''}</span>`;
+  const sinal = nulo ? 0 : (sobe ? 1 : -1);
+  return { sinal, texto: `${compacto ? '' : `${sobe ? '+' : '−'}${dif} · `}${pct}${dia ? ` desde ${dia}` : ''}` };
 }
 
-function distribuicaoHtml(fatias, { cambio } = {}) {
-  const total = fatias.reduce((s, f) => s + f.valor, 0);
-  if (!fatias.length || !(total > 0)) return '<p class="hint">Sem dado suficiente pra montar a distribuição.</p>';
-  const pct = (f) => (f.valor / total) * 100;
-  const barra = fatias.map((f) => `<span class="rc-seg" style="width:${pct(f).toFixed(3)}%;background:${f.cor}" title="${esc(f.label)}: ${formatNumeroBR(pct(f), 1)}%"></span>`).join('');
-  const legenda = fatias.map((f) => {
-    const valor = num(f.valorUsd) && f.valorUsd > 0 ? formatUSD(f.valorUsd) : formatBRL(f.valor);
-    const titulo = num(f.valorUsd) && f.valorUsd > 0 ? ` title="${esc(formatBRL(f.valor))}${cambio && num(cambio.usd) ? ` · câmbio ${esc(formatNumeroBR(cambio.usd))}` : ''}"` : '';
-    return `<li${titulo}><i style="background:${f.cor}" aria-hidden="true"></i><span class="rc-leg-nome">${esc(f.label)}</span><b>${formatNumeroBR(pct(f), 1)}%</b><span class="rc-leg-valor">${esc(valor)}</span></li>`;
-  }).join('');
-  return `<div class="rc-barra" role="img" aria-label="${esc(fatias.map((f) => `${f.label} ${formatNumeroBR(pct(f), 1)}%`).join(', '))}">${barra}</div><ul class="rc-legenda">${legenda}</ul>`;
+const INFO_VISAO = {
+  total: 'Tudo o que você tem investido hoje (Ações, FIIs, Renda Fixa e Ações EUA), com a variação desde o último fechamento.',
+  longoPrazo: 'O patrimônio total sem a reserva de emergência.',
+  nacional: 'O longo prazo sem as Ações EUA: só o que está no Brasil.',
+  rendaEmergencial: 'A reserva de emergência (Renda Fixa marcada como emergencial).',
+};
+
+/** Cor (nº da paleta categórica, ordem fixa do site) de cada classe / rampa pros tipos de título da reserva. */
+const COR_NUM_CLASSE = { 'Ações': 1, FIIs: 2, 'Renda Fixa': 3, 'Ações EUA': 4 };
+const COR_NUM_TIPOS = [3, 2, 4, 1, 5, 6, 7, 8];
+
+/** Fatias no formato da biblioteca (anel): { id, nome, valor, cor:nº }. Ações EUA mostra o valor em dólar no nome. */
+export function fatiasParaAnel(fatias) {
+  return fatias.map((f, i) => ({
+    id: String(f.label),
+    nome: num(f.valorUsd) && f.valorUsd > 0 ? `${f.label} · ${formatUSD(f.valorUsd)}` : f.label,
+    valor: f.valor,
+    cor: COR_NUM_CLASSE[f.label] || COR_NUM_TIPOS[i % COR_NUM_TIPOS.length],
+  }));
+}
+
+/** Últimos pontos da série da visão (sparkline do KPI). */
+function serieSpark_(historico, visaoId, n = 45) {
+  const campo = CAMPO_PRINCIPAL_POR_VISAO[visaoId];
+  if (!campo || !Array.isArray(historico)) return [];
+  return historico.slice(-n).map((p) => p && p[campo]).filter(num);
 }
 
 /**
- * Um cartão só: 4 abas-número (Total grande + Longo Prazo, Nacional e Renda
- * Emergencial) e, embaixo, a distribuição da aba escolhida numa barra única.
- * A aba escolhida sobrevive aos redesenhos (Atualizar dados).
+ * 06/10/2026 (Onda 3, kit - dashboard com KPIs): as 4 visões do patrimônio viram 4 cartões KPI (rótulo, valor com
+ * contagem, variação desde o último fechamento com ícone, sparkline da série do período) + um cartão "Distribuição" com
+ * ANEL (composição) e abas SUBLINHADAS pra trocar a visão mostrada (= recorte dentro da tela). A aba escolhida e os
+ * gráficos sobrevivem a "Atualizar dados": só os números mudam (o valor conta do antigo pro novo, o anel morfa).
+ * `distribuicaoEl` (opcional) é onde mora o cartão de distribuição; sem ele, vai logo abaixo dos KPIs no `container`.
  */
-export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambio, ontem } = {}) {
+export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambio, ontem, historico } = {}, { distribuicaoEl = null } = {}) {
   if (!container) return;
-  if (!patrimonio) { container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>'; return; }
+  if (!patrimonio) {
+    destruirResumo_(container);
+    container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
+    return;
+  }
   const escolhida = VISOES_RESUMO.some((v) => v.id === container._visao) ? container._visao : 'total';
   container._visao = escolhida;
-  const abas = VISOES_RESUMO.map((v) => {
-    const n = numerosDaVisao(v.id, patrimonio, ontem);
-    const ativa = v.id === escolhida;
-    return `
-      <button type="button" class="rc-visao rc-visao-${v.id}${ativa ? ' ativa' : ''}" data-visao="${v.id}" role="tab" aria-selected="${ativa}" aria-controls="rcDistrib">
-        <span class="rc-rotulo">${esc(v.rotulo)}</span>
-        <span class="rc-valor">${num(n.valor) ? valorComDec(formatBRL(n.valor)) : '—'}</span>
-        ${deltaVisaoHtml(n, { compacto: v.id !== 'total' })}
-      </button>`;
-  }).join('');
-  const rotulo = VISOES_RESUMO.find((v) => v.id === escolhida).rotulo;
-  container.innerHTML = `
-    <div class="rc">
-      <div class="rc-visoes" role="tablist" aria-label="Visões do patrimônio">${abas}</div>
-      <div class="rc-distrib" id="rcDistrib" role="tabpanel">
-        <div class="rc-distrib-cab"><span>Distribuição · <b>${esc(rotulo)}</b></span>${escolhida === 'rendaEmergencial' ? '<small>por tipo de título</small>' : '<small>por classe</small>'}</div>
-        ${distribuicaoHtml(fatiasDaVisao(escolhida, { patrimonio, ativos, cambio }), { cambio })}
-      </div>
-    </div>`;
-  container._dadosResumo = { patrimonio, ativos, cambio, ontem };
-  if (!container._rcLigado) {
+  let rc = container._rc;
+  if (!rc || !container.querySelector('.rc-kpis')) {
+    destruirResumo_(container);
+    container.textContent = '';
+    const raiz = doc.createElement('div');
+    raiz.className = 'rc';
+    raiz.innerHTML = `<div class="grid-kpi rc-kpis">${VISOES_RESUMO.map((v) => `<div class="card card-kpi rc-kpi rc-visao-${v.id}" data-visao="${v.id}"></div>`).join('')}</div>`;
+    container.appendChild(raiz);
+    let alvoDistrib = distribuicaoEl;
+    if (!alvoDistrib) { alvoDistrib = doc.createElement('div'); alvoDistrib.className = 'rc-distrib-slot'; raiz.appendChild(alvoDistrib); }
+    const cartao = doc.createElement('section');
+    cartao.className = 'card rc-distrib-card';
+    cartao.setAttribute('aria-label', 'Distribuição do patrimônio');
+    cartao.innerHTML = `
+      <header class="card-cab rc-distrib-cab">
+        <div><span class="card-rotulo">Distribuição</span><h3 class="card-titulo" id="rcTitulo"></h3></div>
+        <small class="rc-distrib-por"></small>
+      </header>
+      <div class="rc-tabs"></div>
+      <div class="rc-distrib" id="rcDistrib" role="tabpanel" aria-labelledby="rcTitulo"></div>`;
+    alvoDistrib.textContent = '';
+    alvoDistrib.appendChild(cartao);
+    rc = { kpis: new Map(), anel: null, tabs: null, cartao, raiz };
+    container._rc = rc;
     container._rcLigado = true;
-    container.addEventListener('click', (ev) => {
-      const b = ev.target.closest && ev.target.closest('.rc-visao');
-      if (!b || !container.contains(b)) return;
-      container._visao = b.dataset.visao;
-      renderResumoCompacto(doc, container, container._dadosResumo);
-      const foco = container.querySelector(`.rc-visao[data-visao="${b.dataset.visao}"]`);
-      if (foco) foco.focus();
+    rc.tabs = criarTabs(cartao.querySelector('.rc-tabs'), {
+      variante: 'sublinhada', rotulo: 'Distribuição por visão do patrimônio', ativo: escolhida,
+      itens: VISOES_RESUMO.map((v) => ({ id: v.id, rotulo: v.rotulo })),
+      aoMudar: (id) => { container._visao = id; desenharDistribuicao_(doc, container, container._dadosResumo); },
     });
+  }
+  container._dadosResumo = { patrimonio, ativos, cambio, ontem, historico };
+  VISOES_RESUMO.forEach((v) => {
+    const n = numerosDaVisao(v.id, patrimonio, ontem);
+    const delta = textoDeltaVisao_(n, { compacto: v.id !== 'total' });
+    const spark = serieSpark_(historico, v.id);
+    const slot = rc.raiz.querySelector(`.rc-kpi[data-visao="${v.id}"]`);
+    const kpi = rc.kpis.get(v.id);
+    const dados = { valor: num(n.valor) ? n.valor : null, delta: delta || null, spark: { valores: spark } };
+    if (kpi) kpi.atualizar(dados);
+    else {
+      const novo = criarKpi(slot, {
+        rotulo: v.rotulo, formatar: formatBRL, info: INFO_VISAO[v.id], ...dados,
+        spark: { valores: spark, referencia: 'inicio', altura: 40 },
+      });
+      rc.kpis.set(v.id, novo);
+    }
+    const sp = slot.querySelector('.chart-kpi-spark');
+    if (sp) sp.hidden = spark.length < 2;
+    const vv = slot.querySelector('.chart-kpi-val');
+    if (vv && !num(n.valor)) vv.textContent = '—';
+    if (!delta) { const d = slot.querySelector('.chart-kpi-delta'); if (d) d.hidden = true; }
+    // 06/10/2026 (Onda 3): o cartão compacto só mostra o %; o R$ da variação ("ontem era") fica na dica do ícone/texto (title)
+    const dEl = slot.querySelector('.chart-kpi-delta');
+    if (dEl) { const cheio = textoDeltaVisao_(n); if (cheio) dEl.title = cheio.texto; else dEl.removeAttribute('title'); }
+  });
+  if (rc.tabs.obterAtivo() !== escolhida) rc.tabs.selecionar(escolhida);
+  desenharDistribuicao_(doc, container, container._dadosResumo);
+}
+
+function destruirResumo_(container) {
+  const rc = container._rc;
+  if (!rc) return;
+  rc.kpis.forEach((k) => k.destruir());
+  if (rc.anel) rc.anel.destruir();
+  container._rc = null;
+}
+
+/** Cartão "Distribuição": o anel da visão escolhida (atualiza a instância: as fatias morfam). */
+function desenharDistribuicao_(doc, container, dados) {
+  const rc = container._rc;
+  if (!rc || !dados) return;
+  const id = container._visao;
+  const rotulo = VISOES_RESUMO.find((v) => v.id === id).rotulo;
+  rc.cartao.querySelector('#rcTitulo').textContent = rotulo;
+  rc.cartao.querySelector('.rc-distrib-por').textContent = id === 'rendaEmergencial' ? 'por tipo de título' : 'por classe';
+  const painel = rc.cartao.querySelector('#rcDistrib');
+  const fatias = fatiasDaVisao(id, dados);
+  const total = fatias.reduce((s, f) => s + f.valor, 0);
+  if (!fatias.length || !(total > 0)) {
+    if (rc.anel) { rc.anel.destruir(); rc.anel = null; }
+    painel.innerHTML = '<p class="hint">Sem dado suficiente pra montar a distribuição.</p>';
+    return;
+  }
+  const dadosAnel = { fatias: fatiasParaAnel(fatias), centro: { rotulo }, aria: `Distribuição de ${rotulo} (${id === 'rendaEmergencial' ? 'por tipo de título' : 'por classe'})` };
+  if (rc.anel && painel.querySelector('svg')) rc.anel.atualizar(dadosAnel);
+  else {
+    if (rc.anel) rc.anel.destruir();
+    painel.textContent = '';
+    rc.anel = criarAnel(painel, { ...dadosAnel, formatarValor: formatBRL, tamanho: 208, espessura: 28, legenda: 'direita' });
   }
 }
 
@@ -229,20 +318,26 @@ export function filtrarListaAtivos(ativos, { classe = 'todos', busca = '', ordem
 
 function linhaAtivoHtml(a, { favorito = false, cambioUsd = null } = {}) {
   const rf = a.classe === 'rf';
-  const logo = rf ? logoRendaFixaHtml(a) : logoAtivoHtml(a.ticker);
-  const temVar = num(a.variacaoDia);
-  const sobe = temVar && a.variacaoDia >= 0;
-  const preco = rf ? formatBRL(a.valorAtualizado) : (a.classe === 'usa' ? formatUSD(a.precoAtual) : formatBRL(a.precoAtual));
   const inst = String(a.instituicao || '').replace(/\s+/g, ' ').trim().split(' ')[0];
   const nome = rf ? [a.indexador, a.marca === 'emergencial' ? 'reserva' : '', inst].filter(Boolean).join(' · ') : String(a.nome || '').trim();
   const titulo = rf ? String(a.tipoInvestimento || a.ticker) : a.ticker;
+  const logo = rf ? logoCirculoHtml('', { extra: 'rf', iniciais: iniciaisDe(titulo, 'RF') }) : logoCirculoHtml(a.ticker);
+  const temVar = num(a.variacaoDia);
+  const nulo = temVar && variacaoNula(a.variacaoDia, { fracao: true }); // 05/10/2026 (A-04)
+  const sobe = temVar && a.variacaoDia >= 0;
+  const tom = nulo ? 'na' : (sobe ? 'good' : 'bad');
+  const preco = rf ? formatBRL(a.valorAtualizado) : (a.classe === 'usa' ? formatUSD(a.precoAtual) : formatBRL(a.precoAtual));
   const posicao = valorPosicao(a, cambioUsd);
+  // 06/10/2026 (kit): variação num chip tonal com ícone de tendência (cor + ícone + texto, nunca só cor)
+  const variacao = temVar
+    ? `<small class="al-var chip-tonal ${tom === 'na' ? '' : `chip-${tom}`} ${tom}">${icoTendencia(tom)}${esc(formatPercentFromFraction(Math.abs(a.variacaoDia)).replace(/^\+/, ''))}</small>`
+    : '<small class="al-var na">—</small>';
   return `
     <li class="al-item">
-      <a class="al-linha" href="${urlAtivo(refAtivo(a))}" data-classe="${a.classe}" title="${esc(`${titulo} · posição ${formatBRL(posicao)}`)}">
-        <span class="al-logo" style="--cor:var(${COR_CLASSE[a.classe] || '--na'})">${logo}</span>
-        <span class="al-id"><span class="al-ticker">${esc(titulo)}${rf && a.vencimento ? ` <small>${esc(a.vencimento)}</small>` : ''}</span><span class="al-nome">${esc(nome || NOME_CLASSE[a.classe] || '')}</span></span>
-        <span class="al-preco"><b>${esc(preco)}</b>${temVar ? `<small class="${sobe ? 'good' : 'bad'}">${sobe ? SETA.sobe : SETA.desce} ${esc(formatPercentFromFraction(Math.abs(a.variacaoDia)).replace(/^\+/, ''))}</small>` : '<small class="na">—</small>'}</span>
+      <a class="al-linha lista-item" href="${urlAtivo(refAtivo(a))}" data-classe="${a.classe}" title="${esc(`${titulo} · posição ${formatBRL(posicao)}`)}">
+        ${logo}
+        <span class="al-id lista-item-textos"><span class="al-ticker lista-item-nome">${esc(titulo)}${rf && a.vencimento ? ` <small>${esc(a.vencimento)}</small>` : ''}</span><span class="al-nome lista-item-sub">${esc(nome || NOME_CLASSE[a.classe] || '')}</span></span>
+        <span class="al-preco"><b>${esc(preco)}</b>${variacao}</span>
         ${htmlBotaoFavorito(a, favorito)}
       </a>
     </li>`;
@@ -253,12 +348,12 @@ export function renderListaAtivos(doc, container, ativos, opcoes = {}) {
   if (!container) return;
   const lista = filtrarListaAtivos(ativos, opcoes);
   const favs = container._favoritosIds;
-  if (!lista.length) { container.innerHTML = '<li class="al-vazio hint">Nenhum ativo com esse filtro.</li>'; return; }
+  if (!lista.length) { container.innerHTML = '<li class="al-vazio hint">Nenhum ativo com esse filtro. Limpe a busca ou escolha "Todos".</li>'; return; }
   container.innerHTML = lista.map((a) => linhaAtivoHtml(a, { favorito: !!(favs && favs.has(idFavoritoDoAtivo(a))), cambioUsd: opcoes.cambioUsd })).join('');
 }
 
 /**
- * Liga busca, filtro de classe e ordem da lista. Idempotente: chamado de novo
+ * Liga busca, filtro de classe (abas sublinhadas do kit) e ordem da lista. Idempotente: chamado de novo
  * (Atualizar dados) só troca os ativos e redesenha com o filtro atual.
  * els = { lista, abas, busca, ordem, contador, mais }
  */
@@ -269,32 +364,28 @@ export function wireListaAtivos(doc, els, ativos, { cambioUsd = null } = {}) {
   estado.ativos = ativos || [];
   estado.cambioUsd = cambioUsd;
   const contar = (c) => estado.ativos.filter((a) => c === 'todos' || a.classe === c).length;
+  if (abas && !estado.tabs) {
+    estado.tabs = criarTabs(abas, {
+      variante: 'sublinhada', rotulo: 'Filtrar por classe', ativo: estado.classe,
+      itens: CLASSES_LISTA.map((c) => ({ id: c.id, rotulo: c.rotulo, contagem: '' })),
+      aoMudar: (id) => { estado.classe = id; lista._desenharLista(); },
+    });
+  }
   const desenhar = () => {
     renderListaAtivos(doc, lista, estado.ativos, estado);
-    if (abas) abas.querySelectorAll('[data-classe]').forEach((b) => {
-      const ativa = b.dataset.classe === estado.classe;
-      b.classList.toggle('active', ativa);
-      b.setAttribute('aria-pressed', String(ativa));
-      const n = b.querySelector('.al-n');
-      if (n) n.textContent = String(contar(b.dataset.classe));
-    });
+    if (estado.tabs) CLASSES_LISTA.forEach((c) => estado.tabs.atualizarItem(c.id, { contagem: contar(c.id) }));
     const total = lista.querySelectorAll('.al-item').length;
     if (contador) contador.textContent = `${total} ${total === 1 ? 'ativo' : 'ativos'}`;
     lista.classList.toggle('recolhida', !estado.expandida && total > 10);
     if (mais) {
       mais.hidden = total <= 10;
       mais.textContent = estado.expandida ? 'Mostrar menos' : `Mostrar todos (${total})`;
+      mais.setAttribute('aria-expanded', String(!!estado.expandida));
     }
   };
   lista._desenharLista = desenhar;
   if (!lista._listaLigada) {
     lista._listaLigada = true;
-    if (abas) abas.addEventListener('click', (ev) => {
-      const b = ev.target.closest && ev.target.closest('[data-classe]');
-      if (!b) return;
-      estado.classe = b.dataset.classe;
-      desenhar();
-    });
     if (busca) busca.addEventListener('input', () => { estado.busca = busca.value; desenhar(); });
     if (ordem) ordem.addEventListener('change', () => { estado.ordem = ordem.value; desenhar(); });
     if (mais) mais.addEventListener('click', () => { estado.expandida = !estado.expandida; desenhar(); });

@@ -46,6 +46,50 @@ var INCORPORACOES_ = [
   { antigo: 'STR', novo: 'VNOM', fator: 0.4855, data: '2025-08-19', descricao: 'Sitio Royalties (STR) incorporada pela Viper Energy (VNOM), 0,4855 VNOM por STR' }
 ];
 
+/**
+ * 05/10/2026 (A-14): TABELA ÚNICA de aliases de ticker (ticker antigo -> ticker atual). Vínculo de meta,
+ * provento antigo e histórico de um ativo que mudou de ticker (renomeação) ou foi incorporado por outro
+ * (INCORPORACOES_ acima) deixavam de bater com o ativo de hoje e sumiam em silêncio. Quem precisa
+ * reconciliar ticker chama resolverAliasTicker_(ticker) (devolve o ticker ATUAL, em maiúsculas) ou
+ * aliasesDoTicker_(ticker) (o ticker atual + todos os antigos que levam a ele). Metas.gs já usa; Proventos.gs,
+ * Ativo.gs e o motor de critérios devem usar a mesma função (nada de lista paralela).
+ *
+ * Pra cadastrar um caso novo: uma linha em RENOMEACOES_TICKER_ (renomeação sem troca de proporção) ou em
+ * INCORPORACOES_ (incorporação, com fator). Nenhum dado pessoal aqui - só mudanças públicas de ticker.
+ */
+var RENOMEACOES_TICKER_ = [
+  { antigo: 'ELET3', novo: 'AXIA3', descricao: 'Eletrobras renomeada Axia Energia (ON)' },
+  { antigo: 'ELET6', novo: 'AXIA6', descricao: 'Eletrobras renomeada Axia Energia (PNB)' },
+  { antigo: 'MALL11', novo: 'PMLL11', descricao: 'Malls Brasil Plural (FII) renomeado Pátria Malls (PMLL11); na planilha os proventos antigos ainda estão como MALL11 e as transações/histórico já como PMLL11' }
+];
+
+/** { 'ANTIGO': 'NOVO', ... } - renomeações + incorporações. */
+function tabelaAliasesTicker_() {
+  var mapa = {};
+  RENOMEACOES_TICKER_.concat(INCORPORACOES_).forEach(function (x) {
+    if (x && x.antigo && x.novo) mapa[String(x.antigo).trim().toUpperCase()] = String(x.novo).trim().toUpperCase();
+  });
+  return mapa;
+}
+
+/** Ticker ATUAL de um ticker (segue a cadeia antigo -> novo, no máximo 5 saltos); sem alias devolve ele mesmo (maiúsculo, sem espaços). */
+function resolverAliasTicker_(ticker) {
+  var t = String(ticker === null || ticker === undefined ? '' : ticker).trim().toUpperCase();
+  if (!t) return '';
+  var mapa = tabelaAliasesTicker_();
+  for (var i = 0; i < 5 && mapa[t]; i++) t = mapa[t];
+  return t;
+}
+
+/** [ticker atual, ...antigos que levam a ele] - pra buscar histórico/proventos de um ativo pelos dois nomes. */
+function aliasesDoTicker_(ticker) {
+  var atual = resolverAliasTicker_(ticker);
+  var mapa = tabelaAliasesTicker_();
+  var out = atual ? [atual] : [];
+  Object.keys(mapa).forEach(function (antigo) { if (resolverAliasTicker_(antigo) === atual && out.indexOf(antigo) < 0) out.push(antigo); });
+  return out;
+}
+
 function limparStrDefinitivo() {
   var r = limparIncorporacao_(SpreadsheetApp.getActiveSpreadsheet(), INCORPORACOES_[0], false);
   Logger.log(JSON.stringify(r, null, 2));
@@ -53,7 +97,7 @@ function limparStrDefinitivo() {
 }
 
 function limparStrDefinitivoAplicar() {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_(['precos', 'carteira'], 'incorporação de ticker (editor)', { ttlMs: 6.5 * 60 * 1000 });
   if (!trava.tryLock(20000)) throw new Error('Tem uma sincronização rodando - espera terminar e roda de novo.');
   try {
     var r = limparIncorporacao_(SpreadsheetApp.getActiveSpreadsheet(), INCORPORACOES_[0], true);

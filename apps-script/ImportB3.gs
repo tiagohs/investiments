@@ -47,7 +47,12 @@ function handleImportarTransacoesB3(e) {
       opcoes = { abaTransacoesNome: opcoesTeste.abaTransacoesNome || 'aux_tests' };
     }
     var resultado = importarTransacoesB3_(e.parameter, opcoes);
-    return jsonOut({ ok: true, resultado: resultado });
+    // 05/10/2026 (A-24): o aporte concluído de ação/FII fica "a confirmar" até esta importação trazer o
+    // lançamento equivalente (Aportes.gs!lancamentosAConfirmar_, derivado - nada é gravado). Devolve o que
+    // sobrou pendente pro site atualizar o aviso do header (sem isso, só na próxima carga da tela).
+    var aConfirmar = null;
+    if (!opcoes && typeof lancamentosAConfirmarDaPlanilha_ === 'function') aConfirmar = lancamentosAConfirmarDaPlanilha_(SpreadsheetApp.getActiveSpreadsheet(), null, null);
+    return jsonOut({ ok: true, resultado: resultado, aConfirmar: aConfirmar });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }

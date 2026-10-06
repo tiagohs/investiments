@@ -15,6 +15,8 @@ import { getMetas, getMacro } from '../api-client.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { metasComCalculo } from '../metas-card.js';
 import { montarMacro, ajudaHtml } from '../criterios/macro.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+
 
 /**
  * Metas de Metas e Objetivos pro momento (lista com `calc`), 1 busca por tela.
@@ -62,7 +64,6 @@ export function carregarMacroMomento(token, { getMacroImpl = getMacro, aoChegar 
   })();
 }
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ICONE_SINAL = {
   bom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',

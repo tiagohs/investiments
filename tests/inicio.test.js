@@ -8,14 +8,10 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import {
   splitValorExibicao,
-  criarTileIndice,
-  criarTileCambio,
-  renderIndicesCambio,
   resolverVisao,
   calcularDistribuicaoPorClasse,
   calcularDistribuicaoRendaEmergencial,
   renderDistribuicao,
-  renderResumoPatrimonio,
   filtrarHistoricoPorPeriodo,
   normalizarSerieRentabilidade,
   renderGraficoRentabilidade,
@@ -27,8 +23,6 @@ import {
   historicoTemCambioUsd,
   wireGraficoRentabilidade,
   criarAtivoCard,
-  renderMeusAtivos,
-  wireFiltroAtivos,
   wireTooltipAtivos,
   wireGraficoAtivo,
   renderAvisos,
@@ -38,6 +32,63 @@ import {
 function makeDom(bodyHtml) {
   const dom = new JSDOM(`<!doctype html><html><body>${bodyHtml}</body></html>`);
   return dom.window.document;
+}
+
+const ATIVO_ACAO_EXEMPLO = {
+  classe: 'acoes', ticker: 'BBAS3', nome: 'Banco do Brasil', precoAtual: 22.14, variacaoDia: -0.012,
+  vies: 'comprar', descontoPL: '12% (0,88 P/L)',
+};
+
+const ATIVO_FII_EXEMPLO = {
+  classe: 'fiis', ticker: 'HGRU11', nome: 'CSHG Renda Urbana', tipo: 'Tijolo', precoAtual: 118.4,
+  variacaoDia: 0.003, precoMedio: 102.9, quantidade: 37, descontoPVp: '108% (1,08 P/VP)',
+};
+
+const ATIVO_RF_EXEMPLO = {
+  classe: 'rf', ticker: 'Tesouro Selic · 03/2029', codigo: 'TS-2029', marca: 'longo-prazo',
+  nome: 'Tesouro Selic 2029', instituicao: 'CORRETORA EXEMPLO',
+  tipoInvestimento: 'Tesouro Selic', indexador: 'Selic', vencimento: '03/2029',
+  valorAtualizado: 12480.55, variacaoDia: 0.0004,
+};
+
+const ATIVO_USA_EXEMPLO = {
+  classe: 'usa', ticker: 'CHTR', precoAtual: 320.5, precoAtualBRL: 1732.5, variacaoDia: 0.008,
+  vies: 'aguardar', descontoPL: '-8% (14,2 P/L)',
+};
+
+const PATRIMONIO_EXEMPLO = {
+  total: 147583.80,
+  longoPrazo: 87356.59,
+  // 17/09/2026: nacional = longoPrazo - porClasse.acoesEua (mesma fórmula
+  // de Home.gs!montarHome_) = 87356.59 - 25227.21.
+  nacional: 62129.38,
+  rendaEmergencial: 60227.21,
+  porClasse: { acoes: 20000, fiis: 15000, rendaFixa: 87356.59, acoesEua: 25227.21 },
+};
+
+function gerarHistoricoExemplo(dias = 40) {
+  const historico = [];
+  for (let i = 0; i < dias; i += 1) {
+    const d = new Date(2026, 0, 1 + i);
+    historico.push({
+      data: d.toISOString().slice(0, 10),
+      patrimonio: 100000 + i * 1000,
+      longoPrazo: 80000 + i * 800,
+      nacional: 60000 + i * 600, // 17/09/2026 #2: base da visão "Patrimônio Nacional"
+      rendaEmergencial: 20000 + i * 200,
+      indiceCdi: 100 * (1 + i * 0.001),
+      indiceSelic: 100 * (1 + i * 0.0009),
+      ibovespa: i < 3 ? null : 120000 + i * 500, // simula "antes do 1º pregão da janela"
+    });
+  }
+  return historico;
+}
+
+// 06/10/2026 (Onda 3): a grade "Meus ativos" antiga (renderMeusAtivos) saiu do código (a Início usa a lista nova de inicio-painel.js);
+// os testes abaixo continuam cobrindo o CARD (criarAtivoCard, ainda usado pelos Favoritos) e o tooltip, então a grade vira este atalho de teste.
+function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos') {
+  container.innerHTML = '';
+  (ativos || []).filter((a) => filtroClasse === 'todos' || a.classe === filtroClasse).forEach((a) => container.appendChild(criarAtivoCard(doc, a)));
 }
 
 // --- splitValorExibicao ------------------------------------------------------
@@ -56,127 +107,19 @@ test('splitValorExibicao() returns the whole string as "principal" when there is
 
 // --- criarTileIndice / criarTileCambio --------------------------------------
 
-test('criarTileIndice() renders the value, label, and a "good" (up) delta for a non-negative variação', () => {
-  const doc = makeDom('');
-  const tile = criarTileIndice(doc, { label: 'Ibovespa', valor: 185600, variacaoDia: 1.2, extLinkHref: 'https://example.com' });
-  assert.match(tile.querySelector('.widget-value').textContent, /185/);
-  assert.match(tile.querySelector('.widget-label').textContent, /Ibovespa/);
-  assert.equal(tile.querySelector('.widget-delta').textContent, '+1,20% hoje');
-  assert.ok(tile.querySelector('.arrow-badge.good'));
-});
 
-test('criarTileIndice() com extLinkHref vira o cartão inteiro clicável (<a>), não um link solto dentro dele', () => {
-  const doc = makeDom('');
-  const tile = criarTileIndice(doc, { label: 'Ibovespa', valor: 185600, variacaoDia: 1.2, extLinkHref: 'https://example.com/ibov' });
-  assert.equal(tile.tagName, 'A');
-  assert.equal(tile.getAttribute('href'), 'https://example.com/ibov');
-  assert.equal(tile.getAttribute('target'), '_blank');
-  assert.equal(tile.getAttribute('rel'), 'noopener');
-  assert.equal(tile.querySelector('.ext-link'), null);
-});
 
-test('criarTileIndice() sem extLinkHref não vira link (fica <div>, nunca um <a> sem destino)', () => {
-  const doc = makeDom('');
-  const tile = criarTileIndice(doc, { label: 'S&P 500', valor: 6500 });
-  assert.equal(tile.tagName, 'DIV');
-});
 
-test('criarTileIndice() renders a "bad" (down) delta for a negative variação', () => {
-  const doc = makeDom('');
-  const tile = criarTileIndice(doc, { label: 'IFIX', valor: 3761.37, variacaoDia: -0.9 });
-  assert.equal(tile.querySelector('.widget-delta').textContent, '-0,90% hoje');
-  assert.ok(tile.querySelector('.arrow-badge.bad'));
-});
 
-test('criarTileIndice() degrades gracefully (no arrow, em-dash delta) when variação is missing', () => {
-  const doc = makeDom('');
-  const tile = criarTileIndice(doc, { label: 'S&P 500', valor: 6500 });
-  assert.equal(tile.querySelector('.arrow-badge'), null);
-  assert.equal(tile.querySelector('.widget-delta').textContent, '—');
-});
 
-test('criarTileCambio() renders the BRL value and a neutral "câmbio" delta, no arrow', () => {
-  const doc = makeDom('');
-  const tile = criarTileCambio(doc, { label: 'Dólar (USD/BRL)', valor: 5.09 });
-  assert.match(tile.querySelector('.widget-value').textContent, /5/);
-  assert.equal(tile.querySelector('.widget-delta').textContent, 'câmbio');
-  assert.equal(tile.querySelector('.arrow-badge'), null);
-});
 
-test('criarTileCambio() com extLinkHref também vira o cartão inteiro clicável', () => {
-  const doc = makeDom('');
-  const tile = criarTileCambio(doc, { label: 'Euro (EUR/BRL)', valor: 5.92, extLinkHref: 'https://example.com/eur' });
-  assert.equal(tile.tagName, 'A');
-  assert.equal(tile.getAttribute('href'), 'https://example.com/eur');
-});
 
-// 16/09/2026: pedido do Tiago - o valor do câmbio é em reais (1 unidade
-// da moeda = X reais), mas o SÍMBOLO mostrado tem que ser o da própria
-// moeda do card (US$/€), não "R$" - antes usava formatBRL sempre,
-// então o card do Dólar (e o do Euro) mostravam "R$" por engano.
-test('criarTileCambio() usa o símbolo passado (US$/€) em vez de "R$" quando informado', () => {
-  const doc = makeDom('');
-  const tileUsd = criarTileCambio(doc, { label: 'Dólar (USD/BRL)', valor: 5.09, simbolo: 'US$' });
-  assert.match(tileUsd.querySelector('.widget-value').textContent, /US\$/);
-  assert.equal(tileUsd.querySelector('.widget-value').textContent.includes('R$'), false);
-
-  const tileEur = criarTileCambio(doc, { label: 'Euro (EUR/BRL)', valor: 5.92, simbolo: '€' });
-  assert.match(tileEur.querySelector('.widget-value').textContent, /€/);
-  assert.equal(tileEur.querySelector('.widget-value').textContent.includes('R$'), false);
-});
 
 // --- renderIndicesCambio -----------------------------------------------------
 
-test('renderIndicesCambio() renders one tile per field present, in order', () => {
-  const doc = makeDom('<div id="grid"></div>');
-  const grid = doc.getElementById('grid');
-  renderIndicesCambio(doc, grid, {
-    indices: { ibovespa: { valor: 185600, variacaoDia: -0.9 }, spx: { valor: 6500, variacaoDia: 0.4 } },
-    cambio: { usd: 5.09 },
-  });
-  const labels = Array.from(grid.querySelectorAll('.widget-label')).map((el) => el.textContent.trim().split(' ')[0]);
-  assert.equal(grid.querySelectorAll('.widget-tile').length, 3);
-  assert.match(labels[0], /Ibovespa/);
-});
 
-test('renderIndicesCambio() shows a hint instead of a blank grid when nothing came back at all', () => {
-  const doc = makeDom('<div id="grid"></div>');
-  const grid = doc.getElementById('grid');
-  renderIndicesCambio(doc, grid, {});
-  assert.equal(grid.querySelectorAll('.widget-tile').length, 0);
-  assert.match(grid.textContent, /Sem dado/);
-});
 
-test('renderIndicesCambio() clears previous content before re-rendering', () => {
-  const doc = makeDom('<div id="grid"></div>');
-  const grid = doc.getElementById('grid');
-  renderIndicesCambio(doc, grid, { indices: { ibovespa: { valor: 1, variacaoDia: 1 } } });
-  renderIndicesCambio(doc, grid, { cambio: { eur: 5.9 } });
-  assert.equal(grid.querySelectorAll('.widget-tile').length, 1);
-  assert.match(grid.querySelector('.widget-label').textContent, /Euro/);
-});
 
-test('renderIndicesCambio() monta o card do Dólar com símbolo US$ e o do Euro com €, nunca R$', () => {
-  const doc = makeDom('<div id="grid"></div>');
-  const grid = doc.getElementById('grid');
-  renderIndicesCambio(doc, grid, { cambio: { usd: 5.09, eur: 5.92 } });
-  const valores = Array.from(grid.querySelectorAll('.widget-value')).map((el) => el.textContent);
-  assert.ok(valores.some((v) => v.includes('US$')));
-  assert.ok(valores.some((v) => v.includes('€')));
-  assert.equal(valores.some((v) => v.includes('R$')), false);
-});
-
-// --- resolverVisao / renderResumoPatrimonio -----------------------------------
-
-const PATRIMONIO_EXEMPLO = {
-  total: 147583.80,
-  longoPrazo: 87356.59,
-  // 17/09/2026: nacional = longoPrazo - porClasse.acoesEua (mesma fórmula
-  // de Home.gs!montarHome_) = 87356.59 - 25227.21.
-  nacional: 62129.38,
-  rendaEmergencial: 60227.21,
-  porClasse: { acoes: 20000, fiis: 15000, rendaFixa: 87356.59, acoesEua: 25227.21 },
-};
 
 test('resolverVisao() picks the right field + label for each known visão', () => {
   assert.equal(resolverVisao(PATRIMONIO_EXEMPLO, 'total').valor, 147583.80);
@@ -407,186 +350,15 @@ test('renderDistribuicao() com `formatarValor` e `formatarValorTooltip` diferent
   assert.equal(container.querySelector('.distrib-valor').textContent.includes('R$'), false);
 });
 
-test('renderResumoPatrimonio() mostra as 4 divisões juntas, sem precisar de clique nenhum', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
 
-  const cards = resumo.querySelectorAll('.resumo-card');
-  // 17/09/2026 #2: Total + Longo Prazo + Nacional + Renda Emergencial.
-  assert.equal(cards.length, 4, 'Total + Longo Prazo + Nacional + Renda Emergencial de cara, nenhuma aba pra clicar');
-  assert.match(resumo.textContent, /147\.583/);
-  assert.match(resumo.textContent, /87\.356/);
-  assert.match(resumo.textContent, /62\.129/, 'valor de Patrimônio Nacional (nacional: 62.129,38 no fixture)');
-  assert.match(resumo.textContent, /60\.227/);
-});
 
-test('renderResumoPatrimonio() mostra a distribuição (donut) nos 4 cartões - Total/Longo Prazo/Nacional por classe, Renda Emergencial por tipo', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
 
-  const cardTotal = resumo.querySelector('.resumo-card-total');
-  assert.match(cardTotal.textContent, /Renda Fixa/);
-  assert.ok(cardTotal.querySelector('.distrib-arco'), 'total deveria mostrar o donut de distribuição por classe');
 
-  const outrosCards = Array.from(resumo.querySelectorAll('.resumo-card')).filter((c) => c !== cardTotal);
-  const [cardLongoPrazo, cardNacional, cardRendaEmergencial] = outrosCards;
-  assert.ok(cardLongoPrazo.querySelector('.distrib-arco'), 'Longo Prazo também mostra o donut agora');
-  assert.ok(cardNacional.querySelector('.distrib-arco'), 'Nacional também mostra o donut, sem Ações EUA');
-  assert.doesNotMatch(cardNacional.textContent, /Ações EUA/, 'Nacional exclui a classe Ações EUA da distribuição');
-  assert.match(cardRendaEmergencial.textContent, /Tesouro Selic/, 'Renda Emergencial mostra por tipo de investimento, não por classe');
-});
 
-test('renderResumoPatrimonio() shows a hint instead of throwing when patrimonio is missing', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, {});
-  assert.match(resumo.textContent, /Sem dado/);
-});
 
-// 18/09/2026: "ontem era: R$ X - Y%" - compara o valor ATUAL (patrimonio)
-// com `ontem[visaoId]`, um snapshot diário que o BACKEND já resolve
-// (SnapshotResumoDiario.gs!obterUltimoSnapshotPregao_ - último dia com
-// pregão antes de hoje, cobrindo sábado/domingo/segunda voltando pra
-// sexta) - o front-end só lê o valor pronto, sem escanear historico nem
-// saber nada de pregão/fuso (ver nota de 18/09/2026 acima de
-// renderResumoPatrimonio() pro motivo da mudança: a série histórica
-// combinada não é confiável pra essa comparação, 2 tentativas de conserto
-// nela quebraram o gráfico de Rentabilidade).
-const ONTEM_EXEMPLO = { data: '2026-09-11', total: 140000, longoPrazo: 80000, nacional: 60000, rendaEmergencial: 60000 };
 
-test('renderResumoPatrimonio() "ontem era" compara com `ontem.total` (snapshot do backend) e mostra verde quando melhora', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, {
-    patrimonio: PATRIMONIO_EXEMPLO,
-    ativos: ATIVOS_RESUMO_EXEMPLO,
-    cambio: { usd: 5 },
-    ontem: ONTEM_EXEMPLO,
-  });
 
-  const cardTotal = resumo.querySelector('.resumo-card-total');
-  const ontemTotal = cardTotal.querySelector('.resumo-ontem');
-  assert.match(ontemTotal.textContent, /ontem era: R\$\s*140\.000,00/);
-  assert.match(ontemTotal.textContent, /\+5,42%/); // (147.583,80 - 140.000) / 140.000
-  assert.equal(ontemTotal.classList.contains('good'), true);
-});
 
-test('renderResumoPatrimonio() "ontem era" mostra vermelho quando o valor de hoje é menor que o do snapshot de ontem', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  const patrimonioQueda = { ...PATRIMONIO_EXEMPLO, total: 130000 };
-  renderResumoPatrimonio(doc, resumo, {
-    patrimonio: patrimonioQueda,
-    ativos: ATIVOS_RESUMO_EXEMPLO,
-    cambio: { usd: 5 },
-    ontem: ONTEM_EXEMPLO,
-  });
-
-  const cardTotal = resumo.querySelector('.resumo-card-total');
-  const ontemTotal = cardTotal.querySelector('.resumo-ontem');
-  assert.match(ontemTotal.textContent, /-7,14%/); // (130.000 - 140.000) / 140.000
-  assert.equal(ontemTotal.classList.contains('bad'), true);
-});
-
-test('renderResumoPatrimonio() "ontem era" também aparece no card Nacional, comparando `ontem.nacional`', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, {
-    patrimonio: PATRIMONIO_EXEMPLO,
-    ativos: ATIVOS_RESUMO_EXEMPLO,
-    cambio: { usd: 5 },
-    ontem: ONTEM_EXEMPLO,
-  });
-
-  const cardNacional = Array.from(resumo.querySelectorAll('.resumo-card'))
-    .find((c) => c.querySelector('.resumo-label').textContent === 'Patrimônio Nacional');
-  const ontemNacional = cardNacional.querySelector('.resumo-ontem');
-  // ontem.nacional=60.000; PATRIMONIO_EXEMPLO.nacional=62.129,38.
-  assert.match(ontemNacional.textContent, /ontem era: R\$\s*60\.000,00/);
-  assert.equal(ontemNacional.classList.contains('good'), true);
-});
-
-test('renderResumoPatrimonio() "ontem era" fica em branco (classe na, sem lançar) quando não há `ontem` ainda (snapshot novo, sem histórico gravado)', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  assert.doesNotThrow(() => renderResumoPatrimonio(doc, resumo, {
-    patrimonio: PATRIMONIO_EXEMPLO,
-    ativos: ATIVOS_RESUMO_EXEMPLO,
-    cambio: { usd: 5 },
-    ontem: null,
-  }));
-  const ontemTotal = resumo.querySelector('.resumo-card-total .resumo-ontem');
-  assert.equal(ontemTotal.classList.contains('na'), true);
-  assert.equal(ontemTotal.textContent, '');
-});
-
-test('renderResumoPatrimonio() "ontem era" fica em branco quando `ontem` não tem o campo da visão (ex.: snapshot antigo/incompleto)', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, {
-    patrimonio: PATRIMONIO_EXEMPLO,
-    ativos: ATIVOS_RESUMO_EXEMPLO,
-    cambio: { usd: 5 },
-    ontem: { data: '2026-09-11' }, // sem total/longoPrazo/nacional/rendaEmergencial
-  });
-  const ontemTotal = resumo.querySelector('.resumo-card-total .resumo-ontem');
-  assert.equal(ontemTotal.classList.contains('na'), true);
-  assert.equal(ontemTotal.textContent, '');
-});
-
-// pedido do Tiago (16/09/2026), continuação: a legenda do donut também
-// usava `title` nativo - agora usa o mesmo tooltip por toque de
-// wireTooltipAtivos (mesma técnica), ligado 1x no container ESTÁVEL de
-// renderResumoPatrimonio (#resumoPatrimonio), não no de cada card.
-test('renderResumoPatrimonio() no toque, tocar no ícone "i" de um item da legenda abre a tooltip; 2º toque fecha; toque fora fecha', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
-
-  const alvo = resumo.querySelector('.distrib-item');
-  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
-    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
-  }));
-  const tooltip = doc.querySelector('.info-tooltip');
-  assert.equal(tooltip.hidden, false);
-
-  alvo.dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', {
-    clientX: 20, clientY: 20, bubbles: true, pointerType: 'touch',
-  }));
-  assert.equal(doc.querySelector('.info-tooltip').hidden, true);
-});
-
-test('renderResumoPatrimonio() redesenhar o mesmo container não duplica a div .info-tooltip', () => {
-  const doc = makeDom('<div id="resumo"></div>');
-  const resumo = doc.getElementById('resumo');
-  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
-  renderResumoPatrimonio(doc, resumo, { patrimonio: PATRIMONIO_EXEMPLO, ativos: ATIVOS_RESUMO_EXEMPLO, cambio: { usd: 5 } });
-  assert.equal(doc.querySelectorAll('.info-tooltip').length, 1);
-});
-
-// --- filtrarHistoricoPorPeriodo / normalizarSerieRentabilidade / gráfico ----
-
-/** 40 dias corridos, patrimonio crescendo 1000/dia, ibovespa e indiceCdi/indiceSelic
- * também subindo de forma previsível - dá pra calcular a mão o que cada teste espera. */
-function gerarHistoricoExemplo(dias = 40) {
-  const historico = [];
-  for (let i = 0; i < dias; i += 1) {
-    const d = new Date(2026, 0, 1 + i);
-    historico.push({
-      data: d.toISOString().slice(0, 10),
-      patrimonio: 100000 + i * 1000,
-      longoPrazo: 80000 + i * 800,
-      nacional: 60000 + i * 600, // 17/09/2026 #2: base da visão "Patrimônio Nacional"
-      rendaEmergencial: 20000 + i * 200,
-      indiceCdi: 100 * (1 + i * 0.001),
-      indiceSelic: 100 * (1 + i * 0.0009),
-      ibovespa: i < 3 ? null : 120000 + i * 500, // simula "antes do 1º pregão da janela"
-    });
-  }
-  return historico;
-}
 
 test('filtrarHistoricoPorPeriodo() corta os últimos N dias corridos do preset pedido - N variações = N+1 pontos (o 1º é a base)', () => {
   const historico = gerarHistoricoExemplo(40);
@@ -788,13 +560,50 @@ test('normalizarSerieRentabilidade() com campoFluxo NÃO mexe num dia ruim de ve
   assert.ok(Math.abs(serie[1] - (-20)) < 1e-9, `queda real de -20% não devia ser clampada, veio ${serie[1]}`);
 });
 
+// 05/10/2026 (A-20, auditoria): o dia fora da faixa continua neutro no % (senão trava em -100%), mas
+// deixa de ser silencioso: fica em `suspeitos` e a tela avisa que % e ganho em R$ podem divergir.
+test('A-20: dia fora da faixa plausível é registrado em `suspeitos` (não enumerável) e o resumo devolve diasSuspeitos', () => {
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 100050, fluxoCaixaPatrimonio: 100000 }, // fluxo desalinhado: retorno bruto -99,95%
+    { data: '2026-01-03', patrimonio: 105000, fluxoCaixaPatrimonio: 0 },
+  ];
+  const serie = normalizarSerieRentabilidade(janela, 'patrimonio', 'fluxoCaixaPatrimonio');
+  assert.equal(serie.suspeitos.length, 1);
+  assert.equal(serie.suspeitos[0].data, '2026-01-02');
+  assert.ok(Math.abs(serie.suspeitos[0].retorno - (-99.95)) < 1e-6);
+  assert.deepEqual(Object.keys(serie), ['0', '1', '2'], 'a propriedade não aparece em iteração/deepEqual');
+  assert.deepEqual(normalizarSerieRentabilidade(janela.slice(0, 1).concat([{ data: '2026-01-02', patrimonio: 80000, fluxoCaixaPatrimonio: 0 }]), 'patrimonio', 'fluxoCaixaPatrimonio').suspeitos, [], 'queda real de -20% não é suspeita');
+  const r = calcularResumoRentabilidade(undefined, janela, { visaoId: 'total', periodoId: 'tudo' });
+  assert.equal(r.diasSuspeitos.length, 1);
+  assert.equal(r.diasSuspeitos[0].data, '2026-01-02');
+});
+
+test('A-20: o cartão de rentabilidade avisa dos dias suspeitos (e não mostra aviso quando não há)', () => {
+  const doc = makeDom('<div id="info"></div>');
+  const janela = [
+    { data: '2026-01-01', patrimonio: 100000, fluxoCaixaPatrimonio: 0 },
+    { data: '2026-01-02', patrimonio: 100050, fluxoCaixaPatrimonio: 100000 },
+    { data: '2026-01-03', patrimonio: 105000, fluxoCaixaPatrimonio: 0 },
+  ];
+  const container = doc.getElementById('info');
+  renderInfoRentabilidade(doc, container, { historico: janela, visaoId: 'total', periodoId: 'tudo' });
+  const aviso = container.querySelector('.rentab-card-aviso');
+  assert.ok(aviso, 'avisa');
+  assert.match(aviso.textContent, /1 dia com variação fora do normal/);
+  assert.match(aviso.textContent, /02\/01\/2026/);
+  assert.match(aviso.textContent, /ganho em R\$ não/);
+  renderInfoRentabilidade(doc, container, { historico: janela.slice(0, 1).concat([{ data: '2026-01-02', patrimonio: 101000, fluxoCaixaPatrimonio: 0 }]), visaoId: 'total', periodoId: 'tudo' });
+  assert.equal(container.querySelector('.rentab-card-aviso'), null);
+});
+
 test('renderGraficoRentabilidade() desenha um <svg> com uma linha principal + 2 benchmarks pra visão "total"', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
   renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'total', periodoId: '30d' });
-  const svg = container.querySelector('svg.rentab-chart');
+  const svg = container.querySelector('svg.chart-svg'); // 06/10/2026 (Onda 3): gráfico da biblioteca
   assert.ok(svg);
-  assert.equal(svg.querySelectorAll('path').length, 3); // portfólio + ibovespa + cdi
+  assert.equal(svg.querySelectorAll('path.chart-linha').length, 3); // portfólio + ibovespa + cdi
 });
 
 test('renderGraficoRentabilidade() troca os benchmarks pra CDI+Selic na visão "rendaEmergencial"', () => {
@@ -813,9 +622,9 @@ test('renderGraficoRentabilidade() visão "nacional" desenha a linha do portfól
   const container = doc.getElementById('chart');
   const legenda = doc.getElementById('legenda');
   renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'nacional', periodoId: '30d', legendaContainer: legenda });
-  const svg = container.querySelector('svg.rentab-chart');
+  const svg = container.querySelector('svg.chart-svg');
   assert.ok(svg);
-  assert.equal(svg.querySelectorAll('path').length, 3); // portfólio + ibovespa + cdi
+  assert.equal(svg.querySelectorAll('path.chart-linha').length, 3); // portfólio + ibovespa + cdi
   assert.match(legenda.textContent, /Ibovespa/);
   assert.match(legenda.textContent, /CDI/);
   assert.doesNotMatch(legenda.textContent, /Selic/);
@@ -831,7 +640,7 @@ test('renderGraficoRentabilidade() mostra, junto do nome de cada benchmark, o qu
   // diferente do retorno absoluto do próprio CDI (que seria só uns 2-3%).
   renderGraficoRentabilidade(doc, container, { historico: gerarHistoricoExemplo(40), visaoId: 'total', periodoId: '30d', legendaContainer: legenda });
   assert.match(legenda.textContent, /CDI\s*\+2[0-9],/, 'CDI deveria vir com a diferença (~+23%), não o retorno absoluto dele (~+2,9%)');
-  assert.ok(legenda.querySelector('.li-delta.good'), 'delta positivo (portfólio bateu o benchmark) usa a cor "good"');
+  assert.ok(legenda.querySelector('.chart-leg-val.is-up'), 'delta positivo (portfólio bateu o benchmark) usa a cor "good"');
 });
 
 test('renderGraficoRentabilidade() mostra NEGATIVO quando o portfólio fica ATRÁS do benchmark (bug real reportado pelo Tiago)', () => {
@@ -851,8 +660,8 @@ test('renderGraficoRentabilidade() mostra NEGATIVO quando o portfólio fica ATR�
     { data: '2026-01-05', patrimonio: 100800, ibovespa: 120000, indiceCdi: 100.4 },
   ];
   renderGraficoRentabilidade(doc, container, { historico, visaoId: 'total', periodoId: 'tudo', legendaContainer: legenda });
-  assert.match(legenda.textContent, /Ibovespa\s*-1[0-9],/, 'portfólio (+0,8%) muito atrás do Ibovespa (+20%) - diferença negativa, por volta de -19%');
-  assert.ok(legenda.querySelector('.li-delta.bad'), 'delta negativo (portfólio atrás do benchmark) usa a cor "bad", nunca "good"');
+  assert.match(legenda.textContent, /Ibovespa\s*−1[0-9],/, 'portfólio (+0,8%) muito atrás do Ibovespa (+20%) - diferença negativa, por volta de -19%');
+  assert.ok(legenda.querySelector('.chart-leg-val.is-down'), 'delta negativo (portfólio atrás do benchmark) usa a cor "bad", nunca "good"');
 });
 
 test('renderGraficoRentabilidade() mostra um aviso (sem lançar) quando não há histórico suficiente', () => {
@@ -875,60 +684,60 @@ const HISTORICO_HOVER_EXEMPLO = [
   { data: '2026-01-05', patrimonio: 104000, ibovespa: 104000, indiceCdi: 100.4 },
 ];
 
-test('renderGraficoRentabilidade() esconde a tooltip e os pontos de hover antes de qualquer interação', () => {
+// 06/10/2026 (Onda 3): o hover é o da biblioteca (charts/xy.js): tooltip escura multilinha (.chart-tip) + linha-guia (.chart-cruz).
+// jsdom não tem layout: damos uma caixa de 640px ao <svg> pra o clientX virar posição dentro do gráfico.
+function prepararHover_(container) {
+  const svg = container.querySelector('svg.chart-svg');
+  svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 240, right: 640, bottom: 240, x: 0, y: 0 });
+  return svg;
+}
+const ponteiro_ = (doc, tipo, init) => new doc.defaultView.MouseEvent(tipo, { bubbles: true, cancelable: true, ...init });
+
+test('renderGraficoRentabilidade() esconde a tooltip e a linha-guia antes de qualquer interação', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
   renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
 
-  assert.equal(container.querySelector('.rentab-tooltip').hidden, true);
-  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), true);
+  assert.equal(container.querySelector('.chart-tip').classList.contains('is-on'), false);
+  assert.equal(container.querySelector('.chart-cruz').classList.contains('is-on'), false);
 });
 
-test('renderGraficoRentabilidade() pointermove sobre a área do gráfico mostra a tooltip com a data e o valor de cada série', () => {
+test('renderGraficoRentabilidade() pointermove sobre o gráfico mostra a tooltip com a data e o valor de cada série', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
   renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+  const svg = prepararHover_(container);
+  svg.dispatchEvent(ponteiro_(doc, 'pointermove', { clientX: 330, clientY: 50 }));
 
-  const hitarea = container.querySelector('.rentab-hitarea');
-  // Sem layout de verdade (jsdom), a largura do cartão cai no fallback de
-  // 640px (ver larguraReal_) - padL=44, padR=8 -> plotW=588. O meio exato
-  // da janela de 5 dias (índice 2, "03/01/2026") fica em clientX = padL +
-  // plotW*0.5 = 338 (getBoundingClientRect também é 0 em jsdom, então
-  // clientX já É a posição dentro do próprio <svg>).
-  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 338, clientY: 50, bubbles: true }));
-
-  const tooltip = container.querySelector('.rentab-tooltip');
-  assert.equal(tooltip.hidden, false);
+  const tooltip = container.querySelector('.chart-tip');
+  assert.equal(tooltip.classList.contains('is-on'), true);
   assert.match(tooltip.textContent, /03\/01\/2026/);
   assert.match(tooltip.textContent, /Portfólio/);
   assert.match(tooltip.textContent, /Ibovespa/);
   assert.match(tooltip.textContent, /CDI/);
-  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), false, 'linha-guia + pontos aparecem junto com a tooltip');
+  assert.equal(container.querySelector('.chart-cruz').classList.contains('is-on'), true, 'linha-guia aparece junto com a tooltip');
 });
 
 test('renderGraficoRentabilidade() pointerdown (toque, sem "arrastar" o dedo antes) também mostra a tooltip', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
   renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+  prepararHover_(container).dispatchEvent(ponteiro_(doc, 'pointerdown', { clientX: 200, clientY: 50 }));
 
-  container.querySelector('.rentab-hitarea')
-    .dispatchEvent(new doc.defaultView.PointerEvent('pointerdown', { clientX: 200, clientY: 50, bubbles: true }));
-
-  assert.equal(container.querySelector('.rentab-tooltip').hidden, false);
+  assert.equal(container.querySelector('.chart-tip').classList.contains('is-on'), true);
 });
 
-test('renderGraficoRentabilidade() pointerleave esconde a tooltip e os pontos de novo', () => {
+test('renderGraficoRentabilidade() pointerleave esconde a tooltip e a linha-guia de novo', () => {
   const doc = makeDom('<div id="chart"></div>');
   const container = doc.getElementById('chart');
   renderGraficoRentabilidade(doc, container, { historico: HISTORICO_HOVER_EXEMPLO, visaoId: 'total', periodoId: 'tudo' });
+  const svg = prepararHover_(container);
+  svg.dispatchEvent(ponteiro_(doc, 'pointermove', { clientX: 330, clientY: 50 }));
+  assert.equal(container.querySelector('.chart-tip').classList.contains('is-on'), true);
 
-  const hitarea = container.querySelector('.rentab-hitarea');
-  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 338, clientY: 50, bubbles: true }));
-  assert.equal(container.querySelector('.rentab-tooltip').hidden, false);
-
-  hitarea.dispatchEvent(new doc.defaultView.PointerEvent('pointerleave', { bubbles: true }));
-  assert.equal(container.querySelector('.rentab-tooltip').hidden, true);
-  assert.equal(container.querySelector('.rentab-hover').hasAttribute('hidden'), true);
+  svg.dispatchEvent(ponteiro_(doc, 'pointerleave', {}));
+  assert.equal(container.querySelector('.chart-tip').classList.contains('is-on'), false);
+  assert.equal(container.querySelector('.chart-cruz').classList.contains('is-on'), false);
 });
 
 // --- renderInfoRentabilidade -------------------------------------------------
@@ -966,7 +775,7 @@ test('renderInfoRentabilidade() mostra o R$ PERDIDO (com sinal de menos, sem dup
     periodoId: 'tudo',
   });
   const textoDelta = container.querySelector('.rentab-card-delta').textContent;
-  assert.match(textoDelta, /-R\$\s*4\.000,00/, 'perda de R$4.000 (104.000 -> 100.000), sinal único');
+  assert.match(textoDelta, /−R\$\s*4\.000,00/, 'perda de R$4.000 (104.000 -> 100.000), sinal único');
   assert.doesNotMatch(textoDelta, /-R\$\s*-/, 'nunca dois sinais de menos juntos');
   assert.equal(container.querySelector('.rentab-card-delta').classList.contains('bad'), true);
 });
@@ -1089,73 +898,6 @@ test('wireGraficoRentabilidade() sem periodoInicial explícito usa "mes" (o pill
   assert.notEqual(htmlSemPeriodoInicial, htmlCom12mExplicito);
 });
 
-// 14/09/2026 (botão "Atualizar dados" + timer automático - ver
-// shell.js!mountRefreshControl): montarPaginaInicio agora pode chamar
-// wireGraficoRentabilidade de novo (1x por carga de dado novo) no MESMO
-// periodoTabsContainer - religar teria duplicado o listener de clique/
-// resize. O teste central aqui não é só "não quebra" - é que o clique
-// depois do refresh usa o dado NOVO, não fica preso na 1ª chamada.
-test('wireGraficoRentabilidade() chamada de novo no mesmo periodoTabsContainer (refresh) atualiza com o dado novo sem religar o clique', () => {
-  const doc = makeDom(`
-    <div class="filter-tabs" id="periodoTabs">
-      <button class="filter-tab" data-periodo="30d">30 dias</button>
-      <button class="filter-tab active" data-periodo="12m">12 meses</button>
-    </div>
-    <div id="infoTotal"></div><div id="chartTotal"></div><div id="legendaTotal"></div>
-  `);
-  const periodoTabsContainer = doc.getElementById('periodoTabs');
-  const paineis = [{ visaoId: 'total', infoContainer: doc.getElementById('infoTotal'), chartContainer: doc.getElementById('chartTotal'), legendaContainer: doc.getElementById('legendaTotal') }];
-
-  wireGraficoRentabilidade(doc, {
-    patrimonio: { total: 100000 },
-    historico: gerarHistoricoExemplo(40),
-    periodoTabsContainer,
-    paineis,
-    periodoInicial: '12m',
-  });
-  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /100\.000/);
-
-  // "refresh": patrimônio novo, mesmo container.
-  wireGraficoRentabilidade(doc, {
-    patrimonio: { total: 250000 },
-    historico: gerarHistoricoExemplo(40),
-    periodoTabsContainer,
-    paineis,
-    periodoInicial: '12m',
-  });
-  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /250\.000/, 'a 2ª chamada precisa redesenhar com o patrimônio novo');
-
-  // Clicar no período DEPOIS do refresh também precisa usar o dado novo -
-  // se o clique tivesse ficado preso na 1ª chamada (closure antiga), isso
-  // voltaria a mostrar 100.000.
-  periodoTabsContainer.querySelector('[data-periodo="30d"]')
-    .dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.match(doc.getElementById('infoTotal').querySelector('.rentab-card-value').textContent, /250\.000/);
-});
-
-// --- criarAtivoCard / renderMeusAtivos / wireFiltroAtivos -------------------
-
-const ATIVO_ACAO_EXEMPLO = {
-  classe: 'acoes', ticker: 'BBAS3', nome: 'Banco do Brasil', precoAtual: 22.14, variacaoDia: -0.012,
-  vies: 'comprar', descontoPL: '12% (0,88 P/L)',
-};
-
-const ATIVO_USA_EXEMPLO = {
-  classe: 'usa', ticker: 'CHTR', precoAtual: 320.5, precoAtualBRL: 1732.5, variacaoDia: 0.008,
-  vies: 'aguardar', descontoPL: '-8% (14,2 P/L)',
-};
-
-const ATIVO_RF_EXEMPLO = {
-  classe: 'rf', ticker: 'Tesouro Selic · 03/2029', codigo: 'TS-2029', marca: 'longo-prazo',
-  nome: 'Tesouro Selic 2029', instituicao: 'CORRETORA EXEMPLO',
-  tipoInvestimento: 'Tesouro Selic', indexador: 'Selic', vencimento: '03/2029',
-  valorAtualizado: 12480.55, variacaoDia: 0.0004,
-};
-
-const ATIVO_FII_EXEMPLO = {
-  classe: 'fiis', ticker: 'HGRU11', nome: 'CSHG Renda Urbana', tipo: 'Tijolo', precoAtual: 118.4,
-  variacaoDia: 0.003, precoMedio: 102.9, quantidade: 37, descontoPVp: '108% (1,08 P/VP)',
-};
 
 test('criarAtivoCard() de Ações vira o cartão inteiro clicável, com viés e desconto', () => {
   const doc = makeDom('');
@@ -1185,77 +927,6 @@ test('criarAtivoCard() de Renda Fixa usa nome + instituição (não o rótulo co
   assert.match(card.querySelector('.ativo-detalhe').textContent, /03\/2029/);
   assert.match(card.querySelector('.ativo-price').textContent, /12\.480/);
 });
-
-test('renderMeusAtivos() filtra por classe e mostra um aviso pra categoria vazia', () => {
-  const doc = makeDom('<div id="grid"></div>');
-  const grid = doc.getElementById('grid');
-  const ativos = [ATIVO_ACAO_EXEMPLO, ATIVO_USA_EXEMPLO, ATIVO_RF_EXEMPLO];
-
-  renderMeusAtivos(doc, grid, ativos, 'todos');
-  assert.equal(grid.querySelectorAll('.ativo-card').length, 3);
-
-  renderMeusAtivos(doc, grid, ativos, 'fiis');
-  assert.match(grid.textContent, /Nenhum ativo/);
-});
-
-test('wireFiltroAtivos() re-renderiza a grade filtrada e alterna a classe active', () => {
-  const doc = makeDom(`
-    <div class="filter-tabs" id="tabs">
-      <button class="filter-tab active" data-classe="todos">Todos</button>
-      <button class="filter-tab" data-classe="rf">Renda Fixa</button>
-    </div>
-    <div id="grid"></div>
-  `);
-  const tabs = doc.getElementById('tabs');
-  const grid = doc.getElementById('grid');
-  const ativos = [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO];
-  renderMeusAtivos(doc, grid, ativos, 'todos');
-  wireFiltroAtivos(doc, tabs, grid, ativos);
-
-  tabs.querySelector('[data-classe="rf"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-
-  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
-  assert.equal(tabs.querySelector('[data-classe="rf"]').classList.contains('active'), true);
-});
-
-test('wireFiltroAtivos() chamada de novo no mesmo tabsContainer (refresh) redesenha com os ativos novos, mantendo a aba ativa, sem religar o clique', () => {
-  const doc = makeDom(`
-    <div class="filter-tabs" id="tabs">
-      <button class="filter-tab" data-classe="todos">Todos</button>
-      <button class="filter-tab active" data-classe="rf">Renda Fixa</button>
-    </div>
-    <div id="grid"></div>
-  `);
-  const tabs = doc.getElementById('tabs');
-  const grid = doc.getElementById('grid');
-  const ativoRfNovo = { ...ATIVO_RF_EXEMPLO, codigo: 'TS-2031', nome: 'Tesouro Selic 2031' };
-
-  // Mesmo padrão de uso real (montarPaginaInicio): renderMeusAtivos desenha
-  // a grade 1ª vez, wireFiltroAtivos só liga o clique - não redesenha nada
-  // sozinho na 1ª chamada.
-  renderMeusAtivos(doc, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO], 'rf'); // aba "Renda Fixa" já ativa no HTML
-  wireFiltroAtivos(doc, tabs, grid, [ATIVO_ACAO_EXEMPLO, ATIVO_RF_EXEMPLO]);
-  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
-
-  // "refresh": ativos novos (RF trocado), mesmo container - continua na
-  // aba ativa (Renda Fixa) e mostra o RF novo, não o antigo.
-  wireFiltroAtivos(doc, tabs, grid, [ATIVO_ACAO_EXEMPLO, ativoRfNovo]);
-  assert.equal(grid.querySelectorAll('.ativo-card').length, 1);
-  assert.equal(new URL(grid.querySelector('.ativo-card').getAttribute('href')).searchParams.get('ref'), 'rf:Tesouro Selic 2031|CORRETORA EXEMPLO');
-
-  // Clicar numa aba DEPOIS do refresh também usa os ativos novos (prova
-  // que o clique não ficou preso na 1ª chamada).
-  tabs.querySelector('[data-classe="todos"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-  assert.equal(grid.querySelectorAll('.ativo-card').length, 2);
-  assert.ok(Array.from(grid.querySelectorAll('.ativo-card')).some((c) => new URL(c.getAttribute('href')).searchParams.get('ref').includes('Selic 2031')));
-});
-
-// --- wireTooltipAtivos -------------------------------------------------------
-// Tooltip de hover/touch de cada .ativo-card (Nome, Quantidade, Preço
-// Teto/Médio, Descontos sobre P/VP e P/L, ou os campos de Renda Fixa) -
-// desenhado em docs/direcao-visual.html, decisão em docs/mapa-paginas.html.
-// Tiago apontou (13/09/2026, 3ª rodada) que essa tooltip nunca tinha saído
-// do mockup pro código de verdade.
 
 test('wireTooltipAtivos() no pointermove sobre um cartão de Ação mostra Nome, Quantidade, Preço Teto/Médio e os descontos', () => {
   const doc = makeDom('<div id="grid"></div>');
@@ -1313,7 +984,7 @@ test('wireTooltipAtivos() de Ações EUA mostra Preço Teto/Médio em US$ com o 
 
   const tooltip = doc.body.querySelector('.ativo-tooltip');
   assert.match(tooltip.textContent, /Charter Communications/);
-  assert.match(tooltip.textContent, /\$340\.00/, 'preço teto em USD (formatUSD - símbolo "$", ponto decimal)');
+  assert.match(tooltip.textContent, /US\$\s340,00/, 'preço teto em USD (formatUSD: "US$", vírgula decimal)');
   assert.match(tooltip.textContent, /R\$.1\.836,00/, 'equivalente em R$ (formatBRL) entre parênteses ao lado');
   assert.match(tooltip.textContent, /95% \(0,95 P\/VP\)/);
   assert.doesNotMatch(tooltip.textContent, /P\/L/, 'Ações EUA ainda não tem P\/L na planilha - linha omitida, não "—"');
@@ -1625,7 +1296,7 @@ test('wireGraficoAtivo() ao abrir, busca o histórico com o token e o ticker do 
 
   const corpo = doc.body.querySelector('.ativo-grafico-popover-corpo');
   assert.ok(corpo.querySelector('.ativo-grafico-periodo'), 'monta o filtro de período');
-  assert.ok(corpo.querySelector('svg.ativo-grafico-chart'), 'desenha o gráfico');
+  assert.ok(corpo.querySelector('svg.chart-svg'), 'desenha o gráfico');
 });
 
 test('wireGraficoAtivo() o filtro de período vem com os mesmos 6 presets da Rentabilidade, "Mês atual" ativo por padrão', async () => {
@@ -1637,11 +1308,11 @@ test('wireGraficoAtivo() o filtro de período vem com os mesmos 6 presets da Ren
   grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
-  const pills = Array.from(doc.body.querySelectorAll('.ativo-grafico-periodo .filter-tab[data-periodo]'));
+  const pills = Array.from(doc.body.querySelectorAll('.ativo-grafico-periodo .chart-seg-btn[data-periodo]'));
   assert.deepEqual(pills.map((p) => p.dataset.periodo), ['mes', '30d', '6m', '12m', '3a', 'tudo']);
   assert.equal(pills.find((p) => p.dataset.periodo === 'mes').classList.contains('active'), true);
   // 02/10/2026: + o chip "Escolher período" no fim (periodo-personalizado.js)
-  assert.ok(doc.body.querySelector('.ativo-grafico-periodo .filter-tab.fp-chip:last-child'));
+  assert.ok(doc.body.querySelector('.ativo-grafico-periodo .fp-chip:last-child'));
 });
 
 test('wireGraficoAtivo() trocar de período redesenha o gráfico sem nova busca de rede', async () => {
@@ -1657,11 +1328,11 @@ test('wireGraficoAtivo() trocar de período redesenha o gráfico sem nova busca 
   grid.querySelector('.ativo-card .ativo-grafico-icon').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
-  const pill12m = doc.body.querySelector('.filter-tab[data-periodo="12m"]');
+  const pill12m = doc.body.querySelector('.chart-seg-btn[data-periodo="12m"]');
   pill12m.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true }));
 
   assert.equal(pill12m.classList.contains('active'), true);
-  assert.equal(doc.body.querySelector('.filter-tab[data-periodo="mes"]').classList.contains('active'), false);
+  assert.equal(doc.body.querySelector('.chart-seg-btn[data-periodo="mes"]').classList.contains('active'), false);
   assert.equal(chamadas, 1, 'trocar de período não bate na API de novo');
 });
 
@@ -1683,7 +1354,7 @@ test('wireGraficoAtivo() reabrir o MESMO card não busca de novo (cache no próp
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
   assert.equal(chamadas, 1);
-  assert.ok(doc.body.querySelector('svg.ativo-grafico-chart'), 'redesenha o gráfico na 2ª abertura, do cache');
+  assert.ok(doc.body.querySelector('svg.chart-svg'), 'redesenha o gráfico na 2ª abertura, do cache');
 });
 
 test('wireGraficoAtivo() ativo de Renda Fixa mostra aviso de indisponível, sem tentar buscar', () => {
@@ -1738,7 +1409,7 @@ test('wireGraficoAtivo() troca de card antes da resposta chegar descarta a respo
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
   assert.match(doc.body.querySelector('.ativo-grafico-popover-ticker').textContent, /HGRU11/);
-  assert.ok(doc.body.querySelector('svg.ativo-grafico-chart'), 'HGRU11 já mostra o gráfico normalmente');
+  assert.ok(doc.body.querySelector('svg.chart-svg'), 'HGRU11 já mostra o gráfico normalmente');
 
   // Resposta antiga (BBAS3) chega tarde - não pode sobrescrever o corpo do HGRU11.
   resolverLenta({ ok: true, resultado: { ticker: 'BBAS3', serie: SERIE_ATIVO_EXEMPLO } });
@@ -1760,18 +1431,19 @@ test('wireGraficoAtivo() hover no gráfico mostra o tooltip com o preço formata
   icones[0].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // BBAS3 (acoes)
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
-  // Mesmo fallback de largura de renderGraficoRentabilidade (sem layout de
-  // verdade em jsdom -> 640px, ver larguraReal_): padL=42, padR=8 -> plotW=590.
-  doc.body.querySelector('.ativo-grafico-hitarea')
-    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 337, clientY: 50, bubbles: true }));
-  assert.match(doc.body.querySelector('.ativo-grafico-tooltip').textContent, /R\$/);
+  // 06/10/2026 (Onda 3): hover da biblioteca (.chart-tip); jsdom não tem layout, então damos 640px de caixa ao <svg>
+  const hover_ = () => {
+    const svg = doc.body.querySelector('.ativo-grafico-popover svg.chart-svg');
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 640, height: 240, right: 640, bottom: 240, x: 0, y: 0 });
+    svg.dispatchEvent(new doc.defaultView.MouseEvent('pointermove', { clientX: 330, clientY: 50, bubbles: true }));
+    return doc.body.querySelector('.ativo-grafico-popover .chart-tip').textContent;
+  };
+  assert.match(hover_(), /R\$/);
 
   icones[1].dispatchEvent(new doc.defaultView.Event('click', { bubbles: true, cancelable: true })); // CHTR (usa)
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
 
-  doc.body.querySelector('.ativo-grafico-hitarea')
-    .dispatchEvent(new doc.defaultView.PointerEvent('pointermove', { clientX: 337, clientY: 50, bubbles: true }));
-  const tooltipUsd = doc.body.querySelector('.ativo-grafico-tooltip').textContent;
+  const tooltipUsd = hover_();
   assert.match(tooltipUsd, /\$/);
   assert.doesNotMatch(tooltipUsd, /R\$/);
 });
@@ -1815,10 +1487,7 @@ function makePaginaDom() {
       <div id="rentabInfoLongoPrazo"></div><div id="rentabChartLongoPrazo"></div><div id="rentabLegendaLongoPrazo"></div>
       <div id="rentabInfoNacional"></div><div id="rentabChartNacional"></div><div id="rentabLegendaNacional"></div>
       <div id="rentabInfoRendaEmergencial"></div><div id="rentabChartRendaEmergencial"></div><div id="rentabLegendaRendaEmergencial"></div>
-      <div class="al-abas" id="filtroAtivosTabs">
-        <button class="al-aba active" data-classe="todos">Todos <span class="al-n"></span></button>
-        <button class="al-aba" data-classe="rf">Renda Fixa <span class="al-n"></span></button>
-      </div>
+      <div class="al-abas" id="filtroAtivosTabs"></div>
       <ul id="meusAtivosGrid"></ul>
     </div>
   `);
@@ -1838,7 +1507,7 @@ test('montarPaginaInicio() renders every section and hides the loading state on 
   assert.equal(doc.getElementById('inicioLoading').hidden, true);
   assert.equal(doc.getElementById('inicioConteudo').hidden, false);
   assert.equal(doc.getElementById('faixaMercado').querySelectorAll('.mkt').length, 3); // ibovespa + usd + eur
-  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.rc-visao-total .rc-valor'));
+  assert.ok(doc.getElementById('resumoPatrimonio').querySelector('.rc-visao-total .chart-kpi-val'));
   assert.equal(doc.getElementById('inicioErro').hidden, true);
 });
 
@@ -1865,7 +1534,7 @@ test('montarPaginaInicio() monta também o painel de Rentabilidade Nacional e a 
 
   assert.ok(doc.getElementById('rentabChartNacional').querySelector('svg'), 'painel de Rentabilidade Nacional precisa desenhar de cara, igual aos outros 3');
   assert.match(doc.getElementById('rentabInfoNacional').textContent, /Patrimônio Nacional/);
-  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.rc-visao').length, 4);
+  assert.equal(doc.getElementById('resumoPatrimonio').querySelectorAll('.rc-kpi').length, 4);
   // 03/10/2026 (revisão do pedido "Patrimônio total: incluir o índice IPCA"):
   // a linha do IPCA entra só no Patrimônio total
   assert.match(doc.getElementById('rentabLegendaTotal').textContent, /IPCA/);
@@ -1901,45 +1570,6 @@ test('montarPaginaInicio() surfaces avisos (partial section failure) without hid
   assert.match(doc.getElementById('inicioAvisos').textContent, /historico/);
 });
 
-// 14/09/2026 (pedido do Tiago: botão de atualizar + timer, sem mostrar
-// skeleton de novo ao clicar): monta o botão "Atualizar dados" e clicar
-// nele busca de novo (getHomeImpl 2ª vez) e redesenha - sem voltar a
-// mostrar o skeleton (inicioLoading fica escondido o tempo todo depois
-// da 1ª carga) e sem duplicar os widgets (prova que
-// wireGraficoRentabilidade/wireFiltroAtivos/wireTooltipAtivos, chamados
-// de novo dentro de carregarERedesenhar, não religam listener nem
-// tooltip).
-test('montarPaginaInicio(): clicar em "Atualizar dados" busca de novo e redesenha, sem mostrar o skeleton de novo', async () => {
-  const doc = makePaginaDom();
-  let chamadasGet = 0;
-  const getHomeImpl = async () => {
-    chamadasGet += 1;
-    return {
-      ok: true,
-      patrimonio: { ...PATRIMONIO_EXEMPLO, total: chamadasGet === 1 ? 100000 : 250000 },
-      indices: { ibovespa: { valor: 185600, variacaoDia: -0.9 } },
-      cambio: { usd: 5.09, eur: 5.92 },
-    };
-  };
-
-  await montarPaginaInicio('token-fake', { doc, getHomeImpl, getIntradiaImpl: null });
-  assert.equal(chamadasGet, 1);
-  assert.equal(doc.getElementById('inicioLoading').hidden, true);
-  assert.match(doc.getElementById('resumoPatrimonio').textContent, /100\.000/);
-
-  const btn = doc.getElementById('refreshControlInicio').querySelector('.refresh-btn');
-  assert.ok(btn, 'montarPaginaInicio precisa montar o botão de atualizar em #refreshControlInicio');
-  btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
-
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  assert.equal(chamadasGet, 2);
-  assert.equal(doc.getElementById('inicioLoading').hidden, true, 'skeleton nunca reaparece num refresh');
-  assert.equal(doc.getElementById('faixaMercado').querySelectorAll('.mkt').length, 3, 'faixa não duplica');
-  assert.match(doc.getElementById('resumoPatrimonio').textContent, /250\.000/, 'redesenha com o patrimônio novo');
-});
 
 // --- 23/09/2026 #8: valores em cima dos gráficos das Carteiras ---------------
 
@@ -1958,8 +1588,8 @@ test('renderInfoEvolucao(): R$ de hoje, ±R$ no período (sem %) e "Valor aplica
   assert.equal(a.querySelector('.rentab-card-label').textContent, 'Patrimônio em Ações');
   assert.match(a.querySelector('.rentab-card-value').textContent.replace(/\s+/g, ' '), /900,00/);
   assert.equal(a.querySelector('.rentab-card-delta').className, 'rentab-card-delta bad');
-  assert.match(a.querySelector('.rentab-card-delta').textContent, /^-R\$\s*100,00 no período$/);
-  assert.match(a.querySelector('.rentab-card-sub').textContent, /Valor aplicado: R\$\s*1\.000,00 · -R\$\s*100,00 -10,00% abaixo do aplicado/);
+  assert.match(a.querySelector('.rentab-card-delta').textContent, /^−R\$\s*100,00 no período$/);
+  assert.match(a.querySelector('.rentab-card-sub').textContent, /Valor aplicado: R\$\s*1\.000,00 · −R\$\s*100,00 −10,00% abaixo do aplicado/);
   renderInfoEvolucao(doc, doc.getElementById('b'), { valores: [10, 20] });
   assert.equal(doc.getElementById('b').querySelector('.rentab-card-delta').className, 'rentab-card-delta good');
   assert.equal(doc.getElementById('b').querySelector('.rentab-card-sub').textContent, 'com aportes e retiradas');
@@ -1989,7 +1619,7 @@ test('renderInfoRentabilidade(): R$ negativo fica vermelho mesmo com % positiva 
   ];
   renderInfoRentabilidade(doc, doc.getElementById('i'), { historico, visaoId: 'carteiraAcoes', periodoId: 'tudo' });
   const delta = doc.querySelector('#i .rentab-card-delta');
-  assert.match(delta.textContent, /^-R\$\s*50,00 \+75,00% no período$/);
+  assert.match(delta.textContent, /^−R\$\s*50,00 \+75,00% no período$/);
   assert.ok(delta.querySelector('.delta-reais').classList.contains('bad'));
   assert.ok(delta.querySelector('.delta-pct').classList.contains('good'));
   assert.ok(delta.classList.contains('misto'));

@@ -246,6 +246,9 @@ var LIMITE_MS_EXECUCAO = 4.5 * 60 * 1000;
 // foi calculado e escrever o Registro de Controle.
 var LIMITE_MS_ABSOLUTO = 5.5 * 60 * 1000;
 
+// 05/10/2026 (A-45): validade do aluguel da trava de preços - cobre os 6 min do Apps Script (se a execução morrer, o recurso volta sozinho)
+var TRAVA_PRECOS_TTL_MS_ = 6.5 * 60 * 1000;
+
 /**
  * Correção de 14/09/2026 (Tiago comparou a Rentabilidade da Início com o
  * Gorilla/Kinvo e viu um número bem diferente do esperado - causa raiz
@@ -292,7 +295,10 @@ var LIMITE_MS_ABSOLUTO = 5.5 * 60 * 1000;
  * arriscar corromper preço nenhum.
  */
 function atualizarHistorico(origem, tickersEspecificos, opcoes) {
-  var lock = LockService.getScriptLock();
+  // 05/10/2026 (A-45): trava do recurso "precos" (célula de rascunho do GOOGLEFINANCE + abas
+  // aux_historico-*), NÃO mais o lock do script inteiro - os salvamentos (aporte, meta, despesa,
+  // favorito...) não esperam mais a sync de 5 min, e quem esbarrar na sync vê o DONO no Registro.
+  var lock = travaRecurso_('precos', 'Sync de preços - ativos (' + origem + ')', { ttlMs: TRAVA_PRECOS_TTL_MS_ });
   var conseguiuLock = false;
   try {
     conseguiuLock = lock.tryLock(10000);
@@ -300,15 +306,15 @@ function atualizarHistorico(origem, tickersEspecificos, opcoes) {
     conseguiuLock = false;
   }
   if (!conseguiuLock) {
-    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora (gatilho automático, outra aba ou "Renda Fixa + Índices") — pulado de propósito pra não arriscar corromper preço nenhum (as duas usam a MESMA célula de rascunho do GOOGLEFINANCE). Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
-    gravarRegistroControle_('Atenção', origem, detalheOcupado);
+    var detalheOcupado = 'Já existe uma sincronização de preços rodando agora — ocupado por ' + lock.donoAtual() + ' (gatilho automático, outra aba ou "Renda Fixa + Índices": usam a MESMA célula de rascunho do GOOGLEFINANCE) — pulado de propósito pra não arriscar corromper preço nenhum. Tenta de novo em alguns segundos, ou espera a próxima chamada automática.';
+    gravarRegistroControle_('Atenção', origem, detalheOcupado, { etapa: 'ativos', fonte: 'trava' });
     return { status: 'Atenção', ok: [], falharam: [], naoProcessados: [], lacunas: [], detalhe: detalheOcupado };
   }
   try {
     return atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes);
   } catch (erro) {
     var detalheErro = 'Falha antes de concluir a execução (fora do loop por-ativo, que já tem seu próprio try/catch): ' + String(erro);
-    gravarRegistroControle_('Erro', origem, detalheErro);
+    gravarRegistroControle_('Erro', origem, detalheErro, { etapa: 'ativos', fonte: 'GOOGLEFINANCE' });
     notificarFalhaSincronizacao_(origem, detalheErro);
     throw erro; // handleSincronizarAgora (botão manual) continua devolvendo ok:false pro site
   } finally {
@@ -375,6 +381,17 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
   if (tickers.some(function (t) { return TICKERS_USA.indexOf(t) !== -1; })) classesNecessarias.push('USA');
   var mapaTransacoes = carregarTodosHistoricosTransacoes_(ss, classesNecessarias);
 
+  // 05/10/2026 (A-50): quem tem POSIÇÃO vai primeiro na fila (se o tempo acabar, ficam pra próxima os que não
+  // têm posição) e ticker sem cobertura no GOOGLEFINANCE (falha determinística: código inexistente/sem histórico)
+  // é pulado até revisão em vez de gastar o teto de 4,5 min todo dia - 8 tickers eram lacuna em 20 de 46 execuções.
+  tickers = priorizarTickersComPosicao_(tickers, mapaTransacoes);
+  var respeitarSemCobertura = !(tickersEspecificos && tickersEspecificos.length) && !(opcoes && opcoes.abaHistoricoNome);
+  var semCobertura = lerSemCoberturaGf_();
+  var semCoberturaMudou = false;
+  var semCoberturaPulados = [];
+  var semCoberturaNovos = [];
+  var diaHoje = chaveDiaLocalSync_(new Date());
+
   // Câmbio USD/BRL: busca UMA vez por execução, reaproveitado por todos os
   // tickers USA — mas o intervalo tem que cobrir a UNIÃO das datas de início
   // de TODOS eles, calculada aqui ANTES do loop principal. Buscar só na hora
@@ -384,7 +401,11 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
   // dias anteriores ao início do cache — Câmbio/Valor BRL em branco nesses
   // dias, silenciosamente.
   var cambioCache = null;
-  var tickersUsaNestaExecucao = tickers.filter(function (t) { return TICKERS_USA.indexOf(t) !== -1 && tickersParaFalhar.indexOf(t) === -1; });
+  var tickersUsaNestaExecucao = tickers.filter(function (t) {
+    if (TICKERS_USA.indexOf(t) === -1 || tickersParaFalhar.indexOf(t) !== -1) return false;
+    var mc = semCobertura[t]; // 05/10/2026 (A-50): ticker pulado não puxa câmbio à toa
+    return !(respeitarSemCobertura && mc && mc.marcado && diasEntreChavesSync_(mc.ultimaTentativa, diaHoje) < SEM_COBERTURA_REVISAO_DIAS_);
+  });
   if (tickersUsaNestaExecucao.length) {
     var inicioMaisAntigoUsa = null;
     tickersUsaNestaExecucao.forEach(function (t) {
@@ -443,6 +464,13 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
         continue;
       }
 
+      // 05/10/2026 (A-50): sem cobertura marcada -> pula (reteste a cada SEM_COBERTURA_REVISAO_DIAS_ dias)
+      var marca = semCobertura[ticker];
+      if (respeitarSemCobertura && marca && marca.marcado && diasEntreChavesSync_(marca.ultimaTentativa, diaHoje) < SEM_COBERTURA_REVISAO_DIAS_) {
+        semCoberturaPulados.push(ticker);
+        continue;
+      }
+
       var orcamentoRestante = LIMITE_MS_ABSOLUTO - (Date.now() - inicioExecucao);
       if (orcamentoRestante < 5000) {
         // não sobra tempo seguro nem pra 1 tentativa — deixa pra próxima chamada
@@ -453,6 +481,20 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
       Logger.log('=== ' + ticker + ': buscando de ' + inicio.toISOString().slice(0,10) + ' até ' + ontem.toISOString().slice(0,10) + ' (orçamento restante: ' + orcamentoRestante + 'ms) ===');
       var busca = buscarPrecoHistorico_(ticker, classe, inicio, ontem, orcamentoRestante - 2000);
       Logger.log('=== ' + ticker + ': total acumulado ' + busca.precos.length + ' linhas, completo=' + busca.completo + ', lacunas=' + JSON.stringify(busca.lacunas) + ' ===');
+
+      // 05/10/2026 (A-50): nada voltou em NENHUM pedaço de um intervalo que tinha dia de pregão = sem cobertura
+      // (conta 1 por dia, não por tentativa); qualquer preço que volte zera a contagem.
+      if (!busca.precos.length && busca.lacunas && busca.lacunas.length && intervaloTemPregaoSync_(inicio, ontem)) {
+        var m0 = semCobertura[ticker] || { falhas: 0, desde: diaHoje, ultimoDia: '', marcado: false };
+        if (m0.ultimoDia !== diaHoje) { m0.falhas++; m0.ultimoDia = diaHoje; }
+        m0.ultimaTentativa = diaHoje;
+        if (!m0.marcado && m0.falhas >= SEM_COBERTURA_FALHAS_) { m0.marcado = true; semCoberturaNovos.push(ticker); }
+        semCobertura[ticker] = m0;
+        semCoberturaMudou = true;
+      } else if (busca.precos.length && semCobertura[ticker]) {
+        delete semCobertura[ticker];
+        semCoberturaMudou = true;
+      }
 
       if (busca.lacunas && busca.lacunas.length) {
         busca.lacunas.forEach(function (l) {
@@ -510,12 +552,96 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
   if (lacunasEncontradas.length) {
     partes.push(lacunasEncontradas.length + ' lacuna(s) — sem dado disponível pro período (não é falta de tempo, provável ausência real no GOOGLEFINANCE — ex: ticker novo/renomeado): ' + lacunasEncontradas.join(' | '));
   }
+  if (semCoberturaPulados.length) {
+    partes.push(semCoberturaPulados.length + ' sem cobertura no GOOGLEFINANCE (pulados até revisão, reteste a cada ' + SEM_COBERTURA_REVISAO_DIAS_ + ' dias): ' + semCoberturaPulados.join(', '));
+  }
+  if (semCoberturaNovos.length) {
+    partes.push(semCoberturaNovos.length + ' marcados agora como sem cobertura (' + SEM_COBERTURA_FALHAS_ + ' dias seguidos sem nenhum dado): ' + semCoberturaNovos.join(', '));
+  }
   var detalhe = partes.join(' — ');
+  if (semCoberturaMudou) gravarSemCoberturaGf_(semCobertura);
 
-  gravarRegistroControle_(status, origem, detalhe);
+  gravarRegistroControle_(status, origem, detalhe, { etapa: 'ativos', fonte: 'GOOGLEFINANCE', duracaoMs: Date.now() - inicioExecucao });
   if (status === 'Erro') notificarFalhaSincronizacao_(origem, detalhe);
 
-  return { status: status, ok: ok, falharam: falharam, naoProcessados: naoProcessados, lacunas: lacunasEncontradas };
+  return { status: status, ok: ok, falharam: falharam, naoProcessados: naoProcessados, lacunas: lacunasEncontradas, semCobertura: semCoberturaPulados.concat(semCoberturaNovos), detalhe: detalhe };
+}
+
+// ---------------------------------------------------------------------------
+// 05/10/2026 (A-50): tickers sem cobertura no GOOGLEFINANCE e prioridade de quem tem posição
+// ---------------------------------------------------------------------------
+
+var PROP_SEM_COBERTURA_GF_ = 'SYNC_SEM_COBERTURA_GF';
+var SEM_COBERTURA_FALHAS_ = 3;          // dias seguidos sem NENHUM dado (num intervalo com pregão) até marcar
+var SEM_COBERTURA_REVISAO_DIAS_ = 7;    // marcado: só reteste a cada 7 dias
+
+function chaveDiaLocalSync_(d) {
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
+/** Dias entre duas chaves 'aaaa-mm-dd' (calendário puro); chave vazia = infinito. */
+function diasEntreChavesSync_(a, b) {
+  if (!a || !b) return 99999;
+  var pa = a.split('-'), pb = b.split('-');
+  return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000);
+}
+
+/** O intervalo [inicio, fim] tem ao menos 1 dia de pregão (seg-sex que não seja feriado da B3)? Fim de semana sozinho não é "sem cobertura". */
+function intervaloTemPregaoSync_(inicio, fim) {
+  var d = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate());
+  var limite = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate());
+  for (var n = 0; d <= limite && n < 4000; n++) {
+    var chave = chaveDiaLocalSync_(d);
+    var dow = d.getDay();
+    var util = dow !== 0 && dow !== 6;
+    try { if (typeof agendaClassificarDia_ === 'function') util = agendaClassificarDia_(chave).util; } catch (e) { /* fica com seg-sex */ }
+    if (util) return true;
+    d.setDate(d.getDate() + 1);
+  }
+  return false;
+}
+
+/** { TICKER: {falhas, desde, ultimoDia, ultimaTentativa, marcado} } das Propriedades do script. */
+function lerSemCoberturaGf_() {
+  try {
+    var bruto = PropertiesService.getScriptProperties().getProperty(PROP_SEM_COBERTURA_GF_);
+    var o = bruto ? JSON.parse(bruto) : {};
+    return (o && typeof o === 'object') ? o : {};
+  } catch (e) { return {}; }
+}
+
+function gravarSemCoberturaGf_(mapa) {
+  try { PropertiesService.getScriptProperties().setProperty(PROP_SEM_COBERTURA_GF_, JSON.stringify(mapa)); } catch (e) { Logger.log('gravarSemCoberturaGf_: ' + e); }
+}
+
+/** Editor: lista os tickers marcados como sem cobertura no GOOGLEFINANCE (e os que estão acumulando falhas). */
+function listarSemCoberturaGoogleFinance() {
+  var m = lerSemCoberturaGf_();
+  var linhas = Object.keys(m).map(function (t) { return t + ': ' + (m[t].marcado ? 'MARCADO' : 'em observação') + ' - ' + m[t].falhas + ' dia(s) sem dado, desde ' + m[t].desde; });
+  Logger.log(linhas.join('\n') || 'Nenhum ticker marcado.');
+  return m;
+}
+
+/** Editor: depois de revisar (corrigir o código do ticker, por exemplo), tira a marca de 1 ticker - ou de todos, sem argumento. */
+function liberarSemCoberturaGoogleFinance(ticker) {
+  var m = lerSemCoberturaGf_();
+  if (ticker) delete m[String(ticker).toUpperCase()]; else m = {};
+  gravarSemCoberturaGf_(m);
+  Logger.log('Sem cobertura restante: ' + (Object.keys(m).join(', ') || 'nenhum'));
+  return m;
+}
+
+/** Quem tem posição (cotas > 0 hoje) vai primeiro; a ordem dentro de cada grupo é a de sempre. */
+function priorizarTickersComPosicao_(tickers, mapaTransacoes) {
+  var com = [], sem = [];
+  tickers.forEach(function (t) {
+    var classe = (TICKERS_USA.indexOf(t) === -1) ? 'BR' : 'USA';
+    var pontos = (mapaTransacoes && mapaTransacoes[classe] && mapaTransacoes[classe][t]) || [];
+    var q = 0;
+    pontos.forEach(function (p) { q += Number(p.delta) || 0; });
+    (q > 0.0000001 ? com : sem).push(t);
+  });
+  return com.concat(sem);
 }
 
 /**
@@ -774,8 +900,8 @@ function carregarTodosHistoricosTransacoes_(ss, classesNecessarias) {
   var mapas = { BR: {}, USA: {} };
   classesNecessarias.forEach(function (classe) {
     var aba = ss.getSheetByName(classe === 'USA' ? 'Transações - USA' : 'Transações');
-    var ultimaLinha = aba.getLastRow();
-    var dados = aba.getRange(7, 1, ultimaLinha - 6, 13).getValues(); // A..M (K = qtd sinalizada da transação)
+    var ultimaLinha = ultimaLinhaReal_(aba, [1, 2], 7); // 05/10/2026 (A-31): última linha REAL (a aba tem fórmula até ~10.800)
+    var dados = ultimaLinha >= 7 ? aba.getRange(7, 1, ultimaLinha - 6, 13).getValues() : []; // A..M (K = qtd sinalizada da transação)
     dados.forEach(function (linha) {
       var ticker = linha[0];
       if (!ticker || !(linha[1] instanceof Date)) return;
@@ -932,21 +1058,133 @@ function depoisPorDia_(a, b) {
   return da > db;
 }
 
+// ---------------------------------------------------------------------------
+// 05/10/2026 (A-54): REGISTRO DE CONTROLE estruturado.
+// Colunas: A Timestamp | B Origem | C Status | D Detalhe (texto livre, como sempre) |
+//          E Etapa | F Fonte | G HTTP | H Duração (s) | I Fetches | J Tentativa
+// (as 4 primeiras são as de sempre - o popover do site e quem lê só A:D continuam funcionando).
+// Guarda 2.000 linhas (~1 ano; eram 300 = ~48 dias). Linhas de TESTE (origem "Teste": modo teste do botão,
+// TESTE_FALHA_*) não vão mais pro log real. A Agenda (Agenda.gs) preenche Etapa/Tentativa/Duração de tudo que a
+// rotina da etapa grava, via definirContextoRegistro_; quem quiser pode passar `extras` direto
+// ({etapa, fonte, http, duracaoMs, fetches, tentativa}). Fonte e HTTP, se faltarem, são deduzidos do texto.
+// ---------------------------------------------------------------------------
+
+var REGISTRO_CABECALHO_ = ['Timestamp', 'Origem', 'Status', 'Detalhe', 'Etapa', 'Fonte', 'HTTP', 'Duração (s)', 'Fetches', 'Tentativa'];
+var REGISTRO_LIMITE_LINHAS_ = 2000;
+var REGISTRO_FONTES_ = ['GOOGLEFINANCE', 'Yahoo', 'Fundamentus', 'SEC', 'CVM', 'BCB', 'Tesouro', 'FNet', 'Nominatim', 'YouTube', 'B3'];
+var _registroContexto_ = null;
+var _registroCabecalhoOk_ = false;
+
+/** { etapa, tentativa } (ou null): rotula as linhas gravadas enquanto uma etapa da Agenda roda; marca o início pra calcular a duração. */
+function definirContextoRegistro_(ctx) {
+  _registroContexto_ = ctx ? { etapa: ctx.etapa || '', tentativa: ctx.tentativa || '', inicioMs: Date.now() } : null;
+}
+
+function registroInferirFonte_(texto) {
+  var t = String(texto || '');
+  for (var i = 0; i < REGISTRO_FONTES_.length; i++) {
+    if (t.toLowerCase().indexOf(REGISTRO_FONTES_[i].toLowerCase()) !== -1) return REGISTRO_FONTES_[i];
+  }
+  return '';
+}
+
+function registroInferirHttp_(texto) {
+  var m = String(texto || '').match(/(?:HTTP|c[oó]digo|code)\s*[:=]?\s*(\d{3})\b/i);
+  return m ? Number(m[1]) : '';
+}
+
 /** Insere uma nova linha de histórico em "Registro de Controle" logo abaixo do cabeçalho (mais recente sempre no topo). */
-function gravarRegistroControle_(status, origem, detalhe) {
+function gravarRegistroControle_(status, origem, detalhe, extras) {
+  if (origem === 'Teste') {
+    // 05/10/2026 (A-54): execuções de teste (aux_tests) nunca entram no log de produção - o resultado já volta na tela.
+    Logger.log('[Registro - teste, não gravado] ' + status + ': ' + detalhe);
+    return;
+  }
   var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
   if (!aba) throw new Error('Aba "' + NOME_ABA_REGISTRO + '" não encontrada — crie com cabeçalho Timestamp | Origem | Status | Detalhe na linha 1.');
+  var ex = extras || {};
+  var ctx = _registroContexto_ || {};
+  var duracaoMs = ex.duracaoMs != null ? ex.duracaoMs : (ctx.inicioMs ? Date.now() - ctx.inicioMs : null);
+  var linha = [
+    new Date(), origem, status, detalhe,
+    ex.etapa || ctx.etapa || '',
+    ex.fonte || registroInferirFonte_(detalhe),
+    ex.http != null ? ex.http : registroInferirHttp_(detalhe),
+    duracaoMs != null ? Math.round(duracaoMs / 100) / 10 : '',
+    ex.fetches != null ? ex.fetches : '',
+    ex.tentativa != null ? ex.tentativa : (ctx.tentativa || '')
+  ];
+  if (!_registroCabecalhoOk_) { // 1x por execução: completa o cabeçalho das colunas novas (E:J)
+    try {
+      if (typeof aba.getMaxColumns === 'function' && aba.getMaxColumns() < REGISTRO_CABECALHO_.length) aba.insertColumnsAfter(aba.getMaxColumns(), REGISTRO_CABECALHO_.length - aba.getMaxColumns());
+      var cab = aba.getRange(1, 1, 1, REGISTRO_CABECALHO_.length).getValues()[0] || [];
+      if (cab.slice(4).join('|') !== REGISTRO_CABECALHO_.slice(4).join('|')) aba.getRange(1, 5, 1, REGISTRO_CABECALHO_.length - 4).setValues([REGISTRO_CABECALHO_.slice(4)]);
+    } catch (eCab) { Logger.log('Registro de Controle: cabeçalho não completado - ' + eCab); }
+    _registroCabecalhoOk_ = true;
+  }
   aba.insertRowAfter(1);
-  var linhaNova = aba.getRange(2, 1, 1, 4);
-  linhaNova.setValues([[new Date(), origem, status, detalhe]]);
+  aba.getRange(2, 1, 1, linha.length).setValues([linha]);
   aba.getRange(2, 1).setNumberFormat('dd/mm/yyyy hh:mm:ss');
 
-  // Evita crescimento infinito: mantém só as últimas 300 execuções no histórico.
-  var LIMITE_HISTORICO_REGISTRO = 300;
+  // Evita crescimento infinito: mantém só as últimas REGISTRO_LIMITE_LINHAS_ execuções no histórico.
   var totalLinhas = aba.getLastRow();
-  if (totalLinhas > LIMITE_HISTORICO_REGISTRO + 1) {
-    aba.deleteRows(LIMITE_HISTORICO_REGISTRO + 2, totalLinhas - LIMITE_HISTORICO_REGISTRO - 1);
+  if (totalLinhas > REGISTRO_LIMITE_LINHAS_ + 1) {
+    aba.deleteRows(REGISTRO_LIMITE_LINHAS_ + 2, totalLinhas - REGISTRO_LIMITE_LINHAS_ - 1);
   }
+}
+
+/**
+ * Rodar 1x no editor: tira do Registro de Controle real as linhas de teste que já estavam lá (origem "Teste",
+ * TESTE_FALHA_*, "Falha simulada (teste)"). Devolve quantas apagou.
+ */
+function limparLinhasTesteRegistro() {
+  var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
+  if (!aba || aba.getLastRow() < 2) return 0;
+  var dados = aba.getRange(2, 1, aba.getLastRow() - 1, 4).getValues();
+  var apagadas = 0;
+  for (var i = dados.length - 1; i >= 0; i--) { // de baixo pra cima: os índices acima não mudam
+    var origem = String(dados[i][1] || ''), detalhe = String(dados[i][3] || '');
+    if (origem === 'Teste' || /TESTE_FALHA_|Falha simulada \(teste\)/.test(detalhe)) { aba.deleteRow(i + 2); apagadas++; }
+  }
+  Logger.log('Registro de Controle: ' + apagadas + ' linha(s) de teste apagada(s).');
+  return apagadas;
+}
+
+/**
+ * Heartbeat (A-54): gatilho diário ~12:00 (instalado por instalarAgendaDiaria). Se hoje é dia de pregão da B3 e o
+ * Registro de Controle não tem linha de Ativos de hoje, grava "Erro" e manda e-mail (1x por dia) com o estado da
+ * agenda - dias sem execução eram vistos semanas depois (2 dias úteis sem linha de Ativos em 24).
+ */
+function heartbeatRegistroControle(agoraOpcional) {
+  var agora = agoraOpcional || new Date();
+  var hoje = agendaChaveDia_(agora); // Agenda.gs
+  var props = PropertiesService.getScriptProperties();
+  var tipo = agendaClassificarDia_(hoje);
+  if (!tipo.util) { Logger.log('heartbeat: ' + tipo.motivo + ' — sem pregão, nada a conferir.'); return { ok: true, motivo: tipo.motivo }; }
+  if (props.getProperty('HEARTBEAT_ULTIMO_DIA') === hoje) { Logger.log('heartbeat: já conferido hoje.'); return { ok: true, motivo: 'já conferido' }; }
+
+  var achou = false;
+  var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
+  if (aba && aba.getLastRow() >= 2) {
+    var linhas = aba.getRange(2, 1, Math.min(aba.getLastRow() - 1, 80), 5).getValues(); // mais recentes primeiro
+    for (var i = 0; i < linhas.length && !achou; i++) {
+      var l = linhas[i];
+      if (!(l[0] instanceof Date) || agendaChaveDia_(l[0]) !== hoje) continue;
+      if (String(l[1]) === 'Teste') continue;
+      var detalhe = String(l[3] || '');
+      if (/j[aá] existe uma sincroniza/i.test(detalhe)) continue; // "ocupado" não é sync de ativos
+      if (String(l[4]) === 'ativos' || /ativos atualizados/i.test(detalhe)) achou = true;
+    }
+  }
+  props.setProperty('HEARTBEAT_ULTIMO_DIA', hoje);
+  if (achou) { Logger.log('heartbeat: há linha de Ativos de hoje (' + hoje + ').'); return { ok: true, motivo: 'linha de Ativos encontrada' }; }
+
+  var estadoTxt = '';
+  try { estadoTxt = agendaResumoTexto_(agendaLerEstado_(AGENDA_PROP_ESTADO_), 'Agenda de hoje'); } catch (eE) { estadoTxt = '(estado da agenda indisponível)'; }
+  var msg = 'Heartbeat ' + hoje + ': ' + agendaFormatar_(agora, 'HH:mm') + ' e nenhuma linha de Ativos hoje no Registro de Controle (dia de pregão). ' + estadoTxt;
+  try { gravarRegistroControle_('Erro', 'Heartbeat', msg, { etapa: 'heartbeat' }); } catch (eG) { Logger.log('heartbeat: ' + eG); }
+  notificarFalhaSincronizacao_('Automático', msg, 'Investimentos: sem sincronização de ativos hoje');
+  return { ok: false, motivo: msg };
 }
 
 /**
@@ -962,12 +1200,12 @@ function gravarRegistroControle_(status, origem, detalhe) {
  * e-mail (cota do Gmail, por exemplo) nunca pode mascarar/derrubar o
  * resto da execução, por isso o try/catch próprio, que só loga.
  */
-function notificarFalhaSincronizacao_(origem, detalhe) {
+function notificarFalhaSincronizacao_(origem, detalhe, assunto) {
   if (origem !== 'Automático') return;
   try {
     MailApp.sendEmail({
       to: Session.getEffectiveUser().getEmail(),
-      subject: 'Investimentos: sincronização diária falhou',
+      subject: assunto || 'Investimentos: sincronização diária falhou',
       body: 'A sincronização automática do histórico de patrimônio (aux_historico-patrimonio) falhou hoje.\n\n' +
         detalhe +
         '\n\nEnquanto isso não for resolvido, o histórico fica desatualizado — o que afeta o gráfico de Rentabilidade da Início (compara com um "hoje" que não é o de verdade). Abra teste.html no site e clique em "Sincronizar tudo (29 ativos)" pra rodar manualmente, ou confira "Execuções" no editor do Apps Script pra mais detalhes do erro.'
@@ -1000,7 +1238,7 @@ function lerUltimoRegistroControle_() {
  * lerUltimoRegistroControle_, que só alimentam o badge) pro popover
  * mostrar a lista completa de sincronizações (pedido do Tiago,
  * 16/09/2026). ?limite= é opcional (padrão 20, mesmo teto de leitura —
- * a aba em si guarda até 300, ver gravarRegistroControle_). */
+ * a aba em si guarda até 2.000, ver gravarRegistroControle_). */
 function handleSyncHistorico(e) {
   try {
     var limite = (e && e.parameter && e.parameter.limite) ? parseInt(e.parameter.limite, 10) : 20;
@@ -1021,7 +1259,7 @@ function lerRegistroControle_(limite) {
   var aba = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(NOME_ABA_REGISTRO);
   if (!aba || aba.getLastRow() < 2) return [];
   var totalLinhas = Math.min(aba.getLastRow() - 1, limite);
-  var dados = aba.getRange(2, 1, totalLinhas, 4).getValues();
+  var dados = aba.getRange(2, 1, totalLinhas, 4).getValues(); // o popover só usa A:D; Etapa/Fonte/HTTP... (E:J) ficam na planilha pra análise
   return dados.map(function (linha) {
     return { timestamp: linha[0], origem: linha[1], status: linha[2], detalhe: linha[3] };
   });
@@ -1080,7 +1318,7 @@ function lerRegistroControle_(limite) {
  *   visível no log de execução do Apps Script (Ver > Execuções).
  */
 function repararHistoricoDuplicatasECambio_() {
-  var lock = LockService.getScriptLock();
+  var lock = travaRecurso_('precos', 'Reparo do histórico (editor)', { ttlMs: TRAVA_PRECOS_TTL_MS_ }); // 05/10/2026 (A-45)
   var conseguiuLock = false;
   try {
     conseguiuLock = lock.tryLock(10000);
@@ -1281,7 +1519,7 @@ function repararHistoricoDuplicatasECambio_() {
  */
 function repararHistoricoStrFantasma_() {
   var CUTOFF_FUSAO_STR = new Date(2025, 7, 19); // 19/08/2025 (mês 7 = agosto, índice 0)
-  var lock = LockService.getScriptLock();
+  var lock = travaRecurso_('precos', 'Reparo do histórico (editor)', { ttlMs: TRAVA_PRECOS_TTL_MS_ }); // 05/10/2026 (A-45)
   var conseguiuLock = false;
   try {
     conseguiuLock = lock.tryLock(10000);
@@ -1355,7 +1593,7 @@ function repararHistoricoStrFantasma_() {
  * Idempotente: rodar de novo sem nada suspeito não muda nada.
  */
 function repararPrecosIsoladosAbsurdos_() {
-  var lock = LockService.getScriptLock();
+  var lock = travaRecurso_('precos', 'Reparo do histórico (editor)', { ttlMs: TRAVA_PRECOS_TTL_MS_ }); // 05/10/2026 (A-45)
   var conseguiuLock = false;
   try { conseguiuLock = lock.tryLock(10000); } catch (erroLock) { conseguiuLock = false; }
   if (!conseguiuLock) {

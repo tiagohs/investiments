@@ -104,9 +104,11 @@ var ABA_PROVENTOS_USA_FLUXO = 'Proventos - USA';
  */
 function primeiraLinhaDeDadosFluxo_(sheet, colData) {
   var max = Math.min(sheet.getLastRow(), 40);
-  for (var linha = 1; linha <= max; linha++) {
-    var valor = sheet.getRange(linha, colData).getValue();
-    if (valor instanceof Date) return linha;
+  if (max < 1) return null;
+  // 05/10/2026 (A-34): 1 getValues das 40 primeiras linhas em vez de até 40 getValue
+  var valores = sheet.getRange(1, colData, max, 1).getValues();
+  for (var i = 0; i < valores.length; i++) {
+    if (valores[i][0] instanceof Date) return i + 1;
   }
   return null;
 }
@@ -234,10 +236,12 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   ].forEach(function (info) {
     var aba = ss.getSheetByName(info.nome);
     if (!aba) return;
-    var qtd = aba.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1;
+    // 05/10/2026 (A-31): última linha REAL (a aba tem fórmula até ~10.800), não getLastRow()
+    var qtd = ultimaLinhaReal_(aba, [1, 2], LINHA_DADOS_TRANSACOES_FLUXO) - LINHA_DADOS_TRANSACOES_FLUXO + 1;
     if (qtd <= 0) return;
 
-    aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, qtd, 11).getValues().forEach(function (linha) {
+    // A-33: 12 colunas (as mesmas de Ativo.gs/Proventos.gs) pra a leitura ser UMA só por execução (lerAbaUmaVez_)
+    lerAbaUmaVez_(aba, LINHA_DADOS_TRANSACOES_FLUXO, qtd, 12).forEach(function (linha) {
       // "Transações": coluna A = Ticker (conferido na planilha real, ver
       // cabeçalho do arquivo) — só usado pra separar Ações/FIIs abaixo,
       // "Transações - USA" nem chega a olhar pra isso (tudo vai pro
@@ -318,9 +322,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var abaCarteiraRf = ss.getSheetByName(ABA_CARTEIRA_RF);
   if (abaRf && abaCarteiraRf) {
     var mapaClassificacaoRf = montarMapaClassificacaoRF_(abaCarteiraRf);
-    var qtdRf = abaRf.getLastRow() - LINHA_CABECALHO_TRANSACOES_RF;
+    var qtdRf = ultimaLinhaReal_(abaRf, [1, 2], LINHA_CABECALHO_TRANSACOES_RF + 1) - LINHA_CABECALHO_TRANSACOES_RF; // 05/10/2026 (A-31)
     if (qtdRf > 0) {
-      abaRf.getRange(LINHA_CABECALHO_TRANSACOES_RF + 1, 1, qtdRf, 8).getValues().forEach(function (linha) {
+      lerAbaUmaVez_(abaRf, LINHA_CABECALHO_TRANSACOES_RF + 1, qtdRf, 8).forEach(function (linha) {
         var produto = linha[0], data = linha[1], movimentacao = String(linha[2] || ''),
             entradaSaida = String(linha[3] || ''), instituicao = linha[4], valor = Number(linha[7]);
         if (!produto || !(data instanceof Date) || isNaN(valor)) return;
@@ -447,7 +451,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     if (!linhaInicio) return;
     var qtd = aba.getLastRow() - linhaInicio + 1;
     if (qtd <= 0) return;
-    aba.getRange(linhaInicio, 1, qtd, 7).getValues().forEach(function (linha) {
+    lerAbaUmaVez_(aba, linhaInicio, qtd, 7).forEach(function (linha) { // 05/10/2026 (A-33): 1 leitura por execução
       // "Proventos" (BR): coluna C = Ticker (linha[2]) — DIFERENTE de
       // "Transações", onde é a coluna A. Conferido direto na planilha
       // real do Tiago antes de escrever isso (ver cabeçalho do arquivo).
@@ -487,12 +491,16 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         // Transações Renda Fixa). Regra: cupom que bate (dia + valor) com
         // um "Juros" de Transações Renda Fixa -> Renda Fixa; senão, código
         // terminado em 11 -> FIIs; senão -> Ações.
+        // 05/10/2026 (auditoria A-18): o "terminado em 11" errava units de
+        // ações (TAEE11...) e FIIs sem o sufixo; agora a classe vem primeiro
+        // da CLASSE DO ATIVO (listas de Meus Ativos/Auxiliar_ativos, também
+        // pelo ticker atual quando houve incorporação/renomeação) e o sufixo
+        // só decide o que não tem cadastro nenhum (classeProventoSemHistorico_).
         var classeTicker = classes[ticker];
         var chaveJuros = chave + '|' + liquido.toFixed(2);
         if (!classeTicker) {
           if (Object.prototype.hasOwnProperty.call(jurosRfPorDiaValor, chaveJuros)) classeTicker = jurosRfPorDiaValor[chaveJuros] ? 'RF_EMERGENCIAL' : 'RF';
-          else if (/11$/.test(ticker)) classeTicker = 'FII';
-          else classeTicker = 'BR';
+          else classeTicker = classeProventoSemHistorico_(ticker, classes) || (/11$/.test(ticker) ? 'FII' : 'BR'); // sufixo 11 só em último caso (A-18)
         }
         if (classeTicker === 'FII') { somar(porDiaFiis, chave, -liquido); somar(porDiaProventosFiis, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'fiis', liquido, 'BRL', 1)); }
         else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, -liquido); somar(porDiaProventosAcoes, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'acoes', liquido, 'BRL', 1)); }
@@ -530,22 +538,29 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   };
 }
 
-/** Contagem de linhas das 5 abas-fonte do fluxo de caixa, pra entrar na
- * chave de cache de montarSerieHistoricoInicio_ (HistoricoInicio.gs) -
- * getLastRow() em cada uma, nunca getValues() (barato, mesmo padrão já
- * usado pras outras 3 abas-fonte do historico). */
+/** Assinatura das 5 abas-fonte do fluxo de caixa, pra entrar na chave de cache
+ * de montarSerieHistoricoInicio_ (HistoricoInicio.gs), de chaveCacheAtivo_ e da
+ * tela Proventos.
+ *
+ * 05/10/2026 (A-32): Transações/Transações - USA/Transações Renda Fixa têm
+ * fórmula até ~10.800, então getLastRow() era sempre o mesmo número e a chave
+ * nunca mudava quando o Tiago digitava um aporte na planilha. Agora usa a
+ * ÚLTIMA LINHA REAL (ultimaLinhaReal_, Planilha.gs; 1 leitura de ~1.000 células
+ * por aba) e o carimbo da última escrita (registrarEscritaPlanilha_), que também
+ * pega correção de valor feita no lugar. Proventos/Proventos - USA não têm
+ * fórmula de preenchimento: getLastRow() continua honesto. */
 function contarLinhasFluxoCaixa_(ss) {
   function linhas(nome) {
     var aba = ss.getSheetByName(nome);
     return aba ? aba.getLastRow() : 0;
   }
   return [
-    linhas(ABA_TRANSACOES_BR_FLUXO),
-    linhas(ABA_TRANSACOES_USA_FLUXO),
-    linhas(ABA_TRANSACOES_RF),
+    ultimaLinhaRealPorNome_(ss, ABA_TRANSACOES_BR_FLUXO),
+    ultimaLinhaRealPorNome_(ss, ABA_TRANSACOES_USA_FLUXO),
+    ultimaLinhaRealPorNome_(ss, ABA_TRANSACOES_RF),
     linhas(ABA_PROVENTOS_BR_FLUXO),
     linhas(ABA_PROVENTOS_USA_FLUXO)
-  ].join('_');
+  ].join('_') + '_e' + carimboEscritaPlanilha_();
 }
 
 /**
@@ -617,10 +632,10 @@ function custoRendaFixaPepsHoje_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var abaRf = ss.getSheetByName(ABA_TRANSACOES_RF);
   if (!abaRf) return {};
-  var qtdRf = abaRf.getLastRow() - LINHA_CABECALHO_TRANSACOES_RF;
+  var qtdRf = ultimaLinhaReal_(abaRf, [1, 2], LINHA_CABECALHO_TRANSACOES_RF + 1) - LINHA_CABECALHO_TRANSACOES_RF; // 05/10/2026 (A-31)
   if (qtdRf <= 0) return {};
   var eventos = [];
-  abaRf.getRange(LINHA_CABECALHO_TRANSACOES_RF + 1, 1, qtdRf, 8).getValues().forEach(function (linha) {
+  lerAbaUmaVez_(abaRf, LINHA_CABECALHO_TRANSACOES_RF + 1, qtdRf, 8).forEach(function (linha) {
     var produto = linha[0], data = linha[1], movimentacao = String(linha[2] || ''),
         entradaSaida = String(linha[3] || ''), valor = Number(linha[7]);
     if (!produto || !(data instanceof Date) || isNaN(valor)) return;
@@ -664,4 +679,41 @@ function itemListaProventos_(linha, chave, ticker, classe, valorBrl, moeda, camb
     cambio: cambio,
     valor: valorBrl
   };
+}
+
+/**
+ * 05/10/2026 (auditoria A-14/A-18): ponto ÚNICO de integração com a tabela de
+ * aliases de ticker (ticker antigo -> ticker atual, ex.: MALL11 -> PMLL11,
+ * ELET6 -> AXIA6, STR -> VNOM). Devolve o ticker atual (ou o próprio ticker
+ * quando não há alias). Usa Incorporacoes.gs!resolverAliasTicker_ (tabela única
+ * de aliases, A-14) quando ela existir; sem ela, não muda nada.
+ */
+function tickerAtualPorAlias_(ticker) {
+  var t = String(ticker || '').trim().toUpperCase();
+  if (t && typeof resolverAliasTicker_ === 'function') {
+    try { return resolverAliasTicker_(t) || t; } catch (e) { /* tabela de alias com problema: segue com o ticker como veio */ }
+  }
+  return t;
+}
+
+/**
+ * Classe de um ticker de provento que NÃO está no histórico de patrimônio
+ * (ticker antigo/renomeado, ou vendido antes do histórico): 'FII' | 'BR' | ''
+ * (vazio = sem cadastro em lugar nenhum). Ordem: mapa de classes do histórico
+ * -> listas de ativos (Sync.gs + Meus Ativos via Planilha.gs) -> o mesmo pelo
+ * ticker atual (alias). Nunca olha o sufixo do código - quem chama usa o
+ * sufixo só como último recurso.
+ */
+function classeProventoSemHistorico_(ticker, classePorTicker) {
+  var t = String(ticker || '').trim().toUpperCase();
+  var visto = {};
+  while (t && !visto[t]) {
+    visto[t] = true;
+    var c = classePorTicker ? classePorTicker[t] : '';
+    if (c === 'FII' || c === 'BR') return c;
+    if (typeof TICKERS_FIIS_BR !== 'undefined' && TICKERS_FIIS_BR.indexOf(t) !== -1) return 'FII';
+    if (typeof TICKERS_ACOES_BR !== 'undefined' && TICKERS_ACOES_BR.indexOf(t) !== -1) return 'BR';
+    t = tickerAtualPorAlias_(t);
+  }
+  return '';
 }

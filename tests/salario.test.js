@@ -197,7 +197,7 @@ test('Aba Salário: muitos pagamentos - só os 6 mais recentes à vista, o resto
   const pags = Array.from({ length: 9 }, (_, k) => ({ ...PAGS[0], mes: `2025-${String(k + 1).padStart(2, '0')}` }));
   const avisos = [];
   const { el } = await montarAba({ getSalarioImpl: async () => ({ ...JSON.parse(JSON.stringify(RESPOSTA)), pagamentos: pags }), aoMudarDados: (d) => avisos.push(d) });
-  assert.equal(el.querySelectorAll('#slHolerite > .sl-pags li').length, 6);
+  assert.equal(el.querySelectorAll('#slHolerite .og-rec-corpo > .sl-pags li').length, 6);
   assert.match(txt(el.querySelector('.sl-pags-mais summary')), /ver todos \(9\)/);
   assert.ok(avisos.length >= 1 && avisos[0].pagamentos.length === 9);
 });

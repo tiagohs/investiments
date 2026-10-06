@@ -31,18 +31,18 @@ function foraDoConteudo(el) {
 test('Atualizar dados: toda tela tem o lugar do botão, fora do conteúdo (visível no carregamento e no erro)', () => {
   const pages = docDe(ler('assets/partials/pages.html'));
   const telas = [];
-  for (const [tpl, id] of [['page-inicio-template', 'refreshControlInicio'], ['page-distribuicoes-template', 'refreshControlDistribuicoes']]) {
+  for (const [tpl, id] of [['page-inicio-template', 'inicioCabecalho'], ['page-distribuicoes-template', 'metasCabecalho']]) { // 06/10/2026 (Onda 3): o botão mora no cabeçalho padrão (montarCabecalhoPagina, refresh:true), fora do conteúdo
     const frag = pages.getElementById(tpl).content;
     telas.push([id, frag.getElementById(id)]);
   }
+  // 06/10/2026 (Onda 3): Carteiras monta o "Atualizar dados" de cada subpágina no cabeçalho padrão (carteiras-router.js, montarCabecalhoPagina),
+  // que fica fora de todas as seções de conteúdo.
   const carteiras = docDe(ler('carteiras/index.html'));
-  for (const id of ['refreshControlVisaoGeral', 'refreshControlAcoes', 'refreshControlFiis', 'refreshControlAcoesEua', 'refreshControlRendaFixa']) {
-    const el = carteiras.getElementById(id);
-    telas.push([id, el]);
-    // antes do esqueleto de carregamento da subpágina (mesmo lugar em todas)
-    assert.ok(el && el.nextElementSibling && /Loading$/.test(el.nextElementSibling.id), `${id} fica logo acima do carregamento`);
-  }
-  for (const [arq, id] of [['proventos/index.html', 'refreshControlProventos'], ['transacoes/index.html', 'refreshControlTransacoes'], ['organizacao/despesas.html', 'refreshControlOrganizacao'], ['ativo/index.html', 'refreshControlAtivo']]) {
+  const cabCarteiras = carteiras.getElementById('carteirasCabecalho');
+  telas.push(['carteirasCabecalho', cabCarteiras]);
+  assert.ok(cabCarteiras && !cabCarteiras.closest('section'), 'carteirasCabecalho fica acima das subpáginas');
+  for (const [arq, id] of [['proventos/index.html', 'pvCabecalho'], ['transacoes/index.html', 'txCabecalho'], // 06/10/2026 (Onda 3): Proventos, Transações e Organização (ogCabecalho; o JS põe o id refreshControlOrganizacao no refreshEl) montam o botão no cabeçalho padrão (refresh:true), fora do conteúdo
+     ['organizacao/despesas.html', 'ogCabecalho'], ['ativo/index.html', 'ativoCabecalho']]) {
     telas.push([id, docDe(ler(arq)).getElementById(id)]);
   }
   for (const [id, el] of telas) {
@@ -80,7 +80,7 @@ test('Início: busca falhou -> erro na tela e o "Atualizar dados" continua visí
   let chamadas = 0;
   await montarPaginaInicio('tk', { doc, getHomeImpl: async () => { chamadas += 1; return { ok: false, etapa: 'rede', erro: 'sem conexão' }; }, getIntradiaImpl: null });
   assert.equal(doc.getElementById('inicioErro').hidden, false);
-  const btn = doc.querySelector('#refreshControlInicio .refresh-btn');
+  const btn = doc.querySelector('#inicioCabecalho .refresh-btn');
   assert.ok(btn && foraDoConteudo(btn));
   btn.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   await new Promise((r) => setTimeout(r, 0));

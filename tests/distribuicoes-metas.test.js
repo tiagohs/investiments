@@ -43,16 +43,16 @@ const METAS_EXEMPLO = {
     extra: 4000,
     percentualReinvestimento: 0.25,
     rendimentoMedio: 0.06,
-    meta: 3472951.25,
-    carteiraAtual: 149247.48,
-    percentualAtingido: 0.042974,
+    meta: 3000000,
+    carteiraAtual: 150000,
+    percentualAtingido: 0.05,
   },
   rendaEmergencial: {
     mediaGastos: 9891.805,
     meses: 6,
-    meta: 65285.913,
-    carteiraAtual: 60945.47,
-    percentualAtingido: 0.933516,
+    meta: 90000,
+    carteiraAtual: 84000,
+    percentualAtingido: 0.933333,
     atingida: false,
   },
 };
@@ -73,38 +73,40 @@ test('formatPercentualMeta() devolve travessão pra valor não-finito', () => {
 
 // --- criarAnelProgresso ------------------------------------------------------
 
-test('criarAnelProgresso() monta o SVG com os 2 círculos e o texto central', () => {
+// 06/10/2026 (Onda 3): o anel é o da biblioteca de gráficos (criarAnelProgresso de assets/js/charts), hospedado num .goal-ring.
+test('criarAnelProgresso() monta o anel (trilho + arco) com o texto central', () => {
   const doc = makeDom('');
-  const svg = criarAnelProgresso(doc, { percentual: 0.5, cor: 'var(--acoes)' });
+  const host = criarAnelProgresso(doc, { percentual: 0.5, cor: 'var(--acoes)' });
 
-  assert.equal(svg.tagName.toLowerCase(), 'svg');
-  const circles = svg.querySelectorAll('circle');
-  assert.equal(circles.length, 2);
-  assert.equal(circles[1].getAttribute('stroke'), 'var(--acoes)');
-  assert.equal(svg.querySelector('text.big').textContent, '50%');
-  assert.equal(svg.querySelector('text.small').textContent, 'da meta');
+  assert.ok(host.classList.contains('goal-ring'));
+  const svg = host.querySelector('svg');
+  assert.ok(svg.querySelector('circle.chart-anel-trilho'));
+  const arco = svg.querySelector('path.chart-anel-arco');
+  assert.equal(arco.getAttribute('stroke'), 'var(--acoes)');
+  assert.ok(arco.getAttribute('d'));
+  assert.equal(svg.querySelector('.chart-anel-valor').textContent, '50%');
+  assert.equal(svg.querySelector('.chart-anel-rot').textContent, 'da meta');
 });
 
 test('criarAnelProgresso() nunca deixa o anel visual passar de 100%, mas o texto mostra o valor real', () => {
   const doc = makeDom('');
-  const svg = criarAnelProgresso(doc, { percentual: 1.3, cor: 'var(--acoes)' });
+  const acima = criarAnelProgresso(doc, { percentual: 1.3, cor: 'var(--acoes)' });
+  const cheio = criarAnelProgresso(doc, { percentual: 1, cor: 'var(--acoes)' });
 
-  const progresso = svg.querySelectorAll('circle')[1];
-  const [dash, total] = progresso.getAttribute('stroke-dasharray').split(' ').map(Number);
-  assert.ok(Math.abs(dash - total) < 0.01); // clamped em 100% do círculo
-  assert.equal(svg.querySelector('text.big').textContent, '130%'); // texto não é clampado
+  assert.equal(acima.querySelector('path.chart-anel-arco').getAttribute('d'), cheio.querySelector('path.chart-anel-arco').getAttribute('d'), 'clamped em 100% do círculo');
+  assert.equal(acima.querySelector('.chart-anel-valor').textContent, '130%'); // texto não é clampado
 });
 
 test('criarAnelProgresso() trata percentual ausente/inválido como 0%', () => {
   const doc = makeDom('');
-  const svg = criarAnelProgresso(doc, { percentual: undefined, cor: 'var(--fiis)' });
-  assert.equal(svg.querySelector('text.big').textContent, '0%');
+  const host = criarAnelProgresso(doc, { percentual: undefined, cor: 'var(--fiis)' });
+  assert.equal(host.querySelector('.chart-anel-valor').textContent, '0%');
 });
 
-test('criarAnelProgresso() inclui um <title> (tooltip) com o percentual exato, com 2 casas', () => {
+test('criarAnelProgresso() inclui um <title> (acessível/tooltip) com o percentual exato, com 2 casas', () => {
   const doc = makeDom('');
-  const svg = criarAnelProgresso(doc, { percentual: 0.737725, cor: 'var(--usa)' });
-  assert.equal(svg.querySelector('title').textContent, '73,77% da meta');
+  const host = criarAnelProgresso(doc, { percentual: 0.737725, cor: 'var(--usa)' });
+  assert.match(host.querySelector('title').textContent, /73,77% da meta/);
 });
 
 
@@ -334,18 +336,18 @@ test('renderAvisos() mostra a seção e a mensagem de erro quando há avisos', (
 const OBJETIVOS_EXEMPLO = {
   alocacaoGeral: {
     tipos: [
-      { tipo: 'Ações Nacionais e Internacionais', percentualDesejado: 0.5, percentualAtual: 0.5429649038887503, carteiraAtual: 47999.698359495786, novaCarteira: 47999.698359495786, valorInvestir: 0 },
-      { tipo: 'FIIs', percentualDesejado: 0.4, percentualAtual: 0.4032444693477339, carteiraAtual: 35648, novaCarteira: 38399.75868759663, valorInvestir: 2751.75868759663 },
-      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.05379062676351581, carteiraAtual: 4755.25, novaCarteira: 9599.939671899157, valorInvestir: 4844.6896718991575 },
+      { tipo: 'Ações Nacionais e Internacionais', percentualDesejado: 0.5, percentualAtual: 0.54, carteiraAtual: 54000, novaCarteira: 54000, valorInvestir: 0 },
+      { tipo: 'FIIs', percentualDesejado: 0.4, percentualAtual: 0.38, carteiraAtual: 38000, novaCarteira: 43200, valorInvestir: 5200 },
+      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.08, carteiraAtual: 8000, novaCarteira: 10800, valorInvestir: 2800 },
     ],
-    total: { carteiraAtual: 88402.94835949579, novaCarteira: 95999.39671899157, valorInvestir: 7596.448359495787 },
+    total: { carteiraAtual: 100000, novaCarteira: 108000, valorInvestir: 8000 },
   },
   alocacaoRendaFixa: {
     tipos: [
-      { tipo: 'Renda Emergencial', percentualDesejado: 0.9, percentualAtual: 0.9276225587786557, carteiraAtual: 60945.47, novaCarteira: 65285.913, valorInvestir: 4340.442999999999 },
-      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.0723774412213443, carteiraAtual: 4755.25, novaCarteira: 9599.939671899157, valorInvestir: 4844.6896718991575 },
+      { tipo: 'Renda Emergencial', percentualDesejado: 0.9, percentualAtual: 0.92, carteiraAtual: 92000, novaCarteira: 97200, valorInvestir: 5200 },
+      { tipo: 'Renda Fixa', percentualDesejado: 0.1, percentualAtual: 0.08, carteiraAtual: 8000, novaCarteira: 10800, valorInvestir: 2800 },
     ],
-    total: { carteiraAtual: 65700.72, novaCarteira: 74885.85267189916, valorInvestir: 9185.132671899157 },
+    total: { carteiraAtual: 100000, novaCarteira: 108000, valorInvestir: 8000 },
   },
 };
 
@@ -355,9 +357,9 @@ test('criarLinhaObjetivo() mostra nome, % atual/meta e o valor investido', () =>
   const doc = makeDom('');
   const linha = criarLinhaObjetivo(doc, OBJETIVOS_EXEMPLO.alocacaoGeral.tipos[1]); // FIIs
   assert.match(linha.querySelector('.obj-nome').textContent, /FIIs/);
-  assert.equal(linha.querySelector('.obj-pcts b').textContent, '40%');
+  assert.equal(linha.querySelector('.obj-pcts b').textContent, '38%');
   assert.equal(linha.querySelector('.obj-meta-pct').textContent, 'meta 40%');
-  assert.match(linha.querySelector('.obj-valor-atual').textContent, /35\.648/);
+  assert.match(linha.querySelector('.obj-valor-atual').textContent, /38\.000/);
 });
 
 test('criarLinhaObjetivo() mostra badge "faltam R$ X" quando valorInvestir é maior que zero', () => {
@@ -366,7 +368,7 @@ test('criarLinhaObjetivo() mostra badge "faltam R$ X" quando valorInvestir é ma
   const badge = linha.querySelector('.goal-badge');
   assert.match(badge.className, /warn/);
   assert.match(badge.textContent, /faltam/);
-  assert.match(badge.textContent, /2\.751,76/);
+  assert.match(badge.textContent, /5\.200,00/);
 });
 
 test('criarLinhaObjetivo() mostra badge "na meta" quando já atingiu ou passou do desejado', () => {
@@ -398,8 +400,8 @@ test('criarLinhaObjetivo() põe um ícone "i" clicável em .obj-pcts com % exato
   assert.equal(pcts.classList.contains('info-alvo'), true);
   assert.ok(pcts.querySelector('.info-icon'));
   const tituloBarra = pcts.dataset.tooltip;
-  assert.match(tituloBarra, /40,32%/);
-  assert.match(tituloBarra, /35\.648,00/);
+  assert.match(tituloBarra, /38,00%/);
+  assert.match(tituloBarra, /38\.000,00/);
   assert.match(tituloBarra, /40,00%/);
 });
 
@@ -441,13 +443,13 @@ test('criarLinhaObjetivo() com carteiraAtualUsd/valorInvestirUsd mostra dólar c
     carteiraAtualUsd: 3586.05, valorInvestirUsd: 410.69,
   });
   const valorAtual = linha.querySelector('.obj-valor-atual');
-  assert.match(valorAtual.textContent, /\$3,586\.05/);
+  assert.match(valorAtual.textContent, /US\$\s3\.586,05/);
   assert.match(valorAtual.textContent, /17\.930,23/);
   assert.ok(valorAtual.querySelector('.moeda-conv'));
 
   const badge = linha.querySelector('.goal-badge');
   assert.match(badge.textContent, /faltam/);
-  assert.match(badge.textContent, /\$410\.69/);
+  assert.match(badge.textContent, /US\$\s410,69/);
   assert.match(badge.textContent, /2\.053,47/);
 });
 
@@ -459,7 +461,7 @@ test('criarLinhaObjetivo() "resgatar" com valorInvestirUsd negativo mostra o val
   });
   const badge = linha.querySelector('.goal-badge');
   assert.match(badge.textContent, /resgatar/);
-  assert.match(badge.textContent, /\$134\.64/);
+  assert.match(badge.textContent, /US\$\s134,64/);
   assert.match(badge.textContent, /673,21/);
   assert.equal(/faltam/.test(badge.textContent), false);
 });
@@ -484,8 +486,8 @@ test('criarBlocoObjetivo() monta o título, uma linha por tipo e o total', () =>
   });
   assert.equal(bloco.querySelector('.obj-bloco-titulo').textContent, 'Ações, FIIs e Renda Fixa');
   assert.equal(bloco.querySelectorAll('.obj-linha').length, 3);
-  assert.match(bloco.querySelector('.obj-total').textContent, /88\.402,95/);
-  assert.match(bloco.querySelector('.obj-total-investir').textContent, /7\.596,45/);
+  assert.match(bloco.querySelector('.obj-total').textContent, /100\.000,00/);
+  assert.match(bloco.querySelector('.obj-total-investir').textContent, /8\.000,00/);
 });
 
 test('criarBlocoObjetivo() "Total investido"/"Pra atingir a meta" ganham ícone "i" clicável (dataset.tooltip) em vez de title nativo', () => {
@@ -745,7 +747,7 @@ const SPLITS_INTERNOS_EXEMPLO = {
       { tipo: 'Papel', percentualDesejado: 0.3, percentualAtual: 0.3138675382, carteiraAtual: 11188.75, novaCarteira: 10694.4, valorInvestir: -494.35 },
       { tipo: 'Híbrido', percentualDesejado: 0.3, percentualAtual: 0.2677642504, carteiraAtual: 9545.26, novaCarteira: 10694.4, valorInvestir: 1149.14 },
     ],
-    total: { carteiraAtual: 35648, novaCarteira: 35648, valorInvestir: null }, // G76 é texto "Total:" na planilha, não fórmula - ver DistribuicoesMetas.gs
+    total: { carteiraAtual: 40000, novaCarteira: 40000, valorInvestir: null }, // G76 é texto "Total:" na planilha, não fórmula - ver DistribuicoesMetas.gs
   },
 };
 
@@ -813,10 +815,10 @@ test('renderSplitInterno() na linha "Ações Internacionais", quando o item vem 
   assert.match(linhaDividendos.querySelector('.obj-valor-atual').textContent, /^R\$/, 'Dividendos continua só em reais');
 
   const valorInternacional = linhaInternacional.querySelector('.obj-valor-atual');
-  assert.match(valorInternacional.textContent, /\$3,586\.05/);
+  assert.match(valorInternacional.textContent, /US\$\s3\.586,05/);
   assert.match(valorInternacional.textContent, /17\.930,23/);
   const badgeInternacional = linhaInternacional.querySelector('.goal-badge');
-  assert.match(badgeInternacional.textContent, /\$410\.69/);
+  assert.match(badgeInternacional.textContent, /US\$\s410,69/);
 });
 
 test('renderSplitInterno() na aba "fiis" mostra o bloco de FIIs (3 tipos) e o link FIIs', () => {
@@ -1469,7 +1471,7 @@ test('renderRadarOportunidades(): Preço atual mostra a variação % do dia emba
   renderRadarOportunidades(doc, container, dados);
   const linhas = container.querySelectorAll('.radar-table tbody tr.radar-linha');
   const variacaoWizc3 = linhas[0].querySelector('.radar-preco-variacao');
-  assert.match(variacaoWizc3.textContent, /-0,21%/);
+  assert.match(variacaoWizc3.textContent, /−0,21%/);
   assert.equal(variacaoWizc3.classList.contains('bad'), true);
   const variacaoVamo3 = linhas[1].querySelector('.radar-preco-variacao');
   assert.match(variacaoVamo3.textContent, /\+1,34%/);
@@ -1502,8 +1504,8 @@ test('renderRadarOportunidades(): "% desejado" e "% atual" viram 1 coluna só ("
   assert.ok(barra);
   assert.match(barra.querySelector('.radar-pct-label b').textContent, /3%/);
   assert.match(barra.querySelector('.radar-pct-meta-label').textContent, /11%/);
-  assert.match(barra.querySelector('.radar-pct-bar-fill').style.width, /3\.4%|3%/);
-  assert.match(barra.querySelector('.radar-pct-bar-meta').style.left, /11/);
+  assert.match(barra.querySelector('.radar-pct-bar .chart-prog-fill').style.width, /^3\.\d+%$/);
+  assert.match(barra.querySelector('.radar-pct-bar .chart-prog-meta').style.left, /11/);
 
   // continua editável (edita só % desejado) - "Editar" ainda revela os
   // mesmos 3 inputs de sempre (Ranking/Preço-teto/% desejado).
@@ -1531,8 +1533,8 @@ test('renderRadarOportunidades(): Ações Internacionais mostram Carteira atual 
   const linha = container.querySelector('.radar-table tbody tr.radar-linha'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
   // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9).
-  assert.match(celulas[9].textContent, /\$557\.70/); // carteira atual
-  assert.match(celulas[9].textContent, /\$42\.30/); // investir/resgatar
+  assert.match(celulas[9].textContent, /US\$\s557,70/); // carteira atual
+  assert.match(celulas[9].textContent, /US\$\s42,30/); // investir/resgatar
   assert.equal(celulas[9].textContent.includes('R$'), false);
 });
 
@@ -1557,9 +1559,9 @@ test('renderRadarOportunidades(): Carteira atual/Investir-resgatar em Ações In
   const linha = container.querySelector('.radar-table tbody tr.radar-linha'); // GPRK: carteiraAtual 557.7, valorInvestir 42.3
   const celulas = Array.from(linha.children);
   // 16/09/2026: Carteira atual e Investir/resgatar viraram 1 célula só (índice 9), com 2 conversões.
-  assert.match(celulas[9].textContent, /\$557\.70/);
+  assert.match(celulas[9].textContent, /US\$\s557,70/);
   assert.match(celulas[9].textContent, /R\$\s*2\.788,50/); // 557.7 * 5
-  assert.match(celulas[9].textContent, /\$42\.30/);
+  assert.match(celulas[9].textContent, /US\$\s42,30/);
   assert.match(celulas[9].textContent, /R\$\s*211,50/); // 42.3 * 5
   assert.equal(celulas[9].querySelectorAll('.moeda-conv').length, 2);
 });
@@ -2153,10 +2155,10 @@ test('menu e título: "Acompanhamento de Ativos" no shell.html, no <title> e na 
   assert.equal(link.querySelector('.nav-label').textContent.trim(), 'Acompanhamento de Ativos');
   assert.equal(link.getAttribute('title'), 'Acompanhamento de Ativos');
   const html = readFileSync(new URL('../distribuicoes-metas.html', import.meta.url), 'utf8');
-  assert.match(html, /<title>Acompanhamento de Ativos<\/title>/);
+  assert.match(html, /<title>Acompanhamento de Ativos · Patrimônio<\/title>/);
   const { ROUTES } = await import('../assets/js/router.js');
   const rota = ROUTES.find((r) => r.key === 'distribuicoes');
-  assert.equal(rota.title, 'Acompanhamento de Ativos');
+  assert.equal(rota.title, 'Acompanhamento de Ativos · Patrimônio');
   assert.equal(rota.href, 'distribuicoes-metas.html');
 });
 
@@ -2187,7 +2189,8 @@ test('renderRadarOportunidades(): gráfico do dia embaixo do # + Ativo, link pro
   await esperar();
   assert.deepEqual(pedidos, [['acoes:WIZC3', 'acoes:VAMO3']]);
   const wiz = links[0].querySelector('.radar-intradia-slot');
-  assert.ok(wiz.querySelector('svg.intradia-svg.sobe'));
+  assert.ok(wiz.querySelector('svg.chart-svg'));
+  assert.equal(wiz.dataset.intradiaDir, 'sobe');
   assert.equal(wiz.classList.contains('carregando'), false);
   assert.equal(links[0].querySelector('.radar-intradia-rotulo').textContent, 'Pregão 01/10');
   const vamo = links[1].querySelector('.radar-intradia-slot');
@@ -2216,7 +2219,8 @@ test('renderRadarOportunidades(): sem buscarIntradia (ou se a busca falha), o gr
 test('preencherIntradiaRadar(): pregão de hoje vira "Hoje"; série que cai pinta de vermelho (.desce)', () => {
   const doc = makeDom('<a><span class="radar-intradia-cab"><span class="radar-intradia-rotulo">Variação do dia</span></span><span class="radar-intradia-slot carregando" data-intradia="acoes:X1"></span></a>');
   preencherIntradiaRadar(doc.body, { 'acoes:X1': SERIE_FALSA(false) }, { hojeISO: '2026-10-01' });
-  assert.ok(doc.querySelector('svg.intradia-svg.desce'));
+  assert.ok(doc.querySelector('svg.chart-svg'));
+  assert.equal(doc.querySelector('.radar-intradia-slot').dataset.intradiaDir, 'desce');
   assert.equal(doc.querySelector('.radar-intradia-rotulo').textContent, 'Hoje');
 });
 
@@ -2235,7 +2239,7 @@ test('renderRadarOportunidades(): as abas viram "abas-número" (classe, quanto t
   assert.ok(abas[0].querySelector('.rc-valor .dec'), 'centavos menores, igual à Início');
   assert.match(abas[0].querySelector('.radar-visao-sub').textContent, /2 ativos/);
   assert.match(abas[0].querySelector('.radar-visao-sub').textContent, /\d+ em bom momento/);
-  assert.match(abas[1].querySelector('.rc-valor').textContent, /\$557\.70/, 'Ações Internacionais em dólar, igual à tabela');
+  assert.match(abas[1].querySelector('.rc-valor').textContent, /US\$\s557,70/, 'Ações Internacionais em dólar, igual à tabela');
 });
 
 test('renderRadarOportunidades(): slotDistrib entra dentro do cartão do Radar, entre as abas e a tabela', () => {
@@ -2258,11 +2262,11 @@ test('criarBlocoObjetivo() no estilo "Minha carteira": abas-número (total e qua
   const tiles = bloco.querySelectorAll('.obj-total > .obj-tile');
   assert.equal(tiles.length, 2);
   assert.ok(tiles[0].querySelector('.obj-bloco-titulo'));
-  assert.match(tiles[0].querySelector('.obj-total-v').textContent, /88\.402,95/);
+  assert.match(tiles[0].querySelector('.obj-total-v').textContent, /100\.000,00/);
   assert.ok(tiles[0].querySelector('.obj-total-v .dec'));
-  assert.match(tiles[1].querySelector('.obj-total-investir').textContent, /7\.596,45/);
-  const atual = bloco.querySelectorAll('.obj-comp-atual .rc-seg');
-  const meta = bloco.querySelectorAll('.obj-comp-meta .rc-seg');
+  assert.match(tiles[1].querySelector('.obj-total-investir').textContent, /8\.000,00/);
+  const atual = bloco.querySelectorAll('.obj-comp-atual .chart-comp-seg');
+  const meta = bloco.querySelectorAll('.obj-comp-meta .chart-comp-seg');
   assert.equal(atual.length, 3);
   assert.equal(meta.length, 3);
   assert.match(atual[0].getAttribute('style'), /--acoes/);
@@ -2296,7 +2300,7 @@ test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos d
   await esperar();
   assert.deepEqual(pedidos, [{ token: 'token-fake', chaves: ['acoes:WIZC3', 'acoes:VAMO3'] }]);
   const radar = doc.getElementById('radarOportunidadesGrid');
-  assert.equal(radar.querySelectorAll('svg.intradia-svg').length, 2);
+  assert.equal(radar.querySelectorAll('.radar-intradia-slot svg.chart-svg').length, 2);
   assert.ok(radar.querySelector('.radar-card #splitInternoGrid .obj-bloco'), 'split interno dentro do cartão do Radar');
 
   radar.querySelector('[data-tabela="fiis"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
@@ -2304,7 +2308,7 @@ test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos d
   radar.querySelector('[data-tabela="acoesNacionais"]').dispatchEvent(new doc.defaultView.Event('click', { bubbles: true }));
   await esperar();
   assert.deepEqual(pedidos.map((p) => p.chaves), [['acoes:WIZC3', 'acoes:VAMO3'], ['fiis:PMLL11']]);
-  assert.equal(radar.querySelectorAll('svg.intradia-svg').length, 2, 'redesenhado do que já estava guardado');
+  assert.equal(radar.querySelectorAll('.radar-intradia-slot svg.chart-svg').length, 2, 'redesenhado do que já estava guardado');
 });
 
 // --- 03/10/2026: Metas da carteira -> Metas e Objetivos ---------------------------------
@@ -2314,12 +2318,13 @@ test('montarPaginaDistribuicoesMetas(): busca o gráfico do dia só dos ativos d
 const RAIZ_TESTE = 'https://exemplo.test/';
 const RESPOSTA_METAS_TESTE = {
   ok: true, hoje: '2026-10-03', arquivadas: [],
-  ativos: [{ id: 'ZZZZ11', ref: 'ZZZZ11', nome: 'ZZZZ11', classe: 'fiis', valorBRL: 20000 }],
+  // 05/10/2026 (A-11): cada ativo conta numa meta só - a aposentadoria usa ações (os FIIs são da renda passiva, que tem prioridade)
+  ativos: [{ id: 'ZZZZ11', ref: 'ZZZZ11', nome: 'ZZZZ11', classe: 'fiis', valorBRL: 20000 }, { id: 'YYYY3', ref: 'YYYY3', nome: 'YYYY3', classe: 'acoes', valorBRL: 20000 }],
   cambio: {}, referencias: { reserva: { custoDeVida: 1000, meses: 6, sobra: 0 } }, proventos12m: { porTicker: { ZZZZ11: 1800 } },
   metas: [
     { id: 'rpA', tipo: 'rendaPassiva', nome: 'Renda secundária', especificos: { rendaMensal: 900, dyAnual: 0.1 }, vinculos: [], status: 'ativa' },
     { id: 'rpB', tipo: 'rendaPassiva', nome: 'Renda principal', especificos: { rendaMensal: 300, dyAnual: 0.1 }, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], exibirNaCarteira: true, status: 'ativa' },
-    { id: 'apo1', tipo: 'aposentadoria', nome: 'Aposentar cedo', valorAlvo: 80000, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], status: 'ativa' },
+    { id: 'apo1', tipo: 'aposentadoria', nome: 'Aposentar cedo', valorAlvo: 80000, vinculos: [{ tipo: 'classe', classe: 'acoes', modo: 'total' }], status: 'ativa' },
   ],
 };
 

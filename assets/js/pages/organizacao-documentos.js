@@ -36,6 +36,9 @@
  */
 import { documentosRenda } from './renda-calc.js';
 import { coberturaDocumentos, NOME_FONTE, arquivosNovosDrive, arquivosFalhosDrive } from './gastos-calc.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { MESES_CURTOS, formatMesAno, formatDMA } from '../format.js'; // 05/10/2026 (A-68)
+
 
 /** Evento que a seção Gastos (organizacao-gastos.js) escuta no document pra importar arquivos do computador. */
 export const EVENTO_ARQUIVOS_GASTOS = 'organizacao:gastos-arquivos';
@@ -60,11 +63,10 @@ export const ENVIO_DOCUMENTO = {
   investimentos: { href: LANCAMENTOS_B3, rotulo: 'Enviar extrato da B3' },
 };
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
 const mesDe = (d) => String(d || '').slice(0, 7);
-const rotMes = (m) => { const [a, mm] = String(m || '').split('-'); return a && mm ? `${MESES[Number(mm) - 1]}/${a.slice(2)}` : ''; };
-const dataCurta = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : rotMes(iso); };
+const rotMes = (m) => formatMesAno(m);
+const dataCurta = (iso) => formatDMA(iso, '') || rotMes(iso);
 function somarMeses(mes, n) {
   const [y, m] = mesDe(mes).split('-').map(Number);
   const t = y * 12 + (m - 1) + n;
@@ -255,11 +257,11 @@ const SIMBOLO = { ok: '✓', atencao: '!', atrasado: '!', falta: '+', opcional: 
 export function htmlResumoDocumentos(r) {
   const s = r.resumo;
   const chips = [];
-  if (s.atrasados) chips.push(`<span class="og-doc-chip atrasado">${s.atrasados} ${s.atrasados === 1 ? 'atrasado' : 'atrasados'}</span>`);
-  if (s.nunca) chips.push(`<span class="og-doc-chip falta">${s.nunca} nunca ${s.nunca === 1 ? 'enviado' : 'enviados'}</span>`);
-  if (s.atencao) chips.push(`<span class="og-doc-chip atencao">${s.atencao} pra olhar</span>`);
-  if (s.emDia) chips.push(`<span class="og-doc-chip ok">${s.emDia} em dia</span>`);
-  if (s.carregando) chips.push(`<span class="og-doc-chip carregando">verificando ${s.carregando}…</span>`);
+  if (s.atrasados) chips.push(`<span class="og-doc-chip chip-tonal chip-bad">${s.atrasados} ${s.atrasados === 1 ? 'atrasado' : 'atrasados'}</span>`);
+  if (s.nunca) chips.push(`<span class="og-doc-chip chip-tonal chip-bad">${s.nunca} nunca ${s.nunca === 1 ? 'enviado' : 'enviados'}</span>`);
+  if (s.atencao) chips.push(`<span class="og-doc-chip chip-tonal chip-warn">${s.atencao} pra olhar</span>`);
+  if (s.emDia) chips.push(`<span class="og-doc-chip chip-tonal chip-good">${s.emDia} em dia</span>`);
+  if (s.carregando) chips.push(`<span class="og-doc-chip chip-tonal chip-info">verificando ${s.carregando}…</span>`);
   return chips.join('');
 }
 
@@ -268,16 +270,16 @@ function htmlLinha(x) {
   const chip = x.automatico === 'clique' ? '<span class="og-doc-freq auto">Drive · 1 clique</span>' : x.automatico ? '<span class="og-doc-freq auto">automático</span>' : `<span class="og-doc-freq">${esc(x.frequencia)}</span>`;
   const acao = x.acao
     ? (x.acao.href
-      ? `<a class="og-doc-btn${x.estado === 'ok' ? ' leve' : ''}" href="${esc(x.acao.href)}">${esc(x.acao.rotulo)}</a>`
-      : `<button type="button" class="og-doc-btn${x.estado === 'ok' || x.estado === 'opcional' ? ' leve' : ''}" data-doc-acao="${esc(x.acao.id)}" data-doc="${esc(x.id)}">${esc(x.acao.rotulo)}</button>`)
+      ? `<a class="og-doc-btn btn btn-sm ${x.estado === 'ok' ? 'btn-outlined' : 'btn-filled'}" href="${esc(x.acao.href)}">${esc(x.acao.rotulo)}</a>`
+      : `<button type="button" class="og-doc-btn btn btn-sm ${x.estado === 'ok' || x.estado === 'opcional' ? 'btn-outlined' : 'btn-filled'}" data-doc-acao="${esc(x.acao.id)}" data-doc="${esc(x.id)}">${esc(x.acao.rotulo)}</button>`)
     : '';
   // 03/10/2026: "Enviar arquivo" em todo item - só some quando a ação principal já É o envio
   const envio = ENVIO_DOCUMENTO[x.id];
   const principalEhEnvio = !!(x.acao && envio && ((envio.destino && x.acao.id === envio.destino) || (envio.href && x.acao.href === envio.href)));
   const enviar = envio && !principalEhEnvio
     ? (envio.href
-      ? `<a class="og-doc-btn leve og-doc-enviar" href="${esc(envio.href)}">${esc(envio.rotulo || 'Enviar arquivo')}</a>`
-      : `<button type="button" class="og-doc-btn leve og-doc-enviar" data-doc-enviar="${esc(x.id)}">Enviar arquivo</button>`)
+      ? `<a class="og-doc-btn btn btn-sm btn-outlined og-doc-enviar" href="${esc(envio.href)}">${esc(envio.rotulo || 'Enviar arquivo')}</a>`
+      : `<button type="button" class="og-doc-btn btn btn-sm btn-outlined og-doc-enviar" data-doc-enviar="${esc(x.id)}">Enviar arquivo</button>`)
     : '';
   return `<li class="og-doc est-${esc(x.estado)}" data-doc-id="${esc(x.id)}">
       <span class="og-doc-st" title="${esc(rot)}" aria-hidden="true">${SIMBOLO[x.estado] || '·'}</span>
@@ -309,7 +311,7 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
     <button type="button" class="og-docs-barra" aria-expanded="${aberto}" aria-controls="ogDocsLista">
       <span class="og-docs-ico">${ICONE_DOC}</span>
       <span class="og-docs-tit"><b>Documentos</b><small>o que o site precisa de você, e o que chega sozinho</small></span>
-      <span class="og-docs-chips" aria-live="polite"><span class="og-doc-chip carregando">verificando…</span></span>
+      <span class="og-docs-chips" aria-live="polite"><span class="og-doc-chip chip-tonal chip-info">verificando…</span></span>
       <span class="og-docs-ver"><span class="og-docs-ver-t">${aberto ? 'Fechar' : 'Ver lista'}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span>
     </button>
     <div class="og-docs-lista" id="ogDocsLista"${aberto ? '' : ' hidden'}></div>

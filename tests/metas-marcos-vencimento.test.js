@@ -12,7 +12,8 @@ import {
   calcularMeta, marcosProjecao, fraseMarcos, velocidadeEntreMarcos, resumoMarcos, velocidadeMeta, dicasAcelerar,
   cenariosRendaMenor, analisarProjecaoMeta, serieProjecao, eventosVencimento,
 } from '../assets/js/pages/metas-calc.js';
-import { montarPaginaMetas, TEMPLATE_METAS, cardMetaHtml, graficoProjecaoSvg } from '../assets/js/pages/metas.js';
+import { opcoesProjecao } from '../assets/js/pages/metas-graficos.js';
+import { montarPaginaMetas, TEMPLATE_METAS, cardMetaHtml } from '../assets/js/pages/metas.js';
 
 const HOJE = '2026-10-05';
 const CTX = { ativos: [], cambio: { USD: { valor: 5, fonte: 'teste' } }, hoje: HOJE, referencias: {} };
@@ -28,7 +29,7 @@ test('marcos: frase "Com isso, sua meta de R$ X chega em mês/ano; o 1º milhão
   const marcos = marcosProjecao(c, { hoje: HOJE });
   assert.deepEqual(marcos.map((m) => m.rotulo), ['1º milhão', '2º milhão', '3º milhão', 'Alvo']);
   const f = fraseMarcos(marcos, { alvo: c.alvoBRL });
-  assert.match(f, /^Com isso, sua meta de R\$ 3\.400\.000 chega em [a-z]{3}\/20\d\d; o 1º milhão em 20\d\d, o 2º em 20\d\d, o 3º em 20\d\d\.$/);
+  assert.match(f, /^Com isso, sua meta de R\$\s3\.400\.000 chega em [a-z]{3}\/20\d\d; o 1º milhão em 20\d\d, o 2º em 20\d\d, o 3º em 20\d\d\.$/);
   assert.ok(marcos[0].ano < marcos[1].ano && marcos[1].ano < marcos[2].ano);
   // alvo pequeno (sem milhões): sem frase
   assert.equal(resumoMarcos({ alvoBRL: 100000, atualRitmo: 0, aporteAtual: 1000, taxa: 0 }).frase, '');
@@ -58,23 +59,23 @@ test('simulações trazem a frase: 75%/50% do tempo, dicas, renda -10%/-20%, pro
   const c = calcularMeta(meta, CTX);
   const vel = velocidadeMeta(c, { hoje: HOJE });
   assert.equal(vel.cenarios.length, 3);
-  vel.cenarios.forEach((x) => assert.match(x.comIsso, /^Com isso, sua meta de R\$ 3\.400\.000 chega em .+; o 1º milhão em \d{4}/));
+  vel.cenarios.forEach((x) => assert.match(x.comIsso, /^Com isso, sua meta de R\$\s3\.400\.000 chega em .+; o 1º milhão em \d{4}/));
   const [base, v75, v50] = vel.cenarios;
   assert.ok(v50.aporte > v75.aporte && v75.aporte > base.aporte - 1);
   // em 50% do tempo, a meta chega no mês do cenário
   assert.match(v50.comIsso, new RegExp(`chega em ${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(v50.data.slice(5, 7)) - 1]}/${v50.data.slice(0, 4)}`));
   const dicas = dicasAcelerar(c, meta, { hoje: HOJE });
-  assert.ok(dicas.find((d) => d.id === 'aporte').comIsso.startsWith('Com isso, sua meta de R$ 3.400.000'));
+  assert.ok(dicas.find((d) => d.id === 'aporte').comIsso.startsWith('Com isso, sua meta de R$ 3.400.000'));
   const cen = cenariosRendaMenor(c, { hoje: HOJE });
-  assert.match(cen[0].comIsso, /sua meta de R\$ 3\.060\.000 chega em/);
-  assert.match(cen[1].comIsso, /sua meta de R\$ 2\.720\.000 chega em/);
+  assert.match(cen[0].comIsso, /sua meta de R\$\s3\.060\.000 chega em/);
+  assert.match(cen[1].comIsso, /sua meta de R\$\s2\.720\.000 chega em/);
   // análise: a velocidade entre os marcos entra na explicação; o aporte necessário traz a frase
   const cPrazo = calcularMeta({ ...meta, dataAlvo: '2040-10' }, CTX);
   const pontos = serieProjecao(cPrazo, { hoje: HOJE, meses: 120 });
   const an = analisarProjecaoMeta(cPrazo, { pontos, marcos: marcosProjecao(cPrazo, { hoje: HOJE }), hoje: HOJE });
   const txt = an.pontos.map((p) => p.texto).join(' | ');
   assert.match(txt, /Velocidade: do 1º pro 2º milhão/);
-  assert.match(txt, /Com isso, sua meta de R\$ 3\.400\.000 chega em/);
+  assert.match(txt, /Com isso, sua meta de R\$\s3\.400\.000 chega em/);
 });
 
 test('calc: marcoProximo (1 linha do card) só com alvo em milhões', () => {
@@ -114,8 +115,8 @@ test('vencimento: projeta IR e líquido que cai na conta; reserva abaixo do mín
   assert.equal(e.acimaReaplicando, true);
   assert.equal(e.tom, 'atencao');
   assert.ok(e.perdeMes > 0);
-  assert.match(e.texto, /^Em jan\/2027 vence Tesouro Selic 2027: entram R\$ 19\.\d{3} líquidos \(IR R\$ \d+\)\./);
-  assert.match(e.texto, /continua acima do mínimo\? Não: .*faltam R\$ 18\.900/);
+  assert.match(e.texto, /^Em jan\/2027 vence Tesouro Selic 2027: entram R\$\s19\.\d{3} líquidos \(IR R\$\s\d+\)\./);
+  assert.match(e.texto, /continua acima do mínimo\? Não: .*faltam R\$\s18\.900/);
   assert.match(e.texto, /Reaplique em um Tesouro Selic com o vencimento mais longo disponível \(liquidez diária/);
   assert.match(e.texto, /para de render/);
   assert.equal(v.temAtencao, true);
@@ -151,9 +152,10 @@ test('vencimento: marcador no gráfico da projeção e horizonte vai até o venc
   const pontos = serieProjecao(c, { hoje: HOJE });
   assert.ok(pontos.length > 3, 'horizonte chega a jan/2027');
   assert.ok(pontos.some((p) => p.mes === '2027-01'));
-  const svg = graficoProjecaoSvg(c, { largura: 500, altura: 220, hoje: HOJE });
-  assert.match(svg, /class="mt-g-venc"/);
-  assert.match(svg, /vence Tesouro Selic 2027/);
+  // 06/10/2026 (Onda 3): o vencimento aparece no título do tooltip do mês (biblioteca de gráficos) e nas notas
+  const o = opcoesProjecao(c, { pontos: pontos, hoje: HOJE });
+  assert.ok(o.notas.vencimentos.length >= 1, 'vencimento marcado');
+  assert.ok(o.eixoX.some((e) => /vence Tesouro Selic 2027/.test(e.titulo)), 'tooltip do mês do vencimento');
 });
 
 async function montarTela(base, metas, hash) {
@@ -177,8 +179,9 @@ test('tela da reserva: bloco "Títulos que vencem" com a frase, status de atenç
   assert.match(bloco.textContent, /Atenção/);
   assert.match(bloco.textContent, /Reserva sem reaplicar/);
   assert.match(bloco.textContent, /Falta pro mínimo/);
-  assert.ok(doc.querySelector('#mtGrafico .mt-g-venc'), 'marcador do vencimento na projeção');
-  assert.match(doc.getElementById('mtTela').textContent, /vencimento de título/);
+  assert.ok(doc.querySelector('#mtGrafico svg.chart-svg'), 'gráfico da projeção (biblioteca)');
+  assert.match(doc.getElementById('mtGraficoNotas').textContent, /vence Tesouro Selic 2027/, 'nota do vencimento sob o gráfico');
+  assert.match(doc.getElementById('mtTela').textContent, /vence Tesouro Selic 2027 em jan\/2027/);
   const lista = await montarTela([TESOURO, CDB], [RESERVA], '');
   assert.match(lista.doc.querySelector('.mt-card-marco.atencao').textContent, /Tesouro Selic 2027 vence em jan\/2027/);
 });
@@ -186,15 +189,15 @@ test('tela da reserva: bloco "Títulos que vencem" com a frase, status de atenç
 test('tela da aposentadoria: frases dos milhões na velocidade, nos marcos, na renda menor e no simulador', async () => {
   const { doc, w } = await montarTela([], [{ ...APOS, aporteMensal: 4000, valorAlvo: 3400000 }], '#meta=ap');
   const t = doc.getElementById('mtTela');
-  assert.match(t.querySelector('.mt-comisso').textContent, /No seu ritmo:.*Com isso, sua meta de R\$ 3\.400\.000 chega em .*o 1º milhão em \d{4}, o 2º em \d{4}, o 3º em \d{4}/);
+  assert.match(t.querySelector('.mt-comisso').textContent, /No seu ritmo:.*Com isso, sua meta de R\$\s3\.400\.000 chega em .*o 1º milhão em \d{4}, o 2º em \d{4}, o 3º em \d{4}/);
   assert.match(t.querySelector('.mt-comisso').textContent, /Em 75% do tempo:/);
   assert.match(t.textContent, /Velocidade: do 1º pro 2º milhão/);
   assert.match(t.textContent, /Com o aporte necessário/);
-  assert.match(t.textContent, /sua meta de R\$ 3\.060\.000 chega em/);
+  assert.match(t.textContent, /sua meta de R\$\s3\.060\.000 chega em/);
   // simulador "com um aporte"
   clique(w, t.querySelector('[data-sim-modo="aporte"]'));
   const res = doc.querySelector('.mt-sim-resultado');
-  assert.match(res.textContent, /Com isso, sua meta de R\$ 3\.400\.000 chega em .*o 1º milhão em \d{4}/);
+  assert.match(res.textContent, /Com isso, sua meta de R\$\s3\.400\.000 chega em .*o 1º milhão em \d{4}/);
   assert.match(res.textContent, /do 1º pro 2º milhão/);
   // cartão da lista
   const lista = await montarTela([], [APOS], '');

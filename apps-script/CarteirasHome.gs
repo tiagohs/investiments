@@ -105,12 +105,12 @@ function montarCarteirasHome_() {
   try { custoPepsRf = custoRendaFixaPepsHoje_(); } catch (errPepsRf) { custoPepsRf = {}; }
   var abaRF = ss.getSheetByName(ABA_CARTEIRA_RF_CARTEIRAS_HOME);
   if (!abaRF) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_CARTEIRAS_HOME);
-  var ultimaRF = abaRF.getLastRow();
+  var ultimaRF = ultimaLinhaReal_(abaRF, [1, 4], LINHA_DADOS_CARTEIRA_RF_CARTEIRAS_HOME); // 05/10/2026 (A-31): última linha REAL (a aba tem ~5.500 linhas de preenchimento)
   if (ultimaRF >= LINHA_DADOS_CARTEIRA_RF_CARTEIRAS_HOME) {
-    var dadosRF = abaRF.getRange(
-      LINHA_DADOS_CARTEIRA_RF_CARTEIRAS_HOME, 1,
+    var dadosRF = lerAbaUmaVez_(
+      abaRF, LINHA_DADOS_CARTEIRA_RF_CARTEIRAS_HOME,
       ultimaRF - LINHA_DADOS_CARTEIRA_RF_CARTEIRAS_HOME + 1, 12
-    ).getValues();
+    );
     dadosRF.forEach(function (linha) {
       var codigo = linha[0], tipo = linha[3], valorInvestido = linha[8], valorAtualizado = linha[11];
       if (!codigo && !tipo) return;
@@ -150,8 +150,18 @@ function montarCarteirasHome_() {
   // valores originais em dólar à parte (ver comentário no topo do
   // arquivo).
   var cambioUsd = home.cambio.usd;
+  // 05/10/2026 (A-22): o custo em reais do card = soma do custo de cada ação com o câmbio da compra
+  // (custoBrlAcoesEuaPorTicker_); se algum ticker ficar sem câmbio, volta ao critério antigo (câmbio de hoje).
+  var custoBrlEua = null;
+  try {
+    var custosEua = custoBrlAcoesEuaPorTicker_(ss);
+    var tickersEua = Object.keys(custosEua);
+    var comprasEua = 0;
+    (dadosAux || []).forEach(function (l) { if (l[0] === 'Ações EUA' && l[1] && (l[18] || 0) > 0) comprasEua += 1; });
+    if (tickersEua.length && tickersEua.length >= comprasEua) custoBrlEua = tickersEua.reduce(function (s, t) { return s + custosEua[t]; }, 0);
+  } catch (errCustoEua) { Logger.log('custoBrlAcoesEuaPorTicker_: ' + errCustoEua); }
   var agSomaAcoesEuaBrl = {
-    comprado: agSomaRV['Ações EUA'].comprado * cambioUsd,
+    comprado: custoBrlEua != null ? custoBrlEua : agSomaRV['Ações EUA'].comprado * cambioUsd,
     atualizado: agSomaRV['Ações EUA'].atualizado * cambioUsd,
     qtd: agSomaRV['Ações EUA'].qtd,
     comprar: agSomaRV['Ações EUA'].comprar,
@@ -207,6 +217,45 @@ function montarCarteirasHome_() {
     // carteiras-visao-geral.js).
     benchmarks: { cdi: cdiSelic.cdi }
   };
+}
+
+/**
+ * 05/10/2026 (A-22, auditoria): custo em REAIS de cada ação EUA que o Tiago tem hoje, com o câmbio do DIA
+ * DE CADA COMPRA (aux_historico-patrimonio) e custo médio na venda - a mesma regra do "Valor aplicado"
+ * do histórico (FluxoCaixaInicio.gs). Antes o "investido em R$" de cada linha era o custo em dólar x
+ * o câmbio de HOJE, então mudava todo dia e não batia com o histórico. Devolve { TICKER: custoBrl };
+ * ticker cuja compra não achou câmbio fica de fora (a tela cai no câmbio de hoje só pra ele).
+ * `abas` e `cambioHist` opcionais (quem já leu passa).
+ */
+function custoBrlAcoesEuaPorTicker_(ss, abas, cambioHist) {
+  var lidas = abas && abas.transacoesUsa ? abas : lerAbasLanc_(ss, ['transacoesUsa']); // Lancamentos.gs
+  var ch = cambioHist || mapaCambioHistoricoAporte_(ss); // Aportes.gs
+  var eventos = lidas.transacoesUsa.itens.filter(function (it) {
+    return it.data && it.ticker && /compra|venda/i.test(it.tipo) && it.qtd > 0;
+  }).map(function (it, i) { return { it: it, i: i }; });
+  eventos.sort(function (x, y) { return x.it.data < y.it.data ? -1 : (x.it.data > y.it.data ? 1 : x.i - y.i); });
+  var pos = {}, semCambio = {};
+  eventos.forEach(function (ev) {
+    var it = ev.it;
+    if (typeof tickerForaDoHistoricoInicio_ === 'function' && tickerForaDoHistoricoInicio_(it.ticker)) return;
+    var p = pos[it.ticker] || (pos[it.ticker] = { qtd: 0, custo: 0 });
+    if (/compra/i.test(it.tipo)) {
+      var cambio = cambioNaDataAporte_(ch, it.data);
+      if (!(cambio > 0)) { semCambio[it.ticker] = true; return; }
+      p.qtd += it.qtd;
+      p.custo += ((it.preco || 0) * it.qtd + (it.taxa || 0)) * cambio;
+    } else {
+      var resto = p.qtd - it.qtd;
+      var fracao = p.qtd > 0 ? (resto / p.qtd < 0.02 ? 1 : Math.min(1, it.qtd / p.qtd)) : 1; // venda que zera a posição (resíduo < 2%) fecha o custo
+      p.custo -= p.custo * fracao;
+      p.qtd = Math.max(0, p.qtd - it.qtd);
+    }
+  });
+  var out = {};
+  Object.keys(pos).forEach(function (t) {
+    if (!semCambio[t] && pos[t].qtd > 0) out[t] = Math.round(pos[t].custo * 100) / 100;
+  });
+  return out;
 }
 
 function arredondarCarteirasHome_(valor) {

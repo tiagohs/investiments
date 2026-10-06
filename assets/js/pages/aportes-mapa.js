@@ -26,23 +26,20 @@
 // As contas ficam em aportes-mapa-calc.js; aqui só o HTML. Os eventos (e a
 // posição do popover) ficam em aportes.js!ligarAportes, que já escuta a aba.
 
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD as usd, formatDM, formatDMAcurto, formatMesAno, formatPctSinal } from '../format.js';
 import { logoAtivoHtml, logoRendaFixaHtml } from './carteiras-classe-comum.js';
 import { CLASSES_APORTE, MESES_CURTOS } from './aportes-calc.js';
 import {
   classePorTicker, todasAsCompras, ultimosMeses, ativosDaClasseMapa, celulaMapa, mesesSemComprar,
   ehMesAtual, resumoUltimaRodada, popoverMapa, ultimaCompra,
 } from './aportes-mapa-calc.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { ic, corClasse, ativoCelHtml, secaoHtml, estadoVazioHtml } from './transacoes-ui.js'; // 06/10/2026 (Onda 3, kit Figma)
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const dm = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}` : '—');
-const dmaCurto = (k) => (k ? `${k.slice(8, 10)}/${k.slice(5, 7)}/${k.slice(2, 4)}` : '—');
-const usd = (v) => (typeof v === 'number' && Number.isFinite(v) ? `US$ ${formatNumeroBR(v)}` : '—');
+
 const dinheiro = (v, moeda) => (moeda === 'USD' ? usd(v) : formatBRL(v));
 const qtdTxt = (q) => (typeof q === 'number' ? formatNumeroBR(q, q % 1 ? 4 : 0) : '—');
-const pct = (v, casas = 1) => `${v > 0 ? '+' : ''}${formatNumeroBR(v * 100, casas)}%`;
-const rotuloMes = (chave) => `${MESES_CURTOS[Number(chave.slice(5, 7)) - 1]}/${chave.slice(2, 4)}`;
-const corClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).cor || '--ink-muted';
+const rotuloMes = (chave) => formatMesAno(chave);
 const nomeClasse = (id) => (CLASSES_APORTE.find((c) => c.id === id) || {}).nome || '';
 const milhar = (v) => (v >= 1000 ? `R$ ${formatNumeroBR(v / 1000, 1)} mil` : `R$ ${formatNumeroBR(Math.round(v), 0)}`);
 const PERIODOS_MAPA = [6, 12];
@@ -66,10 +63,10 @@ export function ativoDaCarteira(dados, classe, ativo) {
 
 function segClasseHtml(estado, contagens) {
   return `
-    <div class="tx-seg tx-mapa-seg" role="group" aria-label="Classe do mapa">
+    <div class="segmented tx-seg tx-mapa-seg" role="group" aria-label="Classe do mapa">
       ${CLASSES_APORTE.map((c) => `
         <button type="button" class="tx-seg-btn${estado.classeAtiva === c.id ? ' active' : ''}" data-mapa-classe="${c.id}" aria-pressed="${estado.classeAtiva === c.id}">
-          <span class="tx-dot" style="background:var(${c.cor})"></span><span class="tx-longo">${c.nome}</span><span class="tx-curto">${c.curto}</span>
+          <span class="tx-dot" style="background:var(${corClasse(c.id)})"></span><span class="tx-longo">${c.nome}</span><span class="tx-curto">${c.curto}</span>
           ${contagens[c.id] ? `<span class="tx-seg-n">${contagens[c.id]}</span>` : ''}
         </button>`).join('')}
     </div>`;
@@ -77,14 +74,14 @@ function segClasseHtml(estado, contagens) {
 
 function segPeriodoHtml(estado) {
   return `
-    <div class="tx-seg tx-mapa-seg tx-mapa-periodo" role="group" aria-label="Período do mapa">
+    <div class="segmented tx-seg tx-mapa-seg tx-mapa-periodo" role="group" aria-label="Período do mapa">
       ${PERIODOS_MAPA.map((p) => `<button type="button" class="tx-seg-btn${estado.periodo === p ? ' active' : ''}" data-mapa-periodo="${p}" aria-pressed="${estado.periodo === p}">${p} meses</button>`).join('')}
     </div>`;
 }
 
 function dicaCelula(ativo, mesChave, cel) {
-  const compras = cel.itens.map((c) => (cel.rf ? `${dm(c.data)} ${formatBRL(c.valor)}` : `${dm(c.data)} ${qtdTxt(c.qtd)} × ${dinheiro(c.preco, c.moeda)}`)).join(' · ');
-  const vs = cel.delta == null ? '' : ` · ${pct(cel.delta)} vs a compra anterior`;
+  const compras = cel.itens.map((c) => (cel.rf ? `${formatDM(c.data)} ${formatBRL(c.valor)}` : `${formatDM(c.data)} ${qtdTxt(c.qtd)} × ${dinheiro(c.preco, c.moeda)}`)).join(' · ');
+  const vs = cel.delta == null ? '' : ` · ${formatPctSinal(cel.delta)} vs a compra anterior`;
   return `${ativo} em ${rotuloMes(mesChave)}: ${compras}${vs}. Clique pra ver o detalhe.`;
 }
 
@@ -103,16 +100,16 @@ function celulaHtml(classe, ativo, mesChave, cel, selecionado, atual) {
 }
 
 function ultimaHtml(semComprar, ultima) {
-  if (!ultima) return '<span class="tx-chip tx-chip-fraco">nunca</span>';
-  if (semComprar != null && semComprar >= MESES_ALERTA) return `<span class="tx-chip warn" title="Última compra em ${dmaCurto(ultima.data)}">há ${semComprar} meses</span>`;
-  return `<span class="tx-chip tx-mono">${dmaCurto(ultima.data)}</span>`;
+  if (!ultima) return '<span class="chip-tonal tx-chip-fraco">nunca</span>';
+  if (semComprar != null && semComprar >= MESES_ALERTA) return `<span class="chip-tonal chip-warn" title="Última compra em ${formatDMAcurto(ultima.data)}">há ${semComprar} meses</span>`;
+  return `<span class="chip-tonal tx-mono">${formatDMAcurto(ultima.data)}</span>`;
 }
 
 function logoMapaHtml(classe, ativo) {
   return classe === 'rendaFixa' ? logoRendaFixaHtml({ indexador: /selic/i.test(ativo) ? 'SELIC' : (/ipca/i.test(ativo) ? 'IPCA' : ''), tipoInvestimento: ativo }) : logoAtivoHtml(ativo);
 }
 
-export function mapaHtml(estado, dados) {
+export function mapaHtml(estado, dados, { aberta = true } = {}) {
   const { mapaClasse, compras } = dadosDoMapa(dados);
   const meses = ultimosMeses(dados.hoje, estado.periodo);
   const ativos = ativosDaClasseMapa(estado.classeAtiva, dados.classes, compras);
@@ -125,7 +122,7 @@ export function mapaHtml(estado, dados) {
     const celulas = meses.map((m) => celulaMapa(compras, a.ativo, m));
     return `
       <tr>
-        <th class="tx-mapa-at" scope="row"><span class="tx-ativo">${logoMapaHtml(estado.classeAtiva, a.ativo)}<span class="tx-ativo-nome"><b>${esc(a.ativo)}</b>${a.nome ? `<small title="${esc(a.nome)}">${esc(a.nome)}</small>` : ''}</span></span></th>
+        <th class="tx-mapa-at" scope="row">${ativoCelHtml(logoMapaHtml(estado.classeAtiva, a.ativo), a.ativo, a.nome || '')}</th>
         ${meses.map((m, i) => celulaHtml(estado.classeAtiva, a.ativo, m, celulas[i], estado.selecionado, atual[i])).join('')}
         <td class="tx-mapa-ult">${ultimaHtml(semComprarPorAtivo.get(a.ativo), ultimaCompra(compras, a.ativo))}</td>
       </tr>`;
@@ -135,21 +132,16 @@ export function mapaHtml(estado, dados) {
   const nomeDaClasse = nomeClasse(estado.classeAtiva);
   const rodada = resumoUltimaRodada(compras, ativos, meses);
   const parados = ativos.filter((a) => { const n = semComprarPorAtivo.get(a.ativo); return n != null && n >= MESES_ALERTA; });
-  const chips = (lista) => `${lista.slice(0, 6).map((a) => `<span class="tx-chip">${esc(a.ativo)}</span>`).join('')}${lista.length > 6 ? `<span class="tx-fraco">+${lista.length - 6}</span>` : ''}`;
+  const chips = (lista) => `${lista.slice(0, 6).map((a) => `<span class="chip-tonal">${esc(a.ativo)}</span>`).join('')}${lista.length > 6 ? `<span class="tx-fraco">+${lista.length - 6}</span>` : ''}`;
   const resumoHtml = rodada ? `
     <div class="tx-mapa-resumo">
-      <span class="tx-mapa-resumo-item">${rodada.atual ? 'Mês em andamento' : 'Última rodada'}: <b>${rotuloMes(rodada.mes)}</b>${rodada.datas.length ? ` <span class="tx-fraco">(${rodada.datas.map(dm).join(', ')})</span>` : ''} · <b>${rodada.entraram.length} de ${ativos.length}</b> ${esc(nomeDaClasse)}</span>
+      <span class="tx-mapa-resumo-item">${rodada.atual ? 'Mês em andamento' : 'Última rodada'}: <b>${rotuloMes(rodada.mes)}</b>${rodada.datas.length ? ` <span class="tx-fraco">(${rodada.datas.map((d) => formatDM(d)).join(', ')})</span>` : ''} · <b>${rodada.entraram.length} de ${ativos.length}</b> ${esc(nomeDaClasse)}</span>
       ${rodada.ficaramDeFora.length && estado.classeAtiva !== 'rendaFixa' ? `<span class="tx-mapa-resumo-item">${rodada.atual ? 'Ainda não entraram' : 'Ficaram de fora'}: ${chips(rodada.ficaramDeFora)}</span>` : ''}
-      ${parados.length && estado.classeAtiva !== 'rendaFixa' ? `<span class="tx-mapa-resumo-item">${MESES_ALERTA}+ meses sem comprar: ${parados.map((a) => `<span class="tx-chip warn">${esc(a.ativo)}</span>`).join('')}</span>` : ''}
+      ${parados.length && estado.classeAtiva !== 'rendaFixa' ? `<span class="tx-mapa-resumo-item">${MESES_ALERTA}+ meses sem comprar: ${parados.map((a) => `<span class="chip-tonal chip-warn">${esc(a.ativo)}</span>`).join('')}</span>` : ''}
     </div>` : `<div class="tx-mapa-resumo"><span class="tx-mapa-resumo-item">Nenhuma compra de ${esc(nomeDaClasse)} nos últimos ${estado.periodo} meses.</span></div>`;
 
   const cabMeses = meses.map((m, i) => `<th scope="col"${atual[i] ? ' class="atual"' : ''}>${rotuloMes(m)}${atual[i] ? '<small>em andamento</small>' : ''}</th>`).join('');
-  return `
-    <section class="tx-secao" id="txMapaCompras" aria-labelledby="txMapaTitulo">
-      <div class="tx-secao-cab">
-        <h2 id="txMapaTitulo">Aportes realizados</h2>
-        <span class="hint">o que você comprou em cada mês · clique num quadrado pra ver a compra</span>
-      </div>
+  const corpo = `
       <div class="tx-mapa-card">
         <div class="tx-mapa-filtros">${segClasseHtml(estado, contagens)}${segPeriodoHtml(estado)}</div>
         ${resumoHtml}
@@ -160,7 +152,7 @@ export function mapaHtml(estado, dados) {
             <tbody>${linhas}</tbody>
             <tfoot><tr><td class="tx-mapa-at esq">Total${estado.classeAtiva === 'acoesEua' ? ' em R$' : ''}</td>${totais.map((v, i) => `<td class="tx-mapa-tot${atual[i] ? ' atual' : ''}">${v ? milhar(v) : '<span class="tx-fraco">—</span>'}</td>`).join('')}<td class="tx-mapa-ult"></td></tr></tfoot>
           </table>
-        </div>` : `<p class="tx-mapa-sem">Nenhum ativo de ${esc(nomeDaClasse)} na carteira.</p>`}
+        </div>` : estadoVazioHtml({ icone: 'inbox', titulo: `Nenhum ativo de ${nomeDaClasse} na carteira`, texto: 'Quando você cadastrar ativos dessa classe em Carteiras, o mapa de compras aparece aqui.' })}
         <div class="tx-mapa-leg">
           <span><b class="tx-mono">R$ 00,00</b> preço médio pago no mês e <span class="tx-mapa-q">×qtd</span></span>
           <span><b class="bad">▲</b> mais caro que a compra anterior</span>
@@ -169,15 +161,16 @@ export function mapaHtml(estado, dados) {
           ${estado.classeAtiva === 'acoesEua' ? '<span>EUA: preço em dólar; o total do mês e o detalhe mostram em reais (câmbio do dia)</span>' : ''}
         </div>
         <div class="tx-mapa-pop" id="txMapaPop" role="dialog" aria-label="Detalhe da compra"${estado.selecionado ? '' : ' hidden'}>${popoverMapaHtml(estado, dados, { mapaClasse, compras })}</div>
-      </div>
-    </section>`;
+      </div>`;
+  // 06/10/2026 (Onda 3): seção recolhível (fechada no celular); o id continua txMapaCompras (aportes.js redesenha por ele)
+  return secaoHtml({ id: 'txMapaCompras', chave: 'mapa', titulo: 'Aportes realizados', dica: 'o que você comprou em cada mês · toque num quadrado pra ver a compra', aberta, corpo });
 }
 
 function linhaPopoverHtml(item, rf) {
   const brl = item.moeda === 'USD' && item.valorBRL ? `<small>${formatBRL(item.valorBRL)} · câmbio ${formatNumeroBR(item.cambio, 2)}</small>` : '';
   return `
     <tr>
-      <td class="esq tx-mono">${dm(item.data)}</td>
+      <td class="esq tx-mono">${formatDM(item.data)}</td>
       <td>${rf ? '' : `<span class="tx-mapa-q">×${qtdTxt(item.qtd)}</span>`}</td>
       <td class="tx-mono">${rf ? '' : dinheiro(item.preco, item.moeda)}</td>
       <td class="tx-mono"><b>${dinheiro(item.valor, item.moeda)}</b>${brl}</td>
@@ -195,17 +188,17 @@ export function popoverMapaHtml(estado, dados, calculado = null) {
   if (!pop) return '';
   const dl = [];
   if (!pop.rf && pop.anterior && pop.delta != null) {
-    dl.push(`<dt>vs compra anterior<small>${dmaCurto(pop.anterior.data)} · ${dinheiro(pop.anterior.preco, pop.moeda)}</small></dt><dd><span class="tx-var ${pop.delta > 0 ? 'bad' : 'good'}">${pct(pop.delta)}</span><small>${pop.delta > 0 ? 'mais caro' : 'mais barato'}</small></dd>`);
+    dl.push(`<dt>vs compra anterior<small>${formatDMAcurto(pop.anterior.data)} · ${dinheiro(pop.anterior.preco, pop.moeda)}</small></dt><dd><span class="tx-var chip-tonal ${pop.delta > 0 ? 'chip-bad' : 'chip-good'}">${formatPctSinal(pop.delta)}</span><small>${pop.delta > 0 ? 'mais caro' : 'mais barato'}</small></dd>`);
   } else if (!pop.rf) {
     dl.push('<dt>vs compra anterior</dt><dd><small>primeira compra</small></dd>');
   }
   if (!pop.rf && pop.vsHoje != null) {
-    dl.push(`<dt>vs cotação de hoje<small>${dinheiro(precoAtual, pop.moeda)}</small></dt><dd><span class="tx-var ${pop.vsHoje > 0 ? 'good' : 'bad'}">${pct(pop.vsHoje)}</span><small>${pop.vsHoje > 0 ? 'valorizou desde então' : 'hoje está mais barato'}</small></dd>`);
+    dl.push(`<dt>vs cotação de hoje<small>${dinheiro(precoAtual, pop.moeda)}</small></dt><dd><span class="tx-var chip-tonal ${pop.vsHoje > 0 ? 'chip-good' : 'chip-bad'}">${formatPctSinal(pop.vsHoje)}</span><small>${pop.vsHoje > 0 ? 'valorizou desde então' : 'hoje está mais barato'}</small></dd>`);
   }
   if (!pop.rf && precoMedioHoje) dl.push(`<dt>seu preço médio hoje</dt><dd><b>${dinheiro(precoMedioHoje, pop.moeda)}</b></dd>`);
   if (pop.moeda === 'USD' && pop.pagoBRL) {
     dl.push(`<dt>em reais<small>câmbio ${formatNumeroBR(pop.cambioMedio, 2)} no dia → ${formatNumeroBR(dados.cambio, 2)} hoje</small></dt><dd><b>${formatBRL(pop.pagoBRL)}</b><small>hoje valem ${pop.hojeBRL != null ? formatBRL(pop.hojeBRL) : '—'}</small></dd>`);
-    if (pop.efeitoDolar != null) dl.push(`<dt>efeito do dólar<small>só pela variação do câmbio</small></dt><dd><span class="tx-var ${pop.efeitoDolar > 0 ? 'good' : 'bad'}">${pct(pop.efeitoDolar)}</span></dd>`);
+    if (pop.efeitoDolar != null) dl.push(`<dt>efeito do dólar<small>só pela variação do câmbio</small></dt><dd><span class="tx-var chip-tonal ${pop.efeitoDolar > 0 ? 'chip-good' : 'chip-bad'}">${formatPctSinal(pop.efeitoDolar)}</span></dd>`);
   }
   if (pop.rf) dl.push(`<dt>aplicado no mês</dt><dd><b>${formatBRL(pop.valor)}</b></dd>`);
   const podeRepetir = !!naCarteira;
@@ -213,7 +206,7 @@ export function popoverMapaHtml(estado, dados, calculado = null) {
     <div class="tx-mapa-pop-cab">
       <span class="tx-mapa-pop-classe" style="--cor:var(${corClasse(estado.classeAtiva)})">${esc(nomeClasse(estado.classeAtiva))}</span>
       <b>${esc(sel.ativo)}</b><span class="tx-fraco">${rotuloMes(sel.mes)}${pop.itens.length > 1 ? ` · ${pop.itens.length} compras` : ''}</span>
-      <button type="button" class="tx-mapa-pop-fechar" data-mapa-fechar aria-label="Fechar">×</button>
+      <button type="button" class="icon-btn tx-mapa-pop-fechar" data-mapa-fechar aria-label="Fechar">${ic('close')}</button>
     </div>
     <table class="tx-mapa-pop-t">
       <thead><tr><th class="esq">Data</th><th>Qtd</th><th>Preço</th><th>Total</th></tr></thead>
@@ -222,10 +215,10 @@ export function popoverMapaHtml(estado, dados, calculado = null) {
     ${dl.length ? `<dl class="tx-mapa-pop-dl">${dl.join('')}</dl>` : ''}
     ${pop.mesmoDia.length ? `
       <div class="tx-mapa-pop-junto"><span>${pop.itens.length > 1 ? 'Nessas datas' : 'No mesmo dia'} você também comprou</span>
-        <div>${pop.mesmoDia.map((c) => `<span class="tx-chip" title="${esc(c.qtd ? `${qtdTxt(c.qtd)} · ${dinheiro(c.valor, c.classe === 'acoesEua' ? 'USD' : 'BRL')}` : formatBRL(c.valor))}"><span class="tx-dot" style="background:var(${corClasse(c.classe)})"></span>${esc(c.ativo)}</span>`).join('')}</div>
+        <div>${pop.mesmoDia.map((c) => `<span class="chip-tonal" title="${esc(c.qtd ? `${qtdTxt(c.qtd)} · ${dinheiro(c.valor, c.classe === 'acoesEua' ? 'USD' : 'BRL')}` : formatBRL(c.valor))}"><span class="tx-dot" style="background:var(${corClasse(c.classe)})"></span>${esc(c.ativo)}</span>`).join('')}</div>
       </div>` : ''}
     <div class="tx-mapa-pop-rod">
-      ${!pop.rf ? `<button type="button" class="btn btn-ghost tx-btn-sm" data-mapa-grafico="${esc(sel.ativo)}">Ver lançamentos e gráfico</button>` : ''}
-      ${podeRepetir ? `<button type="button" class="btn btn-primary tx-btn-sm" data-mapa-repetir="${esc(sel.ativo)}|${sel.mes}">Repetir no carrinho</button>` : ''}
+      ${!pop.rf ? `<button type="button" class="btn btn-outlined btn-sm" data-mapa-grafico="${esc(sel.ativo)}">Ver lançamentos e gráfico</button>` : ''}
+      ${podeRepetir ? `<button type="button" class="btn btn-filled btn-sm" data-mapa-repetir="${esc(sel.ativo)}|${sel.mes}">Repetir no carrinho</button>` : ''}
     </div>`;
 }

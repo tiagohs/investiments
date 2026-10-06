@@ -210,6 +210,28 @@ function handleHome(e, auth) {
   return jsonOut(resposta);
 }
 
+/**
+ * 05/10/2026 (A-21, auditoria): série da Início COM o último ponto empalmado ao vivo (os mesmos valores
+ * dos cards). Antes só handleHome fazia o empalme; quem lia montarSerieHistoricoInicio_ direto (cache por
+ * contagem de linhas = fechamento do último sync) via no "hoje" um número diferente do card da Início.
+ * Telas que mostram o valor de HOJE da série devem usar esta função (ou chamar
+ * sincronizarUltimoPontoHistoricoComAoVivo_ em cima da série); quem só olha o passado (CDI de 12 meses,
+ * investido por mês) pode continuar com montarSerieHistoricoInicio_. Nunca derruba: sem dados ao vivo,
+ * devolve a série como veio.
+ * @param {Array} [dadosRendaFixaCache] ver montarSerieHistoricoInicio_
+ * @param {Object} [dadosHome] montarHome_() já lido por quem chama (senão lê aqui)
+ */
+function montarSerieHistoricoInicioAoVivo_(dadosRendaFixaCache, dadosHome) {
+  var serie = montarSerieHistoricoInicio_(dadosRendaFixaCache);
+  if (!serie || !serie.length) return serie;
+  try {
+    sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome || montarHome_());
+  } catch (err) {
+    Logger.log('montarSerieHistoricoInicioAoVivo_: ' + err);
+  }
+  return serie;
+}
+
 function testarHomeDireto() {
   var dados = montarHome_();
   Logger.log(JSON.stringify(dados, null, 2));
@@ -258,7 +280,20 @@ function montarHome_() {
   var spxValor = blocoAux[8][0]; // B15
   var spxVar = blocoAux[9][0]; // B16
 
-  var usd = distribuicaoMetas.getRange(localDistribuicaoMetas_(distribuicaoMetas).dolar).getValue(); // 26/09/2026: era K56 fixo (Planilha.gs)
+  // 26/09/2026: era K56 fixo (Planilha.gs). 05/10/2026 (A-22): getValue() cru devolvia texto/vazio/erro da
+  // célula e virava NaN/0 nas contas de câmbio - agora só entra número > 0 (cotacaoDolarHoje_, Planilha.gs, a
+  // mesma leitura do resto do sistema); se a célula estiver ruim, usa o último dólar guardado em
+  // aux_historico-patrimonio e marca `usdDefasado` (a tela pode avisar), em vez de mandar lixo.
+  var usd = cotacaoDolarHoje_(ss);
+  var usdDefasado = false;
+  if (!(usd > 0)) {
+    usd = null;
+    try {
+      var cambioHist = mapaCambioHistoricoAporte_(ss); // Aportes.gs
+      if (cambioHist.chaves.length) { usd = cambioHist.mapa[cambioHist.chaves[cambioHist.chaves.length - 1]]; usdDefasado = true; }
+    } catch (eUsd) { usd = null; }
+    if (!(usd > 0)) usd = null;
+  }
 
   return {
     patrimonio: {
@@ -280,7 +315,8 @@ function montarHome_() {
     },
     cambio: {
       usd: usd,
-      eur: eur
+      usdDefasado: usdDefasado,
+      eur: typeof eur === 'number' && isFinite(eur) && eur > 0 ? eur : null // 05/10/2026 (A-22): mesma sanitização do dólar
     }
   };
 }

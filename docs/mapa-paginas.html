@@ -123,7 +123,7 @@
   <header class="hero">
     <div class="eyebrow">Antes de tocar em qualquer HTML</div>
     <h1>Mapa de páginas</h1>
-    <p>Como as 6 páginas principais e suas sub-páginas ficam organizadas, o que cada uma mostra, de onde vem o dado (planilha real, cálculo, ou algo que você vai cadastrar) e o que ainda falta decidir. Nada aqui foi construído ainda — é só o plano pra revisarmos juntos.</p>
+    <p>Como as páginas principais e suas sub-páginas ficam organizadas, o que cada uma mostra, de onde vem o dado (planilha real, cálculo, ou algo que você cadastra) e o que ainda falta decidir. <b>Atualizado em 06/10/2026:</b> o site já está construído — a árvore de navegação e a seção "Páginas e abas hoje" refletem o que existe; as seções "Como o HTML vai ser organizado" e "Página a página" são o plano original (09/2026) e ficam como registro das decisões.</p>
   </header>
 
   <h2 class="section-title">Como o HTML vai ser organizado</h2>
@@ -154,40 +154,113 @@ organizacao/salario-renda-emergencial.html
   <div class="navtree">
     <ul>
       <li class="top">Início</li>
-      <li class="top">Distribuições e Metas</li>
+      <li class="top">Acompanhamento de Ativos <span class="mono" style="font-size:12px">(era "Distribuições e Metas"; arquivo <span class="mono">distribuicoes-metas.html</span>)</span></li>
+      <li class="top">Metas e Objetivos <span class="mono" style="font-size:12px">(novo em 02/10/2026)</span>
+        <ul>
+          <li class="sub">Lista de metas + assistente de criação</li>
+          <li class="sub">Detalhe da meta (por tipo)</li>
+        </ul>
+      </li>
       <li class="top">Carteiras
         <ul>
+          <li class="sub">Visão geral</li>
           <li class="sub">Ações</li>
           <li class="sub">FIIs</li>
           <li class="sub">Ações Internacionais</li>
           <li class="sub">Renda Fixa</li>
-          <li class="sub">Detalhe do Ativo (clicando em qualquer linha da tabela)</li>
+          <li class="sub">+ Adicionar ativo</li>
+          <li class="sub">Detalhe do Ativo <span class="mono" style="font-size:12px">(<span class="mono">ativo/index.html</span> — abas Visão geral, Extrato, Patrimônio [só FII], Sobre e IR)</span></li>
         </ul>
       </li>
       <li class="top">Transações
         <ul>
-          <li class="sub">Registros de Compras</li>
-          <li class="sub">Transações Brasileiras <span class="mono" style="font-size:12px">(importar da B3 + manual)</span></li>
-          <li class="sub">Transações Internacionais <span class="mono" style="font-size:12px">(manual)</span></li>
-          <li class="sub">Transações Renda Fixa <span class="mono" style="font-size:12px">(manual)</span></li>
+          <li class="sub">Aportes <span class="mono" style="font-size:12px">(carrinho, fluxo EUA, renda fixa por valor)</span></li>
+          <li class="sub">Lançamentos <span class="mono" style="font-size:12px">(importar extratos B3/IBKR)</span></li>
         </ul>
       </li>
-      <li class="top">Proventos e Dividendos
-        <ul>
-          <li class="sub">Nacionais <span class="mono" style="font-size:12px">(abas internas: Consolidado / Agenda)</span></li>
-          <li class="sub">Internacionais <span class="mono" style="font-size:12px">(abas internas: Consolidado / Agenda)</span></li>
-        </ul>
-      </li>
+      <li class="top">Proventos <span class="mono" style="font-size:12px">(uma página; conferência B3 e agenda)</span></li>
       <li class="top">Organização Financeira
         <ul>
-          <li class="sub">Despesas Essenciais</li>
-          <li class="sub">Salário e Renda Emergencial</li>
+          <li class="sub">Patrimônio</li>
+          <li class="sub">Gastos e Despesas</li>
+          <li class="sub">Renda e Orçamentos</li>
+          <li class="sub">Simulações</li>
+          <li class="sub">Documentos <span class="mono" style="font-size:12px">(painel no topo das 4 abas)</span></li>
         </ul>
       </li>
     </ul>
   </div>
 
-  <h2 class="section-title">Página a página</h2>
+  <h2 class="section-title">Páginas e abas hoje (06/10/2026)</h2>
+  <p class="section-hint">Visão rápida do que existe. Para o mapa completo tela → arquivos → ação do Web App → .gs → abas, veja <span class="mono">docs/guia-desenvolvimento.md</span>.</p>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Início e Acompanhamento de Ativos</h3></div>
+    <p class="purpose">Painel do dia a dia e o que você tem × o que quer ter.</p>
+    <div class="rows">
+      <div class="row"><span class="label">Início — patrimônio total / longo prazo / renda emergencial, rentabilidade (TWR) vs. índices, "Ontem era / Setembro era…", análise abaixo dos gráficos, gráfico do dia, índices e câmbio, Meus Ativos e favoritos</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Acompanhamento de Ativos — Objetivos da Carteira, Radar de oportunidades (ranking, preço-teto, viés), Metas da Carteira ligadas a Metas e Objetivos</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Todos os gráficos de série temporal: filtro de período + "Escolher período" (calendário)</span><span class="tag new">nova automação</span></div>
+    </div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Metas e Objetivos</h3></div>
+    <p class="purpose">Metas por tipo, ligadas aos ativos, com projeção, marcos e dicas.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Renda passiva</span><span class="subpage-chip">Reserva de emergência</span><span class="subpage-chip">Aposentadoria</span>
+      <span class="subpage-chip">Viagem internacional</span><span class="subpage-chip">Viagem nacional</span><span class="subpage-chip">Comprar casa</span>
+      <span class="subpage-chip">Comprar carro</span><span class="subpage-chip">Juntar até uma data (12 categorias)</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Vínculo a ativos (por classe, marca ou ativo), sub-itens de custo, saldo em conta, câmbio multimoeda, entradas programadas</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Histórico mensal, ritmo real, projeção, 75%/50% do tempo, marcos de cada milhão, vencimentos de renda fixa, sugestões de investimento</span><span class="tag real">dado real</span></div>
+    </div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Carteiras e Detalhe do Ativo</h3></div>
+    <p class="purpose">Posição por classe e a ficha de cada ativo.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Visão geral</span><span class="subpage-chip">Ações</span><span class="subpage-chip">FIIs</span>
+      <span class="subpage-chip">Ações Internacionais</span><span class="subpage-chip">Renda Fixa</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Gráficos por classe vs. índices, tabelas, proventos da classe, card da meta de renda passiva</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Detalhe do Ativo — visão geral, extrato, <b>Patrimônio do FII</b> (imóveis, CRI, mapa), sobre/IR, análise por critérios (fundamentos + metas + macro), notícias, teses e vídeos dos canais do ativo</span><span class="tag real">dado real</span></div>
+    </div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Transações e Proventos</h3></div>
+    <p class="purpose">Aportes, lançamentos e a conferência do que foi pago.</p>
+    <div class="subpages-row"><span class="subpage-chip">Aportes</span><span class="subpage-chip">Lançamentos</span></div>
+    <div class="rows">
+      <div class="row"><span class="label">Aportes — carrinho (merge no mesmo dia, expira no dia), mini-carrinho no header, fluxo Ações EUA (remessa BRL→USD e caixa em dólar), renda fixa por valor</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Lançamentos — importar extratos B3/IBKR com pré-visualização</span><span class="tag new">nova automação</span></div>
+      <div class="row"><span class="label">Proventos — consolidado e agenda, "pago presumido" quando a data passou, conferência com o extrato da B3, anunciados via FNet</span><span class="tag real">dado real</span></div>
+    </div>
+  </div>
+
+  <div class="pagecard">
+    <div class="pagecard-head"><h3>Organização Financeira</h3></div>
+    <p class="purpose">Patrimônio, gastos, renda e simulações — com os documentos que alimentam cada uma.</p>
+    <div class="subpages-row">
+      <span class="subpage-chip">Patrimônio</span><span class="subpage-chip">Gastos e Despesas</span>
+      <span class="subpage-chip">Renda e Orçamentos</span><span class="subpage-chip">Simulações</span>
+    </div>
+    <div class="rows">
+      <div class="row"><span class="label">Patrimônio — balanço, histórico, financiamento e FIES, FGTS, carreira, Patrimônio × Inflação, importação de documentos (IR, extratos)</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Gastos e Despesas — despesas essenciais (renda de emergência) + gastos importados das faturas e extratos do Drive</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Renda e Orçamentos — salário pelo IR e pelos holerites do Drive, crescimento, quanto investir por mês, contas do IR</span><span class="tag real">dado real</span></div>
+      <div class="row"><span class="label">Simulações — amortizar × investir (regra de prazo da Caixa, FGTS no prazo, FIES), exemplos de 2/3/4 parcelas, 1º milhão</span><span class="tag new">nova automação</span></div>
+      <div class="row"><span class="label">Documentos — o que enviar todo mês e de vez em quando, o que o site já acha no Drive, e <b>sempre</b> o envio manual</span><span class="tag new">nova automação</span></div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-bottom:8px"><b>Nomes antigos que continuam em URLs/arquivos:</b> <span class="mono">distribuicoes-metas.html</span> (Acompanhamento de Ativos) e <span class="mono">organizacao/despesas.html</span> (Organização Financeira). <b>Também existe</b> <span class="mono">teste.html</span> (scaffold da Fase 0, fora do app) e <span class="mono">login.html</span>.</div>
+
+  <h2 class="section-title">Página a página (plano original, 09/2026)</h2>
   <p class="section-hint">Legenda: <span class="tag real" style="margin-right:6px">dado real</span> já existe e foi conferido na planilha · <span class="tag edit" style="margin-right:6px">você cadastra</span> valor que você define e fica salvo · <span class="tag new" style="margin-right:6px">nova automação</span> fluxo novo que estamos desenhando agora · <span class="tag open">a decidir</span> ainda sem resposta.</p>
 
   <div class="pagecard">
@@ -212,7 +285,7 @@ organizacao/salario-renda-emergencial.html
       <div class="row"><span class="label">Radar de oportunidades — ranking, preço teto, viés, descontos</span><span class="tag real">dado real</span></div>
       <div class="row"><span class="label">FIIs por tipo — Tijolo / Papel / Híbrido</span><span class="tag real">dado real</span></div>
       <div class="row"><span class="label">Metas da Carteira — Renda Passiva (meta mensal × média de proventos)</span><span class="tag edit">você cadastra</span></div>
-      <div class="row"><span class="label">Metas da Carteira — Patrimônio (meta × patrimônio atual), campo pré-preenchido com a sugestão do cálculo FIRE já existente na planilha (R$ 3.472.951,25) — você pode aceitar ou trocar por outro valor</span><span class="tag edit">você cadastra</span></div>
+      <div class="row"><span class="label">Metas da Carteira — Patrimônio (meta × patrimônio atual), campo pré-preenchido com a sugestão do cálculo FIRE já existente na planilha (valor calculado pela planilha) — você pode aceitar ou trocar por outro valor</span><span class="tag edit">você cadastra</span></div>
     </div>
     <div class="note">Fonte: aba <b>Distribuição e Metas</b> da planilha (Objetivos da Carteira, ranking de Ações/FIIs/Internacional, bloco "Cálculo futuro de patrimônio" em K17:S19) — meta mensal e meta de patrimônio são valores que você edita quando quiser, e ficam salvos.</div>
   </div>
@@ -290,7 +363,7 @@ organizacao/salario-renda-emergencial.html
       <div class="row"><span class="label">Renda Emergencial — média de gastos mensais, meses de reserva desejados, valor alvo da reserva (com e sem margem de segurança de 10%)</span><span class="tag real">dado real</span></div>
       <div class="row"><span class="label">Salário — líquido mensal, % e valor destinado a investir</span><span class="tag real">dado real</span></div>
     </div>
-    <div class="note">Fonte confirmada célula a célula na aba <b>Distribuição e Metas</b>: bloco "Renda Emergencial: Média de Gastos" em K8, tabela em K10:M11 (Média de Gastos R$ 9.891,80 · Meses 6 · Total R$ 59.350,83), linha 12 acrescenta a margem de segurança de 10% (R$ 65.285,91, rótulo "Sobra"). Bloco "Salário" em N8, com Líquido em N11 (R$ 14.961,37) e % + valor mensal a investir em Q11/S11 (20% → R$ 2.992,27). Isso é separado da aba <b>Despesas Essenciais</b> (total R$ 9.891,80/mês), que é a fonte de origem do mesmo número de "Média de Gastos".</div>
+    <div class="note">Fonte confirmada célula a célula na aba <b>Distribuição e Metas</b>: bloco "Renda Emergencial: Média de Gastos" em K8, tabela em K10:M11 (Média de Gastos · Meses · Total), linha 12 acrescenta a margem de segurança de 10% (rótulo "Sobra"). Bloco "Salário" em N8, com Líquido em N11 e % + valor mensal a investir em Q11/S11. Isso é separado da aba <b>Despesas Essenciais</b> (total mensal), que é a fonte de origem do mesmo número de "Média de Gastos".</div>
   </div>
 
   <h2 class="section-title">Decisões já tomadas</h2>
@@ -312,7 +385,7 @@ organizacao/salario-renda-emergencial.html
     <div class="decision"><span class="ic">✓</span>Benchmark de Renda Fixa é sempre CDI + Selic — em Carteiras e no Detalhe do Ativo, mesmo pra títulos indexados ao IPCA. Um único padrão em todo o app, em vez de variar por indexador do título.</div>
     <div class="decision"><span class="ic">✓</span>Benchmark da Home também varia por visão: Total e Longo Prazo usam Ibovespa + CDI; Renda Emergencial usa CDI + Selic, porque é 100% Renda Fixa.</div>
     <div class="decision"><span class="ic">✓</span>Células exatas de Renda Emergencial e Salário confirmadas na aba Distribuição e Metas (K8:S12) — ver nota da página Organização Financeira.</div>
-    <div class="decision"><span class="ic">✓</span>Meta de Patrimônio, em Distribuições e Metas, vem pré-preenchida com a sugestão do cálculo FIRE que já existe na planilha (R$ 3.472.951,25) — você edita se quiser outro valor.</div>
+    <div class="decision"><span class="ic">✓</span>Meta de Patrimônio, em Distribuições e Metas, vem pré-preenchida com a sugestão do cálculo FIRE que já existe na planilha (valor calculado pela planilha) — você edita se quiser outro valor.</div>
     <div class="decision"><span class="ic">✓</span>Proventos de Renda Fixa (juros) não entram na página Proventos e Dividendos — a planilha não tem essa aba pra Renda Fixa. Aparecem só dentro do Detalhe do Ativo de cada título.</div>
     <div class="decision"><span class="ic">✓</span>GOOGLEFINANCE do S&amp;P 500 testado por você direto na planilha e retornou valor — benchmark de Ações Internacionais confirmado, não é mais suposição.</div>
     <div class="decision"><span class="ic">✓</span>Transações Brasileiras ganha importação automática do extrato da B3 (.xlsx): lida no navegador com a biblioteca gratuita SheetJS, pré-visualização editável antes de confirmar, sem exigir uma segunda implantação do Apps Script. Internacional e Renda Fixa continuam sempre manuais.</div>
@@ -333,5 +406,5 @@ organizacao/salario-renda-emergencial.html
     <div class="question"><span class="ic">?</span>Os gráficos agregados detalhados de FIIs/Ações EUA (colunas exatas, olhando as abas 📈Dash correspondentes) — decidir com calma quando chegarmos lá.</div>
   </div>
 
-  <footer>Nenhum HTML de app foi alterado — este é só o plano de páginas.</footer>
+  <footer>Plano original de 09/2026; árvore de navegação e "Páginas e abas hoje" atualizadas em 06/10/2026.</footer>
 </div>

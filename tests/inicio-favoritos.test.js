@@ -13,10 +13,18 @@ import { JSDOM } from 'jsdom';
 import {
   idFavoritoDoAtivo, alternarFavorito, moverFavorito, resolverFavoritos,
 } from '../assets/js/pages/inicio-favoritos.js';
-import { montarPaginaInicio, criarAtivoCard, renderMeusAtivos } from '../assets/js/pages/inicio.js';
+import { montarPaginaInicio, criarAtivoCard } from '../assets/js/pages/inicio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PAGES_HTML = fs.readFileSync(path.join(__dirname, '..', 'assets', 'partials', 'pages.html'), 'utf8');
+
+// 06/10/2026 (Onda 3): a grade antiga (renderMeusAtivos) saiu do código; este atalho faz o mesmo que ela fazia (cards, estrela acesa pelos favoritos).
+function renderMeusAtivos(doc, container, ativos, filtroClasse = 'todos') {
+  container.innerHTML = '';
+  const favs = container._favoritosIds;
+  (ativos || []).filter((a) => filtroClasse === 'todos' || a.classe === filtroClasse)
+    .forEach((a) => container.appendChild(criarAtivoCard(doc, a, { favorito: !!(favs && favs.has(idFavoritoDoAtivo(a))) })));
+}
 
 const ATIVOS = [
   { classe: 'acoes', ticker: 'AAAA3', precoAtual: 10, variacaoDia: 0.01 },
@@ -81,9 +89,12 @@ test('Início: faixa de mercado -> Favoritos -> Minha carteira -> Rentabilidade 
   assert.ok(lateral.contains(doc.getElementById('proventosSecao')));
   assert.ok(lateral.contains(doc.getElementById('meusAtivosGrid')));
   assert.ok(doc.querySelector('.home-colunas > .home-principal').contains(doc.getElementById('periodoTabs')));
-  const cards = [...doc.querySelectorAll('.rentab-grid > .rentab-card')];
+  // 06/10/2026 (Onda 3): o Total fica sozinho em cima; as outras 4 visões moram num <details> ("Por visão"), 2 a 2
+  const cards = [...doc.querySelectorAll('.home-principal .rentab-card')];
   assert.deepEqual(cards.map((c) => c.querySelector('.rentab-card-info').id), ['rentabInfoTotal', 'rentabInfoLongoPrazo', 'rentabInfoNacional', 'rentabInfoInternacional', 'rentabInfoRendaEmergencial']);
   assert.deepEqual(cards.map((c) => c.classList.contains('rentab-card-full')), [true, false, false, false, false], 'só o Total ocupa a linha inteira; os outros 4 ficam 2 a 2');
+  assert.equal(doc.querySelectorAll('.rentab-mais .rentab-subgrid > .rentab-card').length, 4, 'as 4 visões ficam num bloco recolhível (celular)');
+  assert.ok(doc.getElementById('inicioCabecalho'), 'cabeçalho padrão da página');
 });
 
 test('Início: painel "Ações Internacionais" desenha com valor = Ações EUA em reais e legenda S&P 500 + Ibovespa', async () => {
@@ -124,7 +135,7 @@ test('Meus ativos: estrela em toda linha; clicar favorita sem navegar, aparece n
 
 test('Meus ativos: trocar a aba de classe mantém a estrela acesa dos favoritos', async () => {
   const { dom, doc, meus } = await montar({ favoritos: ['fiis:BBBB11'] });
-  doc.querySelector('#filtroAtivosTabs .al-aba[data-classe="fiis"]').dispatchEvent(evento(dom, 'click'));
+  doc.querySelector('#filtroAtivosTabs .tab[data-tab="fiis"]').dispatchEvent(evento(dom, 'click'));
   assert.equal(meus.querySelectorAll('.al-item').length, 1);
   assert.equal(meus.querySelector('.ativo-fav-btn').getAttribute('aria-pressed'), 'true');
 });

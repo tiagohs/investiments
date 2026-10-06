@@ -23,6 +23,7 @@
  * Datas: meses 'aaaa-mm', dias 'aaaa-mm-dd'. Taxas em fração (0,05 = 5%).
  */
 import { valorDoMes } from './salario-calc.js';
+import { formatNumeroPt, MESES_CURTOS, formatMesAno, formatDMA, formatPctAbs, formatBRL0 } from '../format.js'; // 05/10/2026 (A-68)
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -343,9 +344,7 @@ export function cagrSalario(linhas, ipca = IPCA_MENSAL) {
 export function analisarSalario(linhas, ipca = IPCA_MENSAL) {
   const ls = (linhas || []).filter((l) => l && num(l.brutoMensal) && l.brutoMensal > 0);
   if (ls.length < 2) return null;
-  const p1 = (v, casas = 1) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
-  const abs1 = (v) => `${Math.abs(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
-  const brl = (v) => `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
+  const p1 = (v, casas = 1) => `${v >= 0 ? '+' : '−'}${formatNumeroPt(Math.abs(v * 100), { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
   const tomDe = (real) => (real > 0.005 ? 'bom' : (real < -0.005 ? 'atencao' : 'neutro'));
   const juntar = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`);
   const pontos = [];
@@ -358,7 +357,7 @@ export function analisarSalario(linhas, ipca = IPCA_MENSAL) {
   const tom = tomDe(c.real);
   pontos.push({
     tipo: 'comparacao', tom, peso: 10,
-    texto: `De ${c.de} a ${rotFim} o salário do mês foi de ${brl(ls[0].brutoMensal)} pra ${brl(ultimo.brutoMensal)} (bruto): ${p1(c.nominal)} ao ano, contra ${abs1(inflAno)} ao ano do IPCA - ${c.real >= 0 ? 'ganho' : 'perda'} real de ${abs1(c.real)} ao ano (${p1(c.acimaInflacao, 0)} de poder de compra no total).`,
+    texto: `De ${c.de} a ${rotFim} o salário do mês foi de ${formatBRL0(ls[0].brutoMensal)} pra ${formatBRL0(ultimo.brutoMensal)} (bruto): ${p1(c.nominal)} ao ano, contra ${formatPctAbs(inflAno)} ao ano do IPCA - ${c.real >= 0 ? 'ganho' : 'perda'} real de ${formatPctAbs(c.real)} ao ano (${p1(c.acimaInflacao, 0)} de poder de compra no total).`,
   });
 
   const fechados = ls.filter((l) => !l.parcial && num(l.real));
@@ -367,7 +366,7 @@ export function analisarSalario(linhas, ipca = IPCA_MENSAL) {
     const acima = ultFechado.real >= 0;
     pontos.push({
       tipo: 'ultimoAno', tom: tomDe(ultFechado.real), peso: 8,
-      texto: `Em ${ultFechado.ano} o salário ${ultFechado.nominal >= 0 ? 'subiu' : 'caiu'} ${abs1(ultFechado.nominal)}, com IPCA de ${abs1(ultFechado.ipca.taxa)} no ano: ficou ${abs1(ultFechado.real)} ${acima ? 'acima' : 'abaixo'} da inflação.`,
+      texto: `Em ${ultFechado.ano} o salário ${ultFechado.nominal >= 0 ? 'subiu' : 'caiu'} ${formatPctAbs(ultFechado.nominal)}, com IPCA de ${formatPctAbs(ultFechado.ipca.taxa)} no ano: ficou ${formatPctAbs(ultFechado.real)} ${acima ? 'acima' : 'abaixo'} da inflação.`,
     });
   }
 
@@ -393,7 +392,7 @@ export function analisarSalario(linhas, ipca = IPCA_MENSAL) {
     const inf = ultimo.ipca;
     pontos.push({
       tipo: 'parcial', tom: num(ultimo.real) ? tomDe(ultimo.real) : 'neutro', peso: 6,
-      texto: `${ultimo.ano} até agora: salário do mês ${p1(ultimo.nominal)} sobre a média de ${ultimo.ano - 1}${inf ? `, com IPCA de ${abs1(inf.taxa)} em ${inf.meses} ${inf.meses === 1 ? 'mês' : 'meses'}` : ''}.`,
+      texto: `${ultimo.ano} até agora: salário do mês ${p1(ultimo.nominal)} sobre a média de ${ultimo.ano - 1}${inf ? `, com IPCA de ${formatPctAbs(inf.taxa)} em ${inf.meses} ${inf.meses === 1 ? 'mês' : 'meses'}` : ''}.`,
     });
   }
 
@@ -537,9 +536,9 @@ export function contasDoIr(irAnos) {
 // Documentos: o que chega sozinho, o que mandar e quando
 // ---------------------------------------------------------------------------
 
-const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const rotMes = (m) => { const [a, mm] = String(m || '').split('-'); return a && mm ? `${MESES_CURTOS[Number(mm) - 1]}/${a}` : ''; };
-const dataCurta = (iso) => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : rotMes(iso); };
+
+const rotMes = (m) => formatMesAno(m, { anoCurto: false });
+const dataCurta = (iso) => formatDMA(iso, '') || rotMes(iso);
 
 /**
  * Lista dos documentos desta aba: { id, nome, frequencia, automatico,

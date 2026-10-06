@@ -88,10 +88,10 @@ function lerBRL(t) {
     const v = Number(m[3].replace(/\./g, '').replace(',', '.'));
     return (m[1] || m[2]) ? -v : v;
   }
-  // 24/09/2026: Ações EUA em dólar ("$3,225.62")
-  const u = String(t).match(/([-−])?\s*(?:US)?\$\s*([-−])?([\d,]+\.\d{2})/);
+  // 24/09/2026: Ações EUA em dólar ("US$ 3.225,62")
+  const u = String(t).match(/([-−])?\s*US\$\s*([-−])?([\d.]+,\d{2})/);
   if (!u) return null;
-  const vu = Number(u[3].replace(/,/g, ''));
+  const vu = Number(u[3].replace(/\./g, '').replace(',', '.'));
   return (u[1] || u[2]) ? -vu : vu;
 }
 function lerPct(t) {
@@ -101,28 +101,37 @@ function lerPct(t) {
   return (m[1] === '-' || m[1] === '−') ? -v : v;
 }
 function lerDelta(t) {
-  const m = String(t).match(/([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))\s+([+\-−]?[\d.]+,\d+)%/);
+  const m = String(t).match(/([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))\s+(?:·\s*)?([+\-−]?[\d.]+,\d+)%/);
   if (!m) return null;
   return { ganho: lerBRL(m[2]) * (m[1] === '+' ? 1 : -1), pct: lerPct(m[3] + '%') };
 }
 const texto = (el) => (el ? el.textContent.replace(/\s+/g, ' ').trim() : '');
 /** 23/09/2026 #8: blocos de valor em cima dos gráficos das Carteiras. */
+// 06/10/2026 (Onda 3): os gráficos das Carteiras são da biblioteca (charts/) via criarGraficosCarteira, dentro de #<prefixo>Graficos: um card
+// .chart-card por painel (.cg-painel-rentabilidade / .cg-painel-evolucao) com valor (.chart-card-val) e variação (.chart-card-delta) no cabeçalho,
+// o "contra o índice" em chips (.cg-vs) e as notas (.cg-nota) embaixo. Os leitores abaixo recebem o PAINEL.
+function painelDe(doc, idGraficos, tipo, i = 0) { return [...doc.querySelectorAll(`#${idGraficos} .cg-painel-${tipo}`)][i] || null; }
+/** chips "vs <índice> ±x,xx%" do painel de Rentabilidade, na ordem dos índices -> [{ texto, delta }] */
+function legendaCart(painel) {
+  if (!painel) return [];
+  return [...painel.querySelectorAll('.cg-vs .chip-tonal')].map((e) => ({ texto: texto(e), delta: lerPct(texto(e)) }));
+}
 function lerTopoRentab(el) {
-  if (!el || !el.querySelector('.rentab-card-value')) return null;
-  const d = lerDelta(el.querySelector('.rentab-card-delta').textContent);
-  return { valor: lerBRL(el.querySelector('.rentab-card-value').textContent), ganho: d ? d.ganho : null, pct: d ? d.pct : null };
+  if (!el || !el.querySelector('.chart-card-val')) return null;
+  const d = lerDelta(el.querySelector('.chart-card-delta').textContent);
+  return { valor: lerBRL(el.querySelector('.chart-card-val').textContent), ganho: d ? d.ganho : null, pct: d ? d.pct : null };
 }
 function lerTopoEvolucao(el) {
-  if (!el || !el.querySelector('.rentab-card-value')) return null;
-  const dt = texto(el.querySelector('.rentab-card-delta'));
-  const md = dt.match(/^([+\-])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2})) no período$/);
-  const sub = texto(el.querySelector('.rentab-card-sub'));
-  const ma = sub.match(/Valor aplicado:\s*((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))\s*·\s*([+\-])((?:R\$\s*[\d.]+,\d{2})|(?:(?:US)?\$\s*[\d,]+\.\d{2}))/);
+  if (!el || !el.querySelector('.chart-card-val')) return null;
+  const dt = texto(el.querySelector('.chart-card-delta'));
+  const md = dt.match(/^([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2})) no período$/);
+  const sub = texto(el.querySelector('.cg-nota'));
+  const ma = sub.match(/Valor aplicado:\s*((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))\s*·\s*([+\-−])((?:R\$\s*[\d.]+,\d{2})|(?:US\$\s*[\d.]+,\d{2}))/);
   return {
-    valor: lerBRL(el.querySelector('.rentab-card-value').textContent),
-    variacao: md ? (md[1] === '-' ? -1 : 1) * lerBRL(md[2]) : null,
+    valor: lerBRL(el.querySelector('.chart-card-val').textContent),
+    variacao: md ? ((md[1] === '-' || md[1] === '−') ? -1 : 1) * lerBRL(md[2]) : null,
     aplicado: ma ? lerBRL(ma[1]) : null,
-    difAplicado: ma ? (ma[2] === '-' ? -1 : 1) * lerBRL(ma[3]) : null,
+    difAplicado: ma ? ((ma[2] === '-' || ma[2] === '−') ? -1 : 1) * lerBRL(ma[3]) : null,
     texto: `${dt}${sub ? ` · ${sub}` : ''}`,
   };
 }
@@ -400,6 +409,8 @@ function domCarteiras() {
   const html = fs.readFileSync(path.join(ROOT, 'carteiras', 'index.html'), 'utf8');
   const corpo = html.slice(html.indexOf('<body'), html.lastIndexOf('</body>'));
   const dom = new JSDOM(`<!doctype html><html>${corpo.replace(/<script[\s\S]*?<\/script>/g, '')}</body></html>`);
+  // 06/10/2026 (Onda 3): os KPIs animam o número a partir de 0; com "movimento reduzido" ele já nasce final (o que a tela mostra no fim)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return { dom, doc: dom.window.document };
 }
 function clicar(dom, doc, seletor) {
@@ -409,8 +420,9 @@ function clicar(dom, doc, seletor) {
   return true;
 }
 function legenda(doc, id) {
-  return [...doc.querySelectorAll(`#${id} .li`)]
-    .map((e) => ({ texto: texto(e), delta: e.querySelector('.li-delta') ? lerPct(e.querySelector('.li-delta').textContent) : null }))
+  // 06/10/2026 (Onda 3): legenda da biblioteca - nome .chart-leg-nome, "±x%" (Portfólio − benchmark) em .chart-leg-val
+  return [...doc.querySelectorAll(`#${id} .chart-leg-item`)]
+    .map((e) => ({ texto: texto(e.querySelector('.chart-leg-nome')), delta: e.querySelector('.chart-leg-val') ? lerPct(e.querySelector('.chart-leg-val').textContent) : null }))
     .filter((x) => x.texto !== 'Portfólio');
 }
 
@@ -419,25 +431,28 @@ function legenda(doc, id) {
 // valor, variação (▲/▼ + R$ no title + %) e a distribuição da aba escolhida
 // (Ações EUA mostram US$ na legenda, com o R$ no title do item).
 function lerResumoCompactoInicio(dom, doc) {
+  // 06/10/2026 (Onda 3): o resumo é uma grade de 4 KPIs (.rc-kpi[data-visao]: valor .chart-kpi-val, variação .chart-kpi-delta com o R$ no title)
+  // + um cartão "Distribuição" com abas sublinhadas (.rc-tabs [data-tab]) e o anel (legenda .chart-leg-item).
   const box = doc.getElementById('resumoPatrimonio');
-  const clicarAba = (v) => box.querySelector(`.rc-visao[data-visao="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
+  const distrib = doc.getElementById('resumoDistribuicao'); // o cartão "Distribuição" mora na coluna ao lado dos KPIs
+  const clicarAba = (v) => distrib.querySelector(`.rc-tabs [data-tab="${v}"]`).dispatchEvent(new dom.window.Event('click', { bubbles: true }));
   const out = ['total', 'longoPrazo', 'nacional', 'rendaEmergencial'].map((visao) => {
     clicarAba(visao);
-    const b = box.querySelector(`.rc-visao[data-visao="${visao}"]`);
-    const delta = b.querySelector('.rc-delta');
-    const sinal = delta.classList.contains('bad') ? -1 : 1;
-    const valor = lerBRL(b.querySelector('.rc-valor').textContent);
+    const b = box.querySelector(`.rc-kpi[data-visao="${visao}"]`);
+    const delta = b.querySelector('.chart-kpi-delta');
+    const sinal = delta.classList.contains('is-down') ? -1 : 1;
+    const valor = lerBRL(b.querySelector('.chart-kpi-val').textContent);
     const dif = delta.getAttribute('title') ? sinal * Math.abs(lerBRL(delta.getAttribute('title'))) : null;
     const pct = lerPct(delta.textContent);
-    const itens = [...box.querySelectorAll('.rc-legenda li')];
+    const itens = [...distrib.querySelectorAll('.rc-distrib .chart-leg-item')];
     return {
       visao,
-      label: b.querySelector('.rc-rotulo').textContent.trim(),
+      label: b.querySelector('.chart-kpi-rot').textContent.trim(),
       valor,
       ontem: dif == null ? null : Math.round((valor - dif) * 100) / 100,
       varPct: pct == null ? null : sinal * Math.abs(pct),
-      fatias: itens.map((li) => { const t = li.getAttribute('title'); return lerBRL(t && /R\$/.test(t) ? t : li.querySelector('.rc-leg-valor').textContent); }),
-      distribTexto: itens.map((li) => `${li.querySelector('.rc-leg-nome').textContent} ${li.querySelector('b').textContent} ${li.querySelector('.rc-leg-valor').textContent}`).join(' · '),
+      fatias: itens.map((li) => lerBRL(li.querySelector('.chart-leg-val').textContent)),
+      distribTexto: itens.map((li) => `${li.querySelector('.chart-leg-nome').textContent} ${li.querySelector('.chart-leg-val').textContent}`).join(' · '),
     };
   });
   clicarAba('total');
@@ -457,7 +472,7 @@ async function lerTelas(r, I) {
     await I.montarPaginaInicio('t', { doc, getHomeImpl: async () => home, getIntradiaImpl: null });
     telas.inicio.cards = lerResumoCompactoInicio(dom, doc);
     for (const per of PERIODOS) {
-      clicar(dom, doc, `#periodoTabs .filter-tab[data-periodo="${per}"]`);
+      clicar(dom, doc, `#periodoTabs [data-periodo="${per}"]`);
       telas.inicio.rentab[per] = {};
       for (const [v, suf] of [['total', 'Total'], ['longoPrazo', 'LongoPrazo'], ['nacional', 'Nacional'], ['internacional', 'Internacional'], ['rendaEmergencial', 'RendaEmergencial']]) {
         const info = doc.getElementById('rentabInfo' + suf);
@@ -473,77 +488,82 @@ async function lerTelas(r, I) {
     const VG = await imp('assets/js/pages/carteiras-visao-geral.js');
     const { dom, doc } = domCarteiras();
     await VG.montarPaginaCarteirasVisaoGeral('t', { doc, getCarteirasHomeImpl: async () => ({ ok: true, carteiras: r.carteirasHome }), getHomeImpl: async () => home });
+    // 06/10/2026 (kit): o resumo é uma grade de KPIs - [0] Patrimônio em carteiras (+ "Valor aplicado" embaixo), [1] Resultado desde o início (+ rentabilidade)
     const resumo = texto(doc.getElementById('vgResumo'));
-    const valoresHero = [...resumo.matchAll(/[+\-−]?R\$\s*[\d.]+,\d{2}/g)].map((m) => lerBRL(m[0]));
-    telas.vg.patrimonio = lerBRL(doc.getElementById('vgPatrimonioTotal').textContent);
+    const kpis = [...doc.querySelectorAll('#vgResumo .card-kpi')];
+    telas.vg.patrimonio = lerBRL(texto(kpis[0].querySelector('.chart-kpi-val')));
     telas.vg.resumoTexto = resumo;
-    telas.vg.aplicado = valoresHero[0];
-    telas.vg.resultado = valoresHero[1];
-    telas.vg.rentabilidade = lerPct(resumo.slice(resumo.indexOf('Rentabilidade')));
-    telas.vg.cards = [...doc.querySelectorAll('#vgCardsGrid .cg-card')].map((c) => {
-      const spans = [...(c.querySelector('.cg-card-linha')?.querySelectorAll('span') || [])];
+    telas.vg.aplicado = lerBRL(texto(kpis[0].querySelector('.cg-kpi-sub')));
+    telas.vg.resultado = lerBRL(texto(kpis[1].querySelector('.chart-kpi-val')));
+    telas.vg.rentabilidade = lerPct(texto(kpis[1].querySelector('.chart-kpi-delta')));
+    telas.vg.cards = [...doc.querySelectorAll('#vgCardsGrid .vg-card')].map((c) => {
+      const aplicadoTxt = texto(c.querySelector('.vg-card-aplicado'));
       return {
-        nome: texto(c.querySelector('.cg-card-nome')),
-        valor: lerBRL(c.querySelector('.cg-card-valor').textContent),
-        aplicado: lerBRL(spans[0] ? spans[0].textContent : ''),
-        lucro: lerBRL(spans[1] ? spans[1].textContent : ''),
-        pct: lerPct(c.querySelector('.cg-card-rentab').textContent),
-        rotulo: texto(spans[0]).split(':')[0],
+        nome: texto(c.querySelector('.vg-card-nome')),
+        valor: lerBRL(texto(c.querySelector('.vg-card-valor'))),
+        aplicado: lerBRL(aplicadoTxt),
+        lucro: lerBRL(texto(c.querySelector('.vg-card-lucro'))),
+        pct: lerPct(texto(c.querySelector('.vg-card-rentab'))),
+        rotulo: aplicadoTxt.split(':')[0],
       };
     });
     for (const per of PERIODOS) {
-      if (!clicar(dom, doc, `#vgPeriodoTabs .filter-tab[data-periodo="${per}"]`)) continue;
-      const d = lerDelta(doc.getElementById('vgInfoRentabilidade').textContent);
-      telas.vg.porPeriodo[per] = { ganho: d ? d.ganho : null, pct: d ? d.pct : null, legenda: legenda(doc, 'vgRentabLegenda'), topoEvolucao: lerTopoEvolucao(doc.getElementById('vgInfoEvolucao')) };
+      if (!clicar(dom, doc, `#vgGraficos .cg-periodo [data-periodo="${per}"]`)) continue;
+      const pr = painelDe(doc, 'vgGraficos', 'rentabilidade');
+      const d = lerDelta(texto(pr && pr.querySelector('.chart-card-delta')));
+      telas.vg.porPeriodo[per] = { ganho: d ? d.ganho : null, pct: d ? d.pct : null, legenda: legendaCart(pr), topoEvolucao: lerTopoEvolucao(painelDe(doc, 'vgGraficos', 'evolucao')) };
     }
     dom.window.close();
   }
 
   // subpáginas
+  // [nome, arquivo, função, impl, carteira, id do conteúdo, id dos gráficos, [[visão, índice do painel]]]
   const PAGS = [
-    ['acoes', 'carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesConteudo', 'acoesPeriodoTabs', [['carteiraAcoes', 'acoesRentabLegenda', 'acoesRentabInfo', 'acoesEvolucaoInfo']]],
-    ['fiis', 'carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisConteudo', 'fiisPeriodoTabs', [['carteiraFiis', 'fiisRentabLegenda', 'fiisRentabInfo', 'fiisEvolucaoInfo']]],
-    ['acoesEua', 'carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaConteudo', 'acoesEuaPeriodoTabs', [['carteiraAcoesEua', 'acoesEuaRentabLegenda', 'acoesEuaRentabInfo', 'acoesEuaEvolucaoInfo']]],
-    ['rendaFixa', 'carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', 'getCarteirasRendaFixaImpl', r.carteirasRendaFixa, 'rendaFixaConteudo', 'rendaFixaPeriodoTabs',
-      [['carteiraRendaFixaTotal', 'rfRentabTotalLegenda', 'rfRentabTotalInfo', 'rfEvolucaoTotalInfo'], ['carteiraRendaFixaLongoPrazo', 'rfRentabLongoLegenda', 'rfRentabLongoInfo', 'rfEvolucaoLongoInfo'], ['carteiraRendaFixaEmergencial', 'rfRentabEmergLegenda', 'rfRentabEmergInfo', 'rfEvolucaoEmergInfo']]],
+    ['acoes', 'carteiras-acoes.js', 'montarPaginaCarteirasAcoes', 'getCarteirasAcoesImpl', r.carteirasAcoes, 'acoesConteudo', 'acoesGraficos', [['carteiraAcoes', 0]]],
+    ['fiis', 'carteiras-fiis.js', 'montarPaginaCarteirasFiis', 'getCarteirasFiisImpl', r.carteirasFiis, 'fiisConteudo', 'fiisGraficos', [['carteiraFiis', 0]]],
+    ['acoesEua', 'carteiras-acoes-eua.js', 'montarPaginaCarteirasAcoesEua', 'getCarteirasAcoesEuaImpl', r.carteirasAcoesEua, 'acoesEuaConteudo', 'acoesEuaGraficos', [['carteiraAcoesEua', 0]]],
+    ['rendaFixa', 'carteiras-renda-fixa.js', 'montarPaginaCarteirasRendaFixa', 'getCarteirasRendaFixaImpl', r.carteirasRendaFixa, 'rendaFixaConteudo', 'rendaFixaGraficos',
+      [['carteiraRendaFixaTotal', 0], ['carteiraRendaFixaLongoPrazo', 1], ['carteiraRendaFixaEmergencial', 2]]],
   ];
-  for (const [nome, arq, fn, impl, cart, idC, idTabs, paineis] of PAGS) {
+  for (const [nome, arq, fn, impl, cart, idC, idGraficos, paineis] of PAGS) {
     const mod = await imp('assets/js/pages/' + arq);
     const { dom, doc } = domCarteiras();
     await mod[fn]('t', { doc, [impl]: async () => ({ ok: true, carteira: cart }), getHomeImpl: async () => home });
     const el = doc.getElementById(idC);
-    const stats = [...el.querySelectorAll('.cc-resumo-stat')].map((x) => texto(x));
+    // 06/10/2026 (kit): o topo é uma grade de KPIs - [0] Valor atual (com "Valor aplicado" embaixo), [1] Lucro/Prejuízo (com o %), depois proventos e ativos
+    const kpis = [...el.querySelectorAll('.grid-kpi .card-kpi')];
+    const stats = kpis.slice(1).map((x) => texto(x));
     // 25/09/2026: o hero mostra "Proventos no mês" / "em 12 meses"; o total desde o início fica no "i"
-    const tipsProv = [...el.querySelectorAll('.cc-resumo .info-alvo')].map((x) => x.dataset.tooltip || '');
+    const tipsProv = [...el.querySelectorAll('.grid-kpi .info-alvo')].map((x) => x.dataset.tooltip || '');
     const totProv = (tipsProv.find((x) => /Desde o início/.test(x)) || '').match(/Desde o início: (R\$\s*[\d.]+,\d{2})/);
     const prov = totProv ? totProv[1] : stats.find((x) => /Proventos/.test(x));
     telas.sub[nome] = {
-      resumoTexto: texto(el.querySelector('.cc-resumo')).replace(/ i( |$)/g, ' ').trim(),
-      valor: lerBRL(texto(el.querySelector('.cc-resumo-valor'))),
-      aplicado: lerBRL(texto(el.querySelector('.cc-resumo-investido'))),
+      resumoTexto: texto(el.querySelector('.grid-kpi')),
+      valor: lerBRL(texto(kpis[0].querySelector('.chart-kpi-val'))),
+      aplicado: lerBRL(texto(kpis[0].querySelector('.cg-kpi-sub'))),
       lucro: lerBRL(stats[0] || ''),
       pctLucro: lerPct(stats[0] || ''),
       proventos: prov ? lerBRL(prov) : null,
-      tooltips: [...el.querySelectorAll('.cc-resumo .info-alvo')].map((x) => x.dataset.tooltip),
+      tooltips: tipsProv,
       legendas: {},
       topos: {},
     };
     // 24/09/2026: Ações EUA tem R$ | US$ (padrão US$, o resumo acima foi lido
     // assim, com o "i" em reais) - os gráficos são conferidos em reais aqui e
     // em dólar logo abaixo.
-    clicar(dom, doc, '#acoesEuaMoeda .filter-tab[data-moeda="BRL"]');
+    clicar(dom, doc, '#acoesEuaMoeda [data-moeda="BRL"]');
     for (const per of PERIODOS) {
-      if (!clicar(dom, doc, `#${idTabs} .filter-tab[data-periodo="${per}"]`)) continue;
-      telas.sub[nome].legendas[per] = Object.fromEntries(paineis.map(([v, id]) => [v, legenda(doc, id)]));
-      telas.sub[nome].topos[per] = Object.fromEntries(paineis.map(([v, , idR, idE]) => [v, { rentab: lerTopoRentab(doc.getElementById(idR)), evolucao: lerTopoEvolucao(doc.getElementById(idE)) }]));
+      if (!clicar(dom, doc, `#${idGraficos} .cg-periodo [data-periodo="${per}"]`)) continue;
+      telas.sub[nome].legendas[per] = Object.fromEntries(paineis.map(([v, i]) => [v, legendaCart(painelDe(doc, idGraficos, 'rentabilidade', i))]));
+      telas.sub[nome].topos[per] = Object.fromEntries(paineis.map(([v, i]) => [v, { rentab: lerTopoRentab(painelDe(doc, idGraficos, 'rentabilidade', i)), evolucao: lerTopoEvolucao(painelDe(doc, idGraficos, 'evolucao', i)) }]));
     }
     // 24/09/2026: Ações EUA em dólar (botão US$)
-    if (nome === 'acoesEua' && clicar(dom, doc, '#acoesEuaMoeda .filter-tab[data-moeda="USD"]')) {
-      telas.sub[nome].emDolar = { resumoTexto: texto(el.querySelector('.cc-resumo')).replace(/ i( |$)/g, ' ').trim(), topos: {}, legendas: {} };
+    if (nome === 'acoesEua' && clicar(dom, doc, '#acoesEuaMoeda [data-moeda="USD"]')) {
+      telas.sub[nome].emDolar = { resumoTexto: texto(el.querySelector('.grid-kpi')), topos: {}, legendas: {} };
       for (const per of PERIODOS) {
-        if (!clicar(dom, doc, `#${idTabs} .filter-tab[data-periodo="${per}"]`)) continue;
-        telas.sub[nome].emDolar.topos[per] = { rentab: lerTopoRentab(doc.getElementById('acoesEuaRentabInfo')), evolucao: lerTopoEvolucao(doc.getElementById('acoesEuaEvolucaoInfo')) };
-        telas.sub[nome].emDolar.legendas[per] = legenda(doc, 'acoesEuaRentabLegenda');
+        if (!clicar(dom, doc, `#${idGraficos} .cg-periodo [data-periodo="${per}"]`)) continue;
+        telas.sub[nome].emDolar.topos[per] = { rentab: lerTopoRentab(painelDe(doc, 'acoesEuaGraficos', 'rentabilidade')), evolucao: lerTopoEvolucao(painelDe(doc, 'acoesEuaGraficos', 'evolucao')) };
+        telas.sub[nome].emDolar.legendas[per] = legendaCart(painelDe(doc, 'acoesEuaGraficos', 'rentabilidade'));
       }
     }
     dom.window.close();

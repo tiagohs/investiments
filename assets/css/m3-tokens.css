@@ -1,0 +1,301 @@
+/**
+ * m3-tokens.css — tokens do design da Onda 3 (05/10/2026): Material Design 3 no ESTILO DO KIT FIGMA "Material You
+ * Design System & UI Kit" (pedido do Tiago: "seguir o design do Material Design ... design, ui, ícones, gráficos,
+ * tabelas, animações"). SEM a biblioteca @material/web e sem tonal-spot: os papéis M3 (--md-sys-color-*) são
+ * MAPEADOS para passos da paleta Tailwind v3 (neutros = slate; primary = lima/oliva do logo, seed #557F26).
+ * Tipografia Readex Pro (escala M3), forma, movimento, elevação, camadas de estado, escala de z-index (A-70).
+ *
+ * Contrato com a biblioteca de gráficos (assets/js/charts/): --chart-1..8 (categórica, ordem FIXA: 1 Ações, 2 FIIs,
+ * 3 Renda Fixa, 4 EUA, 5 Cripto, 6 Caixa/Reserva, 7-8 extras; validada com validate_palette.js em claro e escuro,
+ * sobre o cartão #fff / #1e293b), --chart-N-ink (texto AA da mesma cor) e --chart-N-soft (fundo suave),
+ * --chart-ramp-1..5 (rampa tonal do primary, clara -> escura), --chart-up/--chart-down, --chart-grid, --chart-axis,
+ * --chart-tooltip-bg/-fg, --chart-surface.
+ *
+ * Tokens LEGADOS (--bg, --surface, --ink*, --border, --acoes/--fiis/--rf/--usa/--eua, --good/--warn/--bad...) são
+ * ALIASES no fim deste arquivo: toda tela existente muda de uma vez e continua legível (texto >= 4,5:1) nos dois
+ * temas. Página nova usa --md-sys-*, --md-ext-* e --chart-*; não use os legados.
+ *
+ * Tema: mesmo mecanismo de antes (data-theme em <html> via theme.js; sem data-theme vale prefers-color-scheme).
+ * O bloco escuro aparece DUAS vezes (media query + data-theme="dark") de propósito: edite os dois.
+ */
+
+:root {
+  /* papéis M3 (neutros = slate do Tailwind; primary = lima/oliva da marca) */
+  --md-sys-color-primary:#4d7c0f;
+  --md-sys-color-on-primary:#ffffff;
+  --md-sys-color-primary-container:#ecfccb;
+  --md-sys-color-on-primary-container:#365314;
+  --md-sys-color-secondary:#475569;
+  --md-sys-color-on-secondary:#ffffff;
+  --md-sys-color-secondary-container:#e2e8f0;
+  --md-sys-color-on-secondary-container:#0f172a;
+  --md-sys-color-tertiary:#0e7490;
+  --md-sys-color-on-tertiary:#ffffff;
+  --md-sys-color-tertiary-container:#cffafe;
+  --md-sys-color-on-tertiary-container:#164e63;
+  --md-sys-color-error:#c81e1e;
+  --md-sys-color-on-error:#ffffff;
+  --md-sys-color-error-container:#fee2e2;
+  --md-sys-color-on-error-container:#7f1d1d;
+  --md-sys-color-background:#f8fafc;
+  --md-sys-color-on-background:#0f172a;
+  --md-sys-color-surface:#f8fafc;
+  --md-sys-color-on-surface:#0f172a;
+  --md-sys-color-surface-variant:#e2e8f0;
+  --md-sys-color-on-surface-variant:#475569;
+  --md-sys-color-outline:#7c8ba1;
+  --md-sys-color-outline-variant:#e2e8f0;
+  --md-sys-color-shadow:#000000;
+  --md-sys-color-scrim:#000000;
+  --md-sys-color-inverse-surface:#1e293b;
+  --md-sys-color-inverse-on-surface:#f1f5f9;
+  --md-sys-color-inverse-primary:#bef264;
+  --md-sys-color-surface-dim:#e2e8f0;
+  --md-sys-color-surface-bright:#ffffff;
+  --md-sys-color-surface-container-lowest:#ffffff;
+  --md-sys-color-surface-container-low:#f8fafc;
+  --md-sys-color-surface-container:#f1f5f9;
+  --md-sys-color-surface-container-high:#e2e8f0;
+  --md-sys-color-surface-container-highest:#cbd5e1;
+  --md-sys-color-surface-tint:#4d7c0f;
+  /* extensões do app (fora do M3): semânticas SEMPRE com ícone/rótulo; ink = texto AA */
+  --md-ext-color-good:#15803d; --md-ext-color-on-good:#ffffff; --md-ext-color-good-container:#dcfce7; --md-ext-color-on-good-container:#14532d;
+  --md-ext-color-warn:#b45309; --md-ext-color-on-warn:#ffffff; --md-ext-color-warn-container:#fef3c7; --md-ext-color-on-warn-container:#78350f;
+  --md-ext-color-info:#0369a1; --md-ext-color-on-info:#ffffff; --md-ext-color-info-container:#e0f2fe; --md-ext-color-on-info-container:#0c4a6e;
+  --md-ext-color-ink-faint:#56657a; --md-ext-color-card:#ffffff; --md-ext-color-card-border:#e2e8f0; --md-ext-color-card-hover:#f8fafc; --md-ext-color-zebra:#f8fafc;
+  --md-ext-color-switch-on:#0f172a; --md-ext-color-switch-on-thumb:#ffffff; --md-ext-color-switch-off:#94a3b8; --md-ext-color-switch-off-thumb:#ffffff;
+  /* gráficos: paleta categórica (validada com validate_palette.js nos dois modos; ordem FIXA: 1 Ações, 2 FIIs, 3 Renda Fixa, 4 EUA, 5 Cripto, 6 Caixa/Reserva, 7-8 extras) */
+  --chart-1:#2563eb; --chart-1-ink:#1d4ed8; --chart-1-soft:#dbeafe;
+  --chart-2:#0d9488; --chart-2-ink:#0f766e; --chart-2-soft:#ccfbf1;
+  --chart-3:#d97706; --chart-3-ink:#b45309; --chart-3-soft:#fef3c7;
+  --chart-4:#7c3aed; --chart-4-ink:#6d28d9; --chart-4-soft:#ede9fe;
+  --chart-5:#db2777; --chart-5-ink:#be185d; --chart-5-soft:#fce7f3;
+  --chart-6:#65a30d; --chart-6-ink:#4d7c0f; --chart-6-soft:#ecfccb;
+  --chart-7:#0891b2; --chart-7-ink:#0e7490; --chart-7-soft:#cffafe;
+  --chart-8:#dc2626; --chart-8-ink:#b91c1c; --chart-8-soft:#fee2e2;
+  --chart-ramp-1:#8ec620; --chart-ramp-2:#73a40a; --chart-ramp-3:#5a8400; --chart-ramp-4:#446401; --chart-ramp-5:#2f4505;
+  --chart-up:#16a34a; --chart-down:#dc2626; --chart-grid:#e2e8f0; --chart-axis:#64748b; --chart-tooltip-bg:#0f172a; --chart-tooltip-fg:#f8fafc; --chart-surface:#ffffff;
+  /* aliases legados que dependem do tema */
+  --surface:var(--md-ext-color-card); --surface-2:#e2e8f0; --surface-3:#f1f5f9;
+  --shadow-color:15 23 42;
+  color-scheme:light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* papéis M3 (neutros = slate do Tailwind; primary = lima/oliva da marca) */
+    --md-sys-color-primary:#bef264;
+    --md-sys-color-on-primary:#1a2e05;
+    --md-sys-color-primary-container:#3f6212;
+    --md-sys-color-on-primary-container:#ecfccb;
+    --md-sys-color-secondary:#cbd5e1;
+    --md-sys-color-on-secondary:#1e293b;
+    --md-sys-color-secondary-container:#334155;
+    --md-sys-color-on-secondary-container:#f1f5f9;
+    --md-sys-color-tertiary:#67e8f9;
+    --md-sys-color-on-tertiary:#083344;
+    --md-sys-color-tertiary-container:#155e75;
+    --md-sys-color-on-tertiary-container:#cffafe;
+    --md-sys-color-error:#f87171;
+    --md-sys-color-on-error:#450a0a;
+    --md-sys-color-error-container:#7f1d1d;
+    --md-sys-color-on-error-container:#fecaca;
+    --md-sys-color-background:#0f172a;
+    --md-sys-color-on-background:#f8fafc;
+    --md-sys-color-surface:#0f172a;
+    --md-sys-color-on-surface:#f8fafc;
+    --md-sys-color-surface-variant:#334155;
+    --md-sys-color-on-surface-variant:#cbd5e1;
+    --md-sys-color-outline:#7c8ba1;
+    --md-sys-color-outline-variant:#334155;
+    --md-sys-color-shadow:#000000;
+    --md-sys-color-scrim:#000000;
+    --md-sys-color-inverse-surface:#f1f5f9;
+    --md-sys-color-inverse-on-surface:#0f172a;
+    --md-sys-color-inverse-primary:#4d7c0f;
+    --md-sys-color-surface-dim:#0b1220;
+    --md-sys-color-surface-bright:#334155;
+    --md-sys-color-surface-container-lowest:#0b1220;
+    --md-sys-color-surface-container-low:#131c31;
+    --md-sys-color-surface-container:#1e293b;
+    --md-sys-color-surface-container-high:#273449;
+    --md-sys-color-surface-container-highest:#334155;
+    --md-sys-color-surface-tint:#bef264;
+    /* extensões do app (fora do M3): semânticas SEMPRE com ícone/rótulo; ink = texto AA */
+    --md-ext-color-good:#4ade80; --md-ext-color-on-good:#052e16; --md-ext-color-good-container:#14532d; --md-ext-color-on-good-container:#bbf7d0;
+    --md-ext-color-warn:#fbbf24; --md-ext-color-on-warn:#451a03; --md-ext-color-warn-container:#78350f; --md-ext-color-on-warn-container:#fde68a;
+    --md-ext-color-info:#7dd3fc; --md-ext-color-on-info:#082f49; --md-ext-color-info-container:#075985; --md-ext-color-on-info-container:#bae6fd;
+    --md-ext-color-ink-faint:#a0aec0; --md-ext-color-card:#1e293b; --md-ext-color-card-border:#334155; --md-ext-color-card-hover:#273449; --md-ext-color-zebra:#0f172a;
+    --md-ext-color-switch-on:#bef264; --md-ext-color-switch-on-thumb:#1a2e05; --md-ext-color-switch-off:#475569; --md-ext-color-switch-off-thumb:#e2e8f0;
+    /* gráficos: paleta categórica (validada com validate_palette.js nos dois modos; ordem FIXA: 1 Ações, 2 FIIs, 3 Renda Fixa, 4 EUA, 5 Cripto, 6 Caixa/Reserva, 7-8 extras) */
+    --chart-1:#3b82f6; --chart-1-ink:#60a5fa; --chart-1-soft:#213451;
+    --chart-2:#0d9488; --chart-2-ink:#2dd4bf; --chart-2-soft:#1c3644;
+    --chart-3:#d97706; --chart-3-ink:#fbbf24; --chart-3-soft:#343235;
+    --chart-4:#8b5cf6; --chart-4-ink:#a78bfa; --chart-4-soft:#2b2f51;
+    --chart-5:#ec4899; --chart-5-ink:#f472b6; --chart-5-soft:#372d46;
+    --chart-6:#65a30d; --chart-6-ink:#a3e635; --chart-6-soft:#273835;
+    --chart-7:#0891b2; --chart-7-ink:#22d3ee; --chart-7-soft:#1b3549;
+    --chart-8:#ef4444; --chart-8-ink:#f87171; --chart-8-soft:#372c3c;
+    --chart-ramp-1:#b7f652; --chart-ramp-2:#9ad335; --chart-ramp-3:#7fb125; --chart-ramp-4:#688f24; --chart-ramp-5:#516f21;
+    --chart-up:#4ade80; --chart-down:#f87171; --chart-grid:#334155; --chart-axis:#94a3b8; --chart-tooltip-bg:#020617; --chart-tooltip-fg:#f8fafc; --chart-surface:#1e293b;
+    /* aliases legados que dependem do tema */
+    --surface:var(--md-ext-color-card); --surface-2:#334155; --surface-3:#273449;
+    --shadow-color:0 0 0;
+    color-scheme:dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  /* papéis M3 (neutros = slate do Tailwind; primary = lima/oliva da marca) */
+  --md-sys-color-primary:#bef264;
+  --md-sys-color-on-primary:#1a2e05;
+  --md-sys-color-primary-container:#3f6212;
+  --md-sys-color-on-primary-container:#ecfccb;
+  --md-sys-color-secondary:#cbd5e1;
+  --md-sys-color-on-secondary:#1e293b;
+  --md-sys-color-secondary-container:#334155;
+  --md-sys-color-on-secondary-container:#f1f5f9;
+  --md-sys-color-tertiary:#67e8f9;
+  --md-sys-color-on-tertiary:#083344;
+  --md-sys-color-tertiary-container:#155e75;
+  --md-sys-color-on-tertiary-container:#cffafe;
+  --md-sys-color-error:#f87171;
+  --md-sys-color-on-error:#450a0a;
+  --md-sys-color-error-container:#7f1d1d;
+  --md-sys-color-on-error-container:#fecaca;
+  --md-sys-color-background:#0f172a;
+  --md-sys-color-on-background:#f8fafc;
+  --md-sys-color-surface:#0f172a;
+  --md-sys-color-on-surface:#f8fafc;
+  --md-sys-color-surface-variant:#334155;
+  --md-sys-color-on-surface-variant:#cbd5e1;
+  --md-sys-color-outline:#7c8ba1;
+  --md-sys-color-outline-variant:#334155;
+  --md-sys-color-shadow:#000000;
+  --md-sys-color-scrim:#000000;
+  --md-sys-color-inverse-surface:#f1f5f9;
+  --md-sys-color-inverse-on-surface:#0f172a;
+  --md-sys-color-inverse-primary:#4d7c0f;
+  --md-sys-color-surface-dim:#0b1220;
+  --md-sys-color-surface-bright:#334155;
+  --md-sys-color-surface-container-lowest:#0b1220;
+  --md-sys-color-surface-container-low:#131c31;
+  --md-sys-color-surface-container:#1e293b;
+  --md-sys-color-surface-container-high:#273449;
+  --md-sys-color-surface-container-highest:#334155;
+  --md-sys-color-surface-tint:#bef264;
+  /* extensões do app (fora do M3): semânticas SEMPRE com ícone/rótulo; ink = texto AA */
+  --md-ext-color-good:#4ade80; --md-ext-color-on-good:#052e16; --md-ext-color-good-container:#14532d; --md-ext-color-on-good-container:#bbf7d0;
+  --md-ext-color-warn:#fbbf24; --md-ext-color-on-warn:#451a03; --md-ext-color-warn-container:#78350f; --md-ext-color-on-warn-container:#fde68a;
+  --md-ext-color-info:#7dd3fc; --md-ext-color-on-info:#082f49; --md-ext-color-info-container:#075985; --md-ext-color-on-info-container:#bae6fd;
+  --md-ext-color-ink-faint:#a0aec0; --md-ext-color-card:#1e293b; --md-ext-color-card-border:#334155; --md-ext-color-card-hover:#273449; --md-ext-color-zebra:#0f172a;
+  --md-ext-color-switch-on:#bef264; --md-ext-color-switch-on-thumb:#1a2e05; --md-ext-color-switch-off:#475569; --md-ext-color-switch-off-thumb:#e2e8f0;
+  /* gráficos: paleta categórica (validada com validate_palette.js nos dois modos; ordem FIXA: 1 Ações, 2 FIIs, 3 Renda Fixa, 4 EUA, 5 Cripto, 6 Caixa/Reserva, 7-8 extras) */
+  --chart-1:#3b82f6; --chart-1-ink:#60a5fa; --chart-1-soft:#213451;
+  --chart-2:#0d9488; --chart-2-ink:#2dd4bf; --chart-2-soft:#1c3644;
+  --chart-3:#d97706; --chart-3-ink:#fbbf24; --chart-3-soft:#343235;
+  --chart-4:#8b5cf6; --chart-4-ink:#a78bfa; --chart-4-soft:#2b2f51;
+  --chart-5:#ec4899; --chart-5-ink:#f472b6; --chart-5-soft:#372d46;
+  --chart-6:#65a30d; --chart-6-ink:#a3e635; --chart-6-soft:#273835;
+  --chart-7:#0891b2; --chart-7-ink:#22d3ee; --chart-7-soft:#1b3549;
+  --chart-8:#ef4444; --chart-8-ink:#f87171; --chart-8-soft:#372c3c;
+  --chart-ramp-1:#b7f652; --chart-ramp-2:#9ad335; --chart-ramp-3:#7fb125; --chart-ramp-4:#688f24; --chart-ramp-5:#516f21;
+  --chart-up:#4ade80; --chart-down:#f87171; --chart-grid:#334155; --chart-axis:#94a3b8; --chart-tooltip-bg:#020617; --chart-tooltip-fg:#f8fafc; --chart-surface:#1e293b;
+  /* aliases legados que dependem do tema */
+  --surface:var(--md-ext-color-card); --surface-2:#334155; --surface-3:#273449;
+  --shadow-color:0 0 0;
+  color-scheme:dark;
+}
+
+/* ---- Tokens que não mudam com o tema ---- */
+:root {
+  /* tipografia: Readex Pro em tudo (a do kit); números alinhados em coluna usam --md-ref-typeface-mono (a Readex Pro
+     NÃO tem algarismos tabulares: 1111 mede menos que 0000, mesmo com tabular-nums). Mínimo 12px (A-64). */
+  --md-ref-typeface-brand:'Readex Pro',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --md-ref-typeface-plain:'Readex Pro',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --md-ref-typeface-mono:'Roboto Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+  --md-sys-typescale-display-large-size:57px; --md-sys-typescale-display-large-line-height:64px; --md-sys-typescale-display-large-weight:400; --md-sys-typescale-display-large-tracking:-0.25px;
+  --md-sys-typescale-display-medium-size:45px; --md-sys-typescale-display-medium-line-height:52px; --md-sys-typescale-display-medium-weight:400; --md-sys-typescale-display-medium-tracking:0;
+  --md-sys-typescale-display-small-size:36px; --md-sys-typescale-display-small-line-height:44px; --md-sys-typescale-display-small-weight:400; --md-sys-typescale-display-small-tracking:0;
+  --md-sys-typescale-headline-large-size:32px; --md-sys-typescale-headline-large-line-height:40px; --md-sys-typescale-headline-large-weight:400; --md-sys-typescale-headline-large-tracking:0;
+  --md-sys-typescale-headline-medium-size:28px; --md-sys-typescale-headline-medium-line-height:36px; --md-sys-typescale-headline-medium-weight:400; --md-sys-typescale-headline-medium-tracking:0;
+  --md-sys-typescale-headline-small-size:24px; --md-sys-typescale-headline-small-line-height:32px; --md-sys-typescale-headline-small-weight:400; --md-sys-typescale-headline-small-tracking:0;
+  --md-sys-typescale-title-large-size:22px; --md-sys-typescale-title-large-line-height:28px; --md-sys-typescale-title-large-weight:400; --md-sys-typescale-title-large-tracking:0;
+  --md-sys-typescale-title-medium-size:16px; --md-sys-typescale-title-medium-line-height:24px; --md-sys-typescale-title-medium-weight:500; --md-sys-typescale-title-medium-tracking:0.15px;
+  --md-sys-typescale-title-small-size:14px; --md-sys-typescale-title-small-line-height:20px; --md-sys-typescale-title-small-weight:500; --md-sys-typescale-title-small-tracking:0.1px;
+  --md-sys-typescale-body-large-size:16px; --md-sys-typescale-body-large-line-height:24px; --md-sys-typescale-body-large-weight:400; --md-sys-typescale-body-large-tracking:0.15px;
+  --md-sys-typescale-body-medium-size:14px; --md-sys-typescale-body-medium-line-height:20px; --md-sys-typescale-body-medium-weight:400; --md-sys-typescale-body-medium-tracking:0.1px;
+  --md-sys-typescale-body-small-size:12px; --md-sys-typescale-body-small-line-height:16px; --md-sys-typescale-body-small-weight:400; --md-sys-typescale-body-small-tracking:0.2px;
+  --md-sys-typescale-label-large-size:14px; --md-sys-typescale-label-large-line-height:20px; --md-sys-typescale-label-large-weight:500; --md-sys-typescale-label-large-tracking:0.1px;
+  --md-sys-typescale-label-medium-size:12px; --md-sys-typescale-label-medium-line-height:16px; --md-sys-typescale-label-medium-weight:500; --md-sys-typescale-label-medium-tracking:0.4px;
+  --md-sys-typescale-label-small-size:12px; --md-sys-typescale-label-small-line-height:16px; --md-sys-typescale-label-small-weight:500; --md-sys-typescale-label-small-tracking:0.4px;
+  --fs-min:12px;
+
+  /* forma (cantos): cartões 16px (KPI/lista) e 24px (gráfico grande), pílulas full-round em botões/busca/abas */
+  --md-sys-shape-corner-none:0; --md-sys-shape-corner-extra-small:4px; --md-sys-shape-corner-small:8px;
+  --md-sys-shape-corner-medium:12px; --md-sys-shape-corner-large:16px; --md-sys-shape-corner-large-increased:20px;
+  --md-sys-shape-corner-extra-large:28px; --md-sys-shape-corner-full:9999px;
+  --r-card:var(--md-sys-shape-corner-large); --r-card-lg:24px; --pad-card:20px;
+
+  /* movimento (M3): emphasized p/ entradas e saídas de superfícies, standard p/ trocas dentro da tela */
+  --md-sys-motion-easing-standard:cubic-bezier(0.2,0,0,1);
+  --md-sys-motion-easing-standard-accelerate:cubic-bezier(0.3,0,1,1);
+  --md-sys-motion-easing-standard-decelerate:cubic-bezier(0,0,0,1);
+  --md-sys-motion-easing-emphasized:cubic-bezier(0.2,0,0,1);
+  --md-sys-motion-easing-emphasized-accelerate:cubic-bezier(0.3,0,0.8,0.15);
+  --md-sys-motion-easing-emphasized-decelerate:cubic-bezier(0.05,0.7,0.1,1);
+  --md-sys-motion-duration-short1:50ms; --md-sys-motion-duration-short2:100ms; --md-sys-motion-duration-short3:150ms; --md-sys-motion-duration-short4:200ms;
+  --md-sys-motion-duration-medium1:250ms; --md-sys-motion-duration-medium2:300ms; --md-sys-motion-duration-medium3:350ms; --md-sys-motion-duration-medium4:400ms;
+  --md-sys-motion-duration-long1:450ms; --md-sys-motion-duration-long2:500ms; --md-sys-motion-duration-long3:550ms; --md-sys-motion-duration-long4:600ms;
+
+  /* camadas de estado (state layers) */
+  --md-sys-state-hover-opacity:.08; --md-sys-state-focus-opacity:.10; --md-sys-state-pressed-opacity:.10; --md-sys-state-dragged-opacity:.16;
+
+  /* elevação: sombras suaves (o kit quase não usa sombra; cartões são contornados/filled) */
+  --md-sys-elevation-level0:none;
+  --md-sys-elevation-level1:0 1px 2px 0 rgb(var(--shadow-color) / .10), 0 1px 3px 1px rgb(var(--shadow-color) / .06);
+  --md-sys-elevation-level2:0 1px 2px 0 rgb(var(--shadow-color) / .12), 0 2px 6px 2px rgb(var(--shadow-color) / .08);
+  --md-sys-elevation-level3:0 1px 3px 0 rgb(var(--shadow-color) / .14), 0 4px 8px 3px rgb(var(--shadow-color) / .10);
+  --md-sys-elevation-level4:0 2px 3px 0 rgb(var(--shadow-color) / .16), 0 6px 10px 4px rgb(var(--shadow-color) / .12);
+  --md-sys-elevation-level5:0 4px 4px 0 rgb(var(--shadow-color) / .18), 0 8px 12px 6px rgb(var(--shadow-color) / .14);
+
+  /* escala de z-index (A-70): nenhum número solto no CSS das páginas */
+  --z-conteudo:1; --z-sticky:10; --z-header:50; --z-rail:52; --z-drawer:55; --z-backdrop:60; --z-drawer-modal:65;
+  --z-painel:70; --z-modal:80; --z-toast:90; --z-calendario:100; --z-tooltip:110;
+
+  /* layout do shell: trilho 80px + gaveta 280px (kit); coluna lateral direita opcional >= 1280px */
+  --topbar-h:64px; --rail-w:80px; --nav-w:280px; --coluna-lateral:320px; --pag-max:1520px;
+
+  /* nomes por classe de ativo -> slot da paleta categórica (--chart-N) */
+  --cat-acoes:var(--chart-1);  --cat-acoes-ink:var(--chart-1-ink);  --cat-acoes-soft:var(--chart-1-soft);
+  --cat-fiis:var(--chart-2);   --cat-fiis-ink:var(--chart-2-ink);   --cat-fiis-soft:var(--chart-2-soft);
+  --cat-rf:var(--chart-3);     --cat-rf-ink:var(--chart-3-ink);     --cat-rf-soft:var(--chart-3-soft);
+  --cat-eua:var(--chart-4);    --cat-eua-ink:var(--chart-4-ink);    --cat-eua-soft:var(--chart-4-soft);
+  --cat-cripto:var(--chart-5); --cat-cripto-ink:var(--chart-5-ink); --cat-cripto-soft:var(--chart-5-soft);
+  --cat-caixa:var(--chart-6);  --cat-caixa-ink:var(--chart-6-ink);  --cat-caixa-soft:var(--chart-6-soft);
+
+  /* ---- ALIASES LEGADOS -> papéis M3 (tudo que o CSS antigo das páginas usa) ---- */
+  --bg:var(--md-sys-color-surface);
+  /* --surface / --surface-2 / --surface-3 dependem do tema (blocos acima) */
+  --border:var(--md-sys-color-outline-variant);
+  --ink:var(--md-sys-color-on-surface);
+  --ink-muted:var(--md-sys-color-on-surface-variant);
+  --ink-faint:var(--md-ext-color-ink-faint);          /* A-57: >= 4,5:1 nos fundos usados; só pra texto terciário */
+  --acoes:var(--chart-1-ink);   --acoes-soft:var(--chart-1-soft);   /* texto AA; pra preenchimento de gráfico use --chart-1 */
+  --fiis:var(--chart-2-ink);    --fiis-soft:var(--chart-2-soft);
+  --rf:var(--chart-3-ink);      --rf-soft:var(--chart-3-soft);
+  --usa:var(--chart-4-ink);     --usa-soft:var(--chart-4-soft);
+  --eua:var(--usa);             --eua-soft:var(--usa-soft);
+  --cripto:var(--chart-5-ink);  --cripto-soft:var(--chart-5-soft);
+  --caixa:var(--chart-6-ink);   --caixa-soft:var(--chart-6-soft);
+  --good:var(--md-ext-color-good); --good-soft:var(--md-ext-color-good-container); --good-ink:var(--md-ext-color-on-good-container);
+  --warn:var(--md-ext-color-warn); --warn-soft:var(--md-ext-color-warn-container); --warn-ink:var(--md-ext-color-on-warn-container);
+  --bad:var(--md-sys-color-error); --bad-soft:var(--md-sys-color-error-container); --bad-ink:var(--md-sys-color-on-error-container);
+  --na:var(--md-sys-color-outline); --na-soft:var(--md-sys-color-surface-container-high);
+  --shadow:var(--md-sys-elevation-level1);
+  --shadow-lg:var(--md-sys-elevation-level3);
+  --display:var(--md-ref-typeface-brand);
+  --body-f:var(--md-ref-typeface-plain);
+  --mono:var(--md-ref-typeface-mono);
+}
+@media (max-width:839.98px){ :root{ --topbar-h:56px; } }

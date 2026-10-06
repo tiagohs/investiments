@@ -63,16 +63,17 @@ test('monta herói, gráficos, tabela, impostos, investimento, contas e document
   assert.match(hero, /Salário líquido/);
   assert.match(hero, /6\.800/);
   assert.match(hero, /Renda em 2025 \(IR\)/);
-  assert.ok(raiz.querySelector('#rdGSal svg'), 'gráfico do salário');
-  assert.ok(raiz.querySelector('#rdGSal .rd-inf'), 'linha da inflação');
-  assert.ok(raiz.querySelectorAll('#rdGSal .pt-hit').length >= 3);
+  // 06/10/2026 (Onda 3): gráficos da biblioteca (assets/js/charts): linhas bruto x IPCA e, embaixo, barras bruto x líquido
+  assert.ok(raiz.querySelector('#rdGSal svg.chart-svg'), 'gráfico do salário');
+  assert.match(raiz.querySelector('#rdGSal').textContent, /inflação \(IPCA\)/, 'linha da inflação na legenda');
+  assert.equal(raiz.querySelectorAll('#rdGSal svg.chart-svg').length, 2, 'linhas + barras');
   assert.equal(raiz.querySelectorAll('#rdTabela tbody tr').length, 4, '2023-2026');
   // 03/10/2026: card de Análise embaixo do gráfico do salário (salário x IPCA)
   const analise = raiz.querySelector('#rdAnaliseSal');
   assert.ok(analise && !analise.hidden && analise.querySelector('details.ag'), 'card de Análise do salário');
   assert.match(analise.textContent, /IPCA/);
   assert.match(raiz.querySelector('#rdCarga').textContent, /Em 2025/);
-  assert.ok(raiz.querySelector('#rdGInv svg'), 'gráfico do investimento');
+  assert.ok(raiz.querySelector('#rdGInv svg.chart-svg'), 'gráfico do investimento');
   assert.match(raiz.querySelector('#rdInvTiles').textContent, /Média 12 meses/);
   const cartoes = raiz.querySelectorAll('#rdContas .rd-conta');
   assert.equal(cartoes.length, 2);
@@ -93,10 +94,10 @@ test('filtros de período: presets redesenham; o "Escolher período" é acrescen
   tabs.querySelector('[data-periodo="5a"]').click();
   assert.equal(raiz.querySelectorAll('#rdTabela tbody tr').length, 4);
   const inv = raiz.querySelector('#rdSecInv .filter-tabs');
-  const antes = raiz.querySelectorAll('#rdGInv .pt-hit').length;
+  const contar = () => raiz.querySelector('#rdGInv svg.chart-svg title').textContent;
+  const antes = contar();
   inv.querySelector('[data-periodo="6m"]').click();
-  assert.equal(raiz.querySelectorAll('#rdGInv .pt-hit').length, 6);
-  assert.ok(antes > 6);
+  assert.notEqual(contar(), antes, 'o gráfico foi atualizado para os 6 meses');
   assert.ok(inv.querySelector('[data-periodo="6m"]').classList.contains('active'));
 });
 

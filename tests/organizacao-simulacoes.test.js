@@ -79,7 +79,7 @@ test('resumoHeroi: ritmo (crescimento do patrimônio e aporte médio), primeiro 
   assert.equal(fies.abaixoInflacao, true);
   // HTML
   const html = htmlHeroi(h);
-  assert.equal((html.match(/class="sm-tile/g) || []).length, 4);
+  assert.equal((html.match(/class="card sm-tile/g) || []).length, 4);
   assert.match(html, /Primeiro R\$ 1 milhão/);
   assert.match(html, /não antecipe/);
 });

@@ -26,15 +26,17 @@
  * Embaixo, o simulador inteiro (organizacao-simulador.js). O herói se
  * redesenha a cada mudança no formulário (aoMudar).
  */
-import { formatNumeroBR } from '../format.js';
+import { formatNumeroBR, formatPct } from '../format.js';
 import { mil, brl0, mesAno } from './patrimonio-graficos.js';
 import { difMeses } from './patrimonio-calc.js';
 import { projetarMarco, proximoMilhao, PERFIS } from './simulador-dividas-calc.js';
 import { montarSimuladorDividas } from './organizacao-simulador.js';
+import { chipHtml } from './organizacao-ui.js';
+import { mostrarErroCarga } from '../ui/index.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
 const anosTxt = (m) => (m == null ? '—' : m < 24 ? `${Math.round(m)} ${Math.round(m) === 1 ? 'mês' : 'meses'}` : `${formatNumeroBR(m / 12, 1)} anos`);
 const milhaoTxt = (v) => (v >= 2e6 ? `R$ ${formatNumeroBR(v / 1e6, 0)} milhões` : 'R$ 1 milhão');
 const NOME = { financiamento: 'Apê', fies: 'FIES' };
@@ -121,8 +123,8 @@ export function htmlHeroi(h) {
   const perfil = PERFIS[v.perfil] || PERFIS.cdi100;
 
   const tRitmo = `
-    <article class="sm-tile sm-ritmo">
-      <span class="pt-rot">Ritmo atual</span>
+    <article class="card sm-tile sm-ritmo">
+      <span class="kpi-rotulo">Ritmo atual</span>
       ${c ? `<span class="sm-grande ${c.porMes >= 0 ? '' : 'neg'}">${c.porMes >= 0 ? '+' : '−'}${esc(mil(Math.abs(c.porMes)))}<small>/mês</small></span>
       <span class="sm-sub">o patrimônio líquido ${c.porMes >= 0 ? 'cresceu' : 'caiu'} <b>${esc(mil(Math.abs(c.total)))}</b> em ${esc(c.meses)} meses (${esc(mesAno(c.de))} → ${esc(mesAno(c.ate))}) · <b>${esc(mil(Math.abs(c.porAno)))}/ano</b> · hoje <b>${esc(mil(rt.liquido))}</b></span>`
     : `<span class="sm-grande">${esc(mil(rt.liquido))}</span><span class="sm-sub">patrimônio líquido hoje · o crescimento aparece com 2 meses de histórico</span>`}
@@ -134,45 +136,45 @@ export function htmlHeroi(h) {
 
   const r0 = mc.ritmo;
   const tMarco = `
-    <article class="sm-tile sm-marco">
-      <span class="pt-rot">${mc.alvo > 1e6 ? `Próximo marco: ${esc(milhaoTxt(mc.alvo))}` : 'Primeiro R$ 1 milhão'}</span>
+    <article class="card sm-tile sm-marco">
+      <span class="kpi-rotulo">${mc.alvo > 1e6 ? `Próximo marco: ${esc(milhaoTxt(mc.alvo))}` : 'Primeiro R$ 1 milhão'}</span>
       <span class="sm-grande">${r0 ? (r0.m === 0 ? 'já chegou' : esc(r0.rotulo)) : 'não chega'}</span>
       <span class="sm-sub">${r0 && r0.m ? `${idadeTxt(r0) ? `${esc(idadeTxt(r0))} · ` : ''}daqui a <b>${esc(anosTxt(r0.m))}</b> · no ritmo atual` : r0 ? '' : 'em 50 anos, no ritmo atual'} · patrimônio líquido em dinheiro de hoje</span>
       <ul class="sm-lista">
         ${mc.amortizar ? `<li><span>+ ${esc(valorTxt)} amortizando ${esc(NOME_LONGO[v.alvo] || 'a dívida')}</span><b>${esc(mc.amortizar.rotulo)}</b><small>${esc([idadeTxt(mc.amortizar), antesTxt(mc.amortizar, r0)].filter(Boolean).join(' · '))}</small></li>` : ''}
         ${mc.investir ? `<li><span>+ ${esc(valorTxt)} em ${esc(perfil.nome)}</span><b>${esc(mc.investir.rotulo)}</b><small>${esc([idadeTxt(mc.investir), antesTxt(mc.investir, r0)].filter(Boolean).join(' · '))}</small></li>` : ''}
       </ul>
-      ${mc.aposentadoria && mc.aposentadoria.m != null ? `<span class="sm-pe">Aposentadoria (${esc(mil(mc.aposentadoria.alvo))}): <b>${esc(mc.aposentadoria.ano)}</b>${mc.aposentadoria.idade != null ? `, aos ${esc(mc.aposentadoria.idade)}` : ''}${mc.coast ? ` · Coast FI ${esc(mil(mc.coast.valor))} (você tem ${esc(pct(mc.coast.pct, 0))})` : ''} · <a class="pt-link" href="#patrimonio">aba Patrimônio ›</a></span>` : ''}
+      ${mc.aposentadoria && mc.aposentadoria.m != null ? `<span class="sm-pe">Aposentadoria (${esc(mil(mc.aposentadoria.alvo))}): <b>${esc(mc.aposentadoria.ano)}</b>${mc.aposentadoria.idade != null ? `, aos ${esc(mc.aposentadoria.idade)}` : ''}${mc.coast ? ` · Coast FI ${esc(mil(mc.coast.valor))} (você tem ${esc(formatPct(mc.coast.pct, 0))})` : ''} · <a class="pt-link" href="#patrimonio">aba Patrimônio ›</a></span>` : ''}
     </article>`;
 
   let tVies;
   if (!v.melhor) {
-    tVies = `<article class="sm-tile sm-vies"><span class="pt-rot">Viés: investir ou amortizar</span><span class="sm-grande">—</span><span class="sm-sub">${h.temDivida ? 'Coloque um valor no simulador abaixo.' : 'Sem dívida pra amortizar: investir é o caminho.'}</span></article>`;
+    tVies = `<article class="card sm-tile sm-vies"><span class="kpi-rotulo">Viés: investir ou amortizar</span><span class="sm-grande">—</span><span class="sm-sub">${h.temDivida ? 'Coloque um valor no simulador abaixo.' : 'Sem dívida pra amortizar: investir é o caminho.'}</span></article>`;
   } else {
     const cls = v.melhor === 'amortizar' ? 'amort' : v.melhor === 'investir' ? 'inv' : '';
     const titulo = v.melhor === 'empate' ? 'Empate' : v.melhor === 'amortizar' ? `Amortizar ${NOME_LONGO[v.alvo]}` : 'Investir';
     const vir = v.virada && !v.virada.acima && !v.virada.abaixo ? v.virada.taxa : null;
     tVies = `
-    <article class="sm-tile sm-vies ${cls}">
-      <span class="pt-rot">Viés: investir ou amortizar</span>
+    <article class="card sm-tile sm-vies ${cls}">
+      <span class="kpi-rotulo">Viés: investir ou amortizar</span>
       <span class="sm-grande sm-cor">${esc(titulo)}</span>
-      <span class="sm-sub">${v.melhor === 'empate' ? `diferença de só <b>${esc(mil(v.diferenca))}</b>` : `<span class="pt-pill good">+${esc(mil(v.diferenca))}</span> de patrimônio`} em ${esc(v.ano)} · ${esc(valorTxt)} por ${esc(v.horizonte)} anos: ${esc(NOME_LONGO[v.alvo])} × ${esc(perfil.nome)}</span>
+      <span class="sm-sub">${v.melhor === 'empate' ? `diferença de só <b>${esc(mil(v.diferenca))}</b>` : `${chipHtml('good', `+${esc(mil(v.diferenca))}`, 'check')} de patrimônio`} em ${esc(v.ano)} · ${esc(valorTxt)} por ${esc(v.horizonte)} anos: ${esc(NOME_LONGO[v.alvo])} × ${esc(perfil.nome)}</span>
       <ul class="sm-lista">
-        ${vir != null ? `<li><span>Ponto de virada</span><b>${esc(pct(vir))} a.a.</b><small>investir só ganha rendendo mais que isso, já sem IR</small></li>` : ''}
-        <li><span>${esc(perfil.curto)} líquido</span><b>~${esc(pct(v.retornoLiquido))} a.a.</b><small>média em ${esc(v.horizonte)} anos${v.perfil.startsWith('cdi') && num(v.cdiLiquidoHoje) ? ` · hoje o CDI líquido dá ${esc(pct(v.cdiLiquidoHoje))} (a conta supõe ele caindo)` : ''}</small></li>
-        ${v.custoAlvo ? `<li><span>Custo ${esc(v.alvo === 'fies' ? 'do FIES' : 'do apê')}</span><b>${esc(pct(v.custoAlvo.medio))} a.a.</b><small>juros${v.alvo === 'financiamento' ? ' + TR + seguro' : ''}, média no período · o "rendimento" de amortizar</small></li>` : ''}
+        ${vir != null ? `<li><span>Ponto de virada</span><b>${esc(formatPct(vir))} a.a.</b><small>investir só ganha rendendo mais que isso, já sem IR</small></li>` : ''}
+        <li><span>${esc(perfil.curto)} líquido</span><b>~${esc(formatPct(v.retornoLiquido))} a.a.</b><small>média em ${esc(v.horizonte)} anos${v.perfil.startsWith('cdi') && num(v.cdiLiquidoHoje) ? ` · hoje o CDI líquido dá ${esc(formatPct(v.cdiLiquidoHoje))} (a conta supõe ele caindo)` : ''}</small></li>
+        ${v.custoAlvo ? `<li><span>Custo ${esc(v.alvo === 'fies' ? 'do FIES' : 'do apê')}</span><b>${esc(formatPct(v.custoAlvo.medio))} a.a.</b><small>juros${v.alvo === 'financiamento' ? ' + TR + seguro' : ''}, média no período · o "rendimento" de amortizar</small></li>` : ''}
       </ul>
     </article>`;
   }
 
   const tQuita = `
-    <article class="sm-tile sm-quita">
-      <span class="pt-rot">Quitação das dívidas</span>
+    <article class="card sm-tile sm-quita">
+      <span class="kpi-rotulo">Quitação das dívidas</span>
       ${dividas.length ? `<ul class="sm-dividas">${dividas.map((d) => `
         <li>
           <span class="sm-div-n">${esc(NOME[d.id] || d.id)}</span>
           <span class="sm-div-d">${d.adiantados > 0 ? `<s>${esc(mesAno(d.baseMes))}</s> → <b>${esc(mesAno(d.novoMes))}</b>` : `<b>${esc(mesAno(d.baseMes))}</b>`}</span>
-          <small>${d.adiantados > 0 ? `<b>${esc(anosTxt(d.adiantados))} antes</b> com ${esc(valorTxt)}` : d.abaixoInflacao ? `no prazo: custa ${esc(pct(d.custo))} a.a., menos que a inflação - não antecipe` : d.noAlvo ? 'no prazo' : 'no prazo (o extra vai pra outra dívida)'}${num(d.libera) && d.libera > 0 ? ` · depois, ${esc(brl0(d.libera))}/mês livres` : ''}</small>
+          <small>${d.adiantados > 0 ? `<b>${esc(anosTxt(d.adiantados))} antes</b> com ${esc(valorTxt)}` : d.abaixoInflacao ? `no prazo: custa ${esc(formatPct(d.custo))} a.a., menos que a inflação - não antecipe` : d.noAlvo ? 'no prazo' : 'no prazo (o extra vai pra outra dívida)'}${num(d.libera) && d.libera > 0 ? ` · depois, ${esc(brl0(d.libera))}/mês livres` : ''}</small>
         </li>`).join('')}</ul>` : '<span class="sm-sub">Sem financiamento nem FIES cadastrados.</span>'}
       <span class="sm-pe">Com o FGTS amortizando o apê a cada 2 anos, como no simulador.</span>
     </article>`;
@@ -194,7 +196,7 @@ export function montarAbaSimulacoes({ hero, simulador }, { ctx, doc = (hero || s
   let resumo = null;
   const desenharHeroi = (sim, p) => {
     if (!hero) return;
-    try { resumo = resumoHeroi(contexto, sim, p); hero.innerHTML = htmlHeroi(resumo); } catch (e) { hero.innerHTML = `<div class="carteiras-erro">Não deu pra montar o resumo: ${esc(e.message || e)}</div>`; }
+    try { resumo = resumoHeroi(contexto, sim, p); hero.innerHTML = htmlHeroi(resumo); } catch (e) { mostrarErroCarga(hero, { tela: 'Resumo das simulações', erro: e, aoTentar: () => desenharHeroi(sim, p), doc }); } // 06/10/2026 (A-60/A-61)
   };
   const sec = montarSimuladorDividas(simulador, { ctx, doc, hoje, storage, aoMudar: (sim, p) => desenharHeroi(sim, p) });
   return {

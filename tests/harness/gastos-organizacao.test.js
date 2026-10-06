@@ -189,3 +189,38 @@ test('Gastos.gs: falha fica registrada (sem lançamento, não conta como importa
   const a2 = g.arquivos.find((a) => a.id === d.f2.id);
   assert.deepEqual([a2.situacao, a2.problema], ['ok', '']);
 });
+
+test('Gastos.gs (A-25): fatura lida 2x (mesmo total e diferença em outro arquivo) entra como aviso; arquivos distintos seguem ok', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss);
+  sb.SpreadsheetApp.flush = () => {};
+  const agora = new sb.Date(2025, 10, 2);
+  const conf = { ok: false, diferenca: 12.34, regra: 'soma da fatura' };
+  const arq = (id, extra) => ({ id, nome: `${id}.pdf`, fonte: 'ourocard', meses: ['2025-10'], total: 500, conferencia: conf, ...extra });
+  sb.salvarImportacaoGastos_(ss, arq('A'), [lanc({ chaveDedup: 'k1' })], agora);
+  sb.salvarImportacaoGastos_(ss, arq('B', { meses: ['2025-11'] }), [lanc({ chaveDedup: 'k2', mes: '2025-11' })], agora);
+  sb.salvarImportacaoGastos_(ss, { id: 'C', nome: 'C.pdf', fonte: 'ourocard', meses: ['2025-12'], total: 700, conferencia: { ok: true, diferenca: 0 } }, [lanc({ chaveDedup: 'k3', mes: '2025-12' })], agora);
+  const g = plain(sb.lerGastos_(ss));
+  const por = Object.fromEntries(g.arquivos.map((a) => [a.id, a]));
+  assert.equal(por.A.situacao, 'aviso');
+  assert.ok(!/repetir/.test(por.A.problema), 'o primeiro não é o repetido');
+  assert.equal(por.B.situacao, 'aviso');
+  assert.match(por.B.problema, /parece repetir "A\.pdf"/);
+  assert.equal(por.C.situacao, 'ok');
+});
+
+test('Gastos.gs (A-25): preencherSituacaoArquivosGastosDireto deduz a Situação vazia dos arquivos antigos pela Conferência', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss);
+  sb.SpreadsheetApp.flush = () => {};
+  const agora = new sb.Date(2025, 10, 2);
+  sb.salvarImportacaoGastos_(ss, { id: 'A', nome: 'A.pdf', fonte: 'ourocard', meses: ['2025-10'], total: 100, conferencia: { ok: false, diferenca: 5 } }, [lanc({ chaveDedup: 'k1' })], agora);
+  sb.salvarImportacaoGastos_(ss, { id: 'B', nome: 'B.pdf', fonte: 'ourocard', meses: ['2025-11'], total: 200, conferencia: { ok: true, diferenca: 0 } }, [lanc({ chaveDedup: 'k2', mes: '2025-11' })], agora);
+  // simula o legado: apaga a coluna Situação/Problema (L, M) da aba de arquivos
+  const aba = ss.getSheetByName('aux_gastos-arquivos');
+  aba.getRange(2, 12, 2, 2).setValues([['', ''], ['', '']]);
+  const r = plain(sb.preencherSituacaoArquivosGastosDireto());
+  assert.equal(r.preenchidos, 2);
+  const por = Object.fromEntries(plain(sb.lerGastos_(ss)).arquivos.map((a) => [a.id, a.situacao]));
+  assert.deepEqual(por, { A: 'aviso', B: 'ok' });
+});

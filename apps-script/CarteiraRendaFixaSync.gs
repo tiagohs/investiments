@@ -50,17 +50,22 @@ function numeroBr_(s) {
  */
 function precosTesouroDireto_(opcoes) {
   var o = opcoes || {};
-  var cache = null;
-  var chaveCache = 'tesouro_precos_v1';
-  if (!o.textoCsv) {
-    try { cache = CacheService.getScriptCache(); var c = cache.get(chaveCache); if (c) return JSON.parse(c); } catch (e) { cache = null; }
-  }
-  var texto = o.textoCsv;
-  if (!texto) {
-    var resp = UrlFetchApp.fetch(URL_PRECOS_TESOURO, { muteHttpExceptions: true, followRedirects: true });
-    if (resp.getResponseCode() !== 200) throw new Error('Tesouro Transparente respondeu ' + resp.getResponseCode());
-    texto = resp.getContentText('ISO-8859-1');
-  }
+  if (o.textoCsv) return parsearPrecosTesouroCsv_(o.textoCsv);
+  // 05/10/2026 (A-51): Fontes.gs - cache de 6 h (mesma chave de antes) -> disjuntor persistente -> fetch -> último
+  // bom guardado (o arquivo tem ~20 anos de CSV; o que se guarda é só o último dia, já interpretado). Com o
+  // Tesouro Transparente fora do ar a tela abre com os preços do último dia que deu certo (dataBase vai junto em cada título).
+  var r = buscarFonte_('tesouro', URL_PRECOS_TESOURO, {
+    tipo: 'texto', charset: 'ISO-8859-1', ttl: 21600, cacheChave: 'tesouro_precos_v1',
+    validar: function (t) { return typeof t === 'string' && t.length > 0; },
+    transformar: parsearPrecosTesouroCsv_
+  });
+  if (!r.ok) throw new Error('Tesouro Transparente indisponível (' + r.aviso + ')');
+  if (r.origem === 'ultimo-bom') Logger.log('precosTesouroDireto_: ' + r.aviso);
+  return r.dados;
+}
+
+/** CSV do Tesouro Transparente (";", 20 anos) -> só o último dia: { 'TIPO|ANO': { tipo, vencimento, dataBase, puVenda, puCompra, taxaCompra, taxaVenda } }. */
+function parsearPrecosTesouroCsv_(texto) {
   var linhas = texto.split(/\r?\n/);
   var maior = '';
   var porData = {};
@@ -79,7 +84,6 @@ function precosTesouroDireto_(opcoes) {
       taxaCompra: numeroBr_(c2[3]), taxaVenda: numeroBr_(c2[4]), puCompra: numeroBr_(c2[5]), puVenda: numeroBr_(c2[6])
     };
   }
-  if (cache) { try { cache.put(chaveCache, JSON.stringify(porData), 21600); } catch (e2) { /* só otimização */ } }
   return porData;
 }
 

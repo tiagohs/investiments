@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   montarHistoricoAtivo, aplicadoAcumulado, historicoMensal, montarExtrato, resumoProventosAtivo, faixaDePreco,
-  resumoPosicao, eventosDoAtivo, tipoMovimentacaoRf, informesIrDoAtivo, posicaoFiscal, declaracaoIrDoAtivo, ordenarTeses, valorAtualBrl, percentualNaCarteira,
+  resumoPosicao, eventosDoAtivo, tipoMovimentacaoRf, indicesDoHistoricoHome, informesIrDoAtivo, posicaoFiscal, declaracaoIrDoAtivo, ordenarTeses, valorAtualBrl, percentualNaCarteira,
 } from '../assets/js/pages/ativo-calc.js';
 import { calcularResumoRentabilidade, filtrarHistoricoPorPeriodo } from '../assets/js/pages/inicio.js';
 import { refAtivo, urlAtivo, urlAtivoTicker, refDaUrl, linkNovaAbaHtml, linkAtivoComNovaAbaHtml } from '../assets/js/link-ativo.js';
@@ -354,4 +354,19 @@ test('IR: "Na declaração" - Ações EUA (US$ + reais, país 249) e renda fixa 
   const tesouro = declaracaoIrDoAtivo(IR_DECL, { ehRf: true, ticker: 'Tesouro Selic 2029', hoje: '2026-09-20', ativo: { tipoInvestimento: 'Tesouro Selic (LFT)' } });
   assert.equal(tesouro.ficha.codigo, '02');
   assert.equal(declaracaoIrDoAtivo(null, { classe: 'acoes', ticker: 'X', hoje: '2026-01-01' }), null);
+});
+
+// 05/10/2026 (A-38): índices do ativo montados da série da Início (home.historico)
+test('indicesDoHistoricoHome: mesma forma e mesma janela do servidor (7 dias antes da primeira data); formato desconhecido devolve null', () => {
+  const hist = [
+    { data: '2026-01-01', indiceCdi: 99, indiceIpca: 49, ibovespa: 990, ifix: 1, sp500: 2, cambioUsd: 5, patrimonio: 10 },
+    { data: '2026-01-02', indiceCdi: 100, indiceIpca: 50, ibovespa: 1000, ifix: 3, sp500: 4, cambioUsd: 5.1, patrimonio: 11 },
+    { data: '2026-01-10', indiceCdi: 101, indiceIpca: 50, ibovespa: 1010, ifix: null, sp500: null, cambioUsd: null, patrimonio: 12, outro: 'ignorado' },
+  ];
+  assert.deepEqual(indicesDoHistoricoHome(hist, '2026-01-09'), [
+    { data: '2026-01-02', cdi: 100, ipca: 50, ibovespa: 1000, ifix: 3, sp500: 4, cambioUsd: 5.1, patrimonio: 11 },
+    { data: '2026-01-10', cdi: 101, ipca: 50, ibovespa: 1010, ifix: null, sp500: null, cambioUsd: null, patrimonio: 12 },
+  ]);
+  assert.equal(indicesDoHistoricoHome(hist, null).length, 3, 'sem data inicial: tudo');
+  assert.equal(indicesDoHistoricoHome({ datas: [] }, '2026-01-09'), null);
 });

@@ -134,7 +134,8 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
   var abaRF = ss.getSheetByName(ABA_CARTEIRA_RF_MEUSATIVOS);
   if (!abaRF) throw new Error('aba não encontrada: ' + ABA_CARTEIRA_RF_MEUSATIVOS);
   var variacoesRF = montarVariacoesDiaRF_(dadosRendaFixaCache);
-  var ultimaLinhaRF = abaRF.getLastRow();
+  // 05/10/2026 (A-31): última linha REAL (Carteira Renda Fixa tem ~5.500 linhas de formatação/fórmula pra ~17 posições)
+  var ultimaLinhaRF = ultimaLinhaReal_(abaRF, [1, 4], LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS);
   if (ultimaLinhaRF >= LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS) {
     // 18/09/2026: Tiago inseriu uma coluna nova ("Nome") logo depois de
     // Marca (nova coluna C) em Carteira Renda Fixa — todo o resto (Tipo
@@ -142,10 +143,10 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
     // de leitura cresceu de 11 pra 12 colunas (A até L, pra alcançar
     // Valor Atualizado que virou L) e os índices abaixo foram todos
     // corrigidos pra bater com o novo layout real da aba.
-    var dadosRF = abaRF.getRange(
-      LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS, 1,
+    var dadosRF = lerAbaUmaVez_(
+      abaRF, LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS,
       ultimaLinhaRF - LINHA_DADOS_CARTEIRA_RF_MEUSATIVOS + 1, 12
-    ).getValues();
+    );
     dadosRF.forEach(function (linha, i) {
       var codigo = linha[0];
       var tipoInvestimento = linha[3];

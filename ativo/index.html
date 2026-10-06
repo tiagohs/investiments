@@ -2,26 +2,34 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ativo · Patrimônio</title>
+<!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+HE6iBr6ojZXGBmUmpw5p5xH60f3H0pywmIz8tlf9/s=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br; frame-src https://www.youtube-nocookie.com https://drive.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ativo · Carteiras · Patrimônio</title>
 
 <!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
 <link rel="manifest" href="../manifest.json">
-<meta name="theme-color" content="#2A78D6">
+<meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32.png">
+<link rel="icon" href="../favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Patrimônio">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
+<link rel="stylesheet" href="../assets/css/m3-tokens.css">
 <link rel="stylesheet" href="../assets/css/shell.css">
-<!-- 25/09/2026: tela Detalhe do ativo. inicio.css (gráficos .rentab-*,
-     .area-header, .skel, tooltips .info-*) e carteiras.css (.cc-resumo,
-     .cc-tabela, .cc-logo, .status-pill) entram pelas classes reaproveitadas;
-     ativo.css tem só o que é desta tela. -->
-<link rel="stylesheet" href="../assets/css/inicio.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<!-- 06/10/2026 (Onda 3, fase 2): a tela usa a base M3 + charts.css (biblioteca de gráficos) + componentes-grafico.css ("Escolher período" e
+     card de Análise) + carteiras.css (layout da página, KPIs, tabela e blocos de gráfico comuns às Carteiras) + ativo.css (só o que é desta
+     tela). inicio.css saiu: os gráficos agora são de assets/js/charts e o gráfico do dia tem o estilo mínimo no ativo.css. -->
+<link rel="stylesheet" href="../assets/css/charts.css">
+<link rel="stylesheet" href="../assets/css/componentes-grafico.css">
 <link rel="stylesheet" href="../assets/css/carteiras.css">
 <link rel="stylesheet" href="../assets/css/ativo.css">
 <!-- 05/10/2026: aba Patrimônio dos FIIs (imóveis, CRI/indexador, mapa) -->
@@ -32,14 +40,16 @@
 <div class="wrap">
   <div id="shell-header"></div>
 
-  <main class="at-main">
-    <div class="at-titulo-linha"><div id="refreshControlAtivo" class="refresh-control"></div></div>
-    <div class="carteiras-loading" id="ativoLoading" aria-hidden="true">
-      <span class="skel skel-header"></span>
-      <span class="skel" style="height:110px;border-radius:14px"></span>
-      <span class="skel" style="height:260px;border-radius:14px;margin-top:8px"></span>
+  <main class="cart-main at-main">
+    <!-- 06/10/2026 (Onda 3): cabeçalho padrão (breadcrumb "Carteiras › <classe> › <TICKER>", título, "Atualizar dados" e abas em pílula),
+         montado por ativo.js fora do conteúdo (que é redesenhado) -->
+    <header id="ativoCabecalho"></header>
+    <div class="cart-esq" id="ativoLoading" aria-hidden="true">
+      <span class="skel at-esq-hero"></span>
+      <div class="cart-esq-kpis"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+      <span class="skel cart-esq-bloco"></span>
     </div>
-    <div class="carteiras-erro" id="ativoErro" hidden></div>
+    <div id="ativoErro" hidden></div>
     <div id="ativoConteudo" hidden></div>
   </main>
 

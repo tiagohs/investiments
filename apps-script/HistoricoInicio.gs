@@ -180,7 +180,7 @@ function handleHistoricoInicio(e, auth) {
     return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
   }
   try {
-    return jsonOut({ ok: true, serie: montarSerieHistoricoInicio_() });
+    return jsonOut({ ok: true, serie: montarSerieHistoricoInicioAoVivo_() }); // 05/10/2026 (A-21): último ponto = valor ao vivo, igual aos cards (Home.gs)
   } catch (err) {
     return jsonOut({ ok: false, etapa: 'historicoInicio', erro: String(err) });
   }
@@ -323,7 +323,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
 
   if (linhasPatrimonio > 0) {
     if (typeof carregarListasTickersDaPlanilha_ === 'function') carregarListasTickersDaPlanilha_(ss); // FII novo (Planilha.gs, 26/09/2026)
-    abaPatrimonio.getRange(2, 1, linhasPatrimonio, 8).getValues().forEach(function (linha) {
+    lerAbaUmaVez_(abaPatrimonio, 2, linhasPatrimonio, 8).forEach(function (linha) { // 05/10/2026 (A-33): 1 leitura por execução
       var data = linha[0];
       if (!(data instanceof Date)) return;
       var chave = chaveDiaISOInicio_(data);
@@ -391,7 +391,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var fatoresIpca = {}; // 19/09/2026: série MENSAL (não diária) - ver comentário no cabeçalho do arquivo
   var taxasLidas_ = []; // 23/09/2026 #2: CDI/SELIC/IPCA crus - ver alinhamento depois do laço
   if (linhasIndices > 0) {
-    abaIndices.getRange(2, 1, linhasIndices, 3).getValues().forEach(function (linha) {
+    lerAbaUmaVez_(abaIndices, 2, linhasIndices, 3).forEach(function (linha) { // 05/10/2026 (A-33)
       var data = linha[0];
       if (!(data instanceof Date)) return;
       var nomeIndice = linha[1];
@@ -567,7 +567,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     .concat(Object.keys(porDiaRendaFixaTotal))
     .concat(Object.keys(porDiaIbovespa));
   if (todasAsChaves.length === 0) {
-    gravarSerieHistoricoCache_(chaveCacheSerie, []);
+    gravarSerieHistoricoCache_(chaveCacheSerie, [], null, 'serie_inicio');
     return [];
   }
   todasAsChaves.sort();
@@ -838,7 +838,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   }
 
   var marcaGravacao = Date.now();
-  gravarSerieHistoricoCache_(chaveCacheSerie, serie);
+  gravarSerieHistoricoCache_(chaveCacheSerie, serie, null, 'serie_inicio'); // A-37: a geração anterior da série sai do cache
   console.log('montarSerieHistoricoInicio_: gravacao do cache levou ' + (Date.now() - marcaGravacao) + 'ms (' + serie.length + ' dias)');
   return serie;
 }
@@ -924,6 +924,8 @@ function limparCacheHistoricoInicio_() {
   var cache = CacheService.getScriptCache();
   var qtdPedacosTexto = cache.get(chave + '_meta');
   if (!qtdPedacosTexto) {
+    // 05/10/2026 (A-32): carimba DEPOIS de calcular a chave acima - todo lançamento/importação/"Limpar cache" passa por aqui
+    if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_();
     return { limpou: false, motivo: 'já não havia cache pra essa chave (estava frio)', chave: chave, noticiasRemovidas: noticiasRemovidas };
   }
 
@@ -931,6 +933,7 @@ function limparCacheHistoricoInicio_() {
   var chavesParaRemover = [chave + '_meta'];
   for (var i = 0; i < qtdPedacos; i++) chavesParaRemover.push(chave + '_' + i);
   cache.removeAll(chavesParaRemover);
+  if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_(); // 05/10/2026 (A-32): ver acima
 
   return { limpou: true, chave: chave, pedacosRemovidos: qtdPedacos, noticiasRemovidas: noticiasRemovidas };
 }
@@ -947,24 +950,68 @@ function handleLimparCacheHistorico(e) {
 var CACHE_SERIE_HISTORICO_TTL = 21600; // 6h — o máximo permitido pelo CacheService
 var CACHE_SERIE_HISTORICO_TAMANHO_PEDACO = 90000; // caracteres por pedaço, com folga do limite de 100KB/chave
 
-function gravarSerieHistoricoCache_(chave, serie) {
+/**
+ * 05/10/2026 (A-35/A-36/A-37): ttlSegundos (opcional; padrão 6 h), familia (opcional) e retorno
+ * { pedacos, caracteres, bytes } (null se não gravou) - quem quer medir o
+ * uso do cache (CacheRespostas.gs) usa. O corte em pedaços agora respeita o
+ * limite de 100 KB por chave EM BYTES (texto com acento ocupa 2 bytes por
+ * letra) e não separa um par substituto (emoji) no meio.
+ */
+function gravarSerieHistoricoCache_(chave, serie, ttlSegundos, familia) {
   try {
     var texto = JSON.stringify(serie);
     var pedacos = [];
-    for (var i = 0; i < texto.length; i += CACHE_SERIE_HISTORICO_TAMANHO_PEDACO) {
-      pedacos.push(texto.slice(i, i + CACHE_SERIE_HISTORICO_TAMANHO_PEDACO));
+    var bytes = 0;
+    var i = 0;
+    while (i < texto.length) {
+      var fim = Math.min(i + CACHE_SERIE_HISTORICO_TAMANHO_PEDACO, texto.length);
+      var pedaco = texto.slice(i, fim);
+      var b = pedaco.length;
+      if (/[^\x00-\x7f]/.test(pedaco)) {
+        b = bytesUtf8Cache_(pedaco);
+        while (b > CACHE_SERIE_HISTORICO_BYTES_PEDACO && fim - i > 1000) {
+          fim = i + Math.floor((fim - i) * CACHE_SERIE_HISTORICO_BYTES_PEDACO / b * 0.97);
+          pedaco = texto.slice(i, fim);
+          b = bytesUtf8Cache_(pedaco);
+        }
+      }
+      var ultimo = pedaco.charCodeAt(pedaco.length - 1);
+      if (fim < texto.length && ultimo >= 0xD800 && ultimo <= 0xDBFF) { fim -= 1; pedaco = texto.slice(i, fim); b = bytesUtf8Cache_(pedaco); }
+      pedacos.push(pedaco);
+      bytes += b;
+      i = fim;
     }
     var paraGravar = {};
     paraGravar[chave + '_meta'] = String(pedacos.length);
     pedacos.forEach(function (pedaco, idx) {
       paraGravar[chave + '_' + idx] = pedaco;
     });
-    CacheService.getScriptCache().putAll(paraGravar, CACHE_SERIE_HISTORICO_TTL);
+    CacheService.getScriptCache().putAll(paraGravar, ttlSegundos > 0 ? ttlSegundos : CACHE_SERIE_HISTORICO_TTL);
+    var info = { pedacos: pedacos.length, caracteres: texto.length, bytes: bytes };
+    // A-37: `familia` (opcional) apaga a geração anterior da mesma família (CacheRespostas.gs)
+    if (familia && typeof registrarGeracaoCache_ === 'function') registrarGeracaoCache_(familia, chave, info, ttlSegundos);
+    return info;
   } catch (erro) {
     // Cache é só otimização — uma falha aqui nunca pode derrubar a
     // resposta principal (o valor já calculado já foi/será devolvido).
     console.log('gravarSerieHistoricoCache_: falhou ao gravar cache (' + erro + ') — segue sem cache.');
+    return null;
   }
+}
+
+var CACHE_SERIE_HISTORICO_BYTES_PEDACO = 95000; // bytes (UTF-8) por pedaço - o CacheService recusa valor > 100 KB
+
+/** Tamanho em bytes (UTF-8) de um texto. */
+function bytesUtf8Cache_(texto) {
+  var n = 0;
+  for (var i = 0; i < texto.length; i++) {
+    var c = texto.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
 }
 
 /** Devolve a série cacheada, ou null se não tiver cache válido pra essa chave (cache frio, expirado, ou algum pedaço sumiu). */
@@ -997,13 +1044,26 @@ function lerSerieHistoricoCache_(chave) {
 // cada linha) é o que faz essa função parar de ser o gargalo em volumes
 // de dezenas de milhares de chamadas.
 var _formatadorChaveDiaISOInicio_;
+// 05/10/2026 (A-38): mesmo com o Intl criado 1 vez, formatar era ~23% da CPU de um `home` frio (65 mil
+// chamadas, quase todas com o MESMO instante: ~2.100 dias distintos em ~16.800 linhas). Memoriza por
+// getTime() - o resultado é idêntico, só deixa de chamar o Intl pra instante repetido.
+var _memoChaveDiaISOInicio_ = null;
 function chaveDiaISOInicio_(data) {
   if (!_formatadorChaveDiaISOInicio_) {
     _formatadorChaveDiaISOInicio_ = new Intl.DateTimeFormat('en-CA', {
       timeZone: Session.getScriptTimeZone(), year: 'numeric', month: '2-digit', day: '2-digit'
     });
   }
-  return _formatadorChaveDiaISOInicio_.format(data); // "yyyy-MM-dd" (en-CA formata assim)
+  var t = data && typeof data.getTime === 'function' ? data.getTime() : NaN;
+  if (t !== t) return _formatadorChaveDiaISOInicio_.format(data); // inválido/não-Date: mesmo comportamento de antes
+  if (!_memoChaveDiaISOInicio_) _memoChaveDiaISOInicio_ = new Map();
+  var chave = _memoChaveDiaISOInicio_.get(t);
+  if (chave === undefined) {
+    chave = _formatadorChaveDiaISOInicio_.format(data); // "yyyy-MM-dd" (en-CA formata assim)
+    if (_memoChaveDiaISOInicio_.size > 20000) _memoChaveDiaISOInicio_.clear(); // teto: nunca cresce sem limite
+    _memoChaveDiaISOInicio_.set(t, chave);
+  }
+  return chave;
 }
 
 /**

@@ -152,10 +152,10 @@ function executarBackfillRendaFixa_() {
   var mapaClassificacao = montarMapaClassificacaoRF_(abaCarteira);
   var spreadPorPosicao = lerSpreadsContratadosRF_(); // 23/09/2026 #2 - ver função
 
-  var ultimaLinha = abaTransacoes.getLastRow();
+  var ultimaLinha = ultimaLinhaReal_(abaTransacoes, [1, 2], LINHA_CABECALHO_TRANSACOES_RF + 1); // 05/10/2026 (A-31)
   var qtdLinhas = ultimaLinha - LINHA_CABECALHO_TRANSACOES_RF;
   var dados = qtdLinhas > 0
-    ? abaTransacoes.getRange(LINHA_CABECALHO_TRANSACOES_RF + 1, 1, qtdLinhas, 8).getValues()
+    ? lerAbaUmaVez_(abaTransacoes, LINHA_CABECALHO_TRANSACOES_RF + 1, qtdLinhas, 8)
     : [];
 
   // Agrupa por Produto + Instituição (normalizada) — não só Produto.
@@ -308,10 +308,10 @@ function executarBackfillRendaFixaIncremental_() {
   var spreadPorPosicao = lerSpreadsContratadosRF_(); // 23/09/2026 #2 - ver função
 
   // 1) agrupa as transações por posição — mesma lógica do backfill completo
-  var ultimaLinhaTransacoes = abaTransacoes.getLastRow();
+  var ultimaLinhaTransacoes = ultimaLinhaReal_(abaTransacoes, [1, 2], LINHA_CABECALHO_TRANSACOES_RF + 1); // 05/10/2026 (A-31)
   var qtdLinhasTransacoes = ultimaLinhaTransacoes - LINHA_CABECALHO_TRANSACOES_RF;
   var dadosTransacoes = qtdLinhasTransacoes > 0
-    ? abaTransacoes.getRange(LINHA_CABECALHO_TRANSACOES_RF + 1, 1, qtdLinhasTransacoes, 8).getValues()
+    ? lerAbaUmaVez_(abaTransacoes, LINHA_CABECALHO_TRANSACOES_RF + 1, qtdLinhasTransacoes, 8)
     : [];
 
   var porPosicao = {};
@@ -491,12 +491,13 @@ function antesDoDiaRF_(data, referencia) {
  * jeito que Tesouro tem.
  */
 function montarMapaClassificacaoRF_(abaCarteira) {
-  var ultimaLinha = abaCarteira.getLastRow();
+  // 05/10/2026 (A-31): última linha REAL (a aba tem formatação/fórmula até ~5.500), não getLastRow()
+  var ultimaLinha = ultimaLinhaReal_(abaCarteira, [1, 4], LINHA_CABECALHO_CARTEIRA_RF + 1);
   var qtdLinhas = ultimaLinha - LINHA_CABECALHO_CARTEIRA_RF;
   var mapa = {};
   if (qtdLinhas <= 0) return mapa;
 
-  var dados = abaCarteira.getRange(LINHA_CABECALHO_CARTEIRA_RF + 1, 1, qtdLinhas, 13).getValues();
+  var dados = lerAbaUmaVez_(abaCarteira, LINHA_CABECALHO_CARTEIRA_RF + 1, qtdLinhas, 13);
   dados.forEach(function (linha) {
     var marca = linha[1]; // B: Renda Emergencial / Renda Fixa
     // 18/09/2026: Tiago inseriu uma coluna nova ("Nome", C) em Carteira
@@ -567,7 +568,7 @@ function lerLinhasHistoricoRendaFixa_() {
   var aba = ss.getSheetByName(ABA_HISTORICO_RF);
   if (!aba) throw new Error('aba não encontrada: ' + ABA_HISTORICO_RF);
   var qtd = Math.max(aba.getLastRow() - 1, 0);
-  return qtd > 0 ? aba.getRange(2, 1, qtd, 6).getValues() : [];
+  return qtd > 0 ? lerAbaUmaVez_(aba, 2, qtd, 6) : []; // 05/10/2026 (A-33): 1 leitura por execução
 }
 
 /**
@@ -597,8 +598,9 @@ function buscarFatoresDiariosBcb_(codigoSerie, dataInicial, dataFinal) {
   var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.' + codigoSerie +
     '/dados?formato=json&dataInicial=' + formatarDataBcbRF_(dataInicial) +
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
-  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  var dados = JSON.parse(resposta.getContentText());
+  // 05/10/2026 (A-51): Fontes.gs - HTTP/Array.isArray validados antes do forEach (resposta não-lista do BCB = sem dado
+  // no período, não "forEach is not a function") e disjuntor persistente do BCB. O cache de 6 h continua aqui.
+  var dados = dadosListaBcb_(url);
   var mapa = {};
   dados.forEach(function (item) {
     mapa[item.data] = 1 + (parseFloat(item.valor) / 100);
@@ -611,13 +613,19 @@ function buscarFatoresDiariosBcb_(codigoSerie, dataInicial, dataFinal) {
   return mapa;
 }
 
+/** Lista de uma série SGS do BCB ([{ data, valor }]); [] se o período não tem publicação; lança se o BCB está fora do ar. */
+function dadosListaBcb_(url) {
+  var busca = buscarFonte_('bcb', url, { ttl: 0, ultimoBom: false, ttlNegativo: 0, validar: Array.isArray, semListaComoVazio: true });
+  if (!busca.ok) throw new Error('BCB indisponível (' + busca.aviso + ')');
+  return busca.dados;
+}
+
 /** IPCA (433): % mensal — faz o prorata dia a dia dentro de cada mês. */
 function buscarFatoresDiariosIpca_(dataInicial, dataFinal) {
   var url = 'https://api.bcb.gov.br/dados/serie/bcdata.sgs.433/dados?formato=json' +
     '&dataInicial=' + formatarDataBcbRF_(dataInicial) +
     '&dataFinal=' + formatarDataBcbRF_(dataFinal);
-  var resposta = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  var dadosMensais = JSON.parse(resposta.getContentText());
+  var dadosMensais = dadosListaBcb_(url); // 05/10/2026 (A-51): ver buscarFatoresDiariosBcb_
   var valorPorMes = {}; // "AAAA-MM" -> % do mês
   dadosMensais.forEach(function (item) {
     var partes = item.data.split('/'); // dd/mm/aaaa

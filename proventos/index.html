@@ -2,26 +2,30 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-62DgiDi8P4bmiYyaSZCsdPg/9AJIIDGzzlqipvM56to=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br; frame-src https://www.youtube-nocookie.com https://drive.google.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Proventos</title>
 
 <!-- Blocinho PWA — colado em toda página HTML (item 8j do plano). -->
 <link rel="manifest" href="../manifest.json">
-<meta name="theme-color" content="#2A78D6">
+<meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="512x512" href="../assets/icons/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/favicon-32.png">
+<link rel="icon" href="../favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Patrimônio">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
+<link rel="stylesheet" href="../assets/css/m3-tokens.css">
 <link rel="stylesheet" href="../assets/css/shell.css">
-<!-- 24/09/2026: inicio.css (area-header, skeleton, .ativo-tooltip) e
-     carteiras.css (.cc-logo) entram pelas classes que a tela Proventos
-     reaproveita; proventos.css tem só o que é desta tela. -->
-<link rel="stylesheet" href="../assets/css/inicio.css">
-<link rel="stylesheet" href="../assets/css/carteiras.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<!-- 06/10/2026 (Onda 3): a tela só usa a base M3 (tokens/shell/components) + proventos.css; inicio.css e carteiras.css saíram -->
 <link rel="stylesheet" href="../assets/css/proventos.css">
 </head>
 <body data-section="proventos">
@@ -30,16 +34,14 @@
   <div id="shell-header"></div>
 
   <main class="pv-pagina">
-    <div class="pv-titulo">
-      <h1>Proventos</h1>
-      <div id="refreshControlProventos" class="refresh-control"></div>
+    <!-- 06/10/2026 (Onda 3): cabeçalho padrão montado por montarCabecalhoPagina (título, subtítulo, Atualizar dados, Importar B3, abas) -->
+    <div id="pvCabecalho"></div>
+    <div id="pvImportarStatus" class="pv-importar-status" role="status" hidden></div>
+    <div class="pv-esqueleto" id="proventosLoading" aria-hidden="true">
+      <div class="pv-esq-linha"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
+      <span class="skel pv-esq-grafico"></span>
     </div>
-    <div class="carteiras-loading" id="proventosLoading" aria-hidden="true">
-      <span class="skel skel-header"></span>
-      <div class="cc-skel-tiles"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>
-      <span class="skel" style="height:240px;border-radius:14px;margin-top:8px"></span>
-    </div>
-    <div class="carteiras-erro" id="proventosErro" hidden></div>
+    <div id="proventosErro" hidden></div>
     <div id="proventosConteudo" hidden></div>
   </main>
 

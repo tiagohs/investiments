@@ -59,7 +59,7 @@ function handlePatrimonio(e, auth) {
 }
 
 function handleSalvarPatrimonio(e) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('patrimonio', 'salvar patrimônio');
   try { trava.waitLock(20000); } catch (eL) { return jsonOut({ ok: false, etapa: 'patrimonio', erro: 'planilha ocupada, tente de novo em alguns segundos' }); }
   try {
     var p = (e && e.parameter) || {};
@@ -317,8 +317,20 @@ function dataIsoPatrimonio_(d) {
 function historicoMensalPatrimonio_(serie) {
   var porMes = {};
   var ordem = [];
+  // 05/10/2026 (auditoria A-09): linha repetida na série (mesmo dia duas vezes, ex.: aux_historico-patrimonio com
+  // linha duplicada) contava em dobro nos aportes do mês. Agora um ponto por dia - a ÚLTIMA linha daquele dia vence
+  // (as de data vazia continuam sendo ignoradas logo abaixo).
+  var ultimoDoDia = {};
+  var unicas = [];
   (serie || []).forEach(function (p) {
-    var m = String(p.data || '').slice(0, 7);
+    var d = String((p && p.data) || '').slice(0, 10);
+    if (!d) { unicas.push(p); return; }
+    if (ultimoDoDia.hasOwnProperty(d)) { unicas[ultimoDoDia[d]] = p; return; }
+    ultimoDoDia[d] = unicas.length;
+    unicas.push(p);
+  });
+  unicas.forEach(function (p) {
+    var m = String((p && p.data) || '').slice(0, 7);
     if (!m) return;
     if (!porMes[m]) { porMes[m] = { mes: m, patrimonio: null, reserva: null, aporte: 0, aporteLongoPrazo: 0, aporteReserva: 0 }; ordem.push(m); }
     var o = porMes[m];

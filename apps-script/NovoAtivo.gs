@@ -216,7 +216,7 @@ function adicionarAtivo_(dados, opcoes) {
   var cfg = v.cfg, t = v.ticker, classe = dados.classe;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var trava = null;
-  if (!o.simular) { trava = LockService.getScriptLock(); trava.waitLock(30000); }
+  if (!o.simular) { trava = travaRecurso_('carteira', 'ativo novo'); trava.waitLock(30000); }
   try {
     var ja = ondeTickerExiste_(ss, classe, t);
     if (ja.length) throw new Error(t + ' já está cadastrado (' + ja.join(', ') + ')');
@@ -315,7 +315,7 @@ function removerAtivo_(classe, ticker) {
       throw new Error(t + ' tem transações: não dá pra remover o cadastro (apague as transações antes, na planilha)');
     }
   }
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('carteira', 'ativo novo');
   trava.waitLock(30000);
   try {
     var removidas = [];

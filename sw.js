@@ -44,7 +44,7 @@
  * doesn't match the current CACHE_NAME).
  */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v5'; // v5: Onda 3 M3 (06/10/2026) - m3-tokens.css, components.css, charts.css, assets/js/ui/*, assets/js/charts/*; v4: logo novo (05/10/2026)
 const CACHE_NAME = `patrimonio-shell-${CACHE_VERSION}`;
 
 // Requests whose `destination` marks them as the static shell rather

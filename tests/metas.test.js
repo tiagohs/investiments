@@ -8,7 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { montarPaginaMetas, TEMPLATE_METAS, parseNumeroBR, graficoProjecaoSvg, heroiHtml, cardMetaHtml } from '../assets/js/pages/metas.js';
+import { opcoesProjecao } from '../assets/js/pages/metas-graficos.js';
+import { montarPaginaMetas, TEMPLATE_METAS, parseNumeroBR, heroiHtml, cardMetaHtml } from '../assets/js/pages/metas.js';
 import { cardMetaRendaPassiva, carregarMetasParaCard, formatMoeda } from '../assets/js/metas-card.js';
 import { calcularMeta } from '../assets/js/pages/metas-calc.js';
 import fs from 'node:fs';
@@ -23,6 +24,7 @@ const BASE = {
   ok: true, hoje: '2026-10-02', arquivadas: [],
   ativos: [
     { id: 'AAAA11', ref: 'AAAA11', nome: 'AAAA11', classe: 'fiis', valorBRL: 10000 },
+    { id: 'BBBB3', ref: 'BBBB3', nome: 'BBBB3', classe: 'acoes', valorBRL: 5000 }, // 05/10/2026 (A-11): a viagem usa um ativo que a renda passiva (classe FIIs) não pega
     { id: 'rf:Tesouro X|Banco Y@emergencial', ref: 'rf:Tesouro X|Banco Y', nome: 'Tesouro X', classe: 'rf', marca: 'emergencial', instituicao: 'Banco Y', valorBRL: 8000 },
   ],
   cambio: { EUR: { valor: 6, fonte: 'teste' }, USD: { valor: 5, fonte: 'teste' } },
@@ -31,20 +33,28 @@ const BASE = {
 };
 const META_VIAGEM = {
   id: 'm1', tipo: 'viagemInternacional', nome: 'Viagem Teste', moeda: 'EUR', valorAlvo: 2000, dataAlvo: '2027-10', aporteMensal: 100, rendimentoAnual: 0,
-  itens: [], vinculos: [{ tipo: 'ativo', id: 'AAAA11', modo: 'valor', valor: 3000 }], especificos: { destino: 'Lugar' }, status: 'ativa',
+  itens: [], vinculos: [{ tipo: 'ativo', id: 'BBBB3', modo: 'valor', valor: 3000 }], especificos: { destino: 'Lugar' }, status: 'ativa',
 };
 const META_RP = { id: 'm2', tipo: 'rendaPassiva', nome: 'Renda Teste', dataAlvo: '2036-10', especificos: { rendaMensal: 500, dyAnual: 0.1 }, vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], exibirNaCarteira: true, aporteMensal: 500, status: 'ativa' };
 
 function montarDom(hash = '') {
   const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="metas"><main>${TEMPLATE_METAS}</main></body></html>`,
     { url: `https://exemplo.test/metas.html${hash}`, pretendToBeVisual: true });
-  dom.window.confirm = () => true;
   dom.window.alert = () => {};
   return { doc: dom.window.document, w: dom.window };
 }
 const clique = (w, el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 const digitar = (w, el, valor, tipo = 'input') => { el.value = valor; el.dispatchEvent(new w.Event(tipo, { bubbles: true })); };
 const espera = () => new Promise((r) => setTimeout(r, 0));
+// 06/10/2026 (Onda 3): confirmar() do kit (diálogo M3) no lugar de window.confirm
+async function confirmarDialogo(w) {
+  await espera();
+  const b = w.document.querySelector('.dialogo-scrim [data-acao="confirmar"]');
+  assert.ok(b, 'diálogo de confirmação aberto');
+  clique(w, b);
+  await new Promise((r) => setTimeout(r, 220)); // o diálogo sai com 150ms de transição
+  await espera();
+}
 
 async function montar({ metas = [], hash = '', historico = { ok: true, hoje: '2026-10-02', metas: {}, indices: [] }, base = {}, dadosViagem = DADOS_VIAGEM } = {}) {
   const { doc, w } = montarDom(hash);
@@ -108,9 +118,9 @@ test('lista: cards com progresso, falta, prazo e aporte; filtros por status e ti
   assert.match(viagem.textContent, /12\.000/, '€ 2.000 x 6');
   assert.match(viagem.textContent, /out\/2027/);
   assert.match(viagem.textContent, /Atrasada/, 'aporte R$ 100 < R$ 750 necessários');
-  clique(w, tela.querySelector('[data-filtro-status="atrasadas"]'));
+  clique(w, tela.querySelector('[data-tab="atrasadas"]'));
   assert.equal(tela.querySelectorAll('.mt-card').length, 1);
-  clique(w, tela.querySelector('[data-filtro-status="todas"]'));
+  clique(w, tela.querySelector('[data-tab="todas"]'));
   clique(w, tela.querySelector('[data-filtro-tipo="rendaPassiva"]'));
   assert.deepEqual([...tela.querySelectorAll('.mt-card strong')].map((s) => s.textContent), ['Renda Teste']);
   clique(w, tela.querySelector('[data-abrir="m2"]'));
@@ -149,6 +159,7 @@ test('detalhe: sub-itens salvam a meta; simulador nos 2 sentidos; arquivar', asy
   assert.match(sim.textContent, /ago\/2027/, 'R$ 30.000 / R$ 3.000 = 10 meses');
 
   clique(w, tela.querySelector('[data-arquivar]'));
+  await confirmarDialogo(w);
   await espera();
   assert.deepEqual(arquivadas, [['m1', false]]);
   assert.match(tela.textContent, /Arquivadas/);
@@ -201,12 +212,15 @@ test('card de renda passiva (Carteiras): carregarMetasParaCard + cardMetaRendaPa
   assert.equal(formatMoeda(5000, 'EUR', { casas: 0 }).replace(/\s/g, ' '), '€ 5.000');
 });
 
-test('gráfico: SVG com as curvas e a linha do alvo', () => {
+test('gráfico: opções da biblioteca com as curvas e a linha do alvo', () => {
+  // 06/10/2026 (Onda 3): o gráfico é da biblioteca assets/js/charts; aqui se confere a tradução dado -> opções
   const c = calcularMeta(META_VIAGEM, { ...BASE });
-  const svg = graficoProjecaoSvg(c, { largura: 600, hoje: '2026-10-02' });
-  assert.match(svg, /class="mt-g-ritmo"/);
-  assert.match(svg, /class="mt-g-necessaria"/);
-  assert.match(svg, /alvo R\$/);
+  const o = opcoesProjecao(c, { hoje: '2026-10-02' });
+  const ids = o.series.map((x) => x.id);
+  assert.ok(ids.includes('ritmo'), 'curva no seu ritmo');
+  assert.ok(ids.includes('necessaria'), 'curva necessária');
+  assert.ok(ids.includes('alvo'), 'linha do alvo');
+  assert.equal(o.series.find((x) => x.id === 'alvo').valores[0], c.alvoBRL);
 });
 
 test('router: a rota "metas" existe e o conteúdo vem do próprio TEMPLATE_METAS (sem template em pages.html)', async () => {
@@ -218,7 +232,7 @@ test('router: a rota "metas" existe e o conteúdo vem do próprio TEMPLATE_METAS
   const div = doc.createElement('div');
   div.appendChild(templates.metas.cloneNode(true));
   assert.ok(div.querySelector('#mtTela'));
-  assert.ok(div.querySelector('#mtNova'));
+  assert.ok(div.querySelector('#mtCabecalho')); // 06/10/2026 (Onda 3): #mtNova é montado pelo JS dentro do cabeçalho padrão
 });
 
 // 03/10/2026: link "Criar em Metas e Objetivos" dos cards de Metas da carteira
@@ -252,7 +266,10 @@ test('#nova=<tipo> com a meta desse tipo já criada abre o detalhe dela (não du
 
 test('#nova=reserva-emergencia e #nova=aposentadoria: tipo certo no assistente', async () => {
   const a = await montar({ hash: '#nova=reserva-emergencia' });
-  assert.equal(a.doc.querySelector('#mtDialogo [data-campo="especificos.meses"]').value, '6');
+  // 05/10/2026 (A-12): meses não é mais copiado da planilha - fica vazio (segue a planilha) e a planilha aparece no placeholder
+  const campoMeses = a.doc.querySelector('#mtDialogo [data-campo="especificos.meses"]');
+  assert.equal(campoMeses.value, '');
+  assert.equal(campoMeses.getAttribute('placeholder'), '6');
   const b = await montar({ hash: '#nova=aposentadoria' });
   assert.equal(b.doc.querySelector('#mtDialogo [data-campo="nome"]').value, 'Aposentadoria');
   assert.ok(b.doc.querySelector('#mtDialogo [data-campo="especificos.taxaRetirada"]'));
@@ -311,11 +328,11 @@ test('v2 renda passiva: histórico (filtro, tooltip por teclado, análise), rend
   const tela = doc.getElementById('mtTela');
   assert.match(tela.querySelector('.mt-heroi-v2').textContent, /Seu aporte real/);
   assert.match(tela.querySelector('.mt-heroi-v2').textContent, /425/, 'aporte real do histórico, sem digitar');
-  const svg = tela.querySelector('#mtHistGrafico svg');
-  assert.ok(svg, 'gráfico do histórico');
+  const svg = tela.querySelector('#mtHistGrafico svg.chart-svg');
+  assert.ok(svg, 'gráfico do histórico (biblioteca de gráficos)');
   svg.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
-  const tt = tela.querySelector('#mtHistGrafico .mt-tt');
-  assert.equal(tt.hidden, false);
+  const tt = tela.querySelector('#mtHistGrafico .chart-tip');
+  assert.ok(tt, 'tooltip da biblioteca');
   assert.match(tt.textContent, /out\/2026/);
   svg.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
   assert.match(tt.textContent, /set\/2026/);
@@ -326,12 +343,13 @@ test('v2 renda passiva: histórico (filtro, tooltip por teclado, análise), rend
   const tabs = tela.querySelector('#mtHistBloco .mt-tabs-periodo');
   assert.ok(tabs.querySelector('.fp-chip'), '"Escolher período" no filtro');
   clique(w, tabs.querySelector('[data-periodo="tudo"]'));
-  assert.ok(tela.querySelector('#mtHistGrafico svg'));
+  assert.ok(tela.querySelector('#mtHistGrafico svg.chart-svg'));
   clique(w, tela.querySelector('[data-modo-hist="mensal"]'));
-  assert.ok(tela.querySelector('#mtHistGrafico svg.mensal'), 'visão mês a mês');
-  assert.ok(tela.querySelector('#mtRendaGrafico svg.mt-g-renda'), 'renda mês a mês');
+  assert.ok(tela.querySelector('#mtHistGrafico svg.chart-svg'), 'visão mês a mês');
+  assert.match(tela.querySelector('#mtHistGrafico').textContent, /Rendimento/, 'mês a mês mostra aporte x rendimento');
+  assert.ok(tela.querySelector('#mtRendaGrafico svg.chart-svg'), 'renda mês a mês');
   assert.ok(tela.querySelector('#mtRendaAnalise details.ag'));
-  assert.ok(tela.querySelector('#mtGrafico svg'), 'projeção');
+  assert.ok(tela.querySelector('#mtGrafico svg.chart-svg'), 'projeção');
   assert.ok(tela.querySelector('#mtProjAnalise details.ag'), 'análise da projeção');
   assert.match(tela.textContent, /Quanto tempo leva/);
   assert.match(tela.textContent, /Em 75% do tempo/i);
@@ -424,11 +442,13 @@ test('v2 arquivada: "Excluir definitivamente" (com confirmação) apaga e volta 
   const tela = doc.getElementById('mtTela');
   clique(w, tela.querySelector('[data-abrir="m1"]'));
   clique(w, tela.querySelector('[data-arquivar]'));
+  await confirmarDialogo(w);
   await espera();
-  clique(w, tela.querySelector('[data-filtro-status="arquivadas"]'));
+  clique(w, tela.querySelector('[data-tab="arquivadas"]'));
   clique(w, tela.querySelector('[data-abrir="m1"]'));
   assert.ok(tela.querySelector('[data-excluir-definitivo]'));
   clique(w, tela.querySelector('[data-excluir-definitivo]'));
+  await confirmarDialogo(w);
   await espera();
   assert.deepEqual(excluidas, ['m1']);
   assert.ok(!tela.querySelector('[data-abrir="m1"]'));

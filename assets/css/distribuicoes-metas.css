@@ -1,594 +1,323 @@
 /**
- * distribuicoes-metas.css — estilos da página "Distribuições e Metas".
- * Tokens e o padrão de skeleton/erro/avisos (.skel*, .inicio-loading,
- * .inicio-erro, .avisos-banner) já vêm de shell.css/inicio.css — aqui só
- * o que é específico desta página.
+ * distribuicoes-metas.css - "Acompanhamento de Ativos" (Objetivos | Radar | Metas).
  *
- * 14/09/2026: primeira fatia é só "Metas da Carteira" — .goal-card,
- * .goal-donut-wrap etc. são as MESMAS classes já validadas em
- * docs/direcao-visual.html ("Metas da carteira"), copiadas com o mesmo
- * nome pra não divergir do que já foi revisto. O que é novo aqui (não
- * existia no mockup, porque lá os cards eram só ilustrativos, sem
- * edição) é o formulário de edição inline: .goal-editar-btn,
- * .goal-edit-form, .goal-edit-field, .goal-edit-acoes, .goal-edit-status
- * e o .goal-badge ("atingida", usado pela Renda Emergencial).
+ * 06/10/2026 (Onda 3, kit Material 3): reescrito só com tokens (m3-tokens.css), sem hex. O que a base já cobre vem de
+ * components.css (.card, .btn, .chip-*, .input, .skel, .grid-kpi, abas em pílula) e de inicio.css (.avisos-banner,
+ * .info-icon/.info-tooltip, .moeda-conv, .skel-header) - aqui só o que é específico desta tela. Gráficos (anel das
+ * metas, barras de progresso/composição, sparkline do dia) são da biblioteca assets/js/charts (charts.css).
  */
 
-/* ---- Tokens de cor por tipo de FII (Tijolo/Híbrido/Papel) — só usados
-   nesta página (legenda + fundo de linha do Radar de FIIs, pedido do
-   Tiago 14/09/2026 "vamos testar"), por isso ficam aqui e não em
-   shell.css junto de --acoes/--fiis/--rf/--usa (aqueles são
-   reaproveitados em várias páginas, estes não). Mesmo padrão de 3
-   variáveis (cor/soft) e dos 2 jeitos de "modo escuro" (prefers-color-
-   scheme E [data-theme]) que shell.css já usa. */
-:root {
-  --fii-tijolo:#B5651D; --fii-tijolo-soft:#F5E3D3;
-  --fii-hibrido:#7B52AB; --fii-hibrido-soft:#EDE4F7;
-  --fii-papel:#2E7D8C; --fii-papel-soft:#DCEEF1;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --fii-tijolo:#D98C4A; --fii-tijolo-soft:#3A2A1A;
-    --fii-hibrido:#B79AE0; --fii-hibrido-soft:#2E2440;
-    --fii-papel:#5FB8C9; --fii-papel-soft:#173036;
-  }
-}
-:root[data-theme="dark"] {
-  --fii-tijolo:#D98C4A; --fii-tijolo-soft:#3A2A1A;
-  --fii-hibrido:#B79AE0; --fii-hibrido-soft:#2E2440;
-  --fii-papel:#5FB8C9; --fii-papel-soft:#173036;
+/* Cores por tipo de FII (legenda + ponto ao lado do ticker): vêm da paleta categórica do kit. */
+:root{
+  --fii-tijolo:var(--chart-3); --fii-tijolo-ink:var(--chart-3-ink); --fii-tijolo-soft:var(--chart-3-soft);
+  --fii-hibrido:var(--chart-4); --fii-hibrido-ink:var(--chart-4-ink); --fii-hibrido-soft:var(--chart-4-soft);
+  --fii-papel:var(--chart-7); --fii-papel-ink:var(--chart-7-ink); --fii-papel-soft:var(--chart-7-soft);
 }
 
-/* ---- Cabeçalho de área (mesmo padrão de .area-header em inicio.css —
-   duplicado aqui porque esta página não carrega inicio.css). ---- */
-.area-header{ display:flex; align-items:baseline; justify-content:space-between; gap:12px;
-      flex-wrap:wrap; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
-.area-header h2{ font-size:18px; }
-.area-header .hint{ font-size:11.5px; color:var(--ink-faint); }
+/* ---- Esqueleto, erro, KPIs e painéis ---- */
+.metas-loading{ display:flex; flex-direction:column; gap:16px; }
+.metas-loading[hidden], .metas-erro[hidden]{ display:none; }
+.metas-loading .skel-kpi{ height:132px; border-radius:var(--r-card); }
+.metas-loading .skel-bloco{ height:320px; border-radius:var(--r-card); }
+.metas-erro{ padding:24px 0; }
 
-/* ---- Avisos (falha parcial) — mesmo padrão de .avisos-banner em
-   inicio.css, duplicado aqui pelo mesmo motivo do .area-header acima. ---- */
-.avisos-banner{ background:var(--warn-soft); color:var(--warn-ink); border-radius:12px;
-      padding:11px 14px; font-size:12.5px; margin-bottom:16px; line-height:1.5; }
-.avisos-banner b{ font-weight:700; }
+.dm-kpis{ margin-bottom:24px; }
+.dm-painel[hidden]{ display:none; }
+.dm-dica{ margin:0 0 16px; max-width:72ch; font-size:var(--md-sys-typescale-body-medium-size); line-height:20px; color:var(--ink-muted); }
 
-/* ---- Skeleton shimmer (mesmo padrão de .skel em inicio.css). ---- */
-.skel{ display:block; background:linear-gradient(100deg, var(--surface-3) 30%, var(--border) 50%, var(--surface-3) 70%);
-      background-size:200% 100%; animation:skel-shimmer 1.4s ease-in-out infinite; border-radius:14px; }
-@keyframes skel-shimmer{ from{ background-position:120% 0; } to{ background-position:-20% 0; } }
-.skel-header{ width:180px; height:16px; border-radius:6px; }
-@media (prefers-reduced-motion: reduce){ .skel{ animation:none; } }
-
-/* ---- Skeleton de carregamento (mesmo padrão de .inicio-loading, ver
-   o comentário sobre a bug de especificidade de [hidden] em inicio.css —
-   vale igual aqui). ---- */
-.metas-loading{ display:flex; flex-direction:column; gap:10px; }
-.metas-loading[hidden]{ display:none; }
-.metas-erro{ display:flex; flex-direction:column; align-items:center; gap:10px;
-      padding:60px 20px; color:var(--bad-ink); text-align:center; }
-.metas-erro[hidden]{ display:none; }
-
-/* ---- Metas da carteira (3 cards: Renda Passiva / Patrimônio / Renda
-   Emergencial) — .goals-grid tem 1 coluna a mais que o mockup original
-   (que só tinha 2 cards ilustrativos); repeat(auto-fit, minmax(...))
-   deixa os 3 lado a lado em telas largas e empilhados no celular sem
-   precisar de um breakpoint manual pra cada contagem de card. ---- */
-.goals-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:16px; }
-.goal-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px;
-      box-shadow:var(--shadow); display:flex; flex-direction:column; }
-.goal-card-head{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:2px; }
-.goal-card-head h3{ font-size:14.5px; }
-.goal-donut-wrap{ display:flex; justify-content:center; margin:14px 0 4px; }
-.goal-donut-wrap svg text.big{ font-family:var(--mono); font-size:20px; font-weight:600; fill:var(--ink); }
-.goal-donut-wrap svg text.small{ font-size:9.5px; fill:var(--ink-faint); font-family:var(--body-f); }
-.goal-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; padding-top:12px; border-top:1px solid var(--border); }
-.goal-stats .k{ font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); margin-bottom:2px; }
-.goal-stats .v{ font-family:var(--mono); font-size:13.5px; font-weight:600; }
-/* 26/09/2026: Renda Emergencial -> Organização Financeira (de onde vem a média de gastos) */
-.goal-link{ display:inline-block; margin-top:10px; font-size:11.5px; font-weight:600; color:var(--acoes); text-decoration:none; }
+/* ---- Metas da carteira (3 cartões) ---- */
+.goals-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
+.goal-card{ display:flex; flex-direction:column; min-width:0; padding:var(--pad-card); border-radius:var(--r-card);
+      background:var(--md-ext-color-card); border:1px solid var(--md-ext-color-card-border); }
+.goal-card-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:2px; }
+.goal-card-head h3{ margin:0; font-family:var(--display); font-size:var(--md-sys-typescale-title-medium-size); line-height:24px; font-weight:500; }
+.goal-ring{ display:flex; justify-content:center; margin:12px 0 4px; }
+.goal-stats{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:10px; padding-top:14px; border-top:1px solid var(--md-sys-color-outline-variant); }
+.goal-stats .k{ margin-bottom:2px; font-size:var(--md-sys-typescale-label-medium-size); line-height:16px; color:var(--ink-muted); }
+.goal-stats .v{ font-family:var(--mono); font-size:var(--md-sys-typescale-body-large-size); font-weight:600; font-variant-numeric:tabular-nums; }
+.goal-link{ display:inline-flex; align-items:center; min-height:44px; margin-top:6px; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--md-sys-color-primary); text-decoration:none; }
 .goal-link:hover{ text-decoration:underline; }
+.goal-badge{ white-space:nowrap; }
 
-/* 03/10/2026 (Tiago: "'Metas da Carteira' [...] precisa estar linkada às metas
-   presentes em 'Metas e Objetivos'"): o card inteiro leva pro detalhe da meta
-   correspondente; o rodapé (.goal-meta) mostra o progresso de LÁ. Selo, pílula
-   de status e barra são os mesmos da tela Metas (.mt-selo/.mt-status/.mt-barra,
-   de assets/css/metas.css - a página injeta a folha, ver garantirEstiloMetas). */
-.goal-card-clicavel{ cursor:pointer; transition:border-color .15s ease, box-shadow .15s ease; }
-.goal-card-clicavel:hover{ border-color:color-mix(in srgb, var(--acoes) 45%, var(--border)); }
+/* O cartão inteiro leva ao detalhe da meta (Metas e Objetivos); o rodapé .goal-meta mostra o progresso de lá
+   (selo/pílula/barra .mt-* vêm de metas.css, que a página injeta - ver garantirEstiloMetas). */
+.goal-card-clicavel{ cursor:pointer; transition:background .15s ease; }
+.goal-card-clicavel:hover{ background:var(--md-ext-color-card-hover); }
 .goal-card-clicavel :is(.goal-edit-form, .goal-stats .info-alvo){ cursor:auto; }
 .goal-card-clicavel > :not(.goal-meta):nth-last-child(2){ margin-bottom:14px; }
-.goal-meta{ margin-top:auto; display:flex; flex-direction:column; gap:8px; padding:10px 12px; border-radius:11px;
-      background:var(--surface-2); border:1px solid var(--border); color:var(--ink); text-decoration:none; min-width:0;
-      transition:border-color .15s ease, background .15s ease; }
-.goal-meta:hover, .goal-card-clicavel:hover .goal-meta{ border-color:var(--mt-cor, var(--acoes)); }
-.goal-meta:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
-.goal-meta-cab{ display:flex; align-items:center; gap:9px; min-width:0; }
-.goal-meta-tit{ display:flex; flex-direction:column; min-width:0; flex:1 1 auto; line-height:1.25; }
-.goal-meta-tit strong{ font-size:12.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.goal-meta-eyebrow{ font-size:9.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-faint); font-weight:600; }
-.goal-meta-fraco{ font-size:11px; color:var(--ink-muted); }
-.goal-meta-sub{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; font-size:11.5px; color:var(--ink-muted); min-width:0; }
-.goal-meta-valores{ font-family:var(--mono); font-size:11px; min-width:0; }
+.goal-meta{ display:flex; flex-direction:column; gap:8px; margin-top:auto; min-width:0; padding:12px; border-radius:var(--md-sys-shape-corner-medium);
+      background:var(--md-sys-color-surface-container); border:1px solid transparent; color:var(--ink); text-decoration:none; }
+.goal-meta:hover, .goal-card-clicavel:hover .goal-meta{ border-color:var(--mt-cor, var(--md-sys-color-primary)); }
+.goal-meta:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
+.goal-meta-cab{ display:flex; align-items:center; gap:10px; min-width:0; }
+.goal-meta-tit{ display:flex; flex-direction:column; flex:1 1 auto; min-width:0; line-height:1.25; }
+.goal-meta-tit strong{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--md-sys-typescale-body-medium-size); font-weight:600; }
+.goal-meta-eyebrow{ font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); }
+.goal-meta-fraco{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
+.goal-meta-sub{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-width:0; font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
+.goal-meta-valores{ min-width:0; font-family:var(--mono); font-size:12px; }
 .goal-meta-valores b{ color:var(--ink); font-weight:600; }
-.goal-meta-ir{ display:inline-flex; align-items:center; gap:2px; flex:none; font-size:11.5px; font-weight:700; color:var(--mt-cor, var(--acoes)); }
+.goal-meta-ir{ display:inline-flex; align-items:center; gap:2px; flex:none; font-size:var(--md-sys-typescale-label-large-size); font-weight:600; color:var(--mt-cor, var(--md-sys-color-primary)); }
 .goal-meta .mt-barra{ height:6px; }
-.goal-meta-mais{ display:inline-flex; align-items:center; justify-content:center; flex:none; width:28px; height:28px; border-radius:50%;
-      background:var(--acoes-soft); color:var(--acoes); font-size:17px; font-weight:600; line-height:1; }
-.goal-meta-criar{ background:transparent; border-style:dashed; }
-.goal-meta-criar strong{ color:var(--acoes); white-space:normal; }
+.goal-meta-mais{ display:inline-flex; align-items:center; justify-content:center; flex:none; width:32px; height:32px; border-radius:50%;
+      background:var(--md-sys-color-primary-container); color:var(--md-sys-color-on-primary-container); font-size:18px; font-weight:600; line-height:1; }
+.goal-meta-criar{ background:transparent; border:1px dashed var(--md-sys-color-outline); }
+.goal-meta-criar strong{ white-space:normal; color:var(--md-sys-color-primary); }
 .goal-meta-carregando{ pointer-events:none; }
-.goal-meta-skel{ display:block; height:12px; width:60%; margin-top:4px; border-radius:6px; }
+.goal-meta-skel{ height:12px; width:60%; margin-top:4px; }
 
-/* ---- Badge "atingida" (Renda Emergencial) — mesmas cores good/warn do
-   .status-ico/.toast já usados no resto do app. ---- */
-.goal-badge{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
-.goal-badge.good{ background:var(--good-soft); color:var(--good-ink); }
-.goal-badge.warn{ background:var(--warn-soft); color:var(--warn-ink); }
-
-/* ---- Edição inline (novo — não existia no mockup, que era só
-   ilustrativo). "Editar" revela um formulário curto embutido no
-   próprio card, sem modal — o card já é pequeno o bastante pra não
-   precisar de um popup separado. ---- */
-.goal-editar-btn{ align-self:flex-start; margin-top:14px; border:1px solid var(--border); background:var(--surface);
-      color:var(--ink-muted); font-family:var(--body-f); font-size:11.5px; font-weight:700; padding:6px 14px;
-      border-radius:100px; cursor:pointer; }
-.goal-editar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
-.goal-edit-form{ margin-top:14px; padding-top:14px; border-top:1px solid var(--border); display:flex;
-      flex-direction:column; gap:10px; }
+/* ---- Edição inline (abre dentro do cartão, sem modal) ---- */
+.goal-editar-btn{ align-self:flex-start; margin-top:14px; }
+.goal-edit-form{ display:flex; flex-direction:column; gap:12px; margin-top:14px; padding-top:14px; border-top:1px solid var(--md-sys-color-outline-variant); }
 .goal-edit-form[hidden]{ display:none; }
-.goal-edit-field{ display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--ink-muted); }
-.goal-edit-field input{ font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:8px;
-      border:1px solid var(--border); background:var(--bg); color:var(--ink); }
-.goal-edit-field input:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
-.goal-edit-acoes{ display:flex; align-items:center; gap:8px; margin-top:2px; }
-.goal-edit-acoes button{ font-family:var(--body-f); font-weight:700; font-size:12px; padding:7px 14px;
-      border-radius:100px; cursor:pointer; border:none; }
-.goal-edit-acoes button[type="submit"]{ background:var(--acoes); color:#fff; }
-:root[data-theme="dark"] .goal-edit-acoes button[type="submit"], :root:not([data-theme="light"]) .goal-edit-acoes button[type="submit"]{ color:#071522; }
-.goal-edit-acoes button[type="submit"]:disabled{ opacity:.7; cursor:default; }
-.goal-edit-acoes button[type="button"]{ background:transparent; color:var(--ink-faint); border:1px solid var(--border); }
-.goal-edit-status{ font-size:11px; color:var(--ink-faint); }
+.goal-edit-field{ display:flex; flex-direction:column; gap:4px; font-size:var(--md-sys-typescale-label-large-size); color:var(--ink-muted); }
+.goal-edit-field input{ width:100%; min-height:48px; padding:0 16px; border:1px solid var(--md-sys-color-outline); border-radius:12px;
+      background:var(--md-ext-color-card); color:var(--ink); font-family:var(--mono); font-size:var(--md-sys-typescale-body-large-size); }
+.goal-edit-field input:focus{ outline:0; border-color:var(--md-sys-color-primary); box-shadow:0 0 0 1px var(--md-sys-color-primary); }
+.goal-edit-acoes{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:2px; }
+.goal-edit-status{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
 
-@media (max-width:640px){ .goals-grid{ grid-template-columns:1fr; } }
-
-/* ---- Objetivos da carteira (2 blocos: Ações/FIIs/Renda Fixa e, dentro
-   de Renda Fixa, Renda Emergencial x Renda Fixa de longo prazo) — cada
-   tipo vira uma barra "% atual" com um traço marcando o "% desejado" em
-   vez da tabela simples que existia antes na planilha (pedido do Tiago:
-   "queria que isso fosse mais visual"). Reaproveita .goal-badge (good/
-   warn) pra "na meta" / "faltam R$ X", em vez de duplicar a mesma regra
-   de cor com outro nome de classe. ---- */
-/* 02/10/2026 (Tiago: "Objetivos da Carteira ... com o estilo do 'Minha
-   Carteira' da Home"): o bloco virou o mesmo cartão do .rc de inicio.css -
-   raio 18, "abas-número" em cima (.obj-tile = .rc-visao: rótulo pequeno,
-   valor grande em mono com centavos menores, a 1ª destacada com o filete
-   azul embaixo) e, depois de um fio, a distribuição: barra única "atual" x
-   "meta" (.rc-barra/.rc-seg da Início) e uma linha por tipo, na tipografia
-   da legenda do "Minha carteira" (bolinha, nome, % em mono). */
-.obj-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:8px; }
-.obj-bloco{ background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:10px;
-      box-shadow:var(--shadow); display:flex; flex-direction:column; min-width:0; }
-.obj-total{ display:grid; grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); gap:6px; }
-.obj-tile{ position:relative; display:flex; flex-direction:column; gap:4px; min-width:0; padding:10px 14px 11px;
-      border-radius:12px; border:1px solid transparent; }
-.obj-tile-principal{ background:var(--surface-3); border-color:var(--border); }
-.obj-tile-principal::after{ content:''; position:absolute; left:14px; right:14px; bottom:-1px; height:2px; border-radius:2px; background:var(--acoes); }
-.obj-bloco-titulo{ font-family:var(--body-f); font-size:12px; font-weight:600; color:var(--ink-muted); line-height:1.3;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.obj-total-v{ font-family:var(--mono); font-size:17px; font-weight:600; line-height:1.1; color:var(--ink); white-space:nowrap;
-      font-variant-numeric:tabular-nums; }
+/* ---- Objetivos da carteira: 2 blocos (cartão com total, quanto falta e a distribuição atual x meta) ---- */
+.obj-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:16px; }
+.obj-bloco{ display:flex; flex-direction:column; min-width:0; padding:12px; border-radius:var(--r-card);
+      background:var(--md-ext-color-card); border:1px solid var(--md-ext-color-card-border); }
+.obj-total{ display:grid; grid-template-columns:minmax(0,1.45fr) minmax(0,1fr); gap:8px; }
+.obj-tile{ position:relative; display:flex; flex-direction:column; gap:4px; min-width:0; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium); }
+.obj-tile-principal{ background:var(--md-sys-color-surface-container); }
+.obj-bloco-titulo{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); }
+.obj-total-v{ font-family:var(--mono); font-size:17px; font-weight:600; line-height:1.15; color:var(--ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .obj-total-v .dec{ font-size:12px; opacity:.6; }
 .obj-tile-principal .obj-total-v{ font-size:26px; }
 .obj-tile-principal .obj-total-v .dec{ font-size:15px; }
-.obj-total-k{ display:inline-flex; align-items:center; font-size:11.5px; font-weight:600; color:var(--ink-muted); white-space:nowrap; }
-.obj-tile-principal .obj-total-k{ font-size:11px; font-weight:500; color:var(--ink-faint); }
-.obj-total-k .info-icon{ margin-left:5px; }
-.obj-tile-rotulo{ font-size:11.5px; font-weight:600; color:var(--ink-muted); }
+.obj-total-k{ display:inline-flex; align-items:center; font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); white-space:nowrap; }
+.obj-total-k .info-icon{ margin-left:6px; }
+.obj-tile-rotulo{ font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); }
 .obj-total-investir{ color:var(--warn-ink); }
-.obj-total-ok{ color:var(--good-ink); font-family:var(--body-f); font-size:15px; font-weight:700; }
-.obj-tile-sub{ font-size:11px; color:var(--ink-faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.obj-total-ok{ color:var(--good-ink); font-family:var(--body-f); font-size:var(--md-sys-typescale-title-small-size); font-weight:600; }
+.obj-tile-sub{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
 
-.obj-distrib{ flex:1; margin:8px 4px 2px; padding:12px 10px 6px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:10px; }
-.obj-distrib-cab{ display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:26px; font-size:11.5px; color:var(--ink-muted); }
-.obj-distrib-cab b{ color:var(--ink); }
-.obj-distrib-cab .goal-editar-btn{ margin:0; padding:4px 11px; font-size:11px; flex:none; }
-.obj-comparativo{ display:flex; flex-direction:column; gap:5px; }
-.obj-comp-linha{ display:grid; grid-template-columns:34px minmax(0,1fr); align-items:center; gap:8px; }
-.obj-comp-rotulo{ font-size:10.5px; font-weight:600; color:var(--ink-faint); }
-.obj-comp-meta .obj-comp-barra{ height:5px; opacity:.5; }
+.obj-distrib{ display:flex; flex-direction:column; flex:1; gap:12px; margin:8px 4px 2px; padding:14px 12px 8px; border-top:1px solid var(--md-sys-color-outline-variant); }
+.obj-distrib-cab{ display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:32px; font-size:var(--md-sys-typescale-label-large-size); color:var(--ink-muted); }
+.obj-distrib-cab b{ color:var(--ink); font-weight:600; }
+.obj-distrib-cab .goal-editar-btn{ margin:0; flex:none; }
+.obj-comparativo{ display:flex; flex-direction:column; gap:6px; }
+.obj-comp-linha{ display:grid; grid-template-columns:36px minmax(0,1fr); align-items:center; gap:8px; }
+.obj-comp-rotulo{ font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); }
+.obj-comp-meta .obj-comp-barra{ opacity:.5; }
 
-.obj-linhas{ display:flex; flex-direction:column; gap:12px; margin-top:4px; }
-.obj-linha-head{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
-.obj-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
-.obj-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; font-weight:500; color:var(--ink-muted); }
-.obj-pcts{ flex:none; font-family:var(--mono); font-size:12px; display:flex; align-items:baseline; gap:6px; }
+.obj-linhas{ display:flex; flex-direction:column; gap:16px; margin-top:4px; }
+.obj-linha-head{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.obj-dot{ flex:none; width:8px; height:8px; border-radius:50%; }
+.obj-nome{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--md-sys-typescale-body-medium-size); font-weight:500; color:var(--ink); }
+.obj-pcts{ display:flex; align-items:baseline; flex:none; gap:6px; font-family:var(--mono); font-size:var(--md-sys-typescale-body-medium-size); }
 .obj-pcts b{ font-weight:600; color:var(--ink); }
-.obj-meta-pct{ color:var(--ink-faint); font-size:10.5px; }
+.obj-meta-pct{ font-size:12px; color:var(--ink-muted); }
+.obj-linha-foot{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+.obj-linha-foot .goal-badge{ max-width:100%; white-space:normal; }
+.obj-valor-atual{ font-family:var(--mono); font-size:12px; color:var(--ink-muted); }
+.obj-bloco > .goal-edit-form{ margin:8px 12px 12px; }
 
-/* Trilho + preenchimento + traço da meta. O traço usa uma borda em vez
-   de background pra ficar visível tanto em cima do preenchimento
-   colorido quanto em cima do trilho vazio (dois fundos diferentes). */
-.obj-barra{ position:relative; height:6px; border-radius:100px; background:var(--surface-3); overflow:visible; }
-.obj-barra-fill{ position:absolute; inset:0 auto 0 0; height:100%; border-radius:100px; max-width:100%; }
-.obj-barra-meta{ position:absolute; top:-3px; bottom:-3px; width:2px; margin-left:-1px;
-      background:var(--ink); border-radius:2px; opacity:.55; }
+/* Links "carteira recomendada" do bloco de distribuição desejada interna. */
+.split-links{ display:flex; flex-wrap:wrap; gap:4px 20px; margin:12px 2px 16px; }
+.split-link{ min-height:32px; font-size:var(--md-sys-typescale-label-large-size); }
 
-.obj-linha-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
-.obj-valor-atual{ font-family:var(--mono); font-size:11.5px; color:var(--ink-faint); }
-.obj-linha .goal-badge{ font-size:10px; padding:2px 8px; }
-.obj-bloco > .goal-edit-form{ margin:6px 14px 10px; }
+/* ---- Radar de oportunidades: um cartão só (abas-número por classe, distribuição desejada e a tabela) ---- */
+.radar-card{ min-width:0; padding:12px; border-radius:var(--r-card); background:var(--md-ext-color-card); border:1px solid var(--md-ext-color-card-border); }
+.radar-card .radar-visoes{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin:0; }
+.radar-card .radar-visoes .filter-tab.radar-visao{ all:unset; box-sizing:border-box; position:relative; display:flex; flex-direction:column; gap:4px; min-width:0; min-height:44px;
+      padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium); border:1px solid transparent; cursor:pointer; color:var(--ink); font-family:var(--body-f); }
+.radar-card .radar-visoes .filter-tab.radar-visao:hover{ background:var(--md-sys-color-surface-container); }
+.radar-card .radar-visoes .filter-tab.radar-visao:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:1px; }
+.radar-card .radar-visoes .filter-tab.radar-visao.active{ background:var(--md-sys-color-secondary-container); color:var(--md-sys-color-on-secondary-container); }
+.radar-visao .rc-valor{ font-size:20px; }
+.radar-visao .rc-valor .dec{ font-size:13px; }
+.radar-visao-sub{ display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); }
+.radar-visao-bom{ display:inline-flex; align-items:center; gap:4px; color:var(--good-ink); font-weight:600; }
+.radar-visao-bom i{ width:6px; height:6px; border-radius:50%; background:var(--good); }
+.radar-visao-bom.zero{ color:var(--ink-muted); font-weight:500; }
+.radar-visao-bom.zero i{ background:var(--ink-faint); }
 
-/* Links "carteira recomendada" (Suno) do bloco de distribuição
-   desejada interna (renderSplitInterno, 14/09/2026) - .ext-link já vem
-   de shell.css, aqui só o layout da fileira e um respiro embaixo antes
-   da tabela do Radar. */
-.split-links{ display:flex; flex-wrap:wrap; gap:8px 20px; margin:14px 2px 20px; }
-.split-link{ font-size:11.5px; }
+/* Distribuição desejada da classe (#splitInternoGrid, dentro do cartão do Radar): bloco achatado, sem cartão dentro de cartão. */
+.radar-card .radar-distrib{ margin:8px 4px 0; padding:12px 0 0; border-top:1px solid var(--md-sys-color-outline-variant); }
+.radar-card .radar-distrib:empty{ display:none; }
+.radar-card .radar-distrib .obj-bloco{ padding:0; border:0; border-radius:0; background:none; }
+.radar-card .radar-distrib .obj-total{ grid-template-columns:minmax(0,1.45fr) minmax(0,1fr) minmax(0,1.45fr); }
+.radar-card .radar-distrib .obj-tile-principal{ background:none; }
+.radar-card .radar-distrib .obj-tile-principal .obj-total-v{ font-size:20px; }
+.radar-card .radar-distrib .obj-tile-principal .obj-total-v .dec{ font-size:13px; }
+.radar-card .radar-distrib .obj-distrib{ margin:6px 0 0; padding:10px 12px 4px; border-top:0; }
+.radar-card .radar-distrib .split-links{ margin:6px 12px 4px; }
 
-@media (max-width:640px){ .obj-grid{ grid-template-columns:1fr; } }
-@media (max-width:560px){
-  .obj-bloco{ padding:8px; }
-  .obj-total{ grid-template-columns:minmax(0,1fr); }
-  .obj-tile{ padding:9px 10px 10px; }
-  .obj-tile:not(.obj-tile-principal){ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; column-gap:10px; }
-  .obj-tile:not(.obj-tile-principal) .obj-tile-sub{ grid-column:1 / -1; }
-  .obj-tile-principal .obj-total-v{ font-size:23px; }
-  .obj-distrib{ margin:6px 2px 2px; padding:10px 6px 4px; }
-  .obj-distrib-cab{ flex-wrap:wrap; }
-}
+.radar-card .radar-tabela-area{ margin-top:8px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant); }
+.radar-card .radar-tabela-area > .radar-cotacao-dolar, .radar-card .radar-tabela-area > .radar-fii-legenda{ margin-left:4px; margin-right:4px; }
+.radar-card .radar-tabela-area > .hint{ padding:12px 8px; font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); }
 
-/* ---- Radar de oportunidades (tabela de ranking por ticker, 3 abas:
-   Ações Nacionais/Internacionais/FIIs) — .radar-tabs reaproveita
-   .filter-tabs/.filter-tab de shell.css (mesmo componente da Início),
-   só o que é específico da tabela em si é novo aqui. Cabeçalho de
-   coluna é um <button> (não <th> puro) pra ordenar ao clicar, sem
-   precisar de nenhum JS fora do escopo do módulo pra isso. ---- */
-.radar-tabs{ margin-bottom:14px; }
-.radar-table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:14px; background:var(--surface); box-shadow:var(--shadow); }
-.radar-table{ width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
-.radar-table th, .radar-table td{ padding:9px 12px; text-align:center; border-bottom:1px solid var(--border); }
-.radar-table td.num, .radar-table th.num{ font-family:var(--mono); }
-.radar-table tbody tr:last-child td{ border-bottom:none; }
-.radar-table tbody tr:hover{ background:var(--surface-3); }
-/* 14/09/2026 (3ª rodada de feedback): Tiago não gostou da linha
-   inteira pintada de amarelo pro Viés "Aguardar" nem da célula do
-   Viés pintada de verde pro "Comprar" ("vamos manter como antes, tag
-   verde/amarela") - REMOVIDO. O badge (.goal-badge good/warn, dentro
-   da própria célula do Viés) já É essa tag e sempre foi - isso aqui
-   só tirava o fundo A MAIS que uma rodada anterior tinha somado nele.
-   Sem regra de fundo pra .radar-linha-aguardar/.radar-vies-comprar
-   de propósito - não recriar sem pedido novo. */
+/* Legenda de FIIs: cada tipo é um filtro (chip com a foto do tipo). */
+.radar-fii-legenda{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:12px; }
+.radar-fii-legenda-item{ display:inline-flex; align-items:center; gap:8px; min-height:36px; padding:2px 16px 2px 4px; border-radius:var(--md-sys-shape-corner-full);
+      border:1.5px solid transparent; font-family:var(--body-f); font-size:var(--md-sys-typescale-label-large-size); color:var(--ink); cursor:pointer; }
+.radar-fii-legenda-item img{ flex:none; width:28px; height:28px; border-radius:50%; object-fit:cover; }
+.radar-fii-legenda-tijolo{ background:var(--fii-tijolo-soft); }
+.radar-fii-legenda-hibrido{ background:var(--fii-hibrido-soft); }
+.radar-fii-legenda-papel{ background:var(--fii-papel-soft); }
+.radar-fii-legenda-item.active{ font-weight:600; }
+.radar-fii-legenda-tijolo.active{ border-color:var(--fii-tijolo); color:var(--fii-tijolo-ink); }
+.radar-fii-legenda-hibrido.active{ border-color:var(--fii-hibrido); color:var(--fii-hibrido-ink); }
+.radar-fii-legenda-papel.active{ border-color:var(--fii-papel); color:var(--fii-papel-ink); }
+.radar-fii-legenda-item:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
 
-/* ---- Cor por tipo de FII (Tijolo/Híbrido/Papel) — "vamos testar"
-   (Tiago, 14/09/2026), ajustada numa 2ª rodada porque a linha inteira
-   pintada "ficou meio feio": agora só a célula do Ativo (desktop)
-   ganha o fundo — no card do mobile, o :has() abaixo espalha essa cor
-   pra área do header inteira (Ranking + Ativo, que ali formam 1 bloco
-   visual só), não só o texto do ticker. */
-/* 26/09/2026 (Tiago): sem fundo - o tipo vai embaixo do ticker, com uma
-   bolinha da cor (igual à tabela da Carteira de FIIs). */
+.radar-cotacao-dolar{ margin-bottom:12px; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium); background:var(--md-ext-color-info-container); color:var(--md-ext-color-on-info-container);
+      font-family:var(--mono); font-size:var(--md-sys-typescale-body-medium-size); }
+.radar-cotacao-dolar b{ font-weight:700; }
+
+/* ---- Tabela do Radar (estilo da .tabela do kit: cabeçalho em rótulo, sem grade, linha com hover) ---- */
+.radar-table-wrap{ overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; }
+.radar-table{ width:100%; border-collapse:separate; border-spacing:0; font-size:var(--md-sys-typescale-body-medium-size); white-space:nowrap; color:var(--ink); }
+.radar-table th, .radar-table td{ padding:12px 8px; text-align:center; border:0; }
+.radar-table th{ padding-block:6px; }
+.radar-table td.num, .radar-table th.num{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.radar-table tbody tr.radar-linha:nth-child(4n+1) > td, .radar-table tbody tr.radar-momento-tr:nth-child(4n+2) > td{ background:var(--md-ext-color-zebra); }
+.radar-table tbody tr.radar-linha > td:first-child, .radar-table tbody tr.radar-momento-tr > td:first-child{ border-radius:12px 0 0 12px; }
+.radar-table tbody tr.radar-linha > td:last-child, .radar-table tbody tr.radar-momento-tr > td:last-child{ border-radius:0 12px 12px 0; }
+.radar-table tbody tr.radar-linha:hover > td{ background:var(--md-sys-color-surface-container); }
+.radar-card .radar-table .link-ativo{ font-weight:600; }
+.radar-th-btn{ all:unset; box-sizing:border-box; position:relative; display:inline-flex; align-items:center; gap:4px; min-height:32px; padding:0 4px; border-radius:6px; cursor:pointer;
+      font-family:var(--body-f); font-size:var(--md-sys-typescale-label-large-size); font-weight:500; color:var(--ink-muted); }
+.radar-th-btn::after{ content:''; position:absolute; inset:-6px 0; }
+.radar-th-btn:hover{ color:var(--ink); }
+.radar-th-btn:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
+.radar-th-btn.active{ color:var(--md-sys-color-primary); }
+.radar-sort-seta{ display:inline-flex; }
+.radar-sort-seta svg{ width:16px; height:16px; fill:currentColor; }
+
 .radar-ativo-bloco{ display:inline-flex; flex-direction:column; align-items:flex-start; gap:2px; vertical-align:middle; text-align:left; line-height:1.2; }
 .radar-ativo-linha{ display:inline-flex; align-items:center; gap:4px; }
-.radar-fii-tipo{ display:inline-flex; align-items:center; gap:5px; font-family:var(--body-f); font-size:10.5px; font-weight:500; color:var(--ink-faint); }
-.radar-fii-tipo i{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--ink-faint); }
+.radar-fii-tipo{ display:inline-flex; align-items:center; gap:5px; font-family:var(--body-f); font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); }
+.radar-fii-tipo i{ flex:none; width:8px; height:8px; border-radius:50%; background:var(--ink-faint); }
 .radar-fii-tipo-tijolo i{ background:var(--fii-tijolo); }
 .radar-fii-tipo-hibrido i{ background:var(--fii-hibrido); }
 .radar-fii-tipo-papel i{ background:var(--fii-papel); }
 
-/* Legenda acima da tabela de FIIs — 1 pill por tipo, com a mesma cor
-   suave do fundo de linha e a fotinho que o Tiago organizou em
-   assets/imgs/fiis/. Virou filtro clicável (pedido do Tiago,
-   14/09/2026, 4ª rodada de feedback) — por isso é um <button>, não
-   mais um <span> decorativo; reset dos estilos padrão de botão do
-   navegador pra continuar parecendo um pill igual antes. .active marca
-   qual tipo está filtrando a tabela agora (usa a cor do próprio tipo
-   na borda/texto, sem precisar de uma 4ª cor nova). */
-.radar-fii-legenda{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; font-size:11.5px; color:var(--ink-muted); }
-.radar-fii-legenda-item{ display:inline-flex; align-items:center; gap:6px; padding:3px 12px 3px 3px; border-radius:100px;
-      border:1.5px solid transparent; font-family:var(--body-f); font-size:11.5px; color:var(--ink-muted); cursor:pointer; }
-.radar-fii-legenda-item img{ width:20px; height:20px; border-radius:50%; object-fit:cover; flex:none; }
-.radar-fii-legenda-tijolo{ background:var(--fii-tijolo-soft); }
-.radar-fii-legenda-hibrido{ background:var(--fii-hibrido-soft); }
-.radar-fii-legenda-papel{ background:var(--fii-papel-soft); }
-.radar-fii-legenda-item.active{ font-weight:700; }
-.radar-fii-legenda-tijolo.active{ border-color:var(--fii-tijolo); color:var(--fii-tijolo); }
-.radar-fii-legenda-hibrido.active{ border-color:var(--fii-hibrido); color:var(--fii-hibrido); }
-.radar-fii-legenda-papel.active{ border-color:var(--fii-papel); color:var(--fii-papel); }
-
-/* Banner "Cotação do dólar hoje" acima da tabela de Ações
-   Internacionais — mesmo tom de --usa (categoria já usada pra "Ações
-   Internacionais" no resto do app) em vez de um azul novo qualquer. */
-.radar-cotacao-dolar{ font-size:12px; color:var(--ink-muted); background:var(--usa-soft); border-radius:10px;
-      padding:9px 14px; margin-bottom:12px; font-family:var(--mono); }
-.radar-cotacao-dolar b{ color:var(--usa); font-weight:700; }
-
-.radar-rank-badge{ display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px;
-      padding:0 6px; border-radius:8px; background:var(--surface-3); font-family:var(--mono); font-weight:700;
-      font-size:12.5px; color:var(--ink); }
+.radar-rank-badge{ min-width:28px; justify-content:center; font-family:var(--mono); font-weight:700; }
 .radar-preco-teto{ font-weight:700; }
-
-/* Preço atual + variação % do dia embaixo, estilo Suno (print 1 do
-   Tiago) — mesmas cores good/bad do resto da tabela (Comprar/desconto). */
 .radar-preco-wrap{ display:flex; flex-direction:column; align-items:center; gap:1px; }
-.radar-preco-variacao{ font-family:var(--mono); font-size:10.5px; font-weight:600; }
-.radar-preco-variacao.good{ color:var(--good); }
-.radar-preco-variacao.bad{ color:var(--bad); }
+.radar-preco-variacao{ font-family:var(--mono); font-size:var(--md-sys-typescale-label-medium-size); font-weight:600; }
+.radar-preco-variacao.good{ color:var(--good-ink); }
+.radar-preco-variacao.bad{ color:var(--bad-ink); }
 
-/* "% atual x meta" — 1 coluna só com barra visual em vez de 2 colunas
-   de número cru (pedido do Tiago: "pode utilizar algo visual, parecido
-   com o slide da meta"). Versão compacta de .obj-barra (Objetivos da
-   Carteira, lá em cima) pra caber numa célula de tabela. */
-.radar-pct-wrap{ display:flex; flex-direction:column; gap:4px; min-width:84px; }
-.radar-pct-label{ font-family:var(--mono); font-size:11px; display:flex; align-items:baseline; justify-content:center; gap:3px; }
+/* "% atual x meta": rótulo + barra de progresso da biblioteca (com a marca da meta). */
+.radar-pct-wrap{ display:flex; flex-direction:column; gap:6px; min-width:96px; }
+.radar-pct-label{ display:flex; align-items:baseline; justify-content:center; gap:3px; font-family:var(--mono); font-size:var(--md-sys-typescale-label-large-size); }
 .radar-pct-label b{ font-weight:700; color:var(--ink); }
-.radar-pct-meta-label{ color:var(--ink-faint); font-size:10px; }
-.radar-pct-bar{ position:relative; width:100%; height:6px; border-radius:100px; background:var(--surface-3); }
-.radar-pct-bar-fill{ position:absolute; inset:0 auto 0 0; height:100%; border-radius:100px; max-width:100%; background:var(--acoes); }
-.radar-pct-bar-meta{ position:absolute; top:-2px; bottom:-2px; width:2px; margin-left:-1px; background:var(--ink); border-radius:2px; opacity:.55; }
+.radar-pct-meta-label{ color:var(--ink-muted); font-size:12px; }
 
-.radar-logo{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
-      border-radius:50%; overflow:hidden; background:var(--surface-3); margin-right:8px; vertical-align:middle; flex:none; }
-.radar-logo img{ width:100%; height:100%; object-fit:cover; display:block; }
-.radar-logo.radar-logo-fallback{ font-size:9px; font-weight:700; color:var(--ink-muted); font-family:var(--mono); }
+.radar-logo{ display:inline-flex; align-items:center; justify-content:center; flex:none; width:24px; height:24px; margin-right:8px; overflow:hidden; border-radius:50%;
+      background:var(--md-sys-color-surface-container-high); vertical-align:middle; }
+.radar-logo img{ display:block; width:100%; height:100%; object-fit:cover; }
+.radar-logo.radar-logo-fallback{ font-family:var(--mono); font-size:10px; font-weight:700; color:var(--ink-muted); }
 
-.radar-desconto-badge{ display:inline-block; font-family:var(--body-f); font-size:11px; font-weight:700;
-      padding:2px 9px; border-radius:100px; background:var(--surface-3); border:1px solid var(--border);
-      color:var(--ink-muted); }
-.radar-desconto-badge.good{ background:var(--good-soft); color:var(--good-ink); border-color:transparent; }
-.radar-desconto-badge.bad{ background:var(--bad-soft); color:var(--bad-ink); border-color:transparent; }
-.radar-info-alvo{ cursor:pointer; }
-.radar-desconto-badge.radar-info-alvo:hover, .radar-info-icon:hover{ color:var(--ink); border-color:var(--acoes); }
-.radar-info-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
-      margin-left:6px; border-radius:50%; background:var(--surface-3); border:1px solid var(--border);
-      font-size:10px; font-style:italic; font-family:Georgia, 'Times New Roman', serif; color:var(--ink-muted);
-      vertical-align:middle; }
-.radar-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
-      border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:11.5px; line-height:1.5;
-      white-space:pre-line; max-width:260px; }
-.moeda-conv{ font-family:var(--mono); font-size:12px; font-weight:500; color:var(--ink-faint); }
-/* .info-alvo/.info-icon/.info-tooltip — mesmo desenho de .radar-info-alvo/
-   .radar-info-icon/.radar-tooltip acima, versão genérica pro resto da
-   página (stats dos cards de Meta, barra e total de Objetivos da
-   Carteira - ver wirePointerTooltipInfo_ em distribuicoes-metas.js).
-   Duplicado em vez de reaproveitar o "radar-" prefixado porque esses
-   elementos não têm nada a ver com a tabela do Radar - mesmo motivo de
-   sempre pra duplicar um pedacinho de CSS (.skel/.moeda-conv/etc.). */
-.info-alvo{ cursor:pointer; }
-.info-alvo:hover .info-icon, .info-icon:hover{ color:var(--ink); border-color:var(--acoes); }
-.info-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px;
-      margin-left:6px; border-radius:50%; background:var(--surface-3); border:1px solid var(--border);
-      font-size:10px; font-style:italic; font-family:Georgia, 'Times New Roman', serif; color:var(--ink-muted);
-      vertical-align:middle; }
-.info-tooltip{ position:fixed; pointer-events:none; z-index:50; background:var(--surface); border:1px solid var(--border);
-      border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:11.5px; line-height:1.5;
-      white-space:pre-line; max-width:260px; }
+.radar-desconto-badge.radar-info-alvo, .radar-info-alvo{ cursor:pointer; }
+.radar-info-icon{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:6px; border-radius:50%;
+      background:var(--md-sys-color-surface-container-high); color:var(--ink-muted); font-family:var(--body-f); font-size:11px; font-style:italic; font-weight:600; vertical-align:middle; }
+.radar-info-icon:hover{ color:var(--ink); }
+.radar-tooltip{ position:fixed; z-index:var(--z-popover, 50); max-width:280px; padding:10px 14px; border-radius:var(--md-sys-shape-corner-medium); pointer-events:none;
+      background:var(--md-sys-color-inverse-surface); color:var(--md-sys-color-inverse-on-surface); box-shadow:var(--md-sys-elevation-level2);
+      font-size:var(--md-sys-typescale-body-small-size); line-height:18px; white-space:pre-line; }
 
-.radar-th-btn{ display:inline-flex; align-items:center; gap:4px; background:none; border:none; padding:0;
-      font-family:var(--body-f); font-weight:700; font-size:10.5px; text-transform:uppercase; letter-spacing:.03em;
-      color:var(--ink-faint); cursor:pointer; }
-.radar-th-btn:hover{ color:var(--ink-muted); }
-.radar-th-btn.active{ color:var(--acoes); }
-.radar-sort-seta{ font-size:8px; }
-
-.radar-linha.radar-linha-editando{ background:var(--surface-3); }
-.radar-edit-input{ width:78px; font-family:var(--mono); font-size:12px; padding:4px 6px; border-radius:6px;
-      border:1px solid var(--border); background:var(--bg); color:var(--ink); }
-.radar-edit-input:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
-
+/* Edição na linha: inputs do kit + botões .btn; o lápis é .icon-btn. */
+.radar-linha.radar-linha-editando > td{ background:var(--md-sys-color-surface-container); }
+.radar-edit-input{ width:96px; min-height:40px; padding:0 10px; font-family:var(--mono); font-size:var(--md-sys-typescale-body-medium-size); }
 .radar-acoes{ white-space:nowrap; }
-.radar-editar-btn, .radar-salvar-btn, .radar-cancelar-btn{ font-family:var(--body-f); font-weight:700; font-size:11px;
-      padding:5px 11px; border-radius:100px; cursor:pointer; border:1px solid var(--border); background:var(--surface);
-      color:var(--ink-muted); }
-.radar-editar-btn:hover{ color:var(--acoes); border-color:var(--acoes); }
-.radar-editar-btn-icone{ display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; padding:0; }
-.radar-editar-btn-icone svg{ width:15px; height:15px; }
-.radar-salvar-btn{ background:var(--acoes); border-color:var(--acoes); color:#fff; margin-right:6px; }
-:root[data-theme="dark"] .radar-salvar-btn, :root:not([data-theme="light"]) .radar-salvar-btn{ color:#071522; }
-.radar-salvar-btn:disabled{ opacity:.7; cursor:default; }
-.radar-cancelar-btn{ background:transparent; margin-right:6px; }
-.radar-edit-status{ font-size:10.5px; color:var(--ink-faint); }
+.radar-acoes .btn{ margin-right:4px; }
+.radar-edit-status{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
+.radar-editar-btn-icone svg{ width:20px; height:20px; }
 
-/**
- * Radar em telas estreitas (celular, "estilo Suno mobile" - pedido do
- * Tiago): a tabela não funciona ali (11 colunas + rolagem horizontal é
- * ruim de usar com o polegar). Em vez de duplicar a lógica de desenho
- * (criarLinhaRadar_ continua sendo o único gerador de linha, testado
- * uma vez só), a MESMA <table>/<tr>/<td> vira 1 card por ticker só com
- * CSS: <thead> some, cada <tr> vira um cartão e cada <td> vira uma
- * linha "rótulo: valor", com o rótulo puxado do próprio HTML via
- * `data-label` (setado em criarLinhaRadar_, cópia do `rotulo` de
- * COLUNAS_RADAR).
- *
- * Ranking e Ativo (sempre as 2 primeiras colunas, nessa ordem, em
- * COLUNAS_RADAR) viram o topo do card, lado a lado, sem rótulo (o
- * conteúdo já fala por si - um número de ranking e o ticker com logo).
- * O truque é `flex-wrap:wrap` na <tr> + `flex:0 0 100%` em todo <td>
- * QUE NÃO for .radar-card-topo — isso força cada célula "normal" a
- * sempre começar sua própria linha no wrap, enquanto ranking/ativo
- * (sem essa regra, então largura automática) ficam livres pra sentar
- * lado a lado na 1ª linha. ATENÇÃO: se a ordem de COLUNAS_RADAR mudar
- * (ranking/ativo deixarem de ser as 2 primeiras), esse acoplamento
- * quebra visualmente (mas não quebra os testes, que não checam CSS) -
- * ajustar aqui também se isso mudar.
- */
-@media (max-width:640px){
-  .radar-table-wrap{ overflow-x:visible; border:none; box-shadow:none; background:none; }
-  .radar-table{ font-size:12.5px; white-space:normal; }
-  .radar-table thead{ display:none; }
-  .radar-table, .radar-table tbody{ display:block; }
-  .radar-table tbody tr{ display:flex; flex-wrap:wrap; background:var(--surface); border:1px solid var(--border);
-        border-radius:14px; box-shadow:var(--shadow); padding:0 0 4px; margin-bottom:10px; overflow:hidden; }
-  .radar-table tbody tr:last-child{ margin-bottom:0; }
-  .radar-table td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:10px;
-        padding:8px 14px; border-bottom:1px solid var(--border); text-align:right; }
-  .radar-table tr td:last-child{ border-bottom:none; }
-  .radar-table td::before{ content:attr(data-label); font-size:10px; font-weight:700; text-transform:uppercase;
-        letter-spacing:.03em; color:var(--ink-faint); text-align:left; white-space:nowrap; }
-
-  .radar-table td.radar-card-topo{ order:0; flex:0 1 auto; justify-content:flex-start; gap:8px; border-bottom:none;
-        padding:12px 14px 10px 0; font-weight:700; }
-  .radar-table td.radar-card-topo::before{ content:none; }
-  .radar-table td.radar-card-topo.radar-rank{ padding-left:14px; padding-right:6px; }
-  .radar-table td.radar-card-topo:nth-of-type(2){ font-size:13.5px; flex:1 1 auto; min-width:0; }
-
-  /* Cor por tipo de FII (ver a regra "desktop" .radar-fii-cor-* mais
-     acima no arquivo) - no card do mobile, Ranking+Ativo formam 1
-     bloco visual só (o "header" do card), então a cor precisa cobrir
-     os 2, não só a célula do Ativo sozinha - :has() olha pro irmão
-     .radar-fii-cor-* dentro da mesma linha e pinta toda a área
-     .radar-card-topo (funciona em Chrome/Safari/Firefox atuais). */
-
-  /* Lápis (Editar) sobe pro header do card, do lado direito, ao invés
-     de virar sua própria linha lá embaixo (pedido do Tiago,
-     14/09/2026) - "order" reagrupa só visualmente, sem mudar a ordem
-     real no DOM (criarLinhaRadar_ continua colocando .radar-acoes por
-     último, igual no desktop): header (order 0) e ações (order 1)
-     cabem na MESMA linha do flex-wrap porque nenhum dos 2 força
-     100% de largura - só as células "normais" (order 2, mais abaixo)
-     forçam quebra. margin-left:auto empurra o lápis pro fim da linha. */
-  .radar-table td:not(.radar-card-topo):not(.radar-acoes){ order:2; }
-  .radar-acoes{ order:1; flex:0 1 auto !important; justify-content:flex-end !important;
-        padding:12px 14px 10px 0 !important; border-bottom:none !important; }
-
-  /* .radar-pct-wrap é coluna centralizada em tela larga (a td tem
-     text-align:center) - no card, a td vira flex com rótulo à esquerda
-     e valor à direita (space-between), então o "valor" (nosso wrap)
-     precisa se alinhar à direita, não ficar centralizado sozinho no
-     meio da célula. */
-  .radar-pct-wrap{ align-items:flex-end; }
-  /* Preço atual + variação do dia: no card tem espaço de sobra (pedido
-     do Tiago) - fica lado a lado em vez de empilhado (só no mobile;
-     na tabela em tela larga continua empilhado, célula é estreita). */
-  .radar-preco-wrap{ flex-direction:row; align-items:baseline; gap:6px; }
-
-  .radar-fii-legenda{ margin:0 0 10px; }
-}
-
-
-/* ---- 26/09/2026: "momento de aporte" embaixo de cada ativo do Radar
-   (pages/momento-aporte.js; o painel .momento* é de shell.css). Tela larga:
-   linha logo abaixo do ativo, um respiro entre os valores e o painel, o hover
-   da linha não pinta o painel. Celular: vira o pé do card do ativo (o card de
-   cima perde a borda de baixo e a sombra; a sombra fica no pé). ---- */
-.radar-table tbody tr.radar-linha:has(+ .radar-momento-tr) td{ border-bottom:none; }
-.radar-table tbody tr.radar-momento-tr td{ padding:4px 14px 14px; text-align:left; white-space:normal; }
+/* "Momento de aporte" embaixo de cada ativo (pages/momento-aporte.js; o painel .momento* é de shell.css). */
+.radar-table tbody tr.radar-linha:has(+ .radar-momento-tr) > td{ border-bottom:0; }
+.radar-table tbody tr.radar-momento-tr td{ padding:4px 12px 16px; text-align:left; white-space:normal; }
 .radar-table tbody tr.radar-momento-tr td.radar-momento-vazio{ padding:0; }
-.radar-table tbody tr.radar-momento-tr:hover{ background:none; }
-.radar-momento-nota{ font-size:11px; line-height:1.5; color:var(--ink-faint); margin-top:10px; }
-@media (max-width:640px){
-  .radar-table tbody tr.radar-linha:has(+ .radar-momento-tr){ margin-bottom:0; border-bottom:none; border-radius:14px 14px 0 0; box-shadow:none; padding-bottom:0; }
-  .radar-table tbody tr.radar-momento-tr{ display:block; margin:0 0 10px; padding:10px 12px 12px; border-top:none; border-radius:0 0 14px 14px; }
-  .radar-table tbody tr.radar-momento-tr:last-child{ margin-bottom:0; }
-  .radar-table tbody tr.radar-momento-tr td{ display:block; padding:0; border:none; text-align:left; }
-  .radar-table tbody tr.radar-momento-tr td::before{ content:none; }
-  .radar-table tbody tr.radar-momento-tr td.radar-momento-vazio{ display:none; }
-}
+.radar-momento-nota{ margin:12px 8px 4px; font-size:var(--md-sys-typescale-body-small-size); line-height:18px; color:var(--ink-muted); }
 
-/* ---- 02/10/2026 (Tiago: "Radar de oportunidades com o estilo do 'Minha
-   Carteira' da Home"): o Radar inteiro num cartão só (.radar-card = .rc da
-   Início). As 3 classes viram "abas-número" (.radar-visao = .rc-visao: nome,
-   quanto você tem e quantos ativos em bom momento; a escolhida com fundo e o
-   filete azul), a distribuição desejada da classe vem logo embaixo depois de
-   um fio (o bloco de Objetivos, achatado - sem cartão dentro de cartão) e a
-   tabela fecha o cartão. ---- */
-.radar-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow); padding:10px; min-width:0; }
-.radar-card .radar-visoes{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:6px; margin:0; flex-wrap:nowrap; }
-.radar-card .radar-visoes .filter-tab.radar-visao{ all:unset; box-sizing:border-box; position:relative; display:flex; flex-direction:column; gap:4px; min-width:0;
-      padding:10px 14px 11px; border-radius:12px; border:1px solid transparent; cursor:pointer; color:var(--ink); font-family:var(--body-f); }
-.radar-card .radar-visoes .filter-tab.radar-visao:hover{ background:var(--surface-3); }
-.radar-card .radar-visoes .filter-tab.radar-visao:focus-visible{ outline:2px solid var(--acoes); outline-offset:1px; }
-.radar-card .radar-visoes .filter-tab.radar-visao.active{ background:var(--surface-3); border-color:var(--border); color:var(--ink); }
-.radar-card .radar-visoes .filter-tab.radar-visao.active::after{ content:''; position:absolute; left:14px; right:14px; bottom:-1px; height:2px; border-radius:2px; background:var(--acoes); }
-.radar-visao .rc-valor{ font-size:20px; }
-.radar-visao .rc-valor .dec{ font-size:13px; }
-.radar-visao-sub{ display:flex; flex-wrap:wrap; align-items:center; gap:2px 5px; font-size:11px; font-weight:500; color:var(--ink-faint); }
-.radar-visao-bom{ display:inline-flex; align-items:center; gap:4px; color:var(--good-ink); font-weight:600; }
-.radar-visao-bom i{ width:6px; height:6px; border-radius:50%; background:var(--good); }
-.radar-visao-bom.zero{ color:var(--ink-faint); font-weight:500; }
-.radar-visao-bom.zero i{ background:var(--na); }
-
-/* Distribuição desejada da classe (#splitInternoGrid, movido pra dentro do cartão). */
-.radar-card .radar-distrib{ margin:8px 4px 0; padding:12px 0 0; border-top:1px solid var(--border); }
-.radar-card .radar-distrib:empty{ display:none; }
-.radar-card .radar-distrib .obj-bloco{ background:none; border:none; box-shadow:none; border-radius:0; padding:0; }
-.radar-card .radar-distrib .obj-total{ grid-template-columns:minmax(0,1.45fr) minmax(0,1fr) minmax(0,1.45fr); }
-.radar-card .radar-distrib .obj-tile-principal .obj-total-v{ font-size:20px; }
-.radar-card .radar-distrib .obj-tile-principal .obj-total-v .dec{ font-size:13px; }
-.radar-card .radar-distrib .obj-distrib{ margin:6px 0 0; padding:10px 10px 4px; border-top:none; }
-.radar-card .radar-distrib .split-links{ margin:6px 10px 4px; }
-
-/* Tabela dentro do cartão: sem moldura própria, separada por um fio. */
-.radar-card .radar-tabela-area{ margin-top:8px; padding-top:10px; border-top:1px solid var(--border); }
-.radar-card .radar-tabela-area > .radar-cotacao-dolar, .radar-card .radar-tabela-area > .radar-fii-legenda{ margin-left:4px; margin-right:4px; }
-.radar-card .radar-table-wrap{ border:none; border-radius:0; box-shadow:none; background:none; }
-.radar-card .radar-table th{ padding-top:6px; }
-.radar-card .radar-table .link-ativo{ font-weight:700; }
-.radar-card .radar-tabela-area > .hint{ padding:12px 6px; }
-.radar-card .radar-momento-nota{ margin:10px 6px 4px; }
-
-/* ---- 02/10/2026: gráfico do dia embaixo do # + Ativo de cada linha (mesmo
-   desenho dos Favoritos da Início: .intradia-svg de inicio.css). O link
-   inteiro abre o Google Finance. Carregando = brilho do skeleton; sem série
-   = linha tracejada + "sem gráfico do dia agora". ---- */
-.radar-table tbody tr.radar-momento-tr td.radar-intradia-td{ padding:4px 6px 14px 12px; vertical-align:top; width:1%; }
-.radar-intradia{ display:flex; flex-direction:column; gap:4px; min-width:170px; height:100%; box-sizing:border-box; padding:8px 10px 6px;
-      border-radius:12px; border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); text-decoration:none; }
-.radar-intradia:hover{ border-color:var(--acoes); }
-.radar-intradia:hover .radar-intradia-ext{ color:var(--acoes); }
-.radar-intradia:focus-visible{ outline:2px solid var(--acoes); outline-offset:2px; }
-.radar-intradia-cab{ display:flex; align-items:center; gap:6px; font-family:var(--body-f); font-size:10.5px; font-weight:600; line-height:1; white-space:nowrap; }
-.radar-intradia-rotulo{ color:var(--ink-faint); }
-.radar-intradia-var{ font-family:var(--mono); font-size:11px; font-weight:600; }
+/* Gráfico do dia (sparkline da biblioteca) embaixo do # + Ativo; o cartão inteiro abre o Google Finance. */
+.radar-table tbody tr.radar-momento-tr td.radar-intradia-td{ width:1%; padding:4px 8px 16px 12px; vertical-align:top; }
+.radar-intradia{ display:flex; flex-direction:column; gap:4px; box-sizing:border-box; min-width:180px; height:100%; padding:8px 12px 4px; border-radius:var(--md-sys-shape-corner-medium);
+      border:1px solid var(--md-sys-color-outline-variant); background:var(--md-ext-color-card); color:var(--ink-muted); text-decoration:none; }
+.radar-intradia:hover{ border-color:var(--md-sys-color-primary); }
+.radar-intradia:hover .radar-intradia-ext{ color:var(--md-sys-color-primary); }
+.radar-intradia:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
+.radar-intradia-cab{ display:flex; align-items:center; gap:6px; font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; line-height:16px; white-space:nowrap; }
+.radar-intradia-var{ font-family:var(--mono); font-size:var(--md-sys-typescale-label-medium-size); font-weight:600; }
 .radar-intradia-var.good{ color:var(--good-ink); }
 .radar-intradia-var.bad{ color:var(--bad-ink); }
-.radar-intradia-ext{ width:11px; height:11px; margin-left:auto; flex:none; color:var(--ink-faint); }
-.radar-intradia-slot{ height:46px; border-radius:6px; }
-.radar-intradia-slot.carregando{ background:linear-gradient(100deg, var(--surface-3) 30%, var(--border) 50%, var(--surface-3) 70%);
-      background-size:200% 100%; animation:skel-shimmer 1.4s ease-in-out infinite; opacity:.7; }
-.radar-intradia-slot.sem-dado{ display:flex; align-items:center; justify-content:center;
-      background:linear-gradient(var(--border), var(--border)) center / 100% 1px no-repeat; }
-.radar-intradia-vazio{ font-family:var(--body-f); font-size:10.5px; color:var(--ink-faint); background:var(--surface); padding:0 6px; white-space:nowrap; }
+.radar-intradia-ext{ flex:none; width:12px; height:12px; margin-left:auto; color:var(--ink-muted); }
+.radar-intradia-slot{ min-height:56px; }
+.radar-intradia-slot.carregando{ border-radius:6px; opacity:.7; background:linear-gradient(100deg, var(--md-sys-color-surface-container-high) 30%, var(--md-sys-color-surface-container-highest) 50%, var(--md-sys-color-surface-container-high) 70%);
+      background-size:300% 100%; animation:skel-shimmer 1.6s linear infinite; }
+.radar-intradia-slot.sem-dado{ display:flex; align-items:center; justify-content:center; background:linear-gradient(var(--md-sys-color-outline-variant), var(--md-sys-color-outline-variant)) center / 100% 1px no-repeat; }
+.radar-intradia-vazio{ padding:0 6px; background:var(--md-ext-color-card); font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); white-space:nowrap; }
 @media (prefers-reduced-motion: reduce){ .radar-intradia-slot.carregando{ animation:none; } }
 
-/* ---- Celular (≤640px) dentro do cartão: as linhas não viram mais um cartão
-   cada (seria cartão dentro de cartão) - viram blocos separados por um fio,
-   como a lista "Meus ativos" da Início. O gráfico do dia vai em cima do
-   momento, largura toda. ---- */
+/* ---- Tablet/celular ---- */
 @media (max-width:640px){
+  .dm-kpis{ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding-inline:16px; gap:12px; margin:0 -16px 24px; padding:2px 16px 6px; scrollbar-width:none; }
+  .dm-kpis::-webkit-scrollbar{ display:none; }
+  .dm-kpis > .dm-kpi{ flex:0 0 min(260px, 78vw); scroll-snap-align:start; }
+  .goals-grid, .obj-grid{ grid-template-columns:minmax(0,1fr); }
+  .obj-bloco{ padding:8px; }
+  .obj-total{ grid-template-columns:minmax(0,1fr); }
+  .obj-tile{ padding:10px 12px; }
+  .obj-tile:not(.obj-tile-principal){ display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; column-gap:12px; }
+  .obj-tile:not(.obj-tile-principal) .obj-tile-sub{ grid-column:1 / -1; }
+  .obj-tile-principal .obj-total-v{ font-size:24px; }
+  .obj-distrib{ margin:6px 2px 2px; padding:12px 6px 4px; }
+  .obj-distrib-cab{ flex-wrap:wrap; }
+
   .radar-card{ padding:8px; }
   .radar-card .radar-visoes{ gap:4px; }
-  .radar-card .radar-visoes .filter-tab.radar-visao{ padding:9px 8px 10px; }
-  .radar-card .radar-visoes .filter-tab.radar-visao.active::after{ left:8px; right:8px; }
-  .radar-visao .rc-rotulo{ font-size:10.5px; white-space:normal; line-height:1.2; }
-  .radar-visao .rc-valor{ font-size:13px; }
-  .radar-visao .rc-valor .dec{ font-size:10px; }
-  .radar-visao-sub{ font-size:10px; }
-  .radar-visao-bom{ font-weight:600; }
+  .radar-card .radar-visoes .filter-tab.radar-visao{ padding:10px 8px; }
+  .radar-visao .rc-rotulo{ font-size:var(--md-sys-typescale-label-medium-size); line-height:16px; white-space:normal; }
+  .radar-visao .rc-valor{ font-size:14px; }
+  .radar-visao .rc-valor .dec{ font-size:12px; }
+  .radar-visao-sub{ flex-direction:column; align-items:flex-start; gap:0; }
+  .radar-visao-sep{ display:none; }
   .radar-card .radar-distrib{ margin:6px 2px 0; }
   .radar-card .radar-distrib .obj-total{ grid-template-columns:minmax(0,1fr); }
   .radar-card .radar-distrib .obj-distrib{ padding:10px 4px 4px; }
   .radar-card .radar-tabela-area{ margin-top:6px; padding-top:4px; }
-  .radar-card .radar-table tbody tr{ background:none; border:none; border-radius:0; box-shadow:none; margin:0; }
-  .radar-card .radar-table tbody tr.radar-linha{ border-top:1px solid var(--border); }
-  .radar-card .radar-table tbody tr.radar-linha:first-child{ border-top:none; }
-  .radar-card .radar-table td{ padding-left:6px; padding-right:6px; }
-  .radar-card .radar-table td.radar-card-topo.radar-rank{ padding-left:6px; }
-  .radar-card .radar-acoes{ padding-right:6px !important; }
-  .radar-card .radar-table tbody tr.radar-momento-tr{ margin:0; padding:2px 6px 14px; border-radius:0; }
-  .radar-card .radar-table tbody tr.radar-linha:has(+ .radar-momento-tr){ border-radius:0; }
-  .radar-table tbody tr.radar-momento-tr td.radar-intradia-td{ display:block; width:auto; padding:0 0 8px; }
+  .radar-fii-legenda{ margin:0 0 8px; }
+
+  /* A tabela de 11 colunas vira lista: cada <tr> é um bloco e cada <td> uma linha "rótulo: valor" (data-label vem de criarLinhaRadar_).
+     Ranking e Ativo (as 2 primeiras colunas de COLUNAS_RADAR) formam o topo do bloco, o lápis sobe pro mesmo topo (order). */
+  .radar-table-wrap{ overflow-x:visible; }
+  .radar-table{ white-space:normal; }
+  .radar-table thead{ display:none; }
+  .radar-table, .radar-table tbody{ display:block; }
+  .radar-table tbody tr{ display:flex; flex-wrap:wrap; margin:0; background:none; }
+  .radar-table tbody tr.radar-linha{ border-top:1px solid var(--md-sys-color-outline-variant); }
+  .radar-table tbody tr.radar-linha:first-child{ border-top:0; }
+  .radar-table tbody tr > td, .radar-table tbody tr:hover > td{ background:none !important; }
+  .radar-table tbody tr > td, .radar-table tbody tr > td:first-child, .radar-table tbody tr > td:last-child{ border-radius:0; }
+  .radar-table td{ flex:0 0 100%; display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:6px 8px; text-align:right; }
+  .radar-table td::before{ content:attr(data-label); font-family:var(--body-f); font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--ink-muted); text-align:left; white-space:nowrap; }
+  .radar-table td.radar-card-topo{ order:0; flex:0 1 auto; justify-content:flex-start; gap:8px; padding:12px 8px 8px 0; font-weight:700; }
+  .radar-table td.radar-card-topo::before{ content:none; }
+  .radar-table td.radar-card-topo.radar-rank{ padding-left:8px; padding-right:6px; }
+  .radar-table td.radar-card-topo:nth-of-type(2){ flex:1 1 auto; min-width:0; font-size:var(--md-sys-typescale-body-large-size); }
+  .radar-table td:not(.radar-card-topo):not(.radar-acoes){ order:2; }
+  .radar-acoes{ order:1; flex:0 1 auto !important; justify-content:flex-end !important; padding:8px 8px 8px 0 !important; }
+  .radar-acoes::before{ content:none !important; }
+  .radar-pct-wrap{ align-items:flex-end; }
+  .radar-pct-wrap .chart--prog{ width:120px; }
+  .radar-preco-wrap{ flex-direction:row; align-items:baseline; gap:6px; }
+  .radar-edit-input{ width:120px; }
+
+  /* momento de aporte vira o pé do bloco; o gráfico do dia ocupa a largura toda */
+  .radar-table tbody tr.radar-linha:has(+ .radar-momento-tr){ border-bottom:0; }
+  .radar-table tbody tr.radar-momento-tr{ display:block; padding:2px 8px 16px; }
+  .radar-table tbody tr.radar-momento-tr td{ display:block; min-height:0; padding:0; text-align:left; }
+  .radar-table tbody tr.radar-momento-tr td::before{ content:none; }
+  .radar-table tbody tr.radar-momento-tr td.radar-momento-vazio{ display:none; }
+  .radar-table tbody tr.radar-momento-tr td.radar-intradia-td{ width:auto; padding:0 0 8px; }
   .radar-intradia{ min-width:0; }
-  .radar-intradia-slot{ height:52px; }
+  .radar-intradia-slot{ min-height:60px; }
 }
-@media (max-width:560px){
-  .radar-card .radar-visoes .filter-tab.radar-visao{ padding:8px 7px 9px; }
-  .radar-visao-sub{ flex-direction:column; align-items:flex-start; }
-  .radar-visao-sep{ display:none; }
-}
-@media (max-width:640px){
-  /* rótulo "label: valor" do card do ativo na fonte do texto (a célula numérica é mono) */
-  .radar-table td::before{ font-family:var(--body-f); }
-}
-/* Dentro do Radar a "aba-número" destacada já é a classe escolhida - o bloco da distribuição não repete o destaque. */
-.radar-card .radar-distrib .obj-tile-principal{ background:none; border-color:transparent; }
-.radar-card .radar-distrib .obj-tile-principal::after{ content:none; }

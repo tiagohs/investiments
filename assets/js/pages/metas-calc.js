@@ -60,6 +60,7 @@
  */
 
 import { resumoFgts, salarioEm } from './patrimonio-calc.js';
+import { formatNumeroPt, MESES_CURTOS, formatMesAno, formatBRL0 } from '../format.js'; // 05/10/2026 (A-68)
 
 /** Tipos de meta. `grupo` organiza a escolha no 1º passo da criação. */
 export const TIPOS_META = {
@@ -181,11 +182,11 @@ export function somarMeses(mes, n) {
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 }
 
-const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
 /** "mar/2027" */
 export function rotuloMes(mes) {
   const m = mesDe(mes);
-  return m ? `${MESES_CURTOS[Number(m.slice(5, 7)) - 1]}/${m.slice(0, 4)}` : '—';
+  return m ? formatMesAno(m, { anoCurto: false }) : '—';
 }
 
 /** "2 anos e 3 meses" / "8 meses" */
@@ -336,47 +337,170 @@ export function paraBRL(valor, moeda, cambio) {
  * modo total, fração (0-1) ou valor fixo em reais (limitado ao que o ativo
  * vale). Cada item sai também com o líquido (IR/IOF se resgatasse hoje, de
  * `ativo.irResgate`, na mesma fração do vínculo).
+ *
+ * 05/10/2026 (A-11 - "Já guardado" era ~1,9x o patrimônio vinculável): CADA ATIVO
+ * CONTA UMA VEZ. (1) Dentro da meta: se o mesmo ativo cai em mais de um vínculo
+ * (marca dentro da classe, classe + ativo direto), vale o de MAIOR fração e os
+ * outros ficam com 0 nesse ativo. (2) Entre metas: `opcoes.ocupado` ({ idDoAtivo:
+ * { valor, metas: [nome] } }) é o que metas de prioridade maior já pegaram
+ * (ver alocarMetas) - o ativo só entrega o que sobrou. Cada item sai com
+ * `fracaoPorId` ({ idDoAtivo: fração do valor do ativo que ESTE vínculo conta }),
+ * `pretendidoBRL` (o que o vínculo pediria sozinho) e o total com `cortadoBRL`
+ * (pretendido - contado) e `donos` ({ idDoAtivo: [metas que já tinham] }).
+ * 05/10/2026 (A-14): `opcoes.aliases` ({ TICKERANTIGO: 'TICKERATUAL' }, de
+ * Incorporacoes.gs!tabelaAliasesTicker_) faz vínculo a ticker antigo achar o ativo atual.
  */
-export function resolverVinculos(vinculos, ativos, cambio) {
+export function resolverVinculos(vinculos, ativos, cambio, opcoes = {}) {
   const lista = ativos || [];
-  let total = 0;
-  const itens = (vinculos || []).map((v) => {
-    if (v.tipo === 'saldo') {
-      const cot = cotacao(v.moeda || 'BRL', cambio);
-      const valor = cot == null ? 0 : r2((Number(v.saldo) || 0) * cot);
-      total += valor;
-      return { ...v, base: valor, valorBRL: valor, ativos: [], encontrado: cot != null, cotacao: cot, impostoBRL: 0, liquidoBRL: valor, semCambio: cot == null };
-    }
+  const ocupado = opcoes.ocupado || {};
+  const aliases = opcoes.aliases || null;
+  const idCanonico = (id) => {
+    if (!aliases || !id) return id;
+    const [ref, marca] = String(id).split('@');
+    let t = String(ref).trim().toUpperCase();
+    for (let i = 0; i < 5 && aliases[t]; i += 1) t = String(aliases[t]).toUpperCase();
+    return marca === undefined ? t : `${t}@${marca}`;
+  };
+  // 1) o que cada vínculo pediria sozinho, por ativo
+  const pre = (vinculos || []).map((v) => {
+    if (v.tipo === 'saldo') return { v, saldo: true };
+    const idv = v.tipo === 'ativo' || (!v.tipo && v.id) ? idCanonico(v.id) : null;
     const alvo = lista.filter((a) => {
       if (v.tipo === 'classe') return a.classe === v.classe;
       if (v.tipo === 'marca') return a.classe === 'rf' && a.marca === v.marca;
-      return a.id === v.id;
+      return a.id === v.id || (idv != null && a.id === idv);
     });
     const base = alvo.reduce((s, a) => s + (Number(a.valorBRL) || 0), 0);
-    let valor = base;
-    if (v.modo === 'fracao') valor = base * (Number(v.fracao) || 0);
-    if (v.modo === 'valor') valor = Math.min(base, Number(v.valor) || 0);
+    let parte = 1;
+    if (v.modo === 'fracao') parte = Math.max(0, Math.min(1, Number(v.fracao) || 0));
+    if (v.modo === 'valor') parte = base > 0 ? Math.min(base, Number(v.valor) || 0) / base : 0;
+    return { v, alvo, base, parte, idCanonico: idv };
+  });
+  // 2) por ativo, o vínculo de maior fração (empate: o 1º) é quem conta
+  const vencedor = new Map();
+  pre.forEach((p, i) => {
+    if (p.saldo) return;
+    p.alvo.forEach((a) => {
+      const atual = vencedor.get(a.id);
+      if (atual === undefined || p.parte > pre[atual].parte + 1e-12) vencedor.set(a.id, i);
+    });
+  });
+  // 3) o que sobra depois das metas anteriores
+  const usoNovo = {};
+  const donosCortes = {};
+  let total = 0;
+  let cortado = 0;
+  const itens = pre.map((p, i) => {
+    const v = p.v;
+    if (p.saldo) {
+      const cot = cotacao(v.moeda || 'BRL', cambio);
+      const valor = cot == null ? 0 : r2((Number(v.saldo) || 0) * cot);
+      total += valor;
+      return { ...v, base: valor, valorBRL: valor, pretendidoBRL: valor, ativos: [], encontrado: cot != null, cotacao: cot, impostoBRL: 0, liquidoBRL: valor, semCambio: cot == null };
+    }
+    const fracaoPorId = {};
+    let valor = 0;
+    let pretendido = 0;
+    let imposto = 0;
+    p.alvo.forEach((a) => {
+      const vale = Number(a.valorBRL) || 0;
+      const quer = vale * p.parte;
+      pretendido += quer;
+      fracaoPorId[a.id] = 0;
+      if (vencedor.get(a.id) !== i) return; // outro vínculo da MESMA meta já cobre este ativo com fração maior
+      const oc = ocupado[a.id];
+      const jaUsado = (oc ? Number(oc.valor) || 0 : 0) + (usoNovo[a.id] || 0);
+      const toma = Math.max(0, Math.min(quer, vale - jaUsado));
+      if (toma < quer - 0.005 && oc && oc.metas && oc.metas.length) donosCortes[a.id] = oc.metas;
+      valor += toma;
+      usoNovo[a.id] = (usoNovo[a.id] || 0) + toma;
+      fracaoPorId[a.id] = vale > 0 ? toma / vale : 0;
+      if (a.irResgate) imposto += ((Number(a.irResgate.ir) || 0) + (Number(a.irResgate.iof) || 0)) * fracaoPorId[a.id];
+    });
     valor = r2(valor);
     total += valor;
-    const parte = base > 0 ? valor / base : 0;
-    let imposto = 0;
-    alvo.forEach((a) => { if (a.irResgate) imposto += ((Number(a.irResgate.ir) || 0) + (Number(a.irResgate.iof) || 0)) * parte; });
-    return { ...v, base: r2(base), valorBRL: valor, ativos: alvo, encontrado: alvo.length > 0, impostoBRL: r2(imposto), liquidoBRL: r2(valor - imposto) };
+    cortado += Math.max(0, pretendido - valor);
+    return { ...v, id: p.idCanonico || v.id, base: r2(p.base), valorBRL: valor, pretendidoBRL: r2(pretendido), ativos: p.alvo, fracaoPorId, encontrado: p.alvo.length > 0, impostoBRL: r2(imposto), liquidoBRL: r2(valor - imposto) };
   });
-  return { total: r2(total), itens };
+  return { total: r2(total), itens, cortadoBRL: r2(cortado), uso: usoNovo, donos: donosCortes };
+}
+
+/** Fração do valor do ativo `a` que o item de vínculo `v` conta (A-11: cada ativo conta uma vez). */
+function fracaoDoItem(v, a) {
+  if (v.fracaoPorId && Object.prototype.hasOwnProperty.call(v.fracaoPorId, a.id)) return v.fracaoPorId[a.id];
+  return v.base > 0 ? v.valorBRL / v.base : 0;
 }
 
 /**
- * Quanto de cada ativo está comprometido somando todas as metas (pra avisar
- * quando passa de 100% - o mesmo dinheiro contado em 2 metas).
- * Devolve [{ id, nome, valorBRL, comprometido, fracao, metas: [nome] }] só dos que passam.
+ * 05/10/2026 (A-11): prioridade de quem fica com o dinheiro quando duas metas
+ * vinculam o mesmo ativo (Tiago: reserva primeiro, depois renda passiva, depois
+ * aposentadoria; as outras metas, na ordem da lista, depois dessas).
+ */
+export const PRIORIDADE_TIPOS_ALOCACAO = ['reservaEmergencia', 'rendaPassiva', 'aposentadoria'];
+
+export function ordemDeAlocacao(metas) {
+  const peso = (m) => { const k = PRIORIDADE_TIPOS_ALOCACAO.indexOf(m.tipo); return k < 0 ? PRIORIDADE_TIPOS_ALOCACAO.length : k; };
+  return (metas || []).map((m, i) => ({ m, i })).sort((a, b) => peso(a.m) - peso(b.m) || a.i - b.i).map((x) => x.m);
+}
+
+/**
+ * Aloca os ativos entre as metas ATIVAS, na ordem de prioridade (ordemDeAlocacao):
+ * cada ativo é entregue uma vez só. Devolve { ocupadoPorMeta: { [metaId]: ocupado
+ * ANTES da meta (o que as de prioridade maior já pegaram) }, usoPorMeta, totalAlocado,
+ * patrimonioVinculavel } - passe `ocupadoPorMeta` em ctx.ocupadoPorMeta pro calcularMeta.
+ * Meta sem `id` usa a chave '__sem-id-<posição>'.
+ */
+export function alocarMetas(metas, ativos, cambio, aliases = null) {
+  const ocupado = {};
+  let saldos = 0; // saldos em conta vinculados (dinheiro fora de ativos): também são patrimônio vinculável
+  const ocupadoPorMeta = {};
+  const usoPorMeta = {};
+  const ativas = (metas || []).filter((m) => m && m.status !== 'arquivada');
+  ordemDeAlocacao(ativas).forEach((m) => {
+    const chave = m.id || `__sem-id-${ativas.indexOf(m)}`;
+    ocupadoPorMeta[chave] = JSON.parse(JSON.stringify(ocupado));
+    const r = resolverVinculos(m.vinculos, ativos, cambio, { ocupado, aliases });
+    saldos += r.itens.filter((v) => v.tipo === 'saldo').reduce((t, v) => t + (v.valorBRL || 0), 0);
+    usoPorMeta[chave] = r.uso;
+    Object.entries(r.uso).forEach(([id, valor]) => {
+      const x = ocupado[id] || (ocupado[id] = { valor: 0, metas: [] });
+      x.valor += valor;
+      if (valor > 0.005 && !x.metas.includes(m.nome)) x.metas.push(m.nome);
+    });
+  });
+  const patrimonioVinculavel = r2((ativos || []).reduce((s, a) => s + (Number(a.valorBRL) || 0), 0) + saldos);
+  const totalAlocado = r2(Object.values(ocupado).reduce((s, x) => s + x.valor, 0));
+  return { ocupadoPorMeta, usoPorMeta, totalAlocado, patrimonioVinculavel };
+}
+
+/**
+ * Vínculos a ativo que não existem mais entre os ativos de hoje (vendido,
+ * renomeado sem alias) - antes sumiam em silêncio e a meta aparecia com
+ * progresso menor sem explicação (A-14). [{ meta, metaId, id }]
+ */
+export function vinculosOrfaos(metas, ativos, cambio, aliases = null) {
+  const out = [];
+  (metas || []).filter((m) => m && m.status !== 'arquivada').forEach((m) => {
+    resolverVinculos(m.vinculos, ativos, cambio, { aliases }).itens.forEach((v) => {
+      if ((v.tipo === 'ativo' || (!v.tipo && v.id)) && !v.encontrado) out.push({ meta: m.nome, metaId: m.id || null, id: v.id });
+    });
+  });
+  return out;
+}
+
+/**
+ * Quanto de cada ativo as metas PEDEM somando tudo (sem a exclusividade) - pra
+ * avisar que o mesmo dinheiro está em mais de uma meta. A alocação exclusiva
+ * (alocarMetas) garante que o progresso não conta o ativo duas vezes; isto só
+ * diz quem pediu o quê. Devolve [{ id, nome, valorBRL, comprometido, fracao,
+ * metas: [nome] }] só dos que passam de 100%.
  */
 export function ativosSobrecomprometidos(metas, ativos) {
   const mapa = new Map();
   (metas || []).filter((m) => m.status !== 'arquivada').forEach((m) => {
     resolverVinculos(m.vinculos, ativos).itens.forEach((v) => {
       v.ativos.forEach((a) => {
-        const parte = v.base > 0 ? v.valorBRL * ((Number(a.valorBRL) || 0) / v.base) : 0;
+        const parte = v.pretendidoBRL != null && v.base > 0 ? v.pretendidoBRL * ((Number(a.valorBRL) || 0) / v.base) : (v.base > 0 ? v.valorBRL * ((Number(a.valorBRL) || 0) / v.base) : 0);
         const x = mapa.get(a.id) || { id: a.id, nome: a.nome, valorBRL: a.valorBRL, comprometido: 0, metas: [] };
         x.comprometido += parte;
         if (!x.metas.includes(m.nome)) x.metas.push(m.nome);
@@ -385,7 +509,7 @@ export function ativosSobrecomprometidos(metas, ativos) {
     });
   });
   return [...mapa.values()].map((x) => ({ ...x, comprometido: r2(x.comprometido), fracao: x.valorBRL > 0 ? x.comprometido / x.valorBRL : 0 }))
-    .filter((x) => x.fracao > 1.005);
+    .filter((x) => x.fracao > 1.005 && x.metas.length > 1);
 }
 
 /** Reserva ideal = meses x despesa mensal x (1 + margem). */
@@ -695,6 +819,32 @@ export function calcularMeta(meta, ctx = {}) {
   }
   if (alvoBRL == null && moeda !== 'BRL' && alvoMoeda > 0) avisos.push(`sem câmbio de ${moeda}`);
 
+  // 05/10/2026 (A-12): cópia congelada (meta salva antes de "seguir a planilha") que já difere da planilha - avisa em vez de calar
+  const congelados = [];
+  {
+    const refs = ctx.referencias || {};
+    const dif = (a, b) => num(a) != null && num(b) != null && Math.abs(num(a) - num(b)) > 1e-9;
+    const quando = meta.atualizadoEm ? ` (congelado em ${String(meta.atualizadoEm).slice(8, 10)}/${String(meta.atualizadoEm).slice(5, 7)})` : ' (congelado)';
+    if (meta.tipo === 'reservaEmergencia') {
+      const rr = refs.reserva || {};
+      if (dif(esp.meses, rr.meses)) congelados.push({ campo: 'meses', rotulo: 'meses de reserva', meta: num(esp.meses), planilha: num(rr.meses) });
+      if (dif(esp.margem, rr.sobra)) congelados.push({ campo: 'margem', rotulo: 'sobra de segurança', meta: num(esp.margem), planilha: num(rr.sobra), tipo: '%' });
+    }
+    if (meta.tipo === 'aposentadoria') {
+      const rp = refs.patrimonio || {};
+      if (dif(esp.extra, rp.extra)) congelados.push({ campo: 'extra', rotulo: 'extra por mês', meta: num(esp.extra), planilha: num(rp.extra), tipo: 'R$' });
+      if (dif(esp.reinvestimento, rp.reinvestimento)) congelados.push({ campo: 'reinvestimento', rotulo: '% de reinvestimento', meta: num(esp.reinvestimento), planilha: num(rp.reinvestimento), tipo: '%' });
+      if (dif(esp.taxaRetirada, rp.rendimento)) congelados.push({ campo: 'taxaRetirada', rotulo: 'taxa de retirada', meta: num(esp.taxaRetirada), planilha: num(rp.rendimento), tipo: '%' });
+    }
+    const fmt = (x, tipo) => (tipo === '%' ? `${Math.round(x * 1000) / 10}%` : tipo === 'R$' ? formatBRL0(x) : String(x));
+    congelados.forEach((c) => avisos.push(`${c.rotulo}${quando}: esta meta usa ${fmt(c.meta, c.tipo)} e a planilha agora tem ${fmt(c.planilha, c.tipo)} - apague o campo em Editar para seguir a planilha`));
+    // 3 alvos pra mesma aposentadoria (planilha, engine, versão arquivada): mostra a taxa e avisa quando planilha e engine divergem
+    const desejadoPlanilha = num(refs.patrimonio && refs.patrimonio.desejado);
+    if (aposentadoria && aposentadoria.modo === 'calculado' && desejadoPlanilha > 0 && alvoBRL > 0 && Math.abs(alvoBRL - desejadoPlanilha) / desejadoPlanilha > 0.01) {
+      avisos.push(`o alvo desta meta (${formatBRL0(alvoBRL)}, retirada de ${Math.round(aposentadoria.taxa * 1000) / 10}% ao ano) difere do patrimônio desejado da planilha (${formatBRL0(desejadoPlanilha)}${num(refs.patrimonio.rendimento) != null ? `, ${Math.round(num(refs.patrimonio.rendimento) * 1000) / 10}% ao ano` : ''}) - confira a taxa de retirada`);
+    }
+  }
+
   // --- conta mensal (passagens/hospedagem parceladas) ---
   let conta = null;
   if (!ehViagem && meta.contaMensal && num(meta.contaMensal.valor) > 0) { // 04/10/2026: na viagem, vira item no cartão (calcularViagem)
@@ -708,8 +858,15 @@ export function calcularMeta(meta, ctx = {}) {
   }
 
   // --- já tenho ---
-  const vinc = resolverVinculos(meta.vinculos, ctx.ativos, cambio);
+  // 05/10/2026 (A-11): só conta o que as metas de prioridade maior (reserva -> renda passiva -> aposentadoria) não pegaram
+  const chaveAloc = meta.id || '';
+  const vinc = resolverVinculos(meta.vinculos, ctx.ativos, cambio, { ocupado: (ctx.ocupadoPorMeta && ctx.ocupadoPorMeta[chaveAloc]) || {}, aliases: ctx.aliases || null });
   vinc.itens.filter((v) => v.semCambio).forEach((v) => avisos.push(`sem câmbio de ${v.moeda} pro saldo em ${v.instituicao}`));
+  // 05/10/2026 (A-14): vínculo a ativo que sumiu/foi renomeado não some mais em silêncio
+  vinc.itens.filter((v) => (v.tipo === 'ativo' || (!v.tipo && v.id)) && !v.encontrado).forEach((v) => avisos.push(`o ativo vinculado "${String(v.id || '').split('@')[0]}" não está mais na carteira (vendido ou com outro ticker) e não conta no progresso`));
+  const donosCortados = [...new Set(Object.values(vinc.donos || {}).flat())];
+  if (vinc.cortadoBRL > 0.5 && donosCortados.length) avisos.push(`${formatBRL0(vinc.cortadoBRL)} do que você vinculou já está em ${donosCortados.join(' e ')} (maior prioridade) e não conta de novo aqui: cada ativo vale numa meta só (reserva, depois renda passiva, depois aposentadoria)`);
+  else if (vinc.cortadoBRL > 0.5) avisos.push(`${formatBRL0(vinc.cortadoBRL)} dos vínculos se repetem dentro desta meta (ex.: classe + ativo da mesma classe) e contam uma vez só`);
   const valorInicial = num(meta.valorInicial) || 0;
   let atualBRL = r2(vinc.total + valorInicial + itensConcluidosBRL);
   // 03/10/2026: líquido (IR/IOF se resgatasse hoje)
@@ -731,8 +888,8 @@ export function calcularMeta(meta, ctx = {}) {
   const atualLiquidoBRL = r2(atualBRL - impostoBRL);
   const liquido = {
     brutoBRL: atualBRL, impostoBRL, liquidoBRL: atualLiquidoBRL,
-    ir: r2(vinc.itens.reduce((s, v) => s + v.ativos.reduce((t, a) => t + (a.irResgate ? (Number(a.irResgate.ir) || 0) * (v.base > 0 ? v.valorBRL / v.base : 0) : 0), 0), 0)),
-    iof: r2(vinc.itens.reduce((s, v) => s + v.ativos.reduce((t, a) => t + (a.irResgate ? (Number(a.irResgate.iof) || 0) * (v.base > 0 ? v.valorBRL / v.base : 0) : 0), 0), 0)),
+    ir: r2(vinc.itens.reduce((s, v) => s + v.ativos.reduce((t, a) => t + (a.irResgate ? (Number(a.irResgate.ir) || 0) * fracaoDoItem(v, a) : 0), 0), 0)),
+    iof: r2(vinc.itens.reduce((s, v) => s + v.ativos.reduce((t, a) => t + (a.irResgate ? (Number(a.irResgate.iof) || 0) * fracaoDoItem(v, a) : 0), 0), 0)),
     rvSemEstimativa: temRvVinculada, rfSemDados: temRfSemIr,
   };
 
@@ -747,7 +904,7 @@ export function calcularMeta(meta, ctx = {}) {
         v.ativos.forEach((a) => {
           if (a.classe === 'rf') return;
           const prov = Number(por[String(a.ref || a.id).toUpperCase()]) || 0;
-          const parte = v.base > 0 ? v.valorBRL / v.base : 0; // mesma fração do vínculo
+          const parte = fracaoDoItem(v, a); // fração que ESTE vínculo conta do ativo (A-11)
           total12 += prov * parte;
         });
       });
@@ -823,7 +980,12 @@ export function calcularMeta(meta, ctx = {}) {
     // 03/10/2026 (v2)
     atualLiquidoBRL, faltaLiquida: alvoBRL != null ? Math.max(0, r2(alvoBRL - atualLiquidoBRL)) : null, liquido, atualRitmo, aporteReal, aporteInformado: aporteInformado || null, aporteOrigem,
     aporte3m: hist && num(hist.aporte3m) != null ? r2(num(hist.aporte3m)) : null, mesesBaseAporte: hist ? hist.mesesBase || 0 : 0,
+    // 05/10/2026 (A-15): ritmo médio dos últimos meses <= 0 (sem aporte ou só resgates) - a projeção não vira "nunca" calado
+    ritmoSemAporte: !(aporteInformado > 0) && aporteReal != null && aporteReal <= 0,
+    congelados, taxaRetirada: aposentadoria ? aposentadoria.taxa : null,
     viagem, aposentadoria, total: total != null ? r2(total) : null, ja: r2(ja), parcelasCorrendo: r2(parcelasCorrendo),
+    // 05/10/2026 (A-11): quanto dos vínculos não conta porque outra meta (ou outro vínculo desta) já pegou
+    vinculadoCortadoBRL: vinc.cortadoBRL || 0, valorAtivosVinculados: r2(vinc.itens.filter((v) => v.tipo !== 'saldo').reduce((t, v) => t + v.valorBRL, 0)),
     // 04/10/2026
     entradas, entradasFluxo, entradasTotal,
     decomposicao: falta != null ? { falta, entradas: entradasValidas, totalEntradas: entradasTotal, restante: r2(Math.max(0, falta - entradasTotal)), meses: mesesRestantes, aporte: necessario } : null,
@@ -869,12 +1031,21 @@ export function serieProjecao(calc, { maxMeses = 360, hoje, meses = null } = {})
 }
 
 /** Totais do topo da lista (só metas ativas, alvo conhecido). */
-export function resumoMetas(calculos) {
+export function resumoMetas(calculos, { patrimonioVinculavel = null } = {}) {
   const ativos = calculos.filter((c) => c && c.alvoBRL != null);
+  // 05/10/2026 (A-11): "já guardado" = patrimônio ALOCADO nas metas. Com a alocação exclusiva a soma dos
+  // vínculos nunca passa do patrimônio; o teto abaixo é só a trava final (o que não vem de ativo - valor
+  // inicial, saldo em conta, sub-itens pagos, parcelas - fica de fora do teto).
+  let atual = r2(ativos.reduce((s, c) => s + Math.min(c.atualBRL, c.alvoBRL), 0));
+  if (patrimonioVinculavel != null) {
+    const foraDeAtivos = ativos.reduce((s, c) => s + Math.max(0, c.atualBRL - (c.valorAtivosVinculados || 0)), 0);
+    atual = r2(Math.min(atual, patrimonioVinculavel + foraDeAtivos));
+  }
   return {
     quantidade: calculos.length,
     alvo: r2(ativos.reduce((s, c) => s + c.alvoBRL, 0)),
-    atual: r2(ativos.reduce((s, c) => s + Math.min(c.atualBRL, c.alvoBRL), 0)),
+    atual,
+    patrimonioVinculavel,
     aporteNecessario: r2(calculos.reduce((s, c) => s + (c && c.aporteNecessarioTotal ? c.aporteNecessarioTotal : 0), 0)),
     aporteAtual: r2(calculos.reduce((s, c) => s + (c ? c.aporteAtual : 0), 0)),
     noRitmo: calculos.filter((c) => c && ['no-ritmo', 'concluida', 'saldo-ideal'].includes(c.status)).length,
@@ -904,7 +1075,9 @@ export function metaPadrao(tipo, { referencias = {}, hoje, categoria } = {}) {
     const rs = referencias.reserva || {};
     base.dataAlvo = null;
     base.rendimentoAnual = 0.1;
-    base.especificos = { meses: num(rs.meses) || 6, margem: num(rs.sobra) ?? 0.1, usarDespesasPlanilha: true, despesaMensal: null };
+    // 05/10/2026 (A-12): meses e sobra NÃO são mais copiados da planilha (ficavam congelados e mudanças depois não chegavam
+    // à meta): null = "seguir a planilha", resolvido na leitura (calcularMeta). Digitar um valor congela de propósito.
+    base.especificos = { meses: null, margem: null, usarDespesasPlanilha: true, despesaMensal: null };
     base.vinculos = [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }];
   }
   if (tipo === 'viagemInternacional' || tipo === 'viagemNacional') {
@@ -922,8 +1095,9 @@ export function metaPadrao(tipo, { referencias = {}, hoje, categoria } = {}) {
     const pat = referencias.patrimonio || {};
     base.especificos = {
       modoAlvo: 'calculado', usarDespesasPlanilha: true, despesaMensal: null,
-      extra: num(pat.extra) ?? 4000, reinvestimento: num(pat.reinvestimento) ?? 0.25,
-      rendaDesejada: null, taxaRetirada: num(pat.rendimento) || 0.04, anoNascimento: null,
+      // 05/10/2026 (A-12): extra, % de reinvestimento e taxa de retirada = referência da planilha (null), não cópia congelada
+      extra: null, reinvestimento: null,
+      rendaDesejada: null, taxaRetirada: null, anoNascimento: null,
     };
     base.dataAlvo = somarMeses(mes, 300); base.rendimentoAnual = 0.06;
   }
@@ -965,7 +1139,7 @@ export function sugestoesMetas({ referencias = {}, hoje, existentes = [] } = {})
   const out = [];
   if (!tem('reservaEmergencia')) {
     const m = metaDaPlanilha('reservaEmergencia', { referencias, hoje });
-    out.push({ meta: m, porque: referencias.reserva && referencias.reserva.custoDeVida ? `${m.especificos.meses} meses do seu custo de vida, com os títulos marcados Renda Emergencial` : 'Meses x custo de vida, com os títulos marcados Renda Emergencial' });
+    out.push({ meta: m, porque: referencias.reserva && referencias.reserva.custoDeVida ? `${num(referencias.reserva.meses) || 6} meses do seu custo de vida, com os títulos marcados Renda Emergencial` : 'Meses x custo de vida, com os títulos marcados Renda Emergencial' });
   }
   if (!tem('rendaPassiva')) {
     out.push({ meta: metaDaPlanilha('rendaPassiva', { referencias, hoje }), porque: 'A meta mensal da planilha (aba Distribuição e Metas), medida pelos proventos de FIIs e ações' });
@@ -986,7 +1160,6 @@ export function sugestoesMetas({ referencias = {}, hoje, existentes = [] } = {})
 // ---------------------------------------------------------------------------
 
 const arred = (v, passo) => Math.max(passo, Math.round(v / passo) * passo);
-const moedaTxt = (v) => (typeof v === 'number' && Number.isFinite(v) ? `R$ ${Math.round(v).toLocaleString('pt-BR')}` : '—');
 
 /**
  * Tiago: "nesse ritmo, você chega na sua meta em tanto tempo. Sugestão pra
@@ -1041,24 +1214,24 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
   };
   const extraMes = aporte > 0 ? arred(aporte * 0.1, 50) : arred(Math.max(100, (calc.aporteNecessario || 0) * 0.25), 50);
   const e1 = efeito(mesesAte(calc, { atual, aporte: aporte + extraMes, taxa }));
-  if (e1) dicas.push({ id: 'aporte', texto: `Aportar ${moedaTxt(extraMes)} a mais por mês (${moedaTxt(aporte + extraMes)}) ${e1.texto}.`, mesesAMenos: e1.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + extraMes }).frase });
+  if (e1) dicas.push({ id: 'aporte', texto: `Aportar ${formatBRL0(extraMes)} a mais por mês (${formatBRL0(aporte + extraMes)}) ${e1.texto}.`, mesesAMenos: e1.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + extraMes }).frase });
   const unico = arred(Math.max(1000, aporte), 500);
   const e2 = efeito(mesesAte(calc, { atual: atual + unico, aporte, taxa }));
-  if (e2) dicas.push({ id: 'unico', texto: `Um aporte extra de ${moedaTxt(unico)} agora (13º, restituição do IR, bônus) ${e2.texto}.`, mesesAMenos: e2.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, atual: atual + unico }).frase });
+  if (e2) dicas.push({ id: 'unico', texto: `Um aporte extra de ${formatBRL0(unico)} agora (13º, restituição do IR, bônus) ${e2.texto}.`, mesesAMenos: e2.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, atual: atual + unico }).frase });
   const rend = num(meta.rendimentoAnual) || 0;
   const e3 = efeito(mesesAte(calc, { atual, aporte, taxa: taxaMensal(rend + 0.01) }));
-  if (e3 && meta.tipo !== 'reservaEmergencia') dicas.push({ id: 'rendimento', texto: `Render 1 ponto percentual a mais ao ano (${(Math.round((rend + 0.01) * 1000) / 10).toLocaleString('pt-BR')}% em vez de ${(Math.round(rend * 1000) / 10).toLocaleString('pt-BR')}%) - ex. tirar dinheiro parado da conta - ${e3.texto}.`, mesesAMenos: e3.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, taxa: taxaMensal(rend + 0.01) }).frase });
+  if (e3 && meta.tipo !== 'reservaEmergencia') dicas.push({ id: 'rendimento', texto: `Render 1 ponto percentual a mais ao ano (${formatNumeroPt(Math.round((rend + 0.01) * 1000) / 10)}% em vez de ${formatNumeroPt((Math.round(rend * 1000) / 10))}%) - ex. tirar dinheiro parado da conta - ${e3.texto}.`, mesesAMenos: e3.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, taxa: taxaMensal(rend + 0.01) }).frase });
   if (meta.tipo === 'rendaPassiva' && calc.renda && calc.renda.atual > 0) {
     const e4 = efeito(mesesAte(calc, { atual, aporte: aporte + calc.renda.atual, taxa }));
-    if (e4) dicas.push({ id: 'reinvestir', texto: `Reinvestir todos os proventos (${moedaTxt(calc.renda.atual)}/mês hoje) somados ao aporte ${e4.texto} - a renda cresce sozinha (efeito bola de neve).`, mesesAMenos: e4.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + calc.renda.atual }).frase });
+    if (e4) dicas.push({ id: 'reinvestir', texto: `Reinvestir todos os proventos (${formatBRL0(calc.renda.atual)}/mês hoje) somados ao aporte ${e4.texto} - a renda cresce sozinha (efeito bola de neve).`, mesesAMenos: e4.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + calc.renda.atual }).frase });
   }
   if (calc.viagem) {
     Object.values(calc.viagem.porMoeda).filter((x) => x.moeda !== 'BRL' && x.faltaBRL > 0).forEach((x) => {
-      dicas.push({ id: `cambio-${x.moeda}`, texto: `Faltam ${x.falta.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} ${x.moeda}: cada 1% de alta do ${x.moeda} encarece a viagem em ${moedaTxt(x.faltaBRL * 0.01)}. Comprar um pouco por mês (preço médio) dilui esse risco.`, mesesAMenos: 0 });
+      dicas.push({ id: `cambio-${x.moeda}`, texto: `Faltam ${formatNumeroPt(x.falta, { maximumFractionDigits: 0 })} ${x.moeda}: cada 1% de alta do ${x.moeda} encarece a viagem em ${formatBRL0(x.faltaBRL * 0.01)}. Comprar um pouco por mês (preço médio) dilui esse risco.`, mesesAMenos: 0 });
     });
   }
   if (meta.tipo === 'reservaEmergencia' && calc.liquido && calc.liquido.impostoBRL > 0) {
-    dicas.push({ id: 'imposto', texto: `${moedaTxt(calc.liquido.impostoBRL)} da reserva iriam para IR/IOF num resgate hoje. O IR cai com o tempo (15% depois de 2 anos): numa emergência, resgate primeiro os títulos mais antigos.`, mesesAMenos: 0 });
+    dicas.push({ id: 'imposto', texto: `${formatBRL0(calc.liquido.impostoBRL)} da reserva iriam para IR/IOF num resgate hoje. O IR cai com o tempo (15% depois de 2 anos): numa emergência, resgate primeiro os títulos mais antigos.`, mesesAMenos: 0 });
   }
   return dicas.sort((a, b) => (b.mesesAMenos || 0) - (a.mesesAMenos || 0));
 }
@@ -1112,7 +1285,7 @@ export function fraseMarcos(marcos, { alvo = null } = {}) {
     const nome = i === 0 ? `o ${m.rotulo}` : `o ${m.rotulo.replace(/ milhão$/, '')}`;
     return `${nome} ${m.ja ? 'já foi' : (m.ano ? `em ${m.ano}` : 'não chega')}`;
   });
-  return `Com isso, sua meta de ${moedaTxt(meta)} ${quando}; ${partes.join(', ')}.`;
+  return `Com isso, sua meta de ${formatBRL0(meta)} ${quando}; ${partes.join(', ')}.`;
 }
 
 /**
@@ -1194,7 +1367,7 @@ export function explicarStatus(status, meta = {}) {
 // por renderAnalise)
 // ---------------------------------------------------------------------------
 
-const pctTxt = (f, casas = 1) => `${f >= 0 ? '+' : '−'}${Math.abs(f * 100).toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
+const pctTxt = (f, casas = 1) => `${f >= 0 ? '+' : '−'}${formatNumeroPt(Math.abs(f * 100), { minimumFractionDigits: casas, maximumFractionDigits: casas })}%`;
 function fecharAnalise(pontos) {
   const lista = pontos.filter(Boolean).slice(0, 5);
   if (!lista.length) return { tom: 'neutro', resumo: '', pontos: [] };
@@ -1219,8 +1392,8 @@ export function analisarHistoricoMeta({ meses = [], calc = null, indices = [] } 
   const pontos = [];
   pontos.push({
     tipo: 'crescimento', tom: delta >= 0 ? 'bom' : 'atencao', peso: 70,
-    texto: `De ${rotuloMes(a.mes)} a ${rotuloMes(b.mes)} a meta foi de ${moedaTxt(a.valor)} para ${moedaTxt(b.valor)} (${delta >= 0 ? '+' : '−'}${moedaTxt(Math.abs(delta))}): ${moedaTxt(aportes)} vieram de aportes e ${ganho >= 0 ? '+' : '−'}${moedaTxt(Math.abs(ganho))} de rendimento/valorização.`,
-    resumo: `${delta >= 0 ? '+' : '−'}${moedaTxt(Math.abs(delta))} no período (${moedaTxt(aportes)} de aportes)`,
+    texto: `De ${rotuloMes(a.mes)} a ${rotuloMes(b.mes)} a meta foi de ${formatBRL0(a.valor)} para ${formatBRL0(b.valor)} (${delta >= 0 ? '+' : '−'}${formatBRL0(Math.abs(delta))}): ${formatBRL0(aportes)} vieram de aportes e ${ganho >= 0 ? '+' : '−'}${formatBRL0(Math.abs(ganho))} de rendimento/valorização.`,
+    resumo: `${delta >= 0 ? '+' : '−'}${formatBRL0(Math.abs(delta))} no período (${formatBRL0(aportes)} de aportes)`,
   });
   // rendimento ponderado no tempo x CDI
   let f = 1;
@@ -1244,16 +1417,16 @@ export function analisarHistoricoMeta({ meses = [], calc = null, indices = [] } 
     const ult3 = corpo.slice(-3);
     const media3 = ult3.reduce((s, x) => s + (x.fluxo || 0), 0) / ult3.length;
     const sem = corpo.filter((x) => (x.fluxo || 0) <= 1).length;
-    let texto = `Aporte médio de ${moedaTxt(media)}/mês no período`;
-    if (corpo.length > 4) texto += `; nos últimos 3 meses, ${moedaTxt(media3)}/mês (${media3 >= media * 1.1 ? 'acelerando' : media3 <= media * 0.9 ? 'desacelerando' : 'estável'})`;
+    let texto = `Aporte médio de ${formatBRL0(media)}/mês no período`;
+    if (corpo.length > 4) texto += `; nos últimos 3 meses, ${formatBRL0(media3)}/mês (${media3 >= media * 1.1 ? 'acelerando' : media3 <= media * 0.9 ? 'desacelerando' : 'estável'})`;
     texto += sem ? `. ${sem} de ${corpo.length} meses sem aporte.` : '. Aportou em todos os meses.';
     let tom = 'neutro';
     if (calc && calc.aporteNecessario > 0) {
       const cobre = media / calc.aporteNecessario;
-      texto += ` O necessário até o prazo é ${moedaTxt(calc.aporteNecessario)}/mês: a média do período cobre ${Math.round(cobre * 100)}%.`;
+      texto += ` O necessário até o prazo é ${formatBRL0(calc.aporteNecessario)}/mês: a média do período cobre ${Math.round(cobre * 100)}%.`;
       tom = cobre >= 1 ? 'bom' : 'atencao';
     }
-    pontos.push({ tipo: 'aportes', tom, peso: 65, texto, resumo: `aporte médio ${moedaTxt(media)}/mês` });
+    pontos.push({ tipo: 'aportes', tom, peso: 65, texto, resumo: `aporte médio ${formatBRL0(media)}/mês` });
   }
   // maior queda (renda variável)
   let pico = 0; let pior = { dd: 0 };
@@ -1275,7 +1448,7 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
   const out = [];
   if (Number.isFinite(calc.mesesEstimados) && calc.mesesEstimados > 0) {
     const chega = somarMeses(mes, Math.ceil(calc.mesesEstimados));
-    let texto = `No seu ritmo (${moedaTxt(calc.aporteAtual)}/mês${calc.aporteOrigem === 'historico' ? ', o aporte real dos últimos 12 meses' : ''}) você chega no alvo em ${rotuloMes(chega)} (${rotuloDuracao(calc.mesesEstimados)})`;
+    let texto = `No seu ritmo (${formatBRL0(calc.aporteAtual)}/mês${calc.aporteOrigem === 'historico' ? ', o aporte real dos últimos 12 meses' : ''}) você chega no alvo em ${rotuloMes(chega)} (${rotuloDuracao(calc.mesesEstimados)})`;
     let tom = 'neutro';
     if (calc.mesesRestantes != null) {
       const dif = Math.ceil(calc.mesesEstimados) - calc.mesesRestantes;
@@ -1283,6 +1456,8 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
       tom = dif <= 0 ? 'bom' : 'atencao';
     } else texto += '.';
     out.push({ tipo: 'ritmo', tom, peso: 80, texto, resumo: `no ritmo: ${rotuloMes(chega)}` });
+  } else if (calc.atualRitmo < calc.alvoBRL && calc.ritmoSemAporte) {
+    out.push({ tipo: 'ritmo', tom: 'atencao', peso: 80, texto: `Nos últimos meses você não aportou nessa meta (ritmo médio ${formatBRL0(calc.aporteReal)}/mês) - sem aporte, só o rendimento não leva ao alvo. Informe um aporte em Editar ou veja o aporte necessário.`, resumo: 'sem aporte recente' });
   } else if (calc.atualRitmo < calc.alvoBRL) {
     out.push({ tipo: 'ritmo', tom: 'atencao', peso: 80, texto: 'No ritmo de hoje (sem aporte e sem rendimento suficiente) a meta não chega no alvo - informe um aporte ou vincule os investimentos.', resumo: 'sem ritmo pra chegar' });
   }
@@ -1294,8 +1469,8 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
     const fraseNec = resumoMarcos(calc, { hoje, aporte: calc.aporteNecessario }).frase; // 05/10/2026
     out.push({
       tipo: 'composicao', tom: gap > 0.5 ? 'atencao' : 'bom', peso: 70,
-      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${moedaTxt(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${moedaTxt(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${moedaTxt(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${moedaTxt(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${moedaTxt(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).${fraseNec ? ` ${fraseNec}` : ''}`,
-      resumo: gap > 0.5 ? `faltam ${moedaTxt(gap)}/mês pro prazo` : 'aporte cobre o prazo',
+      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${formatBRL0(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${formatBRL0(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${formatBRL0(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${formatBRL0(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${formatBRL0(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).${fraseNec ? ` ${fraseNec}` : ''}`,
+      resumo: gap > 0.5 ? `faltam ${formatBRL0(gap)}/mês pro prazo` : 'aporte cobre o prazo',
     });
   }
   const proximos = (marcos || []).filter((m) => !m.ja && m.mes);
@@ -1318,25 +1493,25 @@ export function analisarRendaMensal(renda = [], calc = null, { hoje } = {}) {
   const alvo = calc && calc.renda ? calc.renda.alvo : null;
   out.push({
     tipo: 'media', tom: alvo ? (media12 >= alvo ? 'bom' : 'neutro') : 'neutro', peso: 70,
-    texto: `Média dos últimos ${ult12.length} meses: ${moedaTxt(media12)}/mês${alvo ? ` - ${Math.round((media12 / alvo) * 100)}% da meta de ${moedaTxt(alvo)}/mês` : ''}.`,
-    resumo: `média ${moedaTxt(media12)}/mês`,
+    texto: `Média dos últimos ${ult12.length} meses: ${formatBRL0(media12)}/mês${alvo ? ` - ${Math.round((media12 / alvo) * 100)}% da meta de ${formatBRL0(alvo)}/mês` : ''}.`,
+    resumo: `média ${formatBRL0(media12)}/mês`,
   });
   const ant = fechados.slice(-24, -12);
   if (ant.length >= 6) {
     const mediaAnt = ant.reduce((s, x) => s + x.valor, 0) / ant.length;
     if (mediaAnt > 0) {
       const cresc = media12 / mediaAnt - 1;
-      out.push({ tipo: 'crescimento', tom: cresc >= 0 ? 'bom' : 'atencao', peso: 65, texto: `A renda média dos últimos 12 meses ${cresc >= 0 ? 'cresceu' : 'caiu'} ${pctTxt(cresc).replace(/^[+−]/, '')} em relação aos 12 anteriores (${moedaTxt(mediaAnt)}/mês).`, resumo: `${pctTxt(cresc)} em 12 meses` });
+      out.push({ tipo: 'crescimento', tom: cresc >= 0 ? 'bom' : 'atencao', peso: 65, texto: `A renda média dos últimos 12 meses ${cresc >= 0 ? 'cresceu' : 'caiu'} ${pctTxt(cresc).replace(/^[+−]/, '')} em relação aos 12 anteriores (${formatBRL0(mediaAnt)}/mês).`, resumo: `${pctTxt(cresc)} em 12 meses` });
     }
   }
   const melhor = ult12.reduce((m, x) => (x.valor > m.valor ? x : m), ult12[0]);
   const pior = ult12.reduce((m, x) => (x.valor < m.valor ? x : m), ult12[0]);
-  if (melhor.valor > 0) out.push({ tipo: 'variacao', tom: 'neutro', peso: 45, texto: `Melhor mês: ${rotuloMes(melhor.mes)} (${moedaTxt(melhor.valor)}); mais fraco: ${rotuloMes(pior.mes)} (${moedaTxt(pior.valor)}) - ações pagam concentrado em alguns meses, FIIs todo mês.`, resumo: '' });
+  if (melhor.valor > 0) out.push({ tipo: 'variacao', tom: 'neutro', peso: 45, texto: `Melhor mês: ${rotuloMes(melhor.mes)} (${formatBRL0(melhor.valor)}); mais fraco: ${rotuloMes(pior.mes)} (${formatBRL0(pior.valor)}) - ações pagam concentrado em alguns meses, FIIs todo mês.`, resumo: '' });
   const ult3 = fechados.slice(-3);
   if (fechados.length >= 6) {
     const m3 = ult3.reduce((s, x) => s + x.valor, 0) / ult3.length;
     const t = m3 / media12 - 1;
-    if (Math.abs(t) >= 0.1) out.push({ tipo: 'tendencia', tom: t > 0 ? 'bom' : 'atencao', peso: 55, texto: `Últimos 3 meses: ${moedaTxt(m3)}/mês, ${pctTxt(t).replace(/^[+−]/, '')} ${t > 0 ? 'acima' : 'abaixo'} da média de 12 meses.`, resumo: `${t > 0 ? 'acelerando' : 'mais fraca'} nos últimos 3 meses` });
+    if (Math.abs(t) >= 0.1) out.push({ tipo: 'tendencia', tom: t > 0 ? 'bom' : 'atencao', peso: 55, texto: `Últimos 3 meses: ${formatBRL0(m3)}/mês, ${pctTxt(t).replace(/^[+−]/, '')} ${t > 0 ? 'acima' : 'abaixo'} da média de 12 meses.`, resumo: `${t > 0 ? 'acelerando' : 'mais fraca'} nos últimos 3 meses` });
   }
   return fecharAnalise(out);
 }
@@ -1521,10 +1696,10 @@ export function eventosVencimento(calc, { hoje } = {}) {
     const perdeMes = taxa > 0 ? r2(liquido * taxa) : null;
     const tom = minimo != null && !acimaMinimo ? 'atencao' : 'neutro';
     const partes = [
-      `Em ${rotuloMes(mes)} ${titulos.length > 1 ? 'vencem' : 'vence'} ${todos}: entram ${moedaTxt(liquido)} líquidos (IR ${moedaTxt(ir)}${titulos.some((t) => t.estimado) ? ', estimado' : ''}).`,
+      `Em ${rotuloMes(mes)} ${titulos.length > 1 ? 'vencem' : 'vence'} ${todos}: entram ${formatBRL0(liquido)} líquidos (IR ${formatBRL0(ir)}${titulos.some((t) => t.estimado) ? ', estimado' : ''}).`,
     ];
-    if (minimo != null) partes.push(acimaMinimo ? `Sua reserva continua acima do mínimo? Sim (${moedaTxt(semReaplicar)} contra ${moedaTxt(minimo)}).` : `Sua reserva continua acima do mínimo? Não${jaAbaixo ? ' (já está abaixo hoje)' : ''}: sem ${idx > 0 ? 'esse título e os que vencem antes' : 'esse título'} ela fica em ${moedaTxt(semReaplicar)} e faltam ${moedaTxt(falta)} pro mínimo de ${moedaTxt(minimo)}${acimaReaplicando ? ' - reaplicando o dinheiro, volta a ficar acima.' : ` - mesmo reaplicando faltam ${moedaTxt(faltaReaplicando)}.`}`);
-    partes.push(`Reaplique em ${sugestao}. Sem reaplicar, o dinheiro fica na conta e para de render${perdeMes ? ` (cerca de ${moedaTxt(perdeMes)}/mês a menos)` : ''}.`);
+    if (minimo != null) partes.push(acimaMinimo ? `Sua reserva continua acima do mínimo? Sim (${formatBRL0(semReaplicar)} contra ${formatBRL0(minimo)}).` : `Sua reserva continua acima do mínimo? Não${jaAbaixo ? ' (já está abaixo hoje)' : ''}: sem ${idx > 0 ? 'esse título e os que vencem antes' : 'esse título'} ela fica em ${formatBRL0(semReaplicar)} e faltam ${formatBRL0(falta)} pro mínimo de ${formatBRL0(minimo)}${acimaReaplicando ? ' - reaplicando o dinheiro, volta a ficar acima.' : ` - mesmo reaplicando faltam ${formatBRL0(faltaReaplicando)}.`}`);
+    partes.push(`Reaplique em ${sugestao}. Sem reaplicar, o dinheiro fica na conta e para de render${perdeMes ? ` (cerca de ${formatBRL0(perdeMes)}/mês a menos)` : ''}.`);
     return { mes, em: mesesEntre(mesHoje, mes), titulos, bruto, ir, liquido, reservaSemReaplicar: r2(semReaplicar), reservaReaplicando: r2(reaplicando), acimaMinimo, acimaReaplicando, falta, faltaReaplicando, perdeMes, tom, sugestao, texto: partes.join(' ') };
   });
   return { eventos, minimo, proximo: eventos[0], temAtencao: eventos.some((e) => e.tom === 'atencao') };

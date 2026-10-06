@@ -54,7 +54,7 @@ function handleDespesas(e, auth) {
 }
 
 function handleSalvarDespesas(e) {
-  var trava = LockService.getScriptLock();
+  var trava = travaRecurso_('despesas', 'salvar despesas');
   try {
     trava.waitLock(20000);
   } catch (eL) {

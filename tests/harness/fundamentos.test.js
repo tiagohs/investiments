@@ -457,12 +457,16 @@ test('Coleta: sem tempo, nada é buscado e tudo fica pendente (a agenda tenta de
   assert.equal(eua.valores.roe, 0.1);
 });
 
-test('Validade: Fundamentus/Yahoo 1 dia, SEC 7 dias, CVM até virar o mês', () => {
+test('Validade (A-49): Fundamentus/Yahoo/SEC 7 dias, planilha (GOOGLEFINANCE, sem rede) 1 dia, CVM até virar o mês', () => {
   const { sb } = montar();
   const d = (s) => new sb.Date(s);
   const agora = d('2026-10-03T15:00:00Z');
   assert.equal(sb.fundEstaFresco_('fundamentus', d('2026-10-03T10:00:00Z'), agora), true);
-  assert.equal(sb.fundEstaFresco_('fundamentus', d('2026-10-02T20:00:00Z'), agora), false);
+  assert.equal(sb.fundEstaFresco_('fundamentus', d('2026-09-28T20:00:00Z'), agora), true, '5 dias: ainda vale');
+  assert.equal(sb.fundEstaFresco_('yahoo', d('2026-09-28T20:00:00Z'), agora), true);
+  assert.equal(sb.fundEstaFresco_('yahoo', d('2026-09-25T20:00:00Z'), agora), false, '8 dias: vencido');
+  assert.equal(sb.fundEstaFresco_('planilha', d('2026-10-02T20:00:00Z'), agora), false, 'planilha continua 1 dia');
+  assert.equal(sb.fundEstaFresco_('planilha', d('2026-10-03T10:00:00Z'), agora), true);
   assert.equal(sb.fundEstaFresco_('sec', d('2026-09-28T15:00:00Z'), agora), true);
   assert.equal(sb.fundEstaFresco_('sec', d('2026-09-25T15:00:00Z'), agora), false);
   assert.equal(sb.fundEstaFresco_('cvm', d('2026-10-01T12:00:00Z'), agora), true);
@@ -491,12 +495,61 @@ test('Contrato no motor de critérios: com fundamentos a análise avalia mais cr
   assert.equal(avaliarAtivo({ ...base, fundamentos: undefined }).cobertura.avaliados, sem.cobertura.avaliados, 'sem o campo: não quebra');
 });
 
-test('Fonte que bloqueia o Apps Script (HTTP 403, ex. SEC) é desligada na execução com UM aviso, sem virar falha por ticker', () => {
+test('Fonte que bloqueia o Apps Script (HTTP 403, ex. SEC): disjuntor PERSISTENTE, UM aviso, sem virar falha por ticker (A-49)', () => {
   const { sb, chamadas } = montar();
   const fetchOrig = sb.UrlFetchApp.fetch;
-  sb.UrlFetchApp.fetch = (url, o) => (/sec\.gov/.test(url) ? { getResponseCode: () => 403, getContentText: () => 'Forbidden' } : fetchOrig(url, o));
+  let sec = 0;
+  sb.UrlFetchApp.fetch = (url, o) => { if (/sec\.gov/.test(url)) { sec += 1; return { getResponseCode: () => 403, getContentText: () => 'Forbidden' }; } return fetchOrig(url, o); };
   const r = plain(sb.atualizarFundamentos_('Manual', {}));
   assert.doesNotMatch(r.detalhe, /\|sec \(/);
-  assert.match(r.detalhe, /SEC bloqueia o Apps Script/);
+  assert.match(r.detalhe, /SEC em pausa: HTTP 403/);
+  assert.equal(r.status, 'Sucesso', 'fonte bloqueada que já é conhecida não é "Atenção" eterna: ' + r.detalhe);
   assert.ok(!chamadas.some((u) => /fundamentus/.test(u)));
+  assert.equal(sec, 1, 'o primeiro 403 abre o disjuntor: nenhuma consulta a mais');
+
+  // outra execução (mesmo sem validade vencida, com "forcar"): a fonte segue em pausa, nem chama a rede
+  const r2 = plain(sb.atualizarFundamentos_('Automático', { forcar: true }));
+  assert.equal(sec, 1, 'a pausa vale nas execuções seguintes');
+  assert.match(r2.detalhe, /SEC em pausa/);
+  // o dado do Yahoo continua válido (7 dias) e a tela mostra de quando é o dado
+  const eua = plain(sb.lerFundamentosDoAtivo_(sb.SpreadsheetApp.getActiveSpreadsheet(), 'ZZZZ', 'acoesEua', null));
+  assert.ok(eua && eua.atualizadoEm, 'dado de uma data, não erro');
+});
+
+test('Fundamentos (A-49): Yahoo em 429 abre o disjuntor; o que já estava gravado vira "dado de DD/MM" (informativo) e o contador conta ATIVOS', () => {
+  const a = montar();
+  const r0 = plain(a.sb.atualizarFundamentos_('Automático', {}));
+  assert.equal(r0.status, 'Sucesso', r0.detalhe);
+  assert.match(r0.detalhe, /^Fundamentos: 3 de 3 ativo\(s\) com dado novo agora/, 'conta ativos, não fonte x ativo');
+  // 8 dias depois o Yahoo vence - mas responde 429
+  const depois = new a.sb.Date('2026-10-11T15:00:00Z');
+  const RealDate = a.sb.Date;
+  const DateFalso = class extends RealDate { constructor(...x) { if (x.length) super(...x); else super(depois.getTime()); } static now() { return depois.getTime(); } };
+  a.sb.Date = DateFalso;
+  const fetchOrig = a.sb.UrlFetchApp.fetch;
+  let yahoo = 0;
+  a.sb.UrlFetchApp.fetch = (url, o) => { if (/yahoo/.test(url)) { yahoo += 1; return { getResponseCode: () => 429, getContentText: () => 'Too Many Requests' }; } return fetchOrig(url, o); };
+  const r = plain(a.sb.atualizarFundamentos_('Automático', {}));
+  assert.equal(yahoo, 1, 'um 429 basta: os outros tickers nem tentam');
+  assert.match(r.detalhe, /Yahoo em pausa: HTTP 429/);
+  assert.match(r.detalhe, /Mantido o dado de 03\/10/);
+  assert.deepEqual(r.falhas, [], 'dado anterior mantido não é falha');
+});
+
+test('Fundamentos (A-26): P/VP da planilha absurdo ou > 50% distante das outras fontes é descartado; EUA só pela comparação', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss, { agora: AGORA });
+  const s = (a, b, c) => sb.fundPvpPlanilhaSuspeito_(a, b, c);
+  assert.equal(s(1.25, 1.3, 'acoes'), null, 'diferença pequena');
+  assert.match(s(30, 2, 'acoes'), /contra 2/);
+  assert.match(s(30, null, 'fiis'), /acima de 10/);
+  assert.equal(s(30, null, 'acoesEua'), null, 'P/VP alto é normal nos EUA se nada discorda');
+  assert.match(s(30, 12, 'acoesEua'), /acima de 50%|diferença/);
+  assert.equal(s(null, 2, 'acoes'), null);
+  // foto mensal: planilha 30 contra Yahoo 2 -> grava 2, não 30
+  const tabela = { mapa: { 'ZZZZ3|yahoo': { ticker: 'ZZZZ3', fonte: 'yahoo', dados: { valores: { pvp: 2 } }, atualizadoEm: AGORA } } };
+  sb.fundGravarFotoMensal_(ss, [{ ticker: 'ZZZZ3', classe: 'acoes', pvp: 30, pl: '', dy: '' }], tabela, AGORA);
+  const linhas = ss.getSheetByName('aux_fundamentos-historico').getRange(2, 1, 1, 8).getValues();
+  assert.equal(linhas[0][3], 2);
+  assert.notEqual(linhas[0][6], 'planilha');
 });

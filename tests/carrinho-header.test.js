@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { parseShellPartial, injectShell } from '../assets/js/shell.js';
-import { setupCarrinhoHeader } from '../assets/js/carrinho-header.js';
+import { setupCarrinhoHeader, publicarAportesPendentes, resumoAConfirmar, CHAVE_PENDENTES } from '../assets/js/carrinho-header.js';
 
 const HTML = fs.readFileSync(new URL('../assets/partials/shell.html', import.meta.url), 'utf8');
 const brt = (s) => new Date(`${s.replace(' ', 'T')}:00-03:00`);
@@ -128,4 +128,66 @@ test('na própria tela Transações o botão abre o carrinho dela (não navega)'
   abrir.click();
   assert.ok(t.eventos.includes('carrinho:abrir'));
   assert.deepEqual(t.navegou, []);
+});
+
+test('A-24: header avisa "N lançamentos a confirmar" (aporte concluído que a importação da B3 não trouxe), sem carrinho nem aporte aguardando', () => {
+  const { doc, h, guardado } = montar({ carrinho: null });
+  assert.equal(doc.getElementById('carrinhoWrap').hidden, true, 'nada pendente: header limpo');
+  const aConfirmar = [
+    { id: 'AC-1', destino: 'transacoes', data: '2026-10-02', ativo: 'ABCD3', valor: 200 },
+    { id: 'AC-2', destino: 'rendaFixa', data: '2026-10-01', ativo: 'Tesouro Selic 2029', valor: 399.6 },
+  ];
+  guardado[CHAVE_PENDENTES] = JSON.stringify({ ts: Date.now(), lista: [], aConfirmar: resumoAConfirmar(aConfirmar) });
+  h.atualizar();
+  assert.equal(doc.getElementById('carrinhoWrap').hidden, false);
+  assert.equal(doc.getElementById('carrinhoBadge').textContent, '2');
+  assert.match(doc.getElementById('carrinhoBtn').title, /2 lançamentos a confirmar/);
+  const painel = txt(doc.getElementById('carrinhoPanelConteudo')).replace(/ /g, ' ');
+  assert.match(painel, /Lançamentos a confirmar 2 lançamentos/);
+  assert.match(painel, /ABCD3 aporte de 02\/10 · falta a importação da B3 R\$ 200,00/);
+  assert.match(painel, /Tesouro Selic 2029 aporte de 01\/10 · falta lançar a aplicação R\$ 399,60/);
+  assert.equal(doc.querySelector('#carrinhoPanelConteudo a.carrinho-ir').getAttribute('href'), 'https://exemplo.test/transacoes/index.html#lancamentos');
+});
+
+test('A-24: publicarAportesPendentes guarda o "a confirmar" e, sem ele (aporte salvo no navegador), mantém o que já estava', () => {
+  const guardado = {};
+  const storage = { getItem: (k) => (k in guardado ? guardado[k] : null), setItem: (k, v) => { guardado[k] = String(v); } };
+  publicarAportesPendentes([], { win: null, storage, aConfirmar: [{ ativo: 'ABCD3', data: '2026-10-02', valor: 200, destino: 'transacoes' }] });
+  assert.equal(JSON.parse(guardado[CHAVE_PENDENTES]).aConfirmar.n, 1);
+  publicarAportesPendentes([], { win: null, storage });
+  assert.equal(JSON.parse(guardado[CHAVE_PENDENTES]).aConfirmar.n, 1, 'sem a lista nova, mantém');
+  publicarAportesPendentes([], { win: null, storage, aConfirmar: [] });
+  assert.equal(JSON.parse(guardado[CHAVE_PENDENTES]).aConfirmar.n, 0, 'lista vazia do servidor = tudo confirmado');
+});
+
+// 05/10/2026 (A-43): aportesPendentes não repete na carga se outra tela buscou há pouco, e o
+// polling de 60 s não roda com a aba oculta
+test('Pendentes: sem repetir na carga se o guardado é recente; o polling pula a aba oculta', async () => {
+  const dom = new JSDOM('<!doctype html><html><body data-section="inicio"><div id="shell-header"></div><div id="shell-footer"></div></body></html>', { url: 'https://exemplo.test/', pretendToBeVisual: true });
+  const doc = dom.window.document;
+  injectShell(doc, parseShellPartial(HTML, doc));
+  const guardado = {};
+  const storage = { getItem: (k) => (k in guardado ? guardado[k] : null), setItem: (k, v) => { guardado[k] = String(v); }, removeItem: (k) => { delete guardado[k]; } };
+  let chamadas = 0;
+  let tique = null;
+  let oculto = false;
+  Object.defineProperty(doc, 'hidden', { get: () => oculto, configurable: true });
+  const h = setupCarrinhoHeader(doc, {
+    win: dom.window, storage, agora: () => brt('2026-10-05 11:00'),
+    setIntervalImpl: (fn) => { tique = fn; return null; },
+    getAportesPendentesImpl: async () => { chamadas += 1; return { ok: true, aportes: [] }; },
+  });
+  publicarAportesPendentes([], { win: null, storage }); // outra tela acabou de buscar
+  h.definirToken('tk');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(chamadas, 0, 'guardado de agora: a carga não repete');
+  oculto = true;
+  guardado[CHAVE_PENDENTES] = JSON.stringify({ ts: 1, lista: [], aConfirmar: { n: 0, total: 0, itens: [] } }); // velho
+  tique();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(chamadas, 0, 'aba oculta: o polling não consulta o servidor');
+  oculto = false;
+  tique();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(chamadas, 1, 'aba visível e guardado velho: consulta');
 });

@@ -33,11 +33,12 @@
  *  - só vale pra períodos curtos ('mes', '30d', personalizado de até 31
  *    dias); nos outros a faixa mostra só "—".
  */
-import { formatBRL, formatPercentFromFraction } from '../format.js';
+import { formatBRL, formatPercentFromFraction, MESES_LONGOS_CAPITAL } from '../format.js';
 import { ehPeriodoPersonalizado, diasNoIntervalo } from '../periodo-personalizado.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
 /** Ajuste de marcação (R$) da Renda Fixa embutido no ponto de hoje, por campo. */
 const AJUSTE_POR_CAMPO = {
@@ -125,12 +126,11 @@ export function calcularComparativo(historico, campo, periodo, { janela = null, 
     }
     if (!fech) continue;
     const v = fech[campo] + ajuste;
-    resultado.meses.push({ anoMes: am, nome: MESES[Number(am.slice(5, 7)) - 1], data: fech.data, valor: v, variacao: variacao(v) });
+    resultado.meses.push({ anoMes: am, nome: MESES_LONGOS_CAPITAL[Number(am.slice(5, 7)) - 1], data: fech.data, valor: v, variacao: variacao(v) });
   }
   return resultado;
 }
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ddmm = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : '');
 
 function itemHtml(rotulo, item, fmt, titulo) {

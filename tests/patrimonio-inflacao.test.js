@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import {
-  retornoDietz, taxasMensaisIndice, seriesReais, resumoPeriodo, janelaDoPeriodo, veredito, graficoInflacao, montarPatrimonioVsInflacao,
+  retornoDietz, taxasMensaisIndice, seriesReais, resumoPeriodo, janelaDoPeriodo, veredito, opcoesInflacao, montarPatrimonioVsInflacao,
 } from '../assets/js/pages/patrimonio-inflacao.js';
 
 const perto = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
@@ -209,15 +209,17 @@ test('veredito: com dívida cara, os juros das parcelas aparecem no "e se" e pod
 // Gráfico e montagem
 // ---------------------------------------------------------------------------
 
-test('gráfico: três linhas numa escala só (R$ e %), rótulos no fim', () => {
+test('gráfico: três linhas numa escala só (R$ e %) - opções da biblioteca de gráficos', () => {
+  // 06/10/2026 (Onda 3): o desenho é da biblioteca assets/js/charts; aqui se confere a tradução dado -> opções
   const b = seriesReais({ hoje: '2025-06-15', historicoMensal: historico({ meses: 30 }) });
   const r = resumoPeriodo(b, '3a', { hoje: '2025-06-15' });
   ['rs', 'pct'].forEach((vista) => {
-    const g = graficoInflacao(r.linhas, vista, { largura: 600 });
-    assert.equal((g.svg.match(/class="pi-linha /g) || []).length, 3);
-    assert.equal(g.xs.length, r.linhas.length);
-    assert.ok(/>IPCA</.test(g.svg) && />CDI</.test(g.svg));
-    assert.ok(!/NaN/.test(g.svg));
+    const g = opcoesInflacao(r.linhas, vista);
+    assert.equal(g.opcoes.series.length, 3);
+    assert.deepEqual(g.opcoes.series.map((x) => x.id).sort(), ['cdi', 'ipca', 'pl']);
+    assert.equal(g.opcoes.series.filter((x) => x.pontilhada).length, 2, 'IPCA e CDI pontilhadas');
+    assert.equal(g.opcoes.eixoX.length, r.linhas.length);
+    assert.ok(!/NaN/.test(JSON.stringify(g.opcoes.series)));
   });
 });
 
@@ -232,7 +234,7 @@ test('montagem: tiles, gráfico, análise, veredito; filtro de período e troca 
   const p = { hoje: '2025-06-15', historicoMensal: historico({ meses: 30, rend: 0.012 }), metas: { aporteMeta: 1000 } };
   const { doc, secao, raiz } = montarDom(p);
   assert.equal(raiz.querySelectorAll('.pi-tile').length, 4);
-  assert.equal(raiz.querySelectorAll('.pi-svg .pi-linha').length, 3);
+  assert.ok(raiz.querySelector('.pi-svg-box svg.chart-svg'), 'gráfico da biblioteca');
   assert.ok(raiz.querySelector('.pi-veredito .pi-ver-titulo').textContent.startsWith('Sim'));
   assert.ok(raiz.querySelector('.pi-veredito').classList.contains('pi-tom-bom'));
   assert.ok(raiz.querySelector('.pi-analise .ag'), 'card de análise embaixo do gráfico');
@@ -246,12 +248,11 @@ test('montagem: tiles, gráfico, análise, veredito; filtro de período e troca 
   assert.equal(secao.vista, 'pct');
   assert.match(raiz.querySelector('.pi-leg').textContent, /Patrimônio \(sem aportes\)/);
   assert.match(raiz.querySelector('.pi-metodo').textContent, /Dietz/);
-  // teclado no gráfico mostra o balão do mês
-  const box = raiz.querySelector('.pi-svg-box');
-  box.dispatchEvent(new doc.defaultView.FocusEvent('focusin', { bubbles: true }));
-  box.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-  assert.equal(raiz.querySelector('.pi-tt').hidden, false);
-  assert.match(raiz.querySelector('.pi-tt').textContent, /mai\/2025/);
+  // teclado no gráfico (biblioteca) mostra o balão do mês
+  const svg = raiz.querySelector('.pi-svg-box svg.chart-svg');
+  svg.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  svg.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.match(raiz.querySelector('.pi-svg-box .chart-tip').textContent, /mai\/2025/);
   secao.destruir();
 });
 

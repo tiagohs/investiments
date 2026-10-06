@@ -2,40 +2,45 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Entrar — Patrimônio</title>
+<!-- 05/10/2026 (A-44): Content-Security-Policy. Os hashes são do script inline desta página (tests/csp-html.test.js confere; ao editar o script, atualize o hash). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qs7N6i7jLI/i7VsF8slY7/rc0b6k2rGS8clL/FDEJ1k=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c=' 'sha256-y3P6wGJnOuIb0bQXUstghuoCK7JMZT+3mX8f5qa7MxY=' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://accounts.google.com/gsi/style; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://nominatim.openstreetmap.org https://api.bcb.gov.br https://accounts.google.com/gsi/; frame-src https://www.youtube-nocookie.com https://drive.google.com https://accounts.google.com/gsi/; worker-src 'self' blob: https://cdnjs.cloudflare.com; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Entrar · Patrimônio</title>
 
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2A78D6">
+<meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<!-- 05/10/2026: base Material 3 (kit Figma): tokens -> shell (top bar + trilho/gaveta) -> componentes; os CSS de página vêm depois -->
+<link rel="stylesheet" href="assets/css/m3-tokens.css">
 <link rel="stylesheet" href="assets/css/shell.css">
+<link rel="stylesheet" href="assets/css/components.css">
 <link rel="stylesheet" href="assets/css/login.css">
 </head>
 <body class="login-body">
 
-<div class="login-atmos">
-  <img class="login-bg" src="assets/image-investiments.webp" alt="" aria-hidden="true">
-
+<!-- 06/10/2026 (Onda 3, kit Material 3): cartão centralizado sobre o fundo tonal (sem foto/vidro); marca em cima, texto, botão do Google e rodapé. -->
+<main class="login-pagina">
   <div class="login-brand">
-    <div class="brand-mark">P</div>
+    <div class="brand-mark"><img src="assets/imgs/logo-mark-96.webp" alt="" decoding="async"></div>
     <span>Patrimônio</span>
   </div>
 
-  <div class="login-card">
-    <div class="login-card-content">
-      <div class="brand-mark">P</div>
-      <h1>Entrar pra ver seus dados</h1>
-      <p>Login com a mesma conta Google usada na sua planilha — o Apps Script confirma sua identidade antes de devolver qualquer dado.</p>
-      <div class="login-gsi-slot" id="gsiButtonContainer"></div>
-      <p class="login-erro" id="authGateErro"></p>
-      <p class="login-footnote">Carteira pessoal · B3 + EUA</p>
-    </div>
-  </div>
-</div>
+  <section class="card card-elevated login-card" aria-labelledby="loginTitulo">
+    <h1 id="loginTitulo">Entrar pra ver seus dados</h1>
+    <p>Use a mesma conta Google da sua planilha. Só depois de confirmar quem é você a gente mostra qualquer dado.</p>
+    <div class="login-gsi-slot" id="gsiButtonContainer"></div>
+    <p class="login-erro" id="authGateErro" role="alert"></p>
+    <p class="login-footnote">Carteira pessoal · B3 + EUA</p>
+  </section>
+</main>
 
 <script type="module">
   import { montarPaginaLogin } from './assets/js/pages/login.js';

@@ -25,8 +25,9 @@ import { getVideos } from './api-client.js';
 import { formatRelativeTime } from './format.js';
 import { resolveSiteRootUrl } from './shell.js';
 import { urlAtivo } from './link-ativo.js';
+import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
 
-const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 const idValido = (id) => /^[\w-]{11}$/.test(String(id || ''));
 
 const ICONE_YOUTUBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" class="vd-yt-fundo"/><path d="M10 8.8v6.4l5.6-3.2z" class="vd-yt-play"/></svg>';
@@ -54,7 +55,24 @@ export function secaoVideosHtml(id, { hint = 'dos seus canais: primeiro os que c
     </section>`;
 }
 
+/**
+ * 05/10/2026 (Tiago): 404 ou lista vazia de um canal = "sem vídeos disponíveis" (não é erro): uma linha por canal
+ * (o oficial do ativo e os de aux_videos-canais que a última atualização achou vazios).
+ */
+export function semVideosCanaisHtml(resposta) {
+  const nomes = [];
+  const oficial = resposta && resposta.canalOficial;
+  if (oficial && oficial.semVideos) nomes.push(`Canal oficial${oficial.nome ? ` (${oficial.nome})` : ''}`);
+  ((resposta && resposta.canaisSemVideos) || []).forEach((c) => nomes.push(String(c)));
+  return nomes.length ? `<p class="hint vd-sem-videos">${nomes.map((n) => `<span>${esc(n)}: sem vídeos disponíveis</span>`).join(' · ')}</p>` : '';
+}
+
 export function videosHtml(resposta, agora = new Date()) {
+  const html = videosHtmlBase(resposta, agora);
+  return resposta && resposta.ok ? html + semVideosCanaisHtml(resposta) : html;
+}
+
+function videosHtmlBase(resposta, agora) {
   if (!resposta) return `<div class="vd-grade">${'<div class="vd-card"><span class="skel vd-thumb"></span><span class="skel" style="height:14px"></span><span class="skel" style="height:14px;width:60%"></span></div>'.repeat(3)}</div>`;
   if (!resposta.ok) return `<p class="hint">Não deu pra buscar os vídeos agora (${esc(resposta.erro || resposta.etapa || 'erro')}).</p>`;
   // 02/10/2026: sem canais cadastrados, mas com vídeos do canal oficial do ativo -> mostra os do oficial

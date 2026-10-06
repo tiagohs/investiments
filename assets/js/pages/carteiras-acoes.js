@@ -1,318 +1,136 @@
 /**
- * carteiras-acoes.js — subpágina Carteiras > Ações (action=carteirasAcoes,
- * ver apps-script/CarteirasClasses.gs!montarCarteirasAcoes_).
+ * carteiras-acoes.js — subpágina Carteiras > Ações (action=carteirasAcoes, ver apps-script/CarteirasClasses.gs!montarCarteirasAcoes_).
+ * 06/10/2026 (Onda 3, fase 2): kit Material 3 - cards KPI, chips de benchmark, gráficos da biblioteca (carteiras-graficos.js), anel "por
+ * setor" e tabela do kit. A carga (cache + API + histórico em paralelo, estados de erro) é a de montarPaginaClasseCarteiras.
  */
 
 import { getCarteirasAcoes, getHome } from '../api-client.js';
 import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/2026: vídeos do YouTube da carteira
 import { formatBRL, formatPercentFromFraction, formatPercentFromPoints, formatNumeroBR } from '../format.js';
-import { mountRefreshControl } from '../shell.js';
-import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { urlAtivoTicker, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
+import { urlAtivoTicker } from '../link-ativo.js'; // 25/09/2026: ticker -> tela do ativo
 import { statProventosHero, secaoProventosCarteiraHtml, renderProventosCarteira } from './carteiras-proventos.js';
 import { proventosAReceberDe } from '../analise-grafico.js'; // 03/10/2026: proventos a receber no card de Análise (data-ex)
-import { botaoInfoHtml,
-  proventosDoHistorico_,
-  renderResumoClasseCarteiras,
-  renderBenchmarksClasseCarteiras,
-  renderDistribuicaoGrupoCarteiras,
-  renderTabelaAtivosCarteiras,
-  renderFiltrosTabelaCarteiras,
-  filtrarAtivosPorBusca,
-  wirePointerTooltipCarteiras_,
-  wireGraficosClasseCarteiras,
-  logoAtivoHtml,
-  notaAtivoHtml,
-  statusVies,
-  contarVies_,
+import { criarGraficosCarteira } from './carteiras-graficos.js';
+import {
+  proventosDoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel,
+  wirePointerTooltipCarteiras_, celulaAtivoRendaVariavelHtml, statusVies, seloViesHtml, variacaoHtml, celulaAtivoHtml, linhaTotalHtml,
+  contarVies_, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras,
 } from './carteiras-classe-comum.js';
 
 const CHAVE_CACHE_ACOES = 'carteiras_acoes_v2';
 
-// 25/09/2026 (Tiago, ponto 3): link da carteira recomendada da Suno pra
-// esta subpágina - quase toda a carteira de Ações está em "Dividendos",
-// só VAMO3/B3SA3 são da carteira "Valor" (confirmado por ele - as 2
-// aparecem juntas aqui porque a página mistura os 2 grupos).
-const LINKS_RELEVANTES_ACOES = `<div class="cc-links-relevantes">
-  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/dividendos" target="_blank" rel="noopener">Carteira recomendada: Dividendos ↗</a>
-  <a class="cc-link-relevante" href="https://investidor.suno.com.br/carteiras/valor" target="_blank" rel="noopener">Carteira recomendada: Valor (VAMO3, B3SA3) ↗</a>
-</div>`;
+// 25/09/2026 (Tiago, ponto 3): carteiras recomendadas da Suno - quase toda a carteira de Ações está em "Dividendos", só VAMO3/B3SA3 são da "Valor".
+const LINKS_RELEVANTES_ACOES = [
+  { rotulo: 'Carteira recomendada: Dividendos', href: 'https://investidor.suno.com.br/carteiras/dividendos' },
+  { rotulo: 'Carteira recomendada: Valor (VAMO3, B3SA3)', href: 'https://investidor.suno.com.br/carteiras/valor' },
+];
 
 const COLUNAS_ATIVOS_ACOES = [
+  { label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, topo: true, formatar: celulaAtivoRendaVariavelHtml },
   {
-    label: 'Ativo', campo: 'ticker', ordenarPor: (a) => a.ticker, alinharEsquerda: true, formatar: (a) => {
-      const nomeGrupo = [a.nome, a.grupo].filter(Boolean).join(' · ');
-      return `<div class="cc-ativo-cel"><a class="link-ativo" href="${urlAtivoTicker(a.ticker)}" tabindex="-1" aria-hidden="true">${logoAtivoHtml(a.ticker)}</a><div><b>${notaAtivoHtml(a.ticker)}${linkAtivoComNovaAbaHtml(urlAtivoTicker(a.ticker), a.ticker, a.ticker)}</b>${nomeGrupo ? `<span class="cc-ativo-nome">${nomeGrupo}</span>` : ''}</div></div>`;
-    },
+    label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, num: true, opc: true,
+    formatar: (a) => `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub">${variacaoHtml(a.variacaoDia)}</span>` : ''}`,
   },
+  { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, num: true, opc: true, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
   {
-    label: 'Preço / dia', campo: 'precoAtual', ordenarPor: (a) => a.precoAtual, formatar: (a) => {
-      const cor = typeof a.variacaoDia === 'number' ? (a.variacaoDia >= 0 ? 'good' : 'bad') : '';
-      return `${formatBRL(a.precoAtual)}${typeof a.variacaoDia === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.variacaoDia)}</span>` : ''}`;
-    },
-  },
-  { label: 'Qtd', campo: 'quantidade', ordenarPor: (a) => a.quantidade, formatar: (a) => formatNumeroBR(a.quantidade, 0) },
-  {
-    label: 'Pr. médio', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio,
+    label: 'Pr. médio', campo: 'precoMedio', ordenarPor: (a) => a.precoMedio, num: true, opc: true,
     ajuda: 'Preço médio pago por ação, ponderado por todas as compras feitas.',
     formatar: (a) => formatBRL(a.precoMedio),
   },
   {
-    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto,
+    label: 'Status', campo: 'vies', ordenarPor: (a) => statusVies(a.vies).texto, opc: true,
     ajuda: 'Compara o preço atual com o preço-teto definido por você: abaixo do teto = Comprar, acima = Aguardar.',
-    formatar: (a) => {
-      const status = statusVies(a.vies);
-      const badge = status.classe ? `<span class="status-pill ${status.classe}">${status.texto}</span>` : (status.texto || '—');
-      const teto = typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : '';
-      return `${badge}${teto}`;
-    },
+    formatar: (a) => `${seloViesHtml(a.vies) || '—'}${typeof a.precoTeto === 'number' ? `<span class="cc-sub">teto ${formatBRL(a.precoTeto)}</span>` : ''}`,
   },
   {
-    label: 'DY', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual,
+    label: 'DY', campo: 'dyPercentual', ordenarPor: (a) => a.dyPercentual, num: true, opc: true,
     ajuda: 'Dividend Yield: proventos pagos nos últimos 12 meses dividido pelo preço atual da ação.',
-    formatar: (a) => {
-      const cor = typeof a.dyPercentual === 'number' ? (a.dyPercentual >= 0 ? 'good' : 'bad') : '';
-      const pct = typeof a.dyPercentual === 'number' ? `<span class="cc-sub ${cor}">${formatPercentFromFraction(a.dyPercentual)}</span>` : '';
-      return `${formatBRL(a.dyValor)}${pct}`;
-    },
+    formatar: (a) => `${formatBRL(a.dyValor)}${typeof a.dyPercentual === 'number' ? `<span class="cc-sub">${formatPercentFromFraction(a.dyPercentual)}</span>` : ''}`,
   },
   {
-    label: 'P/L', campo: 'pl', ordenarPor: (a) => a.pl,
+    label: 'P/L', campo: 'pl', ordenarPor: (a) => a.pl, num: true, opc: true,
     ajuda: 'Preço/Lucro: preço da ação dividido pelo lucro por ação dos últimos 12 meses — quantos anos de lucro pagam o preço atual.',
     formatar: (a) => (typeof a.pl === 'number' ? formatNumeroBR(a.pl, 2) : '—'),
   },
   {
-    label: 'P/VP', campo: 'pvp', ordenarPor: (a) => a.pvp,
+    label: 'P/VP', campo: 'pvp', ordenarPor: (a) => a.pvp, num: true, opc: true,
     ajuda: 'Preço/Valor Patrimonial: preço da ação dividido pelo valor patrimonial por ação — compara o preço de mercado com o valor contábil.',
     formatar: (a) => (typeof a.pvp === 'number' ? formatNumeroBR(a.pvp, 2) : '—'),
   },
-  { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
+  { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, num: true, opc: true, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
   {
-    label: 'Total', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado,
+    label: 'Total', campo: 'totalAtualizado', ordenarPor: (a) => a.totalAtualizado, num: true,
     formatar: (a) => `${formatBRL(a.totalAtualizado)}<span class="cc-sub">de ${formatNumeroBR(a.totalComprado, 2)}</span>`,
   },
   {
-    label: 'Lucro / Prejuízo', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo,
-    formatar: (a) => {
-      const cor = a.lucroPrejuizo >= 0 ? 'good' : 'bad';
-      return `<span class="${cor}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub ${cor}">${formatPercentFromFraction(a.percentualLucroPrejuizo)}</span>`;
-    },
+    label: 'Lucro / Prejuízo', campo: 'lucroPrejuizo', ordenarPor: (a) => a.lucroPrejuizo, num: true,
+    formatar: (a) => `<span class="${a.lucroPrejuizo >= 0 ? 'num-bom' : 'num-ruim'}">${formatBRL(a.lucroPrejuizo)}</span><span class="cc-sub">${variacaoHtml(a.percentualLucroPrejuizo)}</span>`,
   },
 ];
 
-/** Linha de totais no rodapé (19/09/2026 #2 - "você não trouxe os
- * totais") - somada a partir da lista efetivamente exibida (não de
- * dados.resumo direto), pra continuar batendo quando a busca filtra a
- * tabela (19/09/2026 #3) - sem filtro nenhum dá exatamente igual ao
- * resumo, já que é a mesma soma. colspan cobre todas as colunas menos
- * as 2 últimas (Total/Lucro). */
+/** Linha de totais no rodapé (19/09/2026 #2) - somada a partir da lista efetivamente exibida, pra continuar batendo quando a busca filtra a tabela. */
 function montarLinhaTotalAtivos_(ativosExibidos) {
   const somaAtualizado = ativosExibidos.reduce((s, a) => s + (a.totalAtualizado || 0), 0);
   const somaComprado = ativosExibidos.reduce((s, a) => s + (a.totalComprado || 0), 0);
   const somaLucro = somaAtualizado - somaComprado;
   const percLucro = somaComprado ? somaLucro / somaComprado : 0;
-  const corLucro = somaLucro >= 0 ? 'good' : 'bad';
   const qtd = ativosExibidos.length;
-  return `<tr>
-    <td colspan="${COLUNAS_ATIVOS_ACOES.length - 2}">Total (${qtd} ${qtd === 1 ? 'ativo' : 'ativos'})</td>
-    <td data-label="Total atualizado">${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span></td>
-    <td data-label="Lucro / Prejuízo"><span class="${corLucro}">${formatBRL(somaLucro)}</span><span class="cc-sub ${corLucro}">${formatPercentFromFraction(percLucro)}</span></td>
-  </tr>`;
+  return linhaTotalHtml(COLUNAS_ATIVOS_ACOES, `Total (${contagemTexto(qtd)})`, {
+    totalAtualizado: `${formatBRL(somaAtualizado)}<span class="cc-sub">de ${formatNumeroBR(somaComprado, 2)}</span>`,
+    lucroPrejuizo: `<span class="${somaLucro >= 0 ? 'num-bom' : 'num-ruim'}">${formatBRL(somaLucro)}</span><span class="cc-sub">${variacaoHtml(percLucro)}</span>`,
+  });
 }
 
-/**
- * Filtro de período + os 2 gráficos (Rentabilidade acumulada/Evolução do
- * patrimônio) - 19/09/2026 #7, pedido do Tiago: "lembre-se do mockup,
- * lembre-se de ficar bom em mobile, lembre-se das labels, lembre-se que
- * ao passar o mouse, quero ver o periodo, lembre-se do filtro de periodo
- * encima do primeiro grafico, que afeta todos (igual a home)". Posição no
- * HTML segue o mockup (Acoes.dc.html): Rentabilidade acumulada PRIMEIRO,
- * Evolução do patrimônio depois, os 2 ANTES do donut "Por setor" - por
- * isso o filtro de período (acima do 1º gráfico = Rentabilidade) fica
- * entre os benchmarks e a Rentabilidade, não entre Rentabilidade e
- * Evolução. wireGraficosClasseCarteiras (carteiras-classe-comum.js) liga
- * os 2 blocos ao MESMO filtro de uma vez - ver o comentário grande lá.
- */
-function montarBlocoGraficosHtml_() {
-  return `
-    <div class="area-header" style="margin-top:22px"><h2>Rentabilidade acumulada</h2></div>
-    <div class="filter-tabs" id="acoesPeriodoTabs" style="margin-bottom:12px">
-      <button class="filter-tab active" type="button" data-periodo="mes">Mês atual</button>
-      <button class="filter-tab" type="button" data-periodo="30d">30 dias</button>
-      <button class="filter-tab" type="button" data-periodo="6m">6 meses</button>
-      <button class="filter-tab" type="button" data-periodo="12m">12 meses</button>
-      <button class="filter-tab" type="button" data-periodo="3a">3 anos</button>
-      <button class="filter-tab" type="button" data-periodo="tudo">Desde o início</button>
-    </div>
-    <div class="cg-chart-card">
-      <div class="rentab-card-info" id="acoesRentabInfo"></div>
-      <div id="acoesRentabChart"></div>
-      <div class="chart-legend2" id="acoesRentabLegenda"></div>
-    </div>
-
-    <div class="area-header" style="margin-top:22px"><h2>Evolução do patrimônio</h2></div>
-    <div class="cg-chart-card">
-      <div class="rentab-card-info" id="acoesEvolucaoInfo"></div>
-      <div id="acoesEvolucaoChart"></div>
-      <div class="chart-legend2" id="acoesEvolucaoLegenda"></div>
-    </div>
-  `;
-}
-
-function desenhar(doc, dados) {
+function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = null } = {}) {
   const conteudoEl = doc.getElementById('acoesConteudo');
-  conteudoEl.innerHTML = `
-    <div class="area-header"><h2>Ações</h2><span class="hint">renda variável nacional</span></div>
-    ${LINKS_RELEVANTES_ACOES}
-    <div id="acoesResumo"></div>
-    <div id="acoesBenchmarks" class="cc-benchmarks"></div>
-    ${montarBlocoGraficosHtml_()}
-    <div class="cc-layout-donut-tabela">
-      <div class="cc-donut-card">
-        <div class="area-header" style="margin-top:0"><h2>Por setor</h2></div>
-        <div id="acoesDistribuicao"></div>
-      </div>
-      <div class="cc-tabela-card">
-        <div class="area-header" style="margin-top:0"><h2>Ativos</h2><span class="hint">${dados.resumo.quantidadeAtivos} ${dados.resumo.quantidadeAtivos === 1 ? 'ativo' : 'ativos'}</span></div>
-        <div id="acoesFiltros"></div>
-        <div id="acoesTabela"></div>
-      </div>
-    </div>
-    ${secaoProventosCarteiraHtml('acoesProventos')}
-    ${secaoVideosHtml('acoesVideos')}
-  `;
+  const estadoSecoes = lerEstadoSecoes(conteudoEl);
+  conteudoEl.innerHTML = esqueletoClasseHtml({
+    prefixo: 'acoes', links: linksRelevantesHtml(LINKS_RELEVANTES_ACOES), tituloDistribuicao: 'Por setor', tituloLista: 'Ativos', contagem: contagemTexto(dados.resumo.quantidadeAtivos),
+    extrasAposLista: `${secaoProventosCarteiraHtml('acoesProventos')}${secaoRecolhivelHtml({ nome: 'videos', id: 'acoesVideosSecao', titulo: 'Vídeos', corpoHtml: secaoVideosHtml('acoesVideos') })}`,
+  });
+  const $ = (id) => doc.getElementById(id);
 
-  if (dados.historico && dados.historico.length) {
-    wireGraficosClasseCarteiras(doc, {
-      historico: dados.historico,
-      periodoTabsContainer: doc.getElementById('acoesPeriodoTabs'),
-      periodoPersonalizado: { chave: 'carteiras.acoes' }, // 02/10/2026: "Escolher período" (periodo-personalizado.js)
-      paineis: [{
-        visaoId: 'carteiraAcoes',
-        camposProventos: ['proventosAcoes'], // 24/09/2026: proventos recebidos no período
-        rentabInfoContainer: doc.getElementById('acoesRentabInfo'),
-        evolucaoInfoContainer: doc.getElementById('acoesEvolucaoInfo'),
-        labelInfoEvolucao: 'Patrimônio em Ações',
-        rentabChartContainer: doc.getElementById('acoesRentabChart'),
-        rentabLegendaContainer: doc.getElementById('acoesRentabLegenda'),
-        evolucaoChartContainer: doc.getElementById('acoesEvolucaoChart'),
-        evolucaoLegendaContainer: doc.getElementById('acoesEvolucaoLegenda'),
-        corToken: '--acoes',
-        analise: true, // 02/10/2026: card de Análise embaixo da Rentabilidade
-        analiseExtra: { proventosAReceber: proventosAReceberDe(dados.proventosAnunciados, { classes: ['acoes'] }) }, // 03/10/2026
-        comparativo: true, // 02/10/2026: \"Ontem era\" + meses na Evolução
-      }],
-    });
-  } else {
-    // getHome falhou/sem dado ainda - mesmo aviso padrão que os próprios
-    // gráficos mostram quando não há pontos suficientes, sem quebrar o
-    // resto da página (resumo/donut/tabela não dependem de getHome).
-    const semHistoricoHtml = '<p class="hint">Não deu pra carregar os gráficos agora - o resto da página continua normal.</p>';
-    doc.getElementById('acoesRentabChart').innerHTML = semHistoricoHtml;
-    doc.getElementById('acoesEvolucaoChart').innerHTML = semHistoricoHtml;
-  }
-
-  // Tooltips "i" (cabeçalho, nota de ativo, legenda do donut) - ligado
-  // 1x no container estável (19/09/2026 #4, ver
-  // wirePointerTooltipCarteiras_ em carteiras-classe-comum.js).
+  // Tooltips "i" (cabeçalho, nota de ativo, cards KPI) - ligado 1x no container estável
   wirePointerTooltipCarteiras_(doc, conteudoEl);
 
-  renderResumoClasseCarteiras(doc, doc.getElementById('acoesResumo'), dados.resumo, {
-    corToken: '--acoes',
-    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos) - ver
-    // proventosDoHistorico_ em carteiras-classe-comum.js.
-    // 25/09/2026 (Tiago): proventos do mês e dos últimos 12 meses (o total desde o início fica no "i")
-    extras: [statProventosHero(dados.historico, ['proventosAcoes'], { formatar: formatBRL, botaoInfoHtml })
-      || { label: 'Proventos recebidos', valor: formatBRL(proventosDoHistorico_(dados.historico, 'proventosAcoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais) }],
+  renderResumoClasseCarteiras(doc, $('acoesResumo'), dados.resumo, {
+    corToken: '--acoes', dono: conteudoEl,
+    // 23/09/2026 #3: proventos do histórico (inclui códigos antigos). 25/09/2026: do mês e dos últimos 12 meses (o total desde o início fica no "i")
+    extras: [statProventosHero(dados.historico, ['proventosAcoes'], { formatar: formatBRL })
+      || { rotulo: 'Proventos recebidos', valor: proventosDoHistorico_(dados.historico, 'proventosAcoes', 'fluxoCaixaAcoes', 'fluxoAplicadoAcoes') ?? dados.resumo.proventosTotais, formatar: formatBRL }],
     vies: contarVies_(dados.ativos),
   });
   const ibovespaVar = dados.benchmarks?.ibovespa;
-  renderBenchmarksClasseCarteiras(doc, doc.getElementById('acoesBenchmarks'), [
+  renderBenchmarksClasseCarteiras(doc, $('acoesBenchmarks'), [
     { label: 'Ibovespa hoje', valor: typeof ibovespaVar === 'number' ? formatPercentFromPoints(ibovespaVar) : '—', cor: typeof ibovespaVar === 'number' ? (ibovespaVar >= 0 ? 'good' : 'bad') : undefined },
     { label: 'CDI (a.a.)', valor: formatPercentFromFraction(dados.benchmarks?.cdi) },
   ]);
-  renderDistribuicaoGrupoCarteiras(doc, doc.getElementById('acoesDistribuicao'), dados.distribuicaoPorGrupo);
-  renderProventosCarteira(doc, doc.getElementById('acoesProventos'), dados.proventosAnunciados, { classes: ['acoes'] });
+
+  const graficos = criarGraficosCarteira(doc, $('acoesGraficos'), {
+    historico: dados.historico || null, chavePeriodo: 'carteiras.acoes', aoTentar: aoTentarGraficos,
+    paineis: [{
+      visaoId: 'carteiraAcoes', camposProventos: ['proventosAcoes'], labelInfoEvolucao: 'Patrimônio em Ações', corToken: '--acoes',
+      analise: true, analiseExtra: { proventosAReceber: proventosAReceberDe(dados.proventosAnunciados, { classes: ['acoes'] }) }, comparativo: true,
+    }],
+  });
+  if (!(dados.historico && dados.historico.length) && !historicoPendente) graficos.erro('Não deu pra carregar os gráficos agora. O resto da página continua normal.');
+
+  renderDistribuicaoGrupoCarteiras(doc, $('acoesDistribuicao'), dados.distribuicaoPorGrupo, { dono: conteudoEl });
+  renderProventosCarteira(doc, $('acoesProventos'), dados.proventosAnunciados, { classes: ['acoes'] });
 
   const totalCarteira = dados.resumo.totalAtualizado || 0;
-  const ativosBase = (dados.ativos || []).map((a) => ({
-    ...a,
-    percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0,
-  }));
-
-  // Ordenação (clique no cabeçalho) e busca (ticker/nome) são estado
-  // local deste desenho - resetam a cada carregamento/atualização de
-  // página, igual ao padrão já usado no Radar de oportunidades
-  // (distribuicoes-metas.js) - 19/09/2026 #3.
-  let ordenacao = null;
-  let busca = '';
-
-  function renderizarTabela() {
-    const exibidos = filtrarAtivosPorBusca(ativosBase, busca);
-    renderTabelaAtivosCarteiras(doc, doc.getElementById('acoesTabela'), exibidos, COLUNAS_ATIVOS_ACOES, {
-      linhaTotalHtml: exibidos.length ? montarLinhaTotalAtivos_(exibidos) : '',
-      ordenacao,
-      onOrdenar: (campo) => {
-        ordenacao = ordenacao && ordenacao.campo === campo
-          ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
-          : { campo, direcao: 'asc' };
-        renderizarTabela();
-      },
-    });
-  }
-
-  renderFiltrosTabelaCarteiras(doc, doc.getElementById('acoesFiltros'), {
-    busca,
-    onBuscar: (valor) => { busca = valor; renderizarTabela(); },
+  const ativosBase = (dados.ativos || []).map((a) => ({ ...a, percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0 }));
+  montarTabelaFiltravel(doc, {
+    filtrosEl: $('acoesFiltros'), tabelaEl: $('acoesTabela'), ativos: ativosBase, colunas: COLUNAS_ATIVOS_ACOES, linhaTotal: montarLinhaTotalAtivos_,
+    tituloFolha: (a) => [a.ticker, a.nome].filter(Boolean).join(' · '), acaoFolha: (a) => ({ href: urlAtivoTicker(a.ticker), rotulo: 'Abrir a página do ativo' }),
   });
-  renderizarTabela();
+  aplicarEstadoSecoes(doc, conteudoEl, estadoSecoes);
 }
 
 export async function montarPaginaCarteirasAcoes(token, { doc = document, getCarteirasAcoesImpl = getCarteirasAcoes, getHomeImpl = getHome, getVideosImpl = undefined } = {}) {
   const preencherVideos = criarCarregadorVideos(token, { carteira: 'acoes' }, getVideosImpl ? { getVideosImpl } : {});
-  const loadingEl = doc.getElementById('acoesLoading');
-  const erroEl = doc.getElementById('acoesErro');
-  const conteudoEl = doc.getElementById('acoesConteudo');
-  const refreshControlEl = doc.getElementById('refreshControlAcoes');
-
-  // 25/09/2026: cache em IndexedDB (cache-dados.js) - a carteira desta página
-  // e o histórico da Início (chave "home" - gravada pela Início e pelo getHome
-  // compartilhado de carteiras-router.js, uma vez só)
-  const [cacheCarteira, cacheHome] = await Promise.all([lerCacheDados(CHAVE_CACHE_ACOES), lerCacheDados('home')]);
-  if (cacheCarteira) {
-    desenhar(doc, { ...cacheCarteira.dados, historico: cacheHome && cacheHome.dados ? cacheHome.dados.historico : null, proventosAnunciados: cacheHome && cacheHome.dados ? cacheHome.dados.proventosAnunciados : null });
-    preencherVideos(doc.getElementById('acoesVideos'));
-    loadingEl.hidden = true;
-    conteudoEl.hidden = false;
-  }
-
-  // getHome() é buscado JUNTO (Promise.all) só pro histórico diário que
-  // alimenta os 2 gráficos novos (19/09/2026 #7) - getCarteirasAcoes()
-  // continua sendo a fonte de tudo o resto da página (resumo/ativos/
-  // donut), então uma falha em getHome() (respostaHome.ok:false) não
-  // derruba a página inteira - só os 2 cartões de gráfico mostram um
-  // aviso (ver desenhar() acima), mesmo padrão de degradação graciosa já
-  // usado em carteiras-visao-geral.js.
-  async function carregarERedesenhar() {
-    const [resposta, respostaHome] = await Promise.all([getCarteirasAcoesImpl(token), getHomeImpl(token)]);
-    loadingEl.hidden = true;
-
-    if (!resposta.ok) {
-      erroEl.hidden = false;
-      erroEl.textContent = `Não deu pra carregar Ações agora (${resposta.etapa || '?'}): ${resposta.erro || 'erro desconhecido'}.`;
-      return;
-    }
-
-    erroEl.hidden = true;
-    conteudoEl.hidden = false;
-    const dados = { ...resposta.carteira, historico: respostaHome.ok ? respostaHome.historico : null, proventosAnunciados: respostaHome.ok ? respostaHome.proventosAnunciados : null };
-    desenhar(doc, dados);
-    preencherVideos(doc.getElementById('acoesVideos'));
-    gravarCacheDados(CHAVE_CACHE_ACOES, resposta.carteira);
-  }
-
-  // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
-  // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
-  // carregamento e no erro também, que é quando mais se precisa dele.
-  await mountRefreshControl(doc, refreshControlEl, carregarERedesenhar).atualizar();
+  return montarPaginaClasseCarteiras(token, {
+    doc, prefixo: 'acoes', tela: 'Carteira de Ações', chaveCache: CHAVE_CACHE_ACOES, buscarCarteira: getCarteirasAcoesImpl, getHomeImpl, desenhar,
+    depoisDeDesenhar: () => preencherVideos(doc.getElementById('acoesVideos')),
+  });
 }

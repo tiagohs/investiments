@@ -55,7 +55,9 @@ function handleImportarLancamentos(e) {
     var itens = JSON.parse(e.parameter.itens || '[]');
     var simular = String(e.parameter.simular || '') === '1';
     var r = importarLancamentos_(itens, { simular: simular, origem: e.parameter.origem || 'Importação' });
-    return jsonOut({ ok: true, resultado: r });
+    // 05/10/2026 (A-24): o que ainda sobra "a confirmar" depois da importação (Aportes.gs; derivado, nada gravado)
+    var aConfirmar = !simular && typeof lancamentosAConfirmarDaPlanilha_ === 'function' ? lancamentosAConfirmarDaPlanilha_(SpreadsheetApp.getActiveSpreadsheet(), null, null) : null;
+    return jsonOut({ ok: true, resultado: r, aConfirmar: aConfirmar });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'importarLancamentos', erro: String(erro) });
   }
@@ -289,7 +291,7 @@ function importarLancamentos_(itens, opcoes) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var destinos = Object.keys(LANC_ABAS).filter(function (d) { return itens.some(function (it) { return it && it.destino === d; }); });
   var trava = null;
-  if (!o.simular) { trava = LockService.getScriptLock(); trava.waitLock(30000); }
+  if (!o.simular) { trava = travaRecurso_('carteira', 'lançamentos/importação'); trava.waitLock(30000); }
   try {
     // proventos só entram de ativo que já tem transação: lê as abas de transações também
     var leitura = destinos.slice();

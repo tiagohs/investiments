@@ -31,7 +31,8 @@ function handleAtivo(e, auth) {
   try {
     var ref = String((e.parameter && e.parameter.ref) || '').trim();
     if (!ref) return jsonOut({ ok: false, etapa: 'ativo', erro: 'parâmetro "ref" obrigatório' });
-    return jsonOut(montarTelaAtivo_(ref));
+    // 05/10/2026 (A-38): semIndices=1 = o front já tem a série da Início (home no IndexedDB) e monta os índices dela
+    return jsonOut(montarTelaAtivo_(ref, { semIndices: String((e.parameter && e.parameter.semIndices) || '') === '1' }));
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'ativo', erro: String(erro) });
   }
@@ -66,8 +67,8 @@ function handleTesesAtivo(e, auth) {
 // muda sozinha quando alguma aba ganha linha nova (contagens) ou quando o dia
 // vira, e uma versão que "Limpar cache"/FNet/importação B3 trocam. A posição
 // de hoje (cotação ao vivo) continua sendo lida a cada abertura. Um gatilho a
-// cada 2h pré-aquece todos os ativos da carteira (instalarGatilhoPreAquecerAtivos),
-// então nem a 1ª abertura do dia espera o cálculo inteiro.
+// cada 2h pré-aquece todos os ativos da carteira (desde 05/10/2026, A-53, é uma etapa da
+// Agenda diária: 1x depois da sync de ativos), então nem a 1ª abertura do dia espera o cálculo inteiro.
 // ---------------------------------------------------------------------------
 
 var PROP_VERSAO_CACHE_ATIVOS = 'ATIVO_CACHE_VERSAO';
@@ -89,14 +90,21 @@ function chaveCacheAtivo_(ss, ref) {
   var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
   var versao = '0';
   try { versao = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_ATIVOS) || '0'; } catch (e) { /* sem versão */ }
+  // 05/10/2026 (A-32): Transações/Transações - USA/Transações Renda Fixa têm fórmula até ~10.800 - getLastRow() nelas era
+  // constante e a chave nunca mudava ao digitar um aporte. Agora: última linha REAL + carimbo da última escrita
+  // (contarLinhasFluxoCaixa_ já devolve as 5 abas do fluxo + carimbo); o resto segue por getLastRow() (sem fórmula de preenchimento).
   var contagens = memoAtivo_('contagens', function () {
-    return [ABA_PATRIMONIO_INICIO, ABA_TRANSACOES_BR_FLUXO, ABA_TRANSACOES_USA_FLUXO, 'Proventos', 'Proventos - USA', 'Auxiliar_ativos',
-      ABA_HISTORICO_RF, 'Transações Renda Fixa'].map(linhas).join('_');
+    return [ABA_PATRIMONIO_INICIO, 'Auxiliar_ativos', ABA_HISTORICO_RF].map(linhas).join('_') + '_' + contarLinhasFluxoCaixa_(ss);
   });
   // hash curto do ref (título de renda fixa tem espaço e pode ser longo; chave do cache tem limite de tamanho)
   var texto = String(ref).toUpperCase(), h1 = 5381, h2 = 52711;
   for (var i = 0; i < texto.length; i++) { var c = texto.charCodeAt(i); h1 = ((h1 * 33) ^ c) >>> 0; h2 = ((h2 * 31) + c) >>> 0; }
-  return 'ativo_v1_' + h1.toString(36) + h2.toString(36) + texto.length + '_' + chaveDiaISOInicio_(new Date()) + '_' + contagens + '_' + versao;
+  return 'ativo_v2_' + h1.toString(36) + h2.toString(36) + texto.length + '_' + chaveDiaISOInicio_(new Date()) + '_' + contagens + '_' + versao;
+}
+
+/** Família da geração de cache de um ativo: 'ativo_v1_<hash do ref>' (a chave inteira muda com o dia/contagens; a família não). A-37. */
+function familiaCacheAtivo_(chave) {
+  return String(chave).split('_').slice(0, 3).join('_');
 }
 
 /** Lê do cache ou calcula e grava (mesmos helpers em pedaços da série da Início - passa de 100KB). */
@@ -106,16 +114,22 @@ function comCacheAtivo_(ss, ref, fn) {
   try { emCache = lerSerieHistoricoCache_(chave); } catch (e) { emCache = null; }
   if (emCache) return emCache;
   var r = fn();
-  if (r && r.ok) { try { gravarSerieHistoricoCache_(chave, r); } catch (e) { /* segue sem cache */ } }
+  if (r && r.ok) { try { gravarSerieHistoricoCache_(chave, r, null, familiaCacheAtivo_(chave)); } catch (e) { /* segue sem cache */ } }
   return r;
 }
 
-/** Rodar UMA vez no editor: pré-aquece o cache de todos os ativos a cada 2 horas. */
+/**
+ * 05/10/2026 (A-53): o gatilho a cada 2 h (12 execuções/dia, até 4,5 min cada, reconferindo cache já quente)
+ * virou uma ETAPA da Agenda (Agenda.gs, id "preAquecer": 1x depois da sync de ativos). Esta função agora só
+ * REMOVE o gatilho antigo, se ainda existir, e NÃO cria mais nenhum - rode instalarAgendaDiaria() (que também
+ * remove o gatilho de 2 h).
+ */
 function instalarGatilhoPreAquecerAtivos() {
-  var jaExiste = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'gatilhoPreAquecerAtivos'; });
-  if (jaExiste) { Logger.log('Gatilho já existe, nada a fazer.'); return; }
-  ScriptApp.newTrigger('gatilhoPreAquecerAtivos').timeBased().everyHours(2).create();
-  Logger.log('Gatilho de pré-aquecimento dos ativos instalado (a cada 2 horas).');
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'gatilhoPreAquecerAtivos') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  Logger.log('Pré-aquecimento agora é uma etapa da Agenda diária (Agenda.gs). Gatilhos de 2 h removidos: ' + n + '.');
 }
 
 function gatilhoPreAquecerAtivos() { preAquecerCacheAtivos_(); }
@@ -142,7 +156,7 @@ function preAquecerCacheAtivos_() {
       var chave = chaveCacheAtivo_(ss, ref);
       if (lerSerieHistoricoCache_(chave)) { jaEstavam++; return; }
       var r = /^rf:/i.test(ref) ? montarTelaAtivoRendaFixa_(ref.slice(3)) : montarBaseAtivo_(ss, ref.toUpperCase());
-      if (r && r.ok) { gravarSerieHistoricoCache_(chave, r); feitos++; }
+      if (r && r.ok) { gravarSerieHistoricoCache_(chave, r, null, familiaCacheAtivo_(chave)); feitos++; }
     } catch (e) { falhas.push(ref + ': ' + String(e).slice(0, 60)); }
   });
   return { ativos: refs.length, calculados: feitos, jaEmCache: jaEstavam, faltaramPorTempo: faltaram, falhas: falhas, ms: Date.now() - inicio };
@@ -166,14 +180,16 @@ function posicaoAtualDoAtivo_(ss, ticker, classeConhecida) {
   return { ativo: null, classe: classeConhecida || null };
 }
 
-function montarTelaAtivo_(ref) {
+function montarTelaAtivo_(ref, opcoes) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (/^rf:/i.test(ref)) return comCacheAtivo_(ss, ref, function () { return montarTelaAtivoRendaFixa_(ref.slice(3)); });
+  var semIndices = !!(opcoes && opcoes.semIndices);
+  if (/^rf:/i.test(ref)) return anexarIndicesAtivo_(comCacheAtivo_(ss, ref, function () { return montarTelaAtivoRendaFixa_(ref.slice(3)); }), semIndices);
   var ticker = ref.toUpperCase();
   var classes = memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); });
   var atual = posicaoAtualDoAtivo_(ss, ticker, classes[ticker] || null);
   var base = comCacheAtivo_(ss, ticker, function () { return montarBaseAtivo_(ss, ticker, atual.classe); });
   if (!base || !base.ok) return base;
+  anexarIndicesAtivo_(base, semIndices);
   base.ativo = atual.ativo;
   base.hoje = chaveDiaISOInicio_(new Date());
   // 03/10/2026 (Tiago: "largo banco de critérios"): fundamentos (Fundamentos.gs),
@@ -201,7 +217,7 @@ function montarBaseAtivo_(ss, ticker, classeConhecida) {
   }
   var emDolar = classe === 'acoesEua';
   var transacoes = transacoesDoAtivo_(ss, ticker, emDolar, mapas.mapaCambioUsd);
-  var proventos = proventosDoAtivo_(ss, ticker, mapas.mapaCambioUsd);
+  var proventos = proventosDoAtivo_(ss, ticker, mapas.mapaCambioUsd, classe);
   var anunciados = { aReceber: [], pagosNaoLancados: [] };
   try {
     var a = memoAtivo_('anunciados', function () { return montarProventosAnunciados_(null, { mapaCambioUsd: mapas.mapaCambioUsd }); });
@@ -236,7 +252,7 @@ function montarBaseAtivo_(ss, ticker, classeConhecida) {
     pagosNaoLancados: anunciados.pagosNaoLancados,
     faixa52: faixa52,
     informesFundo: informesFundo,
-    indices: indicesDesde_(primeiraData),
+    indicesDesde: primeiraData, // 05/10/2026 (A-38): os índices (iguais p/ todo ativo) não vão mais no cache do ativo - ver anexarIndicesAtivo_
     referencias: referenciasDeMercado_()
   };
 }
@@ -281,7 +297,7 @@ function serieDoAtivo_(ss, ticker) {
   var aba = ss.getSheetByName(ABA_PATRIMONIO_INICIO);
   if (!aba || aba.getLastRow() < 2) return [];
   var porDia = {};
-  var linhasAba = memoAtivo_('linhasPatrimonio', function () { return aba.getRange(2, 1, aba.getLastRow() - 1, 8).getValues(); });
+  var linhasAba = memoAtivo_('linhasPatrimonio', function () { return lerAbaUmaVez_(aba, 2, aba.getLastRow() - 1, 8); }); // 05/10/2026 (A-33): mesma leitura da série da Início
   linhasAba.forEach(function (l) {
     if (String(l[1] || '').trim().toUpperCase() !== ticker || !(l[0] instanceof Date)) return;
     var chave = chaveDiaISOInicio_(l[0]);
@@ -302,10 +318,13 @@ function serieDoAtivo_(ss, ticker) {
 function transacoesDoAtivo_(ss, ticker, emDolar, mapaCambioUsd) {
   var chavesCambio = Object.keys(mapaCambioUsd || {}).sort();
   var aba = ss.getSheetByName(emDolar ? ABA_TRANSACOES_USA_FLUXO : ABA_TRANSACOES_BR_FLUXO);
-  if (!aba || aba.getLastRow() < LINHA_DADOS_TRANSACOES_FLUXO) return [];
+  if (!aba) return [];
+  // 05/10/2026 (A-31/A-33): última linha REAL (a aba tem fórmula até ~10.800); mesma leitura do fluxo de caixa (lerAbaUmaVez_)
+  var ultima = memoAtivo_('ultimaTransacoes_' + (emDolar ? 'usa' : 'br'), function () { return ultimaLinhaReal_(aba, [1, 2], LINHA_DADOS_TRANSACOES_FLUXO); });
+  if (ultima < LINHA_DADOS_TRANSACOES_FLUXO) return [];
   var out = [];
   memoAtivo_('transacoes_' + (emDolar ? 'usa' : 'br'), function () {
-    return aba.getRange(LINHA_DADOS_TRANSACOES_FLUXO, 1, aba.getLastRow() - LINHA_DADOS_TRANSACOES_FLUXO + 1, 12).getValues();
+    return lerAbaUmaVez_(aba, LINHA_DADOS_TRANSACOES_FLUXO, ultima - LINHA_DADOS_TRANSACOES_FLUXO + 1, 12);
   }).forEach(function (l) {
     if (String(l[0] || '').trim().toUpperCase() !== ticker || !(l[1] instanceof Date)) return;
     var tipo = String(l[2] || '').trim();
@@ -328,10 +347,15 @@ function transacoesDoAtivo_(ss, ticker, emDolar, mapaCambioUsd) {
 }
 
 /** Proventos recebidos do ticker (aba Proventos / Proventos - USA), com o valor em reais. */
-function proventosDoAtivo_(ss, ticker, mapaCambioUsd) {
+function proventosDoAtivo_(ss, ticker, mapaCambioUsd, classe) {
   var hoje = chaveDiaISOInicio_(new Date());
   var chaves = Object.keys(mapaCambioUsd || {}).sort();
-  return memoAtivo_('linhasProventos', function () { return lerLinhasAbaProventos_(ss); }).filter(function (p) { return p.ticker === ticker && p.dataPagamento <= hoje && p.tipo !== 'Juros'; })
+  // 05/10/2026 (A-18): o tipo "Juros" não é excluído "no escuro": na aba Proventos ele é o cupom de título de Renda Fixa
+  // (lançado com ticker "Erro"), que nunca bate com o ticker de uma ação/FII/BDR. Quando o ATIVO é de renda variável
+  // (classe conhecida), um "Juros" lançado com o ticker dele é dinheiro recebido dele - e a tela Proventos já o soma
+  // (FluxoCaixaInicio.gs!listaProventos) - então entra aqui também. Sem classe conhecida, continua fora.
+  var ehRendaVariavel = classe === 'acoes' || classe === 'fiis' || classe === 'acoesEua';
+  return memoAtivo_('linhasProventos', function () { return lerLinhasAbaProventos_(ss); }).filter(function (p) { return p.ticker === ticker && p.dataPagamento <= hoje && (ehRendaVariavel || p.tipo !== 'Juros'); })
     .map(function (p) {
       var cambio = p.moeda === 'USD' ? (chaves.length ? cambioUsdParaData_(mapaCambioUsd, chaves, p.dataPagamento) : null) : 1;
       var liquido = Math.round(p.liquido * 100) / 100;
@@ -343,6 +367,20 @@ function proventosDoAtivo_(ss, ticker, mapaCambioUsd) {
       };
     })
     .sort(function (a, b) { return a.dataPagamento < b.dataPagamento ? -1 : (a.dataPagamento > b.dataPagamento ? 1 : 0); });
+}
+
+/**
+ * 05/10/2026 (A-38): os índices (CDI, IPCA, Ibovespa, IFIX, S&P, dólar, patrimônio) da série da Início a partir de
+ * `indicesDesde` eram os MESMOS pra todo ativo (197 KB de 288 KB da resposta, repetidos no cache de cada ativo e no
+ * IndexedDB) e o front já os tem na `home`. Agora ficam FORA do cache do ativo: o front que já guarda a home pede
+ * `semIndices=1` e monta os índices dela (ativo-calc.js!indicesDoHistoricoHome); quem não pede (1ª visita, front antigo)
+ * recebe `indices` como antes, lido da série em cache.
+ */
+function anexarIndicesAtivo_(resposta, semIndices) {
+  if (!resposta || !resposta.ok) return resposta;
+  if (semIndices) { delete resposta.indices; return resposta; }
+  resposta.indices = indicesDesde_(resposta.indicesDesde);
+  return resposta;
 }
 
 /** Índices da série da Início (em cache) a partir de uma data. */
@@ -382,7 +420,7 @@ function montarTelaAtivoRendaFixa_(chave) {
   var aba = ss.getSheetByName(ABA_HISTORICO_RF);
   if (aba && aba.getLastRow() >= 2) {
     var porDia = {};
-    aba.getRange(2, 1, aba.getLastRow() - 1, 6).getValues().forEach(function (l) {
+    lerAbaUmaVez_(aba, 2, aba.getLastRow() - 1, 6).forEach(function (l) { // 05/10/2026 (A-33)
       if (!(l[0] instanceof Date) || !casa(l[1], l[2])) return;
       var k = chaveDiaISOInicio_(l[0]);
       if (k > hoje || typeof l[5] !== 'number') return;
@@ -394,8 +432,9 @@ function montarTelaAtivoRendaFixa_(chave) {
   // movimentações (Transações Renda Fixa)
   var transacoes = [];
   var abaT = ss.getSheetByName('Transações Renda Fixa');
-  if (abaT && abaT.getLastRow() >= 7) {
-    abaT.getRange(7, 1, abaT.getLastRow() - 6, 8).getValues().forEach(function (l) {
+  var ultimaT = abaT ? ultimaLinhaReal_(abaT, [1, 2], 7) : 0; // 05/10/2026 (A-31): a aba tem fórmula até ~10.800
+  if (abaT && ultimaT >= 7) {
+    lerAbaUmaVez_(abaT, 7, ultimaT - 6, 8).forEach(function (l) {
       if (!(l[1] instanceof Date) || !casa(l[0], l[4])) return;
       var mov = String(l[2] || '').trim();
       var valor = Number(l[7]) || 0;
@@ -412,7 +451,7 @@ function montarTelaAtivoRendaFixa_(chave) {
     ok: true, hoje: hoje, tipo: 'rf', ticker: nome, classe: 'rendaFixa', moeda: 'BRL',
     ativo: ativo, benchmarks: carteira.benchmarks || null,
     serie: serie, transacoes: transacoes, proventos: [], aReceber: [], pagosNaoLancados: [],
-    indices: indicesDesde_(primeira)
+    indicesDesde: primeira // 05/10/2026 (A-38): ver anexarIndicesAtivo_
   };
 }
 

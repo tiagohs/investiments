@@ -26,6 +26,7 @@ import {
   renderSyncLog,
   categoriaSync_,
   carregarStatusSync,
+  setupSyncPopoverSobDemanda,
   mountShell,
   mountRefreshControl,
 } from '../assets/js/shell.js';
@@ -1239,9 +1240,23 @@ test('setupLogoutButton(): clicar em Sair apaga o token e manda pro login', asyn
   const { setupLogoutButton } = await import('../assets/js/shell.js');
   const doc = new JSDOM('<button id="logoutBtn"></button>').window.document;
   const passos = [];
-  setupLogoutButton(doc, { clearTokenImpl: () => passos.push('limpou'), redirectImpl: () => passos.push('login') });
+  setupLogoutButton(doc, { clearTokenImpl: () => passos.push('limpou'), redirectImpl: () => passos.push('login'), limparDadosImpl: async () => { passos.push('dados'); } });
   doc.getElementById('logoutBtn').click();
-  assert.deepEqual(passos, ['limpou', 'login']);
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(passos, ['limpou', 'dados', 'login']);
+});
+
+// 05/10/2026 (A-44): o logout limpa o cache de respostas e as chaves investiments_* (menos o tema)
+test('limparDadosLocaisDaSessao(): apaga investiments_* (aportes pendentes, resumo, token) e o cache de respostas; mantém o tema e o que não é do app', async () => {
+  const { limparDadosLocaisDaSessao } = await import('../assets/js/shell.js');
+  const mk = (obj) => { const m = { ...obj }; return { get length() { return Object.keys(m).length; }, key: (i) => Object.keys(m)[i] ?? null, getItem: (k) => (k in m ? m[k] : null), removeItem: (k) => { delete m[k]; }, _m: m }; };
+  const ls = mk({ investiments_aportes_pendentes: '[]', investiments_sync_resumo: '{}', investiments_auth_token: 's1.x', investiments_theme: 'dark', outro: '1' });
+  const ss = mk({ investiments_auth_token: 's1.y' });
+  let limpou = 0;
+  await limparDadosLocaisDaSessao({ storages: [ls, ss], limparCacheLocalImpl: async () => { limpou += 1; } });
+  assert.deepEqual(Object.keys(ls._m).sort(), ['investiments_theme', 'outro']);
+  assert.deepEqual(Object.keys(ss._m), []);
+  assert.equal(limpou, 1, 'IndexedDB + Cache Storage');
 });
 
 test('fetchShellPartial() pede o partial com cache "no-cache" (revalida sempre)', async () => {
@@ -1274,4 +1289,44 @@ test('sw.js: CSS/JS vão pra rede com cache "no-cache"; navegação vai sem opç
   assert.equal(chamadas[0][1] && chamadas[0][1].cache, 'no-cache');
   assert.equal(chamadas[1][1] && chamadas[1][1].cache, 'no-cache');
   assert.equal(chamadas[2][1], undefined);
+});
+
+// 05/10/2026 (A-43): a carga da página não busca a lista inteira; ela só vem ao abrir o popover
+function memStorage() { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, removeItem: (k) => { delete m[k]; } }; }
+
+test('carregarStatusSync({ leve }): pede 1 linha, guarda o resumo e, com o resumo fresco, não chama a API', async () => {
+  const doc = syncDom();
+  const storage = memStorage();
+  const pedidos = [];
+  const impl = async (_t, limite) => { pedidos.push(limite); return { ok: true, resultado: [{ status: 'Erro', origem: 'Ativos', timestamp: '2026-10-05T10:00:00.000Z', detalhe: 'x' }] }; };
+  let t = 1000;
+  await carregarStatusSync(doc, { token: 'tk', getSyncHistoricoImpl: impl, leve: true, storage, agora: () => t });
+  assert.deepEqual(pedidos, [1], 'busca leve: 1 linha');
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), true);
+  doc.getElementById('syncBadgeBtn').classList.remove('bad');
+  t += 5 * 60 * 1000;
+  await carregarStatusSync(doc, { token: 'tk', getSyncHistoricoImpl: impl, leve: true, storage, agora: () => t });
+  assert.equal(pedidos.length, 1, 'resumo de 5 min: sem chamada');
+  assert.equal(doc.getElementById('syncBadgeBtn').classList.contains('bad'), true, 'badge pintado do guardado');
+  t += 11 * 60 * 1000;
+  await carregarStatusSync(doc, { token: 'tk', getSyncHistoricoImpl: impl, leve: true, storage, agora: () => t });
+  assert.equal(pedidos.length, 2, 'resumo vencido (>15 min): busca de novo');
+});
+
+test('setupSyncPopoverSobDemanda: busca a lista completa só ao ABRIR o popover (não ao fechar, não 2x em 30 s)', () => {
+  const doc = mountedDoc();
+  setupPopovers(doc);
+  const chamadas = [];
+  let t = 100000;
+  setupSyncPopoverSobDemanda(doc, { token: 'tk', carregarStatusSyncImpl: (_d, o) => chamadas.push(o), agora: () => t });
+  const btn = doc.querySelector('[data-toggle-panel="syncPanel"]');
+  assert.equal(chamadas.length, 0, 'nada na carga');
+  btn.click(); // abre
+  assert.equal(chamadas.length, 1);
+  assert.equal(chamadas[0].leve, undefined, 'lista completa');
+  btn.click(); // fecha
+  t = 110000; btn.click(); // reabre em 10 s
+  assert.equal(chamadas.length, 1, 'menos de 30 s: não repete');
+  btn.click(); t = 160000; btn.click();
+  assert.equal(chamadas.length, 2);
 });

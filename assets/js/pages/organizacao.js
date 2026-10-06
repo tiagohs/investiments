@@ -40,8 +40,9 @@ import {
   salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos,
 } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
+import { montarCabecalhoPagina, criarTabs, mostrarErroCarga, definirTituloPagina } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas em pílula e erro de carga padrão do kit
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
-import { formatBRL, formatNumeroBR } from '../format.js';
+import { formatBRL, formatNumeroBR, formatDateBR, formatPct } from '../format.js';
 import {
   CATEGORIAS, SEM_CATEGORIA, categoriaSugerida, lerValorBR, mensalDespesa, calcularOrganizacao, rascunhoDoServidor,
   novoItemDespesa, estadoItem, mudancasRascunho, validarRascunho, payloadRascunho, impactoRascunho,
@@ -52,21 +53,22 @@ import { montarSecaoGastos } from './organizacao-gastos.js';
 import { montarAbaSimulacoes } from './organizacao-simulacoes.js';
 import { montarSecaoRenda } from './organizacao-renda.js';
 import { montarPainelDocumentos } from './organizacao-documentos.js';
+import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { kpiHtml, chipHtml, icoHtml, montarBarrasProgresso, tornarRecolhiveis, recolherRedesenhavel } from './organizacao-ui.js'; // 06/10/2026 (Onda 3)
+import { criarGraficoLinha, criarBarraComposicao } from '../charts/index.js';
+
 
 const CHAVE_CACHE = 'despesas';
 const CHAVE_ORDEM = 'organizacao.ordem';
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const pct = (f, casas = 1) => (num(f) ? `${formatNumeroBR(f * 100, casas)}%` : '—');
 const meses = (m) => (num(m) ? `${formatNumeroBR(m, 1)} ${Math.abs(m - 1) < 0.05 ? 'mês' : 'meses'}` : '—');
-const brl = (v) => formatBRL(v);
 const sinalBRL = (v) => (num(v) ? `${v > 0 ? '+' : v < 0 ? '−' : '±'}${formatBRL(Math.abs(v))}` : '—');
 const dec = (texto) => { // "R$ 9.891,81" -> R$ 9.891<span class="dec">,81</span>
   const m = String(texto).match(/^(.*?)(,\d{2})$/);
   return m ? `${esc(m[1])}<span class="dec">${esc(m[2])}</span>` : esc(texto);
 };
-const dataBR = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
+const dataBR = (iso) => { const t = formatDateBR(iso); return t === '—' ? '' : t; };
 
 function lerLocal(chave) { try { return globalThis.localStorage ? globalThis.localStorage.getItem(chave) : null; } catch (e) { return null; } }
 function gravarLocal(chave, v) { try { if (globalThis.localStorage) globalThis.localStorage.setItem(chave, v); } catch (e) { /* ok */ } }
@@ -80,38 +82,40 @@ function eraHtml(antes, depois, formatar) {
   return `<span class="og-era" title="Valor na planilha agora">era ${esc(formatar(antes))}</span>`;
 }
 
+/**
+ * Os 3 números do topo (06/10/2026, Onda 3): cartões KPI do kit (.card > .kpi). As barras de progresso viram a barra da
+ * biblioteca de gráficos (montarBarrasProgresso, chamado por quem pôs este HTML na página).
+ */
 export function htmlHero(c, base) {
   const escala = Math.max(12, Math.ceil((c.meses || 0) * (1 + (c.sobra || 0)) * 1.5), Math.ceil(c.cobertura || 0));
   const alvoMeses = (c.meses || 0) * (1 + (c.sobra || 0));
   const pAtual = num(c.cobertura) ? Math.min(1, c.cobertura / escala) : 0;
   const pAlvo = Math.min(1, alvoMeses / escala);
-  const estadoMeta = c.metaAtingida ? 'good' : 'warn';
+  const bom = !!c.metaAtingida;
   const barra = num(c.atingido) ? Math.min(1, c.atingido) : 0;
+  const cor = bom ? 'up' : 'var(--md-ext-color-warn)';
+  const eraCob = num(base.cobertura) && num(c.cobertura) && Math.abs(base.cobertura - c.cobertura) >= 0.05 ? `<span class="og-era">era ${esc(meses(base.cobertura))}</span>` : '';
   return `
-    <article class="og-tile og-tile-custo">
-      <span class="og-rotulo">Custo de vida</span>
-      <span class="og-grande">${dec(brl(c.totalComFolga))}<small>/mês</small></span>
-      ${eraHtml(base.totalComFolga, c.totalComFolga, brl)}
-      <span class="og-sub">gasto real <b>${esc(brl(c.totalReal))}</b> + ${esc(pct(c.folga, 0))} de folga · ${c.qtd} ${c.qtd === 1 ? 'despesa' : 'despesas'}</span>
-    </article>
-    <article class="og-tile og-tile-meta">
-      <span class="og-rotulo">Meta da reserva <span class="status-pill ${estadoMeta}">${c.metaAtingida ? 'Meta batida' : `${esc(pct(c.atingido, 0))} da meta`}</span></span>
-      <span class="og-grande">${dec(brl(c.meta))}</span>
-      ${eraHtml(base.meta, c.meta, brl)}
-      <div class="og-progresso ${estadoMeta}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(barra * 100)}" aria-label="Reserva atual sobre a meta"><span style="width:${(barra * 100).toFixed(2)}%"></span></div>
-      <span class="og-sub">você tem <b>${esc(brl(c.atual))}</b> · ${c.metaAtingida ? `sobram <b>${esc(brl((c.atual || 0) - c.meta))}</b>` : `faltam <b>${esc(brl(c.falta))}</b>`}</span>
-    </article>
-    <article class="og-tile og-tile-cobertura">
-      <span class="og-rotulo">A reserva cobre</span>
-      <span class="og-grande">${esc(meses(c.cobertura))}</span>
-      ${num(base.cobertura) && num(c.cobertura) && Math.abs(base.cobertura - c.cobertura) >= 0.05 ? `<span class="og-era">era ${esc(meses(base.cobertura))}</span>` : ''}
-      <div class="og-regua" aria-hidden="true">
-        <span class="og-regua-fill ${estadoMeta}" style="width:${(pAtual * 100).toFixed(2)}%"></span>
-        <span class="og-regua-alvo" style="left:${(pAlvo * 100).toFixed(2)}%"><i></i><em>meta ${esc(formatNumeroBR(alvoMeses, 1))}</em></span>
-        <span class="og-regua-escala"><em>0</em><em>${escala} meses</em></span>
-      </div>
-      <span class="og-sub">do custo com folga · <b>${esc(meses(c.coberturaReal))}</b> do gasto real</span>
-    </article>`;
+    ${kpiHtml({
+    classe: 'og-tile og-tile-custo', rotulo: 'Custo de vida',
+    valorHtml: `${dec(formatBRL(c.totalComFolga))}<small>/mês</small>`,
+    extraHtml: eraHtml(base.totalComFolga, c.totalComFolga, formatBRL),
+    subHtml: `gasto real <b>${esc(formatBRL(c.totalReal))}</b> + ${esc(formatPct(c.folga, 0))} de folga · ${c.qtd} ${c.qtd === 1 ? 'despesa' : 'despesas'}`,
+  })}
+    ${kpiHtml({
+    classe: 'og-tile og-tile-meta', rotulo: 'Meta da reserva',
+    rotuloExtraHtml: chipHtml(bom ? 'good' : 'warn', c.metaAtingida ? 'Meta batida' : `${esc(formatPct(c.atingido, 0))} da meta`, bom ? 'check' : 'schedule'),
+    valorHtml: dec(formatBRL(c.meta)),
+    extraHtml: `${eraHtml(base.meta, c.meta, formatBRL)}<div class="og-barra-prog" data-prog-valor="${barra}" data-prog-cor="${esc(cor)}" data-prog-rotulo="Reserva atual sobre a meta"></div>`,
+    subHtml: `você tem <b>${esc(formatBRL(c.atual))}</b> · ${c.metaAtingida ? `sobram <b>${esc(formatBRL((c.atual || 0) - c.meta))}</b>` : `faltam <b>${esc(formatBRL(c.falta))}</b>`}`,
+  })}
+    ${kpiHtml({
+    classe: 'og-tile og-tile-cobertura', rotulo: 'A reserva cobre',
+    valorHtml: esc(meses(c.cobertura)),
+    extraHtml: `${eraCob}<div class="og-barra-prog" data-prog-valor="${pAtual}" data-prog-meta="${pAlvo}" data-prog-cor="${esc(cor)}" data-prog-rotulo="Cobertura da reserva em meses (marca = meta)"></div>
+      <div class="og-regua-escala" aria-hidden="true"><span>0</span><span>meta ${esc(formatNumeroBR(alvoMeses, 1))}</span><span>${escala} meses</span></div>`,
+    subHtml: `do custo com folga · <b>${esc(meses(c.coberturaReal))}</b> do gasto real`,
+  })}`;
 }
 
 /** "De onde vem a meta": a conta da planilha, com folga/meses/sobra editáveis. */
@@ -136,12 +140,12 @@ export function htmlConta(r) {
 function atualizarConta(el, c) {
   if (!el) return;
   const set = (k, v) => { const o = el.querySelector(`[data-out="${k}"]`); if (o) o.innerHTML = v; };
-  set('totalReal', dec(brl(c.totalReal)));
-  set('totalComFolga', dec(brl(c.totalComFolga)));
-  set('base', dec(brl(c.base)));
-  set('meta', dec(brl(c.meta)));
+  set('totalReal', dec(formatBRL(c.totalReal)));
+  set('totalComFolga', dec(formatBRL(c.totalComFolga)));
+  set('base', dec(formatBRL(c.base)));
+  set('meta', dec(formatBRL(c.meta)));
   set('nota', c.totalReal > 0
-    ? `As duas margens juntas deixam a meta <b>${esc(pct(c.margemTotal))}</b> acima de ${esc(formatNumeroBR(c.meses, 0))} meses do gasto real (${esc(brl(c.baseReal))}).${num(c.patrimonioDesejado) ? ` O custo de vida também entra no <a href="../distribuicoes-metas.html">Patrimônio desejado</a>: <b>${esc(brl(c.patrimonioDesejado))}</b>.` : ''}`
+    ? `As duas margens juntas deixam a meta <b>${esc(formatPct(c.margemTotal))}</b> acima de ${esc(formatNumeroBR(c.meses, 0))} meses do gasto real (${esc(formatBRL(c.baseReal))}).${num(c.patrimonioDesejado) ? ` O custo de vida também entra no <a href="../distribuicoes-metas.html">Patrimônio desejado</a>: <b>${esc(formatBRL(c.patrimonioDesejado))}</b>.` : ''}`
     : '');
 }
 
@@ -164,8 +168,8 @@ function htmlLinhaItem(item, c, { sugestao }) {
         <option value="Anual"${item.frequencia === 'Anual' ? ' selected' : ''}>Anual</option>
       </select>
       <label class="og-valor-cel"><span>R$</span><input class="og-valor" inputmode="decimal" value="${esc(formatNumeroBR(item.valor))}" aria-label="Valor${item.frequencia === 'Anual' ? ' por ano' : ' por mês'}"${removida ? ' disabled' : ''}></label>
-      <span class="og-mes" data-out="mes"><b>${dec(brl(comFolga))}</b><small>${item.frequencia === 'Anual' ? `${esc(brl(mensal))}/mês real` : 'c/ folga'}</small></span>
-      <span class="og-pct" data-out="pct">${removida ? '' : esc(pct(share, 1))}</span>
+      <span class="og-mes" data-out="mes"><b>${dec(formatBRL(comFolga))}</b><small>${item.frequencia === 'Anual' ? `${esc(formatBRL(mensal))}/mês real` : 'c/ folga'}</small></span>
+      <span class="og-pct" data-out="pct">${removida ? '' : esc(formatPct(share, 1))}</span>
       <span class="og-acoes">
         ${removida
     ? '<button type="button" class="og-desfazer tx-link">Desfazer</button>'
@@ -195,7 +199,7 @@ export function htmlLista(rascunho, c, ordem) {
     if (cat !== atual) {
       atual = cat;
       const g = c.porCategoria.find((p) => p.categoria === cat);
-      cab = `<li class="og-grupo"><span>${esc(cat)}</span><b>${g ? esc(brl(g.valor)) : ''}</b><small>${g ? esc(pct(g.pct, 0)) : ''}</small></li>`;
+      cab = `<li class="og-grupo"><span>${esc(cat)}</span><b>${g ? esc(formatBRL(g.valor)) : ''}</b><small>${g ? esc(formatPct(g.pct, 0)) : ''}</small></li>`;
     }
     return cab + htmlLinhaItem(i, c, { sugestao: categoriaSugerida(i.nome) });
   }).join('');
@@ -210,66 +214,96 @@ export function htmlCategorias(c) {
     <div class="lateral-cab"><h2>Por categoria</h2><span class="hint">gasto real / mês</span></div>
     <ul class="og-cats">
       ${c.porCategoria.map((p) => `
-        <li class="${p.categoria === SEM_CATEGORIA ? 'sem' : ''}" title="${esc(`${p.categoria}: ${brl(p.valor)}/mês · ${brl(p.comFolga)} com folga · ${p.qtd} ${p.qtd === 1 ? 'despesa' : 'despesas'}`)}">
+        <li class="${p.categoria === SEM_CATEGORIA ? 'sem' : ''}" title="${esc(`${p.categoria}: ${formatBRL(p.valor)}/mês · ${formatBRL(p.comFolga)} com folga · ${p.qtd} ${p.qtd === 1 ? 'despesa' : 'despesas'}`)}">
           <span class="og-cat-nome">${esc(p.categoria)}</span>
-          <span class="og-cat-valor">${esc(brl(p.valor))}</span>
-          <span class="og-cat-barra"><i style="width:${((p.valor / max) * 100).toFixed(2)}%"></i></span>
-          <span class="og-cat-pct">${esc(pct(p.pct, 0))}</span>
+          <span class="og-cat-valor">${esc(formatBRL(p.valor))}</span>
+          <span class="og-cat-barra" data-prog-valor="${(p.valor / max).toFixed(4)}" data-prog-cor="1" data-prog-rotulo="${esc(p.categoria)}"></span>
+          <span class="og-cat-pct">${esc(formatPct(p.pct, 0))}</span>
         </li>`).join('')}
     </ul>
-    ${assin ? `<p class="og-nota"><b>Assinaturas</b> somam ${esc(brl(assin.valor))}/mês - <b>${esc(brl(assin.valor * 12))} por ano</b>.</p>` : ''}
+    ${assin ? `<p class="og-nota"><b>Assinaturas</b> somam ${esc(formatBRL(assin.valor))}/mês - <b>${esc(formatBRL(assin.valor * 12))} por ano</b>.</p>` : ''}
     ${semCat ? `<p class="og-nota fraca">${semCat.qtd} ${semCat.qtd === 1 ? 'despesa sem categoria' : 'despesas sem categoria'} - use a sugestão ao lado de cada uma, ou "Categorizar tudo".</p>` : ''}`;
 }
 
 export function htmlSalario(c) {
   const s = c.salario;
   if (!s) return '<div class="lateral-cab"><h2>Salário: pra onde vai</h2></div><p class="hint">Sem salário líquido na planilha (aba Distribuição e Metas, N11).</p>';
-  const w = (v) => `${Math.max(0, Math.min(100, (v / s.liquido) * 100)).toFixed(2)}%`;
   const estourou = s.livre < 0;
   return `
-    <div class="lateral-cab"><h2>Salário: pra onde vai</h2><a class="hint" href="../distribuicoes-metas.html">líquido ${esc(brl(s.liquido))} ›</a></div>
-    <div class="og-sal-barra" role="img" aria-label="${esc(`Despesas essenciais ${pct(s.pctEssenciais, 0)}, investir ${pct(s.pctAporte, 0)}, livre ${pct(s.pctLivre, 0)}`)}">
-      <span class="ess" style="width:${w(s.essenciais)}"></span><span class="inv" style="width:${w(s.aporte)}"></span>${estourou ? '' : `<span class="liv" style="width:${w(s.livre)}"></span>`}
-    </div>
+    <div class="lateral-cab"><h2>Salário: pra onde vai</h2><a class="hint" href="../distribuicoes-metas.html">líquido ${esc(formatBRL(s.liquido))} ›</a></div>
+    <div class="og-sal-barra" data-ess="${s.essenciais}" data-inv="${s.aporte}" data-liv="${estourou ? 0 : s.livre}"></div>
     <ul class="og-sal-leg">
-      <li><i class="ess"></i><span>Despesas essenciais</span><b>${esc(brl(s.essenciais))}</b><small>${esc(pct(s.pctEssenciais, 0))}</small></li>
-      <li><i class="inv"></i><span>Investir (meta)</span><b>${esc(brl(s.aporte))}</b><small>${esc(pct(s.pctAporte, 0))}</small></li>
-      <li class="${estourou ? 'bad' : ''}"><i class="liv"></i><span>${estourou ? 'Falta' : 'Livre'}</span><b>${esc(brl(Math.abs(s.livre)))}</b><small>${estourou ? '' : esc(pct(s.pctLivre, 0))}</small></li>
+      <li><i class="ess"></i><span>Despesas essenciais</span><b>${esc(formatBRL(s.essenciais))}</b><small>${esc(formatPct(s.pctEssenciais, 0))}</small></li>
+      <li><i class="inv"></i><span>Investir (meta)</span><b>${esc(formatBRL(s.aporte))}</b><small>${esc(formatPct(s.pctAporte, 0))}</small></li>
+      <li class="${estourou ? 'bad' : ''}"><i class="liv"></i><span>${estourou ? 'Falta' : 'Livre'}</span><b>${esc(formatBRL(Math.abs(s.livre)))}</b><small>${estourou ? '' : esc(formatPct(s.pctLivre, 0))}</small></li>
     </ul>
     <p class="og-nota fraca">${estourou ? 'Despesas + aporte passam do salário.' : 'Usa o gasto real (sem a folga). O aporte é o % pra investir da planilha (aba Distribuição e Metas).'}</p>`;
 }
 
-/** Linha do tempo do custo de vida (uma linha por gravação em aux_historico-despesas). */
-export function htmlHistorico(historico, c) {
-  const pontos = (historico || []).filter((h) => num(h.totalComFolga) && !Number.isNaN(new Date(h.data).getTime()))
+/** Barra do salário (essenciais | investir | livre) pela biblioteca de gráficos; lê os valores dos data-* que htmlSalario deixou. */
+export function montarSalarioBarra(raiz) {
+  const caixa = raiz && raiz.querySelector('.og-sal-barra');
+  if (!caixa) return null;
+  const fatias = [
+    { id: 'ess', nome: 'Despesas essenciais', valor: Number(caixa.dataset.ess) || 0, cor: 3 },
+    { id: 'inv', nome: 'Investir (meta)', valor: Number(caixa.dataset.inv) || 0, cor: 1 },
+    { id: 'liv', nome: 'Livre', valor: Number(caixa.dataset.liv) || 0, cor: 2 },
+  ];
+  return criarBarraComposicao(caixa, { fatias, formatarValor: formatBRL, legenda: false });
+}
+
+/** Pontos do custo de vida no tempo (uma linha por gravação em aux_historico-despesas). */
+export function pontosHistorico(historico) {
+  return (historico || []).filter((h) => num(h.totalComFolga) && !Number.isNaN(new Date(h.data).getTime()))
     .map((h) => ({ t: new Date(h.data).getTime(), v: h.totalComFolga, real: h.totalReal }));
-  const cab = '<div class="lateral-cab"><h2>Custo de vida no tempo</h2><span class="hint">com folga</span></div>';
-  if (pontos.length < 2) {
-    return `${cab}<p class="og-nota fraca">A linha do tempo começa na primeira vez que você salvar por aqui: cada gravação vira um ponto (o "antes" e o "depois").</p>`;
-  }
-  const W = 300; const H = 92; const m = { t: 10, r: 8, b: 18, l: 8 };
-  const t0 = pontos[0].t; const t1 = Math.max(pontos[pontos.length - 1].t, t0 + 1);
-  const vs = pontos.map((p) => p.v);
-  let min = Math.min(...vs); let max = Math.max(...vs);
-  if (max - min < 1) { min -= 50; max += 50; }
-  const x = (t) => m.l + ((t - t0) / (t1 - t0)) * (W - m.l - m.r);
-  const y = (v) => m.t + (1 - (v - min) / (max - min)) * (H - m.t - m.b);
-  let d = `M${x(pontos[0].t).toFixed(1)},${y(pontos[0].v).toFixed(1)}`;
-  for (let i = 1; i < pontos.length; i += 1) d += `H${x(pontos[i].t).toFixed(1)}V${y(pontos[i].v).toFixed(1)}`;
-  const area = `${d}V${H - m.b}H${x(pontos[0].t).toFixed(1)}Z`;
-  const ult = pontos[pontos.length - 1];
-  const prim = pontos[0];
+}
+const CAB_HISTORICO = '<div class="lateral-cab"><h2>Custo de vida no tempo</h2><span class="hint">com folga</span></div>';
+const diaMes = (t) => { const d = new Date(t); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
+
+/** Texto embaixo da linha do tempo ("R$ A → R$ B (+X) · prévia agora ..."). */
+export function notaHistorico(pontos, c) {
+  const prim = pontos[0]; const ult = pontos[pontos.length - 1];
   const dif = ult.v - prim.v;
-  return `${cab}
-    <svg class="og-hist" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`Custo de vida de ${brl(prim.v)} em ${dataBR(prim.t)} para ${brl(ult.v)} em ${dataBR(ult.t)}`)}">
-      <line class="og-hist-base" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>
-      <path class="og-hist-area" d="${area}"/>
-      <path class="og-hist-linha" d="${d}"/>
-      ${pontos.map((p) => `<circle class="og-hist-ponto" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3.2"><title>${esc(`${dataBR(p.t)}: ${brl(p.v)} com folga (${brl(p.real)} real)`)}</title></circle>`).join('')}
-      <text x="${m.l}" y="${H - 4}" class="og-hist-rot">${esc(dataBR(prim.t))}</text>
-      <text x="${W - m.r}" y="${H - 4}" class="og-hist-rot" text-anchor="end">${esc(dataBR(ult.t))}</text>
-    </svg>
-    <p class="og-nota">${esc(brl(prim.v))} → <b>${esc(brl(ult.v))}</b> <span class="${dif > 0 ? 'bad' : dif < 0 ? 'good' : ''}">(${esc(sinalBRL(dif))})</span>${num(c.totalComFolga) && Math.round(c.totalComFolga * 100) !== Math.round(ult.v * 100) ? ` · prévia agora ${esc(brl(c.totalComFolga))}` : ''}</p>`;
+  return `${esc(formatBRL(prim.v))} → <b>${esc(formatBRL(ult.v))}</b> <span class="${dif > 0 ? 'bad' : dif < 0 ? 'good' : ''}">(${esc(sinalBRL(dif))})</span>${num(c.totalComFolga) && Math.round(c.totalComFolga * 100) !== Math.round(ult.v * 100) ? ` · prévia agora ${esc(formatBRL(c.totalComFolga))}` : ''}`;
+}
+
+/** Opções da biblioteca (criarGraficoLinha) para a linha do tempo do custo de vida. */
+export function opcoesHistoricoDespesas(pontos) {
+  const prim = pontos[0]; const ult = pontos[pontos.length - 1];
+  return {
+    series: [{ id: 'custo', nome: 'Custo de vida (com folga)', valores: pontos.map((p) => p.v), principal: true, area: true, cor: 1, largura: 2.5 }],
+    eixoX: pontos.map((p) => ({ rotulo: diaMes(p.t), titulo: dataBR(p.t) })), formatarX: (item) => (item && item.titulo) || '',
+    formatarValor: (v) => formatBRL(v), altura: 150, ticksY: 3,
+    tooltipExtra: (i) => [{ nome: 'Gasto real', valor: formatBRL(pontos[i].real) }],
+    aria: `Custo de vida de ${formatBRL(prim.v)} em ${dataBR(prim.t)} para ${formatBRL(ult.v)} em ${dataBR(ult.t)}`,
+  };
+}
+
+/** Estado vazio da linha do tempo (menos de 2 gravações). */
+export function htmlHistoricoVazio() {
+  return `${CAB_HISTORICO}<p class="og-nota fraca">A linha do tempo começa na primeira vez que você salvar por aqui: cada gravação vira um ponto (o "antes" e o "depois").</p>`;
+}
+
+/**
+ * Desenha (ou só atualiza o texto) a linha do tempo dentro de `el`. `guardado` = { grafico, sig } entre chamadas: o gráfico só é
+ * recriado quando os pontos mudam (a cada tecla só a nota "prévia agora" muda). Devolve o novo `guardado`.
+ */
+export function desenharHistoricoDespesas(el, historico, c, guardado = {}) {
+  if (!el) return guardado;
+  const pontos = pontosHistorico(historico);
+  const sig = JSON.stringify(pontos);
+  if (pontos.length < 2) {
+    if (guardado.grafico) { try { guardado.grafico.destruir(); } catch (e) { /* já saiu */ } }
+    el.innerHTML = htmlHistoricoVazio();
+    return {};
+  }
+  if (!guardado.grafico || guardado.sig !== sig || !el.querySelector('.og-hist-grafico')) {
+    if (guardado.grafico) { try { guardado.grafico.destruir(); } catch (e) { /* já saiu */ } }
+    el.innerHTML = `${CAB_HISTORICO}<div class="og-hist-grafico"></div><p class="og-nota" data-out="nota"></p>`;
+    guardado = { grafico: criarGraficoLinha(el.querySelector('.og-hist-grafico'), opcoesHistoricoDespesas(pontos)), sig };
+  }
+  el.querySelector('[data-out="nota"]').innerHTML = notaHistorico(pontos, c);
+  return guardado;
 }
 
 export function htmlBarra(mud, imp, { erros = [], salvando = false, erro = '', conflito = false } = {}) {
@@ -296,8 +330,8 @@ export function htmlBarra(mud, imp, { erros = [], salvando = false, erro = '', c
       ${aviso}
     </div>
     <div class="og-barra-botoes">
-      <button type="button" class="btn btn-ghost" data-acao="descartar"${salvando ? ' disabled' : ''}>${conflito ? 'Descartar e recarregar' : 'Descartar'}</button>
-      <button type="button" class="btn btn-primary" data-acao="salvar"${salvando || erros.length || conflito ? ' disabled' : ''}>${salvando ? 'Salvando…' : 'Salvar na planilha'}</button>
+      <button type="button" class="btn btn-outlined" data-acao="descartar"${salvando ? ' disabled' : ''}>${conflito ? 'Descartar e recarregar' : 'Descartar'}</button>
+      <button type="button" class="btn btn-filled" data-acao="salvar"${salvando || erros.length || conflito ? ' disabled' : ''}>${salvando ? 'Salvando…' : 'Salvar na planilha'}</button>
     </div>`;
 }
 
@@ -315,10 +349,12 @@ export function htmlBarra(mud, imp, { erros = [], salvando = false, erro = '', c
 export function criarCarregador(buscar) {
   let promessa = null;
   let valor;
+  let iniciadoEm = 0; // 05/10/2026 (A-39): quando a última busca começou - "Atualizar" não repete o que acabou de ser pedido
   const ouvintes = new Set();
   const avisar = () => ouvintes.forEach((f) => { try { f(valor); } catch (e) { /* um ouvinte com erro não derruba os outros */ } });
   async function rodar() {
     let r;
+    iniciadoEm = Date.now();
     try { r = await buscar(); } catch (e) { r = { ok: false, erro: String(e && e.message ? e.message : e) }; }
     if (r && r.ok) valor = r;
     else if (valor === undefined) valor = null;
@@ -332,6 +368,8 @@ export function criarCarregador(buscar) {
     inscrever(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); },
     get valor() { return valor; },
     get iniciado() { return !!promessa; },
+    /** ms desde que a última busca começou (Infinity se nunca buscou). */
+    iniciadoHa() { return iniciadoEm ? Date.now() - iniciadoEm : Infinity; },
   };
 }
 
@@ -354,8 +392,16 @@ export async function montarPaginaOrganizacao(token, {
   const loadingEl = doc.getElementById('organizacaoLoading');
   const erroEl = doc.getElementById('organizacaoErro');
   const conteudo = doc.getElementById('organizacaoConteudo');
-  const refreshEl = doc.getElementById('refreshControlOrganizacao');
   const win = doc.defaultView;
+  // 06/10/2026 (Onda 3): cabeçalho padrão da página (título, subtítulo e o "Atualizar dados")
+  const cabEl = doc.getElementById('ogCabecalho');
+  const cabecalho = cabEl ? montarCabecalhoPagina(cabEl, {
+    secao: 'Organização Financeira', subaba: 'Patrimônio', titulo: 'Organização Financeira',
+    subtitulo: 'Patrimônio, gastos e despesas, renda e orçamentos - e os documentos que o site precisa de você.',
+    refresh: true, doc,
+  }) : null;
+  const refreshEl = cabecalho ? cabecalho.refreshEl : null;
+  if (refreshEl) refreshEl.id = 'refreshControlOrganizacao';
 
   let dados = null;
   let rascunho = null;
@@ -368,39 +414,46 @@ export async function montarPaginaOrganizacao(token, {
   const calcular = () => calcularOrganizacao(rascunho, contexto());
   const acharItem = (id) => rascunho.itens.find((i) => i.id === id);
 
+  let histGuardado = {};
+  // 06/10/2026 (Onda 3, A-59): os 3 cartões laterais (Por categoria, Salário, Custo de vida no tempo) são recolhíveis - no celular
+  // começam fechados. O conteúdo é redesenhado a cada edição, então o <details> é refeito junto e o estado aberto/fechado é lembrado.
+  const recAberto = {};
+  const recolherLateral = (sel) => recolherRedesenhavel(conteudo, sel, { memoria: recAberto, doc });
   function montarEsqueleto() {
     conteudo.innerHTML = `
       <div class="pt-sec-cab og-sec-cab"><h2>Renda de emergência</h2><span class="pt-hint">despesas essenciais → custo de vida → meta da reserva</span><a class="og-link-meta" href="../metas.html">Acompanhar como meta (Reserva de emergência) em Metas e Objetivos ›</a></div>
-      <section class="og-hero" id="ogHero" aria-live="polite"></section>
+      <section class="og-hero grid-kpi" id="ogHero" aria-live="polite"></section>
       <section class="og-conta" id="ogConta"></section>
       <div class="og-colunas">
-        <section class="og-card og-lista-card">
+        <section class="card og-lista-card">
           <div class="og-lista-cab">
             <div class="og-lista-tit"><h2>Despesas essenciais para a renda de emergência</h2><span class="hint og-lista-sub">a lista de despesas que entram na conta da renda emergencial (a sua reserva de emergência)</span><span class="hint" id="ogContador"></span></div>
-            <div class="og-lista-ferr">
-              <div class="filter-tabs og-ordem" id="ogOrdem" role="group" aria-label="Ordenar">
-                <button type="button" class="filter-tab" data-ordem="planilha">Planilha</button>
-                <button type="button" class="filter-tab" data-ordem="valor">Maior valor</button>
-                <button type="button" class="filter-tab" data-ordem="categoria">Categoria</button>
-              </div>
-              <button type="button" class="btn btn-ghost og-btn-sm" id="ogCategorizar" hidden>Categorizar tudo</button>
+          </div>
+          <div class="og-lista-ferr">
+            <div class="filter-tabs og-ordem" id="ogOrdem" role="group" aria-label="Ordenar">
+              <button type="button" class="filter-tab" data-ordem="planilha">Planilha</button>
+              <button type="button" class="filter-tab" data-ordem="valor">Maior valor</button>
+              <button type="button" class="filter-tab" data-ordem="categoria">Categoria</button>
             </div>
+            <button type="button" class="btn btn-outlined og-btn-sm" id="ogCategorizar" hidden>Categorizar tudo</button>
           </div>
           <div class="og-colunas-rot" aria-hidden="true"><span></span><span>Despesa</span><span>Categoria</span><span>Frequência</span><span>Valor</span><span>Por mês</span><span>%</span><span></span></div>
           <ul class="og-lista" id="ogLista"></ul>
           <div class="og-lista-rodape">
-            <button type="button" class="btn btn-ghost og-btn-sm" id="ogAdicionar">+ Adicionar despesa</button>
+            <button type="button" class="btn btn-outlined og-btn-sm" id="ogAdicionar">+ Adicionar despesa</button>
             <div class="og-totais" id="ogTotais"></div>
           </div>
         </section>
         <aside class="og-lateral">
-          <section class="og-card" id="ogCategorias"></section>
-          <section class="og-card" id="ogSalario"></section>
-          <section class="og-card" id="ogHistorico"></section>
+          <section class="card" id="ogCategorias"></section>
+          <section class="card" id="ogSalario"></section>
+          <section class="card" id="ogHistorico"></section>
         </aside>
       </div>
       <div class="og-barra" id="ogBarra" hidden role="region" aria-label="Alterações não salvas"></div>
       <datalist id="ogListaCategorias">${CATEGORIAS.map((c) => `<option value="${esc(c)}"></option>`).join('')}</datalist>`;
+    // 06/10/2026 (Onda 3, A-59): no celular a lista de despesas começa recolhida (eram ~2.300px de rolagem)
+    tornarRecolhiveis(conteudo, { seletor: '.og-lista-card', cabecalho: '.og-lista-cab', abertasNoCelular: 0, doc });
     ligarEventos();
   }
 
@@ -416,6 +469,7 @@ export async function montarPaginaOrganizacao(token, {
   function atualizarResumo({ lista = false } = {}) {
     const c = calcular();
     $('#ogHero').innerHTML = htmlHero(c, calcBase);
+    montarBarrasProgresso($('#ogHero'));
     atualizarConta($('#ogConta'), c);
     if (lista) desenharLista(c);
     else {
@@ -426,8 +480,8 @@ export async function montarPaginaOrganizacao(token, {
         const mensal = mensalDespesa(it);
         const share = c.totalReal > 0 && !it.removida ? mensal / c.totalReal : 0;
         li.style.setProperty('--f', share.toFixed(4));
-        li.querySelector('[data-out="mes"]').innerHTML = `<b>${dec(brl(mensal * (1 + c.folga)))}</b><small>${it.frequencia === 'Anual' ? `${esc(brl(mensal))}/mês real` : 'c/ folga'}</small>`;
-        li.querySelector('[data-out="pct"]').textContent = it.removida ? '' : pct(share, 1);
+        li.querySelector('[data-out="mes"]').innerHTML = `<b>${dec(formatBRL(mensal * (1 + c.folga)))}</b><small>${it.frequencia === 'Anual' ? `${esc(formatBRL(mensal))}/mês real` : 'c/ folga'}</small>`;
+        li.querySelector('[data-out="pct"]').textContent = it.removida ? '' : formatPct(share, 1);
         const estado = estadoItem(it);
         li.classList.toggle('nova', estado === 'nova');
         li.classList.toggle('editada', estado === 'editada');
@@ -443,10 +497,13 @@ export async function montarPaginaOrganizacao(token, {
     btnCat.hidden = semCat === 0;
     btnCat.textContent = `Categorizar tudo (${semCat})`;
     $('#ogContador').textContent = `${c.qtd} ${c.qtd === 1 ? 'despesa' : 'despesas'} · o que você precisa pagar todo mês, aconteça o que acontecer`;
-    $('#ogTotais').innerHTML = `<span>Gasto real <b>${esc(brl(c.totalReal))}</b></span><span>Com ${esc(pct(c.folga, 0))} de folga <b>${esc(brl(c.totalComFolga))}</b></span>`;
+    $('#ogTotais').innerHTML = `<span>Gasto real <b>${esc(formatBRL(c.totalReal))}</b></span><span>Com ${esc(formatPct(c.folga, 0))} de folga <b>${esc(formatBRL(c.totalComFolga))}</b></span>`;
     $('#ogCategorias').innerHTML = htmlCategorias(c);
+    montarBarrasProgresso($('#ogCategorias'));
     $('#ogSalario').innerHTML = htmlSalario(c);
-    $('#ogHistorico').innerHTML = htmlHistorico(dados.historico, c);
+    montarSalarioBarra($('#ogSalario'));
+    histGuardado = desenharHistoricoDespesas($('#ogHistorico'), dados.historico, c, histGuardado);
+    ['#ogCategorias', '#ogSalario', '#ogHistorico'].forEach(recolherLateral);
     desenharBarra(c);
   }
 
@@ -630,8 +687,8 @@ export async function montarPaginaOrganizacao(token, {
     if (!r || !r.ok) {
       loadingEl.hidden = true;
       if (!dados) {
-        erroEl.hidden = false;
-        erroEl.textContent = `Não deu pra carregar as despesas agora (${(r && r.etapa) || '?'}): ${(r && r.erro) || 'erro desconhecido'}.`;
+        // 06/10/2026 (A-60/A-61): texto humano + "Tentar de novo"; o detalhe técnico fica num <details>
+        mostrarErroCarga(erroEl, { tela: 'Gastos e Despesas', resposta: r, aoTentar: () => carregar(), doc });
       }
       return;
     }
@@ -658,6 +715,21 @@ export async function montarPaginaOrganizacao(token, {
     renda: doc.getElementById('painelRenda') || doc.getElementById('painelSalario'),
     simulacoes: doc.getElementById('painelSimulacoes'),
   };
+  // 06/10/2026 (Onda 3): abas em pílula no topo (criarTabs); cada botão ganha data-aba (o código e os testes usam) e aria-controls
+  const NOME_ABA = { patrimonio: 'Patrimônio', despesas: 'Gastos e Despesas', renda: 'Renda e Orçamentos', simulacoes: 'Simulações' };
+  let abasUi = null;
+  if (abasEl) {
+    abasUi = criarTabs(abasEl, {
+      variante: 'pilula', rotulo: 'Organização Financeira', ativo: 'patrimonio', doc,
+      itens: Object.entries(NOME_ABA).map(([id, rotulo]) => ({ id, rotulo })),
+      aoMudar: (id) => mostrarAba(id),
+    });
+    abasEl.querySelectorAll('[data-tab]').forEach((b) => {
+      b.dataset.aba = b.dataset.tab;
+      const painel = paineis[b.dataset.tab];
+      if (painel) b.setAttribute('aria-controls', painel.id);
+    });
+  }
   const el = {
     patrimonio: doc.getElementById('patrimonioConteudo'),
     gastos: doc.getElementById('gastosConteudo'),
@@ -717,7 +789,7 @@ export async function montarPaginaOrganizacao(token, {
           token, despesas: dados, hoje: hojeIso() || undefined, doc, ...gastosOpcoes,
           api: { ...api.gastos, getGastos: primeiraDepoisRecarrega(gas), getArquivosGastos: primeiraDepoisRecarrega(gasDrive) },
         });
-      } catch (e) { el.gastos.innerHTML = `<div class="carteiras-erro">Não deu pra montar os gastos: ${esc(e.message || e)}</div>`; }
+      } catch (e) { mostrarErroCarga(el.gastos, { tela: 'Gastos reais', erro: e, aoTentar: () => { gastos = null; montarDespesasExtras(); }, doc }); }
     }
   }
 
@@ -726,10 +798,13 @@ export async function montarPaginaOrganizacao(token, {
     if (!el.simulador || simulacoes) return;
     if (!pat.iniciado) pat.obter();
     if (pat.valor) desenharSimulador();
-    else if (pat.valor === null) { if (el.simHero) el.simHero.innerHTML = ''; el.simulador.innerHTML = '<div class="carteiras-erro">O simulador precisa do patrimônio (financiamento e FIES), que não carregou agora. Tente "Atualizar dados".</div>'; }
-    else if (!el.simulador.querySelector('.skel')) {
-      if (el.simHero) el.simHero.innerHTML = '<div class="sm-hero sm-hero-skel"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>';
-      el.simulador.innerHTML = '<section class="pt-sec"><div class="pt-sec-cab"><h2>Amortizar ou investir?</h2><span class="pt-hint">carregando o financiamento e o FIES…</span></div><span class="skel" style="height:220px;border-radius:16px"></span></section>';
+    else if (pat.valor === null) {
+      // 06/10/2026 (A-60/A-61): o simulador precisa do patrimônio (financiamento e FIES); texto humano + "Tentar de novo"
+      if (el.simHero) el.simHero.innerHTML = '';
+      mostrarErroCarga(el.simulador, { tela: 'Simulações', resposta: { erro: 'o patrimônio (financiamento e FIES) não carregou' }, aoTentar: () => pat.recarregar(), doc });
+    } else if (!el.simulador.querySelector('.skel')) {
+      if (el.simHero) el.simHero.innerHTML = '<div class="sm-hero sm-hero-skel grid-kpi"><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span></div>';
+      el.simulador.innerHTML = '<section class="pt-sec"><div class="pt-sec-cab"><h2>Amortizar ou investir?</h2><span class="pt-hint">carregando o financiamento e o FIES…</span></div><span class="skel skel-bloco og-skel-220"></span></section>';
     }
   }
   function desenharSimulador() {
@@ -744,7 +819,7 @@ export async function montarPaginaOrganizacao(token, {
         if (rolarDepois && visivel('simulacoes')) { const alvo = doc.getElementById(rolarDepois); if (alvo) setTimeout(() => rolarAte(alvo), 0); }
         rolarDepois = null;
       } else simulacoes.atualizar(ctx);
-    } catch (e) { el.simulador.innerHTML = `<div class="carteiras-erro">Não deu pra montar o simulador: ${esc(e.message || e)}</div>`; }
+    } catch (e) { mostrarErroCarga(el.simulador, { tela: 'Simulações', erro: e, aoTentar: () => { simulacoes = null; desenharSimulador(); }, doc }); }
   }
 
   // --- Renda e Orçamentos -----------------------------------------------------
@@ -771,7 +846,7 @@ export async function montarPaginaOrganizacao(token, {
     if (!pat.iniciado) pat.obter();
     if (!sal.iniciado) sal.obter();
     if (!rendaMontada) {
-      [el.rendaTopo, el.rendaInv, el.rendaContas].forEach((x) => { if (x && !x.innerHTML.trim()) x.innerHTML = '<span class="skel" style="height:180px;border-radius:16px;display:block"></span>'; });
+      [el.rendaTopo, el.rendaInv, el.rendaContas].forEach((x) => { if (x && !x.innerHTML.trim()) x.innerHTML = '<span class="skel skel-bloco og-skel-180"></span>'; });
       if (pat.valor !== undefined && sal.valor !== undefined) desenharRenda();
     } else desenharRenda();
   }
@@ -874,7 +949,8 @@ export async function montarPaginaOrganizacao(token, {
     const aba = paineis[qual] ? qual : (paineis.patrimonio ? 'patrimonio' : 'despesas');
     abaAtual = aba;
     Object.entries(paineis).forEach(([k, p]) => { if (p) p.hidden = k !== aba; });
-    if (abasEl) abasEl.querySelectorAll('[data-aba]').forEach((b) => { const a = b.dataset.aba === aba; b.classList.toggle('active', a); b.setAttribute('aria-selected', String(a)); b.tabIndex = a ? 0 : -1; });
+    if (abasUi) abasUi.selecionar(aba);
+    definirTituloPagina({ subaba: NOME_ABA[aba], secao: 'Organização Financeira' }, doc); // A-69: "<Subaba> · <Seção> · Patrimônio"
     if (aba === 'patrimonio') montarPatrimonio();
     if (aba === 'despesas') { montarDespesasExtras(); pendente.despesas = false; if (gastos && gastos.aoMostrar) { try { gastos.aoMostrar(); } catch (e) { /* ok */ } } }
     if (aba === 'simulacoes') { montarSimulacoes(); if (pendente.simulacoes && simulacoes && pat.valor) desenharSimulador(); pendente.simulacoes = false; }
@@ -896,16 +972,6 @@ export async function montarPaginaOrganizacao(token, {
     if (alvo) { const k = Object.keys(paineis).find((x) => paineis[x] && paineis[x].contains(alvo)); if (k) return { aba: k, rolar: h }; }
     return null;
   }
-  if (abasEl) {
-    abasEl.addEventListener('click', (ev) => { const b = ev.target.closest('[data-aba]'); if (b) mostrarAba(b.dataset.aba); });
-    abasEl.addEventListener('keydown', (ev) => {
-      if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
-      const bs = [...abasEl.querySelectorAll('[data-aba]')];
-      const i = bs.findIndex((b) => b.classList.contains('active'));
-      const prox = bs[(i + (ev.key === 'ArrowRight' ? 1 : bs.length - 1)) % bs.length];
-      if (prox) { mostrarAba(prox.dataset.aba); prox.focus(); ev.preventDefault(); }
-    });
-  }
   if (win && typeof win.addEventListener === 'function') {
     win.addEventListener('hashchange', () => {
       const r = abaDoHash(String(win.location.hash || '').replace('#', ''));
@@ -916,15 +982,25 @@ export async function montarPaginaOrganizacao(token, {
   const inicial = abaDoHash(win && win.location ? String(win.location.hash || '').replace('#', '') : '');
   mostrarAba(inicial ? inicial.aba : 'patrimonio', { rolarPara: inicial && inicial.rolar });
 
+  // 05/10/2026 (A-39): a carga inicial já pediu patrimônio/salário/gastos/Drive
+  // (painel Documentos + aba aberta); o "Atualizar dados" da 1ª pintura não
+  // pede de novo o que começou há menos de 5 s (eram 5 chamadas duplicadas,
+  // 4 execuções pesadas simultâneas no Apps Script). Abas fora de vista só
+  // buscam ao abrir (mostrarAba -> montarX -> obter()).
+  const JANELA_RECENTE_MS = 5000;
+  const recente = (c) => c.iniciado && c.iniciadoHa() < JANELA_RECENTE_MS;
   const atualizarTudo = async () => {
     const tarefas = [carregar()];
-    if (patrimonio && patrimonio.dados) tarefas.push(patrimonio.recarregar());
-    else if (pat.iniciado) tarefas.push(pat.recarregar());
-    if (salario && salario.dados) tarefas.push(salario.recarregar());
-    else if (sal.iniciado) tarefas.push(sal.recarregar());
-    if (gastos && gastos.dados) tarefas.push(gastos.recarregar());
-    else { if (gas.iniciado) tarefas.push(gas.recarregar()); if (gasDrive.iniciado) tarefas.push(gasDrive.recarregar()); }
-    if (holDrive.iniciado) tarefas.push(holDrive.recarregar());
+    if (patrimonio && patrimonio.dados) { if (!recente(pat)) tarefas.push(patrimonio.recarregar()); }
+    else if (pat.iniciado && !recente(pat)) tarefas.push(pat.recarregar());
+    if (salario && salario.dados) { if (!recente(sal)) tarefas.push(salario.recarregar()); }
+    else if (sal.iniciado && !recente(sal)) tarefas.push(sal.recarregar());
+    if (gastos && gastos.dados) { if (!recente(gas)) tarefas.push(gastos.recarregar()); }
+    else {
+      if (gas.iniciado && !recente(gas)) tarefas.push(gas.recarregar());
+      if (gasDrive.iniciado && !recente(gasDrive)) tarefas.push(gasDrive.recarregar());
+    }
+    if (holDrive.iniciado && !recente(holDrive)) tarefas.push(holDrive.recarregar());
     await Promise.all(tarefas);
   };
 

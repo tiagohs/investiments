@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Componentes M3 · Catálogo · Patrimônio</title>
+<meta name="theme-color" content="#F8FAFC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F172A" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@160..700&family=Roboto+Mono:wght@400..600&display=swap">
+<link rel="stylesheet" href="../assets/css/m3-tokens.css">
+<link rel="stylesheet" href="../assets/css/shell.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<style>
+  /* 05/10/2026: catálogo vivo da base Material 3 (kit Figma). Dados 100% inventados. Só layout do catálogo aqui. */
+  body{ margin:0; background:var(--md-sys-color-background); color:var(--md-sys-color-on-background); font-family:var(--body-f); }
+  .cat-topo{ position:sticky; top:0; z-index:var(--z-header); display:flex; align-items:center; gap:12px; padding:10px 16px; background:var(--md-sys-color-surface-container-low); border-bottom:1px solid var(--md-sys-color-outline-variant); }
+  .cat-topo h1{ margin:0; font:600 18px/1.2 var(--display); flex:1 1 auto; }
+  .cat{ max-width:1100px; margin:0 auto; padding:24px 16px 96px; display:flex; flex-direction:column; gap:40px; }
+  .cat section{ display:flex; flex-direction:column; gap:16px; scroll-margin-top:72px; }
+  .cat h2{ margin:0; font:600 22px/28px var(--display); }
+  .cat h2 + p, .cat .nota{ margin:-8px 0 0; color:var(--ink-muted); font-size:14px; line-height:20px; max-width:70ch; }
+  .cat code{ font-family:var(--mono); font-size:12.5px; background:var(--md-sys-color-surface-container); padding:1px 6px; border-radius:6px; }
+  .linha{ display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+  .amostras{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .amostra{ border-radius:12px; padding:10px 12px; font-size:12px; line-height:16px; min-height:64px; display:flex; flex-direction:column; justify-content:flex-end; border:1px solid var(--md-sys-color-outline-variant); }
+  .amostra b{ font-weight:600; font-size:12px; } .amostra span{ font-family:var(--mono); opacity:.85; }
+  .graf-amostras{ display:flex; flex-wrap:wrap; gap:8px; }
+  .graf-amostras i{ display:inline-flex; align-items:center; justify-content:center; width:72px; height:40px; border-radius:10px; font:600 12px var(--mono); color:#fff; font-style:normal; }
+  .icones{ display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:4px; }
+  .icones div{ display:flex; flex-direction:column; align-items:center; gap:4px; padding:8px 2px; font-size:11px; color:var(--ink-muted); text-align:center; word-break:break-all; border-radius:8px; }
+  .icones svg{ width:24px; height:24px; fill:var(--md-sys-color-on-surface); }
+  .tipo-linha{ display:flex; align-items:baseline; gap:16px; border-bottom:1px solid var(--md-sys-color-outline-variant); padding:6px 0; }
+  .tipo-linha small{ flex:none; width:150px; color:var(--ink-muted); font-family:var(--mono); font-size:12px; }
+  .moldura{ border:1px dashed var(--md-sys-color-outline-variant); border-radius:16px; padding:16px; }
+</style>
+</head>
+<body>
+<header class="cat-topo">
+  <h1>Componentes M3 · Patrimônio</h1>
+  <button class="icon-btn" id="alternarTema" type="button" aria-label="Alternar tema claro/escuro" title="Alternar tema"><svg class="ico" aria-hidden="true"><use href="#ico-dark-mode"/></svg></button>
+</header>
+
+<main class="cat">
+  <section id="tokens">
+    <h2>Cores (papéis M3)</h2>
+    <p>Tokens em <code>assets/css/m3-tokens.css</code>, claro e escuro. Use sempre o papel (<code>var(--md-sys-color-primary)</code>), nunca o hex.</p>
+    <div class="amostras" id="amostrasCor"></div>
+    <h2>Gráficos</h2>
+    <p>Ordem fixa por classe: 1 Ações, 2 FIIs, 3 Renda Fixa, 4 EUA, 5 Cripto, 6 Caixa/Reserva, 7 e 8 extras. A rampa é tonal do primary (clara &rarr; escura).</p>
+    <div class="graf-amostras" id="amostrasGraf"></div>
+  </section>
+
+  <section id="tipografia">
+    <h2>Tipografia (Readex Pro)</h2>
+    <div>
+      <div class="tipo-linha"><small>display / headline-m</small><span style="font-family:var(--display);font-size:var(--md-sys-typescale-headline-medium-size);line-height:var(--md-sys-typescale-headline-medium-line-height, 1.3);font-weight:500">Patrimônio total</span></div>
+      <div class="tipo-linha"><small>title-large</small><span style="font-family:var(--display);font-size:var(--md-sys-typescale-title-large-size);line-height:var(--md-sys-typescale-title-large-line-height, 1.3);font-weight:500">Minha carteira</span></div>
+      <div class="tipo-linha"><small>title-medium</small><span style="font-family:var(--display);font-size:var(--md-sys-typescale-title-medium-size);line-height:var(--md-sys-typescale-title-medium-line-height, 1.3);font-weight:500">Rentabilidade</span></div>
+      <div class="tipo-linha"><small>body-large</small><span style="font-family:var(--display);font-size:var(--md-sys-typescale-body-large-size);line-height:var(--md-sys-typescale-body-large-line-height, 1.3);font-weight:400">Texto corrido de apoio, até 70 caracteres por linha.</span></div>
+      <div class="tipo-linha"><small>label-large</small><span style="font-family:var(--display);font-size:var(--md-sys-typescale-label-large-size);line-height:var(--md-sys-typescale-label-large-line-height, 1.3);font-weight:500">Rótulo de botão e aba</span></div>
+      <div class="tipo-linha"><small>números (mono)</small><span style="font-family:var(--mono)">R$ 12.345,67 &nbsp; +3,21%</span></div>
+    </div>
+  </section>
+
+  <section id="botoes">
+    <h2>Botões</h2>
+    <div class="linha"><button class="btn btn-filled">Preenchido</button><button class="btn btn-tonal">Tonal</button><button class="btn btn-outlined">Contorno</button><button class="btn btn-text">Texto</button><button class="btn btn-perigo">Excluir</button><button class="btn btn-filled" disabled>Desabilitado</button></div>
+    <div class="linha"><button class="btn btn-filled"><svg class="ico"><use href="#ico-add"/></svg>Com ícone</button><button class="btn btn-tonal btn-sm">Pequeno</button><button class="btn btn-filled carregando"><span class="spinner"></span>Salvando</button>
+      <button class="icon-btn" aria-label="Editar"><svg class="ico"><use href="#ico-edit"/></svg></button><button class="icon-btn icon-btn-tonal" aria-label="Filtrar"><svg class="ico"><use href="#ico-filter-list"/></svg></button><button class="icon-btn icon-btn-filled" aria-label="Adicionar"><svg class="ico"><use href="#ico-add"/></svg></button></div>
+    <p class="nota">Legados continuam funcionando: <code>.btn-primary</code> = filled, <code>.btn-ghost</code> = contorno suave.</p>
+  </section>
+
+  <section id="chips">
+    <h2>Chips, segmentado e selos</h2>
+    <div class="linha" id="chipsFiltro"><button class="chip on" aria-pressed="true">Mês atual</button><button class="chip" aria-pressed="false">30 dias</button><button class="chip" aria-pressed="false">12 meses</button><button class="chip" aria-pressed="false"><svg class="ico"><use href="#ico-calendar-month"/></svg>Escolher período</button></div>
+    <div class="linha"><span class="chip-tonal chip-good">Comprar</span><span class="chip-tonal chip-warn">Aguardar</span><span class="chip-tonal chip-bad">Evitar</span><span class="chip-tonal chip-info">Informativo</span><span class="chip-tonal chip-primary">Ações</span><span class="badge">3</span><span class="badge badge-novo">Novo</span></div>
+    <div class="linha"><div class="segmented" role="group" aria-label="Moeda"><button class="on" aria-pressed="true">R$</button><button aria-pressed="false">US$</button><button aria-pressed="false">%</button></div></div>
+  </section>
+
+  <section id="abas">
+    <h2>Abas e breadcrumb</h2>
+    <p>Hierarquia do kit: <b>pílula</b> = subpáginas, <b>sublinhada</b> = recortes dentro da subpágina, <b>breadcrumb</b> = telas de detalhe. Teclado: &larr; &rarr; Home End.</p>
+    <div id="abaPilula"></div>
+    <div id="abaSub"></div>
+    <nav id="bc"></nav>
+    <div class="moldura" id="painelAbas" aria-live="polite">Painel da aba selecionada.</div>
+  </section>
+
+  <section id="cabecalho">
+    <h2>Cabeçalho de página</h2>
+    <p>Título, subtítulo, ações e abas; também define <code>document.title</code> = "&lt;Subaba&gt; &middot; &lt;Seção&gt; &middot; Patrimônio" (neste catálogo o título da aba do navegador não muda).</p>
+    <div class="moldura" id="cabExemplo"></div>
+  </section>
+
+  <section id="cartoes">
+    <h2>Cartões e KPI</h2>
+    <div class="grid-kpi">
+      <div class="card"><div class="kpi"><div class="kpi-topo"><span class="kpi-rotulo">Patrimônio total</span></div><div class="kpi-valor">R$ 100.000<small>,00</small></div><div class="kpi-sub"><span class="tendencia sobe"><svg class="ico"><use href="#ico-north-east"/></svg>2,10%</span> no mês</div></div></div>
+      <div class="card"><div class="kpi"><div class="kpi-topo"><span class="kpi-rotulo">Proventos</span></div><div class="kpi-valor">R$ 480<small>,00</small></div><div class="kpi-sub">a receber em outubro</div></div></div>
+      <div class="card card-filled"><div class="kpi"><div class="kpi-topo"><span class="kpi-rotulo">Variação do dia</span></div><div class="kpi-valor">−0,84%</div><div class="kpi-sub"><span class="tendencia desce"><svg class="ico"><use href="#ico-south-east"/></svg>R$ 840</span></div></div></div>
+      <div class="card card-elevated card-clicavel"><div class="kpi"><div class="kpi-topo"><span class="kpi-rotulo">Cartão clicável</span></div><div class="kpi-valor">12</div><div class="kpi-sub">ativos</div></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card card-lg"><div class="card-cab"><div><p class="card-rotulo">Distribuição</p><h3 class="card-titulo">Por classe</h3></div><div class="card-acoes"><button class="icon-btn" id="menuCartao" aria-label="Mais ações"><svg class="ico"><use href="#ico-more-vert"/></svg></button></div></div>
+        <div class="progress-linear" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100" aria-label="Meta"><span style="--p:62%"></span></div><p class="card-nota">62% da meta no ano (menu "..." abre o menu flutuante).</p></div>
+      <div class="card card-lg"><div class="card-cab"><div><p class="card-rotulo">Carregando</p><h3 class="card-titulo">Esqueleto</h3></div></div><div class="skel" style="height:16px;margin-bottom:8px"></div><div class="skel" style="height:16px;width:70%"></div></div>
+    </div>
+  </section>
+
+  <section id="tabela">
+    <h2>Tabela (estilo do kit)</h2>
+    <p>Linhas zebradas com cantos arredondados, célula de ativo com logo em círculo, números em mono alinhados à direita, ordenação com <code>aria-sort</code> e menu "&hellip;" por linha.</p>
+    <div class="card card-flat"><div class="tabela-wrap"><table class="tabela">
+      <thead><tr><th><button type="button">Ativo<svg><use href="#ico-unfold-more"/></svg></button></th><th class="num" aria-sort="descending"><button type="button">Valor<svg><use href="#ico-arrow-downward"/></svg></button></th><th class="num">Variação</th><th class="col-opc"></th></tr></thead>
+      <tbody>
+        <tr><td><div class="cel-ativo"><span class="logo-circulo"><svg class="ico"><use href="#ico-trending-up"/></svg></span><span class="cel-ativo-textos"><span class="cel-ativo-ticker">ABCD3</span><span class="cel-ativo-nome">Empresa Alfa</span></span></div></td><td class="num">R$ 4.250,00</td><td class="num"><span class="var sobe"><svg><use href="#ico-north-east"/></svg>2,4%</span></td><td class="col-opc"><button class="icon-btn menu-linha" aria-label="Ações da linha"><svg class="ico"><use href="#ico-more-vert"/></svg></button></td></tr>
+        <tr><td><div class="cel-ativo"><span class="logo-circulo"><svg class="ico"><use href="#ico-building"/></svg></span><span class="cel-ativo-textos"><span class="cel-ativo-ticker">WXYZ11</span><span class="cel-ativo-nome">Fundo Beta</span></span></div></td><td class="num">R$ 3.180,50</td><td class="num"><span class="var desce"><svg><use href="#ico-south-east"/></svg>0,9%</span></td><td class="col-opc"><button class="icon-btn menu-linha" aria-label="Ações da linha"><svg class="ico"><use href="#ico-more-vert"/></svg></button></td></tr>
+        <tr><td><div class="cel-ativo"><span class="logo-circulo"><svg class="ico"><use href="#ico-savings"/></svg></span><span class="cel-ativo-textos"><span class="cel-ativo-ticker">RF</span><span class="cel-ativo-nome">Título Gama</span></span></div></td><td class="num">R$ 2.000,00</td><td class="num"><span class="var"><svg><use href="#ico-trending-flat"/></svg>0,0%</span></td><td class="col-opc"><button class="icon-btn menu-linha" aria-label="Ações da linha"><svg class="ico"><use href="#ico-more-vert"/></svg></button></td></tr>
+      </tbody></table></div></div>
+  </section>
+
+  <section id="campos">
+    <h2>Campos, switch e faixa de configuração</h2>
+    <div class="grid-2">
+      <label class="campo"><span class="campo-rotulo">Ticker</span><input class="input" placeholder="Ex.: ABCD3"><span class="campo-ajuda">Texto de ajuda</span></label>
+      <label class="campo erro"><span class="campo-rotulo">Quantidade</span><input class="input" value="-1" aria-invalid="true"><span class="campo-ajuda">Informe um número positivo</span></label>
+      <label class="campo"><span class="campo-rotulo">Classe</span><select class="select"><option>Ações</option><option>FIIs</option></select></label>
+      <div class="faixa-config" id="faixaSwitch"></div>
+    </div>
+  </section>
+
+  <section id="feedback">
+    <h2>Confirmar, toast e erro de carga</h2>
+    <div class="linha">
+      <button class="btn btn-tonal" id="btConfirmar">Confirmar (diálogo)</button>
+      <button class="btn btn-perigo-ghost" id="btPerigo">Confirmar perigoso (folha no celular)</button>
+      <button class="btn btn-outlined" id="btToastOk">Toast ok</button>
+      <button class="btn btn-outlined" id="btToastErro">Toast erro</button>
+      <button class="btn btn-outlined" id="btToastDesfazer">Toast com Desfazer</button>
+    </div>
+    <div class="moldura" id="erroExemplo"></div>
+    <div class="moldura" id="vazioExemplo"></div>
+  </section>
+
+  <section id="icones">
+    <h2>Ícones (sprite)</h2>
+    <p>Material Symbols Rounded, inline em <code>assets/partials/shell.html</code>. Uso: <code>&lt;svg class="ico"&gt;&lt;use href="#ico-nome"/&gt;&lt;/svg&gt;</code>. Para pedir mais ícones, adicione em <code>scripts/gerar-sprite-icones.mjs</code> e rode o script.</p>
+    <div class="icones" id="gradeIcones"></div>
+  </section>
+</main>
+
+<script type="module">
+  import { initTheme, toggleTheme } from '../assets/js/theme.js';
+  import { criarTabs, criarBreadcrumb, ligarMenu, criarSwitch, confirmar, toast, mostrarErroCarga, mostrarEstadoVazio, montarCabecalhoPagina } from '../assets/js/ui/index.js';
+
+  initTheme(document.documentElement);
+  document.getElementById('alternarTema').addEventListener('click', () => toggleTheme(document.documentElement));
+
+  // Sprite: mora no template do shell; injeta aqui sem montar o shell inteiro (sem login, sem API).
+  try {
+    const html = await (await fetch('../assets/partials/shell.html')).text();
+    const t = new DOMParser().parseFromString(html, 'text/html').getElementById('shell-header-template');
+    const svg = t.content.querySelector('svg');
+    document.body.prepend(document.importNode(svg, true));
+    const grade = document.getElementById('gradeIcones');
+    svg.querySelectorAll('symbol').forEach((s) => {
+      const d = document.createElement('div');
+      d.innerHTML = `<svg aria-hidden="true"><use href="#${s.id}"/></svg><span>${s.id.replace('ico-', '')}</span>`;
+      grade.append(d);
+    });
+  } catch (e) { console.error('sprite', e); }
+
+  // Amostras de cor
+  const papeis = [['primary', 'on-primary'], ['primary-container', 'on-primary-container'], ['secondary-container', 'on-secondary-container'], ['tertiary-container', 'on-tertiary-container'], ['surface', 'on-surface'], ['surface-container', 'on-surface'], ['surface-container-high', 'on-surface'], ['background', 'on-background'], ['error', 'on-error'], ['error-container', 'on-error-container'], ['inverse-surface', 'inverse-on-surface'], ['outline-variant', 'on-surface']];
+  document.getElementById('amostrasCor').innerHTML = papeis.map(([f, o]) => `<div class="amostra" style="background:var(--md-sys-color-${f});color:var(--md-sys-color-${o})"><b>${f}</b><span>--md-sys-color-${f}</span></div>`).join('');
+  const nomes = ['Ações', 'FIIs', 'Renda Fixa', 'EUA', 'Cripto', 'Caixa', 'Extra 7', 'Extra 8'];
+  document.getElementById('amostrasGraf').innerHTML = nomes.map((n, i) => `<i style="background:var(--chart-${i + 1})" title="${n}">${i + 1}</i>`).join('') + '<span style="width:16px"></span>' + [1, 2, 3, 4, 5].map((i) => `<i style="background:var(--chart-ramp-${i})">r${i}</i>`).join('') + '<i style="background:var(--chart-up)">up</i><i style="background:var(--chart-down)">down</i>';
+
+  // Abas e breadcrumb
+  const painel = document.getElementById('painelAbas');
+  criarTabs(document.getElementById('abaPilula'), { variante: 'pilula', rotulo: 'Subpáginas', ativo: 'aportes', itens: [{ id: 'aportes', rotulo: 'Aportes' }, { id: 'lancamentos', rotulo: 'Lançamentos', contagem: 4 }, { id: 'outra', rotulo: 'Desabilitada', desabilitado: true }], aoMudar: (id) => { painel.textContent = `Pílula: ${id}`; } });
+  criarTabs(document.getElementById('abaSub'), { variante: 'sublinhada', rotulo: 'Recortes', ativo: 'a', itens: [{ id: 'a', rotulo: 'Ações' }, { id: 'f', rotulo: 'FIIs' }, { id: 'e', rotulo: 'Ações EUA' }, { id: 'r', rotulo: 'Renda Fixa' }], aoMudar: (id) => { painel.textContent = `Sublinhada: ${id}`; } });
+  criarBreadcrumb(document.getElementById('bc'), [{ rotulo: 'Carteiras', href: '#abas' }, { rotulo: 'Ações', href: '#abas' }, { rotulo: 'ABCD3' }]);
+
+  // Cabeçalho
+  montarCabecalhoPagina(document.getElementById('cabExemplo'), { secao: 'Carteiras', subaba: 'Ações', titulo: 'Ações', atualizarTitulo: false,
+    subtitulo: ['Valor aplicado ', { texto: '+2,1%', tom: 'bom' }, ' no mês'], refresh: false,
+    acoes: [Object.assign(document.createElement('button'), { className: 'btn btn-filled', textContent: 'Novo aporte', type: 'button' })],
+    abas: { pilula: { rotulo: 'Subpáginas', itens: [{ id: 'g', rotulo: 'Visão geral' }, { id: 'a', rotulo: 'Ações' }, { id: 'f', rotulo: 'FIIs' }], ativo: 'a' } } });
+
+  // Menus
+  const itensMenu = () => [{ rotulo: 'Editar', icone: 'edit', aoClicar: () => toast.info('Editar') }, { rotulo: 'Duplicar', icone: 'content-copy', aoClicar: () => toast.info('Duplicar') }, { separador: true }, { rotulo: 'Excluir', icone: 'delete', perigo: true, aoClicar: () => toast.aviso('Excluir') }];
+  ligarMenu(document.getElementById('menuCartao'), itensMenu);
+  document.querySelectorAll('.menu-linha').forEach((b) => ligarMenu(b, itensMenu));
+
+  // Switch
+  criarSwitch(document.getElementById('faixaSwitch'), { rotulo: 'Mostrar estatísticas', descricao: 'Aparece acima da tabela', marcado: true, aoMudar: (v) => toast.info(v ? 'Ligado' : 'Desligado', { duracaoMs: 1800 }) });
+
+  // Chips de filtro (aria-pressed)
+  document.querySelectorAll('#chipsFiltro .chip').forEach((c, _, todos) => c.addEventListener('click', () => todos.forEach((o) => { const on = o === c; o.classList.toggle('on', on); o.setAttribute('aria-pressed', String(on)); })));
+
+  // Feedback
+  document.getElementById('btConfirmar').addEventListener('click', async () => { const ok = await confirmar({ titulo: 'Salvar alterações?', mensagem: 'Os valores serão gravados na planilha.', confirmarTexto: 'Salvar' }); toast(ok ? 'Confirmado' : 'Cancelado', { tipo: ok ? 'ok' : 'info' }); });
+  document.getElementById('btPerigo').addEventListener('click', async () => { const ok = await confirmar({ titulo: 'Excluir lançamento?', mensagem: 'Isso não pode ser desfeito.', confirmarTexto: 'Excluir', perigo: true }); if (ok) toast.ok('Excluído'); });
+  document.getElementById('btToastOk').addEventListener('click', () => toast.ok('Aporte salvo'));
+  document.getElementById('btToastErro').addEventListener('click', () => toast.erro('Não consegui salvar. Tente de novo.'));
+  document.getElementById('btToastDesfazer').addEventListener('click', () => toast('Lançamento removido', { desfazer: () => toast.ok('Desfeito') }));
+  mostrarErroCarga(document.getElementById('erroExemplo'), { tela: 'Carteiras', resposta: { ok: false, etapa: 'network', erro: 'Failed to fetch' }, aoTentar: () => toast.info('Tentando de novo…') });
+  mostrarEstadoVazio(document.getElementById('vazioExemplo'), { titulo: 'Nenhum lançamento ainda', texto: 'Quando houver, eles aparecem aqui.' });
+</script>
+</body>
+</html>

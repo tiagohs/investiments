@@ -72,8 +72,8 @@ function detalhe(usd, comercial, taxas, reaisTotal) {
 export function remessaPorReais(reais, comercial, taxas) {
   const vet = vetRemessa(comercial, taxas);
   if (!(num(reais) > 0) || !(vet > 0)) return null;
-  const usd = arred(reais / vet, 2);
-  return detalhe(usd, comercial, taxas, arred(reais, 2));
+  const dolares = arred(reais / vet, 2);
+  return detalhe(dolares, comercial, taxas, arred(reais, 2));
 }
 
 /** Informei os US$ que quero -> quantos R$ enviar. */

@@ -31,6 +31,8 @@ function makeDom() {
     <div id="refreshControlRendaFixa" class="refresh-control"></div>
     <div id="rendaFixaConteudo" hidden></div>
   </body></html>`);
+  // movimento reduzido: os números dos KPIs saem finais (sem animação a partir de 0)
+  dom.window.matchMedia = (q) => ({ matches: /prefers-reduced-motion/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
   return dom.window.document;
 }
 
@@ -137,9 +139,9 @@ test('montarPaginaCarteirasRendaFixa(): tags verdes em Rentabilidade e Rentab. c
     const linhaCdb = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('CDB Banco X'));
     // "Rentab. contratada" (112% do CDI) e "Rentabilidade" (retorno já
     // realizado, calculado no front - (40000-30000)/30000 = 33,33%)
-    // viram status-pill verde (pedido verbal do Tiago - "tags verdinhas
+    // viram chip tonal verde do kit (pedido verbal do Tiago - "tags verdinhas
     // em Rentabilidade e Indexador contratado").
-    const pills = [...linhaCdb.querySelectorAll('.status-pill.good')];
+    const pills = [...linhaCdb.querySelectorAll('.chip-tonal.chip-good')];
     assert.ok(pills.some((p) => p.textContent === '112% do CDI'));
     assert.ok(pills.some((p) => /33,3\d%/.test(p.textContent)));
   });
@@ -149,7 +151,7 @@ test('montarPaginaCarteirasRendaFixa(): tags verdes em Rentabilidade e Rentab. c
     const semTaxa = { ...CARTEIRA_RF_EXEMPLO, ativos: CARTEIRA_RF_EXEMPLO.ativos.map((a) => (a.indexador === 'CDI' ? { ...a, rentabilidadeContratada: null } : a)) };
     await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: semTaxa }), getHomeImpl: GET_HOME_VAZIO });
     const linhaCdb = [...doc.querySelectorAll('.cc-tabela tbody tr')].find((tr) => tr.textContent.includes('CDB Banco X'));
-    assert.ok([...linhaCdb.querySelectorAll('.status-pill.good')].some((p) => p.textContent === 'CDI'));
+    assert.ok([...linhaCdb.querySelectorAll('.chip-tonal.chip-good')].some((p) => p.textContent === 'CDI'));
   });
 });
 
@@ -261,38 +263,33 @@ test('montarPaginaCarteirasRendaFixa(): desenha os 6 gráficos (Carteira total/L
 
     await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl, getHomeImpl });
 
-    // Rentabilidade: Carteira total (row 1) + Longo prazo/Reserva de
-    // emergência (row 2, lado a lado).
-    assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'));
-    assert.ok(doc.getElementById('rfRentabLongoChart').querySelector('svg'));
-    assert.ok(doc.getElementById('rfRentabEmergChart').querySelector('svg'));
-    // Evolução: mesma estrutura.
-    assert.ok(doc.getElementById('rfEvolucaoTotalChart').querySelector('svg'));
-    assert.ok(doc.getElementById('rfEvolucaoLongoChart').querySelector('svg'));
-    assert.ok(doc.getElementById('rfEvolucaoEmergChart').querySelector('svg'));
+    // 06/10/2026: gráficos da biblioteca (charts/) via criarGraficosCarteira (agruparPor 'tipo'): primeiro as 3 rentabilidades
+    // (Carteira total ocupa a linha inteira; Longo prazo e Reserva de emergência dividem a de baixo), depois as 3 evoluções.
+    const graficos = doc.getElementById('rendaFixaGraficos');
+    const rentab = [...graficos.querySelectorAll('.cg-painel-rentabilidade')];
+    const evolucao = [...graficos.querySelectorAll('.cg-painel-evolucao')];
+    assert.equal(rentab.length, 3);
+    assert.equal(evolucao.length, 3);
+    [...rentab, ...evolucao].forEach((p) => assert.ok(p.querySelector('.chart--linha svg'), 'cada painel desenha o seu gráfico'));
+    assert.ok(rentab[0].classList.contains('cg-painel-largo') && evolucao[0].classList.contains('cg-painel-largo'), 'Carteira total em linha cheia');
+    assert.match(rentab[0].querySelector('.chart-card-rot').textContent, /Carteira total/);
+    assert.match(rentab[1].querySelector('.chart-card-rot').textContent, /Longo prazo/);
+    assert.match(rentab[2].querySelector('.chart-card-rot').textContent, /Reserva de emergência/);
 
-    // row 2 (Longo prazo + Reserva de emergência) fica lado a lado no
-    // mesmo `.cc-charts-par` - 2 grids (1 na seção Rentabilidade, 1 na
-    // Evolução).
-    assert.equal(doc.querySelectorAll('.cc-charts-par').length, 2);
+    // Evolução de Longo prazo/Reserva de emergência mostra só 1 linha (comInvestido:false) - sem "Valor aplicado" na legenda,
+    // diferente da Carteira total (que compara com o investido, igual às outras subpáginas).
+    assert.match(evolucao[0].querySelector('.chart-legenda').textContent, /Valor aplicado/);
+    assert.doesNotMatch(evolucao[1].textContent, /Valor aplicado/);
+    assert.doesNotMatch(evolucao[2].textContent, /Valor aplicado/);
+    assert.match(rentab[1].querySelector('.chart-legenda').textContent, /Longo prazo/);
+    assert.match(rentab[2].querySelector('.chart-legenda').textContent, /Reserva de emergência/);
 
-    // Evolução de Longo prazo/Reserva de emergência mostra só 1 linha
-    // (comInvestido:false) - sem "Valor aplicado" na legenda, diferente
-    // da Carteira total (que compara com o investido, igual às outras
-    // subpáginas).
-    assert.match(doc.getElementById('rfEvolucaoTotalLegenda').textContent, /Valor aplicado/);
-    assert.doesNotMatch(doc.getElementById('rfEvolucaoLongoLegenda').textContent, /Valor aplicado/);
-    assert.match(doc.getElementById('rfEvolucaoLongoLegenda').textContent, /Longo prazo/);
-    assert.doesNotMatch(doc.getElementById('rfEvolucaoEmergLegenda').textContent, /Valor aplicado/);
-    assert.match(doc.getElementById('rfEvolucaoEmergLegenda').textContent, /Reserva de emergência/);
-
-    // filtro de período (acima da 1ª seção) redesenha os 6 gráficos juntos.
-    const periodoTabs = doc.getElementById('rendaFixaPeriodoTabs');
-    assert.ok(periodoTabs);
-    const botao30d = periodoTabs.querySelector('.filter-tab[data-periodo="30d"]');
+    // o seletor de período (acima dos gráficos) redesenha os 6 juntos.
+    const botao30d = graficos.querySelector('.cg-periodo [data-periodo="30d"]');
+    assert.ok(botao30d);
     assert.doesNotThrow(() => botao30d.dispatchEvent(new doc.defaultView.Event('click', { bubbles: true })));
-    assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'));
-    assert.ok(doc.getElementById('rfEvolucaoEmergChart').querySelector('svg'));
+    assert.equal(botao30d.getAttribute('aria-pressed'), 'true');
+    assert.equal(graficos.querySelectorAll('.chart--linha svg').length, 6);
   });
 });
 
@@ -305,8 +302,10 @@ test('montarPaginaCarteirasRendaFixa(): sem histórico (getHome falhou), mostra 
     await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl, getHomeImpl });
 
     assert.equal(doc.getElementById('rendaFixaConteudo').hidden, false);
-    assert.equal(doc.getElementById('rfRentabTotalChart').querySelector('svg'), null);
-    assert.match(doc.getElementById('rfRentabTotalChart').textContent, /Não deu pra carregar/);
+    const graficos = doc.getElementById('rendaFixaGraficos');
+    assert.equal(graficos.querySelector('.chart--linha'), null);
+    assert.equal(graficos.querySelectorAll('.chart-card[data-estado="erro"]').length, 6);
+    assert.match(graficos.textContent, /Não deu pra carregar os gráficos agora/);
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
 });
@@ -316,14 +315,15 @@ test('montarPaginaCarteirasRendaFixa(): tabela com imagem do título (igual às 
     const doc = makeDom();
     await montarPaginaCarteirasRendaFixa('token-fake', { doc, getCarteirasRendaFixaImpl: async () => ({ ok: true, carteira: CARTEIRA_RF_EXEMPLO }), getHomeImpl: GET_HOME_VAZIO });
     const linhas = [...doc.querySelectorAll('.cc-tabela tbody tr')];
-    const celTesouro = linhas.map((tr) => tr.querySelector('.cc-ativo-cel')).find((c) => c && /Tesouro IPCA/.test(c.textContent));
+    const celTesouro = linhas.map((tr) => tr.querySelector('.cel-ativo')).find((c) => c && /Tesouro IPCA/.test(c.textContent));
     assert.ok(celTesouro, 'célula do título com logo');
-    assert.match(celTesouro.querySelector('.cc-logo img').getAttribute('src'), /assets\/imgs\/tesouro-direto\.webp$/);
-    const celCdb = linhas.map((tr) => tr.querySelector('.cc-ativo-cel')).find((c) => c && /CDB Banco X/.test(c.textContent));
-    assert.ok(celCdb.querySelector('.cc-logo-fallback'), 'sem imagem própria: iniciais');
+    assert.match(celTesouro.querySelector('.logo-circulo img').getAttribute('src'), /assets\/imgs\/tesouro-direto\.webp$/);
+    const celCdb = linhas.map((tr) => tr.querySelector('.cel-ativo')).find((c) => c && /CDB Banco X/.test(c.textContent));
+    assert.equal(celCdb.querySelector('.logo-circulo img'), null, 'sem imagem própria: só as iniciais');
+    assert.match(celCdb.querySelector('.logo-circulo').textContent, /^BA$/);
     const novaAba = celTesouro.querySelector('a.link-ativo-nova-aba');
     assert.equal(novaAba.getAttribute('target'), '_blank');
-    assert.equal(novaAba.getAttribute('href'), celTesouro.querySelector('b a.link-ativo').getAttribute('href'));
+    assert.equal(novaAba.getAttribute('href'), celTesouro.querySelector('a.link-ativo').getAttribute('href'));
   });
 });
 
@@ -340,12 +340,12 @@ test('montarPaginaCarteirasRendaFixa(): a carteira desenha ANTES do getHome resp
 
     assert.equal(doc.getElementById('rendaFixaConteudo').hidden, false, 'conteúdo visível sem esperar o histórico');
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2, 'tabela já desenhada');
-    assert.match(doc.getElementById('rfRentabTotalChart').textContent, /Carregando os gráficos/);
-    assert.equal(doc.getElementById('rfRentabTotalChart').querySelector('svg'), null);
+    assert.equal(doc.querySelectorAll('#rendaFixaGraficos .chart-card[data-estado="carregando"]').length, 6, 'gráficos em "carregando"');
+    assert.equal(doc.querySelector('#rendaFixaGraficos .chart--linha'), null);
 
     liberarHome();
     await pagina;
-    assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'), 'gráficos desenhados quando o histórico chega');
+    assert.equal(doc.querySelectorAll('#rendaFixaGraficos .chart--linha svg').length, 6, 'gráficos desenhados quando o histórico chega');
     assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2);
   });
 });
@@ -368,7 +368,7 @@ test('montarPaginaCarteirasRendaFixa(): com carteira e histórico guardados, des
       for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 0));
       assert.equal(doc.getElementById('rendaFixaConteudo').hidden, false);
       assert.equal(doc.querySelectorAll('.cc-tabela tbody tr').length, 2, 'tabela vinda do cache, sem esperar a rede');
-      assert.ok(doc.getElementById('rfRentabTotalChart').querySelector('svg'), 'gráficos vindos do histórico guardado');
+      assert.equal(doc.querySelectorAll('#rendaFixaGraficos .chart--linha svg').length, 6, 'gráficos vindos do histórico guardado');
       liberar();
       await pagina;
       assert.match(doc.getElementById('rendaFixaErro').textContent, /Mostrando os dados guardados/);

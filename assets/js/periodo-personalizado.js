@@ -52,12 +52,66 @@
  * 1ª vez que o componente é usado, se a página ainda não carregou o CSS.
  */
 
+import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
+import { MESES_CURTOS, MESES_LONGOS } from './format.js'; // 05/10/2026 (A-68)
+
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const MESES_CURTOS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const MESES_LONGOS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+
 const DIAS_SEMANA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 const DIAS_SEMANA_LONGOS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
-const ROTULO_CHIP = 'Escolher período';
+
+// ---------------------------------------------------------------------------
+// 05/10/2026 (auditoria A-67): catálogo ÚNICO de períodos dos filtros de gráfico. Antes cada tela
+// escrevia os seus ("Mês atual/30 dias/6 meses/12 meses/3 anos/Desde o início", "12/24/36 meses",
+// "12M/3A/5A/Tudo", "5 anos/10 anos/Tudo"...) - 4 grafias pra "tudo". Ids/rótulos canônicos abaixo;
+// os ids que as telas já guardam (preferências no navegador, cálculos, testes) continuam valendo
+// como ALIAS (`ALIAS_PERIODO`), então nada que está salvo quebra e `rotuloPeriodo()` aceita os dois.
+// ---------------------------------------------------------------------------
+export const ROTULO_PERSONALIZADO = 'Escolher período';
+export const PERIODOS = [
+  { id: '1m', rotulo: '1 mês' },
+  { id: '6m', rotulo: '6 meses' },
+  { id: 'ano', rotulo: 'No ano' },
+  { id: '1a', rotulo: '1 ano' },
+  { id: '3a', rotulo: '3 anos' },
+  { id: '5a', rotulo: '5 anos' },
+  { id: 'tudo', rotulo: 'Tudo' },
+  { id: 'personalizado', rotulo: ROTULO_PERSONALIZADO },
+];
+/** id antigo (o que as telas guardam) -> id canônico. */
+export const ALIAS_PERIODO = { '30d': '1m', '12m': '1a', '60m': '5a', inicio: 'tudo' };
+// Períodos que não são "janela até hoje" (mês de calendário) ou que só existem em uma tela: rótulo no mesmo padrão.
+const ROTULOS_ESPECIAIS = { mes: 'Mês atual', '3m': '3 meses', '24m': '2 anos', '36m': '3 anos', '10a': '10 anos', fim: 'Até o alvo' };
+
+/** Id (canônico, antigo ou especial) -> id canônico ('12m' -> '1a'); desconhecido volta como veio. */
+export function periodoCanonico(id) {
+  return ALIAS_PERIODO[id] || id;
+}
+
+/** Rótulo canônico de um período ("1 ano", "Tudo"...); id desconhecido volta como veio. */
+export function rotuloPeriodo(id) {
+  const c = periodoCanonico(id);
+  const achado = PERIODOS.find((p) => p.id === c);
+  return achado ? achado.rotulo : (ROTULOS_ESPECIAIS[id] || String(id));
+}
+
+/** Botões `.filter-tab[data-periodo]` com os rótulos canônicos, na ordem de `ids` (os ids são os que a tela já usa). */
+export function botoesPeriodoHtml(ids, ativo = ids[0]) {
+  return ids.map((id) => `<button class="filter-tab${id === ativo ? ' active' : ''}" type="button" data-periodo="${id}">${rotuloPeriodo(id)}</button>`).join('');
+}
+
+/**
+ * 06/10/2026 (Onda 3, kit): o mesmo conjunto de períodos como SEGMENTADO do kit ("1 mês | ✓ 6 meses | 1 ano", charts.css:
+ * .chart-seg/.chart-seg-btn, ✓ no ativo). Ponha o resultado dentro do contêiner que vai pra ligarFiltroPeriodo - o chip
+ * "Escolher período" entra depois do segmentado, no mesmo contêiner.
+ */
+const CHECK_SEG = '<svg class="chart-seg-ck" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9.55 17.65 4.6 12.7l1.4-1.4 3.55 3.55 8.45-8.45 1.4 1.4z"/></svg>';
+export function botoesSegmentadoHtml(ids, ativo = ids[0]) {
+  return `<div class="chart-seg" role="group" aria-label="Período">${ids.map((id) => `<button class="chart-seg-btn${id === ativo ? ' active' : ''}" type="button" data-periodo="${id}" aria-pressed="${id === ativo ? 'true' : 'false'}">${CHECK_SEG}<span>${rotuloPeriodo(id)}</span></button>`).join('')}</div>`;
+}
+
+const ROTULO_CHIP = ROTULO_PERSONALIZADO;
 const ICONE_CALENDARIO = '<svg class="fp-chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
 const SETA_ESQ = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>';
 const SETA_DIR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
@@ -204,7 +258,6 @@ export function garantirEstilosComponentesGrafico(doc) {
   } catch (e) { /* ambiente sem import.meta.url resolvível: a página carrega o CSS */ }
 }
 
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------------------------------------------------------------------------
 // Controlador
@@ -222,7 +275,8 @@ export function ligarFiltroPeriodo(doc, tabsEl, { chave = null, comChip = true, 
 
   const janelaDoc = doc.defaultView;
   const ouvintes = new Set();
-  const presets = () => [...tabsEl.querySelectorAll('.filter-tab[data-periodo]')].filter((b) => !b.classList.contains('fp-chip'));
+  // 06/10/2026: os presets podem ser .filter-tab (chip) ou .chart-seg-btn (segmentado do kit, charts.css)
+  const presets = () => [...tabsEl.querySelectorAll('.filter-tab[data-periodo], .chart-seg-btn[data-periodo]')].filter((b) => !b.classList.contains('fp-chip'));
   const presetExiste = (id) => presets().some((b) => b.dataset.periodo === id);
 
   const c = {
@@ -315,7 +369,7 @@ export function ligarFiltroPeriodo(doc, tabsEl, { chave = null, comChip = true, 
   };
 
   tabsEl.addEventListener('click', (ev) => {
-    const alvo = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.filter-tab') : null;
+    const alvo = ev.target && typeof ev.target.closest === 'function' ? ev.target.closest('.filter-tab, .chart-seg-btn') : null;
     if (!alvo || !tabsEl.contains(alvo)) return;
     if (alvo.classList.contains('fp-chip')) { c.abrir(); return; }
     if (alvo.dataset.periodo) c.definir(alvo.dataset.periodo);
