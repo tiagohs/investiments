@@ -35,6 +35,12 @@
  *    Fonte | Gravado em - "foto mensal" (a última do mês fica) do P/L, P/VP
  *    e DY da Auxiliar_ativos, pro motor comparar o ativo com a média dele.
  *  - aux_fundamentos-gf: fórmulas GOOGLEFINANCE (o script escreve).
+ *  - aux_fundamentos-resumo: Ticker | P/VP | P/L | VPA | LPA | Fonte | Atualizado em
+ *    - 06/10/2026 (Tiago: "resolva pra mim a questão do P/VP e P/L do GPRK e VNOM"): UMA linha por
+ *    ação (BR e EUA) com o valor ESCOLHIDO pela mescla de fontes (fundMontarDoTicker_, que já descarta
+ *    o absurdo) - o VPA/LPA saem coerentes com o P/VP/P/L escolhido. É a fonte que as fórmulas da
+ *    planilha passam a preferir (FundamentosPlanilha.gs) em vez do DB-Stocks/DB-Acoes e do GOOGLEFINANCE.
+ *    Regravada (1 setValues) no fim de CADA rodada de atualizarFundamentos_.
  *
  * Cache: Fundamentus/Yahoo/planilha no máximo 1x por dia por ticker; SEC 1x
  * por semana; CVM 1x por mês. Cada execução para em ~4,5 min (limite de 6
@@ -60,6 +66,8 @@ var CABECALHO_FUNDAMENTOS = ['Ticker', 'Fonte', 'JSON', 'Atualizado em'];
 var ABA_FUNDAMENTOS_HIST = 'aux_fundamentos-historico';
 var CABECALHO_FUNDAMENTOS_HIST = ['Mês', 'Ticker', 'P/L', 'P/VP', 'DY', 'VP/cota', 'Fonte', 'Gravado em'];
 var ABA_FUNDAMENTOS_GF = 'aux_fundamentos-gf';
+var ABA_FUNDAMENTOS_RESUMO = 'aux_fundamentos-resumo';
+var CABECALHO_FUNDAMENTOS_RESUMO = ['Ticker', 'P/VP', 'P/L', 'VPA', 'LPA', 'Fonte', 'Atualizado em'];
 // GOOGLEFINANCE por classe (FII não tem P/L nem beta que prestem) - poucas fórmulas pra não pesar a planilha
 var FUND_GF_ATRIBUTOS_ = ['pe', 'high52', 'low52', 'beta', 'volumeavg', 'marketcap'];
 var FUND_GF_SO_FII_ = ['high52', 'low52', 'volumeavg'];
@@ -297,6 +305,10 @@ function atualizarFundamentos_(origem, opcoes) {
   try { fundGravarFotoMensal_(ss, ativos, tabela, agora); } catch (eH) { avisosGerais.push('foto mensal: ' + String(eH).slice(0, 120)); }
   gravarAgora();
 
+  // 06/10/2026: resumo plano (P/VP, P/L, VPA, LPA escolhidos) que as fórmulas da planilha preferem - toda rodada, mesmo sem dado novo
+  var nResumo = null;
+  try { nResumo = fundGravarResumo_(ss, tabela, agora); } catch (eRs) { avisosGerais.push('resumo P/VP e P/L: ' + String(eRs).slice(0, 120)); }
+
   var nAtualizados = Object.keys(atualizadosPor).length;
   var nEmDia = ativos.filter(function (a) { return !precisou[a.ticker]; }).length;
   var partes = ['Fundamentos: ' + nAtualizados + ' de ' + ativos.length + ' ativo(s) com dado novo agora (' + ok.length + ' fonte(s) gravada(s), ' + consultas + ' consulta(s) a Yahoo/SEC); ' +
@@ -304,6 +316,7 @@ function atualizarFundamentos_(origem, opcoes) {
   if (falhas.length) partes.push('falharam: ' + falhas.join('; '));
   if (pendentes.length) partes.push('ficou pra próxima (tempo): ' + pendentes.join(', '));
   if (avisosPausa.length) partes.push(avisosPausa.join(' '));
+  if (nResumo != null) partes.push('resumo P/VP e P/L: ' + nResumo + ' ação(ões) em ' + ABA_FUNDAMENTOS_RESUMO);
   if (avisosGerais.length) partes.push(avisosGerais.join('; '));
   var totalTentado = ok.length + falhas.length;
   var status = (totalTentado && !ok.length) ? 'Erro' : ((falhas.length || pendentes.length || avisosGerais.length || dadoAntigo) ? 'Atenção' : 'Sucesso');
@@ -364,6 +377,51 @@ function fundGravarTabela_(ss, tabela) {
   aba.clearContents();
   aba.getRange(1, 1, 1, CABECALHO_FUNDAMENTOS.length).setValues([CABECALHO_FUNDAMENTOS]);
   if (linhas.length) aba.getRange(2, 1, linhas.length, CABECALHO_FUNDAMENTOS.length).setValues(linhas);
+}
+
+// ---------------------------------------------------------------------------
+// Aba aux_fundamentos-resumo (06/10/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Linhas do resumo (SEM cabeçalho): uma por ação (BR e EUA) com algum de P/VP, P/L, VPA, LPA, na ordem da carteira.
+ * Valor = o da mescla de fontes (fundMontarDoTicker_). VPA/LPA ficam coerentes com o P/VP/P/L escolhido: o do próprio
+ * Yahoo/Fundamentus vale se bater (até 10%) com cotação ÷ P/VP (ou P/L); senão sai derivado da cotação da planilha.
+ * (Caso real: VPA 0,36 no DB-Stocks x P/VP 1,98 do Yahoo; P/L 303 no GOOGLEFINANCE x 10,6 do Yahoo.)
+ * FIIs ficam de fora: o P/VP deles não passa por VPA/LPA na planilha.
+ */
+function fundResumoLinhas_(ativos, tabela, agora) {
+  var linhas = [];
+  var positivo = function (x) { return typeof x === 'number' && isFinite(x) && x > 0 ? x : null; };
+  var coerente = function (real, derivado) { return real != null && derivado != null && Math.abs(real / derivado - 1) <= 0.1; };
+  ativos.forEach(function (a) {
+    if (a.classe !== 'acoes' && a.classe !== 'acoesEua') return;
+    var m = fundMontarDoTicker_(tabela, a.ticker, a.classe);
+    if (!m) return;
+    var v = m.valores || {};
+    var pvp = positivo(v.pvp);
+    var pl = typeof v.pl === 'number' && isFinite(v.pl) && v.pl !== 0 ? v.pl : null;
+    var preco = positivo(a.preco);
+    var vpa = positivo(v.vpa);
+    var vpaDer = preco && pvp ? preco / pvp : null;
+    if (vpaDer && !coerente(vpa, vpaDer)) vpa = vpaDer;
+    var lpa = typeof v.lpa === 'number' && isFinite(v.lpa) && v.lpa !== 0 ? v.lpa : null;
+    var lpaDer = preco && pl > 0 ? preco / pl : null;
+    if (lpaDer && !(lpa > 0 && coerente(lpa, lpaDer))) lpa = lpaDer;
+    if (pvp == null && pl == null && vpa == null && lpa == null) return;
+    var r4 = function (x) { return x == null ? '' : fundArred_(x, 4); };
+    linhas.push([a.ticker, pvp == null ? '' : fundArred_(pvp, 2), pl == null ? '' : fundArred_(pl, 2), r4(vpa), r4(lpa), m.fontes.join('+'), agora]);
+  });
+  return linhas;
+}
+
+/** Regrava a aba aux_fundamentos-resumo inteira (cabeçalho + 1 linha por ação, UM setValues). Devolve quantas ações. */
+function fundGravarResumo_(ss, tabela, agora) {
+  var linhas = fundResumoLinhas_(fundAtivosDaCarteira_(ss), tabela, agora || new Date());
+  var aba = ss.getSheetByName(ABA_FUNDAMENTOS_RESUMO) || ss.insertSheet(ABA_FUNDAMENTOS_RESUMO);
+  aba.clearContents();
+  aba.getRange(1, 1, linhas.length + 1, CABECALHO_FUNDAMENTOS_RESUMO.length).setValues([CABECALHO_FUNDAMENTOS_RESUMO].concat(linhas));
+  return linhas.length;
 }
 
 /** Validade: CVM vale até virar o mês; Yahoo/Fundamentus/SEC 7 dias; planilha 1 dia (dia do calendário de SP). */

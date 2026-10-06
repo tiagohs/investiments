@@ -84,7 +84,7 @@ test('B3: importar pela tela grava a aba (substitui a anterior), a data vira dat
     { ticker: 'CCCC4', evento: 'DIVIDENDO', pag: '', qtd: 7, preco: 1, valor: 7 },
   ]);
   const r = plain(sb.importarProventosB3_(JSON.stringify(m)));
-  assert.deepEqual(r, { ok: true, importados: 2, total: 12 });
+  assert.deepEqual(r, { ok: true, importados: 2, total: 12, gravadas: 2, ignoradasDuplicadas: 0, exemplos: [] });
   const aba = ss.getSheetByName('B3 - proventos a receber');
   const valores = aba.getRange(1, 1, aba.getLastRow(), aba.getLastColumn()).getValues();
   assert.equal(valores.length, 4, 'cabeçalho + 2 + total (a importação velha sumiu)');

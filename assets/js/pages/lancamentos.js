@@ -196,6 +196,11 @@ function grupoRevisaoHtml(estado, destino) {
     </div>`;
 }
 
+/** "3 linhas já estavam na planilha e foram ignoradas." (06/10/2026: reimportar não repete nada) */
+export function textoIgnoradas(n) {
+  return n === 1 ? '1 linha já estava na planilha e foi ignorada.' : `${n} linhas já estavam na planilha e foram ignoradas.`;
+}
+
 function revisaoHtml(estado) {
   const rev = estado.revisao;
   if (!rev) return '';
@@ -226,6 +231,7 @@ function revisaoHtml(estado) {
         ${cont.parecido ? `<span class="tx-chip chip-tonal chip-warn"><b>${cont.parecido}</b> parecidos</span>` : ''}
         ${cont.bloqueado + cont.invalido ? `<span class="tx-chip chip-tonal chip-bad"><b>${cont.bloqueado + cont.invalido}</b> com problema</span>` : ''}
       </div>
+      ${cont.lancado ? `<p class="tx-nota tx-nota-ignoradas" role="status">${esc(textoIgnoradas(cont.lancado))} Reimportar o mesmo arquivo não repete nada na planilha.</p>` : ''}
       ${cont.parecido ? '<p class="tx-nota"><b>Parecido</b>: a planilha já tem o mesmo ativo, dia e tipo com essa quantidade ou valor, só dividido em linhas diferentes. Fica desmarcado; marque se for mesmo outra operação.</p>' : ''}
       ${ORDEM_DESTINOS.map((d) => grupoRevisaoHtml(estado, d)).join('')}` : ''}
       ${ignorados}
@@ -783,9 +789,13 @@ async function gravarRevisao(ctx) {
   });
   rev.erro = '';
   if (resp.resultado.consolidacao) { rev.consolidacao = resp.resultado.consolidacao; avisarConsolidacao(ctx, resp.resultado.consolidacao); }
+  // 06/10/2026: "N linhas já estavam na planilha e foram ignoradas" = o que a conferência marcou como já lançado + lotes de RF que já existiam
+  const ignoradas = rev.itens.filter((it) => (rev.situacao[it.uid] || {}).situacao === 'lancado').length + (resp.resultado.lotesRfIgnoradas || 0);
+  const textoIgn = ignoradas ? ` ${esc(textoIgnoradas(ignoradas))}` : '';
   rev.resultado = resp.resultado.total
-    ? `Lançado: ${Object.keys(g).map((d) => `<b>${g[d]}</b> em ${esc(DESTINOS[d].aba)}`).join(', ')}${resp.resultado.lotesRf ? ` e ${resp.resultado.lotesRf} lote(s) em RF Contratada` : ''}. As telas já vão mostrar os números novos.`
-    : 'Nada foi lançado (tudo já estava na planilha).';
+    ? `Lançado: ${Object.keys(g).map((d) => `<b>${g[d]}</b> em ${esc(DESTINOS[d].aba)}`).join(', ')}${resp.resultado.lotesRf ? ` e ${resp.resultado.lotesRf} lote(s) em RF Contratada` : ''}.${textoIgn} As telas já vão mostrar os números novos.`
+    : `Nada foi lançado (tudo já estava na planilha).${textoIgn}`;
+  if (ignoradas) toast(textoIgnoradas(ignoradas), { tipo: 'info', doc: ctx.doc });
   redesenharRevisao(ctx);
   await ctx.recarregar();
 }

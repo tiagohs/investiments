@@ -41,6 +41,8 @@ export const CONTRATO_ABAS = {
   'aux_gastos-arquivos': { cabecalho: { linha: 1, colunas: ['ID', 'Nome', 'Caminho', 'Fonte', 'Modificado', 'Importado em', 'Meses', 'Lançamentos', 'Total', 'Conferência', 'Entradas', 'Situação', 'Problema'] } },
   'aux_aportes': { cabecalho: { linha: 1, colunas: ['ID', 'Data', 'Status', 'Classe', 'Ativo', 'Instituição', 'Moeda', 'Qtd planejada', 'Preço planejado', 'Valor planejado', 'Qtd final', 'Preço final', 'Valor final', 'Observação'] } },
   'aux_fundamentos': { cabecalho: { linha: 1, colunas: ['Ticker', 'Fonte', 'JSON', 'Atualizado em'] } },
+  // 06/10/2026: resumo plano (valor escolhido pela mescla) que as fórmulas VPA/LPA/P/L da planilha preferem (FundamentosPlanilha.gs); some até a 1ª rodada de fundamentos
+  'aux_fundamentos-resumo': { cabecalho: { linha: 1, colunas: ['Ticker', 'P/VP', 'P/L', 'VPA', 'LPA', 'Fonte', 'Atualizado em'] }, opcional: 'criada por Fundamentos.gs (insertSheet) na 1ª rodada de fundamentos' },
   'aux_fundamentos-historico': { cabecalho: { linha: 1, colunas: ['Mês', 'Ticker', 'P/L', 'P/VP', 'DY', 'VP/cota', 'Fonte', 'Gravado em'] } },
   'aux_proventos-conferencia': { cabecalho: { linha: 1, colunas: ['Linha', 'Ticker / mês', 'Tipo', 'Data pagamento', 'Valor líquido', 'Quantidade', 'Arquivo', 'Registrado em'] } },
   'aux_proventos-anunciados': { cabecalho: { linha: 1, colunas: ['Ticker', 'Tipo', 'Data com', 'Data pagamento', 'Valor por cota', 'Isento IR', 'Documento FNet', 'Atualizado em'] } },

@@ -70,9 +70,10 @@ function handleSalvarAporte(e) {
   try {
     var aporte = JSON.parse(e.parameter.aporte || '{}');
     var id = salvarAporte_(aporte);
+    var ignorada = ultimoSalvarAporteIgnorado_;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var aportes = lerAportes_(ss);
-    return jsonOut({ ok: true, id: id, aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, null) });
+    return jsonOut({ ok: true, id: id, gravadas: ignorada ? 0 : 1, ignoradasDuplicadas: ignorada ? 1 : 0, exemplos: ignorada ? ['Aporte já estava registrado (mesmo dia e mesmos ativos).'] : [], aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, null) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'salvarAporte', erro: String(erro) });
   }
@@ -561,15 +562,27 @@ function validarAporte_(a) {
   });
 }
 
+/** 06/10/2026: true quando o último salvarAporte_ foi ignorado por já existir um aporte concluído igual (handleSalvarAporte devolve). */
+var ultimoSalvarAporteIgnorado_ = false;
+
 /** Grava (ou regrava, com o mesmo id) um aporte. Concluído: ativo com valor final 0 sai (não comprou). */
 function salvarAporte_(aporte) {
   validarAporte_(aporte);
+  ultimoSalvarAporteIgnorado_ = false;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var trava = travaRecurso_('carteira', 'aportes/lançamentos');
   trava.waitLock(20000);
   var id;
   try {
     var aba = garantirAbaAportes_(ss);
+    // 06/10/2026 (Tiago: "não se repita na planilha"): aporte CONCLUÍDO novo (sem id) idêntico a um já concluído (mesmo dia e
+    // mesmos ativos/valores - Deduplicacao.gs, tipo 'aporte') é o mesmo clique repetido: devolve o id do que já existe, não grava.
+    // aporte.forcar = true deixa passar (2 aportes iguais de verdade no mesmo dia).
+    if (!String(aporte.id || '').trim() && aporte.status === 'concluido' && aporte.forcar !== true) {
+      var chaveNova = chaveDedup_('aporte', { data: aporte.data, itens: aporte.itens.filter(function (it) { return Number(it.valorFinal) > 0; }) });
+      var igual = lerAportes_(ss).filter(function (a) { return a.status === 'concluido' && chaveDedup_('aporte', a) === chaveNova; })[0];
+      if (igual) { ultimoSalvarAporteIgnorado_ = true; return igual.id; }
+    }
     id = String(aporte.id || '').trim() || ('AP-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmmss') + '-' + Math.floor(Math.random() * 900 + 100));
     var existentes = linhasDoIdAporte_(aba, id);
     var criadoEm = existentes.length ? aba.getRange(existentes[0], 15).getValue() : new Date();
@@ -730,7 +743,8 @@ function handleSalvarCaixaDolar(e) {
   try {
     var mov = JSON.parse(e.parameter.mov || '{}');
     var id = salvarMovimentoCaixaDolar_(mov);
-    return jsonOut({ ok: true, id: id, caixaDolar: lerCaixaDolar_(SpreadsheetApp.getActiveSpreadsheet()) });
+    var ignorado = ultimoSalvarCaixaIgnorado_;
+    return jsonOut({ ok: true, id: id, gravadas: ignorado ? 0 : 1, ignoradasDuplicadas: ignorado ? 1 : 0, exemplos: ignorado ? ['Movimento do caixa em dólar já estava registrado (mesmo dia, tipo e valores).'] : [], caixaDolar: lerCaixaDolar_(SpreadsheetApp.getActiveSpreadsheet()) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'salvarCaixaDolar', erro: String(erro) });
   }
@@ -782,7 +796,11 @@ function garantirAbaCaixaDolar_(ss) {
   return aba;
 }
 
+/** 06/10/2026: true quando o último salvarMovimentoCaixaDolar_ foi ignorado (já existia o mesmo movimento). */
+var ultimoSalvarCaixaIgnorado_ = false;
+
 function salvarMovimentoCaixaDolar_(mov) {
+  ultimoSalvarCaixaIgnorado_ = false;
   if (!mov || typeof mov !== 'object') throw new Error('movimento vazio');
   var tipo = String(mov.tipo || 'envio');
   if (tipo !== 'envio' && tipo !== 'ajuste') throw new Error('tipo inválido: ' + tipo);
@@ -801,6 +819,15 @@ function salvarMovimentoCaixaDolar_(mov) {
     var existentes = aba.getLastRow() >= 2 ? aba.getRange(2, 1, aba.getLastRow() - 1, 1).getValues() : [];
     var achada = 0;
     existentes.forEach(function (l, i) { if (String(l[0]) === id) achada = i + 2; });
+    // 06/10/2026: envio/ajuste NOVO (sem id) igual a um que já existe (mesmo dia, tipo, US$ e R$) é o mesmo clique repetido:
+    // devolve o id existente. mov.forcar = true deixa passar (2 envios iguais de verdade no mesmo dia).
+    if (!achada && !String(mov.id || '').trim() && mov.forcar !== true && aba.getLastRow() >= 2) {
+      var chaveMov = chaveDedup_('caixaDolar', { data: mov.data, tipo: TIPOS_CAIXA_DOLAR[tipo], usd: usd, reais: n(mov.reais) });
+      var iguais = aba.getRange(2, 1, aba.getLastRow() - 1, 5).getValues().filter(function (l) {
+        return String(l[0]) && tipoDoTextoCaixa_(l[2]) === tipo && chaveDedup_('caixaDolar', { data: l[1], tipo: l[2], usd: l[3], reais: l[4] }) === chaveMov;
+      });
+      if (iguais.length) { ultimoSalvarCaixaIgnorado_ = true; return String(iguais[0][0]); }
+    }
     if (achada) aba.getRange(achada, 1, 1, linha.length).setValues([linha]);
     else aba.getRange(aba.getLastRow() + 1, 1, 1, linha.length).setValues([linha]);
     return id;

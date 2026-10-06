@@ -328,8 +328,17 @@ function salvarImportacaoGastos_(ss, arquivo, lancamentos, agora) {
   outros.forEach(function (l) { if (l[10]) chavesOutros[String(l[10])] = true; });
   var pulados = 0;
   var linhasNovas = [];
+  var puladosLista = [];
+  // 06/10/2026 (Tiago: "garanta que... não se repita na planilha, não importa o ativo"): além da chave que o site manda
+  // (n-ésima ocorrência da fonte|data|valor|descrição NO arquivo), vale a chave canônica de Deduplicacao.gs contada contra os
+  // outros arquivos - cobre lançamento sem chave e chave de outra versão do site; e a mesma chave 2x no mesmo lote só entra 1x.
+  var dedup = criarDedupLote_({ gastos: outros.map(function (l) { return { origem: l[2], fonte: l[3], data: textoDataGastos_(l[1]), descricao: l[4], valor: l[6] }; }) });
+  var chavesDoLote = {};
   novos.forEach(function (n) {
-    if (n.chave && chavesOutros[n.chave]) { pulados++; return; }
+    var repetida = (n.chave && (chavesOutros[n.chave] || chavesDoLote[n.chave])) ? true : false;
+    var onde = dedup.testar('gastos', { origem: n.origem, fonte: n.fonte, data: n.data, descricao: n.descricao, valor: n.valor, arquivo: id });
+    if (repetida || onde) { pulados++; puladosLista.push(n); return; }
+    if (n.chave) chavesDoLote[n.chave] = true;
     linhasNovas.push([n.mes, n.data, n.origem, n.fonte, n.descricao, n.categoria, n.valor, n.tipo, n.parcela ? "'" + n.parcela : '', id, n.chave]);
   });
   var todas = outros.map(function (l) {
@@ -362,7 +371,8 @@ function salvarImportacaoGastos_(ss, arquivo, lancamentos, agora) {
   ]);
   reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
   if (SpreadsheetApp.flush) SpreadsheetApp.flush();
-  return { ok: true, id: id, gravados: linhasNovas.length, pulados: pulados, descartados: lancamentos.length - novos.length };
+  return { ok: true, id: id, gravados: linhasNovas.length, pulados: pulados, descartados: lancamentos.length - novos.length,
+    gravadas: linhasNovas.length, ignoradasDuplicadas: pulados, exemplos: exemplosDuplicadasDedup_('gastos', puladosLista) };
 }
 
 /**

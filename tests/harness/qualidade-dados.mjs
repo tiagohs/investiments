@@ -299,11 +299,24 @@ export const CHECAGENS_QUALIDADE = [
         if (!valores.has(k)) valores.set(k, {});
         valores.get(k)[fonte] = v;
       };
-      for (const l of (fixtures['aux_fundamentos']?.linhas || []).slice(1)) {
-        if (!l || !l[0] || !l[2]) continue;
-        let v; try { v = JSON.parse(l[2]).valores || {}; } catch { continue; }
-        poe(String(l[0]).trim().toUpperCase(), 'pl', String(l[1]), v.pl);
-        poe(String(l[0]).trim().toUpperCase(), 'pvp', String(l[1]), v.pvp);
+      // 06/10/2026 (FundamentosPlanilha.gs): quando a planilha TEM a aba aux_fundamentos-resumo (o valor ESCOLHIDO pela mescla,
+      // que já descartou a fonte absurda), a comparação é resumo x Auxiliar_ativos: a fonte crua ruim que continua em
+      // aux_fundamentos (ex.: GOOGLEFINANCE em 303) deixa de acusar - e planilha com a aba mas SEM a correção das fórmulas
+      // (Auxiliar_ativos ainda em 31,3 / 303) continua acusando. Sem a aba, vale a comparação de antes (fontes cruas).
+      const resumo = fixtures['aux_fundamentos-resumo'];
+      if (resumo) {
+        for (const l of (resumo.linhas || []).slice(1)) {
+          if (!l || !l[0]) continue;
+          poe(String(l[0]).trim().toUpperCase(), 'pvp', 'resumo', l[1]);
+          poe(String(l[0]).trim().toUpperCase(), 'pl', 'resumo', l[2]);
+        }
+      } else {
+        for (const l of (fixtures['aux_fundamentos']?.linhas || []).slice(1)) {
+          if (!l || !l[0] || !l[2]) continue;
+          let v; try { v = JSON.parse(l[2]).valores || {}; } catch { continue; }
+          poe(String(l[0]).trim().toUpperCase(), 'pl', String(l[1]), v.pl);
+          poe(String(l[0]).trim().toUpperCase(), 'pvp', String(l[1]), v.pvp);
+        }
       }
       for (const l of (fixtures['Auxiliar_ativos']?.linhas || []).slice(1)) {
         if (!l || !l[1]) continue;

@@ -182,7 +182,7 @@ test('Gastos: falha fica "com problema", "Tentar de novo só os que falharam" re
       sv.lancs = sv.lancs.filter((l) => l.arquivo !== arquivo.id);
       if (arquivo.situacao !== 'erro') sv.lancs.push(...lancs.map((l) => ({ ...l, arquivo: arquivo.id })));
       sv.arqs[arquivo.id] = { id: arquivo.id, nome: arquivo.nome, caminho: arquivo.caminho, fonte: arquivo.fonte, meses: arquivo.meses || [], conferencia: arquivo.conferencia, situacao: arquivo.situacao, problema: arquivo.problema };
-      return { ok: true, gravados: arquivo.situacao === 'erro' ? 0 : lancs.length, pulados: 0 };
+      return { ok: true, gravados: arquivo.situacao === 'erro' ? 0 : lancs.length, pulados: 0, ignoradasDuplicadas: arquivo.id === 'd2' && arquivo.situacao !== 'erro' ? 1 : 0 };
     },
     salvarRegraGastos: async () => ({ ok: true, regras: [] }), excluirArquivoGastos: async () => ({ ok: true }),
   };
@@ -216,6 +216,7 @@ test('Gastos: falha fica "com problema", "Tentar de novo só os que falharam" re
   await ate(() => /Importação concluída: 1 de 1/.test(txt(el.querySelector('#gsPainel'))));
   assert.deepEqual(sv.lidos, ['d1', 'd2', 'd2']);
   assert.equal(sv.arqs.d2.situacao, 'ok');
+  assert.match(txt(el.querySelector('.gs-log')), /1 linha já estava na planilha e foi ignorada/, '06/10/2026: texto humano das duplicadas');
   assert.equal(sv.lancs.filter((l) => l.arquivo === 'd1').length, 2, 'o que já tinha entrado não duplicou');
   assert.equal(sv.lancs.filter((l) => l.arquivo === 'd2').length, 2);
   // arquivos mandados por outro painel (evento no document) entram pelo mesmo leitor

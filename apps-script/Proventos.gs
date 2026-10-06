@@ -673,7 +673,9 @@ function importarProventosB3_(linhasJson) {
   aba.getRange(1, 1, matriz.length, total).setValues(matriz);
   invalidarCacheProventos_();
   var soma = lido.itens.reduce(function (s, p) { return s + p.valor; }, 0);
-  return { ok: true, importados: lido.itens.length, total: Math.round(soma * 100) / 100 };
+  // 06/10/2026: esta importação é uma FOTO do "a receber" (apaga e regrava a aba auxiliar), então reimportar o mesmo arquivo
+  // nunca repete linha; os campos abaixo seguem o contrato das outras importações (Deduplicacao.gs).
+  return { ok: true, importados: lido.itens.length, total: Math.round(soma * 100) / 100, gravadas: lido.itens.length, ignoradasDuplicadas: 0, exemplos: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -1010,6 +1012,7 @@ function registrarExtratoB3Proventos_(itens, opcoes) {
     ok: true,
     meses: listaMeses,
     linhasNovas: novas.length,
+    ignoradasDuplicadas: Object.keys(noLote).reduce(function (t, k) { return t + noLote[k]; }, 0) - novas.length, // 06/10/2026: já estavam na conferência (mesmo critério de contagem de Deduplicacao.gs)
     confirmados: soma('confirmados'),
     divergentes: soma('divergentes'),
     naoConfirmados: soma('naoConfirmados'),

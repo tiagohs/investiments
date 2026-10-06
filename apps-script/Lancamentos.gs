@@ -69,6 +69,8 @@ function handleImportarLancamentos(e) {
 
 /** Última linha com algo na coluna-chave (as abas têm ~10 mil linhas de fórmula pronta, getLastRow não serve). */
 function ultimaLinhaPreenchidaLanc_(aba, cfg) {
+  // 06/10/2026: a leitura da aba pára na última linha REAL (Planilha.gs!ultimaLinhaReal_, em blocos), não varre as ~10 mil de fórmula
+  if (typeof ultimaLinhaReal_ === 'function') return ultimaLinhaReal_(aba, cfg.colChave, cfg.linha);
   var total = aba.getMaxRows() - cfg.linha + 1;
   if (total < 1) return cfg.linha - 1;
   var col = aba.getRange(cfg.linha, cfg.colChave, total, 1).getValues();
@@ -138,11 +140,11 @@ function normTextoLanc_(s) {
 }
 
 function grupoLanc_(it) {
-  if (it.destino === 'transacoes' || it.destino === 'transacoesUsa') return [it.destino, it.ticker, it.data, normTextoLanc_(it.tipo)].join('|');
+  if (it.destino === 'transacoes' || it.destino === 'transacoesUsa') return [it.destino, dedupTicker_(it.ticker), it.data, normTextoLanc_(it.tipo)].join('|');
   if (it.destino === 'rendaFixa') {
-    return [it.destino, normTextoLanc_(it.produto), it.data, normTextoLanc_(it.movimentacao), normalizarInstituicaoRF_(it.instituicao)].join('|');
+    return [it.destino, dedupTituloRf_(it.produto, it.instituicao), it.data, normTextoLanc_(it.movimentacao)].join('|');
   }
-  return [it.destino, it.ticker, it.dataPagamento, normTextoLanc_(it.tipo)].join('|');
+  return [it.destino, dedupTicker_(it.ticker), it.dataPagamento, normTextoLanc_(it.tipo)].join('|');
 }
 
 /** O que se soma dentro do grupo: quantidade (transações), valor (proventos e renda fixa; quantidade na transferência, que não tem valor). */
@@ -197,15 +199,18 @@ function validarItemLanc_(it) {
  * `abas` = lerAbasLanc_ dos destinos envolvidos.
  */
 function classificarLanc_(itens, abas, validos) {
-  var somaExistente = {}, exatos = {};
+  var somaExistente = {}, existentes = {};
   Object.keys(abas).forEach(function (d) {
+    existentes[d] = abas[d].itens;
     abas[d].itens.forEach(function (it) {
       var g = grupoLanc_(it);
       somaExistente[g] = (somaExistente[g] || 0) + medidaLanc_(it);
-      var ex = g + '|' + Math.round(medidaLanc_(it) * 10000);
-      exatos[ex] = (exatos[ex] || 0) + 1;
     });
   });
+  // 06/10/2026 (Tiago: "garanta que se eu reimportar... não se repita na planilha, não importa o ativo"): o "já lançado"
+  // vem da chave canônica única (Deduplicacao.gs: dia + ativo + tipo + quantidade + preço/valor + instituição normalizada),
+  // contada - só o excedente é novo. A soma com tolerância de 2% abaixo continua só pra "parecido" (outra divisão de linhas).
+  var dedup = criarDedupLote_(existentes);
   var consumido = {};
   return itens.map(function (it) {
     var invalido = validarItemLanc_(it);
@@ -214,11 +219,10 @@ function classificarLanc_(itens, abas, validos) {
     if (bloqueio) return { uid: it.uid, situacao: 'bloqueado', motivo: bloqueio };
     var g = grupoLanc_(it);
     var medida = medidaLanc_(it);
-    var ex = g + '|' + Math.round(medida * 10000);
-    if (exatos[ex] > 0) {
-      exatos[ex]--;
+    var onde = dedup.testar(it.destino, it);
+    if (onde) {
       consumido[g] = (consumido[g] || 0) + medida;
-      return { uid: it.uid, situacao: 'lancado', motivo: 'Já está na planilha.' };
+      return { uid: it.uid, situacao: 'lancado', motivo: onde === 'lote' ? 'Repetida em outro arquivo desta importação.' : 'Já está na planilha.' };
     }
     var existente = somaExistente[g] || 0;
     var depois = (consumido[g] || 0) + medida;
@@ -264,25 +268,42 @@ function taxaContratadaLanc_(texto, produto) {
   return { indice: indice, spread: spread, texto: s };
 }
 
-function gravarLotesRfLanc_(ss, itens) {
+/**
+ * Lotes de RF Contratada (só compra com taxa contratada informada). 06/10/2026: passa pela mesma deduplicação
+ * (Deduplicacao.gs, tipo 'lotesRf': dia + título/instituição + quantidade + preço + valor) contra os lotes que a aba
+ * já tem (lê só até a última linha real) e dentro do próprio lote - o mesmo Tesouro não vira 2 lotes.
+ * `saida` (opcional) acumula { ignoradasDuplicadas, exemplos }; `manual` = lançamento manual (forcar vale).
+ */
+function gravarLotesRfLanc_(ss, itens, saida, manual) {
   var lotes = itens.filter(function (it) {
     return it.destino === 'rendaFixa' && it.taxaContratada && /compra|aplica/i.test(it.movimentacao);
   });
   if (!lotes.length) return 0;
   var aba = ss.getSheetByName(LANC_ABA_LOTES_RF);
   if (!aba) return 0;
-  var linhas = lotes.map(function (it) {
+  var ultima = typeof ultimaLinhaReal_ === 'function' ? ultimaLinhaReal_(aba, [1, 3], 2) : Math.max(aba.getLastRow(), 1);
+  var existentes = ultima >= 2 ? aba.getRange(2, 1, ultima - 1, 6).getValues().filter(function (l) { return l[0] !== '' && l[0] !== null; }).map(function (l) {
+    return { produto: l[0], instituicao: l[1], data: dedupDia_(l[2]), qtd: l[3], preco: l[4], valor: l[5] };
+  }) : [];
+  var f = filtrarDuplicadasDedup_('lotesRf', existentes, lotes, { forcar: function (it) { return !!manual && it.forcar === true; } });
+  if (saida) {
+    saida.ignoradasDuplicadas = (saida.ignoradasDuplicadas || 0) + f.ignoradasDuplicadas;
+    saida.exemplos = (saida.exemplos || []).concat(f.duplicadas.map(function (it) { return 'Lote de RF Contratada: ' + descricaoLinhaDedup_('lotesRf', it); }));
+  }
+  if (!f.novos.length) return 0;
+  var linhas = f.novos.map(function (it) {
     var t = taxaContratadaLanc_(it.taxaContratada, it.produto);
     return [it.produto, it.instituicao || '', dataPlanilhaLanc_(it.data), Number(it.qtd) || '', Number(it.preco) || '', Number(it.valor) || '',
       t.indice, t.spread == null ? '' : t.spread, t.texto];
   });
-  aba.getRange(aba.getLastRow() + 1, 1, linhas.length, 9).setValues(linhas);
+  aba.getRange(ultima + 1, 1, linhas.length, 9).setValues(linhas);
   return linhas.length;
 }
 
 /**
  * Coração da importação. opcoes.simular = só classifica.
- * Devolve { itens: [{ uid, situacao, motivo }], gravados: { destino: n }, lotesRf, total }.
+ * Devolve { itens: [{ uid, situacao, motivo }], gravados: { destino: n }, lotesRf, total, gravadas, ignoradasDuplicadas, exemplos }
+ * (06/10/2026: ignoradasDuplicadas = linhas que a planilha já tinha e foram ignoradas; exemplos = até 5 frases humanas).
  */
 function importarLancamentos_(itens, opcoes) {
   var o = opcoes || {};
@@ -302,7 +323,14 @@ function importarLancamentos_(itens, opcoes) {
     var classes = classificarLanc_(itens, abas, validos);
     var porUid = {};
     classes.forEach(function (c) { porUid[c.uid] = c; });
-    var resultado = { itens: classes, gravados: {}, lotesRf: 0, total: 0 };
+    var resultado = { itens: classes, gravados: {}, lotesRf: 0, total: 0, gravadas: 0, ignoradasDuplicadas: 0, exemplos: [] };
+    // 06/10/2026: "já lançado" só se grava com forcar no lançamento MANUAL (uma 2ª operação idêntica de verdade); na importação de arquivo nunca
+    var manual = String(o.origem || '') === 'Manual';
+    var contarIgnoradas = function () {
+      var ign = itens.filter(function (it) { var c = porUid[it.uid]; return c && c.situacao === 'lancado'; });
+      resultado.ignoradasDuplicadas += ign.length;
+      resultado.exemplos = exemplosDuplicadasDedup_(null, ign).concat(resultado.exemplos).slice(0, DEDUP_MAX_EXEMPLOS_);
+    };
     // 02/10/2026 (Tiago: "Eu mando no final do mês [o arquivo da B3] e você
     // faz o check final"): as linhas de provento do extrato da B3 ficam
     // guardadas pra conferência (Proventos.gs!registrarExtratoB3Proventos_ -
@@ -313,11 +341,11 @@ function importarLancamentos_(itens, opcoes) {
       if (destinos.indexOf('proventos') === -1 || typeof registrarExtratoB3Proventos_ !== 'function') return;
       try { resultado.conferenciaProventos = registrarExtratoB3Proventos_(itens, { semTrava: semTrava }); } catch (eConf) { Logger.log('registrarExtratoB3Proventos_: ' + eConf); }
     };
-    if (o.simular) { conferirProventos(false); return resultado; }
+    if (o.simular) { contarIgnoradas(); conferirProventos(false); return resultado; }
 
     var gravar = itens.filter(function (it) {
       var c = porUid[it.uid];
-      return c && (c.situacao === 'novo' || ((c.situacao === 'lancado' || c.situacao === 'parecido') && it.forcar === true));
+      return c && (c.situacao === 'novo' || (c.situacao === 'parecido' && it.forcar === true) || (c.situacao === 'lancado' && it.forcar === true && manual));
     });
     destinos.forEach(function (d) {
       var lista = gravar.filter(function (it) { return it.destino === d; });
@@ -337,7 +365,14 @@ function importarLancamentos_(itens, opcoes) {
       resultado.total += lista.length;
       lista.forEach(function (it) { porUid[it.uid].situacao = 'gravado'; porUid[it.uid].motivo = ''; });
     });
-    resultado.lotesRf = gravarLotesRfLanc_(ss, gravar);
+    // quem ficou como "já lançado" não grava (nem o lote de RF): conta como ignorada
+    var ignoradasLote = { ignoradasDuplicadas: 0, exemplos: [] };
+    contarIgnoradas();
+    resultado.lotesRf = gravarLotesRfLanc_(ss, gravar, ignoradasLote, manual);
+    resultado.ignoradasDuplicadas += ignoradasLote.ignoradasDuplicadas;
+    resultado.lotesRfIgnoradas = ignoradasLote.ignoradasDuplicadas; // lotes de RF Contratada que já existiam (a tela soma aos "já lançados")
+    resultado.exemplos = resultado.exemplos.concat(ignoradasLote.exemplos).slice(0, DEDUP_MAX_EXEMPLOS_);
+    resultado.gravadas = resultado.total;
 
     if (resultado.total) {
       // 26/09/2026: os dias já gravados do histórico ficam com a quantidade

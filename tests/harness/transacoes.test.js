@@ -89,7 +89,7 @@ function sandbox(ss, extras = []) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', 'Planilha.gs', ...extras].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
+  new vm.Script(['ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', 'Planilha.gs', 'Deduplicacao.gs', ...extras].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'transacoes.gs' }).runInContext(sb);
   return { sb, registro, caches };
 }
 
@@ -127,7 +127,8 @@ test('Lançamentos: grava só os novos (e os forçados), nas colunas certas, põ
     { destino: 'rendaFixa', produto: 'Tesouro IPCA+ 2035', data: '2026-09-05', movimentacao: 'Compra', entradaSaida: 'Credito', instituicao: 'XP INVESTIMENTOS', qtd: 0.2, preco: 3000, valor: 600, taxaContratada: 'IPCA + 7,5%' },
     { destino: 'rendaFixa', produto: 'Tesouro Prefixado 2023', data: '2021-04-01', movimentacao: 'Transferencia', entradaSaida: 'Debito', instituicao: 'RICO', qtd: 0.5, preco: null, valor: null },
   ];
-  const r = plain(sb.importarLancamentos_(itens, { simular: false, origem: 'Teste' }));
+  // 06/10/2026: "já lançado" só grava com forcar no lançamento Manual (2ª operação idêntica de verdade)
+  const r = plain(sb.importarLancamentos_(itens, { simular: false, origem: 'Manual' }));
   assert.deepEqual(r.gravados, { transacoes: 3, rendaFixa: 2, proventos: 1 });
   assert.equal(r.lotesRf, 1);
   assert.deepEqual(r.itens.map((c) => c.situacao), ['gravado', 'gravado', 'lancado', 'gravado', 'gravado', 'gravado', 'gravado']);

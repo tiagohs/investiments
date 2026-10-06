@@ -182,8 +182,8 @@ test('Gastos.gs: falha fica registrada (sem lançamento, não conta como importa
   assert.deepEqual([f1.importado, f1.alterado, f1.problema], [true, true, 'quebrou']);
   assert.equal(l.falhos, 3);
   // tentar de novo com sucesso: substitui (sem duplicar) e limpa o problema
-  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
-  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
+  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2', descricao: 'OUTRA LOJA INVENTADA' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
+  sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2', descricao: 'OUTRA LOJA INVENTADA' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
   g = plain(sb.lerGastos_(ss));
   assert.equal(g.lancamentos.filter((x) => x[9] === d.f2.id).length, 2, 'reimportar não duplica');
   const a2 = g.arquivos.find((a) => a.id === d.f2.id);

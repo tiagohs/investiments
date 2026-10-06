@@ -226,6 +226,8 @@ test('lançamentos: soltar o extrato -> conferência com a planilha -> só os no
   assert.match(txt(doc.querySelector('.tx-arqs')), /extrato\.csv Interactive Brokers · Extrato · 2 linhas/);
   assert.equal(doc.querySelectorAll('.tx-tabela-rev tbody tr').length, 1, 'o já lançado fica escondido');
   assert.match(txt(doc.querySelector('.tx-rev-chips')), /1 novos 1 já lançados/);
+  // 06/10/2026: reimportar não repete nada - a tela diz quantas linhas já estavam na planilha e foram ignoradas
+  assert.match(txt(doc.querySelector('.tx-nota-ignoradas')), /1 linha já estava na planilha e foi ignorada\./);
   clique(w, doc.querySelector('[data-mostrar-lancados="transacoesUsa"]'));
   assert.equal(doc.querySelectorAll('.tx-tabela-rev tbody tr').length, 2);
   clique(w, doc.querySelector('[data-lanc="gravar"]'));
@@ -234,6 +236,7 @@ test('lançamentos: soltar o extrato -> conferência com a planilha -> só os no
   assert.equal(importar[1].opcoes.simular, false);
   assert.deepEqual(importar[1].itens.map((i) => [i.ticker, i.data, i.forcar]), [['AAA', '2026-09-20', false]]);
   assert.match(txt(doc.querySelector('.tx-revisao')), /Lançado: 1 em Transações - USA/);
+  assert.match(txt(doc.querySelector('.tx-revisao')), /1 linha já estava na planilha e foi ignorada\./);
 
   // manual
   clique(w, doc.querySelector('[data-manual-destino="transacoesUsa"]'));

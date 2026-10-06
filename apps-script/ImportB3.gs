@@ -62,9 +62,22 @@ function handleImportarTransacoesB3(e) {
  * @param {Object} params - params.transacoes é a string JSON descrita acima.
  * @param {Object|null} opcoes - uso exclusivo dos testes: { abaTransacoesNome }.
  *   Fora de teste, sempre null — grava em "Transações" normalmente.
- * @return {Object} { gravadas: [tickers], rejeitadas: [{ticker, motivo}] }
+ * @return {Object} { gravadas: [tickers], rejeitadas: [{ticker, motivo}], ignoradasDuplicadas: n, exemplos: [texto] }
+ *   (06/10/2026: linha que a aba já tem - mesma chave canônica de Deduplicacao.gs - não grava de novo; com 3 iguais no
+ *   lote e 1 na aba, grava só as 2 que faltam. "gravadas" continua sendo a lista de tickers.)
  */
 function importarTransacoesB3_(params, opcoes) {
+  // 06/10/2026: mesma trava da importação de Lançamentos - dois cliques seguidos não leem a aba "antes" um do outro
+  var trava = null;
+  if (typeof travaRecurso_ === 'function') { trava = travaRecurso_('carteira', 'importação B3'); trava.waitLock(30000); }
+  try {
+    return importarTransacoesB3Interno_(params, opcoes);
+  } finally {
+    if (trava) trava.releaseLock();
+  }
+}
+
+function importarTransacoesB3Interno_(params, opcoes) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   var transacoes;
@@ -82,8 +95,10 @@ function importarTransacoesB3_(params, opcoes) {
   var abaTransacoes = ss.getSheetByName(nomeAbaTransacoes);
   if (!abaTransacoes) throw new Error('Aba "' + nomeAbaTransacoes + '" não encontrada.');
 
-  var resultado = { gravadas: [], rejeitadas: [] };
+  var resultado = { gravadas: [], rejeitadas: [], ignoradasDuplicadas: 0, exemplos: [] };
 
+  // 1) valida (ticker/tipo/campos) - o que passa vira "aceitas"
+  var aceitas = [];
   transacoes.forEach(function (t) {
     var ticker = String(t.ticker || '').trim().toUpperCase();
 
@@ -99,7 +114,19 @@ function importarTransacoesB3_(params, opcoes) {
       resultado.rejeitadas.push({ ticker: ticker, motivo: 'Ticker não existe na Carteira — inclua o ativo antes de importar' });
       return;
     }
+    aceitas.push({ ticker: ticker, data: t.data, tipo: t.tipo, preco: t.preco, qtd: t.qtd, taxa: t.taxa });
+  });
 
+  // 2) deduplicação (06/10/2026): compara com o que a aba já tem (só até a última linha real) e dentro do lote
+  var ultima = typeof ultimaLinhaReal_ === 'function' ? ultimaLinhaReal_(abaTransacoes, [1, 2], 7) : 6;
+  var existentes = ultima >= 7 ? abaTransacoes.getRange(7, 1, ultima - 6, 6).getValues().filter(function (l) { return l[0] !== '' && l[0] !== null; }).map(function (l) {
+    return { ticker: l[0], data: l[1], tipo: l[2], preco: l[3], qtd: l[4] };
+  }) : [];
+  var f = filtrarDuplicadasDedup_('transacoes', existentes, aceitas);
+  resultado.ignoradasDuplicadas = f.ignoradasDuplicadas;
+  resultado.exemplos = f.exemplos;
+
+  f.novos.forEach(function (t) {
     // Acha a próxima linha vazia A CADA transação (não antes do loop) —
     // assim, se o lote tiver duas linhas do mesmo dia, a segunda não
     // tenta escrever em cima da primeira que acabou de ser gravada.
@@ -108,7 +135,7 @@ function importarTransacoesB3_(params, opcoes) {
     // Colunas A-F, na ordem real da aba:
     // A Ticker | B Data Transação | C Tipo da transação | D Preço | E Qtd. | F Taxa transação
     abaTransacoes.getRange(linha, 1, 1, 6).setValues([[
-      ticker,
+      t.ticker,
       normalizarData_(t.data),
       t.tipo,
       Number(t.preco),
@@ -116,7 +143,7 @@ function importarTransacoesB3_(params, opcoes) {
       Number(t.taxa || 0)
     ]]);
 
-    resultado.gravadas.push(ticker);
+    resultado.gravadas.push(t.ticker);
   });
 
   return resultado;

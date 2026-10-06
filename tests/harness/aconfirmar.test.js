@@ -84,7 +84,7 @@ function sandbox(ss) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  new vm.Script(['Planilha.gs', 'ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', 'CarteirasHome.gs'].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'aconfirmar.gs' }).runInContext(sb);
+  new vm.Script(['Planilha.gs', 'ImportB3.gs', 'Lancamentos.gs', 'Aportes.gs', 'Deduplicacao.gs', 'CarteirasHome.gs'].map((f) => fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8')).join('\n'), { filename: 'aconfirmar.gs' }).runInContext(sb);
   return sb;
 }
 

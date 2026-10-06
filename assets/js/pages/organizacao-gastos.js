@@ -694,6 +694,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     est.importacao = { total: itens.length, log: [], atual: '', fim: false };
     est.dispensado = true;
     desenharPainel();
+    let ignoradasTotal = 0; // 06/10/2026: linhas que a planilha já tinha (outro arquivo cobrindo o mesmo dia) e foram ignoradas
     for (const it of itens) {
       const nome = it.caminho ? `${it.caminho}/${it.nome}` : it.nome;
       est.importacao.atual = nome;
@@ -725,7 +726,9 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
         if (!s || !s.ok) throw Object.assign(new Error(`não salvou: ${(s && s.erro) || 'sem resposta'}`), { naoSalvou: true });
         aplicarSalvo(meta, lancs);
         const meses = meta.meses.length > 1 ? `${formatMesAno(meta.meses[0])}–${formatMesAno(meta.meses[meta.meses.length - 1])}` : formatMesAno(meta.meses[0]);
-        msg = `${NOME_FONTE[lido.fonte] || lido.fonte} ${meses} · ${s.gravados} lançamentos${s.pulados ? ` (${s.pulados} já estavam)` : ''}`;
+        const ign = Number(s.ignoradasDuplicadas != null ? s.ignoradasDuplicadas : s.pulados) || 0;
+        ignoradasTotal += ign;
+        msg = `${NOME_FONTE[lido.fonte] || lido.fonte} ${meses} · ${s.gravados} lançamentos${ign ? ` · ${ign === 1 ? '1 linha já estava na planilha e foi ignorada' : `${ign} linhas já estavam na planilha e foram ignoradas`}` : ''}`;
         if (problema) { status = 'aviso'; msg += ` · ${problema}`; } else if (c && c.ok) msg += ' · soma confere';
         if ((lido.avisos || []).length) msg += ` · ${lido.avisos.join(' ')}`;
       } catch (e) {
@@ -741,6 +744,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     }
     est.importacao.fim = true;
     est.importacao.atual = '';
+    if (ignoradasTotal) toast(ignoradasTotal === 1 ? '1 linha já estava na planilha e foi ignorada.' : `${ignoradasTotal} linhas já estavam na planilha e foram ignoradas.`, { tipo: 'info', doc });
     if (dados) desenhar(); // o que entrou já aparece, antes da releitura
     await carregar({ comDrive: true });
   }

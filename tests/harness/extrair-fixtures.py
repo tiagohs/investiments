@@ -63,6 +63,7 @@ SHEETS = [
     'aux_aportes',
     'aux_fundamentos',
     'aux_fundamentos-historico',
+    'aux_fundamentos-resumo',  # 06/10/2026: criada pelo Fundamentos.gs; pulada se a planilha ainda não tiver
     'aux_proventos-conferencia',
     'aux_proventos-anunciados',
     'aux_fii-cnpj',
