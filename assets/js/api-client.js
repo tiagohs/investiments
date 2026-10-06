@@ -34,6 +34,10 @@ async function request(method, action, token, params = {}) {
       response = await fetch(APPS_SCRIPT_URL, { method: 'POST', body });
     }
     const json = await response.json();
+    // 07/10/2026: toda gravação (POST) pode mudar o Registro de Controle ou marcar/limpar a consolidação
+    // (aporte concluído, lançamentos, importação, consolidar): esquece o resumo guardado do header (A-43),
+    // pra próxima carga buscar o estado novo em vez de mostrar o aviso velho por até 15 min.
+    if (method !== 'GET') { try { if (typeof localStorage !== 'undefined') localStorage.removeItem('investiments_sync_resumo'); } catch (_) { /* só conveniência */ } }
     // 25/09/2026: sessão recusada (expirou/foi encerrada) - esquece o token,
     // e a próxima página já manda pro login em vez de repetir o erro.
     if (json && json.ok === false && json.etapa === 'autenticação') clearToken();

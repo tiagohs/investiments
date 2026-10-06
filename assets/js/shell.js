@@ -918,6 +918,8 @@ export function setupConsolidacao(doc, { token, consolidarImpl = consolidar, lim
       return;
     }
     const r = resposta.resultado || {};
+    // 07/10/2026: o estado devolvido pela consolidação vale na hora (badge some sem esperar o resumo guardado)
+    if (r && 'consolidacao' in r) { try { renderConsolidacao(doc, r.consolidacao); } catch (_) { /* segue */ } }
     (r.avisos || []).forEach((a) => linhas.push(passo(escHtml_(a), 'aviso')));
     if (r.incompleto || r.continuar) {
       mostrarProgresso(passo('Ainda falta um pedaço (o histórico de preços de ativo novo pode levar mais de uma rodada) - clique em Continuar.'));
@@ -954,8 +956,12 @@ export function setupConsolidacao(doc, { token, consolidarImpl = consolidar, lim
  * de tela (tema, R$/US$, filtros de Proventos) - isso não é cache.
  * Nunca lança.
  */
-export async function limparCacheLocalNavegador({ limparCacheDadosImpl = limparCacheDados, cachesImpl = typeof caches !== 'undefined' ? caches : undefined } = {}) {
+export async function limparCacheLocalNavegador({ limparCacheDadosImpl = limparCacheDados, cachesImpl = typeof caches !== 'undefined' ? caches : undefined, storage = null } = {}) {
   try { await limparCacheDadosImpl(); } catch (_) { /* segue */ }
+  // 07/10/2026 (Tiago: "já cliquei 2 vezes e o aviso de consolidação não sai"): o resumo do Registro de
+  // Controle/consolidação guardado no navegador (15 min, A-43) também sai - senão, depois de consolidar e
+  // recarregar, o badge voltava do resumo velho dizendo "Consolidação necessária".
+  try { const st = storage || (typeof localStorage !== 'undefined' ? localStorage : null); if (st) st.removeItem(CHAVE_RESUMO_SYNC); } catch (_) { /* segue */ }
   if (!cachesImpl) return;
   try {
     const nomes = await cachesImpl.keys();
