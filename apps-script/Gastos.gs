@@ -175,12 +175,19 @@ function handleExcluirArquivosGastos(e) {
   return comTravaGastos_(function (ss) { return excluirArquivosGastos_(ss, ids); });
 }
 
-/** 07/10/2026: POST salvarFontesGastos, encerradas = JSON [fonte...] (lista inteira; [] reativa todas). */
+/**
+ * 07/10/2026: POST salvarFontesGastos, encerradas = JSON [fonte...] (lista inteira; [] reativa todas) e, opcional,
+ * semMovimento = JSON { fonte: ['aaaa-mm', ...] } (Tiago: "meses que não usei o cartão - mês sem fatura"). O que não vier
+ * fica como estava (marcar um cartão encerrado não apaga os meses sem fatura e vice-versa).
+ */
 function handleSalvarFontesGastos(e) {
   var p = (e && e.parameter) || {};
-  var lista;
-  try { lista = JSON.parse(p.encerradas || '[]'); } catch (eJ) { return jsonOut({ ok: false, etapa: 'gastos', erro: 'lista inválida (JSON)' }); }
-  return comTravaGastos_(function () { return salvarFontesEncerradasGastos_(lista); });
+  var lista = null, sem = null;
+  try {
+    if (p.encerradas !== undefined && p.encerradas !== null && p.encerradas !== '') lista = JSON.parse(p.encerradas);
+    if (p.semMovimento !== undefined && p.semMovimento !== null && p.semMovimento !== '') sem = JSON.parse(p.semMovimento);
+  } catch (eJ) { return jsonOut({ ok: false, etapa: 'gastos', erro: 'lista inválida (JSON)' }); }
+  return comTravaGastos_(function () { return salvarFontesEncerradasGastos_(lista, sem); });
 }
 
 function normalizarFontesEncerradasGastos_(lista) {
@@ -189,19 +196,43 @@ function normalizarFontesEncerradasGastos_(lista) {
     .filter(function (f) { if (!/^[a-z0-9-]+$/.test(f) || vistos[f]) return false; vistos[f] = true; return true; }).slice(0, 20);
 }
 
-function lerFontesEncerradasGastos_() {
-  try {
-    var v = PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_FONTES_ENCERRADAS_);
-    return v ? normalizarFontesEncerradasGastos_(JSON.parse(v)) : [];
-  } catch (e) { return []; }
+/** { fonte: ['aaaa-mm' ordenados, sem repetir] } - só fontes e meses válidos. */
+function normalizarSemMovimentoGastos_(obj) {
+  var out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  Object.keys(obj).slice(0, 20).forEach(function (f) {
+    var fonte = String(f || '').toLowerCase().trim().slice(0, 30);
+    if (!/^[a-z0-9-]+$/.test(fonte)) return;
+    var vistos = {};
+    var meses = (Array.isArray(obj[f]) ? obj[f] : []).map(function (m) { return String(m || '').trim().slice(0, 7); })
+      .filter(function (m) { if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m) || vistos[m]) return false; vistos[m] = true; return true; }).sort().slice(-240);
+    if (meses.length) out[fonte] = meses;
+  });
+  return out;
 }
 
-function salvarFontesEncerradasGastos_(lista) {
-  var limpa = normalizarFontesEncerradasGastos_(lista);
+/** Config das fontes (Properties): { encerradas: [...], semMovimento: {...} }. Aceita o formato antigo (só a lista). */
+function lerConfigFontesGastos_() {
+  try {
+    var v = PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_FONTES_ENCERRADAS_);
+    var o = v ? JSON.parse(v) : null;
+    if (Array.isArray(o)) return { encerradas: normalizarFontesEncerradasGastos_(o), semMovimento: {} };
+    return { encerradas: normalizarFontesEncerradasGastos_(o && o.encerradas), semMovimento: normalizarSemMovimentoGastos_(o && o.semMovimento) };
+  } catch (e) { return { encerradas: [], semMovimento: {} }; }
+}
+
+function lerFontesEncerradasGastos_() { return lerConfigFontesGastos_().encerradas; }
+
+function salvarFontesEncerradasGastos_(lista, semMovimento) {
+  var atual = lerConfigFontesGastos_();
+  var cfg = {
+    encerradas: lista === null || lista === undefined ? atual.encerradas : normalizarFontesEncerradasGastos_(lista),
+    semMovimento: semMovimento === null || semMovimento === undefined ? atual.semMovimento : normalizarSemMovimentoGastos_(semMovimento)
+  };
   var props = PropertiesService.getScriptProperties();
-  if (limpa.length) props.setProperty(PROP_GASTOS_FONTES_ENCERRADAS_, JSON.stringify(limpa));
+  if (cfg.encerradas.length || Object.keys(cfg.semMovimento).length) props.setProperty(PROP_GASTOS_FONTES_ENCERRADAS_, JSON.stringify(cfg));
   else props.deleteProperty(PROP_GASTOS_FONTES_ENCERRADAS_);
-  return { ok: true, fontesEncerradas: limpa };
+  return { ok: true, fontesEncerradas: cfg.encerradas, mesesSemMovimento: cfg.semMovimento };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +295,7 @@ function textoIsoGastos_(v) {
  */
 function lerGastos_(ss, opcoes) {
   var o = opcoes || {};
+  var cfgFontes = lerConfigFontesGastos_();
   var todos = linhasAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_.length).filter(function (l) { return l[0] !== '' || l[4] !== ''; }).map(function (l) {
     return [textoMesGastos_(l[0]), textoDataGastos_(l[1]), String(l[2] || ''), String(l[3] || ''), String(l[4] || ''), String(l[5] || ''), Number(l[6]) || 0, String(l[7] || ''), String(l[8] || '').replace(/^'/, ''), String(l[9] || '')];
   });
@@ -275,7 +307,8 @@ function lerGastos_(ss, opcoes) {
       return { padrao: String(l[0]).trim(), categoria: String(l[1] || '').trim(), criada: textoIsoGastos_(l[2]) };
     }),
     pastasConfiguradas: !!PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_CARTAO_),
-    fontesEncerradas: lerFontesEncerradasGastos_()
+    fontesEncerradas: cfgFontes.encerradas,
+    mesesSemMovimento: cfgFontes.semMovimento
   };
   if (!o.janela) return r;
   var porMes = {};

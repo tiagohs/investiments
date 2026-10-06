@@ -790,7 +790,13 @@ export async function excluirArquivosGastos(token, ids) {
   return request('POST', 'excluirArquivosGastos', token, { ids: JSON.stringify(ids || []) });
 }
 
-/** 07/10/2026: cartões/contas encerrados (lista inteira; [] reativa todos) - saem do "atrasado". */
-export async function salvarFontesGastos(token, encerradas) {
-  return request('POST', 'salvarFontesGastos', token, { encerradas: JSON.stringify(encerradas || []) });
+/**
+ * 07/10/2026: cartões/contas encerrados (lista inteira; [] reativa todos) e meses sem fatura/extrato por fonte
+ * ({ fonte: ['aaaa-mm'] }). null/undefined = não mexe naquele pedaço.
+ */
+export async function salvarFontesGastos(token, encerradas, semMovimento = null) {
+  const params = {};
+  if (encerradas != null) params.encerradas = JSON.stringify(encerradas);
+  if (semMovimento != null) params.semMovimento = JSON.stringify(semMovimento);
+  return request('POST', 'salvarFontesGastos', token, params);
 }

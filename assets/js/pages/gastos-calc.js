@@ -339,8 +339,10 @@ export function parcelamentosEmAberto(lancs, { meses = 12 } = {}) {
  * Devolve, por fonte, os meses cobertos, os que faltam entre o 1º e o mês
  * passado, e o conjunto de meses "completos" (todas as fontes ativas na época).
  */
-export function coberturaDocumentos(arquivos, hoje, { encerradas = [] } = {}) {
+export function coberturaDocumentos(arquivos, hoje, { encerradas = [], semMovimento = {} } = {}) {
   const fechadas = new Set(encerradas || []); // 07/10/2026: cartão/conta encerrado - sem "faltam meses" (o histórico fica)
+  // 07/10/2026 (Tiago: "meses que não usei o cartão - mês sem fatura"): marcados por fonte, saem do "faltam"
+  const semMov = (f) => new Set((semMovimento && Array.isArray(semMovimento[f]) ? semMovimento[f] : []));
   const mesAtual = mesDe(hoje);
   const ultimoFechado = somarMeses(mesAtual, -1);
   const porFonte = {};
@@ -353,8 +355,11 @@ export function coberturaDocumentos(arquivos, hoje, { encerradas = [] } = {}) {
     const meses = [...set].sort();
     const ini = meses[0];
     const encerrada = fechadas.has(fonte);
-    const faltam = encerrada ? [] : mesesEntre(ini, ultimoFechado).filter((m) => !set.has(m));
-    return { fonte, nome: NOME_FONTE[fonte] || fonte, meses, primeiro: ini, ultimo: meses[meses.length - 1], faltam, encerrada };
+    const sem = semMov(fonte);
+    const buracos = mesesEntre(ini, ultimoFechado).filter((m) => !set.has(m));
+    const faltam = encerrada ? [] : buracos.filter((m) => !sem.has(m));
+    const semMovimento = buracos.filter((m) => sem.has(m)); // marcados "sem fatura/extrato" (e que de fato não têm documento)
+    return { fonte, nome: NOME_FONTE[fonte] || fonte, meses, primeiro: ini, ultimo: meses[meses.length - 1], faltam, encerrada, semMovimento };
   }).sort((a, b) => (a.nome < b.nome ? -1 : 1));
   const todos = new Set(fontes.flatMap((f) => f.meses));
   return { fontes, mesesCobertos: todos, ultimoFechado };
@@ -446,7 +451,7 @@ export function compararEssenciais(despesas, mediaPorCategoria, mediaTotal) {
 export function resumoGastos(dados, { periodo = '12m', mesEscolhido = null, hoje = new Date(), despesas = null } = {}) {
   const lancs = prepararLancamentos(dados.lancamentos, dados.regras);
   const meses = mesesComDados(lancs);
-  const cobertura = coberturaDocumentos(dados.arquivos, hoje, { encerradas: dados.fontesEncerradas || [] });
+  const cobertura = coberturaDocumentos(dados.arquivos, hoje, { encerradas: dados.fontesEncerradas || [], semMovimento: dados.mesesSemMovimento || {} });
   if (!meses.length) return { vazio: true, lancs, cobertura, meses };
   const ultimo = meses[meses.length - 1];
   const personalizado = ehPeriodoDias(periodo);

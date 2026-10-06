@@ -104,11 +104,13 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   if (gastos === undefined) return { ...base, estado: 'carregando', ultimo: null, proximo: '', acao: null };
   const hojeIso = isoDe(hoje || new Date());
   const fechadas = new Set((gastos && gastos.fontesEncerradas) || []);
-  const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso, { encerradas: [...fechadas] });
+  // 07/10/2026: resposta sem `fontesEncerradas` = o Apps Script publicado é anterior a isso - não dá pra salvar (avisa no item)
+  const servidorAntigo = !!gastos && !Object.prototype.hasOwnProperty.call(gastos, 'fontesEncerradas');
+  const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso, { encerradas: [...fechadas], semMovimento: (gastos && gastos.mesesSemMovimento) || {} });
   const doTipo = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
   const fontes = doTipo.filter((f) => !f.encerrada);
   const encerradas = doTipo.filter((f) => f.encerrada);
-  const fontesEditaveis = doTipo.map((f) => ({ fonte: f.fonte, nome: NOME_FONTE[f.fonte] || f.nome, encerrada: !!f.encerrada, ultimo: f.ultimo }));
+  const fontesEditaveis = doTipo.map((f) => ({ fonte: f.fonte, nome: NOME_FONTE[f.fonte] || f.nome, encerrada: !!f.encerrada, ultimo: f.ultimo, servidorAntigo }));
   // 03/10/2026: "novo" = nunca tentado ou mudou no Drive; o que falhou conta à parte (gastos-calc.js)
   const daPasta = gastosDrive && Array.isArray(gastosDrive.arquivos)
     ? gastosDrive.arquivos.filter((a) => (cartao ? /cart[aã]o/i.test(a.caminho || '') : /extrato/i.test(a.caminho || '')))
@@ -118,7 +120,12 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   const comFalhos = (txt) => (falhos ? `${txt} · ${falhos} com problema` : txt);
   const textoEncerradas = encerradas.map((f) => `${NOME_FONTE[f.fonte] || f.nome} encerrado (até ${rotMes(f.ultimo)})`);
   const proxMes = mesDe(hojeIso);
-  const proximo = cartao ? `fatura de ${rotMes(proxMes)} (a que vence este mês)` : `extrato de ${rotMes(cob.ultimoFechado)} (o mês que fechou)`;
+  // 07/10/2026 (Tiago: "você está pedindo a fatura desse mês mas ela ainda não fechou"): se a que vence este mês já
+  // entrou em todos os cartões em uso, a próxima é a do mês que vem - ainda aberta, nada a mandar agora
+  const emDiaEsteMes = cartao && fontes.length && fontes.every((f) => f.ultimo >= proxMes);
+  const proximo = cartao
+    ? (emDiaEsteMes ? `próxima: a que vence em ${rotMes(somarMeses(proxMes, 1))} (ainda aberta)` : `fatura de ${rotMes(proxMes)} (a que vence este mês)`)
+    : `extrato de ${rotMes(cob.ultimoFechado)} (o mês que fechou)`;
   if (!fontes.length && encerradas.length) {
     return {
       ...base, fontesEditaveis, ultimo: textoEncerradas.join(' · '), estado: novos ? 'atencao' : 'ok',
@@ -338,7 +345,8 @@ function htmlFontesEditaveis(x) {
   const encerradas = lista.filter((f) => f.encerrada).length;
   return `<details class="og-doc-fontes" data-doc-det="${esc(x.id)}"><summary>${cartao ? 'Cartões em uso' : 'Contas em uso'} (${lista.length - encerradas} de ${lista.length})</summary>
       <p class="og-doc-fraco">Desmarque ${cartao ? 'o cartão que você cancelou' : 'a conta que você não usa mais'}: sai do "atrasado" e o site para de pedir documento dele. O que já foi importado fica.</p>
-      <ul class="og-doc-fontes-ul">${lista.map((f) => `<li><label><input type="checkbox" data-doc-fonte="${esc(f.fonte)}"${f.encerrada ? '' : ' checked'}> <b>${esc(f.nome)}</b> <span class="og-doc-fraco">${f.encerrada ? `encerrado · último ${esc(rotMes(f.ultimo))}` : `último ${esc(rotMes(f.ultimo))}`}</span></label></li>`).join('')}</ul>
+      ${lista.some((f) => f.servidorAntigo) ? '<p class="og-doc-aviso" role="note">Pra salvar isso, o Apps Script publicado precisa da versão nova: no editor, Implantar → Gerenciar implantações → editar (lápis) → Versão: <b>Nova versão</b> → Implantar.</p>' : ''}
+      <ul class="og-doc-fontes-ul">${lista.map((f) => `<li><label><input type="checkbox" data-doc-fonte="${esc(f.fonte)}"${f.encerrada ? '' : ' checked'}${f.servidorAntigo ? ' disabled' : ''}> <b>${esc(f.nome)}</b> <span class="og-doc-fraco">${f.encerrada ? `encerrado · último ${esc(rotMes(f.ultimo))}` : `último ${esc(rotMes(f.ultimo))}`}</span></label></li>`).join('')}</ul>
     </details>`;
 }
 

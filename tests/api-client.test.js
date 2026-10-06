@@ -495,10 +495,13 @@ test('Gastos: GET (lançamentos, arquivos do Drive, um arquivo) e POST (importa�
   await excluirArquivoGastos('tk', 'f1');
   await excluirArquivosGastos('tk', ['f1', 'f2']); // 07/10/2026
   await salvarFontesGastos('tk', ['ourocard']);
+  await salvarFontesGastos('tk', null, { 'nubank-cartao': ['2024-08'] });
   assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
     ['GET', 'gastos'], ['GET', 'gastosArquivos'], ['GET', 'gastosArquivo'], ['POST', 'salvarImportacaoGastos'], ['POST', 'salvarRegraGastos'], ['POST', 'excluirArquivoGastos'],
-    ['POST', 'excluirArquivosGastos'], ['POST', 'salvarFontesGastos'],
+    ['POST', 'excluirArquivosGastos'], ['POST', 'salvarFontesGastos'], ['POST', 'salvarFontesGastos'],
   ]);
+  assert.equal(vistos[8].params.get('encerradas'), null, 'só os meses: as encerradas ficam como estão');
+  assert.deepEqual(JSON.parse(vistos[8].params.get('semMovimento')), { 'nubank-cartao': ['2024-08'] });
   assert.deepEqual(JSON.parse(vistos[6].params.get('ids')), ['f1', 'f2']);
   assert.deepEqual(JSON.parse(vistos[7].params.get('encerradas')), ['ourocard']);
   assert.equal(vistos[2].params.get('id'), 'f1');

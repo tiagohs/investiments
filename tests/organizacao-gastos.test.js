@@ -21,9 +21,9 @@ async function montar({ arquivos = [], lancamentos = [], storage = memoria() } =
   const dom = new JSDOM('<!doctype html><html><body><div id="g"></div></body></html>', { url: 'https://exemplo.test/organizacao/despesas.html', pretendToBeVisual: true });
   const doc = dom.window.document;
   const { montarSecaoGastos } = await import('../assets/js/pages/organizacao-gastos.js');
-  const servidor = { lancamentos: [...lancamentos], arquivos: [...arquivos], regras: [], salvos: [], regrasSalvas: [], excluidos: [], fontesEncerradas: [], drive: [{ id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', importado: false }] };
+  const servidor = { lancamentos: [...lancamentos], arquivos: [...arquivos], regras: [], salvos: [], regrasSalvas: [], excluidos: [], fontesEncerradas: [], semMovimento: {}, drive: [{ id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', importado: false }] };
   const api = {
-    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: servidor.arquivos, regras: servidor.regras, fontesEncerradas: servidor.fontesEncerradas }),
+    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: servidor.arquivos, regras: servidor.regras, fontesEncerradas: servidor.fontesEncerradas, mesesSemMovimento: servidor.semMovimento }),
     getArquivosGastos: async () => ({ ok: true, configurado: true, arquivos: servidor.drive.map((a) => ({ ...a, importado: servidor.arquivos.some((x) => x.id === a.id) })) }),
     getArquivoGastos: async (id) => ({ ok: true, id, base64: Buffer.from('%PDF-falso').toString('base64'), modificado: '2025-03-02T00:00:00.000Z' }),
     salvarImportacaoGastos: async (arquivo, lancs) => {
@@ -35,7 +35,12 @@ async function montar({ arquivos = [], lancamentos = [], storage = memoria() } =
     salvarRegraGastos: async (padrao, categoria) => { servidor.regrasSalvas.push({ padrao, categoria }); servidor.regras = [{ padrao, categoria }]; return { ok: true, regras: servidor.regras }; },
     excluirArquivoGastos: async () => ({ ok: true }),
     excluirArquivosGastos: async (ids) => { servidor.excluidos.push([...ids]); servidor.arquivos = servidor.arquivos.filter((a) => !ids.includes(a.id)); return { ok: true, removidos: ids.length }; },
-    salvarFontesGastos: async (lista) => { servidor.fontesEncerradas = [...lista]; return { ok: true, fontesEncerradas: [...lista] }; },
+    salvarFontesGastos: async (lista, sem = null) => {
+      if (lista) servidor.fontesEncerradas = [...lista];
+      if (sem) servidor.semMovimento = JSON.parse(JSON.stringify(sem));
+      servidor.salvarFontes = (servidor.salvarFontes || 0) + 1;
+      return { ok: true, fontesEncerradas: [...servidor.fontesEncerradas], mesesSemMovimento: servidor.semMovimento };
+    },
   };
   const tentativas = [];
   const secao = montarSecaoGastos(doc.getElementById('g'), {
@@ -284,4 +289,25 @@ test('Gastos: "Remover selecionados" pede confirmação e remove os marcados num
   assert.deepEqual(servidor.fontesEncerradas, ['ourocard']);
   await ate(() => el.querySelector('[data-acao="fonte-encerrar"][data-fonte="ourocard"][data-encerrada="0"]'));
   assert.match(el.querySelector('.gs-encerrada').textContent, /encerrado/);
+});
+
+test('Gastos: "mês sem fatura…" abre os meses que faltam; marcar um tira do "faltam" e salva só os meses', async () => {
+  const fat = (id, mes) => ({ id, nome: `${id}.pdf`, caminho: 'Cartão de Crédito/Nubank/2025', fonte: 'nubank-cartao', meses: [mes], situacao: 'ok' });
+  const { w, el, servidor } = await montar({
+    arquivos: [fat('f1', '2024-12'), fat('f2', '2025-03')],
+    lancamentos: [{ mes: '2025-03', data: '2025-03-03', origem: 'cartao', fonte: 'nubank-cartao', descricao: 'LOJA INVENTADA', categoria: 'compras', valor: 10, tipo: 'compra', parcela: '', arquivo: 'f2' }],
+  });
+  await ate(() => el.querySelector('[data-acao="sem-mov-abrir"][data-fonte="nubank-cartao"]'));
+  assert.match(el.querySelector('.gs-docs').textContent, /faltam jan\/25, fev\/25/);
+  clique(w, el.querySelector('[data-acao="sem-mov-abrir"][data-fonte="nubank-cartao"]'));
+  await ate(() => el.querySelector('.gs-sem-mes[value="2025-01"]'));
+  const c = el.querySelector('.gs-sem-mes[value="2025-01"]');
+  c.checked = true;
+  c.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await ate(() => servidor.salvarFontes === 1);
+  assert.deepEqual(servidor.semMovimento, { 'nubank-cartao': ['2025-01'] });
+  assert.deepEqual(servidor.fontesEncerradas, [], 'não mexeu nas encerradas');
+  await ate(() => /faltam fev\/25/.test(el.querySelector('.gs-docs').textContent) && !/faltam jan\/25/.test(el.querySelector('.gs-docs').textContent));
+  assert.ok(el.querySelector('.gs-cel.sem'), 'o mês aparece como "sem fatura"');
+  assert.match(el.querySelector('[data-acao="sem-mov-abrir"]').textContent, /sem fatura \(1\)/);
 });

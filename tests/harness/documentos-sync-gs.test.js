@@ -27,7 +27,7 @@ test('Gastos.gs: fontes encerradas - normaliza, volta no lerGastos_, [] reativa'
   const { sb } = sandboxGas(ss);
   assert.deepEqual(plain(sb.lerGastos_(ss)).fontesEncerradas, []);
   const r = plain(sb.salvarFontesEncerradasGastos_(['OuroCard', 'bradesco', 'bradesco', '<script>', '']));
-  assert.deepEqual(r, { ok: true, fontesEncerradas: ['ourocard', 'bradesco'] });
+  assert.deepEqual(r, { ok: true, fontesEncerradas: ['ourocard', 'bradesco'], mesesSemMovimento: {} });
   assert.deepEqual(plain(sb.lerGastos_(ss)).fontesEncerradas, ['ourocard', 'bradesco']);
   sb.salvarFontesEncerradasGastos_([]);
   assert.deepEqual(plain(sb.lerGastos_(ss)).fontesEncerradas, []);
@@ -50,4 +50,19 @@ test('Proventos.gs: "Mês conferido" gravado como DATA pelo Sheets ainda conta; 
   // texto com apóstrofo (como o site grava agora) também
   ss.abas['aux_proventos-conferencia'].l[3][1] = "'2026-08";
   assert.equal(plain(sb.lerConferenciaB3Proventos_(ss)).periodos[0].mes, '2026-08');
+});
+
+test('Gastos.gs: meses sem fatura por fonte - normaliza, não apaga as encerradas (e vice-versa), lê o formato antigo', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss);
+  sb.PropertiesService.getScriptProperties().setProperty('GASTOS_FONTES_ENCERRADAS', JSON.stringify(['ourocard'])); // formato de antes
+  assert.deepEqual(plain(sb.lerGastos_(ss)).fontesEncerradas, ['ourocard']);
+  let r = plain(sb.salvarFontesEncerradasGastos_(null, { 'nubank-cartao': ['2024-09', '2024-08', '2024-08', '2024-13', 'x'], '<x>': ['2024-01'] }));
+  assert.deepEqual(r, { ok: true, fontesEncerradas: ['ourocard'], mesesSemMovimento: { 'nubank-cartao': ['2024-08', '2024-09'] } });
+  r = plain(sb.salvarFontesEncerradasGastos_(['ourocard', 'bradesco'], null));
+  assert.deepEqual(r.mesesSemMovimento, { 'nubank-cartao': ['2024-08', '2024-09'] }, 'encerrar não apaga os meses sem fatura');
+  const g = plain(sb.lerGastos_(ss));
+  assert.deepEqual([g.fontesEncerradas, g.mesesSemMovimento], [['ourocard', 'bradesco'], { 'nubank-cartao': ['2024-08', '2024-09'] }]);
+  sb.salvarFontesEncerradasGastos_([], {});
+  assert.deepEqual(plain(sb.lerGastos_(ss)).mesesSemMovimento, {});
 });

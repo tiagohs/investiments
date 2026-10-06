@@ -349,7 +349,7 @@ function htmlGrupoArquivos(lista, { titulo, chave, aberto = false, motivo = () =
       <ul>${itens}</ul></details>`;
 }
 
-export function htmlDocumentos(r, { drive = null, hoje = new Date() } = {}) {
+export function htmlDocumentos(r, { drive = null, hoje = new Date(), servidorAntigo = false, semAberto = null } = {}) {
   const cob = r.cobertura;
   const fim = cob.ultimoFechado;
   const meses = Array.from({ length: 18 }, (_, k) => somarMeses(fim, k - 17));
@@ -359,14 +359,25 @@ export function htmlDocumentos(r, { drive = null, hoje = new Date() } = {}) {
     const set = new Set(f.meses);
     const celulas = meses.map((m) => {
       // 07/10/2026: cartão/conta encerrado - depois do último mês não "falta" nada
-      const cls = set.has(m) ? (avisoFonteMes.has(`${f.fonte}|${m}`) ? 'aviso' : 'ok') : (m < f.primeiro || (f.encerrada && m > f.ultimo) ? 'antes' : 'falta');
-      const dica = { ok: 'importado', aviso: 'importado (parcial: a soma do documento não bate)', falta: 'falta', antes: f.encerrada && m > f.ultimo ? 'encerrado' : 'antes do 1º documento' }[cls];
+      const semMov = (f.semMovimento || []).includes(m);
+      const cls = set.has(m) ? (avisoFonteMes.has(`${f.fonte}|${m}`) ? 'aviso' : 'ok') : (semMov ? 'sem' : (m < f.primeiro || (f.encerrada && m > f.ultimo) ? 'antes' : 'falta'));
+      const dica = { ok: 'importado', aviso: 'importado (parcial: a soma do documento não bate)', falta: 'falta', sem: 'sem fatura/extrato (marcado por você)', antes: f.encerrada && m > f.ultimo ? 'encerrado' : 'antes do 1º documento' }[cls];
       return `<i class="gs-cel ${cls}" title="${esc(formatMesAno(m, { anoCurto: false }))}: ${dica}"></i>`;
     }).join('');
     const faltam = f.encerrada ? 'encerrado' : (f.faltam.length ? `faltam ${f.faltam.slice(-4).map((m) => formatMesAno(m)).join(', ')}${f.faltam.length > 4 ? ` e mais ${f.faltam.length - 4}` : ''}` : 'completo');
-    const toggle = `<button type="button" class="gs-mini" data-acao="fonte-encerrar" data-fonte="${esc(f.fonte)}" data-encerrada="${f.encerrada ? '0' : '1'}" title="${f.encerrada ? 'Voltar a pedir documentos deste' : 'Cancelou o cartão ou não usa mais a conta? Sai do atrasado; o histórico fica'}">${f.encerrada ? 'reativar' : 'encerrei'}</button>`;
+    const toggle = servidorAntigo ? '' : `<button type="button" class="gs-mini" data-acao="fonte-encerrar" data-fonte="${esc(f.fonte)}" data-encerrada="${f.encerrada ? '0' : '1'}" title="${f.encerrada ? 'Voltar a pedir documentos deste' : 'Cancelou o cartão ou não usa mais a conta? Sai do atrasado; o histórico fica'}">${f.encerrada ? 'reativar' : 'encerrei'}</button>`;
+    // 07/10/2026 (Tiago: "meses que não usei o cartão - preciso dizer 'mês sem fatura'")
+    const nSem = (f.semMovimento || []).length;
+    const podeSem = !servidorAntigo && !f.encerrada && (f.faltam.length || nSem);
+    const botaoSem = podeSem ? `<button type="button" class="gs-mini" data-acao="sem-mov-abrir" data-fonte="${esc(f.fonte)}" aria-expanded="${semAberto === f.fonte}">${nSem ? `sem fatura (${nSem})` : 'mês sem fatura…'}</button>` : '';
+    const semTxt = nSem && !f.encerrada ? ` <span class="gs-fraco">· ${nSem} sem ${/conta|bradesco/.test(f.fonte) ? 'extrato' : 'fatura'}</span>` : '';
+    const linhaSem = podeSem && semAberto === f.fonte ? (() => {
+      const lista = [...new Set([...f.faltam, ...(f.semMovimento || [])])].sort().reverse();
+      return `<tr class="gs-sem-linha"><td colspan="3"><p class="gs-fraco">Marque os meses em que você <b>não usou</b> ${esc(f.nome)} (não teve fatura/extrato): eles saem do "faltam" e do atrasado. Dá pra desmarcar quando quiser.</p>
+        <div class="gs-sem-meses">${lista.map((m) => `<label><input type="checkbox" class="gs-sem-mes" data-fonte="${esc(f.fonte)}" value="${esc(m)}"${(f.semMovimento || []).includes(m) ? ' checked' : ''}> ${esc(formatMesAno(m, { anoCurto: false }))}</label>`).join('')}</div></td></tr>`;
+    })() : '';
     return `<tr${f.encerrada ? ' class="gs-encerrada"' : ''}><td><b>${esc(f.nome)}</b><span class="gs-fonte">${esc(formatMesAno(f.primeiro))} a ${esc(formatMesAno(f.ultimo))} · ${f.meses.length} meses</span></td>
-      <td class="gs-cels" aria-label="Últimos 18 meses">${celulas}</td><td class="gs-faltam ${f.encerrada ? '' : (f.faltam.length ? 'warn' : 'good')}"><span>${esc(faltam)}</span> ${toggle}</td></tr>`;
+      <td class="gs-cels" aria-label="Últimos 18 meses">${celulas}</td><td class="gs-faltam ${f.encerrada ? '' : (f.faltam.length ? 'warn' : 'good')}"><span>${esc(faltam)}${semTxt}</span> ${botaoSem}${toggle}</td></tr>${linhaSem}`;
   }).join('');
   const lista = drive && drive.arquivos ? drive.arquivos : [];
   const novos = arquivosNovosDrive(lista);
@@ -377,7 +388,8 @@ export function htmlDocumentos(r, { drive = null, hoje = new Date() } = {}) {
   const ordenar = (xs) => [...xs].sort((a, b) => `${a.caminho}/${a.nome}`.localeCompare(`${b.caminho}/${b.nome}`, 'pt-BR', { numeric: true }));
   const todos = ordenar((r.arquivos || []).filter((a) => a.id && a.situacao !== 'erro'));
   return `${cob.fontes.length ? `<div class="tabela-wrap"><table class="tabela tabela-baixa gs-tab gs-docs"><thead><tr><th scope="col">Documento</th><th scope="col">${esc(formatMesAno(meses[0]))} → ${esc(formatMesAno(fim))}</th><th scope="col">Situação</th></tr></thead><tbody>${linhas}</tbody></table></div>` : '<p class="gs-fraco">Nenhum documento importado ainda.</p>'}
-    <p class="gs-nota"><span><i class="gs-cel ok"></i>importado</span> <span><i class="gs-cel aviso"></i>parcial</span> <span><i class="gs-cel falta"></i>falta</span> · fatura = mês do vencimento; extrato = meses do período · "encerrei" tira o cartão/conta do atrasado.${drive && drive.configurado === false ? ' <b>Não achei a pasta Documentos/Transações no Drive</b> - rode <code>configurarPastasGastosDireto()</code> uma vez no editor do Apps Script.' : ''}${drive && drive.arquivos ? ` · ${lista.length} arquivos no Drive: ${novos.length} ${novos.length === 1 ? 'novo' : 'novos'}${falhos.length ? `, ${falhos.length} com problema` : ''}.` : ''}</p>
+    ${servidorAntigo ? '<p class="gs-aviso-servidor" role="note">Pra usar "encerrei" e "mês sem fatura", o Apps Script publicado precisa da versão nova: no editor, Implantar → Gerenciar implantações → editar (lápis) → Versão: <b>Nova versão</b> → Implantar.</p>' : ''}
+    <p class="gs-nota"><span><i class="gs-cel ok"></i>importado</span> <span><i class="gs-cel aviso"></i>parcial</span> <span><i class="gs-cel sem"></i>sem fatura</span> <span><i class="gs-cel falta"></i>falta</span> · fatura = mês do vencimento; extrato = meses do período · "encerrei" tira o cartão/conta do atrasado.${drive && drive.configurado === false ? ' <b>Não achei a pasta Documentos/Transações no Drive</b> - rode <code>configurarPastasGastosDireto()</code> uma vez no editor do Apps Script.' : ''}${drive && drive.arquivos ? ` · ${lista.length} arquivos no Drive: ${novos.length} ${novos.length === 1 ? 'novo' : 'novos'}${falhos.length ? `, ${falhos.length} com problema` : ''}.` : ''}</p>
     ${htmlGrupoArquivos(ordenar(problemas), { titulo: `Não entraram (${problemas.length})`, chave: 'problemas', aberto: true, motivo: (a) => a.problema || 'não entrou', reprocessar: true, classe: 'gs-problemas' })}
     ${htmlGrupoArquivos(ordenar(parciais), { titulo: `Entraram parcialmente (${parciais.length}) <span class="gs-fraco">- as compras entraram; só o total do documento não bate</span>`, chave: 'parciais', motivo: (a) => (a.conferencia && a.conferencia.ok === false ? `diferença ${formatBRL(a.conferencia.diferenca)}` : ''), reprocessar: true, classe: 'gs-parciais' })}
     ${htmlGrupoArquivos(todos, { titulo: `Todos os arquivos importados (${todos.length})`, chave: 'todos', classe: 'gs-todos-arqs' })}
@@ -516,7 +528,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
   }
 
   function recalcular() {
-    resumo = resumoGastos({ lancamentos: dados ? dados.lancs : [], regras: dados ? dados.regras : [], arquivos: dados ? dados.arquivos : [], fontesEncerradas: dados ? dados.fontesEncerradas : [] }, { periodo: est.periodo, mesEscolhido: est.mes, hoje, despesas: desp });
+    resumo = resumoGastos({ lancamentos: dados ? dados.lancs : [], regras: dados ? dados.regras : [], arquivos: dados ? dados.arquivos : [], fontesEncerradas: dados ? dados.fontesEncerradas : [], mesesSemMovimento: dados ? dados.mesesSemMovimento : {} }, { periodo: est.periodo, mesEscolhido: est.mes, hoje, despesas: desp });
     resumo.arquivos = dados ? dados.arquivos : [];
     resumo.primeiroMes = dados && dados.janela ? dados.janela.primeiroMes : null; // até onde dá pra voltar (A-35)
   }
@@ -552,7 +564,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     if (!r || !r.ok) est.ampliarFalhouEm = JSON.stringify([est.periodo, est.mes]);
     if (r && r.ok) {
       est.completo = !r.janela || !!r.janela.completo;
-      dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [] };
+      dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: !Object.prototype.hasOwnProperty.call(r, 'fontesEncerradas') };
     }
     desenhar(); // sem sucesso: segue com a janela que tem (não tenta de novo sozinho - mudar de período tenta)
   }
@@ -646,7 +658,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     if (r.parcelas.porMes.length) desenharGrafico('#gsGParc', opcoesParcelasGastos(r.parcelas.porMes));
     raiz.querySelector('#gsMaiores').innerHTML = htmlMaiores(r);
     raiz.querySelector('#gsMaioresHint').textContent = rotuloPeriodo(r);
-    raiz.querySelector('#gsDocs').innerHTML = htmlDocumentos(r, { drive: est.drive, hoje });
+    raiz.querySelector('#gsDocs').innerHTML = htmlDocumentos(r, { drive: est.drive, hoje, servidorAntigo: !!(dados && dados.servidorAntigo), semAberto: est.semAberto || null });
     desenharLancamentos();
     if (precisaMaisHistorico()) ampliarHistorico();
   }
@@ -840,6 +852,27 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     await carregar();
   }
 
+  /** 07/10/2026: marca/desmarca um mês "sem fatura/extrato" de uma fonte (otimista; volta atrás se o Apps Script recusar). */
+  async function marcarSemMovimento(fonte, mes, sem) {
+    if (typeof api.salvarFontesGastos !== 'function' || !dados) return;
+    const antes = JSON.parse(JSON.stringify(dados.mesesSemMovimento || {}));
+    const novo = JSON.parse(JSON.stringify(antes));
+    const lista = new Set(novo[fonte] || []);
+    if (sem) lista.add(mes); else lista.delete(mes);
+    if (lista.size) novo[fonte] = [...lista].sort(); else delete novo[fonte];
+    cargaAplicada = seqCarga + 1; // releitura que já estava no caminho (com a lista antiga) não volta atrás na tela
+    dados.mesesSemMovimento = novo; desenhar();
+    let r;
+    try { r = await api.salvarFontesGastos(null, novo); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (!r || !r.ok) {
+      dados.mesesSemMovimento = antes; desenhar();
+      toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
+      return;
+    }
+    if (r.mesesSemMovimento) { dados.mesesSemMovimento = r.mesesSemMovimento; desenhar(); }
+    await carregar();
+  }
+
   async function reprocessarArquivo(id) {
     if (!(est.drive && est.drive.arquivos)) await procurarDrive();
     const f = ((est.drive && est.drive.arquivos) || []).find((a) => a.id === id);
@@ -902,6 +935,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
       else if (acao === 'mais') { est.limite += 100; desenharLancamentos(); }
       else if (acao === 'remover-sel') await removerSelecionados(b);
       else if (acao === 'fonte-encerrar') await marcarFonte(b);
+      else if (acao === 'sem-mov-abrir') { est.semAberto = est.semAberto === b.dataset.fonte ? null : b.dataset.fonte; desenhar(); }
       else if (acao === 'remover-arq') {
         // 06/10/2026 (A-62): confirmar() em vez de apagar direto; toast() com o resultado
         const ok = await confirmar({ titulo: 'Remover este arquivo?', mensagem: 'Os lançamentos que vieram dele saem da lista. O arquivo original no Drive não é apagado.', confirmarTexto: 'Remover', perigo: true, doc });
@@ -927,6 +961,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
       const t = ev.target;
       if (t.id === 'gsArquivo') { const arqs = [...(t.files || [])]; t.value = ''; if (arqs.length) await lerArquivos(arqs); return; }
       if (t.id === 'gsFiltroCat') { est.filtro.categoria = t.value; est.limite = 60; desenharLancamentos(); return; }
+      if (t.classList && t.classList.contains('gs-sem-mes')) { await marcarSemMovimento(t.dataset.fonte, t.value, t.checked); return; }
       // 07/10/2026: seleção pra "Remover selecionados" (o botão conta os marcados do grupo)
       if (t.classList && (t.classList.contains('gs-sel-arq') || t.classList.contains('gs-sel-todos'))) {
         const grupo = t.closest('.gs-arqs-grupo');
@@ -979,7 +1014,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     cargaAplicada = meu;
     est.falhaAtualizar = ''; est.pendenteSync = false; tentativasCarga = 0;
     if (timerCarga) { clearTimeout(timerCarga); timerCarga = null; }
-    dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [] };
+    dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: !Object.prototype.hasOwnProperty.call(r, 'fontesEncerradas') };
     est.completo = !r.janela || !!r.janela.completo; // já tem o histórico inteiro? (resposta sem `janela` = tudo)
     desenhar();
     if (pDrive && !automatica) {

@@ -164,3 +164,30 @@ test('falha ao salvar: Apps Script antigo ("ação desconhecida") diz pra public
   assert.match(mensagemFalhaGastos({ ok: false, erro: 'ação desconhecida: salvarFontesGastos' }, 'x'), /versão antiga.*nova versão da implantação/);
   assert.equal(mensagemFalhaGastos({ ok: false, erro: 'planilha ocupada' }, 'tente de novo'), 'tente de novo');
 });
+
+test('mês sem fatura: sai do "faltam" (e do atrasado), fica marcado à parte; fatura deste mês já entrou -> a próxima ainda está aberta', () => {
+  const arqs = [arq('n1', 'nubank-cartao', ['2026-06']), arq('n2', 'nubank-cartao', ['2026-09']), arq('n3', 'nubank-cartao', ['2026-10'])];
+  const sem = coberturaDocumentos(arqs, '2026-10-07');
+  assert.deepEqual(sem.fontes[0].faltam, ['2026-07', '2026-08']);
+  const com = coberturaDocumentos(arqs, '2026-10-07', { semMovimento: { 'nubank-cartao': ['2026-07', '2026-08', '2025-01'] } });
+  assert.deepEqual([com.fontes[0].faltam, com.fontes[0].semMovimento], [[], ['2026-07', '2026-08']], 'só os meses sem documento contam como "sem fatura"');
+  const doc = documentoGastos('faturas', { gastos: { arquivos: arqs, fontesEncerradas: [], mesesSemMovimento: { 'nubank-cartao': ['2026-07', '2026-08'] } }, gastosDrive: { arquivos: [] }, hoje: '2026-10-07' });
+  assert.equal(doc.estado, 'ok');
+  assert.equal(doc.proximo, 'próxima: a que vence em nov/26 (ainda aberta)', 'a de out/26 já entrou: não pede a que ainda não fechou');
+  const falta = documentoGastos('faturas', { gastos: { arquivos: arqs.slice(0, 2), fontesEncerradas: [] }, gastosDrive: { arquivos: [] }, hoje: '2026-10-07' });
+  assert.match(falta.proximo, /fatura de out\/26 \(a que vence este mês\)/);
+});
+
+test('Apps Script antigo (resposta sem fontesEncerradas): caixinhas desabilitadas + como publicar; Gastos esconde "encerrei"', () => {
+  const doc = documentoGastos('faturas', { gastos: { arquivos: ARQUIVOS }, gastosDrive: { arquivos: [] }, hoje: HOJE });
+  assert.ok(doc.fontesEditaveis.every((f) => f.servidorAntigo));
+  const html = htmlListaDocumentos({ manual: [], auto: [doc] });
+  assert.match(html, /Nova versão/);
+  assert.match(html, /data-doc-fonte="ourocard" checked disabled/);
+  const r = { arquivos: ARQUIVOS, cobertura: coberturaDocumentos(ARQUIVOS, HOJE) };
+  const g = htmlDocumentos(r, { servidorAntigo: true });
+  assert.match(g, /Nova versão/);
+  assert.doesNotMatch(g, /data-acao="fonte-encerrar"|data-acao="sem-mov-abrir"/);
+  const g2 = htmlDocumentos(r, { semAberto: 'ourocard' });
+  assert.match(g2, /class="gs-sem-mes" data-fonte="ourocard" value="2026-09"/);
+});

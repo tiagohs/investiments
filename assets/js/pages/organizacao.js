@@ -762,7 +762,7 @@ export async function montarPaginaOrganizacao(token, {
       salvarImportacaoGastos: (a, l) => salvarImportacaoGastos(token, a, l), salvarRegraGastos: (pp, c) => salvarRegraGastos(token, pp, c),
       excluirArquivoGastos: (id) => excluirArquivoGastos(token, id),
       excluirArquivosGastos: (ids) => excluirArquivosGastos(token, ids), // 07/10/2026: remover vários de uma vez
-      salvarFontesGastos: (lista) => salvarFontesGastos(token, lista), // 07/10/2026: cartões/contas encerrados
+      salvarFontesGastos: (lista, semMovimento = null) => salvarFontesGastos(token, lista, semMovimento), // 07/10/2026: cartões/contas encerrados e meses sem fatura
     },
   };
   const pat = criarCarregador(() => api.getPatrimonio(token));
