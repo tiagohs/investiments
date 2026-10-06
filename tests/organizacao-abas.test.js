@@ -395,4 +395,7 @@ test('Documentos: desmarcar o cartão fica desmarcado (releitura não reativa); 
   assert.equal(doc.querySelector('#ogDocumentos [data-doc-fonte="nubank-cartao"]').checked, true, 'recusado: desfaz só esse clique');
   assert.equal(caixa().checked, false, 'o OuroCard (salvo antes) continua encerrado');
   assert.match(txt(doc.body), /versão antiga: crie uma nova versão da implantação/);
+  // 07/10/2026: depois da recusa, o item explica como publicar e trava as caixinhas
+  assert.match(txt(doc.querySelector('#ogDocumentos [data-doc-id="faturas"]')), /Nova versão/);
+  assert.equal(doc.querySelector('#ogDocumentos [data-doc-fonte="nubank-cartao"]').disabled, true);
 });

@@ -178,8 +178,11 @@ test('mês sem fatura: sai do "faltam" (e do atrasado), fica marcado à parte; f
   assert.match(falta.proximo, /fatura de out\/26 \(a que vence este mês\)/);
 });
 
-test('Apps Script antigo (resposta sem fontesEncerradas): caixinhas desabilitadas + como publicar; Gastos esconde "encerrei"', () => {
-  const doc = documentoGastos('faturas', { gastos: { arquivos: ARQUIVOS }, gastosDrive: { arquivos: [] }, hoje: HOJE });
+test('Apps Script antigo (recusou salvar): caixinhas desabilitadas + como publicar; resposta só sem o campo (cache) não trava', () => {
+  const semCampo = documentoGastos('faturas', { gastos: { arquivos: ARQUIVOS }, gastosDrive: { arquivos: [] }, hoje: HOJE });
+  assert.ok(semCampo.fontesEditaveis.every((f) => !f.servidorAntigo), 'resposta velha do cache do servidor não trava nada');
+  assert.doesNotMatch(htmlListaDocumentos({ manual: [], auto: [semCampo] }), /disabled|Nova versão/);
+  const doc = documentoGastos('faturas', { gastos: { arquivos: ARQUIVOS, servidorRecusouFontes: true }, gastosDrive: { arquivos: [] }, hoje: HOJE });
   assert.ok(doc.fontesEditaveis.every((f) => f.servidorAntigo));
   const html = htmlListaDocumentos({ manual: [], auto: [doc] });
   assert.match(html, /Nova versão/);

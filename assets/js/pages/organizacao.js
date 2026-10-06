@@ -971,7 +971,9 @@ export async function montarPaginaOrganizacao(token, {
       if (!r || !r.ok) {
         const agora = new Set((gas.valor && gas.valor.fontesEncerradas) || []);
         if (encerrada) agora.delete(fonte); else agora.add(fonte); // desfaz só este clique
-        if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: [...agora] }); else atualizarDocumentos();
+        // "ação desconhecida" = Apps Script publicado antigo: o painel avisa como publicar e trava as caixinhas
+        const recusou = /a[cç][aã]o desconhecida/i.test(String((r && r.erro) || ''));
+        if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: [...agora], ...(recusou ? { servidorRecusouFontes: true } : {}) }); else atualizarDocumentos();
         toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
         return;
       }

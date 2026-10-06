@@ -66,3 +66,11 @@ test('Gastos.gs: meses sem fatura por fonte - normaliza, não apaga as encerrada
   sb.salvarFontesEncerradasGastos_([], {});
   assert.deepEqual(plain(sb.lerGastos_(ss)).mesesSemMovimento, {});
 });
+
+test('cache de respostas: a versão do código entra no carimbo (publicar código novo não serve a resposta da versão anterior)', () => {
+  const ss = planilhaFalsa({});
+  const { sb } = sandboxGas(ss);
+  const c = sb.carimboEscritaPlanilha_();
+  assert.ok(c.startsWith(sb.VERSAO_CODIGO_CACHE_ + '.'), c);
+  assert.ok(sb.chaveCacheGastos_(ss, {}).includes(sb.VERSAO_CODIGO_CACHE_), 'a chave do cache de gastos muda com a versão');
+});

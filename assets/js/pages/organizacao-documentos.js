@@ -104,8 +104,10 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   if (gastos === undefined) return { ...base, estado: 'carregando', ultimo: null, proximo: '', acao: null };
   const hojeIso = isoDe(hoje || new Date());
   const fechadas = new Set((gastos && gastos.fontesEncerradas) || []);
-  // 07/10/2026: resposta sem `fontesEncerradas` = o Apps Script publicado é anterior a isso - não dá pra salvar (avisa no item)
-  const servidorAntigo = !!gastos && !Object.prototype.hasOwnProperty.call(gastos, 'fontesEncerradas');
+  // 07/10/2026: só quando o Apps Script RECUSOU salvar ("ação desconhecida" - versão antiga publicada) o item avisa e trava
+  // as caixinhas. Resposta sem `fontesEncerradas` não basta: pode ser uma resposta antiga do cache do servidor (e o
+  // primeiro clique, que é um POST, já troca a chave do cache).
+  const servidorAntigo = !!(gastos && gastos.servidorRecusouFontes);
   const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso, { encerradas: [...fechadas], semMovimento: (gastos && gastos.mesesSemMovimento) || {} });
   const doTipo = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
   const fontes = doTipo.filter((f) => !f.encerrada);

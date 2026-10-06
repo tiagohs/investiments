@@ -479,6 +479,8 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
   // pode não repassar parâmetros no getGastos - com token, vai direto no api-client.
   const buscarJanela = typeof api.getGastosJanela === 'function' ? api.getGastosJanela : (token ? (j) => getGastos(token, j) : (j) => api.getGastos(j));
   const win = doc.defaultView;
+  let servidorRecusou = false; // 07/10/2026: o Apps Script publicado disse "ação desconhecida" (versão antiga)
+  const recusaVersaoAntiga = (r) => /a[cç][aã]o desconhecida/i.test(String((r && r.erro) || ''));
   const est = {
     periodo: PERIODOS.some((p) => p.id === lerLocal(storage, CHAVE_PERIODO)) ? lerLocal(storage, CHAVE_PERIODO) : '12m',
     filtroPeriodo: null, // 03/10/2026: controlador de periodo-personalizado.js (presets + "Escolher período")
@@ -564,7 +566,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     if (!r || !r.ok) est.ampliarFalhouEm = JSON.stringify([est.periodo, est.mes]);
     if (r && r.ok) {
       est.completo = !r.janela || !!r.janela.completo;
-      dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: !Object.prototype.hasOwnProperty.call(r, 'fontesEncerradas') };
+      dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: servidorRecusou };
     }
     desenhar(); // sem sucesso: segue com a janela que tem (não tenta de novo sozinho - mudar de período tenta)
   }
@@ -844,7 +846,8 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     let r;
     try { r = await api.salvarFontesGastos([...atual]); } catch (e) { r = { ok: false, erro: String(e) }; }
     if (!r || !r.ok) {
-      if (dados) { dados.fontesEncerradas = antes; desenhar(); }
+      if (recusaVersaoAntiga(r)) servidorRecusou = true;
+      if (dados) { dados.fontesEncerradas = antes; dados.servidorAntigo = servidorRecusou; desenhar(); }
       toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
       return;
     }
@@ -865,7 +868,8 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     let r;
     try { r = await api.salvarFontesGastos(null, novo); } catch (e) { r = { ok: false, erro: String(e) }; }
     if (!r || !r.ok) {
-      dados.mesesSemMovimento = antes; desenhar();
+      if (recusaVersaoAntiga(r)) servidorRecusou = true;
+      dados.mesesSemMovimento = antes; dados.servidorAntigo = servidorRecusou; desenhar();
       toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
       return;
     }
@@ -1014,7 +1018,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     cargaAplicada = meu;
     est.falhaAtualizar = ''; est.pendenteSync = false; tentativasCarga = 0;
     if (timerCarga) { clearTimeout(timerCarga); timerCarga = null; }
-    dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: !Object.prototype.hasOwnProperty.call(r, 'fontesEncerradas') };
+    dados = { lancs: objetosLancamentos(r), regras: r.regras || [], arquivos: r.arquivos || [], janela: r.janela || null, fontesEncerradas: r.fontesEncerradas || [], mesesSemMovimento: r.mesesSemMovimento || {}, servidorAntigo: servidorRecusou };
     est.completo = !r.janela || !!r.janela.completo; // já tem o histórico inteiro? (resposta sem `janela` = tudo)
     desenhar();
     if (pDrive && !automatica) {

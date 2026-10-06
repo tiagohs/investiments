@@ -120,8 +120,18 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * com a última linha real, então corrigir um valor NO LUGAR (mesma linha) também
  * invalida, não só uma linha nova.
  */
+/**
+ * 07/10/2026 (Tiago publicou a versão nova e a tela continuou recebendo a resposta de `gastos` da versão ANTERIOR - sem
+ * fontesEncerradas - porque a chave do cache não muda com o código, só com escrita na planilha): a VERSÃO DO CÓDIGO entra
+ * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
+ * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
+ */
+var VERSAO_CODIGO_CACHE_ = '20261007b';
+
 function carimboEscritaPlanilha_() {
-  try { return PropertiesService.getScriptProperties().getProperty(PROP_CARIMBO_ESCRITA_PLANILHA_) || '0'; } catch (e) { return '0'; }
+  var c = '0';
+  try { c = PropertiesService.getScriptProperties().getProperty(PROP_CARIMBO_ESCRITA_PLANILHA_) || '0'; } catch (e) { c = '0'; }
+  return VERSAO_CODIGO_CACHE_ + '.' + c;
 }
 
 /** Marca "a planilha mudou agora" (chamado ao fim de lançamentos/importações/Limpar cache). */
