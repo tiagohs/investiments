@@ -156,7 +156,7 @@ test('extrato pela importação de Lançamentos (já na conferência): grava aux
   assert.deepEqual(linhas[0].slice(0, 2), ['Linha', 'Ticker / mês']);
   assert.equal(linhas.filter((l) => l[0] === 'B3').length, 4);
   const mes = linhas.find((l) => l[0] === 'Mês conferido');
-  assert.equal(mes[1], '2026-10');
+  assert.equal(String(mes[1]).replace(/^'/, ''), '2026-10'); // 07/10/2026: gravado com apóstrofo (texto; sem ele o Sheets vira data)
   assert.equal(sb.chaveDiaISOInicio_(mes[3]), '2026-10-15', 'mês corrente: conferido até a última data do extrato');
 
   const out = plain(sb.montarProventosAnunciados_(null, {}));

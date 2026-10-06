@@ -37,10 +37,10 @@
  */
 import {
   getDespesas, salvarDespesas, getPatrimonio, getSalario, getArquivosHolerites, getGastos, getArquivosGastos, getArquivoGastos,
-  salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos, getMacro,
+  salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos, excluirArquivosGastos, salvarFontesGastos, getMacro,
 } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
-import { montarCabecalhoPagina, criarTabs, mostrarErroCarga, definirTituloPagina } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas em pílula e erro de carga padrão do kit
+import { montarCabecalhoPagina, criarTabs, mostrarErroCarga, definirTituloPagina, toast } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas em pílula e erro de carga padrão do kit
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { formatBRL, formatNumeroBR, formatDateBR, formatPct } from '../format.js';
 import {
@@ -755,6 +755,8 @@ export async function montarPaginaOrganizacao(token, {
       getGastos: () => getGastos(token), getArquivosGastos: () => getArquivosGastos(token), getArquivoGastos: (id) => getArquivoGastos(token, id),
       salvarImportacaoGastos: (a, l) => salvarImportacaoGastos(token, a, l), salvarRegraGastos: (pp, c) => salvarRegraGastos(token, pp, c),
       excluirArquivoGastos: (id) => excluirArquivoGastos(token, id),
+      excluirArquivosGastos: (ids) => excluirArquivosGastos(token, ids), // 07/10/2026: remover vários de uma vez
+      salvarFontesGastos: (lista) => salvarFontesGastos(token, lista), // 07/10/2026: cartões/contas encerrados
     },
   };
   const pat = criarCarregador(() => api.getPatrimonio(token));
@@ -913,6 +915,7 @@ export async function montarPaginaOrganizacao(token, {
   }
   async function acaoDocumento(acao, extra) {
     if (acao === 'ir-drive') { await irParaIr(); return; }
+    if (acao === 'fonte-encerrada') { await marcarFonteEncerrada(extra); return; }
     if (acao === 'pdfs') {
       mostrarAba('patrimonio');
       const p = montarPatrimonio();
@@ -940,6 +943,21 @@ export async function montarPaginaOrganizacao(token, {
         rolarAte(el.gastos.querySelector('#gsDocs') || el.gastos);
       }
     }
+  }
+  /**
+   * 07/10/2026 (Tiago: OuroCard cancelado, Bradesco sem uso): marca/desmarca um cartão ou conta como encerrado. A lista
+   * mora no Apps Script (Gastos.gs) e volta no getGastos - o painel Documentos e a seção Gastos leem dali.
+   */
+  async function marcarFonteEncerrada({ fonte, encerrada } = {}) {
+    if (!fonte || typeof api.gastos.salvarFontesGastos !== 'function') return;
+    const atual = new Set((gas.valor && gas.valor.fontesEncerradas) || []);
+    if (encerrada) atual.add(fonte); else atual.delete(fonte);
+    let r;
+    try { r = await api.gastos.salvarFontesGastos([...atual]); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (!r || !r.ok) { toast('Não consegui salvar agora. Tente de novo em instantes.', { tipo: 'erro', doc }); atualizarDocumentos(); return; }
+    if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: r.fontesEncerradas || [...atual] });
+    toast(encerrada ? 'Marcado como encerrado: não entra mais em "atrasado".' : 'Reativado.', { tipo: 'info', doc });
+    if (gastos && typeof gastos.recarregar === 'function') gastos.recarregar();
   }
   if (el.documentos && documentosOpcoes !== false) {
     painelDocs = montarPainelDocumentos(el.documentos, { doc, aoAcao: (a, x) => { acaoDocumento(a, x); }, ...(documentosOpcoes || {}) });

@@ -359,6 +359,8 @@ function montarTelaPatrimonio_(ss, hoje, opcoes) {
   var avisos = {};
   var lido = lerConfigPatrimonio_(ss);
   var r = { hoje: dataIsoPatrimonio_(hoje), config: lido.config, atualizado: lido.atualizado };
+  // 07/10/2026: o painel Documentos mostra o último extrato de proventos da B3 que chegou (Proventos.gs)
+  try { r.extratoB3 = typeof resumoExtratoB3_ === 'function' ? resumoExtratoB3_(ss) : null; } catch (eB3) { r.extratoB3 = null; }
 
   try {
     var h = montarHome_(); // Home.gs

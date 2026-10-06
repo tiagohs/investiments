@@ -479,7 +479,7 @@ test('Metas v2: getMetasHistorico (GET, id opcional) e excluirMetaDefinitivament
 });
 
 // 02/10/2026: Organização Financeira - Gastos (Gastos.gs).
-import { getGastos, getArquivosGastos, getArquivoGastos, salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos } from '../assets/js/api-client.js';
+import { getGastos, getArquivosGastos, getArquivoGastos, salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos, excluirArquivosGastos, salvarFontesGastos } from '../assets/js/api-client.js';
 
 test('Gastos: GET (lançamentos, arquivos do Drive, um arquivo) e POST (importação em JSON, regra, excluir arquivo)', async (t) => {
   const vistos = [];
@@ -493,9 +493,14 @@ test('Gastos: GET (lançamentos, arquivos do Drive, um arquivo) e POST (importa�
   await salvarImportacaoGastos('tk', { id: 'f1', meses: ['2025-03'] }, [{ data: '2025-03-01', valor: 10 }]);
   await salvarRegraGastos('tk', 'LOJA X', 'compras');
   await excluirArquivoGastos('tk', 'f1');
+  await excluirArquivosGastos('tk', ['f1', 'f2']); // 07/10/2026
+  await salvarFontesGastos('tk', ['ourocard']);
   assert.deepEqual(vistos.map((v) => [v.metodo, v.params.get('action')]), [
     ['GET', 'gastos'], ['GET', 'gastosArquivos'], ['GET', 'gastosArquivo'], ['POST', 'salvarImportacaoGastos'], ['POST', 'salvarRegraGastos'], ['POST', 'excluirArquivoGastos'],
+    ['POST', 'excluirArquivosGastos'], ['POST', 'salvarFontesGastos'],
   ]);
+  assert.deepEqual(JSON.parse(vistos[6].params.get('ids')), ['f1', 'f2']);
+  assert.deepEqual(JSON.parse(vistos[7].params.get('encerradas')), ['ourocard']);
   assert.equal(vistos[2].params.get('id'), 'f1');
   assert.deepEqual(JSON.parse(vistos[3].params.get('arquivo')), { id: 'f1', meses: ['2025-03'] });
   assert.deepEqual(JSON.parse(vistos[3].params.get('lancamentos')), [{ data: '2025-03-01', valor: 10 }]);

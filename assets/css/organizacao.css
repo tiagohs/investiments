@@ -374,6 +374,13 @@ a.hint:hover{ color:var(--acoes); }
 .og-doc-fraco{ color:var(--ink-faint); }
 .og-doc-a{ display:flex; justify-content:flex-end; }
 .og-docs-nota{ margin:0; }
+/* 07/10/2026: "Cartões/Contas em uso" dentro do item (desmarcar = encerrado) */
+.og-doc-fontes{ grid-column:2 / -1; font-size:12px; color:var(--ink-muted); }
+.og-doc-fontes > summary{ cursor:pointer; min-height:32px; display:inline-flex; align-items:center; font-weight:600; color:var(--ink); }
+.og-doc-fontes p{ margin:2px 0 6px; }
+.og-doc-fontes-ul{ list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:4px 16px; }
+.og-doc-fontes-ul label{ display:inline-flex; align-items:center; gap:6px; min-height:32px; cursor:pointer; }
+.og-doc-fontes-ul input{ width:18px; height:18px; accent-color:var(--md-sys-color-primary); }
 @media (max-width:760px){
   .og-doc{ grid-template-columns:24px minmax(0,1fr); align-items:start; }
   .og-doc-q, .og-doc-a{ grid-column:2; }

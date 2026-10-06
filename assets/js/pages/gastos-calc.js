@@ -339,7 +339,8 @@ export function parcelamentosEmAberto(lancs, { meses = 12 } = {}) {
  * Devolve, por fonte, os meses cobertos, os que faltam entre o 1º e o mês
  * passado, e o conjunto de meses "completos" (todas as fontes ativas na época).
  */
-export function coberturaDocumentos(arquivos, hoje) {
+export function coberturaDocumentos(arquivos, hoje, { encerradas = [] } = {}) {
+  const fechadas = new Set(encerradas || []); // 07/10/2026: cartão/conta encerrado - sem "faltam meses" (o histórico fica)
   const mesAtual = mesDe(hoje);
   const ultimoFechado = somarMeses(mesAtual, -1);
   const porFonte = {};
@@ -351,8 +352,9 @@ export function coberturaDocumentos(arquivos, hoje) {
   const fontes = Object.entries(porFonte).map(([fonte, set]) => {
     const meses = [...set].sort();
     const ini = meses[0];
-    const faltam = mesesEntre(ini, ultimoFechado).filter((m) => !set.has(m));
-    return { fonte, nome: NOME_FONTE[fonte] || fonte, meses, primeiro: ini, ultimo: meses[meses.length - 1], faltam };
+    const encerrada = fechadas.has(fonte);
+    const faltam = encerrada ? [] : mesesEntre(ini, ultimoFechado).filter((m) => !set.has(m));
+    return { fonte, nome: NOME_FONTE[fonte] || fonte, meses, primeiro: ini, ultimo: meses[meses.length - 1], faltam, encerrada };
   }).sort((a, b) => (a.nome < b.nome ? -1 : 1));
   const todos = new Set(fontes.flatMap((f) => f.meses));
   return { fontes, mesesCobertos: todos, ultimoFechado };
@@ -369,13 +371,32 @@ export function coberturaDocumentos(arquivos, hoje) {
  */
 export function situacaoArquivoDrive(a) {
   if (!a) return 'novo';
-  if (a.situacao === 'erro' || a.situacao === 'aviso') return 'falhou';
-  if (a.importado && a.alterado && a.problema) return 'falhou';
+  if (a.situacao === 'erro') return 'falhou';
+  if (a.importado && a.alterado && a.problema && a.situacao !== 'aviso') return 'falhou'; // mudou no Drive e a releitura falhou
   if (!a.importado || a.alterado) return 'novo';
+  // 07/10/2026 (Tiago: "considere como parcialmente sucesso esses de a conta não bater, o que importa são as compras"):
+  // entrou com a soma que não bate = 'parcial' - conta como importado, fora do "com problema" e do "tentar de novo"
+  if (a.situacao === 'aviso') return 'parcial';
   return 'importado';
 }
 export const arquivosNovosDrive = (lista) => (lista || []).filter((a) => situacaoArquivoDrive(a) === 'novo');
 export const arquivosFalhosDrive = (lista) => (lista || []).filter((a) => situacaoArquivoDrive(a) === 'falhou');
+export const arquivosParciaisDrive = (lista) => (lista || []).filter((a) => situacaoArquivoDrive(a) === 'parcial');
+
+/**
+ * 07/10/2026: de que cartão/conta (id de NOME_FONTE) é um arquivo da lista do Drive. O já importado traz a fonte do
+ * registro; o novo sai da pasta do banco (Cartão de Crédito/<Banco>/..., Extratos/<Banco>/...). '' = não sei.
+ */
+export function fonteArquivoDrive(a) {
+  if (!a) return '';
+  if (a.fonte) return a.fonte;
+  const banco = String(a.banco || String(a.caminho || '').split('/')[1] || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const cartao = a.origem ? a.origem === 'cartao' : /cart[aã]o/i.test(a.caminho || '');
+  if (/ouro/.test(banco)) return 'ourocard';
+  if (/bradesco/.test(banco)) return 'bradesco';
+  if (/nubank|nu\b/.test(banco)) return cartao ? 'nubank-cartao' : 'nubank-conta';
+  return '';
+}
 
 // ---------------------------------------------------------------------------
 // Essencial (aba Despesas) x real
@@ -425,7 +446,7 @@ export function compararEssenciais(despesas, mediaPorCategoria, mediaTotal) {
 export function resumoGastos(dados, { periodo = '12m', mesEscolhido = null, hoje = new Date(), despesas = null } = {}) {
   const lancs = prepararLancamentos(dados.lancamentos, dados.regras);
   const meses = mesesComDados(lancs);
-  const cobertura = coberturaDocumentos(dados.arquivos, hoje);
+  const cobertura = coberturaDocumentos(dados.arquivos, hoje, { encerradas: dados.fontesEncerradas || [] });
   if (!meses.length) return { vazio: true, lancs, cobertura, meses };
   const ultimo = meses[meses.length - 1];
   const personalizado = ehPeriodoDias(periodo);

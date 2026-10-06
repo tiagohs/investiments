@@ -35,7 +35,7 @@
  * Gastos escuta); extrato da B3 -> Transações › Lançamentos (link).
  */
 import { documentosRenda } from './renda-calc.js';
-import { coberturaDocumentos, NOME_FONTE, arquivosNovosDrive, arquivosFalhosDrive } from './gastos-calc.js';
+import { coberturaDocumentos, NOME_FONTE, arquivosNovosDrive, arquivosFalhosDrive, fonteArquivoDrive } from './gastos-calc.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 import { MESES_CURTOS, formatMesAno, formatDMA } from '../format.js'; // 05/10/2026 (A-68)
 
@@ -90,7 +90,12 @@ export const ROTULO_ESTADO = { ok: 'em dia', atencao: 'atenção', atrasado: 'at
 export const FONTES_CARTAO = ['ourocard', 'nubank-cartao', 'ofx-cartao'];
 export const FONTES_CONTA = ['nubank-conta', 'bradesco', 'ofx-conta'];
 
-/** Faturas (cartão) ou extratos (conta): status pelos meses importados + o que está novo no Drive. */
+/**
+ * Faturas (cartão) ou extratos (conta): status pelos meses importados + o que está novo no Drive.
+ * 07/10/2026 (Tiago: OuroCard cancelado, Bradesco sem uso): cartão/conta encerrado (gastos.fontesEncerradas, Gastos.gs)
+ * não entra no atrasado nem no "faltam meses", e o que sobrou dele no Drive não pede importação. `fontesEditaveis` =
+ * a lista pra marcar/desmarcar "em uso" no próprio item.
+ */
 export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   const cartao = tipo === 'faturas';
   const base = cartao
@@ -98,20 +103,32 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
     : { id: 'extratos', nome: 'Extratos da conta', frequencia: 'todo mês', automatico: 'clique', como: 'o site acha os PDFs (ou CSV/OFX) na pasta Documentos/Transações/Extratos do Drive - você só confirma "Importar"' };
   if (gastos === undefined) return { ...base, estado: 'carregando', ultimo: null, proximo: '', acao: null };
   const hojeIso = isoDe(hoje || new Date());
-  const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso);
-  const fontes = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
+  const fechadas = new Set((gastos && gastos.fontesEncerradas) || []);
+  const cob = coberturaDocumentos((gastos && gastos.arquivos) || [], hojeIso, { encerradas: [...fechadas] });
+  const doTipo = cob.fontes.filter((f) => (cartao ? FONTES_CARTAO : FONTES_CONTA).includes(f.fonte));
+  const fontes = doTipo.filter((f) => !f.encerrada);
+  const encerradas = doTipo.filter((f) => f.encerrada);
+  const fontesEditaveis = doTipo.map((f) => ({ fonte: f.fonte, nome: NOME_FONTE[f.fonte] || f.nome, encerrada: !!f.encerrada, ultimo: f.ultimo }));
   // 03/10/2026: "novo" = nunca tentado ou mudou no Drive; o que falhou conta à parte (gastos-calc.js)
   const daPasta = gastosDrive && Array.isArray(gastosDrive.arquivos)
     ? gastosDrive.arquivos.filter((a) => (cartao ? /cart[aã]o/i.test(a.caminho || '') : /extrato/i.test(a.caminho || '')))
     : [];
-  const novos = arquivosNovosDrive(daPasta).length;
-  const falhos = arquivosFalhosDrive(daPasta).length;
+  const novos = arquivosNovosDrive(daPasta).filter((a) => !fechadas.has(fonteArquivoDrive(a))).length;
+  const falhos = arquivosFalhosDrive(daPasta).filter((a) => !fechadas.has(fonteArquivoDrive(a))).length;
   const comFalhos = (txt) => (falhos ? `${txt} · ${falhos} com problema` : txt);
+  const textoEncerradas = encerradas.map((f) => `${NOME_FONTE[f.fonte] || f.nome} encerrado (até ${rotMes(f.ultimo)})`);
   const proxMes = mesDe(hojeIso);
   const proximo = cartao ? `fatura de ${rotMes(proxMes)} (a que vence este mês)` : `extrato de ${rotMes(cob.ultimoFechado)} (o mês que fechou)`;
+  if (!fontes.length && encerradas.length) {
+    return {
+      ...base, fontesEditaveis, ultimo: textoEncerradas.join(' · '), estado: novos ? 'atencao' : 'ok',
+      proximo: comFalhos(novos ? `${novos} no Drive esperando` : (cartao ? 'nenhum cartão em uso - nada a mandar' : 'nenhuma conta em uso - nada a mandar')),
+      acao: novos ? { id: 'gastos-novos', rotulo: `Importar ${novos} do Drive` } : (falhos ? { id: 'gastos', rotulo: 'Ver os que falharam' } : null),
+    };
+  }
   if (!fontes.length) {
     return {
-      ...base, ultimo: null, estado: novos ? 'atencao' : 'falta',
+      ...base, fontesEditaveis, ultimo: null, estado: novos ? 'atencao' : 'falta',
       proximo: comFalhos(novos ? `${novos} no Drive esperando` : 'importe pelo menos os últimos 12 meses'),
       acao: { id: novos ? 'gastos-novos' : 'gastos', rotulo: novos ? `Importar ${novos} do Drive` : (falhos ? 'Ver os que falharam' : 'Abrir Gastos') },
       detalhe: gastos === null ? 'os gastos não carregaram agora' : null,
@@ -129,7 +146,7 @@ export function documentoGastos(tipo, { gastos, gastosDrive, hoje }) {
   let estado = pior;
   if (estado === 'ok' && novos) estado = 'atencao';
   return {
-    ...base, estado, ultimo: partes.join(' · '),
+    ...base, fontesEditaveis, estado, ultimo: [...partes, ...textoEncerradas].join(' · '),
     proximo: comFalhos(novos ? `${novos} ${novos === 1 ? 'novo' : 'novos'} no Drive · ${proximo}` : (pior === 'ok' ? proximo : `faltam meses (${faltam}) - ${proximo}`)),
     acao: novos ? { id: 'gastos-novos', rotulo: `Importar ${novos} ${novos === 1 ? 'novo' : 'novos'}` } : (pior !== 'ok' ? { id: 'gastos', rotulo: 'Ver meses que faltam' } : (falhos ? { id: 'gastos', rotulo: 'Ver os que falharam' } : null)),
   };
@@ -154,8 +171,14 @@ export function documentoDivida(tipo, cfg, hoje) {
   };
 }
 
-/** Extrato de proventos da B3: no fim do mês, pro "check final" da tela Proventos. */
-export function documentoB3(hoje) {
+/**
+ * Extrato de proventos da B3: no fim do mês, pro "check final" da tela Proventos.
+ * 07/10/2026 (Tiago: "eu lembro de ter enviado já ... garanta que esteja sendo registrado pra que eu não fique enviando
+ * a mesma coisa"): `extrato` = patrimonio.extratoB3 (Proventos.gs!resumoExtratoB3_ - o último mês conferido, quando
+ * chegou e de que arquivo); undefined = carregando, null = nunca chegou. Com o mês já conferido, fica "em dia".
+ */
+export function documentoB3(hoje, ...resto) {
+  const extrato = resto.length ? resto[0] : null; // sem o 2º argumento = não sabe (null); undefined explícito = carregando
   const hojeIso = isoDe(hoje || new Date());
   const [a, m, d] = hojeIso.split('-').map(Number);
   const ultimoDia = new Date(Date.UTC(a, m, 0)).getUTCDate();
@@ -163,13 +186,31 @@ export function documentoB3(hoje) {
   const fimDoMes = d >= ultimoDia - 3;
   const comecoDoMes = d <= 7;
   const alvo = fimDoMes ? mes : somarMeses(mes, -1);
-  return {
+  const base = {
     id: 'b3', nome: 'Extrato de proventos da B3', frequencia: 'fim do mês', automatico: false,
-    como: 'Área do Investidor da B3 → Extratos → Movimentação (Excel), importado em Transações → Lançamentos. Os proventos já entram sozinhos pelos anúncios; o extrato só confere (pago presumido → conferido)',
-    ultimo: null,
-    estado: fimDoMes || comecoDoMes ? 'atencao' : 'ok',
-    proximo: fimDoMes || comecoDoMes ? `hora de mandar o de ${rotMes(alvo)}` : `fim de ${rotMes(mes)}`,
-    acao: { id: 'b3', rotulo: 'Ir pra Lançamentos', href: '../transacoes/index.html#lancamentos' },
+    como: 'Área do Investidor da B3 → Extratos → Movimentação (Excel), importado em Transações → Lançamentos. Os proventos já entram sozinhos pelos anúncios; o extrato só confere (pago presumido → conferido). Mandar o mesmo extrato de novo não duplica nada',
+    acao: { id: 'b3', rotulo: 'Ir pra Lançamentos', href: LANCAMENTOS_B3 },
+  };
+  if (extrato === undefined) return { ...base, estado: 'carregando', ultimo: null, proximo: '' };
+  const ultMes = extrato && /^\d{4}-\d{2}$/.test(String(extrato.ultimoMes || '')) ? extrato.ultimoMes : '';
+  if (!ultMes) {
+    return {
+      ...base, ultimo: 'nenhum ainda',
+      estado: fimDoMes || comecoDoMes ? 'atencao' : 'ok',
+      proximo: fimDoMes || comecoDoMes ? `hora de mandar o de ${rotMes(alvo)}` : `fim de ${rotMes(mes)}`,
+    };
+  }
+  const chegou = extrato.conferidoEm ? ` · chegou em ${dataCurta(extrato.conferidoEm)}` : '';
+  const ultimo = `${rotMes(ultMes)}${chegou}`;
+  if (ultMes >= alvo) {
+    const prox = somarMeses(ultMes, 1);
+    return { ...base, ultimo, estado: 'ok', proximo: `o de ${rotMes(prox)}, no fim de ${rotMes(prox)}`, acao: { ...base.acao, rotulo: 'Ver Lançamentos' } };
+  }
+  const atraso = difMeses(ultMes, alvo);
+  return {
+    ...base, ultimo,
+    estado: atraso >= 2 ? 'atrasado' : 'atencao',
+    proximo: atraso >= 2 ? `faltam ${atraso} meses (de ${rotMes(somarMeses(ultMes, 1))} a ${rotMes(alvo)}) - um extrato com o período inteiro resolve` : `hora de mandar o de ${rotMes(alvo)}`,
   };
 }
 
@@ -220,7 +261,7 @@ export function documentosOrganizacao({ patrimonio, salario, gastos, gastosDrive
     daRenda('ctps', { acao: { id: 'pdfs', rotulo: 'Importar PDF' } }),
     patrimonio === undefined ? { ...documentoDivida('caixa', {}, hojeIso), estado: 'carregando', acao: null } : documentoDivida('caixa', cfg, hojeIso),
     patrimonio === undefined ? { ...documentoDivida('fies', {}, hojeIso), estado: 'carregando', acao: null } : documentoDivida('fies', cfg, hojeIso),
-    documentoB3(hojeIso),
+    documentoB3(hojeIso, patrimonio === undefined ? undefined : ((patrimonio && patrimonio.extratoB3) || null)),
     daRenda('investimentos', {
       nome: 'Investimentos, cotações, índices e proventos', frequencia: 'automático',
       como: 'sincronização com a B3 (compras/vendas), cotações, CDI/IPCA e os índices do apê (FipeZap, IVG-R) - nada a mandar',
@@ -285,8 +326,20 @@ function htmlLinha(x) {
       <span class="og-doc-st" title="${esc(rot)}" aria-hidden="true">${SIMBOLO[x.estado] || '·'}</span>
       <div class="og-doc-n"><b>${esc(x.nome)}</b>${chip}<small>${esc(x.como)}</small></div>
       <div class="og-doc-q"><span class="og-doc-est">${esc(rot)}</span>${x.ultimo ? `<span>último: <b>${esc(x.ultimo)}</b></span>` : (x.automatico ? '' : '<span class="og-doc-fraco">o site não guarda a data deste</span>')}${x.proximo ? `<span>${esc(x.proximo)}</span>` : ''}${x.detalhe ? `<span class="og-doc-fraco">${esc(x.detalhe)}</span>` : ''}</div>
-      <div class="og-doc-a">${acao}${enviar}</div>
+      <div class="og-doc-a">${acao}${enviar}</div>${htmlFontesEditaveis(x)}
     </li>`;
+}
+
+/** 07/10/2026: "em uso" de cada cartão/conta (desmarcar = encerrado: sai do atrasado, o histórico fica). */
+function htmlFontesEditaveis(x) {
+  const lista = x.fontesEditaveis || [];
+  if (!lista.length) return '';
+  const cartao = x.id === 'faturas';
+  const encerradas = lista.filter((f) => f.encerrada).length;
+  return `<details class="og-doc-fontes" data-doc-det="${esc(x.id)}"><summary>${cartao ? 'Cartões em uso' : 'Contas em uso'} (${lista.length - encerradas} de ${lista.length})</summary>
+      <p class="og-doc-fraco">Desmarque ${cartao ? 'o cartão que você cancelou' : 'a conta que você não usa mais'}: sai do "atrasado" e o site para de pedir documento dele. O que já foi importado fica.</p>
+      <ul class="og-doc-fontes-ul">${lista.map((f) => `<li><label><input type="checkbox" data-doc-fonte="${esc(f.fonte)}"${f.encerrada ? '' : ' checked'}> <b>${esc(f.nome)}</b> <span class="og-doc-fraco">${f.encerrada ? `encerrado · último ${esc(rotMes(f.ultimo))}` : `último ${esc(rotMes(f.ultimo))}`}</span></label></li>`).join('')}</ul>
+    </details>`;
 }
 
 export function htmlListaDocumentos(r) {
@@ -374,6 +427,7 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
   });
   raiz.addEventListener('change', (ev) => {
     const t = ev.target;
+    if (t.dataset && t.dataset.docFonte) { t.disabled = true; avisar('fonte-encerrada', { fonte: t.dataset.docFonte, encerrada: !t.checked }); return; }
     const arqs = [...(t.files || [])];
     t.value = '';
     if (!arqs.length) return;
@@ -388,8 +442,11 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
       raiz.querySelector('.og-docs-chips').innerHTML = htmlResumoDocumentos(r);
       const urgente = r.resumo.atrasados + r.resumo.nunca;
       raiz.classList.toggle('urgente', urgente > 0);
+      // 07/10/2026: o "Cartões/Contas em uso" aberto continua aberto depois de salvar (a lista é redesenhada)
+      const abertos = new Set([...lista.querySelectorAll('details[open][data-doc-det]')].map((d) => d.dataset.docDet));
       if (aberto) lista.innerHTML = htmlListaDocumentos(r);
       else lista.innerHTML = '';
+      abertos.forEach((id) => { const d = lista.querySelector(`details[data-doc-det="${id}"]`); if (d) d.open = true; });
       return r;
     },
     abrir,

@@ -20,7 +20,7 @@
 // ativo que, com histórico de compra, mostra o gráfico "Suas compras no
 // preço" (aportes-grafico.js) - o mesmo gráfico do popover do mapa de compras.
 
-import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDMA } from '../format.js';
+import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDMA, formatMesAno } from '../format.js';
 import { DESTINOS, TIPOS_ARQUIVO, lerArquivos, valorDoItem } from './lancamentos-parse.js';
 import { MESES_LONGOS } from './aportes-calc.js';
 import { classePorTicker, todasAsCompras } from './aportes-mapa-calc.js';
@@ -223,6 +223,7 @@ function revisaoHtml(estado) {
       <div class="tx-arqs">${arquivos}</div>
       ${rev.erro ? erroLinhaHtml(rev.erro) : ''}
       ${rev.resultado ? `<div class="tx-aviso ok" role="status">${ic('check-circle')}<span>${rev.resultado}</span></div>` : ''}
+      ${htmlConferenciaB3(rev.conferenciaB3)}
       ${rev.itens.length ? `
       <div class="tx-rev-chips">
         ${cont.gravado ? `<span class="tx-chip chip-tonal chip-good"><b>${cont.gravado}</b> lançados agora</span>` : ''}
@@ -615,6 +616,20 @@ export function renderLancamentos(ctx) {
   if (!el._txLancLigado) { el._txLancLigado = true; ligarLancamentos(el); }
 }
 
+/**
+ * 07/10/2026 (Tiago: "garanta que esteja sendo registrado pra que eu não fique enviando a mesma coisa"): o extrato de
+ * proventos da B3 é registrado já na conferência (Proventos.gs!registrarExtratoB3Proventos_). Aqui a tela diz que
+ * registrou - ou que esse extrato já tinha chegado (nada duplica).
+ */
+export function htmlConferenciaB3(c) {
+  if (!c || !c.ok || !Array.isArray(c.meses) || !c.meses.length) return '';
+  const meses = c.meses.map((m) => formatMesAno(m)).join(', ');
+  const texto = c.jaEnviado
+    ? `Extrato de proventos da B3: esse já tinha chegado (${meses}). Nada novo pra conferir e nada foi duplicado.`
+    : `Extrato de proventos da B3 registrado (${meses}): ${c.linhasNovas} provento${c.linhasNovas === 1 ? '' : 's'} na conferência${c.ignoradasDuplicadas ? `, ${c.ignoradasDuplicadas} já estava${c.ignoradasDuplicadas === 1 ? '' : 'm'} lá` : ''}. Em Organização › Documentos ele já aparece como enviado.`;
+  return `<div class="tx-aviso ok" role="status">${ic('check-circle')}<span>${esc(texto)}</span></div>`;
+}
+
 function redesenharRevisao(ctx) {
   const r = ctx.el.querySelector('#txRevisao');
   if (r) r.innerHTML = revisaoHtml(ctx.estado);
@@ -727,6 +742,7 @@ async function processarArquivos(ctx, arquivos) {
       estado.revisao.situacao[c.uid] = c;
       if (c.situacao === 'novo') estado.revisao.marcados[c.uid] = true;
     });
+    estado.revisao.conferenciaB3 = resp.resultado.conferenciaProventos || null; // 07/10/2026: o extrato de proventos ficou registrado?
   }
   redesenharRevisao(ctx);
 }
@@ -764,6 +780,7 @@ async function reconferirRevisao(ctx) {
       if (c.situacao === 'novo' && antes !== 'novo') rev.marcados[c.uid] = true;
       if (c.situacao === 'bloqueado' || c.situacao === 'invalido') delete rev.marcados[c.uid];
     });
+    if (resp.resultado.conferenciaProventos) rev.conferenciaB3 = resp.resultado.conferenciaProventos;
   }
   redesenharRevisao(ctx);
 }

@@ -243,6 +243,12 @@ function doPostRotas_(e) {
   if (action === 'excluirArquivoGastos') {
     return handleExcluirArquivoGastos(e);
   }
+  if (action === 'excluirArquivosGastos') { // 07/10/2026: remover vários de uma vez (Gastos.gs)
+    return handleExcluirArquivosGastos(e);
+  }
+  if (action === 'salvarFontesGastos') { // 07/10/2026: cartões/contas encerrados (Gastos.gs)
+    return handleSalvarFontesGastos(e);
+  }
   if (action === 'removerAtivo') {
     return handleRemoverAtivo(e);
   }

@@ -784,3 +784,13 @@ export async function salvarRegraGastos(token, padrao, categoria) {
 export async function excluirArquivoGastos(token, id) {
   return request('POST', 'excluirArquivoGastos', token, { id: id || '' });
 }
+
+/** 07/10/2026: remove vários arquivos de gastos (e os lançamentos deles) de uma vez. */
+export async function excluirArquivosGastos(token, ids) {
+  return request('POST', 'excluirArquivosGastos', token, { ids: JSON.stringify(ids || []) });
+}
+
+/** 07/10/2026: cartões/contas encerrados (lista inteira; [] reativa todos) - saem do "atrasado". */
+export async function salvarFontesGastos(token, encerradas) {
+  return request('POST', 'salvarFontesGastos', token, { encerradas: JSON.stringify(encerradas || []) });
+}

@@ -52,6 +52,9 @@ var GASTOS_TIPOS_ = ['compra', 'estorno', 'pagamento_fatura', 'iof', 'anuidade',
 var GASTOS_MAX_POR_ARQUIVO_ = 3000;
 var PROP_GASTOS_CARTAO_ = 'GASTOS_PASTA_CARTAO';
 var PROP_GASTOS_EXTRATOS_ = 'GASTOS_PASTA_EXTRATOS';
+// 07/10/2026 (Tiago: "o meu cartão OuroCard foi cancelado há muito tempo ... a conta Bradesco eu também não uso"):
+// fontes encerradas (ids de gastos-calc.js!NOME_FONTE) - saem do "atrasado"/"faltam meses"; o histórico fica.
+var PROP_GASTOS_FONTES_ENCERRADAS_ = 'GASTOS_FONTES_ENCERRADAS';
 
 function handleGastos(e, auth) {
   if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
@@ -164,6 +167,43 @@ function handleExcluirArquivoGastos(e) {
   return comTravaGastos_(function (ss) { return excluirArquivoGastos_(ss, p.id); });
 }
 
+/** 07/10/2026 (Tiago: "dê opção de remover vários de uma vez"): POST excluirArquivosGastos, ids = JSON [id...] - 1 reescrita só. */
+function handleExcluirArquivosGastos(e) {
+  var p = (e && e.parameter) || {};
+  var ids;
+  try { ids = JSON.parse(p.ids || '[]'); } catch (eJ) { return jsonOut({ ok: false, etapa: 'gastos', erro: 'ids inválidos (JSON)' }); }
+  return comTravaGastos_(function (ss) { return excluirArquivosGastos_(ss, ids); });
+}
+
+/** 07/10/2026: POST salvarFontesGastos, encerradas = JSON [fonte...] (lista inteira; [] reativa todas). */
+function handleSalvarFontesGastos(e) {
+  var p = (e && e.parameter) || {};
+  var lista;
+  try { lista = JSON.parse(p.encerradas || '[]'); } catch (eJ) { return jsonOut({ ok: false, etapa: 'gastos', erro: 'lista inválida (JSON)' }); }
+  return comTravaGastos_(function () { return salvarFontesEncerradasGastos_(lista); });
+}
+
+function normalizarFontesEncerradasGastos_(lista) {
+  var vistos = {};
+  return (Array.isArray(lista) ? lista : []).map(function (f) { return String(f || '').toLowerCase().trim().slice(0, 30); })
+    .filter(function (f) { if (!/^[a-z0-9-]+$/.test(f) || vistos[f]) return false; vistos[f] = true; return true; }).slice(0, 20);
+}
+
+function lerFontesEncerradasGastos_() {
+  try {
+    var v = PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_FONTES_ENCERRADAS_);
+    return v ? normalizarFontesEncerradasGastos_(JSON.parse(v)) : [];
+  } catch (e) { return []; }
+}
+
+function salvarFontesEncerradasGastos_(lista) {
+  var limpa = normalizarFontesEncerradasGastos_(lista);
+  var props = PropertiesService.getScriptProperties();
+  if (limpa.length) props.setProperty(PROP_GASTOS_FONTES_ENCERRADAS_, JSON.stringify(limpa));
+  else props.deleteProperty(PROP_GASTOS_FONTES_ENCERRADAS_);
+  return { ok: true, fontesEncerradas: limpa };
+}
+
 // ---------------------------------------------------------------------------
 // Abas
 // ---------------------------------------------------------------------------
@@ -234,7 +274,8 @@ function lerGastos_(ss, opcoes) {
     regras: linhasAbaGastos_(ss, GASTOS_ABA_REGRAS_, 3).filter(function (l) { return String(l[0] || '').trim(); }).map(function (l) {
       return { padrao: String(l[0]).trim(), categoria: String(l[1] || '').trim(), criada: textoIsoGastos_(l[2]) };
     }),
-    pastasConfiguradas: !!PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_CARTAO_)
+    pastasConfiguradas: !!PropertiesService.getScriptProperties().getProperty(PROP_GASTOS_CARTAO_),
+    fontesEncerradas: lerFontesEncerradasGastos_()
   };
   if (!o.janela) return r;
   var porMes = {};
@@ -454,13 +495,27 @@ function registrarFalhaGastos_(ss, id, arquivo, agora) {
 function excluirArquivoGastos_(ss, id) {
   id = String(id || '');
   if (!id) return { ok: false, etapa: 'gastos', erro: 'id vazio' };
-  var lancs = linhasAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_.length).filter(function (l) { return (l[0] !== '' || l[4] !== '') && String(l[9]) !== id; }).map(function (l) {
+  var r = excluirArquivosGastos_(ss, [id]);
+  return r.ok ? { ok: true, id: id } : r;
+}
+
+/** Remove os arquivos (e os lançamentos que vieram deles) numa reescrita só de cada aba. */
+function excluirArquivosGastos_(ss, ids) {
+  var alvo = {};
+  var n = 0;
+  (Array.isArray(ids) ? ids : []).slice(0, 500).forEach(function (id) { id = String(id || '').trim(); if (id && !alvo[id]) { alvo[id] = true; n++; } });
+  if (!n) return { ok: false, etapa: 'gastos', erro: 'nenhum arquivo escolhido' };
+  var antes = 0;
+  var lancs = linhasAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_.length).filter(function (l) { return l[0] !== '' || l[4] !== ''; });
+  antes = lancs.length;
+  lancs = lancs.filter(function (l) { return !alvo[String(l[9])]; }).map(function (l) {
     return [textoMesGastos_(l[0]), textoDataGastos_(l[1]), l[2], l[3], l[4], l[5], l[6], l[7], l[8] ? "'" + String(l[8]).replace(/^'/, '') : '', l[9], l[10]];
   });
-  reescreverAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_, lancs, [1, 2]);
-  var regs = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim() && String(l[0]) !== id; });
-  reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
-  return { ok: true, id: id };
+  if (lancs.length !== antes) reescreverAbaGastos_(ss, GASTOS_ABA_, GASTOS_CAB_, lancs, [1, 2]);
+  var todos = linhasAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_.length).filter(function (l) { return String(l[0] || '').trim(); });
+  var regs = todos.filter(function (l) { return !alvo[String(l[0])]; });
+  if (regs.length !== todos.length) reescreverAbaGastos_(ss, GASTOS_ABA_ARQUIVOS_, GASTOS_CAB_ARQ_, regs, [5, 6, 7]);
+  return { ok: true, ids: Object.keys(alvo), removidos: todos.length - regs.length, lancamentosRemovidos: antes - lancs.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +640,7 @@ function listarArquivosGastos_(ss) {
       arquivos.push({
         id: f.getId(), nome: nome, caminho: caminho, origem: origem, banco: banco, tamanho: f.getSize(), modificado: mod,
         importado: !!imp && imp.situacao !== 'erro', alterado: !!imp && imp.situacao !== 'erro' && !!imp.modificado && imp.modificado !== mod,
-        situacao: imp ? imp.situacao : '', problema: imp ? imp.problema : ''
+        situacao: imp ? imp.situacao : '', problema: imp ? imp.problema : '', fonte: imp ? imp.fonte : ''
       });
     }
     if (nivel >= 3) return;
@@ -599,8 +654,13 @@ function listarArquivosGastos_(ss) {
   if (pastas.cartao) { var pc = DriveApp.getFolderById(pastas.cartao); olhar(pc, nomePastaGastos_(pc.getName()), 'cartao', '', 0); }
   if (pastas.extratos) { var px = DriveApp.getFolderById(pastas.extratos); olhar(px, nomePastaGastos_(px.getName()), 'conta', '', 0); }
   arquivos.sort(function (a, b) { var x = a.caminho + '/' + a.nome; var y = b.caminho + '/' + b.nome; return x < y ? -1 : (x > y ? 1 : 0); });
-  var falhos = arquivos.filter(function (a) { return a.situacao === 'erro' || a.situacao === 'aviso' || (a.alterado && a.problema); }).length;
-  return { ok: true, configurado: true, arquivos: arquivos, novos: arquivos.filter(function (a) { return (!a.importado && a.situacao !== 'erro') || (a.alterado && !a.problema && a.situacao !== 'aviso'); }).length, falhos: falhos };
+  // 07/10/2026 (Tiago: "considere como parcialmente sucesso esses de a conta não bater, o que importa são as compras"):
+  // 'aviso' (soma não bate) entrou - é "parcial", não falha. Falha = só o que não entrou ('erro').
+  // (o que tinha entrado, mudou no Drive e a releitura falhou continua "com problema")
+  var falhou = function (a) { return a.situacao === 'erro' || (a.alterado && !!a.problema && a.situacao !== 'aviso'); };
+  var falhos = arquivos.filter(falhou).length;
+  return { ok: true, configurado: true, arquivos: arquivos, novos: arquivos.filter(function (a) { return !falhou(a) && (!a.importado || a.alterado); }).length, falhos: falhos,
+    parciais: arquivos.filter(function (a) { return a.situacao === 'aviso' && !a.alterado; }).length };
 }
 
 /** Um arquivo das pastas de gastos em base64 - recusa o que estiver fora delas. */

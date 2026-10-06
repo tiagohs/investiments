@@ -171,7 +171,8 @@ test('Gastos.gs: falha fica registrada (sem lançamento, não conta como importa
   let l = plain(sb.listarArquivosGastos_(ss));
   const por = Object.fromEntries(l.arquivos.map((a) => [a.nome, a]));
   assert.deepEqual([por['09-2025.pdf'].importado, por['10-2025.pdf'].importado, por['10-2025.pdf'].situacao, por['03-2025.pdf'].situacao], [true, false, 'erro', 'aviso']);
-  assert.deepEqual([l.novos, l.falhos], [0, 2], 'nada novo; 2 pra tentar de novo');
+  // 07/10/2026: "soma não bate" (aviso) é parcial - entrou; só o erro vai pro "tentar de novo"
+  assert.deepEqual([l.novos, l.falhos, l.parciais], [0, 1, 1], 'nada novo; 1 pra tentar de novo; 1 parcial');
   // f1 muda no Drive e a releitura falha: o que já tinha entrado fica
   d.f1.mod = '2025-12-01T10:00:00.000Z';
   sb.salvarImportacaoGastos_(ss, { id: d.f1.id, nome: '09-2025.pdf', modificado: '2025-12-01T10:00:00.000Z', situacao: 'erro', problema: 'quebrou' }, [], agora);
@@ -180,7 +181,7 @@ test('Gastos.gs: falha fica registrada (sem lançamento, não conta como importa
   l = plain(sb.listarArquivosGastos_(ss));
   const f1 = l.arquivos.find((a) => a.id === d.f1.id);
   assert.deepEqual([f1.importado, f1.alterado, f1.problema], [true, true, 'quebrou']);
-  assert.equal(l.falhos, 3);
+  assert.equal(l.falhos, 2, 'o erro + a releitura que falhou (o parcial não conta)');
   // tentar de novo com sucesso: substitui (sem duplicar) e limpa o problema
   sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2', descricao: 'OUTRA LOJA INVENTADA' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);
   sb.salvarImportacaoGastos_(ss, { id: d.f2.id, nome: '10-2025.pdf', fonte: 'ourocard', modificado: '2025-11-01T10:00:00.000Z', meses: ['2025-10'], situacao: 'ok' }, [lanc({ chaveDedup: 'k2', descricao: 'OUTRA LOJA INVENTADA' }), lanc({ chaveDedup: 'k2b', data: '2025-09-21' })], agora);

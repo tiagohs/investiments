@@ -21,9 +21,9 @@ async function montar({ arquivos = [], lancamentos = [], storage = memoria() } =
   const dom = new JSDOM('<!doctype html><html><body><div id="g"></div></body></html>', { url: 'https://exemplo.test/organizacao/despesas.html', pretendToBeVisual: true });
   const doc = dom.window.document;
   const { montarSecaoGastos } = await import('../assets/js/pages/organizacao-gastos.js');
-  const servidor = { lancamentos: [...lancamentos], arquivos: [...arquivos], regras: [], salvos: [], regrasSalvas: [], drive: [{ id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', importado: false }] };
+  const servidor = { lancamentos: [...lancamentos], arquivos: [...arquivos], regras: [], salvos: [], regrasSalvas: [], excluidos: [], fontesEncerradas: [], drive: [{ id: 'd1', nome: '03-2025.pdf', caminho: 'Cartão de Crédito/Nubank/2025', banco: 'Nubank', origem: 'cartao', importado: false }] };
   const api = {
-    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: servidor.arquivos, regras: servidor.regras }),
+    getGastos: async () => ({ ok: true, lancamentos: JSON.parse(JSON.stringify(servidor.lancamentos)), arquivos: servidor.arquivos, regras: servidor.regras, fontesEncerradas: servidor.fontesEncerradas }),
     getArquivosGastos: async () => ({ ok: true, configurado: true, arquivos: servidor.drive.map((a) => ({ ...a, importado: servidor.arquivos.some((x) => x.id === a.id) })) }),
     getArquivoGastos: async (id) => ({ ok: true, id, base64: Buffer.from('%PDF-falso').toString('base64'), modificado: '2025-03-02T00:00:00.000Z' }),
     salvarImportacaoGastos: async (arquivo, lancs) => {
@@ -34,6 +34,8 @@ async function montar({ arquivos = [], lancamentos = [], storage = memoria() } =
     },
     salvarRegraGastos: async (padrao, categoria) => { servidor.regrasSalvas.push({ padrao, categoria }); servidor.regras = [{ padrao, categoria }]; return { ok: true, regras: servidor.regras }; },
     excluirArquivoGastos: async () => ({ ok: true }),
+    excluirArquivosGastos: async (ids) => { servidor.excluidos.push([...ids]); servidor.arquivos = servidor.arquivos.filter((a) => !ids.includes(a.id)); return { ok: true, removidos: ids.length }; },
+    salvarFontesGastos: async (lista) => { servidor.fontesEncerradas = [...lista]; return { ok: true, fontesEncerradas: [...lista] }; },
   };
   const tentativas = [];
   const secao = montarSecaoGastos(doc.getElementById('g'), {
@@ -206,7 +208,7 @@ test('Gastos: falha fica "com problema", "Tentar de novo só os que falharam" re
   assert.equal(sv.lancs.filter((l) => l.arquivo === 'd2').length, 0);
   await ate(() => el.querySelector('#gsPainel [data-acao="importar-falhos"]'));
   assert.match(txt(el.querySelector('#gsPainel')), /Tentar de novo o que falhou/);
-  assert.match(txt(el.querySelector('#gsDocs')), /Com problema \(1\).*04-2025\.pdf.*Não achei a data/);
+  assert.match(txt(el.querySelector('#gsDocs')), /Não entraram \(1\).*04-2025\.pdf.*Não achei a data/); // 07/10/2026: "Não entraram" (o parcial fica à parte)
   // "Importar novos" não relê nada (d1 entrou, d2 está "com problema")
   await secao.importarNovos();
   assert.deepEqual(sv.lidos, ['d1', 'd2']);
@@ -245,6 +247,41 @@ test('Gastos (A-25): arquivo com "soma não bate" marca o mês (cobertura e tile
   assert.match(html, /data-acao="reprocessar-arq" data-id="a1"/);
   assert.doesNotMatch(html, /data-acao="reprocessar-arq" data-id="upload:x"/, 'upload do computador não tem como reprocessar');
   const hero = htmlHero({ vazio: false, arquivos, mesRef: '2025-02', total: 0, cartao: 0, conta: 0, media: 0, media6: 0, media12: 0, mesesValidos: 1, porMes: [], recorrentes: [], doMes: { total: 0 }, intervalo: { inicio: '2025-02', fim: '2025-02' }, periodo: 'mes' });
-  assert.match(hero, /soma não bate em 1 arquivo/);
-  assert.doesNotMatch(htmlHero({ vazio: false, arquivos, mesRef: '2025-03', total: 0, cartao: 0, conta: 0, media: 0, media6: 0, media12: 0, mesesValidos: 1, porMes: [], recorrentes: [], doMes: { total: 0 }, intervalo: { inicio: '2025-03', fim: '2025-03' }, periodo: 'mes' }), /soma não bate/);
+  assert.match(hero, /entrada parcial em 1 arquivo/); // 07/10/2026: parcial, não alerta
+  assert.doesNotMatch(htmlHero({ vazio: false, arquivos, mesRef: '2025-03', total: 0, cartao: 0, conta: 0, media: 0, media6: 0, media12: 0, mesesValidos: 1, porMes: [], recorrentes: [], doMes: { total: 0 }, intervalo: { inicio: '2025-03', fim: '2025-03' }, periodo: 'mes' }), /entrada parcial/);
+});
+
+// 07/10/2026 (Tiago: "dê opção de remover vários de uma vez"; OuroCard cancelado): seleção + confirmar + 1 chamada; "encerrei"
+test('Gastos: "Remover selecionados" pede confirmação e remove os marcados numa chamada; "encerrei" salva e redesenha', async () => {
+  const parcial = (id, mes) => ({ id, nome: `${id}.pdf`, caminho: 'Cartão de Crédito/OuroCard/2024', fonte: 'ourocard', meses: [mes], situacao: 'aviso', conferencia: { ok: false, diferenca: 5 }, problema: 'soma não bate' });
+  const { w, el, doc, servidor } = await montar({
+    arquivos: [parcial('p1', '2024-05'), parcial('p2', '2024-06'), parcial('p3', '2024-07')],
+    lancamentos: [{ mes: '2024-05', data: '2024-05-03', origem: 'cartao', fonte: 'ourocard', descricao: 'LOJA INVENTADA', categoria: 'compras', valor: 10, tipo: 'compra', parcela: '', arquivo: 'p1' }],
+  });
+  await ate(() => el.querySelector('[data-grupo="parciais"]'));
+  const grupo = el.querySelector('[data-grupo="parciais"]');
+  const btn = grupo.querySelector('[data-acao="remover-sel"]');
+  assert.equal(btn.disabled, true, 'nada marcado');
+  const marcar = (c) => { c.checked = true; c.dispatchEvent(new w.Event('change', { bubbles: true })); };
+  marcar(grupo.querySelector('.gs-sel-arq[value="p1"]'));
+  marcar(grupo.querySelector('.gs-sel-arq[value="p3"]'));
+  assert.equal(btn.disabled, false);
+  assert.equal(btn.textContent, 'Remover 2 selecionados');
+  assert.equal(grupo.querySelector('.gs-sel-todos').indeterminate, true);
+  clique(w, btn);
+  await ate(() => doc.querySelector('.dialogo'));
+  assert.match(doc.querySelector('.dialogo').textContent, /Remover 2 arquivos\?/);
+  [...doc.querySelectorAll('.dialogo button')].find((b) => b.textContent.trim() === 'Remover').click();
+  await ate(() => servidor.excluidos.length === 1);
+  assert.deepEqual(servidor.excluidos, [['p1', 'p3']], 'uma chamada só');
+  await ate(() => !el.querySelector('.gs-sel-arq[value="p1"]'));
+  assert.ok(el.querySelector('[data-grupo="parciais"] .gs-sel-arq[value="p2"]'));
+  // "encerrei" no OuroCard
+  const enc = el.querySelector('[data-acao="fonte-encerrar"][data-fonte="ourocard"]');
+  assert.equal(enc.dataset.encerrada, '1');
+  clique(w, enc);
+  await ate(() => servidor.fontesEncerradas.length === 1);
+  assert.deepEqual(servidor.fontesEncerradas, ['ourocard']);
+  await ate(() => el.querySelector('[data-acao="fonte-encerrar"][data-fonte="ourocard"][data-encerrada="0"]'));
+  assert.match(el.querySelector('.gs-encerrada').textContent, /encerrado/);
 });

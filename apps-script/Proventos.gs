@@ -758,10 +758,14 @@ function lerConferenciaB3Proventos_(ss) {
       out.linhas.push({ ticker: ticker, tipo: normalizarTipoProvento_(l[2]), data: data, valor: Math.round(valor * 100) / 100,
         quantidade: Number(l[5]) || 0, arquivo: String(l[6] || ''), registradoEm: l[7] || '' });
     } else if (tipoLinha === LINHA_CONFERENCIA_MES) {
-      var mes = String(l[1] || '').trim();
+      // 07/10/2026 (Tiago: "eu lembro de ter enviado já" e o site dizia que não): o Sheets converte o texto '2026-09'
+      // em DATA (1º do mês) - o mês conferido sumia na leitura. Aceita data, texto e texto com apóstrofo.
+      var mesCel = l[1];
+      var mes = mesCel && typeof mesCel.getTime === 'function' ? chaveDiaISOInicio_(mesCel).slice(0, 7) : String(mesCel || '').replace(/^'/, '').trim().slice(0, 7);
       var fim = chaveDeCelulaProvento_(l[3]);
       if (!/^\d{4}-\d{2}$/.test(mes) || !fim) return;
-      out.periodos.push({ mes: mes, inicio: mes + '-01', fim: fim, conferidoEm: l[7] instanceof Date ? chaveDiaISOInicio_(l[7]) : chaveDeCelulaProvento_(l[7]) });
+      var em = l[7];
+      out.periodos.push({ mes: mes, inicio: mes + '-01', fim: fim, conferidoEm: em && typeof em.getTime === 'function' ? chaveDiaISOInicio_(em) : chaveDeCelulaProvento_(em), arquivo: String(l[6] || '') });
     }
   });
   out.periodos.sort(function (a, b) { return a.mes < b.mes ? -1 : 1; });
@@ -923,6 +927,19 @@ function conferirProventosComExtratoB3_(ss, planilha, presumidos, hoje) {
 }
 
 /**
+ * 07/10/2026 (Tiago: "garanta que esteja sendo registrado pra que eu não fique enviando a mesma coisa"): o que o
+ * painel Documentos (Organização) precisa saber do extrato de proventos da B3 - o último mês conferido, até que dia,
+ * quando chegou e de que arquivo. null se nunca chegou nenhum. Lê só aux_proventos-conferencia (poucas linhas).
+ */
+function resumoExtratoB3_(ss) {
+  var c = lerConferenciaB3Proventos_(ss);
+  if (!c.periodos.length) return null;
+  var u = c.periodos[c.periodos.length - 1];
+  return { ultimoMes: u.mes, fim: u.fim, conferidoEm: u.conferidoEm || '', arquivo: String(u.arquivo || '').slice(0, 120),
+    meses: c.periodos.map(function (p) { return p.mes; }).slice(-24) };
+}
+
+/**
  * Guarda as linhas de provento do extrato da B3 em aux_proventos-conferencia
  * e marca os meses como conferidos. itens = os da importação de Lançamentos
  * (destino 'proventos', vindos de arquivo: { ticker, tipo, dataPagamento,
@@ -977,7 +994,7 @@ function registrarExtratoB3Proventos_(itens, opcoes) {
       if (!meses[mes] || fim > meses[mes]) meses[mes] = fim;
     });
     var periodos = {};
-    atual.periodos.forEach(function (p) { periodos[p.mes] = { fim: p.fim, conferidoEm: p.conferidoEm }; });
+    atual.periodos.forEach(function (p) { periodos[p.mes] = { fim: p.fim, conferidoEm: p.conferidoEm, arquivo: p.arquivo }; });
     Object.keys(meses).forEach(function (m) {
       var antes = periodos[m];
       periodos[m] = { fim: antes && antes.fim > meses[m] ? antes.fim : meses[m], conferidoEm: hoje };
@@ -992,7 +1009,8 @@ function registrarExtratoB3Proventos_(itens, opcoes) {
       });
     Object.keys(periodos).sort().forEach(function (m) {
       var p = periodos[m];
-      matriz.push([LINHA_CONFERENCIA_MES, m, '', dataDeChaveProvento_(p.fim), '', '', meses[m] ? nomesArquivos : '', meses[m] ? agora : dataDeChaveProvento_(p.conferidoEm)]);
+      // 07/10/2026: apóstrofo = o Sheets guarda '2026-09' como texto (sem ele vira data); arquivo antigo fica se este lote não tem o mês
+      matriz.push([LINHA_CONFERENCIA_MES, "'" + m, '', dataDeChaveProvento_(p.fim), '', '', meses[m] ? nomesArquivos : (p.arquivo || ''), meses[m] ? agora : dataDeChaveProvento_(p.conferidoEm)]);
     });
     var aba = ss.getSheetByName(ABA_CONFERENCIA_PROVENTOS) || ss.insertSheet(ABA_CONFERENCIA_PROVENTOS);
     aba.clearContents();
@@ -1011,6 +1029,8 @@ function registrarExtratoB3Proventos_(itens, opcoes) {
   return {
     ok: true,
     meses: listaMeses,
+    // 07/10/2026: nada novo = esse extrato (ou um pedaço dele) já tinha sido enviado - a tela avisa em vez de parecer que faltou
+    jaEnviado: novas.length === 0,
     linhasNovas: novas.length,
     ignoradasDuplicadas: Object.keys(noLote).reduce(function (t, k) { return t + noLote[k]; }, 0) - novas.length, // 06/10/2026: já estavam na conferência (mesmo critério de contagem de Deduplicacao.gs)
     confirmados: soma('confirmados'),
