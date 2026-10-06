@@ -630,6 +630,12 @@ const COMPONENTES_ANALISE_POR_VISAO = {
   carteiraRendaFixaTotal: [['Longo prazo', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo'], ['Reserva de emergência', 'rendaEmergencial', 'fluxoCaixaRendaEmergencial']],
 };
 
+/** 07/10/2026: data de hoje (fuso do navegador) em ISO - só pro rótulo "hoje" da análise. */
+function hojeIsoLocal_() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** Monta as entradas de analisarSerie a partir do que o gráfico já calculou. */
 export function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal, seriesBenchmark, visaoId, campoPrincipal, campoFluxoPrincipal, periodoId, nomeAnalise, formatarMoeda, analiseExtra = null }) {
   // 03/10/2026: `ajuste` = ajuste de marcação da Renda Fixa embutido no fluxo
@@ -689,6 +695,7 @@ export function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal,
     classe: CLASSE_ANALISE_POR_VISAO[visaoId] || null,
     referencias,
     cambio: cambio.length >= 2 ? cambio : null,
+    hoje: hojeIsoLocal_(), // 07/10/2026: "hoje" no texto da queda/alta por causa do dólar
     moeda: /Usd$/.test(visaoId) ? 'USD' : 'BRL',
     benchmarkComponentes: BENCHMARK_COMPONENTES_POR_VISAO[visaoId] || null,
     ...(analiseExtra && typeof analiseExtra === 'object' ? analiseExtra : {}),

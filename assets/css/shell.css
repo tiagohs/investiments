@@ -224,10 +224,24 @@ body[data-section]{ padding-top:calc(var(--topbar-h) + var(--busca-h)); }
    telas >=640px não tem teto, ver .sync-wrap .overlay-panel acima) pra
    uma altura enorme. A lista rola sozinha, o cabeçalho/botão/link do
    popover continuam sempre visíveis. */
-.sync-log{ display:flex; flex-direction:column; margin-bottom:10px; max-height:360px; overflow-y:auto; }
+.sync-log{ display:flex; flex-direction:column; margin-bottom:10px; max-height:360px; overflow-y:auto; overflow-x:hidden; } /* 07/10/2026: sem rolagem lateral (a área de toque do "i" vazava) */
 .sync-log-row{ display:flex; align-items:flex-start; gap:9px; padding:9px 4px; border-bottom:1px solid var(--border); }
 .sync-log-row:last-child{ border-bottom:none; }
 .sync-log-row .body{ flex:1; min-width:0; }
+/* 07/10/2026: o chip de status da linha do Registro de Controle ficou sem
+   regra de tamanho no CSS novo (M3) e o <svg> sem width/height (só
+   display:block, linha 30) esticava até ocupar a linha toda - ícone
+   gigante, texto espremido e "i" sobreposto (print do Tiago). Agora é um
+   chip circular tonal de 24px com ícone de 16px e cor semântica. */
+.sync-log-row .status-ico{ flex:none; width:24px; height:24px; border-radius:50%; display:inline-grid; place-items:center;
+      background:var(--md-sys-color-surface-container-highest); color:var(--ink-muted); margin-top:1px; }
+.sync-log-row .status-ico svg{ width:16px; height:16px; fill:currentColor; }
+.sync-log-row .status-ico.good{ background:var(--good-soft); color:var(--good-ink); }
+.sync-log-row .status-ico.warn{ background:var(--warn-soft); color:var(--warn-ink); }
+.sync-log-row .status-ico.bad{ background:var(--bad-soft); color:var(--bad-ink); }
+.sync-log-row .top-line-text{ overflow-wrap:anywhere; }
+.sync-log-row .origin{ overflow-wrap:anywhere; }
+.sync-log-row .detail{ overflow-wrap:anywhere; }
 .sync-log-row .top-line{ display:flex; align-items:center; justify-content:space-between; gap:6px; font-size:12px; font-weight:600; }
 .sync-log-row .top-line-text{ flex:1; min-width:0; }
 .sync-log-row .origin{ font-size:12px; color:var(--ink-faint); font-weight:500; }

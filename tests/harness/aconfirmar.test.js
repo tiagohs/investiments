@@ -105,6 +105,8 @@ test('A-24: aporte concluído sem lançamento vira "a confirmar" (ação/FII e R
   ].sort(), 'Ações EUA não entra');
   assert.ok(r.every((x) => x.aConfirmar === true && x.aporteId === id && x.tipo === 'Compra'));
   assert.equal(ss.getSheetByName('Transações').getLastRow(), 9, 'nada é gravado nas abas reais (3 linhas de dados + cabeçalho)');
+  // 07/10/2026: a ação EUA concluída já foi lançada em 'Transações - USA' na hora (a conclusão é o lançamento definitivo; ver aporte-eua-lancamento.test.js)
+  assert.equal(ss.getSheetByName('Transações - USA').getLastRow(), 8, 'AAA: a linha antiga + a compra do aporte');
 
   // a importação traz ABCD3 (2 dias depois, mesma quantidade) e a aplicação do Tesouro: somem; TEST11 continua
   const resultado = plain(sb.importarLancamentos_([

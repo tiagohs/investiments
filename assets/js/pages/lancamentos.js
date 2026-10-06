@@ -429,7 +429,9 @@ function tipoTagHtml(l) {
 }
 
 /** 05/10/2026 (A-24): marca "a confirmar" na linha provisória (aporte concluído que a importação da B3 ainda não trouxe). */
-const etiquetaAConfirmar = (l) => (l.aConfirmar ? '<span class="tx-tipo tx-tipo-aconf" title="Aporte concluído: confirma quando a importação da B3 trouxer o lançamento">a confirmar</span>' : '');
+const etiquetaAConfirmar = (l) => (l.aConfirmar ? `<span class="tx-tipo tx-tipo-aconf" title="${l.lancavel ? 'Aporte concluído de Ações EUA: ainda não foi lançado em Transações - USA' : 'Aporte concluído: confirma quando a importação da B3 trouxer o lançamento'}">a confirmar</span>` : '');
+/** 07/10/2026: Ações EUA não têm importação da B3 - o aporte concluído já é o lançamento; se a gravação não aconteceu, "Lançar agora" faz. */
+const botaoLancarAgora = (l) => (l.aConfirmar && l.lancavel ? `<button type="button" class="btn btn-tonal btn-sm tx-lancar-agora" data-lanc="lancar-eua" data-aporte="${esc(l.aporteId || '')}">Lançar agora</button>` : '');
 
 function linhaLancHtml(l, ctxLista) {
   const { anteriorMapa, mapaClasse } = ctxLista;
@@ -443,7 +445,7 @@ function linhaLancHtml(l, ctxLista) {
   return `
     <tr class="tx-lista-linha${l.aConfirmar ? ' tx-lista-aconfirmar' : ''}">
       <td data-rot="Data" class="tx-mono tx-lista-data">${formatDMA(l.data).slice(0, 5)}</td>
-      <td data-rot="Ativo" class="esq">${ativoCelHtml(logo, '', l.ativo, { linhaTopo: `<span class="tx-dot" style="background:var(${COR_CLASSE_LISTA[classe]})"></span>${NOME_CLASSE_LISTA[classe]}${l.inst ? ` · ${esc(l.inst)}` : ''}` })}${l.aConfirmar ? `<span class="tx-aconf-linha">${etiquetaAConfirmar(l)}</span>` : ''}</td>
+      <td data-rot="Ativo" class="esq">${ativoCelHtml(logo, '', l.ativo, { linhaTopo: `<span class="tx-dot" style="background:var(${COR_CLASSE_LISTA[classe]})"></span>${NOME_CLASSE_LISTA[classe]}${l.inst ? ` · ${esc(l.inst)}` : ''}` })}${l.aConfirmar ? `<span class="tx-aconf-linha">${etiquetaAConfirmar(l)}${botaoLancarAgora(l)}</span>` : ''}</td>
       <td data-rot="Tipo"><span class="tx-tipo-linha">${tipoTagHtml(l)}<button type="button" class="icon-btn tx-lista-mais" data-lista-mais="${esc(l.ativo)}" aria-label="Mais ações de ${esc(l.ativo)}" aria-haspopup="menu">${ic('more-horiz')}</button></span></td>
       <td data-rot="Qtd"${rf || !l.qtd ? ' class="tx-td-vazio"' : ''}>${rf || !l.qtd ? '' : `<span class="chip-tonal tx-chip-qtd">×${numTxt(l.qtd, 4)}</span>`}</td>
       <td data-rot="Preço" class="tx-mono${l.preco == null || rf ? ' tx-td-vazio' : ''}">${l.preco == null || rf ? '' : dinheiro(l.preco, l.moeda)}</td>
@@ -565,7 +567,7 @@ function listaHtml(estado, dados) {
         <input type="search" class="input tx-busca" id="txListaBusca" placeholder="Buscar ativo ou tipo" value="${esc(f.busca)}" aria-label="Buscar lançamento">
         ${podeGrafico ? `<button type="button" class="btn btn-tonal btn-sm" data-lanc="grafico">${ic('show-chart')}${graficoAberto ? 'Ocultar gráfico' : `Ver gráfico do preço de ${esc(f.ativo)}`}</button>` : ''}
       </div>
-      ${provisorios.length ? `<p class="tx-aconf-aviso">${ic('info')}<span>${provisorios.length} compra${provisorios.length === 1 ? '' : 's'} de aportes concluídos ainda não ${provisorios.length === 1 ? 'aparece' : 'aparecem'} nas abas de Transações (linhas <span class="tx-tipo tx-tipo-aconf">a confirmar</span>): confirmam quando a importação da B3 trouxer o lançamento (Renda Fixa: quando o lançamento for feito).</span></p>` : ''}
+      ${provisorios.length ? `<p class="tx-aconf-aviso">${ic('info')}<span>${provisorios.length} compra${provisorios.length === 1 ? '' : 's'} de aportes concluídos ainda não ${provisorios.length === 1 ? 'aparece' : 'aparecem'} nas abas de Transações (linhas <span class="tx-tipo tx-tipo-aconf">a confirmar</span>): confirmam quando a importação da B3 trouxer o lançamento (Renda Fixa: quando o lançamento for feito; Ações EUA: lançadas na hora em que o aporte é concluído - se alguma ficou pendente, use "Lançar agora").</span></p>` : ''}
       <div id="txListaGraficoCorpo">${graficoListaHtml(estado)}</div>
       <div id="txListaCorpo">
         ${filtrados.length ? `
@@ -884,6 +886,17 @@ function ligarLancamentos(el) {
     }
     if (acao === 'limpar-filtros') { Object.assign(estado.lista, { filtro: 'todos', ano: '', busca: '', ativo: '', mesesVisiveis: MESES_LISTA_INICIAL }); estado.lista.grafico = { aberto: false, ticker: null, carregando: false, serie: null, erro: null }; redesenharLista(ctx); return; }
     if (acao === 'ir-importar') { const d = el.querySelector('#txDrop'); if (d && typeof d.scrollIntoView === 'function') d.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    if (acao === 'lancar-eua') {
+      if (typeof ctx.lancarEua !== 'function') return;
+      alvo.disabled = true;
+      let r = null;
+      try { r = await ctx.lancarEua(alvo.getAttribute('data-aporte') || ''); } catch (e) { r = null; }
+      if (!r || !r.ok) { alvo.disabled = false; toast((r && r.erro) || 'Não consegui lançar agora. Tente de novo.', { tipo: 'erro', doc: ctx.doc }); return; }
+      if (r.gravadas) toast.ok(`Lançado em Transações - USA: ${r.lancados.map((x) => `${x.ativo} ×${x.qtd}`).join(', ')}.`, { doc: ctx.doc });
+      else toast(r.naoLancados && r.naoLancados.length ? `Não foi possível lançar: ${r.naoLancados.map((x) => `${x.ativo} (${x.motivo})`).join('; ')}` : 'Já estava lançado.', { tipo: 'info', doc: ctx.doc });
+      await ctx.recarregar();
+      return;
+    }
     if (acao === 'reconferir') { alvo.disabled = true; await reconferirRevisao(ctx); return; }
     if (acao === 'consolidar') {
       const win = ctx.doc && ctx.doc.defaultView;

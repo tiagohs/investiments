@@ -810,3 +810,26 @@ test('aportes-historico-calc: mesesDoHistorico, período e paginação por ano',
   const comAguardo = mesesDoHistorico({ aportes: [], historicoPlanilha: { dias: [], cobertoSite: {} }, resumo: {}, aConfirmar: [{ data: '2026-09-25', classe: 'fiis', valor: 120 }], hoje: '2026-09-26' }, {});
   assert.deepEqual(comAguardo, []); // sem cartões o mês nem aparece
 });
+
+// 07/10/2026: Ações EUA concluídas ainda sem linha em Transações - USA aparecem a confirmar com "Lançar agora" (mesma rotina do editor);
+// depois do lançamento viram lançamento real e a linha provisória some. O aviso explica que EUA é lançada na hora da conclusão.
+test('Ações EUA a confirmar: "Lançar agora" chama a rotina do aporte, recarrega e a linha provisória some; aviso cita as Ações EUA', async () => {
+  const pendente = { id: 'AC-AP-7-acoesEua-AAA', aporteId: 'AP-7', destino: 'transacoesUsa', classe: 'acoesEua', data: '2026-10-05', ativo: 'AAA', tipo: 'Compra', qtd: 2, preco: 10, valor: 20, moeda: 'USD', aConfirmar: true, lancavel: true };
+  let lancado = false;
+  const chamadas = [];
+  const { doc, w } = await montar({
+    getTransacoesImpl: async () => ({ ...structuredClone(DADOS), aConfirmar: lancado ? [] : [pendente],
+      lancamentos: [...structuredClone(DADOS.lancamentos), ...(lancado ? [{ destino: 'transacoesUsa', data: '2026-10-05', ativo: 'AAA', tipo: 'Compra', qtd: 2, preco: 10, valor: 20, moeda: 'USD' }] : [])] }),
+    lancarAportesEuaImpl: async (t, aporteId) => { chamadas.push(aporteId); lancado = true; return { ok: true, gravadas: 1, lancados: [{ ativo: 'AAA', qtd: 2 }], naoLancados: [] }; },
+  }, '#lancamentos');
+  const linha = doc.querySelector('#txLista tr.tx-lista-aconfirmar');
+  assert.ok(linha);
+  assert.match(txt(linha), /AAA.*a confirmar.*Lançar agora/);
+  assert.match(txt(doc.querySelector('#txLista .tx-aconf-aviso')), /Ações EUA: lançadas na hora em que o aporte é concluído/);
+  assert.match(txt(linha), /US\$ ?20,00/, 'valor em dólar, não em reais');
+  clique(w, linha.querySelector('[data-lanc="lancar-eua"]'));
+  await esperar(); await esperar();
+  assert.deepEqual(chamadas, ['AP-7']);
+  assert.equal(doc.querySelectorAll('#txLista tr.tx-lista-aconfirmar').length, 0, 'virou lançamento real: some');
+  assert.ok(toasts(doc).some((t) => /Lançado em Transações - USA: AAA ×2/.test(t)));
+});

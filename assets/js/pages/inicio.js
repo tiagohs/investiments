@@ -133,6 +133,7 @@ import { getHome, getIntradia } from '../api-client.js';
 import { botoesSegmentadoHtml } from '../periodo-personalizado.js';
 import { hojeSP } from '../format.js';
 import { CHAVES_MERCADO, chaveIntradiaDoAtivo, preencherIntradia } from './inicio-intradia.js';
+import { aplicarCardsPorLinha, criarControleCardsPorLinha, lerCardsPorLinha } from './inicio-densidade.js';
 import { completarFaixaComIntradia, renderFaixaMercado, renderResumoCompacto, wireListaAtivos } from './inicio-painel.js';
 import { criarAtivoCard, wireGraficoAtivo, wireTooltipAtivos } from './inicio-ativos.js';
 import { wireGraficoRentabilidade } from './inicio-rentabilidade.js';
@@ -196,8 +197,15 @@ export async function montarPaginaInicio(token, { doc = document, getHomeImpl = 
   // 06/10/2026 (Onda 3): cabeçalho padrão da página (título + "Atualizar dados" à direita). Sem o contêiner (HTML antigo em
   // cache), o botão cai no espaço antigo.
   const cabecalhoEl = doc.getElementById('inicioCabecalho');
+  // 07/10/2026 (Tiago: "me dê a opção de colocar 4, 5, 6 ou 7 cards por row"): controle "Cards por linha" no cabeçalho (só
+  // desktop) - vale pra faixa de mercado e pros Favoritos; escolha lembrada em localStorage (inicio-densidade.js).
+  const controleCards = criarControleCardsPorLinha(doc, {
+    valor: lerCardsPorLinha(),
+    aoMudar: (n) => aplicarCardsPorLinha(doc.getElementById('inicioConteudo'), n),
+  });
+  aplicarCardsPorLinha(doc.getElementById('inicioConteudo'), lerCardsPorLinha());
   const cabecalho = cabecalhoEl ? montarCabecalhoPagina(cabecalhoEl, {
-    secao: 'Início', titulo: 'Início', subtitulo: 'Sua carteira e o mercado de hoje', refresh: true,
+    secao: 'Início', titulo: 'Início', subtitulo: 'Sua carteira e o mercado de hoje', refresh: true, acoes: [controleCards],
   }) : null;
   const refreshControlEl = (cabecalho && cabecalho.refreshEl) || doc.getElementById('refreshControlInicio');
   const periodoEl = doc.getElementById('periodoTabs');

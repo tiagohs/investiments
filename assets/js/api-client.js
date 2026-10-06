@@ -522,6 +522,14 @@ export async function salvarAporte(token, aporte) {
   return request('POST', 'salvarAporte', token, { aporte: JSON.stringify(aporte) });
 }
 
+/**
+ * 07/10/2026: "Lançar agora" (Lançamentos): grava em Transações - USA as compras de Ações EUA de aportes concluídos que
+ * ainda não estão lá (aporteId opcional: só desse aporte). Devolve { gravadas, lancados, naoLancados, aportes, aConfirmar }.
+ */
+export async function lancarAportesEua(token, aporteId) {
+  return request('POST', 'lancarAportesEua', token, aporteId ? { aporteId } : {});
+}
+
 /** Cancela um aporte em andamento ou apaga um concluído. */
 export async function excluirAporte(token, id) {
   return request('POST', 'excluirAporte', token, { id });

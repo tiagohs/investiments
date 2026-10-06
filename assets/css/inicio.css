@@ -32,7 +32,7 @@
 
 /* ---- faixa de mercado: índices e câmbio ---- */
 .mkt-secao{ margin-bottom:24px; }
-.mkt-faixa{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
+.mkt-faixa{ display:grid; grid-template-columns:repeat(var(--cards-por-linha,5),minmax(0,1fr)); gap:12px; } /* 07/10/2026: colunas escolhidas em "Cards por linha" (inicio-densidade.js) */
 .mkt{ display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome var" "valor spark"; align-items:center; gap:4px 12px; min-width:0;
   min-height:56px; padding:8px 14px; gap:2px 12px; border:1px solid var(--md-ext-color-card-border); border-radius:var(--r-card); background:var(--surface);
   color:var(--ink); text-decoration:none; transition:background-color 150ms var(--md-sys-motion-easing-standard, ease); }
@@ -49,7 +49,7 @@
 .mkt-spark{ grid-area:spark; width:64px; height:22px; }
 .chip-tonal.chip-good{ background:var(--good-soft); color:var(--good-ink); }
 .chip-tonal.chip-bad{ background:var(--bad-soft); color:var(--bad-ink); }
-@media (max-width:1099.98px){ .mkt-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } .skel-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:1024.98px){ .mkt-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } .skel-faixa{ grid-template-columns:repeat(3,minmax(0,1fr)); } } /* tablet: no máximo 3 por linha */
 @media (max-width:639.98px){
   .mkt-faixa{ display:flex; overflow-x:auto; scroll-snap-type:x proximity; scroll-padding-inline:16px; gap:12px; margin:0 -16px; padding:2px 16px 4px; scrollbar-width:none; }
   .mkt-faixa::-webkit-scrollbar{ display:none; }
@@ -106,10 +106,91 @@
 .favoritos-grid .ativo-card.arrastando{ opacity:.55; cursor:grabbing; transform:scale(.97); box-shadow:var(--md-sys-elevation-level3); }
 @media (prefers-reduced-motion: reduce){ .favoritos-grid .ativo-card.arrastando{ transform:none; } }
 @media (max-width:759.98px){
-  .favoritos-grid:not(.editando){ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; gap:12px; margin:0 -16px; padding:2px 16px 6px; scrollbar-width:none; }
+  .favoritos-grid:not(.editando){ display:flex; overflow-x:auto; scroll-snap-type:x mandatory; scroll-padding-inline:16px; gap:12px; margin:0 -16px; padding:2px 16px 6px; scrollbar-width:none; }
   .favoritos-grid:not(.editando)::-webkit-scrollbar{ display:none; }
   .favoritos-grid:not(.editando) > .ativo-card{ flex:0 0 min(248px, 74vw); scroll-snap-align:start; }
   .favoritos-grid:not(.editando) > .favoritos-vazio{ flex:1 1 auto; }
+}
+
+/* ---- 07/10/2026: "Cards por linha" (4/5/6/7) da faixa de mercado e dos Favoritos - ver pages/inicio-densidade.js ----
+   Desktop (> 1024px): as colunas vêm de --cards-por-linha (definida em #inicioConteudo). Tablet (<= 1024px): no máximo 3.
+   Celular: a faixa (< 640px) e os Favoritos (< 760px) continuam em carrossel com rolagem DENTRO da faixa (nada de rolagem lateral
+   na página). A largura de cada card (--card-w) sai da largura REAL do bloco (container query: 100cqw), então a gaveta de
+   navegação aberta/fechada também muda a densidade; fonte e gráfico acompanham e o texto nunca estoura. */
+.mkt-secao, .favoritos-secao{ container: cards / inline-size; --gap-cards:12px; --n-cards:var(--cards-por-linha,5);
+  --card-w:calc((100cqw - (var(--n-cards) - 1) * var(--gap-cards)) / var(--n-cards)); }
+@media (max-width:1024.98px){ .mkt-secao, .favoritos-secao{ --n-cards:3; } }
+@media (max-width:759.98px){ .mkt-secao, .favoritos-secao{ --card-w:220px; } }
+.favoritos-grid{ grid-template-columns:repeat(var(--n-cards),minmax(0,1fr)); gap:var(--gap-cards); }
+.mkt-faixa{ gap:var(--gap-cards); }
+.ativo-price{ font-size:clamp(12px, calc(var(--card-w, 200px) * .095), 16px); }
+.ativo-ticker{ font-size:clamp(12px, calc(var(--card-w, 200px) * .08), 14px); }
+.mkt-valor{ font-size:clamp(12px, calc(var(--card-w, 200px) * .085), 14px); }
+.mkt-nome{ font-size:clamp(12px, calc(var(--card-w, 200px) * .075), 14px); }
+.ativo-card, .mkt{ min-width:0; }
+.ativo-price, .mkt-valor{ overflow:hidden; text-overflow:ellipsis; }
+.cards-linha{ display:inline-flex; align-items:center; gap:8px; }
+.cards-linha-rotulo{ font-size:var(--md-sys-typescale-label-medium-size, 12px); font-weight:500; color:var(--ink-muted); white-space:nowrap; }
+.cards-linha-seg > button{ min-width:36px; justify-content:center; padding:0 10px; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.cards-linha-seg > .on::before, .cards-linha-seg > [aria-checked="true"]::before{ display:none; }
+.cards-linha-seg > [aria-checked="true"]{ background:var(--md-sys-color-secondary-container); color:var(--md-sys-color-on-secondary-container); }
+@media (max-width:1024.98px){ .cards-linha{ display:none; } } /* a escolha só vale no desktop: tablet/celular têm limite automático */
+
+@media (min-width:1025px){
+  @container cards (max-width:716px){ /* card < 170px: compacto */
+    [data-cards-por-linha="4"] .ativo-card{ padding:10px 10px; gap:2px; }
+    [data-cards-por-linha="4"] .ativo-card .vies-badge, [data-cards-por-linha="4"] .ativo-card .ativo-price-conv, [data-cards-por-linha="4"] .ativo-card .ativo-delta .dim{ display:none; }
+    [data-cards-por-linha="4"] .ativo-card-acoes{ gap:0; margin-right:-6px; }
+    [data-cards-por-linha="4"] .mkt{ grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome nome" "valor valor" "var spark"; padding:8px 10px; }
+    [data-cards-por-linha="4"] .mkt-var{ justify-self:start; }
+    [data-cards-por-linha="4"] .mkt-spark{ width:100%; min-width:0; max-width:64px; justify-self:end; }
+  }
+  @container cards (max-width:576px){ /* card < 135px: bem compacto */
+    [data-cards-por-linha="4"] .ativo-card .ativo-classe, [data-cards-por-linha="4"] .mkt-spark{ display:none; }
+    [data-cards-por-linha="4"] .ativo-card-top{ gap:6px; }
+  }
+}
+@media (min-width:1025px){
+  @container cards (max-width:898px){ /* card < 170px: compacto */
+    [data-cards-por-linha="5"] .ativo-card{ padding:10px 10px; gap:2px; }
+    [data-cards-por-linha="5"] .ativo-card .vies-badge, [data-cards-por-linha="5"] .ativo-card .ativo-price-conv, [data-cards-por-linha="5"] .ativo-card .ativo-delta .dim{ display:none; }
+    [data-cards-por-linha="5"] .ativo-card-acoes{ gap:0; margin-right:-6px; }
+    [data-cards-por-linha="5"] .mkt{ grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome nome" "valor valor" "var spark"; padding:8px 10px; }
+    [data-cards-por-linha="5"] .mkt-var{ justify-self:start; }
+    [data-cards-por-linha="5"] .mkt-spark{ width:100%; min-width:0; max-width:64px; justify-self:end; }
+  }
+  @container cards (max-width:723px){ /* card < 135px: bem compacto */
+    [data-cards-por-linha="5"] .ativo-card .ativo-classe, [data-cards-por-linha="5"] .mkt-spark{ display:none; }
+    [data-cards-por-linha="5"] .ativo-card-top{ gap:6px; }
+  }
+}
+@media (min-width:1025px){
+  @container cards (max-width:1080px){ /* card < 170px: compacto */
+    [data-cards-por-linha="6"] .ativo-card{ padding:10px 10px; gap:2px; }
+    [data-cards-por-linha="6"] .ativo-card .vies-badge, [data-cards-por-linha="6"] .ativo-card .ativo-price-conv, [data-cards-por-linha="6"] .ativo-card .ativo-delta .dim{ display:none; }
+    [data-cards-por-linha="6"] .ativo-card-acoes{ gap:0; margin-right:-6px; }
+    [data-cards-por-linha="6"] .mkt{ grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome nome" "valor valor" "var spark"; padding:8px 10px; }
+    [data-cards-por-linha="6"] .mkt-var{ justify-self:start; }
+    [data-cards-por-linha="6"] .mkt-spark{ width:100%; min-width:0; max-width:64px; justify-self:end; }
+  }
+  @container cards (max-width:870px){ /* card < 135px: bem compacto */
+    [data-cards-por-linha="6"] .ativo-card .ativo-classe, [data-cards-por-linha="6"] .mkt-spark{ display:none; }
+    [data-cards-por-linha="6"] .ativo-card-top{ gap:6px; }
+  }
+}
+@media (min-width:1025px){
+  @container cards (max-width:1262px){ /* card < 170px: compacto */
+    [data-cards-por-linha="7"] .ativo-card{ padding:10px 10px; gap:2px; }
+    [data-cards-por-linha="7"] .ativo-card .vies-badge, [data-cards-por-linha="7"] .ativo-card .ativo-price-conv, [data-cards-por-linha="7"] .ativo-card .ativo-delta .dim{ display:none; }
+    [data-cards-por-linha="7"] .ativo-card-acoes{ gap:0; margin-right:-6px; }
+    [data-cards-por-linha="7"] .mkt{ grid-template-columns:minmax(0,1fr) auto; grid-template-areas:"nome nome" "valor valor" "var spark"; padding:8px 10px; }
+    [data-cards-por-linha="7"] .mkt-var{ justify-self:start; }
+    [data-cards-por-linha="7"] .mkt-spark{ width:100%; min-width:0; max-width:64px; justify-self:end; }
+  }
+  @container cards (max-width:1017px){ /* card < 135px: bem compacto */
+    [data-cards-por-linha="7"] .ativo-card .ativo-classe, [data-cards-por-linha="7"] .mkt-spark{ display:none; }
+    [data-cards-por-linha="7"] .ativo-card-top{ gap:6px; }
+  }
 }
 
 /* tooltip de info (hover) e popover do gráfico de preço */

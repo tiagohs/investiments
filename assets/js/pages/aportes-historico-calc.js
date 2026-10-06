@@ -85,7 +85,7 @@ export function mesesDoHistorico(entrada, filtros = {}) {
   }
   if (!busca && f.origem !== 'historico') {
     (aConfirmar || []).filter((x) => dentro(x.data) && (f.classe === 'todas' || x.classe === f.classe)).forEach((x) => {
-      if (meses.has(mesDe(x.data))) meses.get(mesDe(x.data)).aguardando += Number(x.valor) || 0;
+      if (meses.has(mesDe(x.data))) meses.get(mesDe(x.data)).aguardando += (Number(x.valor) || 0) * (x.moeda === 'USD' ? (entrada.cambio || 0) : 1); // 07/10/2026: Ações EUA a confirmar vêm em US$
     });
   }
 

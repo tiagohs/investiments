@@ -19,7 +19,7 @@ import {
   CHAVE_CARRINHO, EVENTO_CARRINHO, EVENTO_ABRIR_CARRINHO, NOME_CLASSE_CARRINHO,
   lerCarrinhoLocal, carrinhoValido, totaisCarrinho, itensDoCarrinho, situacaoCarrinho, dataBRT, horaTxt,
 } from './carrinho-global.js';
-import { formatBRL, formatNumeroBR, formatDM } from './format.js';
+import { formatBRL, formatNumeroBR, formatDM, formatUSD } from './format.js';
 import { getAportesPendentes } from './api-client.js';
 import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
 
@@ -52,9 +52,9 @@ export function resumoPendentes(aportes) {
  */
 export function resumoAConfirmar(lista) {
   const itens = (Array.isArray(lista) ? lista : []).filter((l) => l && l.ativo).map((l) => ({
-    ativo: l.ativo, data: l.data, valor: Number(l.valor) || 0, rf: l.destino === 'rendaFixa',
+    ativo: l.ativo, data: l.data, valor: Number(l.valor) || 0, rf: l.destino === 'rendaFixa', eua: l.destino === 'transacoesUsa', // 07/10/2026: Ações EUA (valor em US$) ainda sem linha em Transações - USA
   }));
-  return { n: itens.length, total: itens.reduce((s, l) => s + l.valor, 0), itens };
+  return { n: itens.length, total: itens.filter((l) => !l.eua).reduce((s, l) => s + l.valor, 0), itens };
 }
 
 /**
@@ -84,8 +84,8 @@ export function aConfirmarPanelHtml(resumo, { hrefTransacoes = '#', naTransacoes
   if (!resumo || !resumo.n) return '';
   const linhas = resumo.itens.slice(0, 6).map((l) => `
     <li class="carrinho-item">
-      <span class="carrinho-item-nome"><b>${esc(l.ativo)}</b><small>aporte de ${formatDM(l.data, '')} · ${l.rf ? 'falta lançar a aplicação' : 'falta a importação da B3'}</small></span>
-      <span class="carrinho-item-valor">${l.valor > 0 ? formatBRL(l.valor) : ''}</span>
+      <span class="carrinho-item-nome"><b>${esc(l.ativo)}</b><small>aporte de ${formatDM(l.data, '')} · ${l.rf ? 'falta lançar a aplicação' : (l.eua ? 'falta lançar a compra (Lançar agora)' : 'falta a importação da B3')}</small></span>
+      <span class="carrinho-item-valor">${l.valor > 0 ? (l.eua ? formatUSD(l.valor) : formatBRL(l.valor)) : ''}</span>
     </li>`).join('');
   const mais = resumo.n > 6 ? `<p class="carrinho-nota">e mais ${resumo.n - 6}…</p>` : '';
   const botao = naTransacoes
@@ -93,7 +93,7 @@ export function aConfirmarPanelHtml(resumo, { hrefTransacoes = '#', naTransacoes
     : `<a class="btn btn-ghost carrinho-ir" href="${esc(String(hrefTransacoes).split('#')[0])}#lancamentos">Ver em Transações</a>`;
   return `
     <div class="carrinho-cab"><h3>Lançamentos a confirmar</h3><small>${resumo.n} lançamento${resumo.n === 1 ? '' : 's'}</small></div>
-    <p class="carrinho-nota">Aportes concluídos que ainda não apareceram nas Transações: confirmam quando a importação da B3 trouxer o lançamento.</p>
+    <p class="carrinho-nota">Aportes concluídos que ainda não apareceram nas Transações: confirmam quando a importação da B3 trouxer o lançamento (Ações EUA: lançadas na hora em que o aporte é concluído).</p>
     <ul class="carrinho-itens">${linhas}</ul>${mais}
     ${botao}`;
 }

@@ -325,7 +325,7 @@ function importarLancamentos_(itens, opcoes) {
     classes.forEach(function (c) { porUid[c.uid] = c; });
     var resultado = { itens: classes, gravados: {}, lotesRf: 0, total: 0, gravadas: 0, ignoradasDuplicadas: 0, exemplos: [] };
     // 06/10/2026: "já lançado" só se grava com forcar no lançamento MANUAL (uma 2ª operação idêntica de verdade); na importação de arquivo nunca
-    var manual = String(o.origem || '') === 'Manual';
+    var manual = String(o.origem || '') === 'Manual' || o.permitirForcar === true; // 07/10/2026: permitirForcar = chamada interna (Aportes.gs, compra de Ações EUA do aporte concluído) que já conferiu a duplicidade
     var contarIgnoradas = function () {
       var ign = itens.filter(function (it) { var c = porUid[it.uid]; return c && c.situacao === 'lancado'; });
       resultado.ignoradasDuplicadas += ign.length;

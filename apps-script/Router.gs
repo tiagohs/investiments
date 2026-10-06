@@ -192,6 +192,9 @@ function doPostRotas_(e) {
   if (action === 'excluirAporte') {
     return handleExcluirAporte(e);
   }
+  if (action === 'lancarAportesEua') { // 07/10/2026: "Lançar agora" - compra de Ações EUA de aporte concluído -> Transações - USA (Aportes.gs)
+    return handleLancarAportesEua(e);
+  }
   if (action === 'salvarCaixaDolar') { // 05/10/2026: tela Transações - caixa em dólar das Ações EUA (Aportes.gs)
     return handleSalvarCaixaDolar(e);
   }

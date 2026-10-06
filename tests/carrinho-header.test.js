@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { parseShellPartial, injectShell } from '../assets/js/shell.js';
-import { setupCarrinhoHeader, publicarAportesPendentes, resumoAConfirmar, CHAVE_PENDENTES } from '../assets/js/carrinho-header.js';
+import { setupCarrinhoHeader, publicarAportesPendentes, resumoAConfirmar, aConfirmarPanelHtml, CHAVE_PENDENTES } from '../assets/js/carrinho-header.js';
 
 const HTML = fs.readFileSync(new URL('../assets/partials/shell.html', import.meta.url), 'utf8');
 const brt = (s) => new Date(`${s.replace(' ', 'T')}:00-03:00`);
@@ -190,4 +190,17 @@ test('Pendentes: sem repetir na carga se o guardado é recente; o polling pula a
   tique();
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(chamadas, 1, 'aba visível e guardado velho: consulta');
+});
+
+test('Ações EUA a confirmar no header: valor em US$, fora do total em reais, e o texto manda lançar', () => {
+  const r = resumoAConfirmar([
+    { destino: 'transacoes', data: '2026-10-02', ativo: 'ABCD3', valor: 200 },
+    { destino: 'transacoesUsa', data: '2026-10-05', ativo: 'AAA', valor: 26.25 },
+  ]);
+  assert.equal(r.n, 2);
+  assert.equal(r.total, 200, 'US$ não soma com R$');
+  const html = aConfirmarPanelHtml(r).replace(/ /g, ' ');
+  assert.match(html, /falta lançar a compra \(Lançar agora\)/);
+  assert.match(html, /US\$\s26,25/);
+  assert.match(html, /Ações EUA: lançadas na hora em que o aporte é concluído/);
 });

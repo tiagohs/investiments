@@ -91,6 +91,21 @@ function handleExcluirAporte(e) {
   }
 }
 
+/**
+ * 07/10/2026: POST lancarAportesEua (opcional e.parameter.aporteId) - botão "Lançar agora" em Lançamentos: grava em
+ * 'Transações - USA' as compras de Ações EUA de aportes concluídos que ainda não estão lá (mesma rotina de lancarAportesEuaPendentes).
+ */
+function handleLancarAportesEua(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var r = lancarComprasEuaPendentes_(ss, { aporteId: String((e && e.parameter && e.parameter.aporteId) || '') });
+    var aportes = lerAportes_(ss);
+    return jsonOut({ ok: true, gravadas: r.gravadas, lancados: r.lancados, naoLancados: r.naoLancados, aportes: aportes, aConfirmar: lancamentosAConfirmarDaPlanilha_(ss, aportes, null) });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'lancarAportesEua', erro: String(erro) });
+  }
+}
+
 function testarTransacoesDireto() {
   var inicio = Date.now();
   var t = montarTelaTransacoes_();
@@ -402,7 +417,9 @@ function historicoInvestido_(compras, aportes) {
 // Renda Fixa marcado "Concluído" que ainda não tem o lançamento correspondente
 // nas abas de Transações aparece na lista de Lançamentos (e no aviso do header)
 // como "a confirmar" (Tiago: "ele só confirma via importação da B3"). Ações EUA
-// ficam de fora. NADA é gravado: a lista é DERIVADA (aux_aportes concluídos x o
+// (07/10/2026): não têm importação da B3 - a conclusão no site JÁ é o lançamento
+// definitivo, gravado em 'Transações - USA' na hora (seção "Ações EUA" no fim);
+// só aparecem aqui, com "Lançar agora", se essa gravação ainda não aconteceu. NADA é gravado: a lista é DERIVADA (aux_aportes concluídos x o
 // que as abas Transações / Transações Renda Fixa têm), então quando a importação
 // trouxer o lançamento equivalente o "a confirmar" some sozinho, sem duplicar e
 // sem linha falsa na planilha.
@@ -482,6 +499,16 @@ function lancamentosAConfirmar_(aportes, abas) {
     }
     out.push(item);
   });
+  // 07/10/2026: Ações EUA concluídas ainda sem a linha em 'Transações - USA' (ver a seção "Ações EUA" no fim do arquivo) - "Lançar agora"
+  if (abas.transacoesUsa) {
+    pendentesEuaDosAportes_(aportes, abas.transacoesUsa.itens).forEach(function (p) {
+      out.push({
+        id: 'AC-' + p.aporteId + '-acoesEua-' + p.it.ativo, aporteId: p.aporteId, destino: 'transacoesUsa', classe: 'acoesEua',
+        data: p.data, ativo: p.it.ativo, tipo: 'Compra', moeda: 'USD', qtd: arr(p.qtd, 6), preco: arr(p.preco, 4), valor: arr(p.qtd * p.preco, 2),
+        aConfirmar: true, lancavel: true
+      });
+    });
+  }
   out.sort(function (x, y) { return x.data < y.data ? 1 : (x.data > y.data ? -1 : 0); });
   return out;
 }
@@ -489,7 +516,7 @@ function lancamentosAConfirmar_(aportes, abas) {
 /** Igual a lancamentosAConfirmar_, mas lendo as abas aqui e sem nunca derrubar a tela (lista vazia se algo falhar). */
 function lancamentosAConfirmarDaPlanilha_(ss, aportes, abas) {
   try {
-    var lidas = abas && abas.transacoes && abas.rendaFixa ? abas : lerAbasLanc_(ss, ['transacoes', 'rendaFixa']);
+    var lidas = abas && abas.transacoes && abas.rendaFixa && abas.transacoesUsa ? abas : lerAbasLanc_(ss, ['transacoes', 'rendaFixa', 'transacoesUsa']);
     return lancamentosAConfirmar_(aportes || lerAportes_(ss), lidas);
   } catch (erro) {
     Logger.log('lancamentosAConfirmar_: ' + erro);
@@ -605,6 +632,8 @@ function salvarAporte_(aporte) {
   }
   // 05/10/2026: aporte concluído com Ações EUA gasta o caixa em dólar (fora da trava: o caixa tem a sua)
   try { registrarUsoCaixaDolar_(ss, id, aporte); } catch (eC) { Logger.log('registrarUsoCaixaDolar_: ' + eC); }
+  // 07/10/2026: compra de Ações EUA concluída no site = lançamento definitivo em 'Transações - USA' (também no editar/reabrir)
+  try { sincronizarComprasEuaDoAporte_(ss, id, aporte); } catch (eE) { Logger.log('sincronizarComprasEuaDoAporte_: ' + eE); }
   return id;
 }
 
@@ -625,6 +654,8 @@ function excluirAporte_(id) {
   }
   // 05/10/2026: aporte excluído devolve o que tinha gasto do caixa em dólar
   try { registrarUsoCaixaDolar_(ss, id, null); } catch (eC) { Logger.log('registrarUsoCaixaDolar_: ' + eC); }
+  // 07/10/2026: aporte excluído tira de 'Transações - USA' só as linhas que ELE gravou
+  try { sincronizarComprasEuaDoAporte_(ss, id, null); } catch (eE) { Logger.log('sincronizarComprasEuaDoAporte_: ' + eE); }
   return removidas;
 }
 
@@ -886,4 +917,240 @@ function registrarUsoCaixaDolar_(ss, aporteId, aporte) {
   } finally {
     trava.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// 07/10/2026: Ações EUA concluídas no site viram lançamento em 'Transações - USA'.
+// Tiago concluiu um aporte de EUA (SIRI e VNOM) e a compra não chegou à Carteira Ações USA, que soma a
+// quantidade por SUMIF em 'Transações - USA'. EUA não tem importação da B3: concluir no site JÁ é o lançamento.
+//  - Concluir/editar/reabrir/excluir um aporte sincroniza as linhas (sincronizarComprasEuaDoAporte_): uma
+//    linha por ativo, SÓ nas colunas de entrada A:F (Ticker | Data | Compra | Preço US$ | Qtd | Taxa); as
+//    fórmulas das colunas G+ já estão prontas nas linhas de baixo. Quem grava é importarLancamentos_ (Lancamentos.gs),
+//    que escolhe a primeira linha livre real, ordena por data e marca a consolidação.
+//  - Origem: aba aux_aportes_eua (criada sozinha; você pode olhar na planilha) guarda, por aporte, a linha que ELE
+//    gravou (ticker, data, preço, quantidade). Editar o aporte atualiza só essas linhas; excluir/reabrir remove
+//    só elas - linha digitada à mão ou importada nunca é tocada. A busca é pelo CONTEÚDO da linha (a aba é
+//    reordenada por data, então número de linha não serve).
+//  - Aporte concluído que já tinha compra equivalente na aba (digitada à mão, mesmo ticker, data +-2 dias, mesma
+//    quantidade, preço +-1%) não grava de novo.
+//  - lancarAportesEuaPendentes() (editor): grava os concluídos antes desta correção que ainda não estão lá.
+// ---------------------------------------------------------------------------
+
+var ABA_APORTES_EUA = 'aux_aportes_eua';
+var CABECALHO_APORTES_EUA = ['Aporte', 'Ticker', 'Data', 'Preço US$', 'Qtd', 'Taxa', 'Lançado em'];
+var EUA_DIAS_JANELA = 2;        // data da linha lançada: até 2 dias de diferença da data do aporte
+var EUA_TOLERANCIA_PRECO = 0.01; // preço dentro de 1%
+var ABA_TRANSACOES_USA_APORTE_ = 'Transações - USA';
+
+/** Compras de Ações EUA dos aportes concluídos: [{ aporteId, data, ticker, qtd, preco, taxa, it }] (mais antigo primeiro). */
+function pedidosEuaDosAportes_(aportes) {
+  var out = [];
+  (aportes || []).forEach(function (a) {
+    if (a.status !== 'concluido') return;
+    (a.itens || []).forEach(function (it) {
+      if (it.classe !== 'acoesEua') return;
+      var qtd = it.qtdFinal > 0 ? it.qtdFinal : it.qtdPlanejada;
+      var preco = it.precoFinal > 0 ? it.precoFinal : (it.qtdFinal > 0 && it.valorFinal > 0 ? it.valorFinal / it.qtdFinal : it.precoPlanejado);
+      if (!(qtd > 0) || !(preco > 0)) return;
+      out.push({ aporteId: a.id, data: a.data, ticker: String(it.ativo).trim().toUpperCase(), qtd: qtd, preco: preco, taxa: Number(it.taxa) > 0 ? Number(it.taxa) : 0, it: it });
+    });
+  });
+  out.sort(function (x, y) { return x.data < y.data ? -1 : (x.data > y.data ? 1 : (x.aporteId < y.aporteId ? -1 : (x.aporteId > y.aporteId ? 1 : 0))); });
+  return out;
+}
+
+/**
+ * Pedidos de EUA ainda SEM linha em 'Transações - USA' (itensUsa = abas.transacoesUsa.itens). Cada linha cobre um
+ * pedido só (o mais antigo consome primeiro): mesmo ticker, data a +-2 dias, mesma quantidade, preço a +-1%.
+ */
+function pendentesEuaDosAportes_(aportes, itensUsa) {
+  var compras = [];
+  (itensUsa || []).forEach(function (l) {
+    if (!/compra/i.test(l.tipo) || !(l.qtd > 0) || !l.data) return;
+    compras.push({ ticker: String(l.ticker).trim().toUpperCase(), dia: diaDaChaveAporte_(l.data), qtd: l.qtd, preco: l.preco, usada: false });
+  });
+  var pendentes = [];
+  pedidosEuaDosAportes_(aportes).forEach(function (p) {
+    var dia = diaDaChaveAporte_(p.data);
+    var melhor = null, melhorDif = 1e9;
+    compras.forEach(function (c) {
+      if (c.usada || c.ticker !== p.ticker) return;
+      var dif = Math.abs(c.dia - dia);
+      if (!(dif <= EUA_DIAS_JANELA)) return;
+      if (Math.abs(c.qtd - p.qtd) > Math.max(1e-6, p.qtd * 1e-4)) return;
+      if (!(c.preco > 0) || Math.abs(c.preco - p.preco) > p.preco * EUA_TOLERANCIA_PRECO + 1e-9) return;
+      if (dif < melhorDif) { melhor = c; melhorDif = dif; }
+    });
+    if (melhor) melhor.usada = true; else pendentes.push(p);
+  });
+  return pendentes;
+}
+
+function chaveLinhaEua_(x) {
+  return chaveDedup_('transacoesUsa', { data: x.data, ticker: x.ticker, tipo: 'Compra', qtd: x.qtd, preco: x.preco });
+}
+
+/** Registro de origem: [{ linha, aporteId, ticker, data, preco, qtd, taxa }]. */
+function lerRegistroEua_(ss) {
+  var aba = ss.getSheetByName(ABA_APORTES_EUA);
+  if (!aba || aba.getLastRow() < 2) return [];
+  var out = [];
+  aba.getRange(2, 1, aba.getLastRow() - 1, CABECALHO_APORTES_EUA.length).getValues().forEach(function (l, i) {
+    var id = String(l[0] || '').trim();
+    if (!id) return;
+    out.push({ linha: i + 2, aporteId: id, ticker: String(l[1] || '').trim().toUpperCase(), data: chaveDataLanc_(l[2]), preco: numeroAporte_(l[3]), qtd: numeroAporte_(l[4]), taxa: numeroAporte_(l[5]) });
+  });
+  return out;
+}
+
+function garantirAbaRegistroEua_(ss) {
+  var aba = ss.getSheetByName(ABA_APORTES_EUA);
+  if (!aba) {
+    aba = ss.insertSheet(ABA_APORTES_EUA);
+    aba.getRange(1, 1, 1, CABECALHO_APORTES_EUA.length).setValues([CABECALHO_APORTES_EUA]);
+  }
+  return aba;
+}
+
+/**
+ * Tira de 'Transações - USA' as linhas que o aporte gravou e que o aporte não pede mais (editou quantidade/preço/data,
+ * tirou o ativo, reabriu ou excluiu). `desejados` = pedidosEuaDosAportes_ do aporte (vazio = tudo sai). Registro sem
+ * linha correspondente na aba (você apagou à mão) só sai do registro. Devolve { removidas: [{ ticker, data, qtd, preco }] }.
+ */
+function removerComprasEuaDoAporte_(ss, aporteId, desejados) {
+  var out = { removidas: [] };
+  var reg = lerRegistroEua_(ss).filter(function (r) { return r.aporteId === aporteId; });
+  if (!reg.length) return out;
+  var aba = ss.getSheetByName(ABA_TRANSACOES_USA_APORTE_);
+  var cfg = LANC_ABAS.transacoesUsa;
+  var trava = travaRecurso_('carteira', 'aportes/lançamentos');
+  trava.waitLock(20000);
+  try {
+    var ultima = aba ? ultimaLinhaPreenchidaLanc_(aba, cfg) : cfg.linha - 1;
+    var bloco = ultima >= cfg.linha ? aba.getRange(cfg.linha, 1, ultima - cfg.linha + 1, cfg.cols).getValues() : [];
+    var chaves = bloco.map(function (l) { return l[0] === '' || l[0] === null ? '' : chaveLinhaEua_(itemDaLinhaLanc_('transacoesUsa', l)); });
+    var querer = {};
+    (desejados || []).forEach(function (p) { var k = chaveLinhaEua_(p); querer[k] = (querer[k] || 0) + 1; });
+    var tirar = {}; // índices do bloco a remover
+    var tirarReg = [];
+    reg.forEach(function (r) {
+      var k = chaveLinhaEua_(r);
+      var idx = -1;
+      for (var i = 0; i < chaves.length; i++) if (chaves[i] === k && !tirar[i]) { idx = i; break; }
+      if (idx === -1) { tirarReg.push(r); return; }          // a linha já não está na aba: só limpa o registro
+      if (querer[k] > 0) { querer[k]--; chaves[idx] = '#mantida' + idx; return; } // continua valendo: fica
+      tirar[idx] = true;
+      tirarReg.push(r);
+      out.removidas.push({ ticker: r.ticker, data: r.data, qtd: r.qtd, preco: r.preco });
+    });
+    var idxs = Object.keys(tirar);
+    if (idxs.length) {
+      var ficam = bloco.filter(function (l, i) { return !tirar[i]; });
+      while (ficam.length < bloco.length) ficam.push(['', '', '', '', '', '']);
+      aba.getRange(cfg.linha, 1, ficam.length, cfg.cols).setValues(ficam);
+    }
+    tirarReg.sort(function (a, b) { return b.linha - a.linha; }).forEach(function (r) { ss.getSheetByName(ABA_APORTES_EUA).deleteRow(r.linha); });
+  } finally {
+    trava.releaseLock();
+  }
+  if (out.removidas.length) {
+    try {
+      if (typeof marcarConsolidacao_ === 'function') {
+        var porTicker = {};
+        out.removidas.forEach(function (x) { if (!porTicker[x.ticker] || x.data < porTicker[x.ticker].desde) porTicker[x.ticker] = { ticker: x.ticker, classe: 'USA', desde: x.data }; });
+        marcarConsolidacao_({ ativos: Object.keys(porTicker).map(function (k) { return porTicker[k]; }), rf: null, motivo: 'Aporte EUA alterado/excluído: ' + out.removidas.length + ' linha(s) tiradas de Transações - USA' });
+      }
+    } catch (eC) { Logger.log('marcarConsolidacao_: ' + eC); }
+    try { if (typeof limparCacheHistoricoInicio_ === 'function') limparCacheHistoricoInicio_(); } catch (eH) { /* só cache */ }
+    try { if (typeof gravarRegistroControle_ === 'function') gravarRegistroControle_('Sucesso', 'Aporte EUA', 'Transações - USA: ' + out.removidas.length + ' linha(s) do aporte ' + aporteId + ' removidas (' + out.removidas.map(function (x) { return x.ticker; }).join(', ') + ')'); } catch (eR) { /* ok */ }
+  }
+  return out;
+}
+
+/**
+ * Se a linha recém-gravada (a última real) ficou sem as fórmulas das colunas G+, copia as da linha de cima
+ * (a aba traz ~10 mil linhas prontas, então normalmente não faz nada). Só roda com planilha de verdade.
+ */
+function garantirFormulasTransacoesUsa_(aba) {
+  try {
+    var cfg = LANC_ABAS.transacoesUsa;
+    var ult = ultimaLinhaPreenchidaLanc_(aba, cfg);
+    var cols = aba.getLastColumn() - cfg.cols;
+    if (ult <= cfg.linha || cols < 1) return;
+    var destino = aba.getRange(ult, cfg.cols + 1, 1, cols);
+    var vazias = destino.getFormulas().every(function (l) { return l.every(function (f) { return f === ''; }); });
+    if (vazias) aba.getRange(ult - 1, cfg.cols + 1, 1, cols).copyTo(destino);
+  } catch (e) { /* planilha em memória / sem a função: nada a fazer */ }
+}
+
+/**
+ * Grava em 'Transações - USA' (via importarLancamentos_) as compras de aportes concluídos que ainda não estão lá e
+ * registra a origem. opcoes.aporteId limita a um aporte. -> { gravadas, lancados: [{ aporteId, ativo, data, qtd, preco }], naoLancados: [{ aporteId, ativo, motivo }] }
+ */
+function lancarComprasEuaPendentes_(ss, opcoes) {
+  var o = opcoes || {};
+  var saida = { gravadas: 0, lancados: [], naoLancados: [] };
+  var aportes = lerAportes_(ss);
+  var abas = lerAbasLanc_(ss, ['transacoesUsa']);
+  var pend = pendentesEuaDosAportes_(aportes, abas.transacoesUsa.itens).filter(function (p) { return !o.aporteId || p.aporteId === o.aporteId; });
+  if (!pend.length) return saida;
+  var itens = pend.map(function (p, i) {
+    return { uid: i, destino: 'transacoesUsa', ticker: p.ticker, data: p.data, tipo: 'Compra', preco: p.preco, qtd: p.qtd, taxa: p.taxa, forcar: true };
+  });
+  var r = importarLancamentos_(itens, { origem: 'Aporte EUA', permitirForcar: true });
+  var registro = [];
+  (r.itens || []).forEach(function (c) {
+    var p = pend[c.uid];
+    if (c.situacao === 'gravado') {
+      saida.lancados.push({ aporteId: p.aporteId, ativo: p.ticker, data: p.data, qtd: p.qtd, preco: p.preco });
+      registro.push([p.aporteId, p.ticker, dataPlanilhaLanc_(p.data), p.preco, p.qtd, p.taxa > 0 ? p.taxa : '', new Date()]);
+    } else {
+      saida.naoLancados.push({ aporteId: p.aporteId, ativo: p.ticker, motivo: c.motivo || c.situacao });
+    }
+  });
+  saida.gravadas = saida.lancados.length;
+  if (registro.length) {
+    var aba = garantirAbaRegistroEua_(ss);
+    var trava = travaRecurso_('carteira', 'aportes/lançamentos');
+    trava.waitLock(20000);
+    try {
+      aba.getRange(aba.getLastRow() + 1, 1, registro.length, CABECALHO_APORTES_EUA.length).setValues(registro);
+    } finally {
+      trava.releaseLock();
+    }
+    garantirFormulasTransacoesUsa_(ss.getSheetByName(ABA_TRANSACOES_USA_APORTE_));
+  }
+  return saida;
+}
+
+/**
+ * Concluir / editar / reabrir (aporte = o que foi salvo) ou excluir (aporte = null) um aporte: deixa as linhas dele em
+ * 'Transações - USA' iguais ao que ele pede agora. Sem Ações EUA e sem linhas gravadas antes, não faz nada.
+ */
+function sincronizarComprasEuaDoAporte_(ss, aporteId, aporte) {
+  if (!aporteId) return { removidas: [], gravadas: 0 };
+  var temEua = !!(aporte && aporte.status === 'concluido' && (aporte.itens || []).some(function (it) { return it.classe === 'acoesEua'; }));
+  var temRegistro = lerRegistroEua_(ss).some(function (r) { return r.aporteId === aporteId; });
+  if (!temEua && !temRegistro) return { removidas: [], gravadas: 0 };
+  var canonico = aporte ? lerAportes_(ss).filter(function (a) { return a.id === aporteId; })[0] : null; // o que ficou na aba (sem itens de valor 0)
+  var rem = removerComprasEuaDoAporte_(ss, aporteId, canonico ? pedidosEuaDosAportes_([canonico]) : []);
+  var gr = canonico && canonico.status === 'concluido' ? lancarComprasEuaPendentes_(ss, { aporteId: aporteId }) : { gravadas: 0, naoLancados: [] };
+  return { removidas: rem.removidas, gravadas: gr.gravadas, naoLancados: gr.naoLancados };
+}
+
+/**
+ * EDITOR (rodar 1x): grava em 'Transações - USA' as compras de Ações EUA de aportes JÁ concluídos que ficaram sem linha
+ * (casamento: mesmo ticker, data +-2 dias, mesma quantidade, preço +-1% - o que já está lá não é tocado). Idempotente.
+ * Lista no log e no Registro de Controle o que gravou.
+ */
+function lancarAportesEuaPendentes() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var r = lancarComprasEuaPendentes_(ss, {});
+  var linhas = r.lancados.map(function (x) { return x.ativo + ' ' + x.qtd + ' a US$ ' + x.preco + ' em ' + x.data + ' (aporte ' + x.aporteId + ')'; });
+  Logger.log(r.gravadas ? ('lancarAportesEuaPendentes: gravadas ' + r.gravadas + ' linha(s) em Transações - USA:\n' + linhas.join('\n')) : 'lancarAportesEuaPendentes: nada pendente (todas as compras de Ações EUA dos aportes concluídos já estão em Transações - USA).');
+  r.naoLancados.forEach(function (x) { Logger.log('NÃO lançado: ' + x.ativo + ' (aporte ' + x.aporteId + '): ' + x.motivo); });
+  if (r.gravadas) {
+    try { if (typeof gravarRegistroControle_ === 'function') gravarRegistroControle_('Sucesso', 'Aporte EUA', 'lancarAportesEuaPendentes: ' + linhas.join('; ')); } catch (eR) { /* ok */ }
+  }
+  return r;
 }

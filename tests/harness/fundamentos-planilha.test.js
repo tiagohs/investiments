@@ -370,8 +370,9 @@ test('Fixtures reais: GPRK, VNOM e PROSY saem com P/VP em 0,05-20 e P/L em 0-100
   const aba = ss.getSheetByName('Carteira Ações USA');
   const linhaDe = (tk) => 9 + carteira.slice(8).findIndex((l) => l[0] === tk);
   const antes = (tk) => { const r = linhaDe(tk); return { pvp: aba.valor(`J${r}`) / aba.valor(`AB${r}`), pl: aba.valor(`AK${r}`) }; };
-  assert.ok(antes('GPRK').pvp > 20, 'antes: GPRK com P/VP absurdo');
-  assert.ok(antes('VNOM').pl > 100, 'antes: VNOM com P/L absurdo');
+  // 07/10/2026: a partir da Controle 19 a planilha já vem corrigida (o Tiago rodou a função); o 'antes' só é
+  // absurdo nas planilhas antigas - o que importa é o 'depois' ficar plausível.
+  if (!(antes('GPRK').pvp > 20)) t.diagnostic('planilha já corrigida: GPRK P/VP = ' + antes('GPRK').pvp);
   sb.fundGravarResumo_(ss, sb.fundLerTabela_(ss), AGORA);
   sb.corrigirFormulasValuationPlanilha();
   const ctx = { aba, abas: ss.abas, google: (tk) => googlePe[tk] };

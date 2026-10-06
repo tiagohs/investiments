@@ -516,10 +516,12 @@ test('diagnóstico câmbio: queda em reais das Ações EUA que veio do dólar', 
   const usd = nivel(ds, 0.1, 0.002, 1);
   const brl = usd.map((p, i) => ({ data: p.data, valor: p.valor * cambio[i].valor }));
   const a = analisarSerie({ serie: emRetorno(brl), indices: { 'S&P 500': emRetorno(usd) }, cambio, periodo: '30d', classe: 'eua', nome: 'A carteira de ações EUA' });
-  const mov = ponto(a, 'movimento');
-  assert.ok(mov, `pontos: ${tipos(a)}`);
-  assert.match(mov.texto, /Veio do câmbio: o dólar caiu \d,\d\d% no mesmo intervalo; em dólar, a variação foi de/);
-  assert.equal(mov.tom, 'neutro');
+  // 07/10/2026: a queda brusca explicada pelo dólar agora vira o item do dia/mês (analise-cambio.js), sem repetir o "movimento"
+  const dia = ponto(a, 'cambio-dia');
+  assert.ok(dia, `pontos: ${tipos(a)}`);
+  assert.match(dia.texto, /^Queda de \d,\d% em \d\d\/\d\d, quase toda pelo dólar \(−1,5%: R\$\s4,\d\d → R\$\s4,\d\d\); em dólar as ações ficaram estáveis/);
+  assert.equal(dia.tom, 'neutro');
+  assert.equal(ponto(a, 'movimento'), undefined);
   assert.ok(a.criterios.includes('diag_cambio'));
 });
 

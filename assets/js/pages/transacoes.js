@@ -17,7 +17,7 @@
 // ativo e abre o gráfico (busca o histórico de preço via getHistoricoAtivo).
 
 import { publicarAportesPendentes, EVENTO_ABRIR_LANCAMENTOS } from '../carrinho-header.js';
-import { getTransacoes, salvarAporte, excluirAporte, salvarCaixaDolar, excluirCaixaDolar, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
+import { getTransacoes, salvarAporte, excluirAporte, lancarAportesEua, salvarCaixaDolar, excluirCaixaDolar, importarLancamentos, getHistoricoAtivo } from '../api-client.js';
 import { mountRefreshControl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { carrinhoValido } from './aportes-calc.js';
@@ -69,7 +69,7 @@ const aguardandoDe = (dados) => ((dados && dados.aportes) || []).filter((a) => a
  * opcoes: { doc, getTransacoesImpl, salvarAporteImpl, excluirAporteImpl, salvarCaixaDolarImpl, excluirCaixaDolarImpl, importarImpl, carregarXlsx, getHistoricoAtivoImpl }
  */
 export async function montarPaginaTransacoes(token, {
-  doc = document, getTransacoesImpl = getTransacoes, salvarAporteImpl = salvarAporte, excluirAporteImpl = excluirAporte,
+  doc = document, getTransacoesImpl = getTransacoes, salvarAporteImpl = salvarAporte, excluirAporteImpl = excluirAporte, lancarAportesEuaImpl = lancarAportesEua,
   salvarCaixaDolarImpl = salvarCaixaDolar, excluirCaixaDolarImpl = excluirCaixaDolar,
   importarImpl = importarLancamentos, carregarXlsx = undefined, getHistoricoAtivoImpl = getHistoricoAtivo, carregarMetas = undefined,
 } = {}) {
@@ -176,6 +176,7 @@ export async function montarPaginaTransacoes(token, {
       mod.renderLancamentos({
         doc, el: pL, dados, estado: estado.lancamentos, carregarXlsx: carregarXlsx || mod.carregarSheetJs,
         importar: (itens, opcoes) => importarImpl(token, itens, opcoes),
+        lancarEua: (aporteId) => lancarAportesEuaImpl(token, aporteId), // 07/10/2026: "Lançar agora" das Ações EUA a confirmar
         recarregar: carregar,
         baixar: (nome, texto) => baixarArquivo(doc, nome, texto),
         getHistoricoAtivo: (ticker) => getHistoricoAtivoImpl(token, ticker),

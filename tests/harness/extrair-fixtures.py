@@ -61,6 +61,7 @@ SHEETS = [
     'aux_gastos',
     'aux_gastos-arquivos',
     'aux_aportes',
+    'aux_aportes_eua',  # 07/10/2026: criada pelo Aportes.gs (origem das linhas de Ações EUA gravadas por aporte); pulada se a planilha ainda não tiver
     'aux_fundamentos',
     'aux_fundamentos-historico',
     'aux_fundamentos-resumo',  # 06/10/2026: criada pelo Fundamentos.gs; pulada se a planilha ainda não tiver

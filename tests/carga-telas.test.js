@@ -74,8 +74,9 @@ test('modulepreload: cada módulo listado existe e cobre o fecho do script inlin
 const ORCAMENTO = {
   'index.html': { modulos: 58, kb: 830 },
   'distribuicoes-metas.html': { modulos: 58, kb: 930 },
-  'metas.html': { modulos: 54, kb: 1010 },
-  'carteiras/index.html': { modulos: 61, kb: 1010 },
+  // 07/10/2026: +analise-cambio.js (dólar x preço nas análises de Ações EUA) subiu esses dois ~9 KB: teto 1010 -> 1025 de propósito
+  'metas.html': { modulos: 54, kb: 1025 },
+  'carteiras/index.html': { modulos: 61, kb: 1025 },
   'ativo/index.html': { modulos: 62, kb: 1190 },
   'transacoes/index.html': { modulos: 58, kb: 830 },
   'proventos/index.html': { modulos: 46, kb: 680 },

@@ -330,6 +330,7 @@ function executarBackfillRendaFixaIncremental_() {
 
   // 2) último dia + saldo já salvo, por posição (Produto|Instituição)
   var ultimoSalvoPorChave = {};
+  var diasJaSalvos = {}; // 07/10/2026: 'chave|aaaa-mm-dd' de toda linha já gravada (trava contra regravar dia existente)
   var ultimaLinhaHistorico = abaHistorico.getLastRow();
   if (ultimaLinhaHistorico > 1) {
     var dadosHistorico = abaHistorico.getRange(2, 1, ultimaLinhaHistorico - 1, 6).getValues();
@@ -338,7 +339,11 @@ function executarBackfillRendaFixaIncremental_() {
       if (!(data instanceof Date)) return;
       var dataNormalizada = new Date(data);
       dataNormalizada.setHours(0, 0, 0, 0);
-      var chave = linha[1] + '|' + linha[2]; // Produto|Instituição
+      // 07/10/2026: MESMA chave das transações (chaveTituloRf_, A-71). Antes era o texto cru
+      // "Produto|Instituição", que deixou de casar com a chave nova: toda posição parecia "nova"
+      // e a rotina diária regravava o histórico inteiro no fim da aba (Renda Emergencial em dobro).
+      var chave = chaveTituloRf_(linha[1], linha[2]);
+      diasJaSalvos[chave + '|' + formatarDataBcbRF_(dataNormalizada)] = true;
       var atual = ultimoSalvoPorChave[chave];
       if (!atual || dataNormalizada > atual.data) {
         ultimoSalvoPorChave[chave] = { data: dataNormalizada, saldo: Number(linha[5]) || 0 };
@@ -440,7 +445,7 @@ function executarBackfillRendaFixaIncremental_() {
         idxEvento++;
       }
 
-      if (saldo > 0.01) {
+      if (saldo > 0.01 && !diasJaSalvos[chave + '|' + formatarDataBcbRF_(cursor)]) {
         // 23/09/2026: SEM o "+1 dia" - ver cabeçalho do arquivo.
         var dataGravada = new Date(cursor.getTime());
         linhasNovas.push([dataGravada, posicao.produto, posicao.instituicao, tipo, classificacao, arredondar2RF_(saldo)]);

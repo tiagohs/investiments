@@ -86,6 +86,7 @@ import { ehPeriodoPersonalizado, garantirEstilosComponentesGrafico } from './per
 import { BENCHMARK_POR_CLASSE, criterio, familiaDaClasse, classificar, mesesParaJulgar } from './criterios/base-rentabilidade.js';
 import { esc } from './util/html.js'; // 05/10/2026 (A-68): escape único
 import { aliquotaIrPorDias } from './ir-renda-fixa.js'; // 06/10/2026 (A-82): IR/IOF únicos
+import { decomporCambio, itemCambio, MINIMO_CAMBIO_POR_JANELA } from './analise-cambio.js'; // 07/10/2026: quedas/altas por causa do dólar
 
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -1185,6 +1186,58 @@ function regraCambio(ctx) {
   return { tipo: 'cambio', tom: 'neutro', texto, resumo: `dólar ${m.dfx >= 0 ? '↑' : '↓'} ${formatPctAbs(m.dfx, 1)}`, peso: forte ? 68 : 52, criterios: ['efeito_cambio'] };
 }
 
+/**
+ * 07/10/2026 (Tiago: "Inclua na lista de análises essas quedas por causa de
+ * câmbio, é uma boa informação"): decompõe a variação em R$ de ativos em dólar
+ * em preço em US$ x câmbio no DIA (último intervalo da série, com o câmbio ao
+ * vivo no último ponto), no MÊS e no PERÍODO selecionado, e devolve um item por
+ * janela em que o dólar explica >= 60% do movimento (ou anda contra o preço).
+ * Máximo 2 itens (o dia + a janela mais longa relevante) pra não encher o card.
+ * Cálculo puro em analise-cambio.js.
+ */
+function regrasCambioJanelas(ctx) {
+  if (ctx.familia !== 'eua' || ctx.moeda === 'USD' || !ctx.cambioIdx || !ctx.cambioIdx.datas.length) return [];
+  const base = ctx.contextoCurva.length >= ctx.curva.length ? ctx.contextoCurva : ctx.curva;
+  const sujeito = /^ativo-eua$/i.test(String(ctx.classe || '')) ? { texto: 'o ativo', plural: false } : { texto: 'as ações', plural: true };
+  const janela = (id, de, ate, R, rotulo) => {
+    const dfx = retornoEntre(ctx.cambioIdx, de, ate);
+    if (!num(dfx) || !num(R)) return null;
+    const d = decomporCambio({ retornoBrl: R, variacaoCambio: dfx, minimoCambio: MINIMO_CAMBIO_POR_JANELA[id] });
+    return itemCambio({ d, janela: id, rotulo, nivelIni: nivelEmOuDepois(ctx.cambioIdx, de, ate), nivelFim: nivelEm(ctx.cambioIdx, ate), sujeito });
+  };
+  const itens = [];
+  const n = base.length;
+  const ate = n ? base[n - 1].data : null;
+  // dia: os dois últimos pontos da série (hoje ao vivo x último fechamento)
+  let deDia = null;
+  if (n >= 2 && base[n - 2].f > 0) {
+    deDia = base[n - 2].data;
+    const rotulo = ctx.hoje && ate === ctx.hoje ? 'hoje' : `em ${diaMes(ate)}`;
+    const it = janela('dia', deDia, ate, base[n - 1].f / base[n - 2].f - 1, rotulo);
+    if (it) itens.push(it);
+  }
+  // mês: do último ponto do mês anterior (ou do começo da série) até o fim
+  const mesFim = ate ? ate.slice(0, 7) : null;
+  let ini = -1;
+  for (let i = n - 1; i >= 0; i -= 1) { if (base[i].data.slice(0, 7) < mesFim) { ini = i; break; } }
+  if (ini < 0) ini = 0;
+  const mesIni = n ? base[ini] : null;
+  const longos = [];
+  if (mesIni && mesIni.data !== deDia && mesIni.data !== ate && mesIni.f > 0) {
+    const it = janela('mes', mesIni.data, ate, base[n - 1].f / mesIni.f - 1, 'no mês');
+    if (it) longos.push({ it, de: mesIni.data });
+  }
+  // período selecionado (a janela do gráfico), se for maior que o mês e o dia
+  const de0 = ctx.curva[0].data;
+  if (de0 !== deDia && (!mesIni || de0 < mesIni.data)) {
+    const it = janela('periodo', de0, ctx.curva[ctx.curva.length - 1].data, ctx.R, ctx.descPeriodo);
+    if (it) longos.push({ it, de: de0 });
+  }
+  longos.sort((a, b) => b.it.peso - a.it.peso);
+  if (longos.length) itens.push(longos[0].it);
+  return itens;
+}
+
 function regraDescolamento(ctx) {
   const { m, bench, familia } = ctx;
   if (!bench || bench.tipo !== 'mercado' || !RENDA_VARIAVEL.has(familia) || !num(m.excesso)) return null;
@@ -1367,7 +1420,7 @@ function montarDestaques(ctx) {
 export function analisarSerie({
   serie, indices = {}, periodo = null, nome = 'A carteira', formatarMoeda = formatBRL, componentes = null, contexto = null, indiceReferencia = null,
   classe = null, subtipo = null, referencias = null, cambio = null, moeda = 'BRL', benchmark = null, benchmarkComponentes = null,
-  proventosAReceber = null, rf = null,
+  proventosAReceber = null, rf = null, hoje = null,
 } = {}) {
   const curva = curvaDaSerie(serie);
   if (curva.length < 2) return { tom: 'neutro', resumo: '', pontos: [], metricas: null, destaques: [], criterios: [] };
@@ -1402,7 +1455,7 @@ export function analisarSerie({
   const ctx = {
     curva, R, spanDias, meses, retIndices, indicesContexto, nome, formatarMoeda, componentes, indiceReferencia,
     descPeriodo: descreverPeriodo(periodo), contextoCurva, volContexto,
-    familia, classe, lista, bench, cdi, ipca, cambioIdx, moeda, rf: rfN, forcado: benchmark,
+    familia, classe, lista, bench, cdi, ipca, cambioIdx, moeda, rf: rfN, forcado: benchmark, hoje: typeof hoje === 'string' ? hoje : null,
     julgar: familia ? mesesParaJulgar(familia) : 12,
     // proventos a receber: sem data-com, só conta o que já passou dela com
     // certeza - os "provisionados" da exportação da B3 (fonte 'B3') ou quem
@@ -1417,7 +1470,10 @@ export function analisarSerie({
 
   const comparacao = (familia && bench && regraComparacaoClasse(ctx)) || regraComparacao(ctx);
   if (familia && !bench && comparacao.tom !== 'neutro' && meses < ctx.julgar) comparacao.tom = 'neutro';
-  const movimento = regraMovimento(ctx);
+  const itensCambio = regrasCambioJanelas(ctx); // 07/10/2026: dólar x preço (dia/mês/período)
+  let movimento = regraMovimento(ctx);
+  // a queda/alta brusca explicada pelo câmbio vira o item do dia (mais claro), sem repetir
+  if (movimento && itensCambio.length && (movimento.criterios || []).includes('diag_cambio')) movimento = null;
   const candidatos = [
     comparacao,
     movimento,
@@ -1429,7 +1485,7 @@ export function analisarSerie({
   ];
   if (familia) {
     candidatos.push(regraReal(ctx), regraRisco(ctx), regraSharpe(ctx), regraAlfaBeta(ctx), regraConsistencia(ctx), regraTir(ctx),
-      regraCambio(ctx), regraDescolamento(ctx), regraProventosAReceber(ctx), regraImpostos(ctx));
+      itensCambio.length ? null : regraCambio(ctx), ...itensCambio, regraDescolamento(ctx), regraProventosAReceber(ctx), regraImpostos(ctx));
   }
   const validos = candidatos.filter(Boolean);
   const pontos = validos.sort((a, b) => b.peso - a.peso).slice(0, MAX_PONTOS);

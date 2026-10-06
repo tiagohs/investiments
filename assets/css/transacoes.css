@@ -674,3 +674,4 @@ table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width
   .tx-hist-chips .chip{ flex:0 0 auto; }
   .tx-origem{ display:none; }
 }
+.tx-lancar-agora{ margin-left:8px; vertical-align:middle; } /* 07/10/2026: "Lançar agora" nas Ações EUA a confirmar */
