@@ -49,7 +49,8 @@ import {
 } from './organizacao-calc.js';
 import { montarAbaSalario } from './organizacao-salario.js';
 import { montarAbaPatrimonio, montarCarreiraFgts, contextoPatrimonio } from './organizacao-patrimonio.js';
-import { montarSecaoGastos } from './organizacao-gastos.js';
+import { montarSecaoGastos, mensagemFalhaGastos } from './organizacao-gastos.js';
+import { NOME_FONTE as NOME_FONTE_DOC } from './gastos-calc.js';
 import { montarAbaSimulacoes } from './organizacao-simulacoes.js';
 import { montarSecaoRenda } from './organizacao-renda.js';
 import { montarPainelDocumentos } from './organizacao-documentos.js';
@@ -352,10 +353,15 @@ export function criarCarregador(buscar) {
   let iniciadoEm = 0; // 05/10/2026 (A-39): quando a última busca começou - "Atualizar" não repete o que acabou de ser pedido
   const ouvintes = new Set();
   const avisar = () => ouvintes.forEach((f) => { try { f(valor); } catch (e) { /* um ouvinte com erro não derruba os outros */ } });
+  // 07/10/2026 (Tiago: "desativo o OuroCard e alguns segundos depois ele é reativado"): uma busca que começou ANTES
+  // de outra (ou antes de um definir() de quem acabou de salvar) e termina DEPOIS não sobrescreve o valor mais novo.
+  let geracao = 0;
   async function rodar() {
     let r;
+    const minha = ++geracao;
     iniciadoEm = Date.now();
     try { r = await buscar(); } catch (e) { r = { ok: false, erro: String(e && e.message ? e.message : e) }; }
+    if (minha !== geracao) return r; // resposta velha: o valor já é mais novo que ela
     if (r && r.ok) valor = r;
     else if (valor === undefined) valor = null;
     avisar();
@@ -364,7 +370,7 @@ export function criarCarregador(buscar) {
   return {
     obter() { if (!promessa) promessa = rodar(); return promessa; },
     recarregar() { promessa = rodar(); return promessa; },
-    definir(v) { valor = v; if (!promessa) promessa = Promise.resolve(v); avisar(); },
+    definir(v) { geracao += 1; valor = v; if (!promessa) promessa = Promise.resolve(v); avisar(); },
     inscrever(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); },
     get valor() { return valor; },
     get iniciado() { return !!promessa; },
@@ -948,16 +954,31 @@ export async function montarPaginaOrganizacao(token, {
    * 07/10/2026 (Tiago: OuroCard cancelado, Bradesco sem uso): marca/desmarca um cartão ou conta como encerrado. A lista
    * mora no Apps Script (Gastos.gs) e volta no getGastos - o painel Documentos e a seção Gastos leem dali.
    */
-  async function marcarFonteEncerrada({ fonte, encerrada } = {}) {
-    if (!fonte || typeof api.gastos.salvarFontesGastos !== 'function') return;
-    const atual = new Set((gas.valor && gas.valor.fontesEncerradas) || []);
+  // 07/10/2026: otimista - a marcação vale na tela na hora (definir() descarta as buscas que já estavam no caminho, como a
+  // lista do Drive ou uma releitura, que traziam a lista antiga); só volta atrás se o Apps Script recusar. Um salvamento
+  // por vez, na ordem dos cliques.
+  let filaFontes = Promise.resolve();
+  function marcarFonteEncerrada({ fonte, encerrada } = {}) {
+    if (!fonte || typeof api.gastos.salvarFontesGastos !== 'function') return Promise.resolve();
+    const antes = [...((gas.valor && gas.valor.fontesEncerradas) || [])];
+    const atual = new Set(antes);
     if (encerrada) atual.add(fonte); else atual.delete(fonte);
-    let r;
-    try { r = await api.gastos.salvarFontesGastos([...atual]); } catch (e) { r = { ok: false, erro: String(e) }; }
-    if (!r || !r.ok) { toast('Não consegui salvar agora. Tente de novo em instantes.', { tipo: 'erro', doc }); atualizarDocumentos(); return; }
-    if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: r.fontesEncerradas || [...atual] });
-    toast(encerrada ? 'Marcado como encerrado: não entra mais em "atrasado".' : 'Reativado.', { tipo: 'info', doc });
-    if (gastos && typeof gastos.recarregar === 'function') gastos.recarregar();
+    const lista = [...atual];
+    if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: lista });
+    filaFontes = filaFontes.then(async () => {
+      let r;
+      try { r = await api.gastos.salvarFontesGastos(lista); } catch (e) { r = { ok: false, erro: String(e) }; }
+      if (!r || !r.ok) {
+        const agora = new Set((gas.valor && gas.valor.fontesEncerradas) || []);
+        if (encerrada) agora.delete(fonte); else agora.add(fonte); // desfaz só este clique
+        if (gas.valor) gas.definir({ ...gas.valor, fontesEncerradas: [...agora] }); else atualizarDocumentos();
+        toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
+        return;
+      }
+      toast(encerrada ? `${NOME_FONTE_DOC[fonte] || 'Encerrado'}: não entra mais em "atrasado".` : `${NOME_FONTE_DOC[fonte] || 'Fonte'}: reativado.`, { tipo: 'info', doc });
+      if (gastos && typeof gastos.recarregar === 'function') gastos.recarregar();
+    });
+    return filaFontes;
   }
   if (el.documentos && documentosOpcoes !== false) {
     painelDocs = montarPainelDocumentos(el.documentos, { doc, aoAcao: (a, x) => { acaoDocumento(a, x); }, ...(documentosOpcoes || {}) });

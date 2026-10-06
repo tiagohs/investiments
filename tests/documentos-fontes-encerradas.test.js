@@ -137,3 +137,30 @@ test('Lançamentos: o extrato de proventos diz que registrou - ou que já tinha 
   assert.match(htmlConferenciaB3({ ok: true, meses: ['2026-09'], jaEnviado: true, linhasNovas: 0, ignoradasDuplicadas: 8 }), /já tinha chegado \(set\/26\)\. Nada novo/);
   assert.match(htmlConferenciaB3({ ok: true, meses: ['2026-09'], jaEnviado: false, linhasNovas: 3, ignoradasDuplicadas: 1 }), /registrado \(set\/26\): 3 proventos na conferência, 1 já estava lá/);
 });
+
+test('carregador compartilhado: busca que começou antes e termina depois não desfaz o que foi salvo (OuroCard "reativando sozinho")', async () => {
+  const { criarCarregador } = await import('../assets/js/pages/organizacao.js');
+  const pendentes = [];
+  const c = criarCarregador(() => new Promise((res) => pendentes.push(res)));
+  const vistos = [];
+  c.inscrever((v) => vistos.push(v && v.fontesEncerradas));
+  const velha = c.obter(); // releitura em andamento, com a lista antiga
+  c.definir({ ok: true, fontesEncerradas: ['ourocard'] }); // quem salvou já sabe a lista nova
+  pendentes[0]({ ok: true, fontesEncerradas: [] });
+  await velha;
+  assert.deepEqual(c.valor.fontesEncerradas, ['ourocard'], 'a resposta velha não sobrescreve');
+  // duas buscas: a mais nova vale, mesmo que a mais velha chegue por último
+  const a = c.recarregar(); const b = c.recarregar();
+  pendentes[2]({ ok: true, fontesEncerradas: ['ourocard', 'bradesco'] });
+  await b;
+  pendentes[1]({ ok: true, fontesEncerradas: [] });
+  await a;
+  assert.deepEqual(c.valor.fontesEncerradas, ['ourocard', 'bradesco']);
+  assert.deepEqual(vistos.at(-1), ['ourocard', 'bradesco']);
+});
+
+test('falha ao salvar: Apps Script antigo ("ação desconhecida") diz pra publicar a nova versão', async () => {
+  const { mensagemFalhaGastos } = await import('../assets/js/pages/organizacao-gastos.js');
+  assert.match(mensagemFalhaGastos({ ok: false, erro: 'ação desconhecida: salvarFontesGastos' }, 'x'), /versão antiga.*nova versão da implantação/);
+  assert.equal(mensagemFalhaGastos({ ok: false, erro: 'planilha ocupada' }, 'tente de novo'), 'tente de novo');
+});

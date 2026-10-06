@@ -351,3 +351,48 @@ test('Gastos: se a releitura falhar depois de importar, o que entrou fica na tel
   assert.match(txt(doc.querySelector('#gsHero')), /R\$ 190/, 'resposta velha ignorada');
   servidor.fila = null;
 });
+
+// 07/10/2026 (Tiago: "desativo o OuroCard, desativa, mas alguns segundos depois ele é reativado"): a marcação vale na
+// hora, sobrevive às releituras e só volta atrás se o Apps Script recusar - com o motivo ("publique a nova versão").
+test('Documentos: desmarcar o cartão fica desmarcado (releitura não reativa); Apps Script antigo desfaz e explica', async () => {
+  const servidor = { encerradas: [], recusar: false };
+  let liberarSalvar;
+  const api = {
+    ...gastosApi({ gastos: 0, drive: 0 }),
+    getGastos: async () => ({ ok: true, lancamentos: [], arquivos: [
+      { id: 'o1', nome: 'o.pdf', caminho: 'Cartão de Crédito/OuroCard/2024', fonte: 'ourocard', meses: ['2024-05'] },
+      { id: 'n1', nome: 'n.pdf', caminho: 'Cartão de Crédito/Nubank/2025', fonte: 'nubank-cartao', meses: ['2025-08'] },
+    ], regras: [], fontesEncerradas: [...servidor.encerradas] }),
+    salvarFontesGastos: async (lista) => {
+      await new Promise((r) => { liberarSalvar = r; });
+      if (servidor.recusar) return { ok: false, erro: 'ação desconhecida: salvarFontesGastos' };
+      servidor.encerradas = [...lista];
+      return { ok: true, fontesEncerradas: [...lista] };
+    },
+  };
+  const { w, doc } = await montar('#despesas', { gastosOpcoes: { api, storage: null } });
+  clique(w, doc.querySelector('.og-docs-barra'));
+  await esperar(20);
+  const caixa = () => doc.querySelector('#ogDocumentos [data-doc-fonte="ourocard"]');
+  assert.equal(caixa().checked, true);
+  caixa().checked = false;
+  caixa().dispatchEvent(new w.Event('change', { bubbles: true }));
+  await esperar(5);
+  assert.equal(caixa().checked, false, 'vale na hora (antes de o Apps Script responder)');
+  liberarSalvar();
+  await esperar(40); // salva e relê os gastos
+  assert.equal(caixa().checked, false, 'a releitura traz a lista nova - continua desmarcado');
+  assert.match(txt(doc.querySelector('#ogDocumentos [data-doc-id="faturas"]')), /OuroCard encerrado/);
+
+  // Apps Script ainda na versão antiga: volta a marcar e diz o que fazer
+  servidor.recusar = true;
+  const nub = doc.querySelector('#ogDocumentos [data-doc-fonte="nubank-cartao"]');
+  nub.checked = false;
+  nub.dispatchEvent(new w.Event('change', { bubbles: true }));
+  await esperar(5);
+  liberarSalvar();
+  await esperar(30);
+  assert.equal(doc.querySelector('#ogDocumentos [data-doc-fonte="nubank-cartao"]').checked, true, 'recusado: desfaz só esse clique');
+  assert.equal(caixa().checked, false, 'o OuroCard (salvo antes) continua encerrado');
+  assert.match(txt(doc.body), /versão antiga: crie uma nova versão da implantação/);
+});

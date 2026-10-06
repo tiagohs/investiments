@@ -384,6 +384,16 @@ export function htmlDocumentos(r, { drive = null, hoje = new Date() } = {}) {
     <div class="gs-acoes"><button type="button" class="btn" data-acao="${novos.length ? 'importar-novos' : 'drive'}">${novos.length ? `Importar ${novos.length} novo${novos.length > 1 ? 's' : ''} do Drive` : 'Procurar novos no Drive'}</button>${falhos.length ? `<button type="button" class="btn" data-acao="importar-falhos">${falhos.length === 1 ? 'Tentar de novo o que falhou' : `Tentar de novo só os ${falhos.length} que falharam`}</button>` : ''}<button type="button" class="btn" data-acao="arquivo">Importar do computador</button></div>`;
 }
 
+/**
+ * 07/10/2026: texto da falha ao salvar. "ação desconhecida" = o Apps Script publicado ainda é a versão antiga (sem
+ * salvarFontesGastos/excluirArquivosGastos) - diz o que fazer em vez de "tente de novo".
+ */
+export function mensagemFalhaGastos(r, padrao) {
+  const erro = String((r && r.erro) || '');
+  if (/a[cç][aã]o desconhecida/i.test(erro)) return 'O Apps Script publicado ainda é a versão antiga: crie uma nova versão da implantação (Gastos.gs e Router.gs) e tente de novo.';
+  return padrao;
+}
+
 const ERRO_DRIVE_HUMANO = 'Não consegui ver as pastas do Drive agora. Tente de novo em instantes.';
 
 /** Painel de importação: banner de novos, progresso, pedido de senha, resultado. */
@@ -796,12 +806,13 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     b.disabled = true;
     let falhou = false;
     try {
-      if (typeof api.excluirArquivosGastos === 'function') {
-        const r = await api.excluirArquivosGastos(ids);
-        falhou = !r || r.ok === false;
-      } else {
-        for (const id of ids) await api.excluirArquivoGastos(id); // eslint-disable-line no-await-in-loop
+      let r = typeof api.excluirArquivosGastos === 'function' ? await api.excluirArquivosGastos(ids) : null;
+      // Apps Script antigo (sem a ação de vários): um por um, com a ação que já existia
+      if (!r || (r.ok === false && /a[cç][aã]o desconhecida/i.test(String(r.erro || '')))) {
+        r = { ok: true };
+        for (const id of ids) { const x = await api.excluirArquivoGastos(id); if (x && x.ok === false) r = x; } // eslint-disable-line no-await-in-loop
       }
+      falhou = !r || r.ok === false;
     } catch (e) { falhou = true; }
     toast(falhou ? 'Não consegui remover agora. Veja se eles sumiram da lista.' : `${ids.length === 1 ? 'Arquivo removido' : `${ids.length} arquivos removidos`}.`, { tipo: falhou ? 'erro' : 'info', doc });
     await carregar();
@@ -812,13 +823,19 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     if (typeof api.salvarFontesGastos !== 'function') return;
     const fonte = b.dataset.fonte;
     const encerrada = b.dataset.encerrada === '1';
-    const atual = new Set((dados && dados.fontesEncerradas) || []);
+    const antes = [...((dados && dados.fontesEncerradas) || [])];
+    const atual = new Set(antes);
     if (encerrada) atual.add(fonte); else atual.delete(fonte);
-    b.disabled = true;
+    // 07/10/2026: otimista + uma releitura que já estava no caminho (com a lista antiga) não volta atrás na tela
+    cargaAplicada = seqCarga + 1;
+    if (dados) { dados.fontesEncerradas = [...atual]; desenhar(); }
     let r;
-    try { r = await api.salvarFontesGastos([...atual]); } catch (e) { r = { ok: false }; }
-    if (!r || !r.ok) { b.disabled = false; toast('Não consegui salvar agora. Tente de novo em instantes.', { tipo: 'erro', doc }); return; }
-    if (dados) { dados.fontesEncerradas = r.fontesEncerradas || [...atual]; desenhar(); }
+    try { r = await api.salvarFontesGastos([...atual]); } catch (e) { r = { ok: false, erro: String(e) }; }
+    if (!r || !r.ok) {
+      if (dados) { dados.fontesEncerradas = antes; desenhar(); }
+      toast(mensagemFalhaGastos(r, 'Não consegui salvar agora. Tente de novo em instantes.'), { tipo: 'erro', doc, duracaoMs: 10000 });
+      return;
+    }
     toast(encerrada ? `${NOME_FONTE[fonte] || fonte}: encerrado - não entra mais em "atrasado".` : `${NOME_FONTE[fonte] || fonte}: reativado.`, { tipo: 'info', doc });
     await carregar();
   }
