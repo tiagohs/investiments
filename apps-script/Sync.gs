@@ -144,6 +144,8 @@ function carregarTickersDaPlanilha_(ss) {
   if (!forcar && cache) {
     try { var bruto = cache.get(CACHE_TICKERS_PLANILHA_); lista = bruto ? JSON.parse(bruto) : null; } catch (eCache) { lista = null; }
     if (lista && !(lista.acoes && lista.fiis && lista.usa)) lista = null;
+    // 07/10/2026: lista em cache sem nenhum ativo (leitura que falhou) não vale - relê a planilha
+    if (lista && !(lista.acoes.length + lista.fiis.length + lista.usa.length)) lista = null;
   }
   if (!lista) {
     lista = lerTickersAuxiliarAtivos_(ss);

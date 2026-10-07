@@ -322,8 +322,19 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var chaveHojeLeitura_ = chaveDiaISOInicio_(new Date());
   var linhasRvPorTicker_ = {}; // ticker -> [{ chave, preco, valorBrl, classeBruta }] (só linhas com Valor BRL preenchido)
 
+  var semListaFiis_ = false;
   if (linhasPatrimonio > 0) {
     if (typeof carregarListasTickersDaPlanilha_ === 'function') carregarListasTickersDaPlanilha_(ss); // FII novo (Planilha.gs, 26/09/2026)
+    // 07/10/2026 (Tiago: "a tela dos FIIs continua estranha nos gráficos" - na série do servidor `fiis` era 0 e os FIIs estavam somados
+    // em `acoes`): a lista de FIIs (Auxiliar_ativos, com cache de 10 min) veio VAZIA numa execução e essa série ficou no cache por até 6 h.
+    // Lista vazia: relê a Auxiliar_ativos sem cache; se continuar vazia, a série é devolvida mas NÃO vai pro cache.
+    if (typeof TICKERS_FIIS_BR !== 'undefined' && TICKERS_FIIS_BR.length === 0 && typeof carregarTickersDaPlanilha_ === 'function') {
+      try {
+        if (typeof _tickersPlanilhaLeituras_ === 'number') _tickersPlanilhaLeituras_++; // força ignorar o cache das listas
+        carregarTickersDaPlanilha_(ss);
+      } catch (eTk) { console.log('montarSerieHistoricoInicio_: releitura da lista de FIIs falhou: ' + eTk); }
+    }
+    semListaFiis_ = typeof TICKERS_FIIS_BR === 'undefined' || TICKERS_FIIS_BR.length === 0;
     lerAbaUmaVez_(abaPatrimonio, 2, linhasPatrimonio, 8).forEach(function (linha) { // 05/10/2026 (A-33): 1 leitura por execução
       var data = linha[0];
       if (!(data instanceof Date)) return;
@@ -860,6 +871,10 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     dataAtual.setDate(dataAtual.getDate() + 1);
   }
 
+  if (semListaFiis_) {
+    console.log('montarSerieHistoricoInicio_: lista de FIIs vazia - série NÃO cacheada (FIIs iriam pra Ações)');
+    return serie;
+  }
   var marcaGravacao = Date.now();
   gravarSerieHistoricoCache_(chaveCacheSerie, serie, null, 'serie_inicio'); // A-37: a geração anterior da série sai do cache
   console.log('montarSerieHistoricoInicio_: gravacao do cache levou ' + (Date.now() - marcaGravacao) + 'ms (' + serie.length + ' dias)');
@@ -889,6 +904,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // por até 6h depois do Tiago colar o código novo, MESMO com uma nova
   // implantação feita - só "Limpar cache" (ver handleLimparCacheHistorico
   // abaixo) ou esse bump força o recálculo na hora.
+  // v14 (07/10/2026): série cacheada com a lista de FIIs vazia (FIIs somados em Ações) - nunca mais servir a antiga.
   // v12 (24/09/2026): campo novo cambioUsd (Ações EUA em dólar).
   // v13 (24/09/2026): provento arredondado em centavos (tela Proventos = Carteiras).
   // v11 (23/09/2026 #8): IPCA pro rata no mês e índices com 4 casas.
@@ -898,7 +914,7 @@ function montarChaveCacheSerie_(linhasPatrimonio, linhasRendaFixaCount, linhasIn
   // de hoje, então uma série cacheada ontem (mesmas contagens de linha)
   // não pode ser servida hoje - terminaria ontem, e o último ponto nunca
   // seria "hoje" pra receber os valores ao vivo (Home.gs).
-  return 'historico_serie_v13_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
+  return 'historico_serie_v14_' + chaveDiaISOInicio_(new Date()) + '_' + linhasPatrimonio + '_' + linhasRendaFixaCount + '_' + linhasIndices + '_' + contagemFluxoCaixa;
 }
 
 /**
@@ -924,6 +940,8 @@ function limparCacheHistoricoInicio_() {
   // 05/10/2026: ...e o resultado montado da tela Carteiras > Renda Fixa (CarteirasRendaFixa.gs)
   if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_();
   // 25/09/2026: ...e as notícias de cada ativo (tela do ativo - Ativo.gs)
+  // 07/10/2026: a lista de tickers (Auxiliar_ativos, cache de 10 min) também sai - uma lista ruim nela refaria a série errada
+  try { if (typeof CACHE_TICKERS_PLANILHA_ !== 'undefined') CacheService.getScriptCache().remove(CACHE_TICKERS_PLANILHA_); } catch (eTk) { /* só cache */ }
   var noticiasRemovidas = 0;
   if (typeof limparCacheNoticiasAtivos_ === 'function') {
     try { noticiasRemovidas = limparCacheNoticiasAtivos_(ss); } catch (eNot) { Logger.log('limparCacheNoticiasAtivos_: ' + eNot); }

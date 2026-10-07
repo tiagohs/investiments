@@ -126,7 +126,7 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261007f'; // 07/10/2026: fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
+var VERSAO_CODIGO_CACHE_ = '20261007g'; // 07/10/2026 (g): série da Início sem FIIs no cache (lista vazia); (f) fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
 
 // ---------------------------------------------------------------------------
 // 07/10/2026 (Tiago colou as 20 compras do fundo e as datas ficaram UM DIA ANTES na planilha): FUSO DAS DATAS GRAVADAS.

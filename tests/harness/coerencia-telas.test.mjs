@@ -267,7 +267,8 @@ const MEDIDO = {
   carteirasAcoes:       { celulas: 28015, getValues: 7, getValue: 2, bytes: 7366 }, // 07/10/2026: +2 leituras - o destino de cada título da Renda Fixa (reserva/longo prazo/objetivo) vem da coluna B da Carteira RF (Home.gs, Planilha.gs!somarCarteiraRendaFixaPorDestino_)
   carteirasFiis:        { celulas: 30117, getValues: 8, getValue: 2, bytes: 5889 },
   carteirasAcoesEua:    { celulas: 147936, getValues: 8, getValue: 2, bytes: 4149 },
-  carteirasRendaFixa:   { celulas: 28934, getValues: 6, getValue: 0, bytes: 10080 },
+  // 07/10/2026: remedido com o Controle 24 - o mesmo código; a planilha ganhou o fundo DI completo na Carteira RF (título com cota/CDI do fundo): +3 KB. Dado cresceu, não é regressão.
+  carteirasRendaFixa:   { celulas: 29227, getValues: 6, getValue: 0, bytes: 13268 },
 };
 const teto = (n) => Math.ceil(n * FOLGA);
 

@@ -179,6 +179,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     putAll: (obj) => Object.entries(obj).forEach(([k, v]) => scriptCacheStore.set(k, v)),
     put: (k, v) => scriptCacheStore.set(k, v),
     removeAll: (ks) => ks.forEach((k) => scriptCacheStore.delete(k)),
+    remove: (k) => scriptCacheStore.delete(k),
   };
 
   // vm.createContext não expõe os globals nativos da nova realm (Date...)
