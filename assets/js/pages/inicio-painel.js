@@ -18,6 +18,7 @@
 import { formatBRL, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, variacaoNula } from '../format.js';
 import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { logoCirculoHtml, iniciaisDe } from './logo-circulo.js';
+import { ehFundoRf, logoDoFundo } from '../fundos-rf.js'; // 07/10/2026: fundo de investimento na Renda Fixa (nome como título + logo)
 import { htmlBotaoFavorito, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import {
   resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, calcularDistribuicaoObjetivos, splitValorExibicao, ROTULO_TOTAL_HOME,
@@ -272,8 +273,9 @@ function linhaAtivoHtml(a, { favorito = false, cambioUsd = null } = {}) {
   const rf = a.classe === 'rf';
   const inst = String(a.instituicao || '').replace(/\s+/g, ' ').trim().split(' ')[0];
   const nome = rf ? [a.indexador, { [DESTINO_EMERGENCIAL]: 'reserva', [DESTINO_OBJETIVO]: 'objetivo' }[destinoRendaFixa(a.marca)] || '', inst].filter(Boolean).join(' · ') : String(a.nome || '').trim();
-  const titulo = rf ? String(a.tipoInvestimento || a.ticker) : a.ticker;
-  const logo = rf ? logoCirculoHtml('', { extra: 'rf', iniciais: iniciaisDe(titulo, 'RF') }) : logoCirculoHtml(a.ticker);
+  const fundo = rf && ehFundoRf(a.nome || ''); // 07/10/2026: o tipo do fundo é genérico ("Fundo de Investimento"): o título é o nome dele
+  const titulo = rf ? String(fundo ? a.nome : (a.tipoInvestimento || a.ticker)) : a.ticker;
+  const logo = rf ? logoCirculoHtml('', { extra: 'rf', iniciais: iniciaisDe(titulo, 'RF'), imagem: fundo ? logoDoFundo(a) : null }) : logoCirculoHtml(a.ticker);
   const temVar = num(a.variacaoDia);
   const nulo = temVar && variacaoNula(a.variacaoDia, { fracao: true }); // 05/10/2026 (A-04)
   const sobe = temVar && a.variacaoDia >= 0;

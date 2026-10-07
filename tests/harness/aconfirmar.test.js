@@ -74,7 +74,7 @@ function sandbox(ss) {
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     CacheService: { getScriptCache: () => ({ get: () => null, put: () => {} }) },
     Session: { getScriptTimeZone: () => 'America/Sao_Paulo' },
-    Utilities: { formatDate: () => '20261005-101010' },
+    Utilities: { formatDate: () => '20261005-101010', parseDate: (t) => { const [a, b, c] = String(t).slice(0, 10).split('-').map(Number); return new Date(a, b - 1, c); } },
     chaveDiaISOInicio_: (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
     normalizarInstituicaoRF_: (i) => (String(i || '').toUpperCase().includes('XP') ? 'XP' : String(i || '').toUpperCase().replace(/[^A-Z0-9]/g, '')),
     classesDaCarteiraParaProventos_: () => ({ ABCD3: 'acoes', TEST11: 'fiis', AAA: 'acoesEua' }),

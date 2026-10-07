@@ -126,7 +126,114 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261007e'; // 07/10/2026: terceiro destino da Renda Fixa (`objetivo`) em Home, série, Carteiras RF, Metas e Patrimônio
+var VERSAO_CODIGO_CACHE_ = '20261007f'; // 07/10/2026: fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
+
+// ---------------------------------------------------------------------------
+// 07/10/2026 (Tiago colou as 20 compras do fundo e as datas ficaram UM DIA ANTES na planilha): FUSO DAS DATAS GRAVADAS.
+// O script roda em America/Sao_Paulo e a PLANILHA está em America/New_York. `new Date(a, m-1, d)` é a meia-noite de SÃO PAULO - na
+// planilha isso aparece como 22:00/23:00 do dia ANTERIOR, e as fórmulas dela (e quem abre a aba) veem o dia errado. O site lia certo
+// porque converte no fuso do script (chaveDiaISOInicio_), por isso ninguém viu. Regra: toda data que o site GRAVA numa aba que o
+// Tiago usa é a meia-noite NO FUSO DA PLANILHA, feita aqui (dataNaPlanilha_). A LEITURA não muda (chaveDiaISOInicio_, fuso do script):
+// 00:00 em Nova York cai às 01:00/02:00 em São Paulo, o mesmo dia, nos dois fusos. As abas aux_* internas (histórico, snapshot...) ficam
+// como estão: só o script lê e a leitura funciona nos dois formatos.
+// ---------------------------------------------------------------------------
+
+/** Fuso da planilha (ex. 'America/New_York'); sem a informação (teste, erro) cai no fuso do script. */
+function fusoDaPlanilha_(ss) {
+  try {
+    var tz = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSpreadsheetTimeZone();
+    if (tz) return String(tz);
+  } catch (e) { /* planilha sem a informação */ }
+  return Session.getScriptTimeZone();
+}
+
+/** É uma Date? (não usa instanceof: vale também pra Date vinda de outro contexto de execução) */
+function ehDataPlanilha_(v) { return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime()); }
+
+/**
+ * Date à MEIA-NOITE, no fuso da planilha, do dia 'aaaa-mm-dd' (ou de uma Date - vale o dia dela no fuso do script). '' se vazio.
+ * `ss` pode ser null (usa a planilha ativa).
+ */
+function dataNaPlanilha_(ss, chave) {
+  if (chave === '' || chave === null || chave === undefined) return '';
+  var dia = ehDataPlanilha_(chave) ? Utilities.formatDate(chave, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(chave).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return '';
+  return Utilities.parseDate(dia, fusoDaPlanilha_(ss), 'yyyy-MM-dd');
+}
+
+/** Abas e colunas de data que o site grava (linha = primeira linha de dados). */
+var ABAS_DATAS_GRAVADAS_PELO_SITE_ = [
+  { aba: 'Transações', linha: 7, cols: [2] }, { aba: 'Transações - USA', linha: 7, cols: [2] },
+  { aba: 'Transações Renda Fixa', linha: 7, cols: [2] },
+  { aba: 'Proventos', linha: 8, cols: [1, 2] }, { aba: 'Proventos - USA', linha: 8, cols: [1, 2] },
+  { aba: 'RF Contratada - Lotes', linha: 2, cols: [3] },
+  { aba: 'aux_aportes', linha: 2, cols: [2] }, { aba: 'aux_aportes_eua', linha: 2, cols: [3] }, { aba: 'aux_caixa_dolar', linha: 2, cols: [2] }
+];
+
+/**
+ * Função para rodar 1x no editor (07/10/2026): conserta as datas que o site já gravou como meia-noite de SÃO PAULO (22:00/23:00 do dia
+ * anterior no fuso da planilha) e as regrava como meia-noite do dia certo NO FUSO DA PLANILHA. Só as colunas de data de cada aba
+ * (ABAS_DATAS_GRAVADAS_PELO_SITE_). Idempotente: depois de corrigida a data está em 00:00 no fuso da planilha e não casa mais; datas à
+ * mão (00:00 na planilha), fórmulas e carimbos de hora de verdade nunca são tocados. Loga quantas mudou por aba.
+ * `opcoes.simular` só conta (testarCorrigirDatasGravadasNoFusoDireto).
+ */
+function corrigirDatasGravadasNoFusoDireto(opcoes) {
+  var simular = !!(opcoes && opcoes.simular === true);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var fusoScript = Session.getScriptTimeZone();
+  var fusoPlan = fusoDaPlanilha_(ss);
+  var resumo = { fusoScript: fusoScript, fusoPlanilha: fusoPlan, abas: {}, total: 0, simulado: simular };
+  if (fusoScript === fusoPlan) {
+    Logger.log('Planilha e script no mesmo fuso (' + fusoPlan + '): nada a corrigir.');
+    return resumo;
+  }
+  ABAS_DATAS_GRAVADAS_PELO_SITE_.forEach(function (alvo) {
+    var aba = ss.getSheetByName(alvo.aba);
+    var feitas = 0;
+    if (aba && aba.getLastRow() >= alvo.linha) {
+      var n = aba.getLastRow() - alvo.linha + 1;
+      alvo.cols.forEach(function (col) {
+        var rng = aba.getRange(alvo.linha, col, n, 1);
+        var vals = rng.getValues();
+        var formulas = rng.getFormulas();
+        var novos = vals.map(function (l, i) {
+          var v = l[0];
+          var ehFormula = formulas[i] && formulas[i][0];
+          if (!ehFormula && ehDataPlanilha_(v) && Utilities.formatDate(v, fusoScript, 'HH:mm:ss') === '00:00:00' && Utilities.formatDate(v, fusoPlan, 'HH:mm:ss') !== '00:00:00') {
+            feitas++;
+            return [Utilities.parseDate(Utilities.formatDate(v, fusoScript, 'yyyy-MM-dd'), fusoPlan, 'yyyy-MM-dd')];
+          }
+          return [v];
+        });
+        if (simular) return;
+        // grava só o que mudou, em blocos contínuos (linhas com fórmula ou valor intacto ficam como estão)
+        var i2 = 0;
+        while (i2 < vals.length) {
+          if (novos[i2][0] === vals[i2][0]) { i2++; continue; }
+          var j2 = i2;
+          while (j2 + 1 < vals.length && novos[j2 + 1][0] !== vals[j2 + 1][0]) j2++;
+          aba.getRange(alvo.linha + i2, col, j2 - i2 + 1, 1).setValues(novos.slice(i2, j2 + 1));
+          i2 = j2 + 1;
+        }
+      });
+    }
+    resumo.abas[alvo.aba] = feitas;
+    resumo.total += feitas;
+    Logger.log((simular ? '[simulação] ' : '') + alvo.aba + (aba ? ': ' + feitas + ' data(s) ' + (simular ? 'a corrigir' : 'corrigida(s)') : ': aba não existe'));
+  });
+  if (resumo.total && !simular) {
+    try { registrarEscritaPlanilha_(); } catch (eReg) { /* cache é só otimização */ }
+    try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (eInv) { /* idem */ }
+  }
+  Logger.log('Total: ' + resumo.total + ' data(s) ' + (simular ? 'a corrigir' : 'corrigida(s)') + ' (script ' + fusoScript + ', planilha ' + fusoPlan + ').');
+  return resumo;
+}
+
+/** Só conta o que a correção mudaria (não grava nada) - rode antes da corrigirDatasGravadasNoFusoDireto. */
+function testarCorrigirDatasGravadasNoFusoDireto() {
+  return corrigirDatasGravadasNoFusoDireto({ simular: true });
+}
+
 
 // ---------------------------------------------------------------------------
 // 07/10/2026 (Tiago: fundo guardado pra comprar a chácara com amigos): DESTINO de um título da Renda Fixa.

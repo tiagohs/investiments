@@ -291,6 +291,8 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
             return out;
           },
           getValue() { const linhaReal = dados.linhas[row - 1] || []; return linhaReal[col - 1] ?? ''; },
+          // 07/10/2026: o .xlsx exportado só traz valores - sem fórmula nenhuma (a correção das datas só pula célula COM fórmula)
+          getFormulas() { return Array.from({ length: numRows }, () => Array.from({ length: numCols }, () => '')); },
           setNumberFormat() { return this; }, // 05/10/2026: Gastos.gs/Salario.gs formatam colunas como texto (a prévia grava em memória)
           // 23/09/2026 #2: escrita em memória (só pra rodar backfills no
           // harness - nada é gravado em arquivo).
@@ -320,6 +322,8 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   const ss = {
     getSheetByName: (nome) => makeSheet(nome),
     insertSheet: (nome) => { if (!fixtures[nome]) fixtures[nome] = { lastRow: 0, linhas: [] }; return makeSheet(nome); },
+    // 07/10/2026: o fuso da PLANILHA (o do .xlsx exportado) - o site grava as datas à meia-noite dele (Planilha.gs!dataNaPlanilha_)
+    getSpreadsheetTimeZone: () => FUSO_PLANILHA_XLSX,
   };
 
   Object.assign(sandbox, {
@@ -340,7 +344,18 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
         const yyyy = p.y;
         if (fmt === 'MM/yyyy') return mm + '/' + yyyy;
         if (fmt === 'dd/MM/yyyy') return dd + '/' + mm + '/' + yyyy;
+        // 07/10/2026: os formatos que a correção de datas (Planilha.gs) usa
+        const hh = String(p.h).padStart(2, '0'), mi = String(p.mi).padStart(2, '0'), ss2 = String(p.s).padStart(2, '0');
+        if (fmt === 'yyyy-MM-dd') return yyyy + '-' + mm + '-' + dd;
+        if (fmt === 'HH:mm:ss') return hh + ':' + mi + ':' + ss2;
+        if (fmt === 'HH:mm') return hh + ':' + mi;
         return data.toISOString();
+      },
+      // 07/10/2026: igual ao Utilities.parseDate real - o texto é um relógio no fuso `tz` (meia-noite de 'yyyy-MM-dd' no fuso pedido)
+      parseDate: (texto, tz, fmt) => {
+        const m = String(texto).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m || fmt !== 'yyyy-MM-dd') throw new Error('parseDate falso: só yyyy-MM-dd (' + texto + ' / ' + fmt + ')');
+        return new sandbox.Date(relogioNoFusoParaUtcMs_(tz || FUSO_PROJETO_APPS_SCRIPT, +m[1], +m[2], +m[3], 0, 0, 0));
       },
     },
     // 05/10/2026 (A-35/A-36/A-37): Properties de verdade (em memória) - o carimbo de escrita e a geração de cache

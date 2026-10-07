@@ -17,7 +17,9 @@
  * conta própria (uma falha não derruba o resto).
  */
 
-import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getFiiPortfolio, salvarCoordenadasFiiPortfolio, definirDestinoRendaFixa } from '../api-client.js';
+import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getFiiPortfolio, salvarCoordenadasFiiPortfolio, definirDestinoRendaFixa, definirCotaFundoRf } from '../api-client.js';
+import { montarFundoRf } from '../fundos-rf.js'; // 07/10/2026: fundo de investimento na Renda Fixa (cota, ficha pública, rentabilidade mensal)
+import { cotaFundoHtml, sobreFundoHtml, rentabilidadeFundoHtml, ligarCotaFundo } from './ativo-fundo.js';
 import { DESTINOS_RENDA_FIXA, DESTINO_EMERGENCIAL, ROTULO_DESTINO_RF, destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 import { formatBRL, formatBRLCompacto, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR, formatRelativeTime, variacaoNula, hojeSP, MESES_CURTOS, MESES_LONGOS, formatDMA } from '../format.js';
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
@@ -93,6 +95,17 @@ function carregarEstaticosPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetc
   return estaticosEmCurso;
 }
 
+/** 07/10/2026: dados públicos dos fundos (assets/data/fundos.json) - 1 fetch, só quando o título é de renda fixa. */
+let fundosEmCurso = null;
+function carregarFundosPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetch : null) {
+  if (!fundosEmCurso) {
+    fundosEmCurso = fetchImpl
+      ? fetchImpl(new URL('assets/data/fundos.json', resolveSiteRootUrl()).href).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      : Promise.resolve(null);
+  }
+  return fundosEmCurso;
+}
+
 /** 05/10/2026: curadoria da aba Patrimônio (assets/data/fii-portfolio-manual.json) - 1 fetch, só quando a aba abre. */
 let manualPatrimonioEmCurso = null;
 function carregarManualPatrimonioPadrao(fetchImpl = typeof fetch !== 'undefined' ? fetch : null) {
@@ -109,7 +122,7 @@ function carregarManualPatrimonioPadrao(fetchImpl = typeof fetch !== 'undefined'
 // ---------------------------------------------------------------------------
 
 /** Tudo que as seções precisam, calculado 1x a partir da resposta. */
-export function montarContexto(resposta, { sobre = null, ir = null, metas = null, macro = null } = {}) {
+export function montarContexto(resposta, { sobre = null, ir = null, metas = null, macro = null, fundos = null } = {}) {
   const classe = resposta.classe || (resposta.tipo === 'rf' ? 'rendaFixa' : 'acoes');
   const cfg = CLASSES_ATIVO[classe] || CLASSES_ATIVO.acoes;
   const emDolar = resposta.moeda === 'USD';
@@ -119,6 +132,7 @@ export function montarContexto(resposta, { sobre = null, ir = null, metas = null
   const aplicadoBrl = posicao.aplicadoHistorico ?? (emDolar ? null : posicao.aplicado);
   const faixa = faixaDePreco(resposta);
   const percentualCarteira = percentualNaCarteira(historico);
+  const fundoRf = montarFundoRf(resposta, fundos);
   return {
     // 03/10/2026: análise por critérios (criterios/motor.js); refeita quando as metas chegam
     avaliacao: avaliacaoDoAtivo(resposta, { faixa, percentualCarteira, metas, macro }),
@@ -145,8 +159,11 @@ export function montarContexto(resposta, { sobre = null, ir = null, metas = null
       classe, ticker: resposta.ticker, hoje: resposta.hoje, transacoes: resposta.transacoes || [], ativo: resposta.ativo || null, historico,
       ehRf: resposta.tipo === 'rf',
       sobre: sobre && sobre.ativos ? sobre.ativos[String(resposta.ticker || '').toUpperCase()] || null : null,
+      fundo: fundoRf ? { cnpj: (fundoRf.info && fundoRf.info.cnpj) || null, nome: (fundoRf.info && fundoRf.info.nome) || fundoRf.nome, nomeCompleto: (fundoRf.info && fundoRf.info.nomeCompleto) || null } : null,
     }),
     informesFundo: resposta.informesFundo || null,
+    // 07/10/2026: título que é fundo de investimento (null nos demais) - cota real x estimativa, ficha pública e rentabilidade mensal
+    fundoRf,
     // 02/10/2026: canal oficial no YouTube (canais-youtube.js) e chave do gráfico do dia (Intradia.gs)
     canal: canalDoAtivo({ ticker: resposta.ticker, classe, ativo: resposta.ativo || null, ehRf: resposta.tipo === 'rf' }),
     chaveIntradia: chaveIntradiaAtivo({ ticker: resposta.ticker, classe, ehRf: resposta.tipo === 'rf' }),
@@ -307,7 +324,7 @@ function montarCabecalhoAtivo(doc, cabEl, { ctx = null, ref = '', refreshEl = nu
     { id: 'extrato', rotulo: 'Extrato' },
     // 05/10/2026 (Tiago: "nova aba no FII, antes de 'Sobre'"): imóveis, CRI/indexador e mapa - só FIIs
     ...(ctx.classe === 'fiis' ? [{ id: 'patrimonio', rotulo: 'Patrimônio' }] : []),
-    { id: 'sobre', rotulo: ctx.ehRf ? 'Imposto de renda' : 'Sobre e IR' },
+    { id: 'sobre', rotulo: ctx.ehRf ? (ctx.fundoRf && ctx.fundoRf.info ? 'Sobre o fundo e IR' : 'Imposto de renda') : 'Sobre e IR' },
   ] : [];
   return montarCabecalhoPagina(cabEl, {
     secao: 'Carteiras', subaba: ticker || 'Ativo', titulo: ticker || 'Ativo', subtitulo: ctx ? subtituloAtivo(ctx) : '', breadcrumb,
@@ -328,6 +345,7 @@ function heroHtml(ctx) {
     const carteira = ROTULO_CARTEIRA_RF[destinoRendaFixa(a.tipoCarteira)];
     const chips = [
       chipHtml('Renda fixa', 'chip-primary'),
+      ctx.fundoRf && ctx.fundoRf.info && ctx.fundoRf.info.classificacaoXp ? chipHtml(esc(ctx.fundoRf.info.classificacaoXp)) : '',
       a.indexador ? chipHtml(esc(a.indexador)) : '',
       a.tipoInvestimento ? chipHtml(esc(a.tipoInvestimento)) : '',
       chipHtml(carteira),
@@ -1736,6 +1754,7 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
   const lateral = ctx.ehRf ? `
       ${linksRelevantesHtml(ctx)}
       ${indicadoresHtml(ctx)}
+      ${cotaFundoHtml(ctx)}
       ${analiseHtml(ctx)}` : `
       ${linksRelevantesHtml(ctx)}
       ${faixaHtml(ctx)}
@@ -1774,6 +1793,8 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
       ${ehFii ? painel('patrimonio', `<div id="atPatrimonio">${patrimonioPlaceholderHtml()}</div>`) : ''}
       ${painel('sobre', `
         ${sobreHtml(ctx)}
+        ${sobreFundoHtml(ctx)}
+        ${rentabilidadeFundoHtml(ctx)}
         ${irHtml(ctx)}`)}
     </div>`;
 }
@@ -1882,6 +1903,8 @@ export async function montarPaginaAtivo(token, {
   ref = refDaUrl(doc.location ? doc.location.href : ''),
   getAtivoImpl = getAtivo,
   definirDestinoImpl = definirDestinoRendaFixa, // 07/10/2026: troca o destino do título (coluna B da Carteira Renda Fixa)
+  definirCotaImpl = definirCotaFundoRf, // 07/10/2026: cota informada de um fundo (cota + data)
+  carregarFundosImpl = carregarFundosPadrao, // 07/10/2026: dados públicos dos fundos (assets/data/fundos.json), só pra título que é fundo
   getNoticiasImpl = getNoticiasAtivo,
   getTesesImpl = getTesesAtivo,
   carregarEstaticosImpl = carregarEstaticosPadrao,
@@ -1936,6 +1959,8 @@ export async function montarPaginaAtivo(token, {
       try { await carregarERedesenhar(); } catch (e) { /* a tela mostra o próprio erro */ }
     });
   }
+
+  if (conteudoEl) ligarCotaFundo(conteudoEl, { salvar: (d) => definirCotaImpl(token, d), aoSalvar: () => carregarERedesenhar() });
 
   const preencherExtras = () => {
     if (!estado.ctx || estado.ctx.ehRf) return;
@@ -2018,7 +2043,9 @@ export async function montarPaginaAtivo(token, {
 
   const desenharResposta = async (resposta) => {
     const estaticos = await estaticosPromise;
-    estado.ctx = montarContexto(resposta, { ...(estaticos || {}), metas: estado.metas, macro: estado.macro });
+    let fundos = null;
+    if (resposta && resposta.tipo === 'rf') { try { fundos = await carregarFundosImpl(); } catch (_) { fundos = null; } } // 07/10/2026: sem o arquivo, só a ficha pública some
+    estado.ctx = montarContexto(resposta, { ...(estaticos || {}), metas: estado.metas, macro: estado.macro, fundos });
     loadingEl.hidden = true;
     erroEl.hidden = true;
     conteudoEl.hidden = false;

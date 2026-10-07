@@ -593,7 +593,7 @@ function saldoHistoricoAte(historico, data) {
  * ano anterior da próxima declaração) e hoje (prévia do próximo 31/12).
  * null sem imposto-renda.json ou sem a classe lá.
  */
-export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [], sobre = null, ativo = null, historico = [], ehRf = false } = {}) {
+export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [], sobre = null, ativo = null, historico = [], ehRf = false, fundo = null } = {}) {
   const decl = ir && ir.declaracao;
   const chave = ehRf ? 'rendaFixa' : classe;
   if (!decl || !decl[chave] || !hoje) return null;
@@ -610,7 +610,18 @@ export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [],
     if (isento) { ficha.codigo = base.isentos.codigo; ficha.codigoNome = base.isentos.codigoNome; }
     const fonte = (informesIrDoAtivo(ir, { ticker, classe: 'rendaFixa', instituicao: a.instituicao }) || { fontes: [] }).fontes[0];
     if (fonte && fonte.cnpj) ficha.cnpj = fonte.cnpj;
-    const texto = [String(ticker || '').toUpperCase(), a.indexador ? `(${String(a.indexador).toUpperCase()})` : '', a.vencimento ? `- VENCIMENTO ${a.vencimento}` : '', a.instituicao ? `- ${String(a.instituicao).toUpperCase()}` : ''].filter(Boolean).join(' ').replace(/\.*$/, '.');
+    // 07/10/2026: fundo de investimento de renda fixa (come-cotas) vai em 07 - Fundos / 01, com o CNPJ DO FUNDO - não em Aplicações
+    const ehFundo = !!fundo || /\bFUNDO\b/.test(tipo);
+    if (ehFundo && base.fundos) {
+      Object.assign(ficha, { grupo: base.fundos.grupo, grupoNome: base.fundos.grupoNome, codigo: base.fundos.codigo, codigoNome: base.fundos.codigoNome });
+      ficha.cnpj = (fundo && fundo.cnpj) || null;
+      if (base.fundos.nota) notas.unshift(base.fundos.nota);
+      // a nota do Tesouro da XP numa linha só não vale pra fundo
+      for (let i = notas.length - 1; i >= 0; i -= 1) if (/Tesouro da XP/.test(notas[i])) notas.splice(i, 1);
+    }
+    const texto = ehFundo && base.fundos
+      ? [`COTAS DO FUNDO ${String((fundo && (fundo.nomeCompleto || fundo.nome)) || ticker || '').toUpperCase()}`, fundo && fundo.cnpj ? `- CNPJ ${fundo.cnpj}` : '', a.instituicao ? `- ${String(a.instituicao).toUpperCase()}` : ''].filter(Boolean).join(' ').replace(/\.*$/, '.')
+      : [String(ticker || '').toUpperCase(), a.indexador ? `(${String(a.indexador).toUpperCase()})` : '', a.vencimento ? `- VENCIMENTO ${a.vencimento}` : '', a.instituicao ? `- ${String(a.instituicao).toUpperCase()}` : ''].filter(Boolean).join(' ').replace(/\.*$/, '.');
     const posicoes = [
       { rotulo: `Situação em 31/12/${ano - 1}`, data: fim, texto, valor: saldoHistoricoAte(historico, fim), valorRotulo: 'saldo no app' },
       { rotulo: `Hoje (prévia de 31/12/${ano})`, data: hoje, texto, valor: saldoHistoricoAte(historico, hoje), valorRotulo: 'saldo no app', previa: true },

@@ -174,7 +174,8 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         // cartão de propósito — troca de exibição fica pra quando o
         // Tiago confirmar (ver conversa de 18/09/2026); nome já vai
         // no payload pra quem quiser usar.
-        ticker: (tipoInvestimento || codigo) + (vencimentoTexto ? ' · ' + vencimentoTexto : ''),
+        // 07/10/2026: fundo de investimento: o nome do fundo é o título do cartão (o tipo, "Fundo de Investimento", não diz qual fundo)
+        ticker: (ehFundoRf_(nome) && nome) ? nome : (tipoInvestimento || codigo) + (vencimentoTexto ? ' · ' + vencimentoTexto : ''),
         codigo: codigo || null,
         idEstavel: idsEstaveisRf[i] || null,
         nome: nome,

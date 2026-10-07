@@ -117,6 +117,15 @@
       ],
       "cnpj": "62.169.875/0001-79"
     },
+    "rico": {
+      "nome": "Rico (grupo XP)",
+      "papel": "Corretora",
+      "resumo": "Informe de rendimentos da Rico: renda fixa, fundos e Tesouro comprados por ela. Sai até o fim de fevereiro.",
+      "passos": [
+        "Site ou app da Rico: área de Imposto de Renda › Informe de Rendimentos › escolha o ano › baixar o PDF.",
+        "Se não achar, o atendimento da Rico envia o informe."
+      ]
+    },
     "xp": {
       "nome": "XP Investimentos",
       "papel": "Corretora",
@@ -233,6 +242,12 @@
   },
   "porInstituicao": [
     {
+      "contem": "RICO",
+      "fontes": [
+        "rico"
+      ]
+    },
+    {
       "contem": "XP INVESTIMENTOS",
       "fontes": [
         "xp"
@@ -317,6 +332,14 @@
         ],
         "codigo": "03",
         "codigoNome": "Títulos isentos de tributação (LCI, LCA, CRI, CRA e outros)"
+      },
+      "fundos": {
+        "grupo": "07",
+        "grupoNome": "Fundos",
+        "codigo": "01",
+        "codigoNome": "Fundos de investimento sujeitos à tributação periódica (come-cotas)",
+        "cnpj": "do fundo",
+        "nota": "Fundo de renda fixa (com come-cotas) vai em Fundos, não em Aplicações: na discriminação, nome e CNPJ do fundo e a instituição; o valor em 31/12 é o do informe da corretora."
       },
       "notas": [
         "O valor da situação em 31/12 é o do informe da corretora - o saldo abaixo é só a referência do app.",

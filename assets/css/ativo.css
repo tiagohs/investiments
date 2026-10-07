@@ -342,7 +342,7 @@ a.at-dia:hover .at-dia-gf, a.at-dia:focus-visible .at-dia-gf{ color:var(--md-sys
 @media (max-width:1099.98px){
   .at-grade{ grid-template-columns:minmax(0,1fr); }
   .at-col-lateral{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; align-items:start; }
-  #at-informes, #at-links, #at-analise{ grid-column:1 / -1; }
+  #at-informes, #at-links, #at-analise, #at-cota-fundo{ grid-column:1 / -1; }
   .at-noticias-grade{ grid-template-columns:repeat(2,minmax(0,1fr)); }
   .at-sobre-grade{ grid-template-columns:minmax(0,1fr); }
   .at-prov-stats{ grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -395,3 +395,33 @@ a.at-dia:hover .at-dia-gf, a.at-dia:focus-visible .at-dia-gf{ color:var(--md-sys
   .at-pagina .cc-tabela .cc-sub{ display:none; } /* a diferença contra o índice e a data com vão pra folha (toque na linha) */
 }
 @media (max-width:719.98px){ #atMensalTabela th .info-alvo{ display:none; } }
+
+/* ================= 07/10/2026: fundo de investimento na Renda Fixa (ativo-fundo.js) ================= */
+.at-cota-grade .at-ind-valor.destaque{ color:var(--accent, var(--md-sys-color-primary)); }
+.at-cota-form{ margin-top:16px; padding-top:12px; border-top:1px solid var(--md-sys-color-outline-variant); }
+.at-cota-rotulo{ margin:0 0 8px; font-weight:500; font-size:var(--md-sys-typescale-body-medium-size); }
+.at-cota-campos{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); align-items:end; gap:12px; }
+.at-cota-campo{ display:flex; flex-direction:column; gap:4px; min-width:0; font-size:var(--md-sys-typescale-body-small-size); color:var(--ink-muted); }
+.at-cota-campo .input{ width:100%; min-width:0; font-family:var(--mono); }
+.at-cota-msg{ margin:8px 0 0; }
+.at-fundo-texto{ margin:12px 0 0; font-size:var(--md-sys-typescale-body-medium-size); line-height:1.55; text-wrap:pretty; }
+.at-fundo-ficha{ grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:32px; }
+.at-rent-tabela th, .at-rent-tabela td{ padding:8px 10px; height:auto; }
+.at-rent-tabela td{ white-space:nowrap; }
+.at-rent-tabela thead th{ border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.at-rent-tabela th small, .at-rent-tabela td small{ display:block; font-size:var(--md-sys-typescale-label-small-size, 11px); line-height:14px; color:var(--ink-muted); font-weight:400; }
+.at-rent-tabela td.vazio{ color:var(--ink-muted); }
+.at-rent-tabela td.fim{ border-left:1px solid var(--md-sys-color-outline-variant); }
+.at-rent-tabela td.fim + td.fim{ border-left:0; }
+@media (max-width:1099.98px){ .at-fundo-ficha{ grid-template-columns:minmax(0,1fr); } }
+@media (max-width:719.98px){
+  /* celular: cada ano vira um bloco com os meses em grade (sem rolagem lateral) */
+  .at-rent-wrap{ overflow:visible; }
+  .at-rent-tabela, .at-rent-tabela tbody{ display:block; }
+  .at-rent-tabela thead{ display:none; }
+  .at-rent-tabela tbody tr{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px 8px; padding:12px 0; border-top:1px solid var(--md-sys-color-outline-variant); }
+  .at-rent-tabela tbody tr > th{ grid-column:1 / -1; padding:0 0 4px; font-size:var(--md-sys-typescale-title-small-size); }
+  .at-rent-tabela tbody tr > td, .at-rent-tabela tbody tr > td:first-child, .at-rent-tabela tbody tr > td:last-child{ padding:4px 6px; border-radius:8px; text-align:left; border-left:0; }
+  .at-rent-tabela tbody tr > td::before{ content:attr(data-r); display:block; font-family:var(--body-f); font-size:11px; line-height:14px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .at-rent-tabela td.fim{ background:var(--md-ext-color-zebra); }
+}

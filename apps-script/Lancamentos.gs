@@ -239,10 +239,11 @@ function classificarLanc_(itens, abas, validos) {
 // Gravação
 // ---------------------------------------------------------------------------
 
+// 07/10/2026: a data é gravada à meia-noite NO FUSO DA PLANILHA (dataNaPlanilha_, Planilha.gs); `new Date(a, m-1, d)` era a meia-noite do fuso do
+// SCRIPT e a planilha (America/New_York) mostrava 22:00/23:00 do dia anterior
 function dataPlanilhaLanc_(chave) {
   if (!chave) return '';
-  var p = String(chave).split('-');
-  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  return dataNaPlanilha_(null, chave);
 }
 
 function linhaDoItemLanc_(it) {
@@ -319,8 +320,9 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
     var nome = String(it.produto || '').replace(/\s+/g, ' ').trim();
     if (!nome) return;
     var k = chaveTituloRf_(nome, it.instituicao || '');
-    if (!porChave[k]) { porChave[k] = { chave: k, nome: nome, instituicao: String(it.instituicao || '').trim(), destino: it.destinoRf, investido: 0, taxa: '' }; ordem.push(k); }
+    if (!porChave[k]) { porChave[k] = { chave: k, nome: nome, instituicao: String(it.instituicao || '').trim(), destino: it.destinoRf, investido: 0, cotas: 0, taxa: '' }; ordem.push(k); }
     porChave[k].investido += Number(it.valor) || 0;
+    porChave[k].cotas += Number(it.qtd) || 0;
     if (it.taxaContratada && !porChave[k].taxa) porChave[k].taxa = String(it.taxaContratada);
   });
   if (!ordem.length) return [];
@@ -329,19 +331,21 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
   var ini = LINHA_CABECALHO_CARTEIRA_RF + 1;
   var ultima = ultimaLinhaReal_(aba, [1, 4], ini);
   var existentes = {};
+  var semInstituicao = {}; // 07/10/2026: linha já cadastrada MAS sem instituição (incompleta) - a sincronização completa; criar outra seria duplicar
   if (ultima >= ini) {
     aba.getRange(ini, 1, ultima - ini + 1, 6).getValues().forEach(function (l) {
       if (!l[0] && !l[3]) return;
       var nome = String(l[2] || l[3] || '').replace(/\s+/g, ' ').trim();
       existentes[chaveTituloRf_(nome, l[5])] = true;
       if (l[0]) existentes[chaveTituloRf_(nome, l[5], l[0])] = true;
+      if (!String(l[5] || '').trim()) semInstituicao[normalizarNomeRf_(nome)] = true;
     });
   }
   var criados = [];
   var proxima = Math.max(ultima, ini - 1) + 1;
   ordem.forEach(function (k) {
     var t = porChave[k];
-    if (existentes[k]) return;
+    if (existentes[k] || semInstituicao[normalizarNomeRf_(t.nome)]) return;
     if (proxima > aba.getMaxRows()) aba.insertRowsAfter(aba.getMaxRows(), 5);
     var modelo = ultima >= ini ? ultima : 0;
     if (modelo) {
@@ -352,8 +356,9 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
       } catch (eFor) { /* sem fórmula pra copiar */ }
     }
     var indexador = t.taxa && /cdi/i.test(t.taxa) ? 'CDI' : indexadorCarteiraRf_(t.nome);
+    // 07/10/2026: linha COMPLETA (tipo, indexador, instituição, valor investido e, em fundo, as cotas); a sincronização refina quantidade e valor atualizado
     aba.getRange(proxima, 1, 1, 12).setValues([[t.nome, rotuloColunaBDestinoRf_(t.destino), t.nome, tipoInvestimentoRf_(t.nome), indexador, t.instituicao,
-      '', '', Math.round(t.investido * 100) / 100, '', '', '']]);
+      (typeof ehFundoRf_ === 'function' && ehFundoRf_(t.nome) && t.cotas > 0) ? Math.round(t.cotas * 1e8) / 1e8 : '', '', Math.round(t.investido * 100) / 100, '', '', '']]);
     criados.push({ titulo: t.nome, instituicao: t.instituicao, destino: t.destino, linha: proxima });
     existentes[k] = true;
     proxima++;

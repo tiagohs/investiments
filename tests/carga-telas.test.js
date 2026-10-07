@@ -70,16 +70,16 @@ test('modulepreload: cada módulo listado existe e cobre o fecho do script inlin
 });
 
 // Orçamento do caminho crítico (módulos estáticos de cada HTML, KB sem compressão). Folga de ~5% sobre o medido em 06/10/2026;
-// se estourar, ou a tela voltou a importar algo que não usa (consertar), ou cresceu de verdade (subir o teto de propósito).
+// (07/10/2026: +1 módulo em Início/Carteiras/Ativo = fundos-rf.js, o índice síncrono do logo/fundo da Renda Fixa.) se estourar, ou a tela voltou a importar algo que não usa (consertar), ou cresceu de verdade (subir o teto de propósito).
 const ORCAMENTO = {
-  'index.html': { modulos: 58, kb: 830 },
+  'index.html': { modulos: 59, kb: 840 },
   // 07/10/2026: Metas ganhou aporte crescente, estimativas e investimento fora da carteira (metas-calc-aporte/fora/grupo + metas-estimativas): de propósito, +2 módulos (+4 só em metas.html) e ~10 KB nas telas que importam o cálculo
   'distribuicoes-metas.html': { modulos: 58, kb: 945 },
   // 07/10/2026: +analise-cambio.js (dólar x preço nas análises de Ações EUA) subiu esses dois ~9 KB: teto 1010 -> 1025 de propósito
   // 07/10/2026: +destino-renda-fixa.js (o conceito único do destino de um título de Renda Fixa: emergencial | longo prazo | objetivo): de propósito, +1 módulo (~2 KB) onde a tela decide o destino
   'metas.html': { modulos: 57, kb: 1075 },
-  'carteiras/index.html': { modulos: 62, kb: 1040 },
-  'ativo/index.html': { modulos: 62, kb: 1190 },
+  'carteiras/index.html': { modulos: 63, kb: 1060 },
+  'ativo/index.html': { modulos: 63, kb: 1210 },
   'transacoes/index.html': { modulos: 58, kb: 830 },
   'proventos/index.html': { modulos: 46, kb: 680 },
   'organizacao/despesas.html': { modulos: 68, kb: 1460 },

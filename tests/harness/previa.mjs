@@ -41,6 +41,12 @@ export function montarSandboxPrevia({ agora = null } = {}) {
   const { sandbox: sb } = criarSandboxGs({ fixturesPath: FIXTURES, agora, silencioso: true });
   if (!sb.SpreadsheetApp.flush) sb.SpreadsheetApp.flush = () => {};
   sb.verificarToken = () => ({ ok: true, email: 'previa@exemplo.test' });
+  // 07/10/2026: PREVIA_CORRIGIR_FUNDO=1 roda, na cópia em memória, as 2 funções de 1 vez (datas no fuso da planilha + completar a linha do fundo) -
+  // mostra a planilha DEPOIS de o Tiago rodá-las (sem isso a prévia mostra a planilha como está hoje)
+  if (process.env.PREVIA_CORRIGIR_FUNDO === '1') {
+    sb.corrigirDatasGravadasNoFusoDireto();
+    sb.completarTitulosRendaFixaDireto();
+  }
   return sb;
 }
 

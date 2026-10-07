@@ -446,6 +446,8 @@ function montarTelaAtivoRendaFixa_(chave) {
   return {
     ok: true, hoje: hoje, tipo: 'rf', ticker: nome, classe: 'rendaFixa', moeda: 'BRL',
     ativo: ativo, benchmarks: carteira.benchmarks || null,
+    // 07/10/2026: fundo de investimento - a cota que o Tiago informou (cota + data), pra tela comparar com a estimativa (CarteiraRendaFixaSync.gs)
+    fundo: ehFundoRf_(nome) ? { cotaInformada: cotaInformadaFundoRf_(nome), cdiMensal: cdiMensalRf_(ss, hoje) } : null,
     serie: serie, transacoes: transacoes, proventos: [], aReceber: [], pagosNaoLancados: [],
     indicesDesde: primeira // 05/10/2026 (A-38): ver anexarIndicesAtivo_
   };

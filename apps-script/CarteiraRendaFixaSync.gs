@@ -95,7 +95,18 @@ function tipoInvestimentoRf_(produto) {
   if (/^Tesouro/i.test(s)) return s.replace(/\s+\d{4}$/, '');
   if (/^(LCI|LCA)/i.test(s)) return 'LCI / LCA Pós-fixada';
   if (/^CDB/i.test(s)) return 'CDB';
+  if (ehFundoRf_(s)) return 'Fundo de Investimento'; // 07/10/2026: fundo (ex. "Trend DI FC RF Simples RL") - antes caía em 'Renda Fixa' genérico
   return 'Renda Fixa';
+}
+
+/**
+ * 07/10/2026 (Tiago: fundo DI guardado pra chácara): o nome é de um FUNDO de investimento? (FIC, FC, FI, FIRF, "RF Simples", "Fundo..."). Tesouro,
+ * CDB e LCI/LCA nunca casam. Espelho no front: assets/js/fundos-rf.js!ehFundoRf.
+ */
+function ehFundoRf_(nome) {
+  var s = limparNomeRf_(nome);
+  if (!s || /^(Tesouro|LCI|LCA|CDB)\b/i.test(s)) return false;
+  return /(^|[^A-Za-z0-9])(FIC|FC|FI|FIRF|FIF|FIM|FIA|FUNDO|FUNDOS)([^A-Za-z0-9]|$)|\bRF\s+(SIMPLES|REFERENCIADO|CURTO|LONGO|CR|LP)\b|\bREFERENCIADO\s+DI\b/i.test(s);
 }
 
 function indexadorCarteiraRf_(produto) {
@@ -194,6 +205,35 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
     posicoes.push({ linha: L0 + i, nome: nome, chave: chave, instNorm: instNorm, qtd: l[6], investido: l[8], atualizado: l[11] });
   });
 
+  // 07/10/2026 (Tiago colou as compras do fundo e a linha da Carteira ficou só com o nome): linha INCOMPLETA - sem instituição, tipo ou
+  // indexador. Sem a instituição a chave (nome|instituição) não casava com as Transações/histórico (saldo 0, detalhe do título sem extrato) e o
+  // 3º passo abaixo criaria uma linha NOVA em duplicidade. Aqui a linha adota a instituição das Transações (se for UMA só com esse nome e ainda
+  // sem linha) e completa SÓ os vazios (tipo, indexador, instituição) - nunca troca o que o Tiago preencheu, nem a coluna B (destino).
+  var completar = {};
+  posicoes.forEach(function (p) {
+    var l = dados[p.linha - L0] || [];
+    var nomeUp = limparNomeRf_(p.nome).toUpperCase();
+    if (!nomeUp) return;
+    var difs = [];
+    if (!l[5]) {
+      var candidatas = Object.keys(peps).filter(function (k) { return k.split('|')[0] === nomeUp && !(contagem[k] > 0); });
+      if (candidatas.length === 1) {
+        var instNova = candidatas[0].split('|')[1];
+        contagem[p.chave] = (contagem[p.chave] || 1) - 1;
+        p.chave = candidatas[0]; p.instNorm = instNova; contagem[p.chave] = 1;
+        difs.push({ col: 6, v: instRawTx[instNova] || instRaw[instNova] || instNova });
+      } else if (candidatas.length > 1) {
+        avisos.push(p.nome + ' está sem instituição e as Transações têm mais de uma - preencha a coluna Instituição à mão');
+      }
+    }
+    if (!l[3]) difs.push({ col: 4, v: tipoInvestimentoRf_(p.nome) });
+    if (!l[4]) difs.push({ col: 5, v: indexadorCarteiraRf_(p.nome) });
+    if (difs.length) completar[p.linha] = { nome: p.nome, difs: difs };
+  });
+  var hojeChaveRf = chaveDiaISOInicio_(agora);
+  var cotasInformadas = lerCotasFundosRf_();
+  var cdiDiario = null; // lido 1 vez, só se algum fundo tiver cota informada
+
   var atualizadas = [], novas = [], removidas = [], cobertas = {};
   var mudancas = [];
   posicoes.forEach(function (p) {
@@ -229,6 +269,18 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
         if (v == null) v = somaPorTipoInstRf_(hist.porPosicao, p.nome, p.instNorm);
         if (v != null && v > 0) novo.atualizado = arred2Rf_(v);
       }
+      // 07/10/2026: fundo - a quantidade é a de COTAS (soma das Transações) e, se o Tiago informou uma cota (detalhe do título), o valor é
+      // cotas x cota informada corrigida pelo CDI até hoje (no lugar da estimativa 100% do CDI do histórico). Tudo que lê a coluna L
+      // (Home, Carteiras, Patrimônio, Metas) passa a ver esse valor - um lugar só.
+      if (ehFundoRf_(p.nome)) {
+        var ppF = peps[p.chave];
+        if (ppF && ppF.qtd > 0.00000001) {
+          novo.qtd = Math.round(ppF.qtd * 1e8) / 1e8;
+          if (cotasInformadas[normalizarNomeRf_(p.nome)] && !cdiDiario) cdiDiario = lerCdiDiarioRf_(ss);
+          var vCota = valorPelaCotaInformadaRf_(p.nome, novo.qtd, hojeChaveRf, cotasInformadas, cdiDiario);
+          if (vCota != null) novo.atualizado = vCota;
+        }
+      }
     }
     var dif = [];
     if (novo.qtd != null && Math.abs((Number(p.qtd) || 0) - novo.qtd) > 1e-6) dif.push({ col: 7, v: novo.qtd });
@@ -238,6 +290,18 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
       mudancas.push({ linha: p.linha, dif: dif });
       atualizadas.push({ nome: p.nome, linha: p.linha, antes: { qtd: p.qtd, investido: p.investido, atualizado: p.atualizado }, depois: novo });
     }
+  });
+  // 07/10/2026: o que a linha incompleta ganhou (instituição, tipo, indexador) entra junto das mudanças dela
+  Object.keys(completar).forEach(function (linha) {
+    var c = completar[linha];
+    var m = mudancas.filter(function (x) { return x.linha === Number(linha); })[0];
+    if (!m) {
+      m = { linha: Number(linha), dif: [] };
+      mudancas.push(m);
+      atualizadas.push({ nome: c.nome, linha: Number(linha), antes: {}, depois: {} });
+    }
+    c.difs.forEach(function (d) { m.dif.push(d); });
+    atualizadas.filter(function (a) { return a.linha === Number(linha); }).forEach(function (a) { a.depois.completou = c.difs.map(function (d) { return { col: d.col, v: d.v }; }); });
   });
 
   // títulos com posição nas Transações e sem linha na Carteira
@@ -251,12 +315,20 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
     var valor = null;
     if (preco && preco.puVenda > 0) valor = arred2Rf_(qtd * preco.puVenda);
     else if (histRecente && hist.porPosicao[k] != null) valor = arred2Rf_(hist.porPosicao[k]);
+    var ehFundoNovo = ehFundoRf_(pp.produto);
+    if (ehFundoNovo) {
+      // 07/10/2026: fundo novo - cotas e, se houver cota informada, o valor pela cota (senão o do histórico, como antes)
+      qtd = Math.round(pp.qtd * 1e8) / 1e8;
+      if (cotasInformadas[normalizarNomeRf_(pp.produto)] && !cdiDiario) cdiDiario = lerCdiDiarioRf_(ss);
+      var vCotaNovo = valorPelaCotaInformadaRf_(pp.produto, qtd, hojeChaveRf, cotasInformadas, cdiDiario);
+      if (vCotaNovo != null) valor = vCotaNovo;
+    }
     var venc = '';
-    if (preco) venc = new Date(Number(preco.vencimento.slice(0, 4)), Number(preco.vencimento.slice(5, 7)) - 1, Number(preco.vencimento.slice(8, 10)));
+    if (preco) venc = dataNaPlanilha_(ss, preco.vencimento.slice(0, 10)); // 07/10/2026: meia-noite no fuso da PLANILHA (a coluna "Mês/Ano vencimento" dela vira o mês certo)
     novas.push({
       nome: pp.produto,
       linha: [pp.produto, 'Renda Fixa', pp.produto, tipoInvestimentoRf_(pp.produto), indexadorCarteiraRf_(pp.produto), instRaw[inst] || instRawTx[inst] || inst,
-        chaveT ? qtd : '', '', arred2Rf_(pp.custo), '', venc, valor == null ? '' : valor]
+        (chaveT || ehFundoNovo) ? qtd : '', '', arred2Rf_(pp.custo), '', venc, valor == null ? '' : valor]
     });
   });
 
@@ -294,4 +366,127 @@ function peps2Original_(peps) {
 /** Roda direto no editor: mostra o que mudaria (não grava). */
 function simularCarteiraRendaFixaDireto() {
   Logger.log(JSON.stringify(sincronizarCarteiraRendaFixa_({ simular: true }), null, 2));
+}
+
+
+// ---------------------------------------------------------------------------
+// 07/10/2026 (Tiago: fundo DI da chácara - "cota real x estimativa"): COTA INFORMADA de um fundo.
+// O site estima o fundo como 100% do CDI desde cada compra (aproximação: sem taxa de administração/come-cotas). A cota de verdade
+// (do app da corretora) o Tiago informa no detalhe do título (cota + data) e fica numa Script Property pequena, `COTAS_FUNDOS_RF`:
+// { 'NOME DO FUNDO': { cota, data: 'aaaa-mm-dd', em: ISO do registro } } - chave só pelo NOME (a instituição é a custódia; completar a
+// instituição da linha não perde a cota). Com cota informada, a sincronização grava na coluna L: cotas x cota x CDI acumulado desde a data da
+// cota até hoje. Sem cota informada nada muda (continua a estimativa do histórico).
+// ---------------------------------------------------------------------------
+
+var PROP_COTAS_FUNDOS_RF_ = 'COTAS_FUNDOS_RF';
+
+function lerCotasFundosRf_() {
+  try {
+    var bruto = PropertiesService.getScriptProperties().getProperty(PROP_COTAS_FUNDOS_RF_);
+    var obj = bruto ? JSON.parse(bruto) : {};
+    return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+  } catch (e) { return {}; }
+}
+
+/** { cota, data, em } do fundo (pelo nome) ou null. */
+function cotaInformadaFundoRf_(nome) {
+  var c = lerCotasFundosRf_()[normalizarNomeRf_(nome)];
+  return c && Number(c.cota) > 0 && /^\d{4}-\d{2}-\d{2}$/.test(String(c.data || '')) ? { cota: Number(c.cota), data: String(c.data), em: c.em || null } : null;
+}
+
+/** Série diária do CDI (% ao dia) de aux_historico-indices: [{ dia: 'aaaa-mm-dd', taxa }] em ordem. Vazia se a aba não existe. */
+function lerCdiDiarioRf_(ss) {
+  var out = [];
+  try {
+    var aba = ss.getSheetByName(ABA_HISTORICO_INDICES);
+    if (!aba || aba.getLastRow() < 2) return out;
+    aba.getRange(2, 1, aba.getLastRow() - 1, 3).getValues().forEach(function (l) {
+      if (l[1] !== 'CDI' || !ehDataPlanilha_(l[0]) || typeof l[2] !== 'number') return;
+      out.push({ dia: chaveDiaISOInicio_(l[0]), taxa: l[2] });
+    });
+    out.sort(function (a, b) { return a.dia < b.dia ? -1 : (a.dia > b.dia ? 1 : 0); });
+  } catch (e) { /* sem a série: só a cota, sem correção */ }
+  return out;
+}
+
+/** { 'aaaa-mm': % do CDI acumulado no mês } dos meses COMPLETOS da série diária (não traz o mês de hoje); a tela compara a rentabilidade mensal do fundo. */
+function cdiMensalRf_(ss, hoje) {
+  var fator = {}, saida = {};
+  lerCdiDiarioRf_(ss).forEach(function (x) { var k = x.dia.slice(0, 7); fator[k] = (fator[k] || 1) * (1 + x.taxa / 100); });
+  Object.keys(fator).forEach(function (k) { if (k < String(hoje).slice(0, 7)) saida[k] = Math.round((fator[k] - 1) * 1e6) / 1e4; });
+  return saida;
+}
+
+/** Fator do CDI nos dias APÓS `diaCota` até `hoje` (inclusive) - a cota de um dia já traz o CDI desse dia. */
+function fatorCdiDesdeRf_(cdiDiario, diaCota, hoje) {
+  var f = 1;
+  (cdiDiario || []).forEach(function (x) { if (x.dia > diaCota && x.dia <= hoje) f *= 1 + x.taxa / 100; });
+  return f;
+}
+
+/** cotas x cota informada x CDI desde a data da cota; null se o fundo não tem cota informada. */
+function valorPelaCotaInformadaRf_(nome, cotas, hoje, cotasInformadas, cdiDiario) {
+  var c = (cotasInformadas || {})[normalizarNomeRf_(nome)];
+  if (!c || !(Number(c.cota) > 0) || !(cotas > 0)) return null;
+  return arred2Rf_(cotas * Number(c.cota) * fatorCdiDesdeRf_(cdiDiario, String(c.data), hoje));
+}
+
+/**
+ * POST definirCotaFundoRf: `titulo`, `cota` (número; aceita vírgula) e `data` ('aaaa-mm-dd', padrão hoje). Guarda a cota, refaz a coluna L da
+ * Carteira Renda Fixa (sincronização sem rede) e limpa os caches. Cota mais antiga que a já informada é recusada (a mais nova vale).
+ */
+function handleDefinirCotaFundoRf(e) {
+  try {
+    return jsonOut({ ok: true, resultado: definirCotaFundoRf_(SpreadsheetApp.getActiveSpreadsheet(), e.parameter) });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'definirCotaFundoRf', erro: String(erro && erro.message ? erro.message : erro) });
+  }
+}
+
+function numeroDaCotaRf_(valor) {
+  var t = String(valor == null ? '' : valor).replace(/\s|R\$/g, '');
+  // "1.234,5678" (pt-BR) -> 1234.5678; "1,6543" -> 1.6543; "1.6543" (ponto decimal) fica
+  if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  return Number(t);
+}
+
+function definirCotaFundoRf_(ss, params) {
+  var titulo = limparNomeRf_(params && params.titulo);
+  if (!titulo) throw new Error('título não informado');
+  var cota = numeroDaCotaRf_(params && params.cota);
+  if (!isFinite(cota) || !(cota > 0) || cota >= 1000000) throw new Error('cota inválida: informe o valor da cota em reais (ex. 1,6543)');
+  var hoje = chaveDiaISOInicio_(new Date());
+  var data = String((params && params.data) || hoje).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) throw new Error('data inválida (use aaaa-mm-dd)');
+  if (data > hoje) throw new Error('a data da cota não pode ser no futuro');
+  var trava = typeof travaRecurso_ === 'function' ? travaRecurso_('carteira', 'cota do fundo') : null;
+  if (trava) trava.waitLock(30000);
+  try {
+    var todas = lerCotasFundosRf_();
+    var chave = normalizarNomeRf_(titulo);
+    var atual = todas[chave];
+    if (atual && String(atual.data) > data) throw new Error('já existe uma cota mais recente (' + String(atual.data).split('-').reverse().join('/') + ') - informe uma cota de data igual ou posterior');
+    todas[chave] = { cota: cota, data: data, em: new Date().toISOString() };
+    PropertiesService.getScriptProperties().setProperty(PROP_COTAS_FUNDOS_RF_, JSON.stringify(todas));
+    var sync = null;
+    try { sync = sincronizarCarteiraRendaFixa_({ precos: {} }); } catch (eSync) { sync = { erro: String(eSync) }; }
+    try { if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_(); } catch (eReg) { /* cache é só otimização */ }
+    try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (eInv) { /* idem */ }
+    try { if (typeof invalidarCacheAtivos_ === 'function') invalidarCacheAtivos_(); } catch (eAt) { /* idem */ }
+    return { titulo: titulo, cota: cota, data: data, sincronizacao: sync && sync.resumo ? sync.resumo : (sync && sync.erro) || '' };
+  } finally {
+    if (trava) trava.releaseLock();
+  }
+}
+
+/**
+ * Função para rodar 1x no editor (07/10/2026): completa as linhas INCOMPLETAS da Carteira Renda Fixa (instituição, tipo e indexador vazios;
+ * e a quantidade, o valor investido e o valor atualizado) pela mesma sincronização do dia a dia, sem rede (não mexe nos preços do Tesouro).
+ * Nunca troca o que já está preenchido nem a coluna B (destino). `completarTitulosRendaFixaDireto({ simular: true })` só mostra.
+ */
+function completarTitulosRendaFixaDireto(opcoes) {
+  var r = sincronizarCarteiraRendaFixa_({ precos: {}, simular: !!(opcoes && opcoes.simular === true) });
+  Logger.log(r.resumo + (r.avisos && r.avisos.length ? ' | avisos: ' + r.avisos.join('; ') : ''));
+  Logger.log(JSON.stringify(r.atualizadas.filter(function (a) { return a.depois && a.depois.completou; }), null, 2));
+  return r;
 }

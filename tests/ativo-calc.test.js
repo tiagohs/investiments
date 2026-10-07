@@ -312,7 +312,8 @@ const IR_DECL = {
     acoes: { grupo: '03', grupoNome: 'Participações societárias', codigo: '01', codigoNome: 'Ações', localizacao: '105 - Brasil', negociadoEmBolsa: true },
     fiis: { grupo: '07', grupoNome: 'Fundos', codigo: '03', codigoNome: 'FII', localizacao: '105 - Brasil', negociadoEmBolsa: true },
     acoesEua: { grupo: '03', grupoNome: 'Participações societárias', codigo: '01', codigoNome: 'Ações', localizacao: '249 - Estados Unidos', negociadoEmBolsa: true, notas: ['dividendos no bem'] },
-    rendaFixa: { grupo: '04', grupoNome: 'Aplicações', codigo: '02', codigoNome: 'Tributados', localizacao: '105 - Brasil', isentos: { contem: ['LCI', 'LCA'], codigo: '03', codigoNome: 'Isentos' } },
+    rendaFixa: { grupo: '04', grupoNome: 'Aplicações', codigo: '02', codigoNome: 'Tributados', localizacao: '105 - Brasil', isentos: { contem: ['LCI', 'LCA'], codigo: '03', codigoNome: 'Isentos' },
+      fundos: { grupo: '07', grupoNome: 'Fundos', codigo: '01', codigoNome: 'Fundos com come-cotas', nota: 'fundo vai em Fundos' } },
     notaConsolidado: 'soma tudo',
   },
 };
@@ -353,6 +354,15 @@ test('IR: "Na declaração" - Ações EUA (US$ + reais, país 249) e renda fixa 
   assert.equal(rf.posicoes[0].texto, 'LCI TESTE (CDI) - VENCIMENTO 01/2028 - CORRETORA X S.A.', 'sem ponto duplo');
   const tesouro = declaracaoIrDoAtivo(IR_DECL, { ehRf: true, ticker: 'Tesouro Selic 2029', hoje: '2026-09-20', ativo: { tipoInvestimento: 'Tesouro Selic (LFT)' } });
   assert.equal(tesouro.ficha.codigo, '02');
+  // 07/10/2026: fundo de renda fixa vai em 07-01 (Fundos), com o CNPJ DO FUNDO, não em Aplicações
+  const fundo = declaracaoIrDoAtivo(IR_DECL, { ehRf: true, ticker: 'Fundo Teste DI FIC RF', hoje: '2026-09-20', historico, ativo: { tipoInvestimento: 'Fundo de Investimento', indexador: 'CDI', instituicao: 'Corretora X S.A.' },
+    fundo: { cnpj: '33.333.333/0001-33', nome: 'Fundo Teste DI', nomeCompleto: 'FUNDO TESTE DI FIC RENDA FIXA' } });
+  assert.equal(fundo.ficha.grupo, '07');
+  assert.equal(fundo.ficha.codigo, '01');
+  assert.equal(fundo.ficha.cnpj, '33.333.333/0001-33');
+  assert.equal(fundo.notas[0], 'fundo vai em Fundos');
+  assert.match(fundo.posicoes[0].texto, /^COTAS DO FUNDO FUNDO TESTE DI FIC RENDA FIXA - CNPJ 33\.333\.333\/0001-33 - CORRETORA X S\.A\.\.?$/);
+  assert.equal(fundo.posicoes[0].valor, 1000.12);
   assert.equal(declaracaoIrDoAtivo(null, { classe: 'acoes', ticker: 'X', hoje: '2026-01-01' }), null);
 });
 

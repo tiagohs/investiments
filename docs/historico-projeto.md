@@ -482,3 +482,9 @@ Objetivo: cada tela carrega só o que usa, **sem mudar o deploy** (GitHub Pages 
 - **Entrega de `.gs`**: no relatório de cada agente, a lista dos arquivos `.gs` que precisam de **nova versão da implantação** e das funções para rodar **uma vez** no editor; o Tiago cola e implanta (a nuvem nunca implanta).
 - **Verificação**: `node --check` em cada `.gs`/módulo alterado, `node --test` (e `npm run verificar`, que gera o relatório de conferência das telas), prévia + prints. O gancho `.githooks/pre-commit` roda a verificação completa antes de cada commit.
 - **Auditoria como etapa**: ao fim da fase, três auditores independentes mediram dados, UI e desempenho; o backlog consolidado (`docs/auditoria-2026-10.md`) orienta as próximas rodadas em "ondas" que podem ser paralelizadas sem conflito de arquivos.
+
+### 07/10/2026 (fundo da chácara e datas)
+
+- **Fuso das datas**: o script roda em America/Sao_Paulo e a planilha em America/New_York; datas gravadas pelo site na meia-noite de São Paulo apareciam um dia antes na planilha. Agora todas passam por `dataNaPlanilha_` (meia-noite do fuso da planilha) e a função 1x `corrigirDatasGravadasNoFusoDireto` corrige as linhas antigas (idempotente; `{ simular: true }` só mostra).
+- **Fundo na Renda Fixa**: a sincronização completa linhas incompletas (instituição, tipo, indexador, cotas, investido, atualizado) sem sobrescrever o preenchido nem a coluna B; função 1x `completarTitulosRendaFixaDireto`. Destino "Reservado para objetivos" e seletor continuam pela coluna B.
+- **Detalhe do fundo**: aba "Sobre o fundo" (dados públicos em `assets/data/fundos.json`), rentabilidade mensal x CDI, cota real x estimativa (100% do CDI) e cota informada pelo Tiago (Script Property `COTAS_FUNDOS_RF`, ação `definirCotaFundoRf`); logo do fundo nas listas.

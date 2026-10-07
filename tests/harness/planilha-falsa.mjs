@@ -94,11 +94,16 @@ class RangeFalso {
   getRichTextValue() { return null; }
 }
 
-export function planilhaFalsa(abas) {
+/**
+ * `fuso` (07/10/2026): fuso da PLANILHA (getSpreadsheetTimeZone). Padrão = o do script (America/Sao_Paulo), como era antes; os testes
+ * do fuso das datas gravadas passam 'America/New_York' (a planilha real do Tiago).
+ */
+export function planilhaFalsa(abas, { fuso = 'America/Sao_Paulo' } = {}) {
   const mapa = {};
   Object.entries(abas).forEach(([n, linhas]) => { mapa[n] = linhas instanceof AbaFalsa ? linhas : new AbaFalsa(n, linhas); });
   return {
     abas: mapa,
+    getSpreadsheetTimeZone: () => fuso,
     getSheetByName: (n) => mapa[n] || null,
     insertSheet: (n) => (mapa[n] = new AbaFalsa(n, [])),
     aba: (n) => mapa[n],
@@ -121,10 +126,29 @@ export function sandboxGas(ss, { urlFetch = null, agora = null } = {}) {
     Utilities: {
       formatDate: (d, tz, fmt) => {
         const p = (n) => String(n).padStart(2, '0');
+        // 07/10/2026: com fuso diferente do processo (America/Sao_Paulo) formata NESSE fuso, como o Utilities real
+        if (tz && tz !== 'America/Sao_Paulo') {
+          const o = {};
+          for (const { type, value } of new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(d)) o[type] = value;
+          const mapaFmt = { 'yyyy-MM-dd': `${o.year}-${o.month}-${o.day}`, 'MM/yyyy': `${o.month}/${o.year}`, 'dd/MM/yyyy': `${o.day}/${o.month}/${o.year}`, 'HH:mm:ss': `${o.hour}:${o.minute}:${o.second}`, 'HH:mm': `${o.hour}:${o.minute}` };
+          if (mapaFmt[fmt]) return mapaFmt[fmt];
+        }
+        if (fmt === 'HH:mm:ss') return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+        if (fmt === 'HH:mm') return `${p(d.getHours())}:${p(d.getMinutes())}`;
         if (fmt === 'yyyy-MM-dd') return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
         if (fmt === 'MM/yyyy') return `${p(d.getMonth() + 1)}/${d.getFullYear()}`;
         if (fmt === 'dd/MM/yyyy') return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
         return d.toISOString();
+      },
+      // 07/10/2026: Utilities.parseDate real - 'yyyy-MM-dd' é um relógio no fuso `tz`
+      parseDate: (texto, tz, fmt) => {
+        const m = String(texto).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m || fmt !== 'yyyy-MM-dd') throw new Error('parseDate falso: só yyyy-MM-dd (' + texto + ' / ' + fmt + ')');
+        const alvo = Date.UTC(+m[1], +m[2] - 1, +m[3], 0, 0, 0);
+        const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const relogio = (ms) => { const o = {}; for (const { type, value } of f.formatToParts(new Date(ms))) o[type] = value; return Date.UTC(+o.year, +o.month - 1, +o.day, +o.hour, +o.minute, +o.second); };
+        let ms = alvo; for (let i = 0; i < 3; i++) ms -= relogio(ms) - alvo;
+        return new sb.Date(ms);
       },
       sleep() {},
     },

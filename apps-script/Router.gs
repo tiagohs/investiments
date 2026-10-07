@@ -303,6 +303,9 @@ function doPostRotas_(e) {
   if (action === 'definirDestinoRendaFixa') { // 07/10/2026: destino do título (reserva / longo prazo / objetivo) - CarteirasRendaFixa.gs
     return handleDefinirDestinoRendaFixa(e);
   }
+  if (action === 'definirCotaFundoRf') { // 07/10/2026: cota informada de um fundo da Renda Fixa (cota + data) - CarteiraRendaFixaSync.gs
+    return handleDefinirCotaFundoRf(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

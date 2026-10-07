@@ -7,6 +7,7 @@
 import { LOGOS_ATIVOS } from '../logos-ativos.js';
 import { resolveSiteRootUrl } from '../shell.js';
 import { esc } from '../util/html.js';
+import { logoDoFundo } from '../fundos-rf.js'; // 07/10/2026: logo de fundo de investimento (Trend DI...) nas listas de Renda Fixa
 
 // ---------------------------------------------------------------------------
 // Logos
@@ -26,6 +27,8 @@ export function logoAtivoHtml(ticker) {
 
 // 25/09/2026 (Tiago, ponto 6): 3 imagens genéricas pra renda fixa, por tipo de título (não por ticker).
 function imagemRendaFixa_(a) {
+  const fundo = logoDoFundo(a); // 07/10/2026: fundo reconhecido pelo nome/CNPJ tem logo próprio (antes de qualquer regra por indexador)
+  if (fundo) return fundo;
   const indexador = String(a.indexador || '').toUpperCase();
   const tipo = String(a.tipoInvestimento || '').toUpperCase();
   const instituicao = String(a.instituicao || '').toUpperCase();

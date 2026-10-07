@@ -1,0 +1,53 @@
+{
+  "_nota": "Dados PÚBLICOS de fundos de investimento (lâmina da gestora e app da corretora). Só dado do fundo - nada de posição, quantidade ou valor do investidor. O site casa o título da Carteira Renda Fixa com o fundo pelo nome (apelidos) ou pelo CNPJ; o logo e os apelidos também estão em assets/js/fundos-rf.js (as telas montam o HTML na hora, sem esperar este arquivo) e um teste confere que os dois batem.",
+  "atualizadoEm": "2026-10-07",
+  "fundos": [
+    {
+      "chave": "trend-di-fic-rf-simples-rl",
+      "apelidos": ["Trend DI FIC RF Simples RL", "Trend DI FC RF Simples RL", "Trend DI FIC RF Simples", "Trend DI FC RF Simples", "Trend DI Simples RL", "Trend DI"],
+      "nome": "Trend DI FIC RF Simples RL",
+      "nomeCompleto": "TREND DI FUNDO DE INVESTIMENTO EM COTAS DE FUNDOS DE INVESTIMENTO RENDA FIXA SIMPLES",
+      "cnpj": "45.278.833/0001-57",
+      "logo": "assets/imgs/fundos/TrendDIFCRFSimplesRL.png",
+      "classificacaoXp": "Referenciado DI Soberano",
+      "classificacaoCvm": "Renda Fixa",
+      "benchmark": "CDI",
+      "inicio": "2022-09-13",
+      "inicioNoApp": "2022-08-23",
+      "gestora": "XP Vista Asset Management LTDA",
+      "administrador": "Modal DTVM",
+      "administradorNoApp": "XP Serviços Financeiros DTVM LTDA",
+      "custodiante": "Modal DTVM",
+      "auditor": "PwC",
+      "distribuidor": "XP Investimentos CCTVM S.A.",
+      "publico": "Público geral",
+      "aplicacaoMinima": 100,
+      "saldoMinimo": 100,
+      "movimentacaoMinima": 100,
+      "cotaAplicacao": "D+0",
+      "cotaResgate": "D+0",
+      "liquidacaoResgate": "D+0 (dia útil)",
+      "taxaAdministracao": 0,
+      "taxaAdministracaoMaxima": 0.02,
+      "taxaPerformance": null,
+      "taxaSaida": null,
+      "tributacao": {
+        "tipo": "Longo prazo",
+        "comeCotas": "Come-cotas semestral (maio e novembro): a Receita cobra o IR de tempos em tempos tirando cotas do fundo, não só no resgate.",
+        "aliquotas": "IR regressivo sobre o rendimento: 22,5% até 180 dias, 20% de 181 a 360, 17,5% de 361 a 720 e 15% acima de 720 dias. O come-cotas antecipa a alíquota mínima (15%) e o resto é acertado no resgate."
+      },
+      "objetivo": "Aplicar no mínimo 95% em cotas do TREND PÓS-FIXADO MASTER FI RF SIMPLES (CNPJ 32.892.326/0001-67), que busca acompanhar o CDI.",
+      "fatoresRisco": "Juros domésticos e índices de preços.",
+      "patrimonioLiquido": { "valor": 4480000000, "mes": "2026-09" },
+      "rentabilidadeMensal": {
+        "2026": [1.18, 1.00, 1.25, 1.08, 1.08, 1.12, 1.22, 1.11, 1.04],
+        "2025": [1.08, 0.99, 0.96, 1.03, 1.15, 1.10, 1.28, 1.17, 1.22, 1.28, 1.05, 1.23],
+        "2024": [0.98, 0.81, 0.84, 0.90, 0.83, 0.81, 0.92, 0.90, 0.86, 0.97, 0.83, 0.86]
+      },
+      "rentabilidadeAno": { "2026": 10.54, "2025": 14.40, "2024": 11.02, "2023": 13.13, "2022": 3.90 },
+      "rentabilidadeAcumulada": { "2026": 65.02, "2025": 49.29, "2024": 30.49 },
+      "ultimaCota": { "valor": 1.65430189, "data": "2026-10-07" },
+      "fonte": "Lâmina XP Asset (set/2026) e app da corretora"
+    }
+  ]
+}

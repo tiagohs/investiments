@@ -372,6 +372,16 @@ export async function definirDestinoRendaFixa(token, { titulo, instituicao, dest
 }
 
 /**
+ * 07/10/2026: informa a cota de um fundo da Renda Fixa (action=definirCotaFundoRf): cota (R$) + data. O Apps Script guarda e passa a valer
+ * pro valor do título (cotas x cota, corrigida pelo CDI). Ver CarteiraRendaFixaSync.gs!definirCotaFundoRf_.
+ * @param {string} token
+ * @param {{titulo: string, cota: string|number, data: string}} item  data = 'aaaa-mm-dd'
+ */
+export async function definirCotaFundoRf(token, { titulo, cota, data }) {
+  return request('POST', 'definirCotaFundoRf', token, { titulo, cota, data });
+}
+
+/**
  * Grava os "% desejado" de um bloco inteiro de Objetivos da Carteira
  * (action=salvarObjetivosCarteira) — sempre o bloco todo de uma vez, na
  * mesma ordem em que getDistribuicoesMetas devolveu os tipos desse

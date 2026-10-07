@@ -196,6 +196,6 @@ function proximaLinhaVaziaTransacoes_(aba) {
  */
 function normalizarData_(dataStr) {
   if (dataStr instanceof Date) return dataStr;
-  var partes = String(dataStr).split('-');
-  return new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+  // 07/10/2026: meia-noite NO FUSO DA PLANILHA (dataNaPlanilha_, Planilha.gs), não a do script (a planilha mostrava o dia anterior às 22:00/23:00)
+  return dataNaPlanilha_(null, dataStr);
 }
