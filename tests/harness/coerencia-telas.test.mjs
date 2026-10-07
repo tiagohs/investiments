@@ -141,13 +141,16 @@ test('metas: "já guardado" nunca passa do que existe pra vincular e cada ativo 
   const ativos = x.metas.ativos;
   const porId = new Map(ativos.map((a) => [a.id, a]));
   const ativas = x.metas.metas.filter((m) => m.progresso);
-  const vinc = ativas.flatMap((m) => (m.progresso.vinculos || []).map((v) => ({ ...v, meta: `${m.tipo}${m.nome ? ` "${m.nome}"` : ''}` })));
+  // 07/10/2026: reserva e renda passiva DIVIDEM os ativos com a aposentadoria (mesma carteira): lado 'div' x lado 'apos'
+  const ladoDe = (m) => (m.tipo === 'aposentadoria' ? 'apos' : (m.tipo === 'reservaEmergencia' || m.tipo === 'rendaPassiva' ? 'div' : 'outros'));
+  const vinc = ativas.flatMap((m) => (m.progresso.vinculos || []).map((v) => ({ ...v, lado: ladoDe(m), meta: `${m.tipo}${m.nome ? ` "${m.nome}"` : ''}` })));
   const msgs = [];
   const T = 0.011;
 
   // 06/10/2026 (Tiago: "a única exceção de ter os mesmos ativos em duas metas seria Renda Emergencial e Patrimônio"): a reserva e a
-  // aposentadoria podem contar o MESMO dinheiro, então o total das metas pode passar do que existe em até o valor da reserva
-  const compartilhado = soma(ativas.filter((m) => m.tipo === 'reservaEmergencia').map((m) => m.progresso.valorVinculado));
+  // aposentadoria podem contar o MESMO dinheiro; 07/10/2026: a renda passiva também. O total pode passar do que existe em até
+  // o que esse lado ("div") pegou
+  const compartilhado = soma(ativas.filter((m) => ladoDe(m) === 'div').map((m) => m.progresso.valorVinculado));
 
   // total: soma do "já guardado" de todas as metas <= (ativos vinculáveis + saldos avulsos das próprias metas)
   const saldos = soma(vinc.filter((v) => v.tipo === 'saldo').map((v) => v.valorBRL));
@@ -160,13 +163,16 @@ test('metas: "já guardado" nunca passa do que existe pra vincular e cada ativo 
   });
 
   // por ativo / classe / marca: o que as metas pegam de um grupo não passa do grupo
+  // cada chave soma por lado; o pego é outros + max(div, apos) (o lado dividido não conta em dobro)
   const pegoPorId = new Map(), pegoPorClasse = new Map(), pegoPorMarca = new Map();
-  const somaEm = (mapa, k, v) => mapa.set(k, (mapa.get(k) || 0) + v);
+  const somaEm = (mapa, k, v, lado) => { const x = mapa.get(k) || { outros: 0, div: 0, apos: 0 }; x[lado] += v; mapa.set(k, x); };
   for (const v of vinc) {
-    if (v.tipo === 'ativo' && v.id != null) { somaEm(pegoPorId, v.id, v.valorBRL); const a = porId.get(v.id); if (a) somaEm(pegoPorClasse, a.classe, v.valorBRL); }
-    else if (v.tipo === 'classe') somaEm(pegoPorClasse, v.classe, v.valorBRL);
-    else if (v.tipo === 'marca') somaEm(pegoPorMarca, v.marca, v.valorBRL);
+    if (v.tipo === 'ativo' && v.id != null) { somaEm(pegoPorId, v.id, v.valorBRL, v.lado); const a = porId.get(v.id); if (a) somaEm(pegoPorClasse, a.classe, v.valorBRL, v.lado); }
+    else if (v.tipo === 'classe') somaEm(pegoPorClasse, v.classe, v.valorBRL, v.lado);
+    else if (v.tipo === 'marca') somaEm(pegoPorMarca, v.marca, v.valorBRL, v.lado);
   }
+  const efetivo = (x) => x.outros + Math.max(x.div, x.apos);
+  [pegoPorId, pegoPorClasse, pegoPorMarca].forEach((mapa) => mapa.forEach((x, k) => mapa.set(k, efetivo(x))));
   for (const [id, pego] of pegoPorId) { const a = porId.get(id); if (a && pego > a.valorBRL + T) msgs.push(`ativo "${id}": as metas pegam ${pego.toFixed(2)} de um ativo de ${a.valorBRL} (conta em mais de uma meta)`); }
   for (const [c, pego] of pegoPorClasse) { const tot = soma(ativos.filter((a) => a.classe === c).map((a) => a.valorBRL)); if (pego > tot + 0.5) msgs.push(`classe "${c}": as metas pegam ${pego.toFixed(2)} de ${tot.toFixed(2)}`); }
   for (const [m, pego] of pegoPorMarca) { const tot = soma(ativos.filter((a) => a.marca === m).map((a) => a.valorBRL)); if (pego > tot + 0.5) msgs.push(`marca "${m}": as metas pegam ${pego.toFixed(2)} de ${tot.toFixed(2)}`); }

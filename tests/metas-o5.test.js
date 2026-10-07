@@ -106,7 +106,7 @@ test('excedente: sem título de renda fixa vinculado, só informa o valor (sem s
   assert.equal(parcial.brutoResgatar, 2222.22);
 });
 
-test('reserva e aposentadoria PODEM contar os mesmos ativos; "ignorar este aviso" persiste na meta', () => {
+test('reserva, renda passiva e aposentadoria PODEM contar os mesmos ativos; "ignorar este aviso" persiste na meta', () => {
   const ativos = [rf('t', 'Selic', 8000, 100, '2030-01'), { id: 'FFFF11', ref: 'FFFF11', nome: 'FFFF11', classe: 'fiis', valorBRL: 10000 }];
   const apos = { id: 'a', tipo: 'aposentadoria', nome: 'Apos', status: 'ativa', valorAlvo: 1e6, dataAlvo: '2050-01', rendimentoAnual: 0.06, especificos: { modoAlvo: 'montante' },
     vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }, { tipo: 'classe', classe: 'fiis', modo: 'total' }] };
@@ -115,17 +115,20 @@ test('reserva e aposentadoria PODEM contar os mesmos ativos; "ignorar este aviso
   const aloc = alocarMetas(metas, ativos, {});
   const ctx = { ativos, cambio: {}, hoje: HOJE, referencias: {}, ocupadoPorMeta: aloc.ocupadoPorMeta };
   assert.equal(calcularMeta(RESERVA, ctx).valorVinculado, 8000);
-  assert.equal(calcularMeta(apos, ctx).valorVinculado, 8000, 'a aposentadoria conta o título da reserva (os FIIs são da renda passiva)');
-  assert.equal(aloc.totalAlocado, 18000, 'o título conta uma vez só no total alocado');
-  // renda passiva continua exclusiva: o aviso fala dos FIIs e some quando a meta manda ignorar
-  const sob = ativosSobrecomprometidos(metas, ativos);
-  assert.deepEqual(sob.map((x) => x.id), ['FFFF11'], 'reserva x aposentadoria no título não é sobreposição');
-  const ign = { ...apos, ignorarAvisos: ['sobreposicao'] };
+  assert.equal(calcularMeta(apos, ctx).valorVinculado, 18000, '07/10/2026: a aposentadoria conta o título da reserva E os FIIs da renda passiva (mesma carteira)');
+  assert.equal(aloc.totalAlocado, 18000, 'cada ativo conta uma vez só no total alocado');
+  assert.deepEqual(ativosSobrecomprometidos(metas, ativos), [], 'reserva/renda passiva x aposentadoria não é sobreposição');
+  // uma meta que não divide (acúmulo) com os FIIs: aí sim é sobreposição, e "ignorar" persiste na meta
+  const carro = { id: 'c', tipo: 'acumulo', nome: 'Carro', status: 'ativa', valorAlvo: 50000, dataAlvo: '2030-01', vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }] };
+  const metas2 = [apos, renda, RESERVA, carro];
+  const ctx2 = { ...ctx, ocupadoPorMeta: alocarMetas(metas2, ativos, {}).ocupadoPorMeta };
+  assert.deepEqual(ativosSobrecomprometidos(metas2, ativos).map((x) => x.id), ['FFFF11']);
+  const ign = { ...carro, ignorarAvisos: ['sobreposicao'] };
   assert.equal(ignoraAvisoSobreposicao(ign), true);
-  assert.equal(ativosSobrecomprometidos([ign, renda, RESERVA], ativos).length, 0);
-  assert.ok(calcularMeta(apos, ctx).sobreposicao);
-  assert.equal(calcularMeta(ign, ctx).sobreposicao, null);
-  const h = heroiHtml(apos, calcularMeta(apos, ctx));
+  assert.equal(ativosSobrecomprometidos([apos, renda, RESERVA, ign], ativos).length, 0);
+  assert.ok(calcularMeta(carro, ctx2).sobreposicao);
+  assert.equal(calcularMeta(ign, ctx2).sobreposicao, null);
+  const h = heroiHtml(carro, calcularMeta(carro, ctx2));
   assert.match(h, /data-ignorar-sobreposicao/);
   assert.match(h, /Ignorar este aviso/);
   assert.ok(!/congelado|difere/.test(h));

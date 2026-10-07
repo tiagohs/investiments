@@ -55,7 +55,7 @@
  * doesn't match the current CACHE_NAME).
  */
 
-const CACHE_VERSION = 'v12'; // v10: Início com hero "Patrimônio líquido" + Metas, "Investimentos" no lugar de "Patrimônio total" (07/10/2026); v9: documentos (07/10/2026) - parcial, encerrados, remover vários; v8: fontes servidas pelo próprio site (assets/fonts, 06/10/2026) - sem Google Fonts; v6: A-42 (06/10/2026) - divisão por rota (import() lazy), comum-telas.css, SWR de CSS/imagens; v5: Onda 3 M3 (06/10/2026) - m3-tokens.css, components.css, charts.css, assets/js/ui/*, assets/js/charts/*; v4: logo novo (05/10/2026)
+const CACHE_VERSION = 'v13'; // v10: Início com hero "Patrimônio líquido" + Metas, "Investimentos" no lugar de "Patrimônio total" (07/10/2026); v9: documentos (07/10/2026) - parcial, encerrados, remover vários; v8: fontes servidas pelo próprio site (assets/fonts, 06/10/2026) - sem Google Fonts; v6: A-42 (06/10/2026) - divisão por rota (import() lazy), comum-telas.css, SWR de CSS/imagens; v5: Onda 3 M3 (06/10/2026) - m3-tokens.css, components.css, charts.css, assets/js/ui/*, assets/js/charts/*; v4: logo novo (05/10/2026)
 const CACHE_NAME = `patrimonio-shell-${CACHE_VERSION}`;
 
 // Requests whose `destination` marks them as the static shell rather

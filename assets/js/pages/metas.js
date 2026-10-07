@@ -721,7 +721,7 @@ export async function montarPaginaMetas(token, {
     let html = '';
     if (ativas.some((m) => !ehMetaDistribuicao(m))) {
       const faltaAporte = res.aporteNecessario - aporteReal;
-      const infoPatrimonio = 'Cada investimento conta numa meta só: se duas metas vinculam o mesmo ativo, fica com a de maior prioridade (reserva de emergência, depois renda passiva, depois aposentadoria, depois as demais) - exceto Reserva de emergência e Aposentadoria, que podem contar os mesmos ativos. Por isso este total nunca passa do patrimônio que você tem investido.';
+      const infoPatrimonio = 'Cada investimento conta numa meta só: se duas metas vinculam o mesmo ativo, fica com a de maior prioridade (reserva de emergência, depois renda passiva, depois aposentadoria, depois as demais) - exceto a Aposentadoria, que pode contar os mesmos ativos da Reserva de emergência e da Renda passiva (é a mesma carteira). Por isso este total nunca passa do patrimônio que você tem investido.';
       const kpiIcone = (nome) => `<svg class="ico mt-kpi-ico" aria-hidden="true"><use href="#ico-${nome}"/></svg>`;
       // 06/10/2026 (Onda 3): cartões KPI do kit (rótulo pequeno + info, número grande, tendência com ícone - nunca só cor)
       html += `<section class="grid-kpi mt-resumo" aria-label="Resumo das metas">
@@ -753,7 +753,7 @@ export async function montarPaginaMetas(token, {
       // 06/10/2026: a exceção (Reserva x Aposentadoria podem contar os mesmos ativos) e o "ignorar este aviso" (persistido nas metas)
       const nomesSobre = new Set(sobre.flatMap((x) => x.metas));
       const idsSobre = ativas.filter((m) => nomesSobre.has(m.nome) && m.id).map((m) => m.id).join(',');
-      html += `<p class="mt-alerta mt-alerta-acao"><span>O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Cada ativo conta numa meta só - fica com a de maior prioridade (reserva, depois renda passiva, depois aposentadoria) e as outras contam só o que sobra; a única exceção é Reserva de emergência e Aposentadoria, que podem contar os mesmos ativos. Use uma fração ou um valor fixo nos vínculos para repartir.</span><button type="button" class="btn btn-text mt-btn-sm" data-ignorar-sobreposicao="${esc(idsSobre)}">Ignorar este aviso</button></p>`;
+      html += `<p class="mt-alerta mt-alerta-acao"><span>O mesmo dinheiro está em mais de uma meta: ${partes.join(' · ')}. Cada ativo conta numa meta só - fica com a de maior prioridade (reserva, depois renda passiva, depois aposentadoria) e as outras contam só o que sobra; a exceção é a Aposentadoria, que pode contar os mesmos ativos da Reserva de emergência e da Renda passiva. Use uma fração ou um valor fixo nos vínculos para repartir.</span><button type="button" class="btn btn-text mt-btn-sm" data-ignorar-sobreposicao="${esc(idsSobre)}">Ignorar este aviso</button></p>`;
     }
     // 05/10/2026 (A-14): vínculo a ativo que não existe mais (vendido ou com outro ticker) - antes sumia em silêncio
     const orfaos = vinculosOrfaos(ativas, estado.ctx.ativos, estado.ctx.cambio, estado.ctx.aliases);
@@ -1593,6 +1593,18 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 </li>`).join('')}</ul>
 <button type="button" class="mt-link" data-saldo-add>+ Adicionar saldo em conta</button>`;
   }
+  /**
+   * 07/10/2026 (Tiago: "tudo selecionado e o vinculado não bate"): quando parte do que foi marcado já conta em outra meta
+   * de prioridade maior, diz quanto foi marcado e onde está o resto - em vez de só um total menor sem explicação.
+   */
+  function htmlParteDeOutrasMetas(vinc, ativos, res, ocupado) {
+    const sem = resolverVinculos(vinc, ativos, estado.ctx.cambio, { aliases: estado.ctx.aliases || null });
+    const fora = Math.round((sem.total - res.total) * 100) / 100;
+    if (!(fora > 1)) return '';
+    const nomes = new Set();
+    Object.keys(sem.uso || {}).forEach((id) => { const x = ocupado[id]; if (x && x.valor > 0.005) (x.metas || []).forEach((n) => nomes.add(n)); });
+    return `<span class="mt-v-fora"> de <b class="mono">${formatMoeda(sem.total)}</b> marcados · <b class="mono">${formatMoeda(fora)}</b> já conta${nomes.size ? ` em ${[...nomes].map(esc).join(', ')}` : ' em outra meta'} (cada investimento conta numa meta só)</span>`;
+  }
   function passoVinculosHtml(m) {
     if (ehMetaDistribuicao(m)) return passoVinculosDistribuicaoHtml();
     const ativos = estado.ctx.ativos || [];
@@ -1603,7 +1615,8 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     outras.forEach((o) => resolverVinculos(o.vinculos, ativos, estado.ctx.cambio).itens.forEach((v) => v.ativos.forEach((a) => {
       const lista = usoOutras.get(a.id) || []; lista.push(o.nome); usoOutras.set(a.id, lista);
     })));
-    const res = resolverVinculos(vinc, ativos, estado.ctx.cambio, { ocupado: (estado.ctx.ocupadoPorMeta && estado.ctx.ocupadoPorMeta[m.id || '']) || {}, aliases: estado.ctx.aliases || null });
+    const ocupadoDaMeta = (estado.ctx.ocupadoPorMeta && estado.ctx.ocupadoPorMeta[m.id || '']) || {};
+    const res = resolverVinculos(vinc, ativos, estado.ctx.cambio, { ocupado: ocupadoDaMeta, aliases: estado.ctx.aliases || null });
     const atalhos = [
       ...['emergencial', 'longo-prazo'].map((k) => ({ tipo: 'marca', chave: k, rotulo: ROTULO_MARCA[k], valor: ativos.filter((a) => a.classe === 'rf' && a.marca === k).reduce((s, a) => s + a.valorBRL, 0) })),
       ...['fiis', 'acoes', 'usa', 'rf'].map((k) => ({ tipo: 'classe', chave: k, rotulo: `Toda a classe ${ROTULO_CLASSE[k]}`, valor: ativos.filter((a) => a.classe === k).reduce((s, a) => s + a.valorBRL, 0) })),
@@ -1625,7 +1638,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 <div class="mt-atalhos">${atalhos.map((x) => `<button type="button" class="mt-chip ${temGrupo(x.tipo, x.chave) ? 'active' : ''}" data-vinc-grupo="${x.tipo}:${x.chave}" aria-pressed="${temGrupo(x.tipo, x.chave)}">${esc(x.rotulo)} <span class="mono">${formatMoeda(x.valor, 'BRL', { casas: 0 })}</span></button>`).join('')}</div>
 <input class="mt-busca" type="search" placeholder="Buscar ativo, instituição…" data-vinc-busca value="${esc(estado.assistente.buscaAtivo || '')}" aria-label="Buscar ativo">
 <div class="mt-v-lista">${grupos.map(([cl, lista]) => `<h4 class="mt-grupo">${ROTULO_CLASSE[cl]}</h4><ul>${lista.map(linhaAtivo).join('')}</ul>`).join('') || '<p class="hint">Nenhum ativo encontrado.</p>'}</div>
-<p class="mt-v-total">Vinculado: <b class="mono">${formatMoeda(res.total)}</b></p>
+<p class="mt-v-total">Vinculado: <b class="mono">${formatMoeda(res.total)}</b>${htmlParteDeOutrasMetas(vinc, ativos, res, ocupadoDaMeta)}</p>
 ${saldosEditorHtml(m)}`;
   }
 

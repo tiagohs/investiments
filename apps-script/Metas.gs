@@ -1011,6 +1011,8 @@ function progressoVinculosMeta_(meta, ativos, cambio, ocupado) {
 
 /** Ordem de prioridade quando duas metas vinculam o mesmo ativo: reserva -> renda passiva -> aposentadoria -> demais (mesma de metas-calc.js!ordemDeAlocacao). */
 var METAS_PRIORIDADE_TIPOS_ = ['reservaEmergencia', 'rendaPassiva', 'aposentadoria'];
+/** 07/10/2026: metas que podem contar os MESMOS ativos que a aposentadoria (reserva: 06/10; renda passiva: 07/10). */
+var METAS_COMPARTILHAM_COM_APOSENTADORIA_ = ['reservaEmergencia', 'rendaPassiva'];
 
 /**
  * 05/10/2026 (A-11): calcula `progresso` de TODAS as metas ativas com alocação exclusiva por prioridade
@@ -1025,7 +1027,9 @@ function alocarMetasVinculos_(metas, ativos, cambio) {
     .sort(function (a, b) { return peso(a.m) - peso(b.m) || a.i - b.i; })
     .forEach(function (x) {
       var m = x.m;
-      if (m.tipo === 'reservaEmergencia') {
+      // 07/10/2026 (Tiago: "deveria ser basicamente meu patrimônio todo de investimentos"): a renda passiva também divide os
+      // ativos com a aposentadoria (é a mesma carteira) - igual a metas-calc-plano.js!COMPARTILHAM_COM_APOSENTADORIA
+      if (METAS_COMPARTILHAM_COM_APOSENTADORIA_.indexOf(m.tipo) >= 0) {
         var antes = {}; chaves(ocupado).forEach(function (id) { antes[id] = ocupado[id]; });
         m.progresso = progressoVinculosMeta_(m, ativos, cambio, ocupado);
         chaves(ocupado).forEach(function (id) { usoReserva[id] = (usoReserva[id] || 0) + (ocupado[id] - (antes[id] || 0)); });

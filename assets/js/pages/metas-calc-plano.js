@@ -330,6 +330,8 @@ function fracaoDoItem(v, a) {
  * aposentadoria; as outras metas, na ordem da lista, depois dessas).
  */
 export const PRIORIDADE_TIPOS_ALOCACAO = ['reservaEmergencia', 'rendaPassiva', 'aposentadoria'];
+/** 07/10/2026: metas que podem contar os MESMOS ativos que a aposentadoria (reserva: 06/10; renda passiva: 07/10). */
+export const COMPARTILHAM_COM_APOSENTADORIA = ['reservaEmergencia', 'rendaPassiva'];
 
 export function ordemDeAlocacao(metas) {
   const peso = (m) => { const k = PRIORIDADE_TIPOS_ALOCACAO.indexOf(m.tipo); return k < 0 ? PRIORIDADE_TIPOS_ALOCACAO.length : k; };
@@ -349,19 +351,22 @@ export function alocarMetas(metas, ativos, cambio, aliases = null) {
   const ocupadoPorMeta = {};
   const usoPorMeta = {};
   // 06/10/2026 (Tiago: "a única exceção de ter os mesmos ativos em duas metas seria Renda Emergencial e Patrimônio"):
-  // a reserva e a aposentadoria podem contar OS MESMOS ativos. A aposentadoria não vê o que a reserva pegou; quem vem
-  // depois vê, de cada ativo, o maior dos dois usos (o mesmo dinheiro não é contado em dobro).
-  const usoReserva = {}; // { idDoAtivo: valor } pego pela reserva
-  const nomesReserva = new Set();
+  // a reserva e a aposentadoria podem contar OS MESMOS ativos. 07/10/2026 (Tiago: "deveria ser basicamente meu patrimônio
+  // todo de investimentos"): a RENDA PASSIVA também - ela é o que a mesma carteira da aposentadoria paga por mês, não um
+  // dinheiro separado. A aposentadoria não vê o que essas metas pegaram; quem vem depois vê, de cada ativo, o maior dos
+  // usos (o mesmo dinheiro não é contado em dobro).
+  const usoCompartilhado = {}; // { idDoAtivo: valor } pego pelas metas que dividem ativos com a aposentadoria
+  const nomesCompartilhados = new Set();
   const ativas = (metas || []).filter((m) => m && m.status !== 'arquivada');
   ordemDeAlocacao(ativas).forEach((m) => {
     const chave = m.id || `__sem-id-${ativas.indexOf(m)}`;
     const ehApos = m.tipo === 'aposentadoria';
+    const divide = COMPARTILHAM_COM_APOSENTADORIA.includes(m.tipo);
     let visao = ocupado;
-    if (ehApos && Object.keys(usoReserva).length) {
+    if (ehApos && Object.keys(usoCompartilhado).length) {
       visao = {};
       Object.entries(ocupado).forEach(([id, x]) => {
-        visao[id] = { valor: Math.max(0, (Number(x.valor) || 0) - (usoReserva[id] || 0)), metas: (x.metas || []).filter((n) => !nomesReserva.has(n)) };
+        visao[id] = { valor: Math.max(0, (Number(x.valor) || 0) - (usoCompartilhado[id] || 0)), metas: (x.metas || []).filter((n) => !nomesCompartilhados.has(n)) };
       });
     }
     ocupadoPorMeta[chave] = JSON.parse(JSON.stringify(visao));
@@ -370,12 +375,12 @@ export function alocarMetas(metas, ativos, cambio, aliases = null) {
     usoPorMeta[chave] = r.uso;
     Object.entries(r.uso).forEach(([id, valor]) => {
       const x = ocupado[id] || (ocupado[id] = { valor: 0, metas: [] });
-      if (m.tipo === 'reservaEmergencia') {
-        usoReserva[id] = (usoReserva[id] || 0) + valor;
+      if (divide) {
+        usoCompartilhado[id] = (usoCompartilhado[id] || 0) + valor;
         x.valor += valor;
-        if (valor > 0.005) nomesReserva.add(m.nome);
+        if (valor > 0.005) nomesCompartilhados.add(m.nome);
       } else if (ehApos) {
-        x.valor += Math.max(0, valor - (usoReserva[id] || 0)); // a parte que coincide com a da reserva não ocupa de novo
+        x.valor += Math.max(0, valor - (usoCompartilhado[id] || 0)); // a parte que coincide com a dessas metas não ocupa de novo
       } else x.valor += valor;
       if (valor > 0.005 && !x.metas.includes(m.nome)) x.metas.push(m.nome);
     });
@@ -409,14 +414,14 @@ export function vinculosOrfaos(metas, ativos, cambio, aliases = null) {
  */
 export function ativosSobrecomprometidos(metas, ativos) {
   const mapa = new Map();
-  // 06/10/2026: meta com "ignorar este aviso" (meta.ignorarAvisos inclui 'sobreposicao') sai da conta; reserva e
-  // aposentadoria podem dividir os mesmos ativos (conta o maior dos dois, não a soma)
+  // 06/10/2026: meta com "ignorar este aviso" (meta.ignorarAvisos inclui 'sobreposicao') sai da conta; reserva/renda passiva
+  // e aposentadoria podem dividir os mesmos ativos (conta o maior dos dois lados, não a soma)
   (metas || []).filter((m) => m.status !== 'arquivada' && !ignoraAvisoSobreposicao(m)).forEach((m) => {
     resolverVinculos(m.vinculos, ativos).itens.forEach((v) => {
       v.ativos.forEach((a) => {
         const parte = v.pretendidoBRL != null && v.base > 0 ? v.pretendidoBRL * ((Number(a.valorBRL) || 0) / v.base) : (v.base > 0 ? v.valorBRL * ((Number(a.valorBRL) || 0) / v.base) : 0);
         const x = mapa.get(a.id) || { id: a.id, nome: a.nome, valorBRL: a.valorBRL, outros: 0, reserva: 0, apos: 0, metas: [] };
-        if (m.tipo === 'reservaEmergencia') x.reserva += parte;
+        if (COMPARTILHAM_COM_APOSENTADORIA.includes(m.tipo)) x.reserva += parte; // reserva + renda passiva (dividem com a aposentadoria)
         else if (m.tipo === 'aposentadoria') x.apos += parte;
         else x.outros += parte;
         if (!x.metas.includes(m.nome)) x.metas.push(m.nome);

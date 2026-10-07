@@ -126,7 +126,7 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261007b';
+var VERSAO_CODIGO_CACHE_ = '20261007c';
 
 function carimboEscritaPlanilha_() {
   var c = '0';

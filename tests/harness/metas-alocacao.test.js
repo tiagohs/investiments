@@ -47,12 +47,12 @@ test('A-11: a alocação do Apps Script (progresso das metas) é a mesma do fron
   const total = (id) => gs.find((m) => m.id === id).progresso.valorVinculado;
   assert.equal(total('r'), 8000);
   assert.equal(total('p'), 4000);
-  assert.equal(total('a'), 34000, 'aposentadoria: FIIs que sobraram (6.000) + ações (20.000) + o título da reserva (exceção de 06/10/2026)');
+  assert.equal(total('a'), 38000, 'aposentadoria: FIIs inteiros (divide com a renda passiva, 07/10/2026) + ações (20.000) + o título da reserva (exceção de 06/10/2026)');
   ['a', 'r', 'p'].forEach((id) => {
     const front = resolverVinculos(metas.find((m) => m.id === id).vinculos, ATIVOS, {}, { ocupado: aloc.ocupadoPorMeta[id] }).total;
     assert.equal(total(id), front, `meta ${id}: Apps Script = front`);
   });
-  assert.ok(total('a') + total('p') <= 42000 + 0.01, 'fora a exceção reserva x aposentadoria, nunca passa do patrimônio vinculável (RV + RF)');
+  assert.ok(total('a') <= 50000 + 0.01, 'a aposentadoria nunca passa do patrimônio vinculável (tudo)');
   assert.ok(gs.find((m) => m.id === 'a').progresso.cortadoBRL > 0);
 });
 

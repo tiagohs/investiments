@@ -47,10 +47,17 @@ test('alocarMetas: reserva -> renda passiva -> aposentadoria; cada ativo conta u
   assert.equal(cr.valorVinculado, 8000, 'reserva: o título emergencial');
   assert.equal(cp.valorVinculado, 15000, 'renda passiva: os FIIs');
   // 06/10/2026: exceção do Tiago - a reserva e a aposentadoria PODEM contar os mesmos ativos (o título emergencial conta nas duas)
-  assert.equal(ca.valorVinculado, 40000, 'aposentadoria: o título da reserva + longo prazo + ações (os FIIs são da renda passiva)');
-  assert.ok(cr.valorVinculado + cp.valorVinculado + (ca.valorVinculado - cr.valorVinculado) <= TOTAL + 0.01, 'sem contar em dobro fora da exceção');
-  assert.ok(ca.sobreposicao && /já está em Renda \(/.test(ca.sobreposicao.texto), 'o aviso (objeto, com "ignorar") cita só quem ficou com os FIIs: a renda passiva');
-  assert.equal(calcularMeta({ ...apos, ignorarAvisos: ['sobreposicao'] }, ctx).sobreposicao, null, 'ignorar este aviso (persistido na meta) some com ele');
+  // 07/10/2026: a renda passiva também (é a mesma carteira) - a aposentadoria conta tudo que vinculou
+  assert.equal(ca.valorVinculado, TOTAL, 'aposentadoria: o título da reserva + longo prazo + FIIs (divididos com a renda passiva) + ações');
+  assert.ok(aloc.totalAlocado <= TOTAL + 0.01, 'o mesmo dinheiro não conta em dobro no total alocado');
+  assert.equal(ca.sobreposicao, null, 'dividir com a reserva/renda passiva não é sobreposição');
+  // uma meta que NÃO divide (ex. acúmulo) continua exclusiva: o aviso aparece e "ignorar" some com ele
+  const acum = { id: 'c', tipo: 'acumulo', nome: 'Carro', valorAlvo: 50000, dataAlvo: '2030-01', vinculos: [{ tipo: 'classe', classe: 'acoes', modo: 'total' }], status: 'ativa' };
+  const aloc2 = alocarMetas([reserva, renda, apos, acum], ATIVOS, {});
+  const ctx2 = { ...ctx, ocupadoPorMeta: aloc2.ocupadoPorMeta };
+  const cc = calcularMeta(acum, ctx2);
+  assert.ok(cc.sobreposicao && /já está em Aposentadoria \(/.test(cc.sobreposicao.texto), 'as ações já são da aposentadoria');
+  assert.equal(calcularMeta({ ...acum, ignorarAvisos: ['sobreposicao'] }, ctx2).sobreposicao, null, 'ignorar este aviso (persistido na meta) some com ele');
   // sem a alocação (antes), a aposentadoria via 100% do patrimônio
   assert.equal(calcularMeta(apos, { ...ctx, ocupadoPorMeta: {} }).valorVinculado, TOTAL);
 });
@@ -75,8 +82,10 @@ test('resumoMetas: "patrimônio alocado" nunca maior que o patrimônio vinculáv
 });
 
 test('ativosSobrecomprometidos: avisa só quando o ativo é pedido por mais de uma meta', () => {
-  const sobre = ativosSobrecomprometidos([renda, apos], ATIVOS);
-  assert.ok(sobre.some((x) => x.id === 'AAAA11' && x.metas.includes('Renda') && x.metas.includes('Aposentadoria')));
+  assert.deepEqual(ativosSobrecomprometidos([renda, apos], ATIVOS), [], '07/10/2026: renda passiva e aposentadoria dividem a carteira');
+  const carro = { id: 'c', tipo: 'acumulo', nome: 'Carro', vinculos: [{ tipo: 'classe', classe: 'fiis', modo: 'total' }], status: 'ativa' };
+  const sobre = ativosSobrecomprometidos([renda, carro], ATIVOS);
+  assert.ok(sobre.some((x) => x.id === 'AAAA11' && x.metas.includes('Renda') && x.metas.includes('Carro')));
   assert.deepEqual(ativosSobrecomprometidos([reserva, renda], ATIVOS), []);
   // dois vínculos da MESMA meta já não geram aviso (contam uma vez)
   assert.deepEqual(ativosSobrecomprometidos([{ ...apos, vinculos: [{ tipo: 'classe', classe: 'acoes', modo: 'total' }, { tipo: 'ativo', id: 'CCCC3', modo: 'total' }] }], ATIVOS), []);
