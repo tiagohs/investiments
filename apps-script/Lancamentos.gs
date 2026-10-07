@@ -357,8 +357,11 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
     }
     var indexador = t.taxa && /cdi/i.test(t.taxa) ? 'CDI' : indexadorCarteiraRf_(t.nome);
     // 07/10/2026: linha COMPLETA (tipo, indexador, instituição, valor investido e, em fundo, as cotas); a sincronização refina quantidade e valor atualizado
-    aba.getRange(proxima, 1, 1, 12).setValues([[t.nome, rotuloColunaBDestinoRf_(t.destino), t.nome, tipoInvestimentoRf_(t.nome), indexador, t.instituicao,
-      (typeof ehFundoRf_ === 'function' && ehFundoRf_(t.nome) && t.cotas > 0) ? Math.round(t.cotas * 1e8) / 1e8 : '', '', Math.round(t.investido * 100) / 100, '', '', '']]);
+    var linhaNova = [t.nome, rotuloColunaBDestinoRf_(t.destino), t.nome, tipoInvestimentoRf_(t.nome), indexador, t.instituicao,
+      (typeof ehFundoRf_ === 'function' && ehFundoRf_(t.nome) && t.cotas > 0) ? Math.round(t.cotas * 1e8) / 1e8 : '', '', Math.round(t.investido * 100) / 100, '', '', ''];
+    // 07/10/2026: Tipo/Indexador passam pela lista de validação da planilha (fora dela a gravação dá erro)
+    if (typeof linhaAceitaPelaValidacaoRf_ === 'function') linhaNova = linhaAceitaPelaValidacaoRf_(aba, proxima, linhaNova);
+    aba.getRange(proxima, 1, 1, 12).setValues([linhaNova]);
     criados.push({ titulo: t.nome, instituicao: t.instituicao, destino: t.destino, linha: proxima });
     existentes[k] = true;
     proxima++;

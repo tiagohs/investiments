@@ -611,7 +611,7 @@ export function declaracaoIrDoAtivo(ir, { classe, ticker, hoje, transacoes = [],
     const fonte = (informesIrDoAtivo(ir, { ticker, classe: 'rendaFixa', instituicao: a.instituicao }) || { fontes: [] }).fontes[0];
     if (fonte && fonte.cnpj) ficha.cnpj = fonte.cnpj;
     // 07/10/2026: fundo de investimento de renda fixa (come-cotas) vai em 07 - Fundos / 01, com o CNPJ DO FUNDO - não em Aplicações
-    const ehFundo = !!fundo || /\bFUNDO\b/.test(tipo);
+    const ehFundo = !!fundo || /\bFUNDOS?\b/.test(tipo);
     if (ehFundo && base.fundos) {
       Object.assign(ficha, { grupo: base.fundos.grupo, grupoNome: base.fundos.grupoNome, codigo: base.fundos.codigo, codigoNome: base.fundos.codigoNome });
       ficha.cnpj = (fundo && fundo.cnpj) || null;

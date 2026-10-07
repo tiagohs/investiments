@@ -48,9 +48,28 @@ test('ehFundoRf_: fundos sim; Tesouro, CDB, LCI/LCA e títulos comuns não - e o
   sim.forEach((n) => assert.equal(sb.ehFundoRf_(n), true, n));
   nao.forEach((n) => assert.equal(sb.ehFundoRf_(n), false, String(n)));
   [...sim, ...nao].forEach((n) => assert.equal(ehFundoRf(n), sb.ehFundoRf_(n), `front x Apps Script: ${n}`));
-  assert.equal(sb.tipoInvestimentoRf_(NOME), 'Fundo de Investimento');
+  assert.equal(sb.tipoInvestimentoRf_(NOME), 'Fundos DI');
   assert.equal(sb.tipoInvestimentoRf_('Tesouro Selic 2029'), 'Tesouro Selic (LFT)', 'os outros tipos não mudam');
   assert.equal(sb.tipoInvestimentoRf_('LCI - X'), 'LCI / LCA Pós-fixada');
+  assert.equal(sb.tipoInvestimentoRf_('CDB Banco Teste'), 'CDB Pós-fixado');
+  assert.equal(sb.tipoInvestimentoRf_('CDB Prefixado Banco Teste'), 'CDB Pré-fixado');
+});
+
+// 07/10/2026: erro real - "Os dados inseridos na célula D18 violam o respectivo conjunto de regras de validação de dados" (a coluna Tipo tem lista)
+test('valorAceitoPelaValidacao_: respeita a lista de validação da célula (igual, sem acento/maiúscula, ou em branco); sem lista passa direto', () => {
+  const { sb } = montar();
+  const LISTA = ['CDB Pós-fixado', 'CDB Pré-fixado', 'Fundos DI', 'LCI / LCA Pós-fixada', 'Tesouro Selic (LFT)'];
+  const celula = (lista, allowInvalid = false) => ({
+    getA1Notation: () => 'D18',
+    getDataValidation: () => (lista ? { getAllowInvalid: () => allowInvalid, getCriteriaType: () => 'VALUE_IN_LIST', getCriteriaValues: () => [lista, true] } : null),
+  });
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA), 'Fundos DI'), 'Fundos DI');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA), 'fundos di'), 'Fundos DI');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA), 'CDB Pos fixado'), 'CDB Pós-fixado');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA), 'Fundo de Investimento'), '', 'fora da lista: em branco, sem quebrar a gravação');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA, true), 'Qualquer'), 'Qualquer', 'lista só de aviso');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(null), 'Qualquer'), 'Qualquer', 'sem validação');
+  assert.equal(sb.valorAceitoPelaValidacao_(celula(LISTA), ''), '');
 });
 
 test('sincronização: completa a linha INCOMPLETA (instituição, tipo, indexador, cotas, investido, atualizado), sem duplicar nem mexer na coluna B; 2ª rodada não muda nada', () => {
@@ -66,7 +85,7 @@ test('sincronização: completa a linha INCOMPLETA (instituição, tipo, indexad
   const l = linha(ss, 9);
   assert.equal(l[0], NOME);
   assert.equal(l[1], 'Objetivo', 'a coluna B (destino) nunca é trocada pela sincronização');
-  assert.deepEqual(l.slice(2, 6), [NOME, 'Fundo de Investimento', 'CDI', INST], 'tipo, indexador e instituição (como nas Transações)');
+  assert.deepEqual(l.slice(2, 6), [NOME, 'Fundos DI', 'CDI', INST], 'tipo, indexador e instituição (como nas Transações)');
   assert.equal(l[6], 130, 'cotas = aplicações menos resgates');
   assert.equal(l[8], 261, 'valor investido = custo PEPS do que ficou');
   assert.equal(l[11], 270, 'valor atualizado = último do histórico (estimativa 100% do CDI)');
@@ -103,7 +122,7 @@ test('Lançamentos: título cadastrado SEM instituição não é recriado; títu
   const b = montar({ carteira: [['COD0', 'Renda Emergencial', 'Tesouro Selic 2029', 'Tesouro Selic (LFT)', 'SELIC', INST, 1, '', 1000, '', '', 1300]] });
   const r2 = plain(b.sb.importarLancamentos_([novoItem({ produto: 'Outro Fundo Teste FIC RF' })], { simular: false, origem: 'Colado' }));
   assert.equal(r2.titulosRfCriados.length, 1);
-  assert.deepEqual(linha(b.ss, 10).slice(0, 9), ['Outro Fundo Teste FIC RF', 'Objetivo', 'Outro Fundo Teste FIC RF', 'Fundo de Investimento', 'CDI', INST, 10, '', 20]);
+  assert.deepEqual(linha(b.ss, 10).slice(0, 9), ['Outro Fundo Teste FIC RF', 'Objetivo', 'Outro Fundo Teste FIC RF', 'Fundos DI', 'CDI', INST, 10, '', 20]);
 });
 
 test('cota informada: guarda (cota + data), vira o valor do título (cotas x cota x CDI desde a data) e a mais nova vale', () => {
@@ -179,7 +198,7 @@ test('Carteiras RF: o fundo completo mostra tipo, indexador, cotas e valor, e va
   sb.completarTitulosRendaFixaDireto();
   const c = plain(sb.montarCarteirasRendaFixa_());
   const a = c.ativos.find((x) => x.nomePersonalizado === NOME);
-  assert.equal(a.tipoInvestimento, 'Fundo de Investimento');
+  assert.equal(a.tipoInvestimento, 'Fundos DI');
   assert.equal(a.instituicao, INST);
   assert.equal(a.quantidade, 130);
   assert.equal(a.totalAtualizado, 270);

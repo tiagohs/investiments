@@ -94,9 +94,47 @@ function tipoInvestimentoRf_(produto) {
   if (/^Tesouro Prefixado/i.test(s)) return 'Tesouro Prefixado';
   if (/^Tesouro/i.test(s)) return s.replace(/\s+\d{4}$/, '');
   if (/^(LCI|LCA)/i.test(s)) return 'LCI / LCA Pós-fixada';
-  if (/^CDB/i.test(s)) return 'CDB';
-  if (ehFundoRf_(s)) return 'Fundo de Investimento'; // 07/10/2026: fundo (ex. "Trend DI FC RF Simples RL") - antes caía em 'Renda Fixa' genérico
+  // 07/10/2026: os rótulos são os da lista de validação da coluna "Tipo de Investimento" da planilha (CDB Pós-fixado, CDB Pré-fixado, Fundos DI...);
+  // escrever fora dela dá erro ("viola as regras de validação") - valorAceitoPelaValidacao_ ainda confere na hora de gravar
+  if (/^CDB/i.test(s)) return /pr[eé][\s-]?fixad/i.test(s) ? 'CDB Pré-fixado' : 'CDB Pós-fixado';
+  if (/^Deb[eê]nture/i.test(s)) return 'Debênture pós-fixada';
+  if (ehFundoRf_(s)) return 'Fundos DI'; // fundo (ex. "Trend DI FC RF Simples RL") - antes caía em 'Renda Fixa' genérico
   return 'Renda Fixa';
+}
+
+/**
+ * 07/10/2026 (erro do Tiago em completarTitulosRendaFixaDireto: "Os dados inseridos na célula D18 violam o respectivo conjunto de regras de validação
+ * de dados"): colunas da Carteira Renda Fixa com validação de dados em lista (Tipo de Investimento, Indexador...) recusam valor fora da lista e a
+ * gravação PARA no meio. Devolve o valor se a célula não tem lista (ou a lista só avisa), o item da lista que bate sem acento/maiúscula, ou ''
+ * (a célula fica em branco pro Tiago escolher) - nunca quebra a gravação.
+ */
+function valorAceitoPelaValidacao_(celula, valor) {
+  if (valor === '' || valor == null || !celula || typeof celula.getDataValidation !== 'function') return valor;
+  var lista = null;
+  try {
+    var regra = celula.getDataValidation();
+    if (!regra || (typeof regra.getAllowInvalid === 'function' && regra.getAllowInvalid())) return valor;
+    var criterio = regra.getCriteriaType(), args = regra.getCriteriaValues() || [];
+    var tipos = (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.DataValidationCriteria) || {};
+    if (String(criterio) === String(tipos.VALUE_IN_LIST || 'VALUE_IN_LIST')) lista = args[0] || [];
+    else if (String(criterio) === String(tipos.VALUE_IN_RANGE || 'VALUE_IN_RANGE') && args[0] && args[0].getValues) lista = [].concat.apply([], args[0].getValues());
+  } catch (e) { return valor; }
+  if (!lista) return valor;
+  lista = lista.map(function (x) { return String(x == null ? '' : x).trim(); }).filter(function (x) { return x; });
+  if (lista.indexOf(String(valor)) >= 0) return valor;
+  var norm = function (t) { return String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim(); };
+  var alvo = norm(valor);
+  for (var i = 0; i < lista.length; i++) if (norm(lista[i]) === alvo) return lista[i];
+  for (var j = 0; j < lista.length; j++) if (norm(lista[j]).indexOf(alvo) === 0 || alvo.indexOf(norm(lista[j])) === 0) return lista[j];
+  try { Logger.log('Carteira Renda Fixa: "' + valor + '" não está na lista da célula ' + celula.getA1Notation() + ' - deixei em branco'); } catch (eLog) { /* só log */ }
+  return '';
+}
+
+/** Grava a linha inteira passando Tipo (D) e Indexador (E) pela validação da própria célula. */
+function linhaAceitaPelaValidacaoRf_(aba, linha, valores) {
+  var out = valores.slice();
+  [3, 4].forEach(function (i) { if (i < out.length) out[i] = valorAceitoPelaValidacao_(aba.getRange(linha, i + 1), out[i]); });
+  return out;
 }
 
 /**
@@ -336,7 +374,12 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
   var saida = { resumo: resumo, atualizadas: atualizadas, novas: novas.map(function (x) { return { nome: x.nome, valores: x.linha }; }), removidas: removidas.map(function (p) { return { nome: p.nome, linha: p.linha }; }), avisos: avisos, dataPrecos: dataPrecos };
   if (o.simular) return saida;
 
-  mudancas.forEach(function (m) { m.dif.forEach(function (d) { aba.getRange(m.linha, d.col).setValue(d.v); }); });
+  mudancas.forEach(function (m) {
+    m.dif.forEach(function (d) {
+      var cel = aba.getRange(m.linha, d.col);
+      cel.setValue(d.col === 4 || d.col === 5 ? valorAceitoPelaValidacao_(cel, d.v) : d.v); // 07/10/2026: lista de validação da planilha
+    });
+  });
   var proxima = ultimaPosicao + 1;
   novas.forEach(function (x) {
     if (proxima > aba.getMaxRows()) aba.insertRowsAfter(aba.getMaxRows(), 5);
@@ -346,7 +389,7 @@ function sincronizarCarteiraRendaFixa_(opcoes) {
       var jaTem = aba.getRange(proxima, 13, 1, 3).getFormulas()[0].some(function (f) { return !!f; });
       if (!jaTem) copiarFormulasLinha_(aba, modelo, proxima, 13, Math.max(aba.getLastColumn(), 15));
     }
-    aba.getRange(proxima, 1, 1, 12).setValues([x.linha]);
+    aba.getRange(proxima, 1, 1, 12).setValues([linhaAceitaPelaValidacaoRf_(aba, proxima, x.linha)]);
     x.linhaPlanilha = proxima;
     proxima++;
   });

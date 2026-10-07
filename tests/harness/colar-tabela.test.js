@@ -92,7 +92,7 @@ test('título NOVO com destino Objetivo: a Carteira Renda Fixa ganha a linha com
   assert.deepEqual(r.titulosRfCriados[0], { titulo: 'Fundo DI Teste', instituicao: INST, destino: 'objetivo', linha: 10 });
   const cart = ss.abas['Carteira Renda Fixa'];
   // 07/10/2026: linha COMPLETA - tipo "Fundo de Investimento", indexador CDI (taxa "100% do CDI"), instituição, valor aplicado e as cotas
-  assert.deepEqual(cart.valores(10).slice(0, 6), ['Fundo DI Teste', 'Objetivo', 'Fundo DI Teste', 'Fundo de Investimento', 'CDI', INST]);
+  assert.deepEqual(cart.valores(10).slice(0, 6), ['Fundo DI Teste', 'Objetivo', 'Fundo DI Teste', 'Fundos DI', 'CDI', INST]);
   assert.equal(cart.valor('G10'), 160.75, 'cotas das compras (a sincronização refaz pelo PEPS)');
   assert.equal(cart.valor('I10'), 321.4, 'valor aplicado das compras (a sincronização refaz pelo PEPS)');
   assert.equal(sb.destinoRendaFixa_(cart.valor('B10')), 'objetivo');
