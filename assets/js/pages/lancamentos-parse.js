@@ -36,6 +36,7 @@ export const TIPOS_ARQUIVO = {
   b3Proventos: 'B3 · Proventos recebidos',
   b3ProventosAReceber: 'B3 · Proventos a receber',
   ibkr: 'Interactive Brokers · Extrato',
+  colado: 'Tabela colada', // 07/10/2026: "Colar uma tabela" (colar-tabela-parse.js) - não é arquivo, mas passa pela mesma revisão
 };
 
 // ---------------------------------------------------------------------------

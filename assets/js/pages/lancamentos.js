@@ -22,6 +22,8 @@
 
 import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDMA, formatMesAno } from '../format.js';
 import { DESTINOS, TIPOS_ARQUIVO, lerArquivos, valorDoItem } from './lancamentos-parse.js';
+import { lerTabelaColada, itensRendaFixaDaTabela, itensAcoesDaTabela } from './colar-tabela-parse.js';
+import { destinoRendaFixa, ROTULO_DESTINO_RF, DESTINOS_RENDA_FIXA } from '../destino-renda-fixa.js';
 import { MESES_LONGOS } from './aportes-calc.js';
 import { classePorTicker, todasAsCompras } from './aportes-mapa-calc.js';
 import { renderGraficoCompras } from './aportes-grafico.js';
@@ -95,13 +97,15 @@ export async function lerArquivoDoNavegador(doc, arquivo, { carregarXlsx = carre
 // 1. Importar
 // ---------------------------------------------------------------------------
 
-function importarHtml(estado) {
+function importarHtml(estado, dados) {
   return `
     <section class="tx-secao" aria-labelledby="txImpTitulo">
       <div class="tx-secao-cab">
         <h2 id="txImpTitulo">Importar extratos</h2>
         <span class="hint">nada vai pra planilha antes da sua revisão</span>
+        <button type="button" class="btn btn-tonal btn-sm tx-colar-abrir" data-lanc="colar-abrir" aria-expanded="${estado.colar.aberto ? 'true' : 'false'}" aria-controls="txColar">${ic('table-chart')}Colar uma tabela</button>
       </div>
+      <div id="txColar">${colarHtml(estado, dados)}</div>
       <label class="tx-drop${estado.arrastando ? ' arrastando' : ''}" id="txDrop">
         <input type="file" id="txArquivos" multiple accept=".xlsx,.xls,.csv,.txt" hidden>
         ${ic('upload', 'ico tx-drop-ico')}
@@ -120,6 +124,152 @@ function importarHtml(estado) {
       </details>
       <div id="txRevisao">${revisaoHtml(estado)}</div>
     </section>`;
+}
+
+// ---------------------------------------------------------------------------
+// 1b. Colar uma tabela (07/10/2026: fundo guardado pra chácara - a corretora não dá extrato, o agregador mostra uma tabela)
+// ---------------------------------------------------------------------------
+
+const TITULO_NOVO_TAXA_PADRAO = '100% do CDI';
+const semAcentoColar = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const alfaNum = (t) => semAcentoColar(t).replace(/[^a-z0-9]/g, '');
+
+/** O título digitado já está na Carteira Renda Fixa? (nome sem acento/caixa; com mais de um de mesmo nome, prefere a mesma instituição). */
+export function acharTituloRf(dados, titulo, instituicao = '') {
+  const nome = semAcentoColar(titulo);
+  if (!nome) return null;
+  const lista = ((dados && dados.classes && dados.classes.rendaFixa) || []).filter((t) => semAcentoColar(t.titulo) === nome);
+  if (!lista.length) return null;
+  const inst = alfaNum(instituicao);
+  return (inst && lista.find((t) => alfaNum(t.instituicao) === inst)) || lista[0];
+}
+
+function colarNovoHtml(estado, dados) {
+  const c = estado.colar;
+  if (c.destino !== 'rendaFixa' || !String(c.titulo || '').trim()) return '';
+  const ex = acharTituloRf(dados, c.titulo, c.instituicao);
+  if (ex) {
+    return `<p class="tx-nota tx-colar-achou" role="status">${ic('check-circle')}Título já cadastrado em Carteiras › Renda Fixa: <b>${esc(ROTULO_DESTINO_RF[destinoRendaFixa(ex.destino || ex.categoria)])}</b>. As compras entram nele.</p>`;
+  }
+  return `
+    <div class="tx-aviso aviso tx-colar-novo" role="status">${ic('warning')}<span><b>Título novo.</b> Ele ainda não está em Carteiras › Renda Fixa. Ao lançar, o site cria o título lá com o destino abaixo (não precisa cadastrar antes).</span></div>
+    <div class="tx-form-grade">
+      <label class="tx-rotulo">Destino
+        <select class="select" id="txColarDestinoRf" name="destinoRf" data-colar="destinoRf">${DESTINOS_RENDA_FIXA.map((d) => `<option value="${d}"${c.destinoRf === d ? ' selected' : ''}>${esc(ROTULO_DESTINO_RF[d])}</option>`).join('')}</select>
+      </label>
+    </div>
+    <p class="tx-nota">Fundo DI: cadastre como pós-fixado, 100% do CDI (aproximação: a taxa de administração e o come-cotas não entram na conta).</p>`;
+}
+
+function colarCamposHtml(estado, dados) {
+  const c = estado.colar;
+  if (c.destino === 'acoes') {
+    return '<p class="tx-nota">A tabela precisa ter uma coluna com o ticker (Ticker, Código ou Papel), além de data, tipo, quantidade e preço. O que tiver ticker ainda não cadastrado em Carteiras fica marcado como problema na revisão.</p>';
+  }
+  const titulos = (dados.classes.rendaFixa || []);
+  return `
+    <div class="tx-form-grade">
+      <label class="tx-rotulo tx-rotulo-largo">Título ou fundo
+        <input class="input" type="text" id="txColarTitulo" name="titulo" data-colar="titulo" list="txColarListaTitulos" autocomplete="off" placeholder="Fundo DI Exemplo, Tesouro Selic 2029..." value="${esc(c.titulo)}">
+      </label>
+      <label class="tx-rotulo tx-rotulo-largo">Instituição
+        <input class="input" type="text" id="txColarInst" name="instituicao" data-colar="instituicao" list="txColarListaInst" autocomplete="off" placeholder="Rico, XP INVESTIMENTOS..." value="${esc(c.instituicao)}">
+      </label>
+      <label class="tx-rotulo">Taxa contratada (opcional)
+        <input class="input" type="text" id="txColarTaxa" name="taxa" data-colar="taxa" autocomplete="off" placeholder="${TITULO_NOVO_TAXA_PADRAO}" value="${esc(c.taxa)}">
+      </label>
+    </div>
+    <datalist id="txColarListaTitulos">${titulos.map((t) => `<option value="${esc(t.titulo)}"></option>`).join('')}</datalist>
+    <datalist id="txColarListaInst">${[...new Set(titulos.map((t) => t.instituicao).filter(Boolean))].map((i) => `<option value="${esc(i)}"></option>`).join('')}</datalist>
+    <div id="txColarNovo" class="tx-colar-novo-caixa">${colarNovoHtml(estado, dados)}</div>`;
+}
+
+/** Linha de prévia embaixo da caixa de texto: quantas linhas a tabela colada tem e quantas não deu pra entender. */
+export function textoPreviaColar(texto) {
+  if (!String(texto || '').trim()) return 'Cole as linhas acima; dá pra conferir tudo antes de lançar.';
+  const r = lerTabelaColada(texto);
+  const compras = r.linhas.filter((l) => l.tipo === 'compra').length;
+  const resg = r.linhas.length - compras;
+  const partes = [`${r.linhas.length} linha${r.linhas.length === 1 ? '' : 's'} reconhecida${r.linhas.length === 1 ? '' : 's'}`];
+  if (r.linhas.length) partes.push(`${compras} compra${compras === 1 ? '' : 's'}${resg ? ` e ${resg} resgate${resg === 1 ? '' : 's'}` : ''}`);
+  if (r.avisos.length) partes.push(`${r.avisos.length} não entendida${r.avisos.length === 1 ? '' : 's'} (aparecem na revisão)`);
+  if (r.linhas.some((l) => l.aviso)) partes.push('com divergência de valor em ' + r.linhas.filter((l) => l.aviso).length);
+  return partes.join(' · ');
+}
+
+function colarHtml(estado, dados) {
+  const c = estado.colar;
+  if (!c.aberto) return '';
+  return `
+    <div class="card tx-colar" role="group" aria-labelledby="txColarTit">
+      <div class="tx-colar-cab">
+        <h3 id="txColarTit">Colar uma tabela</h3>
+        <button type="button" class="icon-btn" data-lanc="colar-fechar" aria-label="Fechar">${ic('close')}</button>
+      </div>
+      <p class="tx-nota">Serve pra qualquer corretora ou agregador: copie as linhas da tabela (Data, Tipo, Quantidade, Preço, Valor...) e cole aqui. Nada vai pra planilha antes da revisão.</p>
+      <label class="tx-rotulo">Cole aqui as linhas (copie a tabela do site da corretora, do Gorila, do Excel...)
+        <textarea class="textarea" id="txColarTexto" data-colar="texto" rows="7" spellcheck="false" placeholder="Data&#9;Tipo&#9;Quantidade&#9;Preço&#9;Custos Op.&#9;Valor total&#10;05/10/2026&#9;Compra&#9;100,5&#9;R$ 2,00&#9;R$ 0,00&#9;R$ 201,00">${esc(c.texto)}</textarea>
+      </label>
+      <p class="tx-nota tx-colar-previa" id="txColarPrevia" role="status">${esc(textoPreviaColar(c.texto))}</p>
+      <label class="tx-rotulo tx-colar-destino">Pra onde vai
+        <select class="select" id="txColarDestino" name="destino" data-colar="destino">
+          <option value="rendaFixa"${c.destino === 'rendaFixa' ? ' selected' : ''}>Renda Fixa / fundo</option>
+          <option value="acoes"${c.destino === 'acoes' ? ' selected' : ''}>Ações e FIIs (a tabela tem a coluna do ticker)</option>
+        </select>
+      </label>
+      <div id="txColarCampos">${colarCamposHtml(estado, dados)}</div>
+      ${c.erro ? `<div class="tx-aviso erro" role="alert">${ic('error')}<span>${esc(c.erro)}</span></div>` : ''}
+      <div class="tx-botoes">
+        <button type="button" class="btn btn-filled" data-lanc="colar-conferir">Conferir e revisar</button>
+        <button type="button" class="btn btn-text" data-lanc="colar-fechar">Cancelar</button>
+      </div>
+    </div>`;
+}
+
+function redesenharColar(ctx) {
+  const el = ctx.el.querySelector('#txColar');
+  if (el) el.innerHTML = colarHtml(ctx.estado, ctx.dados);
+  const b = ctx.el.querySelector('[data-lanc="colar-abrir"]');
+  if (b) b.setAttribute('aria-expanded', ctx.estado.colar.aberto ? 'true' : 'false');
+}
+
+/** Campo da caixa "Colar uma tabela" mudou: guarda no estado (a tela pode ser redesenhada sem perder o que foi digitado) e atualiza só o que depende dele. */
+function aoMudarCampoColar(ctx, campo, valor) {
+  const { el, estado } = ctx;
+  const c = estado.colar;
+  c[campo] = valor;
+  if (campo === 'texto') {
+    const previa = el.querySelector('#txColarPrevia');
+    if (previa) previa.textContent = textoPreviaColar(valor);
+    // a tabela tem coluna de ticker e o destino ainda é o padrão: sugere Ações e FIIs (não mexe se a pessoa já escolheu)
+    if (!c.destinoEscolhido && c.destino === 'rendaFixa' && lerTabelaColada(valor).temTicker) {
+      c.destino = 'acoes';
+      const sel = el.querySelector('#txColarDestino');
+      const campos = el.querySelector('#txColarCampos');
+      if (sel) sel.value = 'acoes';
+      if (campos) campos.innerHTML = colarCamposHtml(estado, ctx.dados);
+    }
+    return;
+  }
+  if (campo === 'taxa') { c.taxaTocada = true; return; }
+  if (campo === 'destino') {
+    c.destinoEscolhido = true;
+    const campos = el.querySelector('#txColarCampos');
+    if (campos) campos.innerHTML = colarCamposHtml(estado, ctx.dados);
+    return;
+  }
+  if (campo === 'titulo' || campo === 'instituicao') {
+    const ex = acharTituloRf(ctx.dados, c.titulo, c.instituicao);
+    const inst = el.querySelector('#txColarInst');
+    if (campo === 'titulo' && ex && !String(c.instituicao || '').trim() && ex.instituicao) { c.instituicao = ex.instituicao; if (inst) inst.value = ex.instituicao; }
+    // título novo: a taxa já vem como "100% do CDI" (o fundo DI do pedido); ao voltar pra um título que existe, tira o que a tela sugeriu
+    const taxa = el.querySelector('#txColarTaxa');
+    const novo = !!String(c.titulo || '').trim() && !ex;
+    if (novo && !c.taxa && !c.taxaTocada) { c.taxa = TITULO_NOVO_TAXA_PADRAO; if (taxa) taxa.value = c.taxa; }
+    if (!novo && c.taxa === TITULO_NOVO_TAXA_PADRAO && !c.taxaTocada) { c.taxa = ''; if (taxa) taxa.value = ''; }
+    const caixa = el.querySelector('#txColarNovo');
+    if (caixa) caixa.innerHTML = colarNovoHtml(estado, ctx.dados);
+  }
 }
 
 function celulasItem(it) {
@@ -174,7 +324,7 @@ function grupoRevisaoHtml(estado, destino) {
       <tr class="tx-rev-${s.situacao}${marcado ? ' marcado' : ''}">
         <td class="tx-td-check"><input type="checkbox" class="cb" data-marcar="${it.uid}"${marcado ? ' checked' : ''}${travado ? ' disabled' : ''} aria-label="Lançar esta linha"></td>
         ${c.map((v, i) => `<td data-rot="${ROTULOS_COLUNAS[i]}"${i === 1 ? ' class="esq"' : ''}>${v}</td>`).join('')}
-        <td data-rot="Situação" class="tx-td-sit"><span class="${chipTom(info.cls)}">${info.txt}</span>${s.motivo && s.situacao !== 'lancado' ? `<small>${esc(s.motivo)}</small>` : ''}${linkNovoAtivoHtml(it, s)}
+        <td data-rot="Situação" class="tx-td-sit"><span class="${chipTom(info.cls)}">${info.txt}</span>${s.motivo && s.situacao !== 'lancado' ? `<small>${esc(s.motivo)}</small>` : ''}${it.aviso ? `<small class="tx-aviso-linha">${ic('warning')}${esc(it.aviso)}</small>` : ''}${linkNovoAtivoHtml(it, s)}
           ${rfCompra(it) ? `<label class="tx-taxa">Taxa contratada <input type="text" class="input" data-taxa="${it.uid}" value="${esc(it.taxaContratada || '')}" placeholder="IPCA + 6,5%" aria-label="Taxa contratada (opcional)"></label>` : ''}
         </td>
       </tr>`;
@@ -183,7 +333,7 @@ function grupoRevisaoHtml(estado, destino) {
     <div class="tx-rev-grupo">
       <div class="tx-rev-grupo-cab">
         <h3><span class="tx-dot" style="background:var(${COR_DESTINO[destino]})"></span>${DESTINOS[destino].nome}</h3>
-        <span>${novos} novo${novos === 1 ? '' : 's'} · ${itens.length} no arquivo <small>→ aba ${esc(DESTINOS[destino].aba)}</small></span>
+        <span>${novos} novo${novos === 1 ? '' : 's'} · ${itens.length} ${rev.origem === 'Colado' ? 'na tabela' : 'no arquivo'} <small>→ aba ${esc(DESTINOS[destino].aba)}</small></span>
         ${lancados.length ? `<button type="button" class="btn btn-text btn-sm" data-mostrar-lancados="${destino}">${estado.mostrarLancados[destino] ? 'esconder' : 'mostrar'} ${lancados.length} já lançado${lancados.length > 1 ? 's' : ''}</button>` : ''}
       </div>
       ${mostrar.length ? `
@@ -212,7 +362,7 @@ function revisaoHtml(estado) {
     <span class="tx-arq${a.erro ? ' erro' : ''}" title="${esc(a.erro || '')}"><b>${esc(a.nome)}</b><small>${a.erro ? esc(a.erro) : `${esc(TIPOS_ARQUIVO[a.tipo] || a.tipo)} · ${a.itens.length} linha${a.itens.length === 1 ? '' : 's'}`}</small></span>`).join('');
   const ignorados = rev.ignorados.length ? `
     <details class="tx-ignorados">
-      <summary>${rev.ignorados.length} linha${rev.ignorados.length > 1 ? 's' : ''} dos arquivos não vira${rev.ignorados.length > 1 ? 'm' : ''} lançamento</summary>
+      <summary>${rev.ignorados.length} linha${rev.ignorados.length > 1 ? 's' : ''} ${rev.origem === 'Colado' ? 'da tabela' : 'dos arquivos'} não vira${rev.ignorados.length > 1 ? 'm' : ''} lançamento</summary>
       <div class="card card-flat tx-card-tabela"><div class="tabela-wrap tx-tabela-wrap"><table class="tabela tx-tabela tx-tabela-ign">
         <thead><tr><th>Data</th><th class="esq">Ativo</th><th class="esq">O que é</th><th class="esq">Por quê</th></tr></thead>
         <tbody>${rev.ignorados.map((g) => `<tr><td data-rot="Data">${formatDMA(g.data)}</td><td data-rot="Ativo" class="esq"><b>${esc(g.ativo)}</b></td><td data-rot="O que é" class="esq">${esc(g.detalhe)}</td><td data-rot="Por quê" class="esq">${esc(g.motivo)}</td></tr>`).join('')}</tbody>
@@ -593,6 +743,7 @@ function listaHtml(estado, dados) {
 export function estadoInicialLancamentos() {
   return {
     arrastando: false, revisao: null, mostrarLancados: {},
+    colar: { aberto: false, texto: '', destino: 'rendaFixa', destinoEscolhido: false, titulo: '', instituicao: '', taxa: '', taxaTocada: false, destinoRf: 'longo-prazo', erro: '' },
     manual: { aberto: false, destino: 'transacoes', mensagem: null, pendente: null },
     lista: {
       filtro: 'todos', ano: '', busca: '', ativo: '', limite: POR_PAGINA, mesesVisiveis: MESES_LISTA_INICIAL,
@@ -609,7 +760,7 @@ export function estadoInicialLancamentos() {
 export function renderLancamentos(ctx) {
   const { el, dados, estado } = ctx;
   destruirGrafico(el);
-  el.innerHTML = `${importarHtml(estado)}${manualHtml(estado, dados)}${listaHtml(estado, dados)}`;
+  el.innerHTML = `${importarHtml(estado, dados)}${manualHtml(estado, dados)}${listaHtml(estado, dados)}`;
   el._txCtx = ctx;
   desenharGraficoLista(ctx);
   ligarMenusLista(ctx);
@@ -730,10 +881,22 @@ async function processarArquivos(ctx, arquivos) {
   }
   const r = lerArquivos(lidos.filter((l) => !l.erroLeitura));
   lidos.filter((l) => l.erroLeitura).forEach((l) => r.arquivos.push({ nome: l.nome, tipo: '', itens: [], ignorados: [], erro: `Não consegui ler: ${l.erroLeitura}` }));
-  estado.revisao = { ...r, situacao: {}, marcados: {}, carregando: r.itens.length ? 'Conferindo com o que já está na planilha…' : '' };
+  await conferirRevisaoInicial(ctx, r, '');
+}
+
+/** O que vai junto de cada chamada ao servidor: simular ou não e, na tabela colada, a origem "Colado" (Registro de Controle; nunca força "já lançado"). */
+const opcoesImportar = (rev, simular) => (rev && rev.origem ? { simular, origem: rev.origem } : { simular });
+
+/**
+ * r: { itens (com uid), arquivos, ignorados } - de arquivos (lerArquivos) ou da tabela colada. Abre a revisão e confere com a planilha
+ * (importar simular) - o MESMO caminho nos dois casos, pra herdar "já lançado", marcar/desmarcar e o resumo. origem '' = padrão.
+ */
+async function conferirRevisaoInicial(ctx, r, origem) {
+  const { estado } = ctx;
+  estado.revisao = { ...r, situacao: {}, marcados: {}, carregando: r.itens.length ? 'Conferindo com o que já está na planilha…' : '', ...(origem ? { origem } : {}) };
   redesenharRevisao(ctx);
   if (!r.itens.length) return;
-  const resp = await ctx.importar(r.itens, { simular: true });
+  const resp = await ctx.importar(r.itens, opcoesImportar(estado.revisao, true));
   estado.revisao.carregando = '';
   if (!resp || !resp.ok) {
     estado.revisao.erro = erroDe('Não consegui conferir com a planilha agora. Nada foi lançado; tente conferir de novo.', resp);
@@ -745,6 +908,43 @@ async function processarArquivos(ctx, arquivos) {
     estado.revisao.conferenciaB3 = resp.resultado.conferenciaProventos || null; // 07/10/2026: o extrato de proventos ficou registrado?
   }
   redesenharRevisao(ctx);
+}
+
+/** Botão "Conferir e revisar" da tabela colada: lê os campos, vira itens e abre a revisão (nada é gravado aqui). */
+async function colarConferir(ctx) {
+  const { estado } = ctx;
+  const c = estado.colar;
+  const r = lerTabelaColada(c.texto);
+  const falha = (erro) => { c.erro = erro; redesenharColar(ctx); };
+  if (!r.linhas.length) return falha((r.avisos[0] && r.avisos[0].motivo) || 'Cole as linhas da tabela primeiro.');
+  let itens = [];
+  let avisos = r.avisos;
+  let nome = 'Tabela colada';
+  if (c.destino === 'acoes') {
+    const a = itensAcoesDaTabela(r.linhas);
+    itens = a.itens;
+    avisos = [...r.avisos, ...a.avisos];
+    if (!itens.length) return falha(a.avisos[0] ? `${a.avisos[0].motivo} Escolha "Renda Fixa / fundo" se a tabela não tem ticker.` : 'Nenhuma linha com ticker, quantidade e preço.');
+  } else {
+    const titulo = String(c.titulo || '').replace(/\s+/g, ' ').trim();
+    if (!titulo) return falha('Informe o título ou fundo (escolha um da lista ou digite o nome).');
+    const existente = acharTituloRf(ctx.dados, titulo, c.instituicao);
+    const instituicao = String(c.instituicao || '').trim() || (existente && existente.instituicao) || '';
+    itens = itensRendaFixaDaTabela(r.linhas, {
+      produto: existente ? existente.titulo : titulo, instituicao, taxaContratada: String(c.taxa || '').trim(),
+      destinoRf: existente ? '' : (DESTINOS_RENDA_FIXA.includes(c.destinoRf) ? c.destinoRf : 'longo-prazo'),
+    });
+    nome = existente ? existente.titulo : titulo;
+  }
+  itens.forEach((it, i) => { it.uid = i; it.arquivo = nome; });
+  const ignorados = avisos.map((a) => ({ data: '', ativo: `Linha ${a.n}`, detalhe: String(a.bruto || '—').replace(/\t/g, ' · ').slice(0, 140), motivo: a.motivo }));
+  c.erro = '';
+  c.aberto = false;
+  redesenharColar(ctx);
+  estado.mostrarLancados = {};
+  await conferirRevisaoInicial(ctx, { itens, ignorados, arquivos: [{ nome, tipo: 'colado', itens, ignorados, erro: '' }] }, 'Colado');
+  const el = ctx.el.querySelector('#txRevisao');
+  if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function textoConsolidacao(c) {
@@ -768,7 +968,7 @@ async function reconferirRevisao(ctx) {
   if (!itens.length) return;
   rev.carregando = 'Conferindo de novo com a planilha…';
   redesenharRevisao(ctx);
-  const resp = await ctx.importar(itens, { simular: true });
+  const resp = await ctx.importar(itens, opcoesImportar(rev, true));
   rev.carregando = '';
   if (!resp || !resp.ok) {
     rev.erro = erroDe('Não consegui conferir com a planilha agora. Nada foi lançado; tente conferir de novo.', resp);
@@ -795,7 +995,7 @@ async function gravarRevisao(ctx) {
   if (!itens.length) return;
   rev.carregando = `Lançando ${itens.length} na planilha…`;
   redesenharRevisao(ctx);
-  const resp = await ctx.importar(itens, { simular: false });
+  const resp = await ctx.importar(itens, opcoesImportar(rev, false));
   rev.carregando = '';
   if (!resp || !resp.ok) {
     rev.erro = erroDe('Não consegui lançar na planilha agora. Confira o que já entrou antes de tentar de novo.', resp);
@@ -814,6 +1014,8 @@ async function gravarRevisao(ctx) {
   rev.resultado = resp.resultado.total
     ? `Lançado: ${Object.keys(g).map((d) => `<b>${g[d]}</b> em ${esc(DESTINOS[d].aba)}`).join(', ')}${resp.resultado.lotesRf ? ` e ${resp.resultado.lotesRf} lote(s) em RF Contratada` : ''}.${textoIgn} As telas já vão mostrar os números novos.`
     : `Nada foi lançado (tudo já estava na planilha).${textoIgn}`;
+  const criados = resp.resultado.titulosRfCriados || [];
+  if (criados.length) rev.resultado += ` Título${criados.length > 1 ? 's' : ''} criado${criados.length > 1 ? 's' : ''} em Carteiras › Renda Fixa: ${criados.map((t) => `<b>${esc(t.titulo)}</b> (${esc(ROTULO_DESTINO_RF[t.destino] || t.destino)})`).join(', ')}.`;
   if (ignoradas) toast(textoIgnoradas(ignoradas), { tipo: 'info', doc: ctx.doc });
   redesenharRevisao(ctx);
   await ctx.recarregar();
@@ -891,12 +1093,23 @@ function ligarLancamentos(el) {
       return;
     }
     const acao = alvo.getAttribute('data-lanc');
+    if (acao === 'colar-abrir') {
+      estado.colar.aberto = !estado.colar.aberto;
+      estado.colar.erro = '';
+      redesenharColar(ctx);
+      const ta = el.querySelector('#txColarTexto');
+      if (estado.colar.aberto && ta && typeof ta.focus === 'function') ta.focus();
+      return;
+    }
+    if (acao === 'colar-fechar') { estado.colar.aberto = false; estado.colar.erro = ''; redesenharColar(ctx); return; }
+    if (acao === 'colar-conferir') { alvo.disabled = true; await colarConferir(ctx); alvo.disabled = false; return; }
     if (acao === 'gravar') { alvo.disabled = true; await gravarRevisao(ctx); return; }
     if (acao === 'descartar') {
       const rev = estado.revisao;
       const pendentes = rev ? rev.itens.filter((it) => rev.marcados[it.uid]).length : 0;
       // A-62: descartar uma revisão com linhas marcadas pede confirmação (diálogo do kit)
-      if (pendentes && !(await confirmar({ titulo: 'Descartar esta revisão?', mensagem: `${pendentes} linha${pendentes > 1 ? 's' : ''} marcada${pendentes > 1 ? 's' : ''} não ${pendentes > 1 ? 'serão lançadas' : 'será lançada'}. Dá pra soltar os arquivos de novo depois.`, confirmarTexto: 'Descartar', cancelarTexto: 'Voltar', perigo: true, doc: ctx.doc }))) return;
+      if (pendentes && !(await confirmar({ titulo: 'Descartar esta revisão?', mensagem: `${pendentes} linha${pendentes > 1 ? 's' : ''} marcada${pendentes > 1 ? 's' : ''} não ${pendentes > 1 ? 'serão lançadas' : 'será lançada'}. Dá pra ${rev.origem === 'Colado' ? 'colar a tabela' : 'soltar os arquivos'} de novo depois.`, confirmarTexto: 'Descartar', cancelarTexto: 'Voltar', perigo: true, doc: ctx.doc }))) return;
+      if (rev && rev.origem === 'Colado') estado.colar.texto = '';
       estado.revisao = null;
       redesenharRevisao(ctx);
       return;
@@ -933,6 +1146,7 @@ function ligarLancamentos(el) {
     const ctx = el._txCtx;
     const { estado } = ctx;
     const t = ev.target;
+    if (t.matches && t.matches('#txColar [data-colar]')) { aoMudarCampoColar(ctx, t.getAttribute('data-colar'), t.value); return; }
     if (t.id === 'txArquivos') { const files = [...(t.files || [])]; t.value = ''; processarArquivos(ctx, files); return; }
     if (t.matches('[data-marcar]')) {
       const uid = Number(t.getAttribute('data-marcar'));
@@ -953,6 +1167,7 @@ function ligarLancamentos(el) {
     const ctx = el._txCtx;
     const { estado } = ctx;
     const t = ev.target;
+    if (t.matches('#txColar [data-colar]') && t.getAttribute('data-colar') !== 'destino' && t.getAttribute('data-colar') !== 'destinoRf') { aoMudarCampoColar(ctx, t.getAttribute('data-colar'), t.value); return; }
     if (t.matches('[data-taxa]')) {
       const it = estado.revisao && estado.revisao.itens.find((x) => x.uid === Number(t.getAttribute('data-taxa')));
       if (it) it.taxaContratada = t.value.trim();

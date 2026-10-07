@@ -309,6 +309,21 @@ a.tx-kpi:hover{ background:var(--md-ext-color-card-hover); }
 .tx-ajuda summary{ display:inline-flex; align-items:center; gap:8px; min-height:44px; cursor:pointer; font-weight:500; color:var(--md-sys-color-primary); list-style:none; }
 .tx-ajuda summary::-webkit-details-marker{ display:none; }
 .tx-ajuda ul{ margin:4px 0 0; padding-left:20px; display:flex; flex-direction:column; gap:8px; line-height:1.5; max-width:78ch; }
+/* 07/10/2026: "Colar uma tabela" (painel ao lado de importar arquivo) */
+.tx-secao-cab .tx-colar-abrir{ margin-left:auto; }
+.tx-colar{ display:flex; flex-direction:column; gap:14px; padding:16px 20px; margin:0 0 16px; }
+.tx-colar-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.tx-colar-cab h3{ margin:0; font-family:var(--display); font-size:var(--md-sys-typescale-title-medium-size); font-weight:500; }
+.tx-colar .textarea{ min-height:150px; padding:12px 14px; font:400 13px/20px var(--mono); white-space:pre; overflow:auto; }
+.tx-colar-previa{ min-height:18px; }
+.tx-colar-destino{ max-width:420px; }
+.tx-colar-novo-caixa{ display:flex; flex-direction:column; gap:12px; }
+.tx-colar-novo-caixa:empty{ display:none; }
+.tx-colar-achou{ display:flex; align-items:center; gap:8px; }
+.tx-colar-achou .ico{ width:18px; height:18px; flex:none; color:var(--md-ext-color-good); }
+.tx-tabela td .tx-aviso-linha{ display:flex; align-items:flex-start; gap:4px; color:var(--md-ext-color-on-warn-container); }
+.tx-tabela td .tx-aviso-linha .ico{ width:14px; height:14px; flex:none; margin-top:1px; }
+@media (max-width:560px){ .tx-secao-cab .tx-colar-abrir{ margin-left:0; } .tx-colar{ padding:14px; } }
 .tx-revisao{ display:flex; flex-direction:column; gap:16px; }
 .tx-arqs{ display:flex; gap:8px; flex-wrap:wrap; }
 .tx-arq{ display:flex; flex-direction:column; padding:8px 14px; border-radius:12px; background:var(--tx-card); border:1px solid var(--tx-borda); min-width:0; max-width:100%; }

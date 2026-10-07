@@ -48,7 +48,8 @@ var LANC_TOLERANCIA = 0.02;
  * POST importarLancamentos. e.parameter.itens = JSON [item...] (formato de
  * lancamentos-parse.js); simular=1 só classifica. Cada item pode vir com
  * forcar=true (grava mesmo parecendo já lançado) e, na renda fixa,
- * taxaContratada ("IPCA + 8,16%").
+ * taxaContratada ("IPCA + 8,16%") e, 07/10/2026, destinoRf ('emergencial' | 'longo-prazo' | 'objetivo': destino do título NOVO, que ganha a
+ * linha na Carteira Renda Fixa com a coluna B certa - garantirTitulosCarteiraRfLanc_). `origem` 'Colado' = tabela colada na tela.
  */
 function handleImportarLancamentos(e) {
   try {
@@ -265,6 +266,8 @@ function taxaContratadaLanc_(texto, produto) {
   if (!indice) indice = /selic/i.test(produto) ? 'SELIC' : (/ipca/i.test(produto) ? 'IPCA' : (/prefixado/i.test(produto) ? 'PRE' : 'CDI'));
   var m = s.match(/(-?\d+(?:[.,]\d+)?)\s*%?\s*$/);
   var spread = m ? Number(m[1].replace(',', '.')) / 100 : null;
+  // 07/10/2026: "100% do CDI" é percentual do índice, não spread somado a ele (o spread entra como (1+spread)^(1/252) na projeção): fica sem spread
+  if (/%\s*(do|de)\s*cdi/i.test(s)) spread = null;
   return { indice: indice, spread: spread, texto: s };
 }
 
@@ -298,6 +301,68 @@ function gravarLotesRfLanc_(ss, itens, saida, manual) {
   });
   aba.getRange(ultima + 1, 1, linhas.length, 9).setValues(linhas);
   return linhas.length;
+}
+
+/**
+ * 07/10/2026 (Tiago: tabela colada do fundo da chácara): título de Renda Fixa NOVO que vem com `destinoRf` ('emergencial' | 'longo-prazo' |
+ * 'objetivo') ganha a linha na "Carteira Renda Fixa" já com o destino certo na COLUNA B (rotuloColunaBDestinoRf_, Planilha.gs) - a única fonte
+ * do destino. Mesmo desenho da linha nova da sincronização (CarteiraRendaFixaSync.gs): código/nome/tipo/indexador/instituição, o valor aplicado
+ * da compra e as fórmulas copiadas da linha de cima; quantidade e valor atualizado a sincronização/consolidação preenche. Título que já tem
+ * linha NÃO é mexido (o destino dele muda no detalhe do título). Só roda nas movimentações gravadas agora (nunca na simulação).
+ * Devolve [{ titulo, instituicao, destino, linha }] (só os criados).
+ */
+function garantirTitulosCarteiraRfLanc_(ss, itens) {
+  var porChave = {}, ordem = [];
+  itens.forEach(function (it) {
+    if (!it || it.destino !== 'rendaFixa' || !it.destinoRf || !/compra|aplica/i.test(it.movimentacao || '')) return;
+    if (typeof DESTINOS_RENDA_FIXA_ === 'undefined' || DESTINOS_RENDA_FIXA_.indexOf(it.destinoRf) < 0) return;
+    var nome = String(it.produto || '').replace(/\s+/g, ' ').trim();
+    if (!nome) return;
+    var k = chaveTituloRf_(nome, it.instituicao || '');
+    if (!porChave[k]) { porChave[k] = { chave: k, nome: nome, instituicao: String(it.instituicao || '').trim(), destino: it.destinoRf, investido: 0, taxa: '' }; ordem.push(k); }
+    porChave[k].investido += Number(it.valor) || 0;
+    if (it.taxaContratada && !porChave[k].taxa) porChave[k].taxa = String(it.taxaContratada);
+  });
+  if (!ordem.length) return [];
+  var aba = ss.getSheetByName(ABA_CARTEIRA_RF);
+  if (!aba) return [];
+  var ini = LINHA_CABECALHO_CARTEIRA_RF + 1;
+  var ultima = ultimaLinhaReal_(aba, [1, 4], ini);
+  var existentes = {};
+  if (ultima >= ini) {
+    aba.getRange(ini, 1, ultima - ini + 1, 6).getValues().forEach(function (l) {
+      if (!l[0] && !l[3]) return;
+      var nome = String(l[2] || l[3] || '').replace(/\s+/g, ' ').trim();
+      existentes[chaveTituloRf_(nome, l[5])] = true;
+      if (l[0]) existentes[chaveTituloRf_(nome, l[5], l[0])] = true;
+    });
+  }
+  var criados = [];
+  var proxima = Math.max(ultima, ini - 1) + 1;
+  ordem.forEach(function (k) {
+    var t = porChave[k];
+    if (existentes[k]) return;
+    if (proxima > aba.getMaxRows()) aba.insertRowsAfter(aba.getMaxRows(), 5);
+    var modelo = ultima >= ini ? ultima : 0;
+    if (modelo) {
+      try { copiarFormatoLinha_(aba, modelo, proxima, Math.max(aba.getLastColumn(), 15)); } catch (eFmt) { /* formato é só aparência */ }
+      try {
+        var jaTem = aba.getRange(proxima, 13, 1, 3).getFormulas()[0].some(function (f) { return !!f; });
+        if (!jaTem) copiarFormulasLinha_(aba, modelo, proxima, 13, Math.max(aba.getLastColumn(), 15));
+      } catch (eFor) { /* sem fórmula pra copiar */ }
+    }
+    var indexador = t.taxa && /cdi/i.test(t.taxa) ? 'CDI' : indexadorCarteiraRf_(t.nome);
+    aba.getRange(proxima, 1, 1, 12).setValues([[t.nome, rotuloColunaBDestinoRf_(t.destino), t.nome, tipoInvestimentoRf_(t.nome), indexador, t.instituicao,
+      '', '', Math.round(t.investido * 100) / 100, '', '', '']]);
+    criados.push({ titulo: t.nome, instituicao: t.instituicao, destino: t.destino, linha: proxima });
+    existentes[k] = true;
+    proxima++;
+  });
+  if (criados.length) {
+    try { if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_(); } catch (eReg) { /* cache é só otimização */ }
+    try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (eInv) { /* idem */ }
+  }
+  return criados;
 }
 
 /**
@@ -373,6 +438,7 @@ function importarLancamentos_(itens, opcoes) {
     resultado.lotesRfIgnoradas = ignoradasLote.ignoradasDuplicadas; // lotes de RF Contratada que já existiam (a tela soma aos "já lançados")
     resultado.exemplos = resultado.exemplos.concat(ignoradasLote.exemplos).slice(0, DEDUP_MAX_EXEMPLOS_);
     resultado.gravadas = resultado.total;
+    try { resultado.titulosRfCriados = garantirTitulosCarteiraRfLanc_(ss, gravar.filter(function (it) { return porUid[it.uid].situacao === 'gravado'; })); } catch (eTit) { Logger.log('garantirTitulosCarteiraRfLanc_: ' + eTit); resultado.titulosRfCriados = []; resultado.titulosRfErro = String(eTit); }
 
     if (resultado.total) {
       // 26/09/2026: os dias já gravados do histórico ficam com a quantidade
