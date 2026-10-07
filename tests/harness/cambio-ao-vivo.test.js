@@ -34,6 +34,7 @@ function sandbox({ dolar, historicoCambio = {} }) {
     console: { log() {} }, Logger: { log() {} },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     localDistribuicaoMetas_: () => ({ dolar: 'K56' }),
+    somarCarteiraRendaFixaPorDestino_: () => ({ ok: false, emergencial: 0, objetivo: 0 }), // 07/10/2026 (Planilha.gs): sem a leitura da aba, Home cai no N6 da planilha
     cotacaoDolarHoje_: () => (typeof dolar === 'number' && dolar > 0 ? dolar : null), // mesma regra de Planilha.gs
     mapaCambioHistoricoAporte_: () => ({ mapa: historicoCambio, chaves: Object.keys(historicoCambio).sort() }),
     chaveDiaISOInicio_: () => '2026-10-05',

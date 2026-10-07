@@ -22,6 +22,8 @@ export const TIPOS_META = {
 
 /** Categorias do tipo genérico "acúmulo até data" - ícone, cor e dica próprios. */
 export const CATEGORIAS_ACUMULO = {
+  // 07/10/2026 (Tiago: compra futura de uma chácara com amigos, sem valor nem prazo definidos)
+  imoveis: { nome: 'Imóvel, terreno ou chácara', icone: 'casa', cor: 'fiis', dica: 'Some ITBI, escritura e registro: costumam ficar entre 4% e 6% do valor. Em compra em grupo, combinem por escrito a fração de cada um (e o que acontece se alguém quiser sair).' },
   projetos: { nome: 'Projetos e construções', icone: 'obra', cor: 'rf', dica: 'Reforma costuma estourar: deixe 10-20% de folga como sub-item "imprevistos".' },
   educacao: { nome: 'Educação e carreira', icone: 'livro', cor: 'acoes', dica: 'Cursos e certificações podem ter desconto à vista - e alguns são dedutíveis no IR (educação formal).' },
   equipamentos: { nome: 'Equipamentos e tecnologia', icone: 'chip', cor: 'usa', dica: 'Preços em dólar? Ponha o sub-item em USD e o restante em reais acompanha o câmbio.' },
@@ -66,6 +68,8 @@ export const STATUS_META = {
   'no-ritmo': { rotulo: 'No ritmo', classe: 'na', explicacao: 'O seu aporte mensal de hoje (o real, deduzido do histórico dos investimentos vinculados, ou o que você informou), somado ao rendimento esperado, alcança o alvo ATÉ o prazo.' },
   atrasada: { rotulo: 'Atrasada', classe: 'warn', explicacao: 'No ritmo de hoje você não chega até o prazo: o aporte necessário por mês é maior que o seu aporte atual. Veja quanto falta por mês e as simulações para acelerar.' },
   vencida: { rotulo: 'Prazo passou', classe: 'warn', explicacao: 'A data da meta já chegou e ainda falta dinheiro. Ajuste o prazo ou o alvo (Editar).' },
+  // 07/10/2026: meta sem valor alvo ainda ("não vamos procurar agora"): só acompanha o que já tem e o que vai juntando (cinza, nunca alerta)
+  acompanhando: { rotulo: 'Acompanhando', classe: 'na', explicacao: 'Você ainda não definiu o valor (ou a data) da meta, então não há "atrasada" nem "no ritmo": o site só acompanha quanto você já juntou e quanto terá daqui a alguns anos no seu ritmo. Quando souber o valor, edite a meta e ela vira uma meta normal.' },
   'sem-prazo': { rotulo: 'Sem prazo', classe: 'na', explicacao: 'A meta não tem data: mostramos quando você chega no ritmo atual, mas não dá para dizer se está adiantada ou atrasada.' },
   'saldo-ideal': { rotulo: 'Saldo ideal', classe: 'good', explicacao: 'O valor LÍQUIDO da reserva (o que cairia na conta se você resgatasse tudo hoje, já sem IR e IOF) cobre o saldo ideal.' },
   'ideal-bruto': { rotulo: 'Ideal só no bruto', classe: 'warn', explicacao: 'O valor investido (bruto) já bate o saldo ideal, mas se você resgatasse hoje o IR/IOF deixaria o líquido abaixo dele. Falta pouco: a diferença é o imposto.' },

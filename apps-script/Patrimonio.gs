@@ -336,6 +336,7 @@ function historicoMensalPatrimonio_(serie) {
     var o = porMes[m];
     if (typeof p.patrimonio === 'number') o.patrimonio = p.patrimonio;
     if (typeof p.rendaEmergencial === 'number') o.reserva = p.rendaEmergencial;
+    if (typeof p.objetivos === 'number') o.objetivos = p.objetivos; // 07/10/2026
     o.aporte += Number(p.fluxoCaixaPatrimonio) || 0;
     o.aporteLongoPrazo += Number(p.fluxoCaixaLongoPrazo) || 0;
     o.aporteReserva += Number(p.fluxoCaixaRendaEmergencial) || 0;
@@ -368,12 +369,18 @@ function montarTelaPatrimonio_(ss, hoje, opcoes) {
     var pc = p.porClasse || {};
     r.investimentos = {
       total: p.total, longoPrazo: p.longoPrazo, reserva: p.rendaEmergencial,
+      objetivos: Number(p.objetivos) || 0, // 07/10/2026: Renda Fixa 'Reservado para objetivos' (dentro de `total`, fora de `longoPrazo`)
       porClasse: {
         acoes: pc.acoes, fiis: pc.fiis, acoesEua: pc.acoesEua, rendaFixa: pc.rendaFixa,
-        rendaFixaLongoPrazo: typeof pc.rendaFixa === 'number' && typeof p.rendaEmergencial === 'number' ? Math.round((pc.rendaFixa - p.rendaEmergencial) * 100) / 100 : null
+        rendaFixaLongoPrazo: typeof pc.rendaFixa === 'number' && typeof p.rendaEmergencial === 'number' ? Math.round((pc.rendaFixa - p.rendaEmergencial - (Number(p.objetivos) || 0)) * 100) / 100 : null
       }
     };
   } catch (eH) { avisos.investimentos = String(eH); }
+
+  // 07/10/2026 (Tiago: "dinheiro que está num fundo da XP e NÃO está na carteira, mas é meu"): os saldos/investimentos fora da carteira que
+  // as metas marcam como "conta no meu patrimônio" (aux_metas - Metas.gs, já com a estimativa do CDI). Entram no patrimônio líquido
+  // (balanco() do front) como "Outros investimentos (fora da carteira)"; NÃO entram em investimentos, rentabilidade, aposentadoria nem reserva.
+  try { r.outrosInvestimentos = typeof listarOutrosInvestimentosMetas_ === 'function' ? listarOutrosInvestimentosMetas_(ss, hoje && typeof hoje.getTime === 'function' ? hoje : new Date(), { serieCdi: opcoes.serieCdi, buscarCambio: opcoes.buscarCambio }) : []; } catch (eFora) { avisos.outrosInvestimentos = String(eFora); r.outrosInvestimentos = []; }
 
   try { r.historicoMensal = historicoMensalPatrimonio_(montarSerieHistoricoInicio_()); } catch (eS) { avisos.historico = String(eS); r.historicoMensal = []; }
 

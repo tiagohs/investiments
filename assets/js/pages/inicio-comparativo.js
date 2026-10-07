@@ -43,16 +43,22 @@ const num = (v) => typeof v === 'number' && Number.isFinite(v);
 /** Ajuste de marcação (R$) da Renda Fixa embutido no ponto de hoje, por campo. */
 const AJUSTE_POR_CAMPO = {
   patrimonio: (p) => p.ajusteMarcacaoRendaFixa,
-  longoPrazo: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial,
-  nacional: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial,
+  // 07/10/2026: o ajuste do título 'objetivo' (Reservado para objetivos) também sai do Longo Prazo, igual ao da reserva
+  longoPrazo: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial - p.ajusteMarcacaoObjetivos,
+  nacional: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial - p.ajusteMarcacaoObjetivos,
   rendaEmergencial: (p) => p.ajusteMarcacaoRendaEmergencial,
+  objetivos: (p) => p.ajusteMarcacaoObjetivos,
   rendaFixaTotal: (p) => p.ajusteMarcacaoRendaFixa,
-  rendaFixaLongoPrazo: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial,
+  rendaFixaLongoPrazo: (p) => p.ajusteMarcacaoRendaFixa - p.ajusteMarcacaoRendaEmergencial - p.ajusteMarcacaoObjetivos,
 };
 export function ajusteMarcacaoDoCampo(ponto, campo) {
   const f = AJUSTE_POR_CAMPO[campo];
   if (!f || !ponto) return 0;
-  const p = { ajusteMarcacaoRendaFixa: num(ponto.ajusteMarcacaoRendaFixa) ? ponto.ajusteMarcacaoRendaFixa : 0, ajusteMarcacaoRendaEmergencial: num(ponto.ajusteMarcacaoRendaEmergencial) ? ponto.ajusteMarcacaoRendaEmergencial : 0 };
+  const p = {
+    ajusteMarcacaoRendaFixa: num(ponto.ajusteMarcacaoRendaFixa) ? ponto.ajusteMarcacaoRendaFixa : 0,
+    ajusteMarcacaoRendaEmergencial: num(ponto.ajusteMarcacaoRendaEmergencial) ? ponto.ajusteMarcacaoRendaEmergencial : 0,
+    ajusteMarcacaoObjetivos: num(ponto.ajusteMarcacaoObjetivos) ? ponto.ajusteMarcacaoObjetivos : 0,
+  };
   const v = f(p);
   return num(v) ? v : 0;
 }

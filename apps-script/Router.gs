@@ -300,6 +300,9 @@ function doPostRotas_(e) {
   if (action === 'salvarFavoritos') {
     return handleSalvarFavoritos(e); // Favoritos.gs (23/09/2026)
   }
+  if (action === 'definirDestinoRendaFixa') { // 07/10/2026: destino do título (reserva / longo prazo / objetivo) - CarteirasRendaFixa.gs
+    return handleDefinirDestinoRendaFixa(e);
+  }
 
   return jsonOut({ ok: false, erro: 'ação desconhecida: ' + action });
 }

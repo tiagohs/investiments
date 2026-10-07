@@ -143,6 +143,48 @@ function montarCarteirasRendaFixa_() {
   return resultado;
 }
 
+/**
+ * 07/10/2026 (Tiago: "reservado para objetivos" - o fundo da chácara): POST definirDestinoRendaFixa.
+ * Campos: `titulo` (o nome do título na Carteira Renda Fixa), `instituicao` e `destino` ('emergencial' | 'longo-prazo' | 'objetivo').
+ * Grava na COLUNA B da linha do título: "Renda Emergencial" | "Renda Fixa" | "Objetivo" (rotuloColunaBDestinoRf_, Planilha.gs) - a única fonte
+ * do destino (destinoRendaFixa_). Título dividido em 2 linhas da mesma instituição (parte reserva, parte longo prazo) não dá pra saber
+ * qual é: devolve erro e pede pra editar a coluna B à mão. A aba é a mesma que o Tiago edita; nada de fórmula é mexido.
+ */
+function handleDefinirDestinoRendaFixa(e) {
+  try {
+    return jsonOut({ ok: true, resultado: definirDestinoRendaFixa_(SpreadsheetApp.getActiveSpreadsheet(), e.parameter) });
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'definirDestinoRendaFixa', erro: String(erro && erro.message ? erro.message : erro) });
+  }
+}
+
+function definirDestinoRendaFixa_(ss, params) {
+  var destino = String((params && params.destino) || '');
+  if (DESTINOS_RENDA_FIXA_.indexOf(destino) < 0) throw new Error('destino inválido: use emergencial, longo-prazo ou objetivo');
+  var titulo = String((params && params.titulo) || '').replace(/\s+/g, ' ').trim();
+  if (!titulo) throw new Error('título não informado');
+  var aba = ss.getSheetByName('Carteira Renda Fixa');
+  if (!aba) throw new Error('aba não encontrada: Carteira Renda Fixa');
+  var ini = LINHA_CABECALHO_CARTEIRA_RF + 1;
+  var ultima = ultimaLinhaReal_(aba, [1, 4], ini);
+  if (ultima < ini) throw new Error('a Carteira Renda Fixa está vazia');
+  var dados = aba.getRange(ini, 1, ultima - ini + 1, 6).getValues();
+  var chaveAlvo = chaveTituloRf_(titulo, (params && params.instituicao) || '');
+  var achadas = [];
+  dados.forEach(function (l, i) {
+    if (!l[0] && !l[3]) return;
+    var nome = String(l[2] || l[3] || '').replace(/\s+/g, ' ').trim();
+    if (chaveTituloRf_(nome, l[5], l[0]) === chaveAlvo || chaveTituloRf_(nome, l[5]) === chaveAlvo) achadas.push(ini + i);
+  });
+  if (!achadas.length) throw new Error('não achei esse título na Carteira Renda Fixa');
+  if (achadas.length > 1) throw new Error('esse título aparece em mais de uma linha da mesma instituição; troque a coluna B à mão (escreva "Objetivo", "Renda Emergencial" ou "Renda Fixa")');
+  var rotulo = rotuloColunaBDestinoRf_(destino);
+  aba.getRange(achadas[0], 2).setValue(rotulo);
+  try { if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_(); } catch (eReg) { /* cache é só otimização */ }
+  try { invalidarCacheCarteirasRf_(); } catch (eInv) { /* idem */ }
+  return { linha: achadas[0], destino: destino, coluna: rotulo };
+}
+
 function calcularCarteirasRendaFixa_(ss, leitura) {
   // ---- Rentabilidade Contratada (por título+instituição), já lida ----
   var resumoPorChave = {};
@@ -204,7 +246,7 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
         tipoInvestimento: tipo || null,
         indexador: indexador || null,
         instituicao: instituicao || null,
-        tipoCarteira: marca === 'Renda Emergencial' ? 'emergencial' : 'longo-prazo',
+        tipoCarteira: destinoRendaFixa_(marca), // 07/10/2026: 'emergencial' | 'longo-prazo' | 'objetivo' (Planilha.gs)
         quantidade: quantidade,
         vencimento: vencimento instanceof Date ?
           Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'MM/yyyy') : (vencimento || null),

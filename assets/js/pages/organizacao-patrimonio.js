@@ -52,6 +52,14 @@ import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const dataBR = (iso) => formatDMA(iso, '') || (/^\d{4}-\d{2}$/.test(String(iso || '')) ? mesAno(iso) : '');
+/** 07/10/2026: a linha do investimento fora da carteira (valor vem de uma meta; ver patrimonio-calc.js!balanco). */
+function textoForaCarteira(f) {
+  const quando = f.atualizadoEm ? dataBR(f.atualizadoEm) : '';
+  const base = f.estimado
+    ? `estimado pelo CDI (${f.cdiPct}%): último extrato ${brl0(f.saldoInformado)}${quando ? ` em ${quando}` : ''}`
+    : `último saldo informado${quando ? ` em ${quando}` : ''}`;
+  return `da meta "${f.meta || ''}" · ${base} · não entra na rentabilidade, na aposentadoria nem na reserva - atualize o saldo na meta`;
+}
 const numCampo = (v, casas = 2) => (num(v) ? formatNumeroBR(v, casas) : '');
 
 export const PREFS_PADRAO = {
@@ -112,13 +120,14 @@ export function htmlHero(ctx) {
   const primeiro = hist[0];
   const delta = ultimoAno ? b.liquido - ultimoAno.liquido : null;
   const partes = [
-    ...b.ativos.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'imovel' ? 'var(--pt-imo)' : a.id === 'fgts' ? 'var(--pt-fgts)' : a.outro ? 'var(--pt-out)' : 'var(--pt-inv)' })),
+    ...b.ativos.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'imovel' ? 'var(--pt-imo)' : a.id === 'fgts' ? 'var(--pt-fgts)' : (a.outro || a.fora) ? 'var(--pt-out)' : 'var(--pt-inv)' })),
     ...b.dividas.map((a) => ({ nome: a.nome, valor: a.valor, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)' })),
   ].filter((x) => x.valor > 0);
   const legenda = [
     { nome: 'Investimentos e reserva', cor: 'var(--pt-inv)', valor: b.ativos.filter((a) => a.id === 'investimentos' || a.id === 'reserva').reduce((s, a) => s + a.valor, 0) },
     ...b.ativos.filter((a) => a.id === 'imovel' || a.id === 'fgts').map((a) => ({ nome: a.nome, cor: a.id === 'imovel' ? 'var(--pt-imo)' : 'var(--pt-fgts)', valor: a.valor })),
     ...(b.ativos.some((a) => a.outro) ? [{ nome: 'Outros bens', cor: 'var(--pt-out)', valor: b.ativos.filter((a) => a.outro).reduce((s, a) => s + a.valor, 0) }] : []),
+    ...(b.ativos.some((a) => a.fora) ? [{ nome: 'Outros investimentos (fora da carteira)', cor: 'var(--pt-out)', valor: b.ativos.filter((a) => a.fora).reduce((s, a) => s + a.valor, 0) }] : []), // 07/10/2026
     ...b.dividas.map((a) => ({ nome: a.nome, cor: a.id === 'fies' || a.outro ? 'var(--pt-div2)' : 'var(--pt-div1)', valor: -a.valor })),
   ].filter((x) => x.valor);
   const deltaChip = num(delta) ? chipHtml(delta >= 0 ? 'good' : 'bad', `${delta >= 0 ? '+' : '−'}${esc(mil(Math.abs(delta)).replace('−', ''))} desde dez/${esc(ultimoAno.ano)}`, delta >= 0 ? 'north-east' : 'south-east') : '';
@@ -161,6 +170,8 @@ export function htmlBalanco(ctx) {
     ativos.push(linhaBal({ cor: 'var(--pt-inv)', nome: 'Investimentos', sub: esc(classes.map(([n, v]) => `${n} ${mil(v)}`).join(' · ')), valor: esc(brl0(inv.longoPrazo)), vsub: 'longo prazo, do site' }));
   }
   if (num(inv.reserva)) ativos.push(linhaBal({ cor: 'var(--pt-inv)', nome: 'Reserva de emergência', sub: num(custo) && custo > 0 ? `cobre ${esc(formatNumeroBR(inv.reserva / custo, 1))} meses do custo de vida` : 'renda fixa marcada como reserva', valor: esc(brl0(inv.reserva)), vsub: 'do site' }));
+  // 07/10/2026: Renda Fixa marcada "Objetivo" - linha própria no balanço (não some dentro de "Investimentos": o longo prazo não a conta)
+  if (num(inv.objetivos) && inv.objetivos > 0) ativos.push(linhaBal({ cor: 'var(--pt-inv)', nome: 'Reservado para objetivos', sub: 'renda fixa marcada como "Objetivo" na carteira (ex. a chácara) - fora do longo prazo e da aposentadoria', valor: esc(brl0(inv.objetivos)), vsub: 'do site' }));
   const imo = achar('imovel');
   if (imo) {
     const v = imo.imovel;
@@ -171,6 +182,8 @@ export function htmlBalanco(ctx) {
   if (fg) ativos.push(linhaBal({ cor: 'var(--pt-fgts)', nome: 'FGTS', sub: esc(`${(cfg.fgts.contas || []).length} ${(cfg.fgts.contas || []).length === 1 ? 'conta' : 'contas'} · saldo de ${dataBR(ctx.fgts && ctx.fgts.contaAtiva ? ctx.fgts.contaAtiva.dataSaldo : '')} · só saca em casos específicos (moradia, demissão…)`), valor: esc(brl0(fg.valor)), acao: pillEditar('importar', 'atualizar') }));
   else ativos.push(linhaBal({ cor: 'var(--pt-fgts)', nome: 'FGTS', sub: 'importe os extratos (um por empresa) do app FGTS', valor: '<span class="pt-fraco">—</span>', acao: pillFalta('importar', 'importar') }));
   b.ativos.filter((a) => a.outro).forEach((a) => ativos.push(linhaBal({ cor: 'var(--pt-out)', nome: a.nome, sub: esc(a.outro.obs || 'outro bem'), valor: esc(brl0(a.valor)) })));
+  // 07/10/2026: investimento fora da carteira (marcado "conta no meu patrimônio" numa meta) - o valor vem das Metas, edite lá
+  b.ativos.filter((a) => a.fora).forEach((a) => ativos.push(linhaBal({ cor: 'var(--pt-out)', nome: `Outros investimentos (fora da carteira): ${a.nome}`, sub: esc(textoForaCarteira(a.fora)), valor: esc(brl0(a.valor)), vsub: a.fora.estimado ? 'estimado' : 'último saldo informado' })));
   ativos.push(`<div class="pt-linha pt-linha-add">${pillEditar('editar:outros', '+ outros bens e dívidas')}<small>carro, cripto, empréstimo… só se quiser contar</small></div>`);
 
   const dividas = [];

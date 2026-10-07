@@ -159,6 +159,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var porDia = {};
   var porDiaRendaEmergencial = {};
+  var porDiaObjetivos = {}; // 07/10/2026: Renda Fixa marcada 'Objetivo' (Reservado para objetivos), mesma forma de porDiaRendaEmergencial
   var porDiaUsa = {};
   var porDiaAcoes = {};
   var porDiaFiis = {};
@@ -187,6 +188,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   // deduzindo provento - ver comentário do bloco de Proventos abaixo).
   var porDiaAplicado = {};
   var porDiaAplicadoRendaEmergencial = {};
+  var porDiaAplicadoObjetivos = {};
   var porDiaAplicadoUsa = {};
   var porDiaAplicadoAcoes = {};
   var porDiaAplicadoFiis = {};
@@ -219,7 +221,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   var posicoesRfZeradas = {};
   var qtdPorPosicaoRf = {};
   var primeiraCompraRfPorPosicao = {}; // 23/09/2026: 'Produto|Instituição' -> chave da 1ª Compra/Aplicação (ver HistoricoInicio.gs, alinhamento da Renda Fixa)
-  var jurosRfPorDiaValor = {}; // 23/09/2026: 'yyyy-MM-dd|valor' -> é Renda Emergencial? (ver bloco de Proventos)
+  var jurosRfPorDiaValor = {}; // 23/09/2026: 'yyyy-MM-dd|valor' -> destino do título (07/10/2026: 'emergencial'|'objetivo'|'longo-prazo'; ver bloco de Proventos)
   var eventosAplicadoRv = []; // 23/09/2026: ver bloco "Valor aplicado" mais abaixo
   var eventosAplicadoRf = [];
 
@@ -345,8 +347,9 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
           // de Proventos abaixo.
           if (movimentacao === 'Juros') {
             var instJ = normalizarInstituicaoRF_(instituicao);
+            // 07/10/2026: guarda o DESTINO ('emergencial' | 'objetivo' | 'longo-prazo') do cupom, não só "é reserva?"
             jurosRfPorDiaValor[chaveDiaISOInicio_(data) + '|' + valor.toFixed(2)] =
-              classificarPosicaoRF_(produto, instJ, detectarIndexadorRF_(produto), mapaClassificacaoRf) === 'Renda Emergencial';
+              destinoRendaFixa_(classificarPosicaoRF_(produto, instJ, detectarIndexadorRF_(produto), mapaClassificacaoRf));
           }
           return; // Cobrança de Taxa Semestral, Juros - de propósito fora (ver cabeçalho do arquivo)
         }
@@ -370,8 +373,11 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         var institCanonica = normalizarInstituicaoRF_(instituicao);
         var indexador = detectarIndexadorRF_(produto);
         var classificacao = classificarPosicaoRF_(produto, institCanonica, indexador, mapaClassificacaoRf);
-        if (classificacao === 'Renda Emergencial') {
+        var destinoTitulo = destinoRendaFixa_(classificacao); // 07/10/2026: um conceito só (Planilha.gs)
+        if (destinoTitulo === 'emergencial') {
           somar(porDiaRendaEmergencial, chave, sinal * valor);
+        } else if (destinoTitulo === 'objetivo') {
+          somar(porDiaObjetivos, chave, sinal * valor);
         }
         if (sinal > 0 && movimentacao.indexOf('Transfer') !== 0 && (!primeiraCompraRfPorPosicao[chavePosicaoRf] || chave < primeiraCompraRfPorPosicao[chavePosicaoRf])) {
           primeiraCompraRfPorPosicao[chavePosicaoRf] = chave;
@@ -379,7 +385,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         eventosAplicadoRf.push({
           data: data, chave: chave, posicao: chavePosicaoRf, produto: produto,
           tipo: movimentacao.indexOf('Transfer') === 0 ? (sinal > 0 ? 'transfEntrada' : 'transfSaida') : (sinal > 0 ? 'compra' : 'venda'),
-          valor: valor, qtd: Math.abs(Number(linha[5]) || 0), emergencial: classificacao === 'Renda Emergencial'
+          valor: valor, qtd: Math.abs(Number(linha[5]) || 0), emergencial: destinoTitulo === 'emergencial', objetivo: destinoTitulo === 'objetivo'
         });
       });
     }
@@ -437,6 +443,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     somar(porDiaAplicado, f.chave, f.valor);
     somar(porDiaAplicadoRendaFixaTotal, f.chave, f.valor);
     if (f.emergencial) somar(porDiaAplicadoRendaEmergencial, f.chave, f.valor);
+    if (f.objetivo) somar(porDiaAplicadoObjetivos, f.chave, f.valor);
   });
 
   // --- Proventos / Proventos - USA - some do rastreado quando é PAGO,
@@ -499,14 +506,18 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
         var classeTicker = classes[ticker];
         var chaveJuros = chave + '|' + liquido.toFixed(2);
         if (!classeTicker) {
-          if (Object.prototype.hasOwnProperty.call(jurosRfPorDiaValor, chaveJuros)) classeTicker = jurosRfPorDiaValor[chaveJuros] ? 'RF_EMERGENCIAL' : 'RF';
+          if (Object.prototype.hasOwnProperty.call(jurosRfPorDiaValor, chaveJuros)) {
+            var destinoJuros = jurosRfPorDiaValor[chaveJuros];
+            classeTicker = destinoJuros === 'emergencial' ? 'RF_EMERGENCIAL' : (destinoJuros === 'objetivo' ? 'RF_OBJETIVO' : 'RF');
+          }
           else classeTicker = classeProventoSemHistorico_(ticker, classes) || (/11$/.test(ticker) ? 'FII' : 'BR'); // sufixo 11 só em último caso (A-18)
         }
         if (classeTicker === 'FII') { somar(porDiaFiis, chave, -liquido); somar(porDiaProventosFiis, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'fiis', liquido, 'BRL', 1)); }
         else if (classeTicker === 'BR') { somar(porDiaAcoes, chave, -liquido); somar(porDiaProventosAcoes, chave, liquido); listaProventos.push(itemListaProventos_(linha, chave, ticker, 'acoes', liquido, 'BRL', 1)); }
-        else if (classeTicker === 'RF' || classeTicker === 'RF_EMERGENCIAL') {
+        else if (classeTicker === 'RF' || classeTicker === 'RF_EMERGENCIAL' || classeTicker === 'RF_OBJETIVO') {
           somar(porDiaRendaFixaTotal, chave, -liquido);
           if (classeTicker === 'RF_EMERGENCIAL') somar(porDiaRendaEmergencial, chave, -liquido);
+          if (classeTicker === 'RF_OBJETIVO') somar(porDiaObjetivos, chave, -liquido);
         }
       }
     });
@@ -515,6 +526,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
   return {
     total: porDia,
     rendaEmergencial: porDiaRendaEmergencial,
+    objetivos: porDiaObjetivos, // 07/10/2026
     usa: porDiaUsa,
     acoes: porDiaAcoes,
     fiis: porDiaFiis,
@@ -531,6 +543,7 @@ function calcularFluxoCaixaDiario_(mapaCambioUsd, mapaClassePorTicker) {
     // sem provento subtraído.
     totalAplicado: porDiaAplicado,
     rendaEmergencialAplicado: porDiaAplicadoRendaEmergencial,
+    objetivosAplicado: porDiaAplicadoObjetivos,
     usaAplicado: porDiaAplicadoUsa,
     acoesAplicado: porDiaAplicadoAcoes,
     fiisAplicado: porDiaAplicadoFiis,
@@ -596,10 +609,10 @@ function calcularCustoRendaFixaPeps_(eventos) {
     var fila = lotes[e.posicao] || (lotes[e.posicao] = []);
     if (e.tipo === 'compra') {
       fila.push({ qtd: e.qtd, custo: e.valor });
-      fluxos.push({ chave: e.chave, valor: e.valor, emergencial: e.emergencial });
+      fluxos.push({ chave: e.chave, valor: e.valor, emergencial: e.emergencial, objetivo: !!e.objetivo });
     } else if (e.tipo === 'venda') {
       var custoSaida = retirar(e.posicao, e.qtd).reduce(function (s, l) { return s + l.custo; }, 0);
-      if (custoSaida) fluxos.push({ chave: e.chave, valor: -custoSaida, emergencial: e.emergencial });
+      if (custoSaida) fluxos.push({ chave: e.chave, valor: -custoSaida, emergencial: e.emergencial, objetivo: !!e.objetivo });
     } else if (e.tipo === 'transfSaida') {
       emTransferencia[e.produto] = (emTransferencia[e.produto] || []).concat(retirar(e.posicao, e.qtd));
     } else if (e.tipo === 'transfEntrada') {

@@ -319,7 +319,53 @@ function montarObjetivosCarteira_() {
     total: { carteiraAtual: totalRendaFixa[0], novaCarteira: totalRendaFixa[1], valorInvestir: totalRendaFixa[2] }
   };
 
-  return { alocacaoGeral: alocacaoGeral, alocacaoRendaFixa: alocacaoRendaFixa };
+  // 07/10/2026 (Tiago: fundo guardado pra chácara): a planilha enxerga o título 'Objetivo' como Renda Fixa de longo prazo; no site a base
+  // da distribuição NÃO conta o que está reservado pra objetivos (pesos, "% atual" e "aporte que falta" saem sem ele).
+  var reservado = 0;
+  try { reservado = Number(somarCarteiraRendaFixaPorDestino_(ss).objetivo) || 0; } catch (eRes) { reservado = 0; }
+  if (reservado > 0.005) descontarObjetivosDosBlocos_(alocacaoGeral, alocacaoRendaFixa, reservado);
+
+  return { alocacaoGeral: alocacaoGeral, alocacaoRendaFixa: alocacaoRendaFixa, reservadoObjetivos: Math.round(reservado * 100) / 100 };
+}
+
+/**
+ * 07/10/2026: tira `reservado` (R$ de Renda Fixa 'objetivo') da Renda Fixa dos 2 blocos de "Objetivos da Carteira" e refaz o que a
+ * planilha deriva dela (mesma conta das fórmulas B11:G14 e B19:G21, conferida nos dados reais: o total ideal é o MAIOR "atual / peso"
+ * - só se compra, nunca se vende -, nova carteira = peso x total ideal, R$ investir = nova - atual). Linha "Renda Emergencial" do 2º
+ * bloco: nova carteira e R$ investir continuam os da planilha (vêm da meta da reserva).
+ */
+function descontarObjetivosDosBlocos_(alocacaoGeral, alocacaoRendaFixa, reservado) {
+  var r2 = function (v) { return Math.round(v * 100) / 100; };
+  var num = function (v) { return typeof v === 'number' && isFinite(v) ? v : 0; };
+  var tiposG = alocacaoGeral.tipos;
+  var rfG = tiposG.filter(function (t) { return /renda fixa/i.test(String(t.tipo || '')); })[0] || tiposG[2];
+  if (rfG) rfG.carteiraAtual = Math.max(0, num(rfG.carteiraAtual) - reservado);
+  var totalG = 0; tiposG.forEach(function (t) { totalG += num(t.carteiraAtual); });
+  var ideal = 0;
+  tiposG.forEach(function (t) { if (num(t.percentualDesejado) > 0) ideal = Math.max(ideal, num(t.carteiraAtual) / t.percentualDesejado); });
+  if (!(ideal > 0)) ideal = totalG;
+  var novaG = 0, investirG = 0;
+  tiposG.forEach(function (t) {
+    t.percentualAtual = totalG > 0 ? num(t.carteiraAtual) / totalG : 0;
+    t.novaCarteira = num(t.percentualDesejado) > 0 ? t.percentualDesejado * ideal : num(t.carteiraAtual);
+    t.valorInvestir = t.novaCarteira - num(t.carteiraAtual);
+    novaG += t.novaCarteira; investirG += t.valorInvestir;
+  });
+  alocacaoGeral.total = { carteiraAtual: r2(totalG), novaCarteira: r2(novaG), valorInvestir: r2(investirG) };
+
+  var tiposR = alocacaoRendaFixa.tipos;
+  var longo = tiposR.filter(function (t) { return !/emergenc/i.test(String(t.tipo || '')); })[0] || tiposR[1];
+  if (longo) {
+    longo.carteiraAtual = Math.max(0, num(longo.carteiraAtual) - reservado);
+    if (rfG) { longo.novaCarteira = rfG.novaCarteira; longo.valorInvestir = rfG.novaCarteira - longo.carteiraAtual; }
+  }
+  var totalR = 0, novaR = 0, investirR = 0;
+  tiposR.forEach(function (t) { totalR += num(t.carteiraAtual); });
+  tiposR.forEach(function (t) {
+    t.percentualAtual = totalR > 0 ? num(t.carteiraAtual) / totalR : 0;
+    novaR += num(t.novaCarteira); investirR += num(t.valorInvestir);
+  });
+  alocacaoRendaFixa.total = { carteiraAtual: r2(totalR), novaCarteira: r2(novaR), valorInvestir: r2(investirR) };
 }
 
 function testarObjetivosCarteiraDireto() {
@@ -1025,8 +1071,20 @@ function montarDistribuicaoAtual_() {
   if (!dm) throw new Error('aba não encontrada: Distribuição e Metas');
   var tipos = function (a1) { return dm.getRange(a1).getValues().map(function (l) { return { tipo: l[0], carteiraAtual: l[3] }; }); };
   var linhaFiis = localDistribuicaoMetas_(dm).objetivosFiis;
+  var geral = tipos('B11:E13');
+  var rfBloco = tipos('B19:E20');
+  // 07/10/2026: a base da distribuição não conta o que está 'Reservado para objetivos' (a planilha conta como longo prazo)
+  try {
+    var reservado = Number(somarCarteiraRendaFixaPorDestino_(SpreadsheetApp.getActiveSpreadsheet()).objetivo) || 0;
+    if (reservado > 0.005) {
+      var rfLinha = geral.filter(function (t) { return /renda fixa/i.test(String(t.tipo || '')); })[0] || geral[2];
+      if (rfLinha && typeof rfLinha.carteiraAtual === 'number') rfLinha.carteiraAtual = Math.max(0, rfLinha.carteiraAtual - reservado);
+      var longoLinha = rfBloco.filter(function (t) { return !/emergenc/i.test(String(t.tipo || '')); })[0] || rfBloco[1];
+      if (longoLinha && typeof longoLinha.carteiraAtual === 'number') longoLinha.carteiraAtual = Math.max(0, longoLinha.carteiraAtual - reservado);
+    }
+  } catch (eRes) { /* sem o desconto: fica o que a planilha calcula */ }
   return {
-    objetivos: { alocacaoGeral: { tipos: tipos('B11:E13') }, alocacaoRendaFixa: { tipos: tipos('B19:E20') } },
+    objetivos: { alocacaoGeral: { tipos: geral }, alocacaoRendaFixa: { tipos: rfBloco } },
     splitsInternos: { acoes: { itens: tipos('B34:E35') }, fiis: { itens: tipos('B' + linhaFiis + ':E' + (linhaFiis + 2)) } }
   };
 }

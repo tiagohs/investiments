@@ -77,7 +77,7 @@ export async function getSyncHistorico(token, limite = 20) {
  * deve tratar cada campo (`patrimonio`/`historico`/`ativos`) como
  * possivelmente ausente, não só a resposta como um todo.
  *
- * @return {Promise<Object>} `{ ok, patrimonio: { total, longoPrazo,
+ * @return {Promise<Object>} `{ ok, patrimonio: { total, longoPrazo, (07/10/2026: objetivos = Renda Fixa 'Reservado para objetivos', dentro de total e fora de longoPrazo)
  *   rendaEmergencial, porClasse: { acoes, fiis, rendaFixa, acoesEua } },
  *   indices: { ibovespa, ifix, spx }, cambio: { usd, eur },
  *   historico: Array<{ data, patrimonio, longoPrazo, rendaEmergencial,
@@ -322,7 +322,7 @@ export async function getCarteirasAcoesEua(token) {
  *   totalAtualizado, lucroPrejuizo, percentualLucroPrejuizo,
  *   quantidadeAtivos }, benchmarks: { cdi, selic, ipca },
  *   distribuicaoPorIndexador: Array<{ grupo, totalAtualizado, percentual }>,
- *   ativos: Array<{ ..., tipoCarteira: 'longo-prazo'|'emergencial',
+ *   ativos: Array<{ ..., tipoCarteira: 'longo-prazo'|'emergencial'|'objetivo',
  *   rentabilidadeContratada, irSeResgatasseHoje }> } }` or
  *   `{ ok:false, etapa, erro }`.
  */
@@ -359,6 +359,16 @@ export async function salvarMetaPatrimonio(token, campos) {
  */
 export async function salvarMesesRendaEmergencial(token, meses) {
   return request('POST', 'salvarMesesRendaEmergencial', token, { meses });
+}
+
+/**
+ * 07/10/2026: define o destino de um título da Renda Fixa (action=definirDestinoRendaFixa) - grava a coluna B da Carteira Renda Fixa:
+ * "Renda Emergencial" | "Renda Fixa" | "Objetivo" (Reservado para objetivos). Ver CarteirasRendaFixa.gs!definirDestinoRendaFixa_.
+ * @param {string} token
+ * @param {{titulo: string, instituicao: string, destino: 'emergencial'|'longo-prazo'|'objetivo'}} item
+ */
+export async function definirDestinoRendaFixa(token, { titulo, instituicao, destino }) {
+  return request('POST', 'definirDestinoRendaFixa', token, { titulo, instituicao, destino });
 }
 
 /**

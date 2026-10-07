@@ -47,6 +47,7 @@ import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarte
 import { celulaMapa } from './aportes-mapa-calc.js';
 import { ligarFiltroPeriodo, botoesSegmentadoHtml, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js'; // 06/10/2026 (A-67): períodos canônicos
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 import { criarKpi, criarGraficoBarras, garantirEstilosCharts } from '../charts/index.js'; // 06/10/2026 (Onda 3, kit Figma)
 import { confirmar, toast } from '../ui/index.js';
 import { estadoInicialHistorico, historicoHtml as historicoSecaoHtml, montarFiltroPeriodoHistorico, ligarHistorico } from './aportes-historico.js'; // 06/10/2026: Aportes concluídos = Investido por mês
@@ -386,7 +387,7 @@ function momentoLinhaHtml(m, colunas) {
 // investimento por VALOR ou por QUANTIDADE com o mínimo do dia (1% do PU).
 // ---------------------------------------------------------------------------
 
-const rotuloCategoriaRf = (a) => (/emergenc/i.test(a.categoria || '') ? 'Renda emergencial' : 'Renda fixa');
+const rotuloCategoriaRf = (a) => ({ emergencial: 'Renda emergencial', objetivo: 'Reservado para objetivos' }[destinoRendaFixa(a.destino || a.categoria)] || 'Renda fixa');
 
 /** "= 0,19 título · R$ 495,90 (sobram R$ 4,10)" + "mínimo hoje R$ 26,10 (1% do PU de R$ 2.610,00)". */
 function rfInfoHtml(pu, it, { sobra = 0, abaixo = false } = {}) {
@@ -416,7 +417,7 @@ function prateleiraRfHtml(estado, dados) {
     const pu = ehTesouro(a.titulo) ? puDoTitulo(a) : null;
     const dataPu = dataCotacao(a);
     const peso = somaClasse > 0 ? (a.valorAtualizado || 0) / somaClasse : 0;
-    const emerg = /emergenc/i.test(a.categoria || '');
+    const emerg = destinoRendaFixa(a.destino || a.categoria) === 'emergencial';
     return `
       <tr class="${it ? 'no-carrinho' : ''}" data-linha="${esc(k)}">
         <td class="esq">${ativoCelHtml(logoRendaFixaHtml({ indexador: a.indexador, tipoInvestimento: a.tipo, instituicao: a.instituicao }), a.titulo, a.titulo, { linhaTopo: `${esc(a.instituicao)}<span class="tx-tipo-rf${emerg ? ' emergencial' : ''}" title="Marcação na planilha (coluna Categoria)">${rotuloCategoriaRf(a)}</span>` })}</td>

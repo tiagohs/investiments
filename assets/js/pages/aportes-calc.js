@@ -15,6 +15,7 @@ import { avaliarAtivo, sinalPrecoMedio, sinaisDeMetas, sinaisRendaFixaMeta } fro
 // 05/10/2026: contexto de mercado (juro real, termômetro da bolsa, NTN-B) - peso pequeno e limitado
 import { sinaisMacro, LIMITE_PONTOS_MACRO } from '../criterios/macro.js';
 import { puDoTitulo } from './aportes-rf-calc.js';
+import { DESTINO_EMERGENCIAL, DESTINO_OBJETIVO, destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 import { formatUSD, formatNumeroPt, MESES_CURTOS, MESES_LONGOS, formatPct, formatBRL0, formatBRL } from '../format.js';
 
 export const CLASSES_APORTE = [
@@ -434,8 +435,8 @@ function textoTaxa(indice, taxa) {
   return `${t} a.a.`;
 }
 
-/** Marca da Renda Fixa em Metas e Objetivos ('emergencial' | 'longo-prazo') pela categoria da planilha. */
-export const marcaRf = (t) => (/emergencial|reserva/i.test(String((t && (t.categoria || t.tipoCarteira)) || '')) ? 'emergencial' : 'longo-prazo');
+/** Marca da Renda Fixa em Metas e Objetivos ('emergencial' | 'longo-prazo' | 'objetivo') - o destino do título (coluna B da Carteira Renda Fixa; destino-renda-fixa.js). */
+export const marcaRf = (t) => destinoRendaFixa(t && (t.destino || t.categoria || t.tipoCarteira));
 
 /** A classe (ações, FIIs) mais abaixo da fatia desejada (Objetivos da planilha), com folga de 1 p.p.; null se nenhuma. */
 function classeMaisAbaixoDaAlocacao(metas) {
@@ -462,9 +463,11 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
     } else sinal(sinais, 'neutro', `Taxa de hoje: ${textoTaxa(indice, hojeT)}`, 0);
     if (indice === 'IPCA' && hojeT >= 0.06) sinal(sinais, 'bom', 'Juro real acima de 6% a.a., alto pro histórico do Tesouro', 1);
   }
-  const emergencial = /emergencial/i.test(t.categoria || '');
-  const meta = metas ? (emergencial ? metas.rfEmergencial : metas.rfLongoPrazo) : null;
-  const nome = emergencial ? 'Reserva de emergência' : 'Renda Fixa de longo prazo';
+  const destino = marcaRf(t);
+  const emergencial = destino === DESTINO_EMERGENCIAL;
+  const objetivo = destino === DESTINO_OBJETIVO; // 07/10/2026: Reservado para objetivos - fora da Distribuição da carteira (sem meta de classe)
+  const meta = metas && !objetivo ? (emergencial ? metas.rfEmergencial : metas.rfLongoPrazo) : null;
+  const nome = emergencial ? 'Reserva de emergência' : (objetivo ? 'Reservado para objetivos' : 'Renda Fixa de longo prazo');
   // 03/10/2026: metas de Metas e Objetivos (vínculo pela marca Renda Emergencial/longo prazo, pelo título ou pela classe)
   const titulo = String(t.titulo || '').replace(/\s+/g, ' ').trim();
   const metasObj = sinaisMeta(sinais, { classe: 'rendaFixa', ticker: titulo, ref: `rf:${titulo}|${String(t.instituicao || '').trim()}`, marca: marcaRf(t), moeda: 'BRL' }, opcoes);
@@ -475,7 +478,7 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
     else if (dif >= 0.01) sinal(sinais, 'ruim', `${nome} já acima da meta (${formatPct(meta.atual)} de ${formatPct(meta.desejado, 0)})`, -1.5);
     else sinal(sinais, 'neutro', `${nome} na meta`, 0);
   }
-  if (metas) sinalMetaClasse(sinais, metas.rendaFixa, 'Renda Fixa');
+  if (metas && !objetivo) sinalMetaClasse(sinais, metas.rendaFixa, 'Renda Fixa');
   // 05/10/2026 (Tiago: "Tesouro Selic 2032 é positivo investir se a renda emergencial estiver abaixo do ideal"):
   // este título combina com a(s) meta(s) a que está ligado? (reserva abaixo do ideal, liquidez, vence antes/depois da
   // meta, IPCA+ longo pra meta curta, vencendo em < 12 meses na reserva)

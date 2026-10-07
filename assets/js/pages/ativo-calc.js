@@ -20,6 +20,7 @@
 
 import { normalizarSerieRentabilidade } from './inicio-calc.js';
 import { formatNumeroPt, formatDMA } from '../format.js'; // 05/10/2026 (A-68)
+import { destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 
 export const CLASSES_ATIVO = {
   acoes: { label: 'Ação', labelPlural: 'Ações', token: '--acoes', soft: '--acoes-soft', visao: 'ativoAcoes', pagina: 'acoes', indice: { campo: 'ibovespa', label: 'Ibovespa' } },
@@ -661,7 +662,7 @@ export function entradaMotorDoAtivo(resposta, { faixa = null, percentualCarteira
     classe,
     ticker: r.ticker,
     ref: refRf,
-    marca: ehRf ? (a.tipoCarteira === 'emergencial' ? 'emergencial' : 'longo-prazo') : '',
+    marca: ehRf ? destinoRendaFixa(a.tipoCarteira) : '',
     nome: a.nome || '',
     setor: ehRf ? '' : (a.grupo || ''),
     segmento: classe === 'fiis' ? (a.grupo || a.segmento || '') : '',

@@ -264,7 +264,7 @@ const MEDIDO = {
   gastos:               { celulas: 74572, getValues: 2, getValue: 0, bytes: 284459 },
   meusAtivos:           { celulas: 83681, getValues: 5, getValue: 1, bytes: 12991 },
   carteirasHome:        { celulas: 204200, getValues: 14, getValue: 2, bytes: 1164 },
-  carteirasAcoes:       { celulas: 28015, getValues: 5, getValue: 2, bytes: 7366 },
+  carteirasAcoes:       { celulas: 28015, getValues: 7, getValue: 2, bytes: 7366 }, // 07/10/2026: +2 leituras - o destino de cada título da Renda Fixa (reserva/longo prazo/objetivo) vem da coluna B da Carteira RF (Home.gs, Planilha.gs!somarCarteiraRendaFixaPorDestino_)
   carteirasFiis:        { celulas: 30117, getValues: 8, getValue: 2, bytes: 5889 },
   carteirasAcoesEua:    { celulas: 147936, getValues: 8, getValue: 2, bytes: 4149 },
   carteirasRendaFixa:   { celulas: 28934, getValues: 6, getValue: 0, bytes: 10080 },

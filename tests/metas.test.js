@@ -422,7 +422,7 @@ test('v2 viagem: destinos (dias x gasto diário) e itens fixos no assistente; sa
   const tela = doc.getElementById('mtTela');
   assert.match(tela.textContent, /Destinos/);
   assert.match(tela.textContent, /já trocado/);
-  assert.match(tela.textContent, /Saldo em conta · Conta X/);
+  assert.match(tela.textContent, /Fora da carteira · Conta X/);
 });
 
 test('v2 saldo em conta: "Atualizar saldo" no detalhe salva o novo saldo com a data de hoje', async () => {

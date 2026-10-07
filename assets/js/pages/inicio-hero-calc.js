@@ -71,7 +71,7 @@ export function destaqueRendimento(r) {
 }
 
 /** "Dos +R$ N: R$ A foi dinheiro novo (...) e R$ B o patrimônio rendendo sozinho (...)". */
-export function decomposicaoVariacao(r) {
+export function decomposicaoVariacao(r, { fora = null } = {}) {
   if (!r || !r.pl || !num(r.fluxos) || !num(r.retornos)) return null;
   const total = r.pl.variacao;
   const novo = r.fluxos;
@@ -79,7 +79,9 @@ export function decomposicaoVariacao(r) {
   const cab = total >= 0 ? `Dos +${reaisCurto(total)}: ` : `Variação de −${reaisCurto(total)}: `;
   const doNovo = novo >= 0 ? `${reaisCurto(novo)} foi dinheiro novo (aportes e parcelas que abateram dívida)` : `${reaisCurto(novo)} saiu em retiradas e dívidas que cresceram`;
   const doRend = rend >= 0 ? `${reaisCurto(rend)} o patrimônio rendendo sozinho (investimentos e valorização do apê)` : `o patrimônio perdeu ${reaisCurto(rend)} sozinho (investimentos e valorização do apê)`;
-  return { total, novo, rendimento: rend, perdeu: rend < 0, texto: `${cab}${doNovo} e ${doRend}.` };
+  // 07/10/2026: investimento fora da carteira (marcado "conta no meu patrimônio" numa meta) entra no patrimônio só a partir de hoje - o site não tem o histórico dele
+  const notaFora = fora && fora.total > 0 ? ` Dentro do dinheiro novo estão ${reaisCurto(fora.total)} de ${fora.nomes.join(', ')} (fora da carteira): contam no patrimônio só a partir de hoje, porque o site não tem o histórico deles - por isso não entram como rendimento.` : '';
+  return { total, novo, rendimento: rend, perdeu: rend < 0, texto: `${cab}${doNovo} e ${doRend}.${notaFora}` };
 }
 
 /** O que o ⓘ explica. */
@@ -111,10 +113,18 @@ export function modeloHero(d, periodoUi = PERIODO_PADRAO_HERO, { hoje = null } =
   const base = seriesReais(d, { hoje: hj, ctx: { ritmo: aporteMedio(d.historicoMensal, hj, 12) } });
   // 07/10/2026: a série é mensal (FGTS/dívidas pelo saldo do mês) e o balanço é o de HOJE - o último ponto (mês atual)
   // passa a ser o valor de hoje, pra "era X + variação = número grande" fechar; a diferença vai pro rendimento do mês.
+  // 07/10/2026: investimentos FORA DA CARTEIRA (balanco() os soma em `fora`) não têm histórico no site: entram no último ponto como
+  // ENTRADA de patrimônio (fluxo), não como rendimento - "era X + variação = hoje" continua fechando e a rentabilidade não infla.
+  const forasB = b.ativos.filter((a) => a.fora && num(a.valor) && a.valor > 0);
+  const foraTotal = forasB.reduce((s, a) => s + a.valor, 0);
   const ult = base.pontos[base.pontos.length - 1];
   if (ult && ult.mes === String(hj).slice(0, 7) && num(b.liquido) && num(ult.pl)) {
     const dif = b.liquido - ult.pl;
-    base.pontos = [...base.pontos.slice(0, -1), { ...ult, pl: b.liquido, retorno: num(ult.retorno) ? ult.retorno + dif : ult.retorno }];
+    base.pontos = [...base.pontos.slice(0, -1), {
+      ...ult, pl: b.liquido,
+      retorno: num(ult.retorno) ? ult.retorno + dif - foraTotal : ult.retorno,
+      fluxo: num(ult.fluxo) ? ult.fluxo + foraTotal : ult.fluxo,
+    }];
   }
   const semIndices = !!(base.ipca && base.ipca.semDados);
   const r = base.pontos.length >= 2 && !semIndices ? resumoPeriodo(base, periodoDoHero(periodoUi, hj), { hoje: hj }) : null;
@@ -124,6 +134,7 @@ export function modeloHero(d, periodoUi = PERIODO_PADRAO_HERO, { hoje = null } =
     ativos, dividas, kpis,
     periodo: periodoUi, descricaoPeriodo: descricaoPeriodo(periodoUi),
     semHistorico: !r,
+    foraDaCarteira: foraTotal > 0 ? { total: foraTotal, itens: forasB.map((a) => ({ nome: a.nome, valor: a.valor })) } : null, // 07/10/2026
     variacao: null, destaque: null, decomposicao: null, infoRendimento: null, corte: null, serie: [], aviso: null,
   };
   if (!r) {
@@ -135,7 +146,7 @@ export function modeloHero(d, periodoUi = PERIODO_PADRAO_HERO, { hoje = null } =
     inicioValor: r.pl.inicio, inicioMes: r.de, inicioRotulo: formatMesAno(r.de, { vazio: '' }),
   };
   modelo.destaque = destaqueRendimento(r);
-  modelo.decomposicao = decomposicaoVariacao(r);
+  modelo.decomposicao = decomposicaoVariacao(r, foraTotal > 0 ? { fora: { total: foraTotal, nomes: forasB.map((a) => a.nome) } } : {});
   modelo.infoRendimento = textoInfoRendimento(r);
   modelo.corte = r.cortadoDe ? { desde: r.de, rotulo: formatMesAno(r.de, { vazio: '' }), texto: `Contando desde ${formatMesAno(r.de, { vazio: '' })} - antes disso o patrimônio líquido era zero ou negativo.` } : null;
   modelo.serie = r.linhas.map((l) => l.pl);

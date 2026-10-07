@@ -261,7 +261,7 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
       if (vistos[k]) return;
       vistos[k] = true;
       out.rendaFixa.push({
-        titulo: titulo, instituicao: instituicao, categoria: String(l[1] || '').trim(), tipo: String(l[3] || '').trim(),
+        titulo: titulo, instituicao: instituicao, categoria: String(l[1] || '').trim(), destino: destinoRendaFixa_(l[1]), tipo: String(l[3] || '').trim(),
         indexador: String(l[4] || '').trim(), vencimento: Object.prototype.toString.call(l[10]) === '[object Date]' ? chaveDiaISOInicio_(l[10]) : '',
         valorAtualizado: numeroAporte_(l[11]), valorInvestido: numeroAporte_(l[8]), ultimoPago: ultimasRf[k] || null
       });

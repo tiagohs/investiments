@@ -62,7 +62,10 @@
 import { CATEGORIAS_ACUMULO, TIPOS_META, cotacao, mesDe, mesVenc, mesesEntre, num, paraBRL, r2, rotuloMes, somarMeses } from './metas-calc-nucleo.js';
 import { calcularViagem, entradaPadrao, expandirEntradas } from './metas-calc-viagem.js';
 import { formatBRL0 } from '../format.js';
+import { ativoRfObjetivo } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa (emergencial | longo-prazo | objetivo)
 import { pesosPadraoDistribuicao } from './metas-distribuicao.js'; // 06/10/2026: tipo "Distribuição da carteira"
+import { planoAporte, aporteNoMes, aporteFn, resumoAporteCrescente, aporteDeCalc } from './metas-calc-aporte.js'; // 07/10/2026: aporte crescente
+import { estimarSaldoCdi } from './metas-calc-fora.js'; // 07/10/2026: saldo/investimento fora da carteira (% do CDI)
 
 
 /**
@@ -91,7 +94,7 @@ export const EXPLICACOES = {
   extra: 'Valor extra por mês somado às despesas essenciais (na planilha, K18) - lazer, viagens, imprevistos.',
   margemViagem: 'Folga sobre o gasto estimado lá (câmbio, imprevistos). O alvo em moeda estrangeira já inclui a margem.',
   cambio: 'Cotação de hoje (AwesomeAPI; se falhar, PTAX do Banco Central). O que falta em moeda estrangeira é convertido para reais por ela.',
-  saldoConta: 'Dinheiro parado numa conta (ex. Wise em euro): não é investimento, entra pelo saldo informado, convertido pelo câmbio do dia. Atualize o saldo sempre que mudar - cada atualização vira um ponto no histórico.',
+  saldoConta: 'Dinheiro que não está na sua carteira do site: uma conta (ex. Wise em euro) ou um investimento de fora (ex. um fundo). Entra pelo saldo informado, convertido pelo câmbio do dia; com "% do CDI" o site estima o valor de hoje corrigindo o último saldo pelo CDI (sem somar aportes). Atualize o saldo sempre que tiver o extrato - cada atualização vira um ponto no histórico.',
   avaliacao: 'Avaliação automática de cada investimento vinculado: liquidez x prazo da meta, risco (oscilação) x horizonte e moeda. Não é recomendação de compra ou venda.',
   // 04/10/2026 (viagem em 2 partes + entradas programadas)
   custoTotal: 'Quanto a viagem custa DE FATO: o que você já comprou (passagens, hotéis, ingressos no cartão ou pagos à vista) + o dinheiro que precisa guardar pra gastar lá e pagar o resto (o que já está guardado + o que ainda falta guardar). As compras já feitas ficam fora do aporte (você as paga nas faturas); aqui entram só pra você ver o custo inteiro.',
@@ -154,12 +157,14 @@ export function valorFuturoEntradas(entradas, n, taxa = 0) {
 
 /** 04/10/2026: saldo mês a mês (0..n) com aporte no fim de cada mês e as entradas programadas no mês k. */
 export function trajetoriaMensal({ atual = 0, aporte = 0, taxa = 0, entradas = null, meses = 0 }) {
+  // 07/10/2026: `aporte` pode ser uma função (k -> aporte do mês k) - aporte crescente (metas-calc-aporte.js)
+  const apDe = typeof aporte === 'function' ? aporte : () => aporte || 0;
   const porK = new Map();
   (entradas || []).forEach((e) => { if (e && e.valor > 0) porK.set(e.k, (porK.get(e.k) || 0) + e.valor); });
   const out = [atual];
   let v = atual;
   for (let t = 1; t <= meses; t++) {
-    v = v * (1 + (taxa || 0)) + (aporte || 0) + (porK.get(t) || 0);
+    v = v * (1 + (taxa || 0)) + (apDe(t) || 0) + (porK.get(t) || 0);
     out.push(v);
   }
   return out;
@@ -171,20 +176,22 @@ export function trajetoriaMensal({ atual = 0, aporte = 0, taxa = 0, entradas = n
  */
 export function prazoParaAlvo({ alvo, atual = 0, aporte = 0, taxa = 0, entradas = null }) {
   if (!(alvo > 0) || atual >= alvo) return 0;
-  if (entradas && entradas.some((e) => e && e.valor > 0)) {
+  const aporteVaria = typeof aporte === 'function'; // 07/10/2026: aporte crescente (degraus anuais) também não tem fórmula fechada
+  if (aporteVaria || (entradas && entradas.some((e) => e && e.valor > 0))) {
     // 04/10/2026: com entradas programadas não tem fórmula fechada - mês a mês
-    const ultimaK = Math.max(...entradas.map((e) => e.k || 0));
+    const ultimaK = entradas && entradas.length ? Math.max(...entradas.map((e) => e.k || 0)) : 0;
     let v = atual;
     const porK = new Map();
-    entradas.forEach((e) => { if (e && e.valor > 0) porK.set(e.k, (porK.get(e.k) || 0) + e.valor); });
+    (entradas || []).forEach((e) => { if (e && e.valor > 0) porK.set(e.k, (porK.get(e.k) || 0) + e.valor); });
     for (let t = 1; t <= 1200; t++) {
       const antes = v;
-      v = v * (1 + (taxa || 0)) + (aporte || 0) + (porK.get(t) || 0);
+      const apT = aporteVaria ? (aporte(t) || 0) : (aporte || 0);
+      v = v * (1 + (taxa || 0)) + apT + (porK.get(t) || 0);
       if (v >= alvo) {
         const passo = v - antes;
         return passo > 0 && !porK.get(t) ? t - 1 + (alvo - antes) / passo : t;
       }
-      if (t > ultimaK && !(aporte > 0) && !(taxa > 0)) return Infinity;
+      if (!aporteVaria && t > ultimaK && !(aporte > 0) && !(taxa > 0)) return Infinity;
     }
     return Infinity;
   }
@@ -225,7 +232,7 @@ export function simular({ alvo, atual = 0, rendimentoAnual = 0, meses = null, ap
 /**
  * Valor de hoje dos investimentos vinculados. Vínculo = um ativo (`id`), uma
  * classe inteira (`classe`: acoes|fiis|usa|rf), a marca da Renda Fixa
- * (`marca`: emergencial|longo-prazo) ou - 03/10/2026 - um "Saldo em conta"
+ * (`marca`: emergencial|longo-prazo|objetivo - 07/10/2026) ou - 03/10/2026 - um "Saldo em conta"
  * (`tipo: 'saldo'`, instituição + moeda + saldo, convertido pelo `cambio`);
  * modo total, fração (0-1) ou valor fixo em reais (limitado ao que o ativo
  * vale). Cada item sai também com o líquido (IR/IOF se resgatasse hoje, de
@@ -259,7 +266,9 @@ export function resolverVinculos(vinculos, ativos, cambio, opcoes = {}) {
     if (v.tipo === 'saldo') return { v, saldo: true };
     const idv = v.tipo === 'ativo' || (!v.tipo && v.id) ? idCanonico(v.id) : null;
     const alvo = lista.filter((a) => {
-      if (v.tipo === 'classe') return a.classe === v.classe;
+      // 07/10/2026: "Toda a classe Renda Fixa" NÃO pega título 'objetivo' (Reservado para objetivos) - mesma regra de Metas.gs!progressoVinculosMeta_;
+      // quem quer o título vincula a marca 'objetivo' ou o ativo direto (vínculo por ativo pega qualquer título)
+      if (v.tipo === 'classe') return a.classe === v.classe && !ativoRfObjetivo(a);
       if (v.tipo === 'marca') return a.classe === 'rf' && a.marca === v.marca;
       return a.id === v.id || (idv != null && a.id === idv);
     });
@@ -287,9 +296,11 @@ export function resolverVinculos(vinculos, ativos, cambio, opcoes = {}) {
     const v = p.v;
     if (p.saldo) {
       const cot = cotacao(v.moeda || 'BRL', cambio);
-      const valor = cot == null ? 0 : r2((Number(v.saldo) || 0) * cot);
+      // 07/10/2026: com % do CDI e a série do CDI, o valor de hoje é o último saldo informado corrigido pelo CDI (sem somar aportes)
+      const estimativa = estimarSaldoCdi(v, opcoes.cdi || null);
+      const valor = cot == null ? 0 : r2(estimativa.valor * cot);
       total += valor;
-      return { ...v, base: valor, valorBRL: valor, pretendidoBRL: valor, ativos: [], encontrado: cot != null, cotacao: cot, impostoBRL: 0, liquidoBRL: valor, semCambio: cot == null };
+      return { ...v, base: valor, valorBRL: valor, pretendidoBRL: valor, ativos: [], encontrado: cot != null, cotacao: cot, impostoBRL: 0, liquidoBRL: valor, semCambio: cot == null, estimativa: estimativa.estimado ? estimativa : null };
     }
     const fracaoPorId = {};
     let valor = 0;
@@ -615,8 +626,8 @@ export function calcularMeta(meta, ctx = {}) {
   // --- já tenho ---
   // 05/10/2026 (A-11): só conta o que as metas de prioridade maior (reserva -> renda passiva -> aposentadoria) não pegaram
   const chaveAloc = meta.id || '';
-  const vinc = resolverVinculos(meta.vinculos, ctx.ativos, cambio, { ocupado: (ctx.ocupadoPorMeta && ctx.ocupadoPorMeta[chaveAloc]) || {}, aliases: ctx.aliases || null });
-  vinc.itens.filter((v) => v.semCambio).forEach((v) => avisos.push(`sem câmbio de ${v.moeda} pro saldo em ${v.instituicao}`));
+  const vinc = resolverVinculos(meta.vinculos, ctx.ativos, cambio, { ocupado: (ctx.ocupadoPorMeta && ctx.ocupadoPorMeta[chaveAloc]) || {}, aliases: ctx.aliases || null, cdi: ctx.cdi || null });
+  vinc.itens.filter((v) => v.semCambio).forEach((v) => avisos.push(`sem câmbio de ${v.moeda} pro saldo em ${v.nome || v.instituicao}`));
   // 05/10/2026 (A-14): vínculo a ativo que sumiu/foi renomeado não some mais em silêncio
   vinc.itens.filter((v) => (v.tipo === 'ativo' || (!v.tipo && v.id)) && !v.encontrado).forEach((v) => avisos.push(`o ativo vinculado "${String(v.id || '').split('@')[0]}" não está mais na carteira (vendido ou com outro ticker) e não conta no progresso`));
   const donosCortados = [...new Set(Object.values(vinc.donos || {}).flat())];
@@ -680,7 +691,10 @@ export function calcularMeta(meta, ctx = {}) {
   const aporteReal = hist && num(hist.aporteMedio) != null ? r2(num(hist.aporteMedio)) : null;
   let aporteAtual = 0;
   let aporteOrigem = 'nenhum';
-  if (aporteInformado > 0) { aporteAtual = aporteInformado; aporteOrigem = 'informado'; } else if (aporteReal != null) { aporteAtual = Math.max(0, aporteReal); aporteOrigem = 'historico'; }
+  // 07/10/2026: aporte crescente - o aporte de HOJE já leva os degraus que passaram desde o mês a que o valor informado se refere
+  const planoAp = aporteInformado > 0 ? planoAporte(meta, hoje) : null;
+  const aporteCrescente = planoAp ? resumoAporteCrescente(planoAp, hoje) : null;
+  if (aporteInformado > 0) { aporteAtual = planoAp ? aporteNoMes(planoAp, hoje) : aporteInformado; aporteOrigem = 'informado'; } else if (aporteReal != null) { aporteAtual = Math.max(0, aporteReal); aporteOrigem = 'historico'; }
 
   // --- progresso, prazo e ritmo ---
   // 04/10/2026: na viagem o que já foi comprado não entra (é "a pagar", à parte)
@@ -715,9 +729,12 @@ export function calcularMeta(meta, ctx = {}) {
   // prazo estimado no ritmo atual
   let mesesEstimados = null;
   if (recorrente) mesesEstimados = recorrente.restantes;
-  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoBRL, atual: atualRitmo, aporte: aporteAtual, taxa, entradas: entradasFluxo });
+  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoBRL, atual: atualRitmo, aporte: planoAp ? aporteFn(planoAp, hoje) : aporteAtual, taxa, entradas: entradasFluxo });
   const dataEstimada = mesesEstimados != null && Number.isFinite(mesesEstimados) ? somarMeses(hoje, Math.ceil(mesesEstimados)) : null;
 
+  // 07/10/2026 (Tiago, chácara com amigos: "sem valor final nem prazo"): objetivo de juntar SEM alvo = "acompanhando" (cinza). Só os
+  // tipos de objetivo livre; renda passiva/reserva/aposentadoria/viagem sem alvo seguem as regras delas.
+  const acompanhando = alvoBRL == null && !recorrente && !viagem && ['acumulo', 'casa', 'carro'].includes(meta.tipo);
   let status;
   if (ehReserva) {
     if (alvoBRL != null && atualLiquidoBRL >= alvoBRL - 0.5) status = 'saldo-ideal';
@@ -725,9 +742,12 @@ export function calcularMeta(meta, ctx = {}) {
     else status = 'abaixo';
   } else if (meta.tipo === 'rendaPassiva' && renda && renda.alvo > 0 && renda.atual >= renda.alvo) status = 'concluida';
   else if (meta.tipo !== 'rendaPassiva' && total > 0 && ja >= total - 0.5) status = 'concluida';
+  else if (acompanhando) status = 'acompanhando'; // 07/10/2026: sem valor alvo ainda - só acompanha (nada de "informe o alvo" como problema)
   else if (!dataAlvo) status = 'sem-prazo';
   else if (mesesRestantes < 0 || (mesesRestantes === 0 && falta > 0)) status = 'vencida';
   else if (recorrente) status = 'no-ritmo';
+  // 07/10/2026: com aporte crescente o "necessário" é um aporte fixo equivalente; o que vale é a projeção (com os degraus) chegar até o prazo
+  else if (planoAp && necessario > 0) status = Number.isFinite(mesesEstimados) && Math.ceil(mesesEstimados) <= mesesRestantes ? 'no-ritmo' : 'atrasada';
   else status = aporteAtual + 0.5 >= (necessario || 0) ? 'no-ritmo' : 'atrasada';
 
   const calcPronto = {
@@ -742,6 +762,8 @@ export function calcularMeta(meta, ctx = {}) {
     // 05/10/2026 (A-15): ritmo médio dos últimos meses <= 0 (sem aporte ou só resgates) - a projeção não vira "nunca" calado
     ritmoSemAporte: !(aporteInformado > 0) && aporteReal != null && aporteReal <= 0,
     congelados, sobreposicao, taxaRetirada: aposentadoria ? aposentadoria.taxa : null,
+    // 07/10/2026: aporte crescente (null = aporte igual todo mês), mês de hoje e se a meta está só acompanhando (sem alvo)
+    hoje, planoAporte: planoAp, aporteCrescente, acompanhando,
     viagem, aposentadoria, total: total != null ? r2(total) : null, ja: r2(ja), parcelasCorrendo: r2(parcelasCorrendo),
     // 05/10/2026 (A-11): quanto dos vínculos não conta porque outra meta (ou outro vínculo desta) já pegou
     vinculadoCortadoBRL: vinc.cortadoBRL || 0, valorAtivosVinculados: r2(vinc.itens.filter((v) => v.tipo !== 'saldo').reduce((t, v) => t + v.valorBRL, 0)),
@@ -783,7 +805,7 @@ export function serieProjecao(calc, { maxMeses = 360, hoje, meses = null } = {})
   const base = calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL; // reserva: o líquido
   // 04/10/2026: entradas programadas (13º, FGTS...) entram como degraus
   const ent = calc.entradasFluxo || [];
-  const ritmo = trajetoriaMensal({ atual: base, aporte: calc.aporteAtual, taxa: calc.taxa, entradas: ent, meses: n });
+  const ritmo = trajetoriaMensal({ atual: base, aporte: aporteDeCalc(calc), taxa: calc.taxa, entradas: ent, meses: n }); // 07/10/2026: com degraus do aporte crescente
   const nec = necessario == null ? null : trajetoriaMensal({ atual: base, aporte: necessario, taxa: calc.taxa, entradas: ent, meses: n });
   const pontos = [];
   for (let i = 0; i <= n; i++) {
@@ -817,6 +839,7 @@ export function resumoMetas(calculos, { patrimonioVinculavel = null } = {}) {
     aporteNecessario: r2(calculos.reduce((s, c) => s + (c && c.aporteNecessarioTotal ? c.aporteNecessarioTotal : 0), 0)),
     aporteAtual: r2(calculos.reduce((s, c) => s + (c ? c.aporteAtual : 0), 0)),
     noRitmo: calculos.filter((c) => c && ['no-ritmo', 'concluida', 'saldo-ideal'].includes(c.status)).length,
+    acompanhando: calculos.filter((c) => c && c.status === 'acompanhando').length, // 07/10/2026: sem alvo - conta como meta ativa, nunca como atenção
     atrasadas: calculos.filter((c) => c && ['atrasada', 'vencida', 'abaixo', 'ideal-bruto'].includes(c.status)).length,
   };
 }
@@ -946,7 +969,7 @@ export function marcosProjecao(calc, { hoje, aporte = null, maxMeses = 720, anoN
   const atual = atualOv != null ? atualOv : (calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL);
   const taxaUsada = taxaOv != null ? taxaOv : (calc.taxa || 0);
   const entradasUsadas = entradasOv !== undefined ? entradasOv : calc.entradasFluxo;
-  const ap = aporte != null ? aporte : (calc.aporteAtual || 0);
+  const ap = aporte != null ? aporte : aporteDeCalc(calc); // 07/10/2026: aporte crescente
   const mes = mesDe(hoje || new Date());
   const passo = alvo >= 1.5e6 ? 1e6 : alvo / 4;
   const valores = [];

@@ -532,11 +532,17 @@ export function balanco(d) {
   const dividas = [];
   if (num(inv.longoPrazo)) ativos.push({ id: 'investimentos', nome: 'Investimentos', valor: inv.longoPrazo, porClasse: inv.porClasse || null });
   if (num(inv.reserva)) ativos.push({ id: 'reserva', nome: 'Reserva de emergência', valor: inv.reserva });
+  // 07/10/2026: Renda Fixa marcada 'Objetivo' (Reservado para objetivos): conta no patrimônio, mas fica FORA do longo prazo (investimentos) - linha própria
+  if (num(inv.objetivos) && inv.objetivos > 0) ativos.push({ id: 'objetivos', nome: 'Reservado para objetivos', valor: inv.objetivos });
   const imo = valorImovel(cfg.imovel, d.indices, mes);
   if (imo) ativos.push({ id: 'imovel', nome: (cfg.imovel && cfg.imovel.nome) || 'Apartamento', valor: imo.valor, imovel: imo });
   const fg = saldoFgtsEm(cfg.fgts, mes);
   if (fg != null) ativos.push({ id: 'fgts', nome: 'FGTS', valor: fg });
   (cfg.outros || []).filter((o) => o && o.tipo !== 'divida' && num(o.valor)).forEach((o) => ativos.push({ id: `outro:${o.id}`, nome: o.nome, valor: o.valor, outro: o }));
+  // 07/10/2026 (Tiago: dinheiro num fundo FORA da carteira, marcado "conta no meu patrimônio" numa meta - Metas.gs, via Patrimonio.gs
+  // `outrosInvestimentos`): entra só no patrimônio líquido (valor de hoje, já com a estimativa do CDI). NÃO é carteira de investimentos:
+  // fica fora de investimentos/reserva, rentabilidade, aposentadoria e distribuição (ids `fora:...`, marcador `fora`).
+  (d.outrosInvestimentos || []).filter((o) => o && num(o.valor) && o.valor > 0).forEach((o) => ativos.push({ id: `fora:${o.id}`, nome: o.nome || 'Investimento fora da carteira', valor: r2(o.valor), fora: o }));
   const finEf = financiamentoEfetivo(cfg);
   const extras = extrasFinanciamento(finEf, cfg.fgts);
   // 05/10/2026 (A-08): a dívida de HOJE desconta só as parcelas já vencidas (mesDaDivida), não a do mês cheio
@@ -598,7 +604,7 @@ export function historicoAnual(d) {
   const val = (id) => { const x = [...b.ativos, ...b.dividas].find((a) => a.id === id); return x ? x.valor : 0; };
   linhas.push({
     ano: anoHoje, rotulo: 'hoje', hoje: true, fonte: 'site',
-    investimentos: r2(val('investimentos') + val('reserva') + soma(b.ativos.filter((a) => a.outro), (a) => a.valor)),
+    investimentos: r2(val('investimentos') + val('reserva') + val('objetivos') + soma(b.ativos.filter((a) => a.outro || a.fora), (a) => a.valor)), // 07/10/2026: + fora da carteira (fecha com o líquido de hoje)
     imovel: val('imovel'), fgts: val('fgts'), financiamento: val('financiamento'), fies: val('fies'),
     outrasDividas: soma(b.dividas.filter((a) => a.outro), (a) => a.valor), renda: null,
     fgtsNoApe: r2(soma(usosFgtsNoApe(cfg, `${anoHoje - 1}-12`, mesDe(d.hoje)), (u) => u.valor)),

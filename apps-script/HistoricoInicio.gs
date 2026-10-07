@@ -229,6 +229,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   var classePorTicker = {};        // ticker -> 'BR'/'FII'/'USA' (última classe vista) - base do forward-fill "Nacional" (exclui USA) mais abaixo
   var porDiaRendaFixaTotal = {};   // chave -> soma Valor BRL (todas as posições RF)
   var porDiaRendaEmergencial = {}; // chave -> soma Valor BRL (só Classificação = Renda Emergencial)
+  var porDiaObjetivos = {};        // 07/10/2026: chave -> soma Valor BRL (só destino = Objetivo / Reservado para objetivos)
   var porDiaIbovespa = {};         // chave -> valor do Ibovespa
   var porDiaIfix = {};             // chave -> valor do IFIX (19/09/2026, gráfico de FIIs em Carteiras)
   var porDiaSp500 = {};            // chave -> valor do S&P 500 (19/09/2026, gráfico de Ações EUA em Carteiras)
@@ -379,7 +380,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // posicoesRfZeradas (restos de posições já zeradas), as duas vindas de
     // FluxoCaixaInicio.gs. O corte de "nada no futuro" também é feito lá,
     // DEPOIS do alinhamento.
-    linhasRfLidas_.push({ chave: chave, posicao: linha[1] + '|' + linha[2], classificacao: linha[4], valorBrl: Number(linha[5]) || 0 });
+    linhasRfLidas_.push({ chave: chave, posicao: linha[1] + '|' + linha[2], produto: linha[1], instituicao: linha[2], classificacao: linha[4], valorBrl: Number(linha[5]) || 0 });
   });
 
   // 3) aux_historico-indices — Ibovespa (Valor = pontos) e, na MESMA
@@ -514,6 +515,11 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   if (diagnosticoRf_.deslocamentos.length) console.log('montarSerieHistoricoInicio_: Renda Fixa com data deslocada, realinhada: ' + JSON.stringify(diagnosticoRf_.deslocamentos));
   ULTIMO_DIAGNOSTICO_RF_INICIO_ = diagnosticoRf_;
 
+  var mapaDestinoRfAtual_ = null;
+  try {
+    var abaCarteiraRfSerie_ = ss.getSheetByName(ABA_CARTEIRA_RF);
+    if (abaCarteiraRfSerie_) mapaDestinoRfAtual_ = montarMapaClassificacaoRF_(abaCarteiraRfSerie_);
+  } catch (eMapaRf_) { mapaDestinoRfAtual_ = null; }
   var zeradasRf_ = fluxoCaixa.posicoesRfZeradas || {};
   var restosRfIgnorados_ = 0;
   linhasRfLidas_.forEach(function (l) {
@@ -527,8 +533,17 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       if (l.chave >= intervalos[z].desde && (intervalos[z].ate == null || l.chave < intervalos[z].ate)) { restosRfIgnorados_++; return; }
     }
     porDiaRendaFixaTotal[l.chave] = (porDiaRendaFixaTotal[l.chave] || 0) + l.valorBrl;
-    if (l.classificacao === 'Renda Emergencial') {
+    // 07/10/2026: destino do título (destinoRendaFixa_, Planilha.gs). A Classificação gravada na linha é a do dia em que ela
+    // nasceu; se o título hoje é 'objetivo' (ou deixou de ser), vale o destino de HOJE desde a 1ª linha - sem salto no Longo Prazo.
+    var destinoLinha = destinoRendaFixa_(l.classificacao);
+    var destinoAtualLinha = destinoAtualPosicaoRF_(l.produto, l.instituicao, mapaDestinoRfAtual_);
+    if (destinoAtualLinha === 'objetivo') destinoLinha = 'objetivo';
+    else if (destinoLinha === 'objetivo' && destinoAtualLinha) destinoLinha = destinoAtualLinha;
+    if (!(l.chave in porDiaObjetivos)) porDiaObjetivos[l.chave] = 0; // dia com RF mas sem objetivo = 0 (não herda o último valor)
+    if (destinoLinha === 'emergencial') {
       porDiaRendaEmergencial[l.chave] = (porDiaRendaEmergencial[l.chave] || 0) + l.valorBrl;
+    } else if (destinoLinha === 'objetivo') {
+      porDiaObjetivos[l.chave] += l.valorBrl;
     }
   });
   if (restosRfIgnorados_) console.log('montarSerieHistoricoInicio_: ' + restosRfIgnorados_ + ' linha(s) de Renda Fixa de posição já zerada ignorada(s)');
@@ -627,6 +642,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
   // iteração, exatamente como já era antes desta rodada.
   var ultimoRendaFixaTotalConhecido_ = 0;
   var ultimoRendaEmergencialConhecido_ = 0;
+  var ultimoObjetivosConhecido_ = 0;
   var ultimoIfix = null;
   var ultimoSp500 = null;
   var ultimoIvvb11 = null; // 03/10/2026
@@ -723,14 +739,17 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // então usa o valor do próprio dia direto, sem forward-fill.
     if (chaveAtual in porDiaRendaFixaTotal) ultimoRendaFixaTotalConhecido_ = porDiaRendaFixaTotal[chaveAtual];
     if (chaveAtual in porDiaRendaEmergencial) ultimoRendaEmergencialConhecido_ = porDiaRendaEmergencial[chaveAtual];
+    if (chaveAtual in porDiaObjetivos) ultimoObjetivosConhecido_ = porDiaObjetivos[chaveAtual];
     var rendaFixaHoje = ultimoRendaFixaTotalConhecido_;
     var rendaEmergencialHoje = ultimoRendaEmergencialConhecido_;
+    var objetivosHoje = ultimoObjetivosConhecido_; // 07/10/2026: Renda Fixa reservada pra objetivos (entra no total, sai do Longo Prazo)
 
     // Fluxo de caixa líquido do dia (positivo = aporte/entrada, negativo =
     // retirada/saída) - mesma decomposição Total/Longo Prazo/Renda
     // Emergencial já usada pro patrimônio em si, logo abaixo.
     var fluxoTotalHoje = fluxoCaixa.total[chaveAtual] || 0;
     var fluxoRendaEmergencialHoje = fluxoCaixa.rendaEmergencial[chaveAtual] || 0;
+    var fluxoObjetivosHoje = (fluxoCaixa.objetivos || {})[chaveAtual] || 0; // 07/10/2026: aporte/resgate num título 'objetivo' é fluxo FORA do Longo Prazo
     // fluxoUsaHoje (bruto, SEM a correção de 20/09/2026 abaixo) - usado
     // em fluxoCaixaNacional logo adiante (total − rendaEmergencial − usa,
     // igual sempre foi); a correção de backfill atrasado é só pro TWR da
@@ -754,6 +773,7 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // sim deduz provento, de propósito).
     var fluxoAplicadoTotalHoje = fluxoCaixa.totalAplicado[chaveAtual] || 0;
     var fluxoAplicadoRendaEmergencialHoje = fluxoCaixa.rendaEmergencialAplicado[chaveAtual] || 0;
+    var fluxoAplicadoObjetivosHoje = (fluxoCaixa.objetivosAplicado || {})[chaveAtual] || 0;
     var fluxoAplicadoUsaHoje = fluxoCaixa.usaAplicado[chaveAtual] || 0;
     var fluxoAplicadoAcoesHoje = fluxoCaixa.acoesAplicado[chaveAtual] || 0;
     var fluxoAplicadoFiisHoje = fluxoCaixa.fiisAplicado[chaveAtual] || 0;
@@ -774,27 +794,29 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
     // Nacional = Longo Prazo menos tudo que é classe USA (ver
     // somaVariavelNacionalAtual acima) - mesma fórmula que Home.gs usa
     // pro valor atual (longoPrazo - porClasse.acoesEua), só que dia a dia.
-    var patrimonioNacional = ultimoVariavelNacional + rendaFixaHoje - rendaEmergencialHoje;
+    var patrimonioNacional = ultimoVariavelNacional + rendaFixaHoje - rendaEmergencialHoje - objetivosHoje;
     // 19/09/2026: Renda Fixa "Longo Prazo" de VERDADE (só RF, sem o
     // patrimônio variável junto) - não confundir com o `longoPrazo` do
     // patrimônio inteiro logo abaixo (esse é "tudo menos a reserva de
     // emergência", inclui Ações/FIIs/USA também).
-    var rendaFixaLongoPrazoHoje = rendaFixaHoje - rendaEmergencialHoje;
+    var rendaFixaLongoPrazoHoje = rendaFixaHoje - rendaEmergencialHoje - objetivosHoje;
 
     serie.push({
       data: chaveAtual,
       patrimonio: arredondar2Inicio_(patrimonioTotal),
-      longoPrazo: arredondar2Inicio_(patrimonioTotal - rendaEmergencialHoje),
+      longoPrazo: arredondar2Inicio_(patrimonioTotal - rendaEmergencialHoje - objetivosHoje),
       nacional: arredondar2Inicio_(patrimonioNacional),
       rendaEmergencial: arredondar2Inicio_(rendaEmergencialHoje),
+      objetivos: arredondar2Inicio_(objetivosHoje), // 07/10/2026: Renda Fixa 'Reservado para objetivos'
       indiceCdi: arredondarIndiceInicio_(indiceCdi), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
       indiceSelic: arredondarIndiceInicio_(indiceSelic), // 23/09/2026 #8: 4 casas (2 casas distorciam o passo diário/mensal)
       ibovespa: ultimoIbovespa,
       pregao: pregaoHoje,
       fluxoCaixaPatrimonio: arredondar2Inicio_(fluxoTotalHoje),
-      fluxoCaixaLongoPrazo: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje),
-      fluxoCaixaNacional: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje - fluxoUsaHoje),
+      fluxoCaixaLongoPrazo: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje - fluxoObjetivosHoje),
+      fluxoCaixaNacional: arredondar2Inicio_(fluxoTotalHoje - fluxoRendaEmergencialHoje - fluxoObjetivosHoje - fluxoUsaHoje),
       fluxoCaixaRendaEmergencial: arredondar2Inicio_(fluxoRendaEmergencialHoje),
+      fluxoCaixaObjetivos: arredondar2Inicio_(fluxoObjetivosHoje),
       // --- 19/09/2026: campos por classe, ver cabeçalho do arquivo ---
       acoes: arredondar2Inicio_(somaAcoesAtual),
       fiis: arredondar2Inicio_(somaFiisAtual),
@@ -809,17 +831,18 @@ function montarSerieHistoricoInicio_(dadosRendaFixaCache) {
       fluxoCaixaFiis: arredondar2Inicio_(fluxoFiisHoje),
       fluxoCaixaAcoesEua: arredondar2Inicio_(fluxoAcoesEuaHoje),
       fluxoCaixaRendaFixaTotal: arredondar2Inicio_(fluxoRendaFixaTotalHoje),
-      fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje),
+      fluxoCaixaRendaFixaLongoPrazo: arredondar2Inicio_(fluxoRendaFixaTotalHoje - fluxoRendaEmergencialHoje - fluxoObjetivosHoje),
       // --- 21/09/2026: "Valor aplicado", ver comentário acima ---
       fluxoAplicadoPatrimonio: arredondar2Inicio_(fluxoAplicadoTotalHoje),
-      fluxoAplicadoLongoPrazo: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje),
-      fluxoAplicadoNacional: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje - fluxoAplicadoUsaHoje),
+      fluxoAplicadoLongoPrazo: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje - fluxoAplicadoObjetivosHoje),
+      fluxoAplicadoNacional: arredondar2Inicio_(fluxoAplicadoTotalHoje - fluxoAplicadoRendaEmergencialHoje - fluxoAplicadoObjetivosHoje - fluxoAplicadoUsaHoje),
       fluxoAplicadoRendaEmergencial: arredondar2Inicio_(fluxoAplicadoRendaEmergencialHoje),
+      fluxoAplicadoObjetivos: arredondar2Inicio_(fluxoAplicadoObjetivosHoje),
       fluxoAplicadoAcoes: arredondar2Inicio_(fluxoAplicadoAcoesHoje),
       fluxoAplicadoFiis: arredondar2Inicio_(fluxoAplicadoFiisHoje),
       fluxoAplicadoAcoesEua: arredondar2Inicio_(fluxoAplicadoUsaHoje),
       fluxoAplicadoRendaFixaTotal: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje),
-      fluxoAplicadoRendaFixaLongoPrazo: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje - fluxoAplicadoRendaEmergencialHoje)
+      fluxoAplicadoRendaFixaLongoPrazo: arredondar2Inicio_(fluxoAplicadoRendaFixaTotalHoje - fluxoAplicadoRendaEmergencialHoje - fluxoAplicadoObjetivosHoje)
     });
     // 23/09/2026 #7: provento recebido no dia, por classe (só quando houve -
     // a maioria dos dias não tem, e a série vai inteira pro front). Usado no

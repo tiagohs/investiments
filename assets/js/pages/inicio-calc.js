@@ -7,6 +7,7 @@
 import { ehPeriodoPersonalizado, recortarPorIntervalo } from '../periodo-personalizado.js';
 import { ajusteMarcacaoDoCampo } from './inicio-comparativo.js';
 import { analisarSerie } from '../analise-grafico.js';
+import { DESTINO_EMERGENCIAL, DESTINO_OBJETIVO, ROTULO_DESTINO_RF, destinoRendaFixa } from '../destino-renda-fixa.js';
 
 /**
  * Separa um valor já formatado ("R$ 5,09", "185.600,00") na parte
@@ -33,6 +34,8 @@ export const VISOES = {
   longoPrazo: { chave: 'longoPrazo', label: 'Longo Prazo' },
   nacional: { chave: 'nacional', label: 'Patrimônio Nacional' },
   rendaEmergencial: { chave: 'rendaEmergencial', label: 'Renda Emergencial' },
+  // 07/10/2026: Renda Fixa marcada 'Objetivo' (Reservado para objetivos) - entra no total, fica fora do Longo Prazo (Home.gs)
+  objetivos: { chave: 'objetivos', label: ROTULO_DESTINO_RF[DESTINO_OBJETIVO] },
   // 23/09/2026 #9 (pedido do Tiago: gráfico "Ações Internacionais" na
   // Rentabilidade da Início) - o valor ao vivo mora em porClasse (Home.gs),
   // o MESMO número do topo de Carteiras > Ações EUA em reais.
@@ -102,7 +105,8 @@ export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmerge
   let somaUsaUsd = 0;
   (ativos || []).forEach((ativo) => {
     if (excluirInternacional && ativo.classe === 'usa') return;
-    if (excluirEmergencial && ativo.classe === 'rf' && ativo.marca === 'emergencial') return;
+    // 07/10/2026: a visão sem reserva também fica sem o que está 'Reservado para objetivos' (destinoRendaFixa, destino-renda-fixa.js)
+    if (excluirEmergencial && ativo.classe === 'rf' && destinoRendaFixa(ativo.marca) !== 'longo-prazo') return;
     if (!(ativo.classe in somas)) return;
     somas[ativo.classe] += valorPosicaoAtivo_(ativo, cambioUsd);
     if (ativo.classe === 'usa') {
@@ -143,7 +147,22 @@ export function calcularDistribuicaoPorClasse(ativos, { cambioUsd, excluirEmerge
 export function calcularDistribuicaoRendaEmergencial(ativos) {
   const somas = new Map();
   (ativos || []).forEach((ativo) => {
-    if (ativo.classe !== 'rf' || ativo.marca !== 'emergencial') return;
+    if (ativo.classe !== 'rf' || destinoRendaFixa(ativo.marca) !== DESTINO_EMERGENCIAL) return;
+    const tipo = ativo.tipoInvestimento || 'Outro';
+    const valor = typeof ativo.valorAtualizado === 'number' ? ativo.valorAtualizado : 0;
+    somas.set(tipo, (somas.get(tipo) || 0) + valor);
+  });
+  return Array.from(somas.entries())
+    .filter(([, valor]) => valor > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tipo, valor]) => ({ label: tipo, valor }));
+}
+
+/** 07/10/2026: distribuição do que está 'Reservado para objetivos' por TIPO de título (mesma conta da reserva de emergência). */
+export function calcularDistribuicaoObjetivos(ativos) {
+  const somas = new Map();
+  (ativos || []).forEach((ativo) => {
+    if (ativo.classe !== 'rf' || destinoRendaFixa(ativo.marca) !== DESTINO_OBJETIVO) return;
     const tipo = ativo.tipoInvestimento || 'Outro';
     const valor = typeof ativo.valorAtualizado === 'number' ? ativo.valorAtualizado : 0;
     somas.set(tipo, (somas.get(tipo) || 0) + valor);
@@ -275,12 +294,13 @@ export function historicoTemCambioUsd(historico) {
 }
 
 export const CAMPO_PRINCIPAL_POR_VISAO = {
-  total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial',
+  total: 'patrimonio', longoPrazo: 'longoPrazo', nacional: 'nacional', rendaEmergencial: 'rendaEmergencial', objetivos: 'objetivos',
   internacional: 'acoesEua', // 23/09/2026 #9: mesmo campo de carteiraAcoesEua (Carteiras) - os 2 gráficos batem por construção
   carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'acoesEua',
   carteiraAcoesEuaUsd: 'acoesEuaUsd', // 24/09/2026: Ações EUA em dólar - ver comCamposUsdAcoesEua
   carteiraRendaFixaTotal: 'rendaFixaTotal', carteiraRendaFixaLongoPrazo: 'rendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'rendaEmergencial', // mesmo campo da Início - RF-emergencial é o mesmo número
+  carteiraRendaFixaObjetivos: 'objetivos', // 07/10/2026: Renda Fixa reservada pra objetivos
   // 25/09/2026: tela Detalhe do ativo - histórico de UM ativo montado no
   // front (ativo-calc.js!montarHistoricoAtivo), com os mesmos nomes de campo
   ativoAcoes: 'ativo', ativoFiis: 'ativo', ativoAcoesEua: 'ativo', ativoRendaFixa: 'ativo',
@@ -299,6 +319,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   longoPrazo: 'fluxoCaixaLongoPrazo',
   nacional: 'fluxoCaixaNacional',
   rendaEmergencial: 'fluxoCaixaRendaEmergencial',
+  objetivos: 'fluxoCaixaObjetivos',
   internacional: 'fluxoCaixaAcoesEua',
   carteiraAcoes: 'fluxoCaixaAcoes',
   carteiraFiis: 'fluxoCaixaFiis',
@@ -307,6 +328,7 @@ export const CAMPO_FLUXO_POR_VISAO = {
   carteiraRendaFixaTotal: 'fluxoCaixaRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoCaixaRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoCaixaRendaEmergencial',
+  carteiraRendaFixaObjetivos: 'fluxoCaixaObjetivos',
   ativoAcoes: 'fluxoCaixaAtivo', ativoFiis: 'fluxoCaixaAtivo', ativoAcoesEua: 'fluxoCaixaAtivo', ativoRendaFixa: 'fluxoCaixaAtivo',
   ativoAcoesEuaUsd: 'fluxoCaixaAtivoUsd',
 };
@@ -324,6 +346,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   longoPrazo: 'fluxoAplicadoLongoPrazo',
   nacional: 'fluxoAplicadoNacional',
   rendaEmergencial: 'fluxoAplicadoRendaEmergencial',
+  objetivos: 'fluxoAplicadoObjetivos',
   internacional: 'fluxoAplicadoAcoesEua',
   carteiraAcoes: 'fluxoAplicadoAcoes',
   carteiraFiis: 'fluxoAplicadoFiis',
@@ -332,6 +355,7 @@ export const CAMPO_FLUXO_APLICADO_POR_VISAO = {
   carteiraRendaFixaTotal: 'fluxoAplicadoRendaFixaTotal',
   carteiraRendaFixaLongoPrazo: 'fluxoAplicadoRendaFixaLongoPrazo',
   carteiraRendaFixaEmergencial: 'fluxoAplicadoRendaEmergencial',
+  carteiraRendaFixaObjetivos: 'fluxoAplicadoObjetivos',
   ativoAcoes: 'fluxoAplicadoAtivo', ativoFiis: 'fluxoAplicadoAtivo', ativoAcoesEua: 'fluxoAplicadoAtivo', ativoRendaFixa: 'fluxoAplicadoAtivo',
   ativoAcoesEuaUsd: 'fluxoAplicadoAtivoUsd',
 };
@@ -406,6 +430,10 @@ export const BENCHMARKS_POR_VISAO = {
     { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
     { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
   ],
+  carteiraRendaFixaObjetivos: [
+    { campo: 'indiceCdi', label: 'CDI', cor: '--ink-faint', dash: '6 4' },
+    { campo: 'indiceIpca', label: 'IPCA', cor: '--usa', dash: '6 4' },
+  ],
   // 25/09/2026: tela Detalhe do ativo - o índice da bolsa do ativo (linha
   // cheia) e o CDI (tracejado), como nas Carteiras; renda fixa: CDI e IPCA.
   ativoAcoes: [
@@ -439,7 +467,7 @@ export const BENCHMARKS_POR_VISAO = {
 export const COR_PRINCIPAL_POR_VISAO = {
   total: '--acoes', longoPrazo: '--acoes', nacional: '--acoes', rendaEmergencial: '--acoes', internacional: '--acoes',
   carteiraAcoes: '--acoes', carteiraFiis: '--fiis', carteiraAcoesEua: '--usa', carteiraAcoesEuaUsd: '--usa',
-  carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf',
+  carteiraRendaFixaTotal: '--rf', carteiraRendaFixaLongoPrazo: '--rf', carteiraRendaFixaEmergencial: '--rf', carteiraRendaFixaObjetivos: '--rf',
   ativoAcoes: '--acoes', ativoFiis: '--fiis', ativoAcoesEua: '--usa', ativoRendaFixa: '--rf', ativoAcoesEuaUsd: '--usa',
 };
 
@@ -627,7 +655,7 @@ const NOME_ANALISE_POR_VISAO = {
   total: 'O patrimônio total', longoPrazo: 'O longo prazo', nacional: 'O patrimônio nacional', rendaEmergencial: 'A renda emergencial',
   internacional: 'A carteira internacional', carteiraAcoes: 'A carteira de ações', carteiraFiis: 'A carteira de FIIs',
   carteiraAcoesEua: 'A carteira de ações EUA', carteiraAcoesEuaUsd: 'A carteira de ações EUA (em dólar)',
-  carteiraRendaFixaTotal: 'A renda fixa', carteiraRendaFixaLongoPrazo: 'O longo prazo da renda fixa', carteiraRendaFixaEmergencial: 'A reserva de emergência',
+  carteiraRendaFixaTotal: 'A renda fixa', carteiraRendaFixaLongoPrazo: 'O longo prazo da renda fixa', carteiraRendaFixaEmergencial: 'A reserva de emergência', carteiraRendaFixaObjetivos: 'O que está reservado para objetivos', objetivos: 'O que está reservado para objetivos',
 };
 
 /** De onde veio o resultado (regras "movimento" e "concentração"): [rótulo, campo, campo de fluxo]. */
@@ -635,7 +663,7 @@ const COMPONENTES_ANALISE_POR_VISAO = {
   total: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Ações EUA', 'acoesEua', 'fluxoCaixaAcoesEua'], ['Renda Fixa', 'rendaFixaTotal', 'fluxoCaixaRendaFixaTotal']],
   longoPrazo: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Ações EUA', 'acoesEua', 'fluxoCaixaAcoesEua'], ['Renda Fixa', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo']],
   nacional: [['Ações', 'acoes', 'fluxoCaixaAcoes'], ['FIIs', 'fiis', 'fluxoCaixaFiis'], ['Renda Fixa', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo']],
-  carteiraRendaFixaTotal: [['Longo prazo', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo'], ['Reserva de emergência', 'rendaEmergencial', 'fluxoCaixaRendaEmergencial']],
+  carteiraRendaFixaTotal: [['Longo prazo', 'rendaFixaLongoPrazo', 'fluxoCaixaRendaFixaLongoPrazo'], ['Reserva de emergência', 'rendaEmergencial', 'fluxoCaixaRendaEmergencial'], ['Reservado para objetivos', 'objetivos', 'fluxoCaixaObjetivos']],
 };
 
 /** 07/10/2026: data de hoje (fuso do navegador) em ISO - só pro rótulo "hoje" da análise. */
@@ -714,7 +742,7 @@ export function montarAnaliseRentabilidade_({ historico, janela, seriePrincipal,
 const CLASSE_ANALISE_POR_VISAO = {
   total: 'carteira', longoPrazo: 'carteira', nacional: 'carteira', rendaEmergencial: 'reserva', internacional: 'eua',
   carteiraAcoes: 'acoes', carteiraFiis: 'fiis', carteiraAcoesEua: 'eua', carteiraAcoesEuaUsd: 'eua',
-  carteiraRendaFixaTotal: 'rf', carteiraRendaFixaLongoPrazo: 'rf', carteiraRendaFixaEmergencial: 'reserva',
+  carteiraRendaFixaTotal: 'rf', carteiraRendaFixaLongoPrazo: 'rf', carteiraRendaFixaEmergencial: 'reserva', carteiraRendaFixaObjetivos: 'rf', objetivos: 'rf',
   ativoAcoes: 'ativo-acao', ativoFiis: 'ativo-fii', ativoAcoesEua: 'ativo-eua', ativoAcoesEuaUsd: 'ativo-eua', ativoRendaFixa: 'ativo-rf',
 };
 
@@ -745,6 +773,8 @@ export const LABEL_POR_VISAO_RENTABILIDADE = {
   carteiraRendaFixaTotal: 'Carteira total',
   carteiraRendaFixaLongoPrazo: 'Longo prazo',
   carteiraRendaFixaEmergencial: 'Reserva de emergência',
+  carteiraRendaFixaObjetivos: 'Reservado para objetivos',
+  objetivos: 'Reservado para objetivos',
   ativoAcoes: 'Saldo do ativo', ativoFiis: 'Saldo do ativo', ativoAcoesEua: 'Saldo do ativo (em reais)', ativoRendaFixa: 'Saldo do título',
   ativoAcoesEuaUsd: 'Saldo do ativo (em dólar)',
 };

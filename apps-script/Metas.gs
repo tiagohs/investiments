@@ -31,6 +31,12 @@
  *   - POST action=excluirMetaDefinitivo: apaga a linha de uma meta que JÁ
  *     está arquivada (arquivar continua sendo o "excluir" com volta).
  *
+ * 07/10/2026 (Tiago, meta de uma chácara com amigos): categoria "imoveis"; valor alvo e prazo OPCIONAIS (a meta fica "acompanhando");
+ * `aporteCrescimento` { tipo: 'valor'|'pct', valor, mes, referencia, inicio } (o aporte sobe a cada ano); `especificos.grupoPessoas/
+ * precoReferencia/custosPct` (compra em grupo, simulador "E se custar"); o vínculo "saldo" virou "Saldo ou investimento fora da carteira"
+ * com `nome`, `cdiPct` (rendimento estimado em % do CDI) e `contaNoPatrimonio` (entra no patrimônio líquido via Patrimonio.gs). O GET
+ * metas ganhou `cdi` ({ ate, pontos } - série acumulada do CDI de aux_historico-indices, só quando alguma meta usa "% do CDI").
+ *
  * Onde mora cada coisa:
  *   'aux_metas'   Id | Meta (JSON) | Atualizado em      (1 linha por meta)
  *       criada no 1º salvamento. Excluir = marcar "arquivada"; só a exclusão
@@ -106,7 +112,7 @@ var METAS_MAX_JSON_ = 49000;
 var METAS_CACHE_CAMBIO_ = 'metas_cambio_v1';
 var METAS_CAMBIO_SEGUNDOS_ = 6 * 60 * 60;
 var METAS_TIPOS_ = ['rendaPassiva', 'viagemInternacional', 'viagemNacional', 'casa', 'carro', 'reservaEmergencia', 'aposentadoria', 'acumulo', 'distribuicaoCarteira'];
-var METAS_CATEGORIAS_ = ['projetos', 'educacao', 'equipamentos', 'empreendedorismo', 'hobbies', 'pets', 'eventos', 'assinaturas', 'saude', 'mudancaPais', 'casamento', 'veiculosLazer', 'outros'];
+var METAS_CATEGORIAS_ = ['imoveis', 'projetos', 'educacao', 'equipamentos', 'empreendedorismo', 'hobbies', 'pets', 'eventos', 'assinaturas', 'saude', 'mudancaPais', 'casamento', 'veiculosLazer', 'outros'];
 // 04/10/2026: todas as moedas dos países de assets/data/paises.json (a moeda padrão de cada destino)
 var METAS_MOEDAS_ = ['BRL', 'USD', 'EUR', 'GBP', 'CHF', 'CAD', 'AUD', 'JPY',
   'AED', 'AFN', 'ALL', 'AMD', 'AOA', 'ARS', 'AWG', 'AZN', 'BAM', 'BBD', 'BDT', 'BHD', 'BIF', 'BMD', 'BND', 'BOB', 'BSD', 'BTN', 'BWP', 'BYN',
@@ -201,7 +207,7 @@ function chaveCacheRespostaMetas_(ss, agora) {
   var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
   var versaoProv = '0';
   try { versaoProv = PropertiesService.getScriptProperties().getProperty(PROP_VERSAO_CACHE_PROVENTOS) || '0'; } catch (e) { /* sem versão */ }
-  return 'metas_resp_v1_' + isoDiaMeta_(agora || new Date()) + '_' + (typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '0') + '_' + versaoProv + '_' +
+  return 'metas_resp_v2_' + isoDiaMeta_(agora || new Date()) + '_' + (typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '0') + '_' + versaoProv + '_' +
     [METAS_ABA_, 'Auxiliar_ativos'].map(linhas).join('_');
 }
 
@@ -480,6 +486,19 @@ function mesMeta_(v) { var m = String(v || '').match(/^(\d{4})-(\d{2})/); return
 function moedaMeta_(v) { var m = String(v || 'BRL').toUpperCase(); return METAS_MOEDAS_.indexOf(m) >= 0 ? m : 'BRL'; }
 function idCurtoMeta_(v) { var s = String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24); return s || Math.random().toString(36).slice(2, 10); }
 
+/** 07/10/2026: campos de compra em grupo (acumulo/casa/carro): quantas pessoas (contando você), preço de referência do simulador e custos. */
+function especificosGrupoMeta_(e, destino) {
+  var n = numMeta_(e.grupoPessoas, 1, 50, 'grupoPessoas');
+  if (n !== null && n >= 2) destino.grupoPessoas = Math.round(n);
+  var p = numMeta_(e.precoReferencia, 0, METAS_DINHEIRO_MAX_, 'precoReferencia');
+  if (p !== null && p > 0) destino.precoReferencia = p;
+  if (destino.custosPct === undefined) {
+    var c = numMeta_(e.custosPct, 0, 0.5, 'custosPct');
+    if (c !== null) destino.custosPct = c;
+  }
+  return destino;
+}
+
 function normalizarMeta_(v) {
   if (!v || typeof v !== 'object') throw new Error('meta inválida');
   var tipo = METAS_TIPOS_.indexOf(v.tipo) >= 0 ? v.tipo : null;
@@ -509,6 +528,17 @@ function normalizarMeta_(v) {
     itens: [],
     vinculos: []
   };
+  // 07/10/2026 (Tiago: "invisto R$ 200/mês [...] pretendemos aumentar R$ 100 a cada ano"): aporte crescente - R$ ou % ao ano, mês do
+  // reajuste, mês a que o aporte informado se refere e (opcional) desde quando aporta; qualquer meta com aporte
+  if (v.aporteCrescimento && typeof v.aporteCrescimento === 'object') {
+    var acr = v.aporteCrescimento;
+    var tipoAcr = acr.tipo === 'pct' ? 'pct' : 'valor';
+    var valorAcr = tipoAcr === 'pct' ? numMeta_(acr.valor, 0, 1, 'aumento do aporte (%)') : d(acr.valor, 'aumento do aporte');
+    if (valorAcr > 0) {
+      var mesAcr = numMeta_(acr.mes, 1, 12, 'mês do reajuste');
+      meta.aporteCrescimento = { tipo: tipoAcr, valor: valorAcr, mes: mesAcr === null ? null : Math.round(mesAcr), referencia: mesMeta_(acr.referencia), inicio: mesMeta_(acr.inicio) };
+    }
+  }
   if (meta.contribuicao === 'recorrente' && v.recorrente && typeof v.recorrente === 'object') {
     meta.recorrente = {
       parcela: d(v.recorrente.parcela, 'parcela'),
@@ -570,9 +600,12 @@ function normalizarMeta_(v) {
       }).filter(function (x) { return x; });
     }
   } else if (tipo === 'casa') {
-    meta.especificos = { valorImovel: d(e.valorImovel, 'valorImovel'), entradaPct: numMeta_(e.entradaPct, 0, 1, 'entradaPct'), custosPct: numMeta_(e.custosPct, 0, 0.5, 'custosPct') };
+    meta.especificos = especificosGrupoMeta_(e, { valorImovel: d(e.valorImovel, 'valorImovel'), entradaPct: numMeta_(e.entradaPct, 0, 1, 'entradaPct'), custosPct: numMeta_(e.custosPct, 0, 0.5, 'custosPct') });
   } else if (tipo === 'carro') {
-    meta.especificos = { valorCarro: d(e.valorCarro, 'valorCarro'), entradaPct: numMeta_(e.entradaPct, 0, 1, 'entradaPct') };
+    meta.especificos = especificosGrupoMeta_(e, { valorCarro: d(e.valorCarro, 'valorCarro'), entradaPct: numMeta_(e.entradaPct, 0, 1, 'entradaPct') });
+  } else if (tipo === 'acumulo') {
+    // 07/10/2026: compra em grupo (quantas pessoas), custos de compra e preço de referência do simulador "e se custar R$ X"
+    meta.especificos = especificosGrupoMeta_(e, {});
   } else if (tipo === 'reservaEmergencia') {
     meta.especificos = { meses: numMeta_(e.meses, 0, 120, 'meses'), margem: numMeta_(e.margem, 0, 2, 'margem'), despesaMensal: d(e.despesaMensal, 'despesaMensal'), usarDespesasPlanilha: e.usarDespesasPlanilha !== false };
   } else if (tipo === 'distribuicaoCarteira') {
@@ -638,18 +671,26 @@ function normalizarMeta_(v) {
           var sv = Number(h.saldo);
           return isFinite(sv) && sv >= 0 && sv <= METAS_DINHEIRO_MAX_ ? { data: String(h.data), saldo: Math.round(sv * 100) / 100 } : null;
         }).filter(function (h) { return h; }) : [];
-        return {
+        var saldoV = {
           tipo: 'saldo', modo: 'total', id: idCurtoMeta_(x.id), instituicao: inst, moeda: moedaMeta_(x.moeda),
           saldo: d(x.saldo, 'saldo em conta') || 0,
           atualizadoEm: /^\d{4}-\d{2}-\d{2}$/.test(String(x.atualizadoEm || '')) ? String(x.atualizadoEm) : null,
           historico: hist
         };
+        // 07/10/2026 ("Saldo ou investimento fora da carteira"): descrição (ex. "Fundo XP - minha parte"), rendimento estimado em % do
+        // CDI e "conta no meu patrimônio" (entra no patrimônio líquido de Organização/Home - Patrimonio.gs lê daqui)
+        var nomeV = txtMeta_(x.nome, 60).trim();
+        if (nomeV) saldoV.nome = nomeV;
+        var cdiPctV = numMeta_(x.cdiPct, 0, 1000, '% do CDI');
+        if (cdiPctV > 0) saldoV.cdiPct = cdiPctV;
+        if (x.contaNoPatrimonio === true) saldoV.contaNoPatrimonio = true;
+        return saldoV;
       }
       var modo = ['total', 'fracao', 'valor'].indexOf(x.modo) >= 0 ? x.modo : 'total';
       var o = { tipo: tipoV, modo: modo };
       if (tipoV === 'ativo') { o.id = txtMeta_(x.id, 160); o.nome = txtMeta_(x.nome, 80); if (!o.id) return null; }
       if (tipoV === 'classe') { o.classe = ['acoes', 'fiis', 'usa', 'rf'].indexOf(x.classe) >= 0 ? x.classe : null; if (!o.classe) return null; }
-      if (tipoV === 'marca') { o.marca = x.marca === 'longo-prazo' ? 'longo-prazo' : 'emergencial'; }
+      if (tipoV === 'marca') { o.marca = x.marca === 'longo-prazo' ? 'longo-prazo' : (x.marca === 'objetivo' ? 'objetivo' : 'emergencial'); } // 07/10/2026: + 'objetivo' (Reservado para objetivos)
       if (modo === 'fracao') o.fracao = numMeta_(x.fracao, 0, 1, 'fração do vínculo');
       if (modo === 'valor') o.valor = d(x.valor, 'valor do vínculo');
       return o;
@@ -722,8 +763,16 @@ function montarTelaMetas_(ss, agora, opcoes) {
 
   alocarMetasVinculos_(metas, ativos, cambio); // 05/10/2026 (A-11): cada ativo conta numa meta só
 
+  // 07/10/2026: série do CDI pra estimar os saldos/investimentos fora da carteira com "% do CDI" (só vai na resposta se alguma meta usa)
+  var cdi = null;
+  if (opcoes.serieCdi !== undefined) cdi = opcoes.serieCdi;
+  else if (metas.some(function (m) { return (m.vinculos || []).some(function (v) { return v && v.tipo === 'saldo' && v.cdiPct > 0; }); })) {
+    try { cdi = serieCdiMetas_(ss, agora || new Date(), 430); } catch (eCdi) { avisos.cdi = String(eCdi); }
+  }
+
   var r = { metas: metas, arquivadas: arquivadas, ativos: ativos, cambio: cambio, referencias: referencias, proventos12m: proventos12m, hoje: isoDiaMeta_(agora || new Date()) };
   // 05/10/2026 (A-14): ticker antigo -> atual (Incorporacoes.gs), pro front achar vínculos a ticker renomeado
+  if (cdi) r.cdi = cdi;
   try { r.aliasesTicker = tabelaAliasesTicker_(); } catch (eAl) { r.aliasesTicker = {}; }
   // 03/10/2026: aporte real de cada meta (o último metasHistorico calculado, 6h de cache)
   var resumo = opcoes.historicoResumo !== undefined ? opcoes.historicoResumo : lerResumoHistoricoMetas_();
@@ -965,7 +1014,9 @@ function progressoVinculosMeta_(meta, ativos, cambio, ocupado) {
     }
     var alvo = (ativos || []).filter(function (a) {
       if (v.tipo === 'ativo') return a.id === v.id || a.id === idv;
-      if (v.tipo === 'classe') return a.classe === v.classe;
+      // 07/10/2026 (Tiago: fundo guardado pra chácara): "Toda a classe Renda Fixa" NÃO pega título 'objetivo' (Reservado para objetivos);
+      // quem quer o título vincula a marca 'objetivo' ou o ativo direto. Mesma regra de metas-calc-plano.js!resolverVinculos.
+      if (v.tipo === 'classe') return a.classe === v.classe && !(a.classe === 'rf' && a.marca === 'objetivo');
       if (v.tipo === 'marca') return a.classe === 'rf' && a.marca === v.marca;
       return false;
     });
@@ -1334,9 +1385,10 @@ var METAS_BALDES_INICIO_ = {
   'classe:acoes': ['acoes', 'fluxoAplicadoAcoes'],
   'classe:fiis': ['fiis', 'fluxoAplicadoFiis'],
   'classe:usa': ['acoesEua', 'fluxoAplicadoAcoesEua'],
-  'classe:rf': ['rendaFixaTotal', 'fluxoAplicadoRendaFixaTotal'],
+  'classe:rf': ['rfSemObjetivos', 'fluxoAplicadoRfSemObjetivos'], // 07/10/2026: Renda Fixa menos os títulos 'objetivo' (campos derivados abaixo)
   'marca:emergencial': ['rendaEmergencial', 'fluxoAplicadoRendaEmergencial'],
-  'marca:longo-prazo': ['rendaFixaLongoPrazo', 'fluxoAplicadoRendaFixaLongoPrazo']
+  'marca:longo-prazo': ['rendaFixaLongoPrazo', 'fluxoAplicadoRendaFixaLongoPrazo'],
+  'marca:objetivo': ['objetivos', 'fluxoAplicadoObjetivos']
 };
 var METAS_CLASSE_PROVENTO_ = { acoes: 'acoes', fiis: 'fiis', usa: 'acoesEua' };
 
@@ -1398,10 +1450,16 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
       var mes = String(p.data || '').slice(0, 7);
       if (!mes || mes > hojeMes) return;
       var x = inicioMes[mes] || (inicioMes[mes] = { fluxo: {} });
+      // 07/10/2026: "Toda a classe Renda Fixa" não conta os títulos 'objetivo' - campos derivados da série
+      var derivados = {
+        rfSemObjetivos: typeof p.rendaFixaTotal === 'number' ? p.rendaFixaTotal - (Number(p.objetivos) || 0) : undefined,
+        fluxoAplicadoRfSemObjetivos: (Number(p.fluxoAplicadoRendaFixaTotal) || 0) - (Number(p.fluxoAplicadoObjetivos) || 0)
+      };
+      var pegar = function (campo) { return Object.prototype.hasOwnProperty.call(derivados, campo) ? derivados[campo] : p[campo]; };
       Object.keys(METAS_BALDES_INICIO_).forEach(function (k) {
         var campos = METAS_BALDES_INICIO_[k];
-        if (typeof p[campos[0]] === 'number') x[campos[0]] = p[campos[0]];
-        x.fluxo[campos[0]] = (x.fluxo[campos[0]] || 0) + (Number(p[campos[1]]) || 0);
+        if (typeof pegar(campos[0]) === 'number') x[campos[0]] = pegar(campos[0]);
+        x.fluxo[campos[0]] = (x.fluxo[campos[0]] || 0) + (Number(pegar(campos[1])) || 0);
       });
       if (typeof p.indiceCdi === 'number') x.cdi = p.indiceCdi;
     });
@@ -1478,7 +1536,7 @@ function montarHistoricoMetas_(ss, agora, opcoes) {
       lr.forEach(function (l) {
         var dia = diaIsoMetas_(l[0]);
         if (!dia || dia > hoje || typeof l[5] !== 'number') return;
-        var emerg = String(l[4] || '') === 'Renda Emergencial';
+        var emerg = destinoRendaFixa_(l[4]) === 'emergencial'; // 07/10/2026: destino único (Planilha.gs); 'objetivo' conta como não-emergencial
         titulosRf.forEach(function (tt) {
           if (tt.marca && (tt.marca === 'emergencial') !== emerg) return;
           if (!casaTituloRf_(tt.nome, tt.inst, l[1], l[2])) return;
@@ -1691,4 +1749,106 @@ function lerResumoHistoricoMetas_() {
     var r = JSON.parse(bruto);
     return r && r.porId ? r.porId : null;
   } catch (e) { return null; }
+}
+
+// ---------------------------------------------------------------------------
+// 07/10/2026 (Tiago, chácara com amigos): "Saldo ou investimento FORA DA CARTEIRA" - rendimento estimado em % do CDI e
+// "conta no meu patrimônio". A conta é a MESMA de assets/js/pages/metas-calc-fora.js (último saldo informado corrigido pelo CDI
+// desde `atualizadoEm`; NÃO soma aportes que ninguém confirmou).
+// ---------------------------------------------------------------------------
+
+/**
+ * Linhas [Data, 'CDI', % do dia] de aux_historico-indices -> { ate: 'aaaa-mm-dd', pontos: [['aaaa-mm-dd', índice], ...] }:
+ * índice base 1 acumulado dia a dia nos últimos `diasAtras` dias (1 valor por dia - linha repetida não conta duas vezes).
+ * Menos de 30 dias com dado = null (sem estimativa; as telas mostram o último valor informado).
+ */
+function serieCdiDeLinhasMetas_(linhas, agora, diasAtras) {
+  var limite = (agora || new Date()).getTime() - (diasAtras || 430) * 86400000;
+  var fim = (agora || new Date()).getTime();
+  var porDia = {};
+  (linhas || []).forEach(function (l) {
+    if (!l || l[1] !== 'CDI' || !l[0] || typeof l[0].getTime !== 'function' || typeof l[2] !== 'number' || !isFinite(l[2])) return;
+    var t = l[0].getTime();
+    if (t < limite || t > fim) return;
+    porDia[isoDiaMeta_(l[0])] = l[2];
+  });
+  var dias = Object.keys(porDia).sort();
+  if (dias.length < 30) return null;
+  var indice = 1;
+  var pontos = dias.map(function (d, i) {
+    if (i > 0) indice *= 1 + porDia[d] / 100;
+    return [d, Math.round(indice * 1e8) / 1e8];
+  });
+  return { ate: dias[dias.length - 1], pontos: pontos };
+}
+
+function serieCdiMetas_(ss, agora, diasAtras) {
+  var aba = ss.getSheetByName(typeof ABA_HISTORICO_INDICES !== 'undefined' ? ABA_HISTORICO_INDICES : 'aux_historico-indices');
+  if (!aba || aba.getLastRow() < 2) return null;
+  return serieCdiDeLinhasMetas_(aba.getRange(2, 1, aba.getLastRow() - 1, 3).getValues(), agora, diasAtras);
+}
+
+/** Fator do CDI do fim de `desde` ('aaaa-mm-dd') até o último dia da série (null se a série não cobre a data). */
+function fatorCdiMetas_(serie, desde) {
+  var pontos = serie && serie.pontos ? serie.pontos : [];
+  var d = String(desde || '').slice(0, 10);
+  if (!pontos.length || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  var base = null;
+  for (var i = 0; i < pontos.length; i++) { if (String(pontos[i][0]) <= d) base = pontos[i][1]; else break; }
+  var fim = pontos[pontos.length - 1][1];
+  return base > 0 && fim > 0 ? fim / base : null;
+}
+
+/** { valor (na moeda do saldo), informado, estimado, ate, pct, desde } - igual a metas-calc-fora.js!estimarSaldoCdi. */
+function estimarSaldoCdiMetas_(v, serie) {
+  var saldo = Number(v && v.saldo) || 0;
+  var pct = Number(v && v.cdiPct);
+  var base = { valor: saldo, informado: saldo, estimado: false, ate: null, pct: pct > 0 ? pct : null, desde: (v && v.atualizadoEm) || null };
+  if (!(pct > 0) || !serie || (v.moeda && v.moeda !== 'BRL') || !(saldo > 0)) return base;
+  var fator = fatorCdiMetas_(serie, v.atualizadoEm);
+  var ate = serie.ate || (serie.pontos && serie.pontos.length ? serie.pontos[serie.pontos.length - 1][0] : null);
+  if (fator === null || !ate || String(ate) <= String(v.atualizadoEm || '').slice(0, 10)) return base;
+  base.valor = Math.round(saldo * Math.pow(fator, pct / 100) * 100) / 100;
+  base.estimado = true;
+  base.ate = String(ate).slice(0, 10);
+  return base;
+}
+
+/**
+ * Os saldos/investimentos fora da carteira marcados "conta no meu patrimônio" (aux_metas, metas não arquivadas), já em reais e com a
+ * estimativa do CDI: [{ id, nome, valor, saldoInformado, moeda, atualizadoEm, estimado, cdiPct, ate, meta, metaId }].
+ * Patrimonio.gs devolve em `outrosInvestimentos` (uma fonte só: nada de cadastro duplo). opcoes (testes): { serieCdi, buscarCambio }.
+ */
+function listarOutrosInvestimentosMetas_(ss, agora, opcoes) {
+  opcoes = opcoes || {};
+  var itens = [];
+  var moedas = {};
+  lerMetas_(ss).forEach(function (m) {
+    (m.vinculos || []).forEach(function (v) {
+      if (!v || v.tipo !== 'saldo' || v.contaNoPatrimonio !== true) return;
+      itens.push({ m: m, v: v });
+      if (v.moeda && v.moeda !== 'BRL') moedas[v.moeda] = true;
+    });
+  });
+  if (!itens.length) return [];
+  var serie = opcoes.serieCdi !== undefined ? opcoes.serieCdi : null;
+  if (opcoes.serieCdi === undefined && itens.some(function (x) { return x.v.cdiPct > 0 && (!x.v.moeda || x.v.moeda === 'BRL'); })) {
+    try { serie = serieCdiMetas_(ss, agora || new Date(), 430); } catch (eS) { serie = null; }
+  }
+  var cambio = {};
+  if (Object.keys(moedas).length) { try { cambio = cambioMetas_(ss, Object.keys(moedas), agora, opcoes.buscarCambio); } catch (eC) { cambio = {}; } }
+  var out = [];
+  itens.forEach(function (x) {
+    var est = estimarSaldoCdiMetas_(x.v, serie);
+    var cot = cotacaoMetas_(x.v.moeda || 'BRL', cambio);
+    if (cot === null) return;
+    var valor = r2Metas_(est.valor * cot);
+    if (!(valor > 0)) return;
+    out.push({
+      id: x.m.id + ':' + x.v.id, nome: x.v.nome || x.v.instituicao, instituicao: x.v.instituicao, valor: valor,
+      saldoInformado: est.informado, moeda: x.v.moeda || 'BRL', atualizadoEm: x.v.atualizadoEm || null,
+      estimado: est.estimado, cdiPct: est.pct, ate: est.ate, meta: x.m.nome, metaId: x.m.id
+    });
+  });
+  return out;
 }

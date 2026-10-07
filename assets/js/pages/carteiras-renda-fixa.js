@@ -14,6 +14,7 @@ import { secaoVideosHtml, criarCarregadorVideos } from '../videos.js'; // 25/09/
 import { formatBRL, formatPercentFromFraction } from '../format.js';
 import { urlAtivo, refAtivo, linkAtivoComNovaAbaHtml } from '../link-ativo.js'; // 25/09/2026: título -> tela do ativo
 import { esc } from '../util/html.js';
+import { DESTINO_EMERGENCIAL, DESTINO_OBJETIVO, ROTULO_DESTINO_RF, destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título
 import { criarGraficosCarteira } from './carteiras-graficos.js';
 import { somaCampoHistorico_, renderResumoClasseCarteiras, renderBenchmarksClasseCarteiras, renderDistribuicaoGrupoCarteiras, montarTabelaFiltravel, wirePointerTooltipCarteiras_, celulaAtivoHtml, linhaTotalHtml, esqueletoClasseHtml, linksRelevantesHtml, contagemTexto, lerEstadoSecoes, aplicarEstadoSecoes, secaoRecolhivelHtml, montarPaginaClasseCarteiras } from './carteiras-classe-comum.js';
 import { logoCirculoRendaFixaHtml } from './carteiras-pecas.js';
@@ -32,7 +33,8 @@ const LINKS_RELEVANTES_RENDA_FIXA = [
 // 2 valores de tipoCarteira que o back-end manda (CarteirasRendaFixa.gs:
 // "emergencial"/"longo-prazo") pros chips de filtro E pra tag da coluna
 // Carteira, num lugar só (nunca 2 strings podendo divergir).
-const LABEL_TIPO_CARTEIRA = { emergencial: 'Reserva de Emergência', 'longo-prazo': 'Longo Prazo' };
+// 07/10/2026: + 'objetivo' = "Reservado para objetivos" (terceiro destino - destino-renda-fixa.js; coluna B da Carteira Renda Fixa)
+const LABEL_TIPO_CARTEIRA = { emergencial: 'Reserva de Emergência', 'longo-prazo': 'Longo Prazo', objetivo: ROTULO_DESTINO_RF.objetivo };
 
 /**
  * Colunas da tabela de Renda Fixa - Título/Vencimento/Contratada/Rentab./Carteira/% cart./Total/IR hoje. `campo`+`ordenarPor` em TODAS as
@@ -68,9 +70,12 @@ const COLUNAS_ATIVOS_RENDA_FIXA = [
   },
   {
     label: 'Carteira', campo: 'tipoCarteira', ordenarPor: (a) => a.tipoCarteira || '', opc: true,
-    formatar: (a) => (a.tipoCarteira === 'emergencial'
-      ? `<span class="chip-tonal chip-good" title="${LABEL_TIPO_CARTEIRA.emergencial}">Emergência</span>`
-      : `<span class="chip-tonal chip-info">${LABEL_TIPO_CARTEIRA['longo-prazo']}</span>`),
+    formatar: (a) => {
+      const destino = destinoRendaFixa(a.tipoCarteira);
+      if (destino === DESTINO_EMERGENCIAL) return `<span class="chip-tonal chip-good" title="${LABEL_TIPO_CARTEIRA.emergencial}">Emergência</span>`;
+      if (destino === DESTINO_OBJETIVO) return `<span class="chip-tonal chip-warn" title="${LABEL_TIPO_CARTEIRA.objetivo}">Objetivos</span>`;
+      return `<span class="chip-tonal chip-info">${LABEL_TIPO_CARTEIRA['longo-prazo']}</span>`;
+    },
   },
   { label: '% cart.', campo: 'percentualCarteira', ordenarPor: (a) => a.percentualCarteira, num: true, opc: true, formatar: (a) => formatPercentFromFraction(a.percentualCarteira, 1) },
   {
@@ -106,12 +111,14 @@ function montarLinhaTotalAtivos_(ativosExibidos) {
  * Rentabilidade (total em largura cheia; longo prazo | emergencial embaixo), depois Evolução do mesmo jeito. Um seletor de período manda
  * nos 6. A Evolução de Longo Prazo/Reserva mostra só 1 linha (sem "quanto investi" - `comInvestido:false`), fiel ao mockup.
  */
-function paineisRendaFixa_() {
+function paineisRendaFixa_(temObjetivos = false) {
   const base = { corToken: '--rf', analise: true, comparativo: true, labelInfo: 'Valor atual', labelInfoEvolucao: 'Valor atual' };
   return [
     { ...base, visaoId: 'carteiraRendaFixaTotal', titulo: 'Carteira total', largo: true },
     { ...base, visaoId: 'carteiraRendaFixaLongoPrazo', titulo: 'Longo prazo', labelValor: 'Longo prazo', labelPrincipal: 'Longo prazo', comInvestido: false },
     { ...base, visaoId: 'carteiraRendaFixaEmergencial', titulo: 'Reserva de emergência', labelValor: 'Reserva de emergência', labelPrincipal: 'Reserva de emergência', comInvestido: false },
+    // 07/10/2026: terceiro destino - só aparece quando há título 'Objetivo' na carteira (mesmo padrão dos outros dois)
+    ...(temObjetivos ? [{ ...base, visaoId: 'carteiraRendaFixaObjetivos', titulo: ROTULO_DESTINO_RF.objetivo, labelValor: ROTULO_DESTINO_RF.objetivo, labelPrincipal: ROTULO_DESTINO_RF.objetivo, comInvestido: false }] : []),
   ];
 }
 
@@ -138,8 +145,9 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
   ]);
   renderDistribuicaoGrupoCarteiras(doc, $('rendaFixaDistribuicao'), dados.distribuicaoPorIndexador, { dono: conteudoEl });
 
+  const temObjetivos = (dados.ativos || []).some((a) => destinoRendaFixa(a.tipoCarteira) === DESTINO_OBJETIVO);
   const graficos = criarGraficosCarteira(doc, $('rendaFixaGraficos'), {
-    historico: dados.historico || null, chavePeriodo: 'carteiras.rendaFixa', agruparPor: 'tipo', aoTentar: aoTentarGraficos, paineis: paineisRendaFixa_(),
+    historico: dados.historico || null, chavePeriodo: 'carteiras.rendaFixa', agruparPor: 'tipo', aoTentar: aoTentarGraficos, paineis: paineisRendaFixa_(temObjetivos),
   });
   if (!(dados.historico && dados.historico.length) && !historicoPendente) graficos.erro('Não deu pra carregar os gráficos agora. O resto da página continua normal.');
 
@@ -153,14 +161,14 @@ function desenhar(doc, dados, { historicoPendente = false, aoTentarGraficos = nu
       percentualLucroPrejuizo: a.totalInvestido ? lucroPrejuizo / a.totalInvestido : 0,
       percentualCarteira: totalCarteira ? (a.totalAtualizado || 0) / totalCarteira : 0,
       // `.grupo` reaproveita o mecanismo de chips do filtro (aqui o "grupo" é o tipo de carteira, não o indexador do anel)
-      grupo: LABEL_TIPO_CARTEIRA[a.tipoCarteira] || LABEL_TIPO_CARTEIRA['longo-prazo'],
+      grupo: LABEL_TIPO_CARTEIRA[destinoRendaFixa(a.tipoCarteira)],
       // filtrarAtivosPorBusca procura em `ticker`/`nome`; Renda Fixa usa `codigo`/`nomePersonalizado`
       ticker: a.codigo,
       nome: a.nomePersonalizado,
     };
   });
-  // Chips "Todos/Longo Prazo/Reserva de Emergência" - fixo (só 2 valores). Os 6 gráficos acima ficam fora do filtro de propósito.
-  const grupos = [LABEL_TIPO_CARTEIRA['longo-prazo'], LABEL_TIPO_CARTEIRA.emergencial];
+  // Chips "Todos/Longo Prazo/Reserva de Emergência" (+ "Reservado para objetivos" quando existir). Os gráficos acima ficam fora do filtro de propósito.
+  const grupos = [LABEL_TIPO_CARTEIRA['longo-prazo'], LABEL_TIPO_CARTEIRA.emergencial, ...(temObjetivos ? [LABEL_TIPO_CARTEIRA.objetivo] : [])];
   montarTabelaFiltravel(doc, {
     filtrosEl: $('rendaFixaFiltros'), tabelaEl: $('rendaFixaTabela'), ativos: ativosBase, colunas: COLUNAS_ATIVOS_RENDA_FIXA, linhaTotal: montarLinhaTotalAtivos_, grupos,
     tituloFolha: (a) => a.nomePersonalizado || a.tipoInvestimento || a.codigo || 'Posição', acaoFolha: (a) => ({ href: urlAtivo(refAtivo({ ...a, classe: 'rf' })), rotulo: 'Abrir a página do título' }),

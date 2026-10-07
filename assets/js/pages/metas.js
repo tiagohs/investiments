@@ -44,11 +44,16 @@ import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { urlAtivo } from '../link-ativo.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { DESTINOS_RENDA_FIXA, DESTINO_OBJETIVO, ROTULO_DESTINO_RF, ativoRfObjetivo } from '../destino-renda-fixa.js'; // 07/10/2026
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js';
 import { renderAnalise } from '../analise-grafico.js';
 import { TIPOS_META, CATEGORIAS_ACUMULO, MOEDAS, STATUS_META, tomProgresso, ultimoMesFechadoMetas, aparenciaMeta, rotuloMes, rotuloDuracao, mesesEntre, mesDe, cotacao, somarMeses, chaveSugestaoInvestimento, avaliarVinculos, explicarStatus } from './metas-calc-nucleo.js';
 import { EXPLICACOES, calcularMeta, serieProjecao, resumoMetas, metaPadrao, metaDaPlanilha, sugestoesMetas, simular, resolverVinculos, ativosSobrecomprometidos, ignoraAvisoSobreposicao, LIMITE_ALERTA_VENCIMENTO_MESES, vinculosOrfaos, taxaMensal, marcosProjecao, SUGESTOES_INVESTIMENTO, destinoPadrao, contaAposentadoria } from './metas-calc-plano.js';
 import { velocidadeMeta, dicasAcelerar, cenariosRendaMenor, resumoMarcos, fraseMarcos, velocidadeEntreMarcos, analisarHistoricoMeta, analisarProjecaoMeta, analisarRendaMensal } from './metas-calc-analise.js';
+import { aporteCrescimentoEditorHtml, resumoCrescimentoEditor, estimativasHtml, ligarEstimativas, cardAcompanhandoHtml, fraseAporteCrescente } from './metas-estimativas.js'; // 07/10/2026: aporte crescente, estimativas e meta "acompanhando"
+import { rebasearAporte, planoAporte } from './metas-calc-aporte.js';
+import { temEstimativas, pessoasDoGrupo, projecaoPorAnos } from './metas-calc-grupo.js';
+import { textoEstimativa } from './metas-calc-fora.js';
 import { calcularViagem, migrarMetaViagem, entradaPadrao, normalizarUrl, acharPais, paisPorCodigo, sugestaoTaxaTuristica, ehLinkWanderlog } from './metas-calc-viagem.js';
 import {
   bandeiraHtml, bandeirasViagemHtml, opcoesPaisesHtml, opcoesCidadesHtml, destinosEditorHtml, fixosEditorHtml, entradasEditorHtml,
@@ -124,7 +129,7 @@ export async function carregarDadosViagemPadrao(fetchImpl = typeof fetch !== 'un
 const clonar = (o) => JSON.parse(JSON.stringify(o));
 const idItem = () => Math.random().toString(36).slice(2, 10);
 const ROTULO_CLASSE = { acoes: 'Ações', fiis: 'FIIs', usa: 'Ações EUA', rf: 'Renda Fixa' };
-const ROTULO_MARCA = { emergencial: 'Renda Emergencial', 'longo-prazo': 'Renda Fixa de longo prazo' };
+const ROTULO_MARCA = ROTULO_DESTINO_RF; // 07/10/2026: + objetivo = "Reservado para objetivos" (destino-renda-fixa.js)
 const FILTROS_STATUS = [
   ['todas', 'Todas'], ['no-ritmo', 'No ritmo'], ['atrasadas', 'Atrasadas'], ['concluidas', 'Concluídas'], ['arquivadas', 'Arquivadas'],
 ];
@@ -134,7 +139,7 @@ const r0 = (v) => formatMoeda(v, 'BRL', { casas: 0 });
 
 function passaFiltroStatus(filtro, c) {
   if (filtro === 'todas' || filtro === 'arquivadas') return true;
-  if (filtro === 'no-ritmo') return ['no-ritmo', 'saldo-ideal', 'sem-prazo'].includes(c.status);
+  if (filtro === 'no-ritmo') return ['no-ritmo', 'saldo-ideal', 'sem-prazo', 'acompanhando'].includes(c.status); // 07/10/2026: acompanhando nunca é atenção
   if (filtro === 'atrasadas') return ['atrasada', 'vencida', 'abaixo', 'ideal-bruto'].includes(c.status);
   if (filtro === 'concluidas') return c.status === 'concluida';
   return true;
@@ -210,10 +215,10 @@ const COR_TOM_PROGRESSO = { bom: 'var(--chart-up)', quase: 'var(--warn)', neutro
  * Anel de progresso: `p` 0-1; `p2` (opcional) = anel fino de fora (ex. bruto da reserva). 06/10/2026 (Onda 3): só o espaço
  * (com os dados em data-*); `montarAneis` troca pelo anel da biblioteca de gráficos (varre no sentido horário, texto no meio).
  */
-export function anelProgressoHtml(p, { tamanho = 148, tom = null, rotulo = 'da meta', cor = 'acoes' } = {}) {
+export function anelProgressoHtml(p, { tamanho = 148, tom = null, rotulo = 'da meta', cor = 'acoes', texto = null } = {}) {
   const v = Math.max(0, Math.min(1, p || 0));
   tom = tom || tomProgresso(v); // 06/10/2026: um anel só, na cor do estado (o bruto da reserva virou texto secundário)
-  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;min-height:${tamanho}px" data-anel="${v}" data-tom="${tom}" data-cor="${esc(cor)}" data-tamanho="${tamanho}" data-rotulo="${esc(rotulo)}" data-texto="${esc(pct(p))}"></div>`;
+  return `<div class="mt-anel ${tom}" style="width:${tamanho}px;min-height:${tamanho}px" data-anel="${v}" data-tom="${tom}" data-cor="${esc(cor)}" data-tamanho="${tamanho}" data-rotulo="${esc(rotulo)}" data-texto="${esc(texto != null ? texto : pct(p))}"></div>`;
 }
 
 /** Monta os anéis (`.mt-anel[data-anel]`) com `criarAnelProgresso`. */
@@ -241,6 +246,7 @@ function chipDelta(valor, { sufixo = '', positivoBom = true, texto = null } = {}
 // ---------------------------------------------------------------------------
 
 export function cardMetaHtml(meta, c) {
+  if (c.acompanhando) return cardAcompanhandoHtml(meta, c); // 07/10/2026: sem valor alvo - cartão próprio (cinza, sem % nem "falta")
   const ap = aparenciaMeta(meta);
   const p = Math.max(0, Math.min(1, c.percentual || 0));
   const estrangeira = c.moeda !== 'BRL' && c.alvoMoeda != null;
@@ -266,7 +272,7 @@ export function cardMetaHtml(meta, c) {
   const parcelasAPagar = c.viagem ? c.viagem.aPagar.mesAtualBRL : 0; // 04/10/2026: parcelas são pagas à parte
   const voce = c.aporteAtual ? `${formatMoeda(c.aporteAtual, 'BRL', { casas: 0 })}${c.aporteOrigem === 'historico' ? ' (real)' : ''}` : '—';
   const aporte = necessario != null && necessario > 0
-    ? `<div class="mt-aporte ${c.aporteAtual + 0.5 >= (c.parcelasCorrendo > 0 ? (c.aporteNecessario || 0) : necessario) ? 'ok' : 'baixo'}"><span>Aporte/mês</span><b>${formatMoeda(necessario, 'BRL', { casas: 0 })}</b><span class="mt-fraco">${c.viagem ? 'pra guardar' : 'necessário'}${!c.viagem && c.parcelasCorrendo > 0 ? ` (${r0(c.parcelasCorrendo)} de parcelas)` : ''} · você: ${voce}${parcelasAPagar > 0 ? ` · paga ${r0(parcelasAPagar)}/mês de parcelas` : ''}</span></div>`
+    ? `<div class="mt-aporte ${(c.planoAporte ? c.status === 'no-ritmo' : c.aporteAtual + 0.5 >= (c.parcelasCorrendo > 0 ? (c.aporteNecessario || 0) : necessario)) ? 'ok' : 'baixo'}"><span>Aporte/mês</span><b>${formatMoeda(necessario, 'BRL', { casas: 0 })}</b><span class="mt-fraco">${c.viagem ? 'pra guardar' : 'necessário'}${!c.viagem && c.parcelasCorrendo > 0 ? ` (${r0(c.parcelasCorrendo)} de parcelas)` : ''} · você: ${voce}${parcelasAPagar > 0 ? ` · paga ${r0(parcelasAPagar)}/mês de parcelas` : ''}</span></div>`
     : (c.dataEstimada && c.status !== 'concluida' && c.status !== 'saldo-ideal' ? `<div class="mt-aporte ok"><span>Nesse ritmo</span><b>${rotuloMes(c.dataEstimada)}</b><span class="mt-fraco">${c.aporteAtual > 0 ? `aportando ${voce}/mês` : 'só com o rendimento'}</span></div>` : '');
   return `<button class="mt-card" type="button" data-abrir="${esc(meta.id)}" style="--mt-cor:var(--${ap.cor});--mt-cor-soft:var(--${ap.cor}-soft)">
   <span class="mt-card-cab">
@@ -308,6 +314,10 @@ export function fraseRitmo(meta, c) {
     : null;
   if (c.status === 'concluida' || c.status === 'saldo-ideal') return { tom: 'bom', html: `${meta.tipo === 'reservaEmergencia' ? 'Reserva no saldo ideal, já contando o IR de um resgate hoje.' : 'Meta alcançada!'} ${c.aporteAtual > 0 ? `Seu aporte atual: ${aporteTxt}.` : ''}` };
   if (c.recorrente) return { tom: 'neutro', html: `Pagamento recorrente: ${c.recorrente.restantes} parcelas restantes${c.recorrente.fim ? `, última em <b>${rotuloMes(c.recorrente.fim)}</b>` : ''}.` };
+  if (c.acompanhando) { // 07/10/2026: sem valor alvo ainda - só acompanha (nada de "defina o alvo" como problema)
+    const f = c.aporteCrescente ? ` (${fraseAporteCrescente(c)})` : '';
+    return { tom: 'neutro', html: `Ainda sem valor definido: o site só acompanha. ${c.aporteAtual > 0 ? `Aportando ${formatMoeda(c.aporteAtual, 'BRL', { casas: 0 })}/mês${f}, você terá ~<b>${formatMoeda(projecaoPorAnos(c, [5])[0].valor, 'BRL', { casas: 0 })}</b> em 5 anos (veja as Estimativas abaixo).` : 'Informe um aporte mensal em Editar pra ver quanto terá daqui a alguns anos.'}` };
+  }
   if (!(c.alvoBRL > 0)) return { tom: 'neutro', html: 'Defina o alvo (Editar) para ver quando você chega.' };
   if (c.dataEstimada) {
     let quando = `<b>${rotuloMes(c.dataEstimada)}</b> (${rotuloDuracao(c.mesesEstimados)})`;
@@ -358,9 +368,9 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   const estrangeira = c.moeda !== 'BRL' && c.alvoMoeda != null;
   const nums = [];
   const aporteSub = (necessario) => {
-    if (necessario == null) return c.aporteOrigem === 'historico' ? `média dos últimos ${c.mesesBaseAporte || 12} meses${c.aporteReal < -0.5 ? ' - saiu mais do que entrou (resgates)' : ''}` : (c.aporteOrigem === 'informado' ? 'informado por você' : 'sem histórico ainda');
+    if (necessario == null) return `${c.aporteOrigem === 'historico' ? `média dos últimos ${c.mesesBaseAporte || 12} meses${c.aporteReal < -0.5 ? ' - saiu mais do que entrou (resgates)' : ''}` : (c.aporteOrigem === 'informado' ? 'informado por você' : 'sem histórico ainda')}${c.aporteCrescente ? ` · ${esc(fraseAporteCrescente(c))}` : ''}`;
     const dif = (c.aporteAtual || 0) - necessario;
-    return `necessário <b>${r0(necessario)}</b> ${chipDelta(dif, { sufixo: '/mês' })}`;
+    return `necessário <b>${r0(necessario)}</b> ${chipDelta(dif, { sufixo: '/mês' })}${c.aporteCrescente ? ` · ${esc(fraseAporteCrescente(c))}` : ''}`; // 07/10/2026: + degraus do aporte crescente
   };
   if (c.renda) {
     nums.push(numHeroi({ icone: 'sobe', rotulo: 'Renda média (12 meses)', valor: `${valorGrandeHtml(c.renda.atual)}`, sub: `meta <b>${formatMoeda(c.renda.alvo)}</b>/mês`, dica: EXPLICACOES.rendaMedia }));
@@ -385,6 +395,11 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já guardado', valor: valorGrandeHtml(c.ja), sub: `de <b>${c.total != null ? r0(c.total) : '—'}</b> a juntar${est ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })} a ${formatMoeda(c.cotacao, 'BRL', { casas: 2 })})` : ''}`, dica: EXPLICACOES.aJuntar }));
     const subEntradas = c.entradasTotal > 0 && c.decomposicao ? `− <b>${r0(c.entradasTotal)}</b> de entradas programadas = <b>${r0(c.decomposicao.restante)}</b> a aportar` : (c.falta > 0 ? 'falta guardar até a viagem' : `${pct(c.percentual)} concluído`);
     nums.push(numHeroi({ icone: 'falta', rotulo: 'Falta juntar', valor: c.falta > 0 ? `<span class="mt-ruim">${valorGrandeHtml(c.falta)}</span>` : '<span class="mt-bom">nada</span>', tom: c.falta > 0 ? 'ruim' : 'bom', sub: subEntradas, dica: EXPLICACOES.entradas }));
+  } else if (c.acompanhando) {
+    // 07/10/2026: sem valor alvo - o que já tem e quanto terá em 5 anos no ritmo (sem "falta" nem "%")
+    const p5 = projecaoPorAnos(c, [5])[0];
+    nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já tenho', valor: valorGrandeHtml(c.ja), sub: 'ainda sem valor definido · só acompanhando' }));
+    nums.push(numHeroi({ icone: 'sobe', rotulo: 'Em 5 anos (estimativa)', valor: c.aporteAtual > 0 || c.ja > 0 ? `~${valorGrandeHtml(p5.valor)}` : '—', sub: c.aporteAtual > 0 ? `${r0(p5.aportado)} de aportes + ${r0(p5.rendimento)} de rendimento` : 'informe um aporte em Editar' }));
   } else {
     const contaFalta = (c.total != null && c.alvoBRL != null) ? Math.max(0, c.total - c.alvoBRL - (c.ja - c.atualBRL)) : 0;
     nums.push(numHeroi({ icone: 'carteira', rotulo: 'Já tenho', valor: valorGrandeHtml(c.ja), sub: `de <b>${c.total != null ? r0(c.total) : '—'}</b>${estrangeira ? ` (${formatMoeda(c.alvoMoeda, c.moeda, { casas: 0 })} a ${formatMoeda(c.cotacao, 'BRL', { casas: 2 })})` : ''}`, dica: EXPLICACOES.percentual }));
@@ -401,7 +416,7 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   const necJuntar = reserva ? null : (parcelas ? c.aporteNecessario : c.aporteNecessarioTotal);
   const subParcelas = parcelas ? `+ <b>${r0(parcelas)}</b>/mês de parcelas` : '';
   const subAporte = parcelas && !(necJuntar > 0) ? `nada a juntar · ${subParcelas}` : `${aporteSub(necJuntar)}${parcelas ? ` · ${subParcelas}` : ''}`;
-  nums.push(numHeroi({ icone: 'moeda', rotulo: c.aporteOrigem === 'historico' ? 'Seu aporte real' : 'Seu aporte', valor: valorAporte, tom: necJuntar != null && necJuntar > 0 ? (c.aporteAtual + 0.5 >= necJuntar ? 'bom' : 'ruim') : '', sub: subAporte, dica: EXPLICACOES.aporteReal }));
+  nums.push(numHeroi({ icone: 'moeda', rotulo: c.aporteOrigem === 'historico' ? 'Seu aporte real' : 'Seu aporte', valor: valorAporte, tom: necJuntar != null && necJuntar > 0 ? ((c.planoAporte ? c.status === 'no-ritmo' : c.aporteAtual + 0.5 >= necJuntar) ? 'bom' : 'ruim') : '', sub: subAporte, dica: EXPLICACOES.aporteReal }));
   if (c.viagem && c.viagem.aPagar.itens.length) {
     const ap = c.viagem.aPagar;
     nums.push(numHeroi({ icone: 'conta', rotulo: 'A pagar (já comprado)', valor: valorGrandeHtml(ap.totalBRL), sub: `${ap.pendenteBRL > 0.5 ? `<b>${r0(ap.pendenteBRL)}</b> a confirmar nas faturas` : 'tudo confirmado'} · fora do aporte`, dica: EXPLICACOES.aPagar }));
@@ -427,7 +442,7 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     </div>
   </div>
   <div class="mt-heroi-corpo">
-    ${anelProgressoHtml(p, { tom: tomAnel, cor: ap.cor, rotulo: reserva ? 'líquido' : 'da meta' })}
+    ${c.acompanhando ? anelProgressoHtml(0, { tom: 'neutro', cor: ap.cor, rotulo: 'sem valor alvo', texto: '—' }) : anelProgressoHtml(p, { tom: tomAnel, cor: ap.cor, rotulo: reserva ? 'líquido' : 'da meta' })}
     <div class="mt-heroi-numeros">${nums.join('')}</div>
   </div>
   ${c.viagem ? porMesHtml(c) : ''}
@@ -523,6 +538,7 @@ export async function montarPaginaMetas(token, {
     resposta: null, ctx: null, filtroStatus: 'todas', filtroTipo: 'todos', detalheId: null, assistente: null, simulador: null,
     historico: null, indices: [], historicoCarregando: false, historicoErro: null,
     modoHist: 'acumulado', periodos: { hist: '12m', proj: 'fim', renda: '12m' }, editandoSaldo: null,
+    simPreco: {}, estimAberta: null, // 07/10/2026: simulador "e se custar R$ X" (por meta) e se a seção Estimativas está aberta
     dados: { paises: [], cidades: null, taxas: null }, // 04/10/2026
   };
 
@@ -728,7 +744,7 @@ export async function montarPaginaMetas(token, {
   <article class="card"><div class="kpi">
     <div class="kpi-topo"><span class="kpi-rotulo">Metas ativas</span>${kpiIcone('target')}</div>
     <div class="kpi-valor">${res.quantidade}</div>
-    <div class="kpi-sub"><span class="tendencia sobe"><svg class="ico" aria-hidden="true"><use href="#ico-north-east"/></svg>${res.noRitmo} no ritmo</span> ${res.atrasadas ? `<span class="tendencia desce"><svg class="ico" aria-hidden="true"><use href="#ico-south-east"/></svg>${res.atrasadas} ${res.atrasadas === 1 ? 'precisa' : 'precisam'} de atenção</span>` : ''}</div>
+    <div class="kpi-sub">${res.noRitmo || !res.acompanhando ? `<span class="tendencia sobe"><svg class="ico" aria-hidden="true"><use href="#ico-north-east"/></svg>${res.noRitmo} no ritmo</span> ` : ''}${res.acompanhando ? `<span class="tendencia estavel"><svg class="ico" aria-hidden="true"><use href="#ico-trending-flat"/></svg>${res.acompanhando} acompanhando</span> ` : ''}${res.atrasadas ? `<span class="tendencia desce"><svg class="ico" aria-hidden="true"><use href="#ico-south-east"/></svg>${res.atrasadas} ${res.atrasadas === 1 ? 'precisa' : 'precisam'} de atenção</span>` : ''}</div>
   </div></article>
   <article class="card"><div class="kpi">
     <div class="kpi-topo"><span class="kpi-rotulo">Patrimônio alocado nas metas</span>${infoHtml(infoPatrimonio)}</div>
@@ -761,7 +777,7 @@ export async function montarPaginaMetas(token, {
       html += `<p class="mt-alerta">Vínculos sem ativo correspondente (não contam no progresso): ${orfaos.map((o) => `<b>${esc(String(o.id || '').split('@')[0])}</b> em ${esc(o.meta)}`).join(' · ')}. Foram vendidos ou mudaram de ticker - abra a meta e refaça o vínculo.</p>`;
     }
     if (ativas.length || arquivadas.length) {
-      const legenda = ['no-ritmo', 'atrasada', 'saldo-ideal', 'ideal-bruto', 'abaixo', 'vencida', 'sem-prazo'].map((k) => `${STATUS_META[k].rotulo}: ${STATUS_META[k].explicacao}`).join('\n\n');
+      const legenda = ['no-ritmo', 'atrasada', 'saldo-ideal', 'ideal-bruto', 'abaixo', 'vencida', 'sem-prazo', 'acompanhando'].map((k) => `${STATUS_META[k].rotulo}: ${STATUS_META[k].explicacao}`).join('\n\n');
       html += `<div class="mt-filtros">
   <div class="mt-filtros-status"><div id="mtAbasStatus"></div>${infoHtml(legenda, { rotulo: 'O que significa cada status?' })}</div>
   ${tiposPresentes.length > 1 ? `<div class="mt-filtro-tipos" role="group" aria-label="Tipo"><button type="button" class="chip ${estado.filtroTipo === 'todos' ? 'on' : ''}" aria-pressed="${estado.filtroTipo === 'todos'}" data-filtro-tipo="todos">Todos os tipos</button>${tiposPresentes.map(([k, m]) => `<button type="button" class="chip ${estado.filtroTipo === k ? 'on' : ''}" aria-pressed="${estado.filtroTipo === k}" data-filtro-tipo="${esc(k)}">${iconeMetaSvg(aparenciaMeta(m).icone, { tamanho: 16 })}${esc(aparenciaMeta(m).rotulo)}</button>`).join('')}</div>` : ''}
@@ -877,6 +893,7 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     }
 
     html += velocidadeHtml(meta, c);
+    html += estimativasHtml(meta, c, { hoje, aberta: estado.estimAberta, sim: estado.simPreco[meta.id] || null }); // 07/10/2026: seção recolhível "Estimativas"
     if (meta.tipo === 'aposentadoria' || (meta.tipo === 'rendaPassiva' && c.alvoBRL > 0)) html += marcosHtml(meta, c, marcosRitmo);
     if (!c.viagem) html += entradasDetalheHtml(meta, c); // 04/10/2026: entradas programadas valem pra qualquer meta (na viagem vêm junto)
 
@@ -921,6 +938,23 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     }
     const simEl = doc.getElementById('mtSimulador');
     if (simEl) montarSimulador(simEl, meta, c);
+    if (temEstimativas(meta)) {
+      const simPreco = estado.simPreco[meta.id] || (estado.simPreco[meta.id] = { preco: (meta.especificos && meta.especificos.precoReferencia) || null, ano: null });
+      ligarEstimativas(el.tela, {
+        meta, c, hoje, sim: simPreco, parseNumero: parseNumeroBR,
+        aoGuardar: async (preco) => {
+          const m = clonar(meta); m.especificos = { ...(m.especificos || {}), precoReferencia: preco };
+          const salva = await salvar(m, { manterDetalhe: true, silencioso: true });
+          if (salva) { toast.ok('Preço de referência guardado.', { doc }); estado.estimAberta = true; desenhar(); }
+        },
+        aoUsarComoAlvo: async (parte, preco) => {
+          const m = clonar(meta); m.especificos = { ...(m.especificos || {}), precoReferencia: preco };
+          if (m.tipo === 'casa') { m.especificos.valorImovel = Math.round(preco / pessoasDoGrupo(m)); m.especificos.entradaPct = 1; } else if (m.tipo === 'carro') { m.especificos.valorCarro = Math.round(preco / pessoasDoGrupo(m)); m.especificos.entradaPct = 1; } else m.valorAlvo = Math.round(parte);
+          estado.estimAberta = true;
+          await salvar(m, { manterDetalhe: true });
+        },
+      });
+    }
     void hist;
   }
 
@@ -1003,7 +1037,11 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
       if (v.tipo === 'saldo') {
         const editando = estado.editandoSaldo === v.id;
         const hist = (v.historico || []).slice(-4).reverse();
-        return `<li class="mt-v-saldo"><span class="mt-v-nome"><strong>${iconeNum('carteira', 13)} Saldo em conta · ${esc(v.instituicao)}</strong><em>${formatMoeda(Number(v.saldo) || 0, v.moeda || 'BRL')}${v.moeda !== 'BRL' && v.cotacao ? ` x ${formatMoeda(v.cotacao, 'BRL', { casas: 2 })}` : ''} · atualizado ${v.atualizadoEm ? v.atualizadoEm.split('-').reverse().join('/') : '—'}${infoHtml(EXPLICACOES.saldoConta)}</em>
+        // 07/10/2026: "Saldo ou investimento fora da carteira" - com % do CDI mostra a estimativa de hoje (sem somar aportes) e convida a atualizar
+        const textoEst = v.estimativa ? textoEstimativa(v.estimativa, (x) => formatMoeda(x)) : '';
+        return `<li class="mt-v-saldo"><span class="mt-v-nome"><strong>${iconeNum('carteira', 13)} Fora da carteira · ${esc(v.nome || v.instituicao)}</strong><em>${v.nome ? `${esc(v.instituicao)} · ` : ''}${formatMoeda(Number(v.saldo) || 0, v.moeda || 'BRL')}${v.moeda !== 'BRL' && v.cotacao ? ` x ${formatMoeda(v.cotacao, 'BRL', { casas: 2 })}` : ''} · informado em ${v.atualizadoEm ? v.atualizadoEm.split('-').reverse().join('/') : '—'}${infoHtml(EXPLICACOES.saldoConta)}</em>
+          ${textoEst ? `<em class="mt-v-estim">${esc(textoEst)}. Atualize o saldo quando tiver o extrato novo (o site não soma aportes sozinho).</em>` : ''}
+          ${v.contaNoPatrimonio ? '<em class="mt-v-patrim">conta no meu patrimônio (Organização e Início)</em>' : ''}
           ${hist.length > 1 ? `<em class="mt-v-hist">antes: ${hist.slice(1).map((h) => `${formatMoeda(h.saldo, v.moeda || 'BRL', { casas: 0 })} em ${h.data.split('-').reverse().slice(0, 2).join('/')}`).join(' · ')}</em>` : ''}
           ${arquivada ? '' : (editando ? `<span class="mt-saldo-form"><label class="sr" for="mtSaldoNovo">Novo saldo</label><span class="mt-entrada"><span class="mt-prefixo">${esc(v.moeda || 'BRL')}</span><input id="mtSaldoNovo" inputmode="decimal" value="${numParaCampo(Number(v.saldo) || 0)}"></span><button type="button" class="btn btn-primary mt-btn-sm" data-saldo-salvar="${esc(v.id)}">Salvar</button><button type="button" class="btn btn-ghost mt-btn-sm" data-saldo-cancelar>Cancelar</button></span>` : `<button type="button" class="mt-link" data-saldo-editar="${esc(v.id)}">Atualizar saldo</button>`)}</span>
           <b class="mono">${formatMoeda(v.valorBRL)}</b></li>`;
@@ -1349,7 +1387,9 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 
   // ---------------- assistente (nova meta / editar) ----------------
   function abrirAssistente(meta, passo = 1, { editando = false } = {}) {
-    estado.assistente = { meta: clonar(meta), passo, editando, buscaAtivo: '' };
+    const copia = clonar(meta);
+    if (editando) rebasearAporte(copia, estado.ctx && estado.ctx.hoje); // 07/10/2026: aporte crescente - o campo mostra o aporte de HOJE
+    estado.assistente = { meta: copia, passo, editando, buscaAtivo: '' };
     el.dialogo.hidden = false;
     doc.body.classList.add('mt-dialogo-aberto');
     desenharAssistente();
@@ -1405,6 +1445,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     if (ehMetaDistribuicao(m)) return previaDistribuicaoHtml(m);
     const c = calcDe(m);
     if (c.renda) return `renda hoje <b>${r0(c.renda.atual)}</b>/mês · patrimônio necessário <b>${c.alvoBRL != null ? r0(c.alvoBRL) : '—'}</b>`;
+    if (c.acompanhando) return `só acompanhando${c.aporteAtual > 0 ? ` · em 5 anos ~<b>${r0(projecaoPorAnos(c, [5])[0].valor)}</b>` : ''}`; // 07/10/2026
     if (c.alvoBRL == null && !(c.viagem && c.viagem.temFixos)) return 'informe o alvo';
     if (c.viagem) { // 04/10/2026: a juntar x já comprado (parcelas à parte)
       const par = c.viagem.aPagar.mesAtualBRL;
@@ -1418,6 +1459,8 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const p = el.dialogo.querySelector('#mtPrevia');
     if (p) p.innerHTML = previaHtml(a.meta);
     if (ehMetaDistribuicao(a.meta)) atualizarSomasDistribuicao(el.dialogo, a.meta);
+    const cresc = el.dialogo.querySelector('#mtCrescResumo');
+    if (cresc) cresc.textContent = resumoCrescimentoEditor(a.meta, estado.ctx.hoje);
     const conta = el.dialogo.querySelector('#mtContaApos');
     if (conta) conta.innerHTML = contaAposentadoriaHtml(a.meta);
     const viag = el.dialogo.querySelector('#mtResumoViagem');
@@ -1486,6 +1529,13 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     return `<ol class="mt-conta">${passos}</ol>`;
   }
 
+  /** 07/10/2026: "Ainda não sei o valor nem a data" - sem valor alvo (nem sub-itens) e sem prazo. */
+  function semAlvoMarcado(m) {
+    const esp = m.especificos || {};
+    const semValor = m.tipo === 'casa' ? !(esp.valorImovel > 0) : m.tipo === 'carro' ? !(esp.valorCarro > 0) : !(m.valorAlvo > 0);
+    return semValor && !m.dataAlvo && !(m.itens || []).length;
+  }
+
   function passoDadosHtml(m) {
     if (ehMetaDistribuicao(m)) return passoDadosDistribuicaoHtml(m);
     const ref = estado.ctx.referencias || {};
@@ -1495,6 +1545,10 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     f.push(campo({ caminho: 'nome', rotulo: 'Nome da meta', formato: 'texto', largura: 'largo', foco: true }));
     if (m.tipo === 'acumulo') f.push(campo({ caminho: 'categoria', rotulo: 'Categoria', formato: 'select', opcoes: Object.entries(CATEGORIAS_ACUMULO).map(([k, c]) => [k, c.nome]) }));
     const dataViagem = m.tipo === 'viagemInternacional' || m.tipo === 'viagemNacional';
+    // 07/10/2026 (Tiago: "sem valor final nem prazo - não vamos procurar agora"): objetivo livre pode ficar "só acompanhando"
+    const livre = ['acumulo', 'casa', 'carro'].includes(m.tipo) && m.contribuicao !== 'recorrente';
+    const semAlvo = livre && semAlvoMarcado(m);
+    if (livre) f.push(`<label class="mt-campo mt-campo-bool largo mt-sem-alvo"><input type="checkbox" data-sem-alvo ${semAlvo ? 'checked' : ''}><span>Ainda não sei o valor nem a data<em>só vou acompanhar quanto já tenho e quanto terei daqui a alguns anos - quando souber, é só desmarcar</em></span></label>`);
     // 04/10/2026: toda viagem é por destinos (país/cidade) + "já comprado"; a "conta mensal" antiga virou item no cartão (migração)
     const porDestinos = dataViagem;
     if (dataViagem) {
@@ -1514,12 +1568,16 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
       if (m.especificos && m.especificos.usarDespesasPlanilha === false) f.push(campo({ caminho: 'especificos.despesaMensal', rotulo: 'Despesa mensal' }));
       extra += '<p class="mt-nota largo">O status olha o valor LÍQUIDO: "Saldo ideal" só quando o que cairia na conta num resgate hoje (sem IR/IOF) cobre o alvo.</p>';
     } else if (m.tipo === 'casa') {
-      f.push(campo({ caminho: 'especificos.valorImovel', rotulo: 'Valor do imóvel' }));
-      f.push(campo({ caminho: 'especificos.entradaPct', rotulo: 'Entrada', formato: 'pct' }));
-      f.push(campo({ caminho: 'especificos.custosPct', rotulo: 'ITBI, escritura e registro', formato: 'pct' }));
+      if (!semAlvo) {
+        f.push(campo({ caminho: 'especificos.valorImovel', rotulo: 'Valor do imóvel' }));
+        f.push(campo({ caminho: 'especificos.entradaPct', rotulo: 'Entrada', formato: 'pct' }));
+        f.push(campo({ caminho: 'especificos.custosPct', rotulo: 'ITBI, escritura e registro', formato: 'pct' }));
+      }
     } else if (m.tipo === 'carro') {
-      f.push(campo({ caminho: 'especificos.valorCarro', rotulo: 'Valor do carro' }));
-      f.push(campo({ caminho: 'especificos.entradaPct', rotulo: 'Quanto juntar (100% = à vista)', formato: 'pct' }));
+      if (!semAlvo) {
+        f.push(campo({ caminho: 'especificos.valorCarro', rotulo: 'Valor do carro' }));
+        f.push(campo({ caminho: 'especificos.entradaPct', rotulo: 'Quanto juntar (100% = à vista)', formato: 'pct' }));
+      }
     } else if (m.tipo === 'aposentadoria') {
       // 03/10/2026: a conta da planilha, transparente e editável (e o prazo - antes não aparecia)
       const ct = contaAposentadoria(m, ref);
@@ -1548,19 +1606,24 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
         f.push(campo({ caminho: 'recorrente.parcela', rotulo: 'Valor da parcela' }));
         f.push(campo({ caminho: 'recorrente.totalParcelas', rotulo: 'Número de parcelas', formato: 'int' }));
         f.push(campo({ caminho: 'recorrente.inicio', rotulo: '1ª parcela', formato: 'mes' }));
-      } else if (!['casa', 'carro'].includes(m.tipo)) {
+      } else if (!['casa', 'carro'].includes(m.tipo) && !semAlvo) {
         f.push(campo({ caminho: 'moeda', rotulo: porDestinos ? 'Moeda principal' : 'Moeda', formato: 'select', opcoes: MOEDAS.map((x) => [x, x]) }));
         if (!porDestinos || !(m.especificos.destinos || []).length) {
           f.push(campo({ caminho: 'valorAlvo', rotulo: dataViagem ? 'Dinheiro pra gastar lá (total)' : 'Valor alvo', moeda: simbolo(m.moeda), ajuda: porDestinos ? 'ou deixe vazio e liste os destinos abaixo - o alvo sai sozinho' : ((m.itens || []).length ? 'os sub-itens abaixo substituem esse valor' : (m.moeda !== 'BRL' && cotacao(m.moeda, estado.ctx.cambio) ? `1 ${m.moeda} = ${formatMoeda(cotacao(m.moeda, estado.ctx.cambio), 'BRL', { casas: 4 })}` : '')) }));
         }
       }
-      if (m.contribuicao !== 'recorrente' || m.tipo !== 'acumulo') f.push(campo({ caminho: 'dataAlvo', rotulo: dataViagem ? 'Mês da viagem' : 'Até quando', formato: 'mes' }));
+      if ((m.contribuicao !== 'recorrente' || m.tipo !== 'acumulo') && !semAlvo) f.push(campo({ caminho: 'dataAlvo', rotulo: dataViagem ? 'Mês da viagem' : 'Até quando', formato: 'mes' }));
+      if (livre) { // 07/10/2026: compra em grupo (só a SUA parte entra na meta) e custos de compra do simulador
+        f.push(campo({ caminho: 'especificos.grupoPessoas', rotulo: 'Compra em grupo: quantas pessoas (contando você)', formato: 'int', largura: 'largo', padrao: 1, ajuda: 'opcional - o que você informa aqui continua sendo só a SUA parte; as estimativas mostram também o total do grupo' }));
+        if ((m.tipo === 'acumulo' && m.categoria === 'imoveis') || (m.tipo === 'casa' && semAlvo)) f.push(campo({ caminho: 'especificos.custosPct', rotulo: 'ITBI, escritura e registro', formato: 'pct', padrao: 5, ajuda: 'vazio = 5% (usado no simulador "e se custar R$ X")' }));
+      }
     }
     if (m.contribuicao !== 'recorrente') {
       if (!['reservaEmergencia'].includes(m.tipo) && !dataViagem) f.push(campo({ caminho: 'valorInicial', rotulo: 'Já guardado fora dos investimentos', ajuda: 'dinheiro solto - conta com saldo em moeda você vincula no próximo passo ("Saldo em conta")' }));
       const real = estado.ctx.historico && m.id && estado.ctx.historico[m.id] ? estado.ctx.historico[m.id].aporteMedio : null;
       f.push(campo({ caminho: 'aporteMensal', rotulo: `Seu aporte mensal (opcional)`, dica: EXPLICACOES.aporteReal, ajuda: real != null ? `vazio = o aporte real do histórico: ${formatMoeda(Math.max(0, real))}/mês` : 'vazio = deduzido do histórico dos investimentos vinculados' }));
       f.push(campo({ caminho: 'rendimentoAnual', rotulo: 'Rendimento esperado ao ano', formato: 'pct', ajuda: m.tipo === 'aposentadoria' ? 'use o rendimento real (acima da inflação)' : '' }));
+      extra += aporteCrescimentoEditorHtml(m, String(estado.ctx.hoje || '')); // 07/10/2026: aporte crescente (qualquer meta com aporte)
     }
     if (porDestinos) {
       extra += `<fieldset class="mt-grupo-campos"><legend>Destinos <em>(país/cidade, dias e gasto diário na moeda de lá)</em></legend>${destinosEditorHtml(m, { dados: estado.dados })}
@@ -1583,15 +1646,21 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
 
   function saldosEditorHtml(m) {
     const ss = (m.vinculos || []).map((v, i) => ({ v, i })).filter((x) => x.v.tipo === 'saldo');
-    return `<h4 class="mt-grupo">Saldo em conta <em class="mt-fraco">(dinheiro parado, não investido - ex. Wise em euro)</em>${infoHtml(EXPLICACOES.saldoConta)}</h4>
+    // 07/10/2026 (Tiago: dinheiro num fundo que NÃO está na carteira): "Saldo ou investimento fora da carteira" - descrição, % do CDI e "conta no meu patrimônio"
+    return `<h4 class="mt-grupo">Saldo ou investimento fora da carteira <em class="mt-fraco">(ex. Wise em euro, ou um fundo que não está na planilha)</em>${infoHtml(EXPLICACOES.saldoConta)}</h4>
 <ul class="mt-saldos-ed">${ss.map(({ v, i }) => `<li>
-  <input data-saldo="${i}" data-saldo-campo="instituicao" value="${esc(v.instituicao || '')}" placeholder="Instituição (ex. Wise)" aria-label="Instituição">
+  <input data-saldo="${i}" data-saldo-campo="nome" value="${esc(v.nome || '')}" placeholder="Nome (ex. Fundo XP - minha parte)" aria-label="Nome ou descrição">
+  <input data-saldo="${i}" data-saldo-campo="instituicao" value="${esc(v.instituicao || '')}" placeholder="Instituição (ex. XP, Wise)" aria-label="Instituição">
   <span class="mt-entrada"><select data-saldo="${i}" data-saldo-campo="moeda" aria-label="Moeda">${MOEDAS_SALDO.map((x) => `<option ${x === (v.moeda || 'EUR') ? 'selected' : ''}>${x}</option>`).join('')}</select><input data-saldo="${i}" data-saldo-campo="saldo" inputmode="decimal" value="${numParaCampo(v.saldo)}" aria-label="Saldo"></span>
-  <label class="mt-mini"><span>atualizado em</span><input type="date" data-saldo="${i}" data-saldo-campo="atualizadoEm" value="${esc(v.atualizadoEm || '')}" max="${esc(String(estado.ctx.hoje || '').slice(0, 10))}"></label>
+  <label class="mt-mini"><span>saldo do dia</span><input type="date" data-saldo="${i}" data-saldo-campo="atualizadoEm" value="${esc(v.atualizadoEm || '')}" max="${esc(String(estado.ctx.hoje || '').slice(0, 10))}"></label>
   <span class="mt-saldo-brl mono">${v.moeda && v.moeda !== 'BRL' && cotacao(v.moeda, estado.ctx.cambio) ? `≈ ${r0((Number(v.saldo) || 0) * cotacao(v.moeda, estado.ctx.cambio))}` : ''}</span>
-  <button type="button" class="mt-x" data-saldo-remover="${i}" aria-label="Remover saldo">×</button>
+  ${!v.moeda || v.moeda === 'BRL' ? `<label class="mt-mini mt-saldo-cdi"><span>rende (% do CDI)</span><span class="mt-entrada"><input data-saldo="${i}" data-saldo-campo="cdiPct" inputmode="decimal" value="${numParaCampo(v.cdiPct, 2)}" placeholder="ex. 100" aria-label="Rendimento estimado em % do CDI"><span class="mt-sufixo">%</span></span></label>` : '<span></span>'}
+  <label class="mt-campo-bool mt-saldo-patrim"><input type="checkbox" data-saldo="${i}" data-saldo-campo="contaNoPatrimonio" ${v.contaNoPatrimonio ? 'checked' : ''}><span>Conta no meu patrimônio<em>entra no patrimônio líquido (Organização e Início); não entra na carteira de investimentos, na rentabilidade nem na aposentadoria</em></span></label>
+  <button type="button" class="mt-x" data-saldo-remover="${i}" aria-label="Remover">×</button>
 </li>`).join('')}</ul>
-<button type="button" class="mt-link" data-saldo-add>+ Adicionar saldo em conta</button>`;
+<p class="mt-nota">Se você cadastrou esse investimento na carteira como "Reservado para objetivos", vincule o título (lista acima) e não use saldo fora da carteira, senão ele conta 2 vezes no patrimônio.</p>
+<p class="mt-nota">Com "% do CDI", o valor de hoje é o último saldo informado corrigido pelo CDI desde o dia dele. O site <b>não soma aportes sozinho</b>: atualize o saldo quando tiver o extrato novo.</p>
+<button type="button" class="mt-link" data-saldo-add>+ Adicionar saldo ou investimento fora da carteira</button>`;
   }
   /**
    * 07/10/2026 (Tiago: "tudo selecionado e o vinculado não bate"): quando parte do que foi marcado já conta em outra meta
@@ -1618,14 +1687,16 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     const ocupadoDaMeta = (estado.ctx.ocupadoPorMeta && estado.ctx.ocupadoPorMeta[m.id || '']) || {};
     const res = resolverVinculos(vinc, ativos, estado.ctx.cambio, { ocupado: ocupadoDaMeta, aliases: estado.ctx.aliases || null });
     const atalhos = [
-      ...['emergencial', 'longo-prazo'].map((k) => ({ tipo: 'marca', chave: k, rotulo: ROTULO_MARCA[k], valor: ativos.filter((a) => a.classe === 'rf' && a.marca === k).reduce((s, a) => s + a.valorBRL, 0) })),
-      ...['fiis', 'acoes', 'usa', 'rf'].map((k) => ({ tipo: 'classe', chave: k, rotulo: `Toda a classe ${ROTULO_CLASSE[k]}`, valor: ativos.filter((a) => a.classe === k).reduce((s, a) => s + a.valorBRL, 0) })),
+      ...DESTINOS_RENDA_FIXA.map((k) => ({ tipo: 'marca', chave: k, rotulo: ROTULO_MARCA[k], valor: ativos.filter((a) => a.classe === 'rf' && a.marca === k).reduce((s, a) => s + a.valorBRL, 0) })),
+      ...['fiis', 'acoes', 'usa', 'rf'].map((k) => ({ tipo: 'classe', chave: k, rotulo: `Toda a classe ${ROTULO_CLASSE[k]}`, valor: ativos.filter((a) => a.classe === k && !ativoRfObjetivo(a)).reduce((s, a) => s + a.valorBRL, 0) })), // 07/10/2026: a classe Renda Fixa não conta o que está reservado pra objetivos
     ].filter((x) => x.valor > 0);
     const busca = (estado.assistente.buscaAtivo || '').toLowerCase();
-    const grupos = ['rf', 'fiis', 'acoes', 'usa'].map((cl) => [cl, ativos.filter((a) => a.classe === cl && (!busca || `${a.nome} ${a.descricao || ''} ${a.instituicao || ''}`.toLowerCase().includes(busca)))]).filter(([, l]) => l.length);
+    // 07/10/2026: os títulos 'objetivo' ganham um grupo próprio, "Reservado para objetivos" (não entram pela classe Renda Fixa)
+    const grupos = ['rf', DESTINO_OBJETIVO, 'fiis', 'acoes', 'usa'].map((cl) => [cl, ativos.filter((a) => (cl === DESTINO_OBJETIVO ? ativoRfObjetivo(a) : (a.classe === cl && !(cl === 'rf' && ativoRfObjetivo(a)))) && (!busca || `${a.nome} ${a.descricao || ''} ${a.instituicao || ''}`.toLowerCase().includes(busca)))]).filter(([, l]) => l.length);
     const linhaAtivo = (a) => {
       const v = vinc.find((x) => x.tipo === 'ativo' && x.id === a.id);
-      const coberto = vinc.some((x) => (x.tipo === 'classe' && x.classe === a.classe) || (x.tipo === 'marca' && a.classe === 'rf' && x.marca === a.marca));
+      // 07/10/2026: título 'objetivo' NÃO entra pela classe Renda Fixa (só pela marca 'Reservado para objetivos' ou marcado direto)
+      const coberto = vinc.some((x) => (x.tipo === 'classe' && x.classe === a.classe && !ativoRfObjetivo(a)) || (x.tipo === 'marca' && a.classe === 'rf' && x.marca === a.marca));
       const outrasMetas = usoOutras.get(a.id);
       const sub = [a.descricao && a.descricao !== a.nome ? a.descricao : null, a.instituicao, a.classe === 'rf' ? ROTULO_MARCA[a.marca] : null].filter(Boolean).map(esc).join(' · ');
       return `<li class="${v || coberto ? 'marcado' : ''}">
@@ -1637,7 +1708,7 @@ ${somenteLeitura ? '' : '<button type="button" class="mt-link" data-item-add>+ A
     return `<p class="mt-dialogo-dica">Quais investimentos são dessa meta? O progresso anda sozinho com o valor de hoje deles. Dá pra dedicar só uma parte (% ou valor fixo).</p>
 <div class="mt-atalhos">${atalhos.map((x) => `<button type="button" class="mt-chip ${temGrupo(x.tipo, x.chave) ? 'active' : ''}" data-vinc-grupo="${x.tipo}:${x.chave}" aria-pressed="${temGrupo(x.tipo, x.chave)}">${esc(x.rotulo)} <span class="mono">${formatMoeda(x.valor, 'BRL', { casas: 0 })}</span></button>`).join('')}</div>
 <input class="mt-busca" type="search" placeholder="Buscar ativo, instituição…" data-vinc-busca value="${esc(estado.assistente.buscaAtivo || '')}" aria-label="Buscar ativo">
-<div class="mt-v-lista">${grupos.map(([cl, lista]) => `<h4 class="mt-grupo">${ROTULO_CLASSE[cl]}</h4><ul>${lista.map(linhaAtivo).join('')}</ul>`).join('') || '<p class="hint">Nenhum ativo encontrado.</p>'}</div>
+<div class="mt-v-lista">${grupos.map(([cl, lista]) => `<h4 class="mt-grupo">${cl === DESTINO_OBJETIVO ? `${ROTULO_MARCA[DESTINO_OBJETIVO]} <em class="mt-fraco">(Renda Fixa marcada "Objetivo" na carteira - não entra pela classe Renda Fixa)</em>` : ROTULO_CLASSE[cl]}</h4><ul>${lista.map(linhaAtivo).join('')}</ul>`).join('') || '<p class="hint">Nenhum ativo encontrado.</p>'}</div>
 <p class="mt-v-total">Vinculado: <b class="mono">${formatMoeda(res.total)}</b>${htmlParteDeOutrasMetas(vinc, ativos, res, ocupadoDaMeta)}</p>
 ${saldosEditorHtml(m)}`;
   }
@@ -1649,12 +1720,13 @@ ${saldosEditorHtml(m)}`;
     const linhas = [
       ['Tipo', ap.rotulo],
       c.renda ? ['Renda hoje / meta', `${formatMoeda(c.renda.atual)} / ${formatMoeda(c.renda.alvo)} por mês`] : null,
-      [c.viagem ? 'A juntar' : 'Alvo', c.alvoBRL != null ? `${formatMoeda(c.alvoBRL)}${c.moeda !== 'BRL' && c.alvoMoeda != null ? ` (${formatMoeda(c.alvoMoeda, c.moeda)})` : ''}` : '—'],
+      [c.viagem ? 'A juntar' : 'Alvo', c.alvoBRL != null ? `${formatMoeda(c.alvoBRL)}${c.moeda !== 'BRL' && c.alvoMoeda != null ? ` (${formatMoeda(c.alvoMoeda, c.moeda)})` : ''}` : (c.acompanhando ? 'ainda sem valor definido (só acompanhando)' : '—')],
       c.conta ? ['Conta mensal', `${formatMoeda(c.conta.valor)} x ${c.conta.total} meses`] : null,
-      ['Já tem', `${formatMoeda(c.atualBRL)} (${pct(c.percentual)})`],
-      m.tipo !== 'reservaEmergencia' ? ['Prazo', c.dataAlvo ? `${rotuloMes(c.dataAlvo)} · ${rotuloDuracao(c.mesesRestantes)}` : 'sem data'] : null,
-      m.tipo !== 'reservaEmergencia' ? [c.viagem ? 'Aporte (pra guardar)' : 'Aporte necessário', c.aporteNecessarioTotal != null ? `${formatMoeda(c.aporteNecessarioTotal)}/mês` : '—'] : null,
-      ['Seu aporte', c.aporteAtual ? `${formatMoeda(c.aporteAtual)}/mês${c.aporteOrigem === 'historico' ? ' (real)' : ''}` : '—'],
+      ['Já tem', c.acompanhando ? formatMoeda(c.atualBRL) : `${formatMoeda(c.atualBRL)} (${pct(c.percentual)})`],
+      m.tipo !== 'reservaEmergencia' && !c.acompanhando ? ['Prazo', c.dataAlvo ? `${rotuloMes(c.dataAlvo)} · ${rotuloDuracao(c.mesesRestantes)}` : 'sem data'] : null,
+      m.tipo !== 'reservaEmergencia' && !c.acompanhando ? [c.viagem ? 'Aporte (pra guardar)' : 'Aporte necessário', c.aporteNecessarioTotal != null ? `${formatMoeda(c.aporteNecessarioTotal)}/mês` : '—'] : null,
+      ['Seu aporte', c.aporteAtual ? (c.aporteCrescente ? fraseAporteCrescente(c) : `${formatMoeda(c.aporteAtual)}/mês${c.aporteOrigem === 'historico' ? ' (real)' : ''}`) : '—'],
+      c.acompanhando && c.aporteAtual > 0 ? ['Em 5 anos (estimativa)', `~${formatMoeda(projecaoPorAnos(c, [5])[0].valor, 'BRL', { casas: 0 })}`] : null,
       m.tipo === 'reservaEmergencia' ? ['Líquido hoje', formatMoeda(c.atualLiquidoBRL)] : null,
       c.aposentadoria ? ['Renda ideal', c.aposentadoria.renda ? `${formatMoeda(c.aposentadoria.renda)}/mês` : '—'] : null,
       c.viagem && c.viagem.aPagar.itens.length ? ['A pagar (já comprado)', `${formatMoeda(c.viagem.aPagar.totalBRL)}${c.viagem.aPagar.mesAtualBRL ? ` · ${formatMoeda(c.viagem.aPagar.mesAtualBRL)}/mês` : ''} - fora do aporte`] : null,
@@ -1680,6 +1752,8 @@ ${saldosEditorHtml(m)}`;
     else v = parseNumeroBR(inp.value);
     if (inp.dataset.campo === 'nome' || inp.dataset.campo === 'notas') v = inp.value;
     gravarCaminho(m, inp.dataset.campo, v);
+    // 07/10/2026: o aporte digitado vale pro mês de hoje (aporte crescente conta os degraus a partir daí)
+    if (inp.dataset.campo === 'aporteMensal' && m.aporteCrescimento) m.aporteCrescimento.referencia = mesDe(estado.ctx.hoje);
   }
 
   function validarPasso(a) {
@@ -1860,7 +1934,11 @@ ${saldosEditorHtml(m)}`;
       const meta = clonar(a.meta);
       if (meta.contribuicao !== 'recorrente') meta.recorrente = null;
       if (meta.contaMensal && !(meta.contaMensal.valor > 0)) meta.contaMensal = null;
+      (meta.vinculos || []).forEach((v) => { if (v.tipo === 'saldo' && !String(v.instituicao || '').trim() && String(v.nome || '').trim()) v.instituicao = v.nome; }); // 07/10/2026: só o nome já basta
       meta.vinculos = (meta.vinculos || []).filter((v) => v.tipo !== 'saldo' || String(v.instituicao || '').trim());
+      // 07/10/2026: aporte crescente sem valor não vale nada; com valor, sempre carrega o mês a que o aporte se refere
+      if (meta.aporteCrescimento && !(meta.aporteCrescimento.valor > 0)) delete meta.aporteCrescimento;
+      else if (meta.aporteCrescimento && !meta.aporteCrescimento.referencia) meta.aporteCrescimento.referencia = mesDe(estado.ctx.hoje);
       if (meta.especificos && Array.isArray(meta.especificos.destinos)) meta.especificos.destinos = meta.especificos.destinos.filter((d) => String(d.cidade || d.pais || '').trim());
       if (meta.especificos && Array.isArray(meta.especificos.fixos)) meta.especificos.fixos = meta.especificos.fixos.filter((x) => String(x.nome || '').trim());
       if (meta.especificos && 'roteiroUrl' in meta.especificos) meta.especificos.roteiroUrl = normalizarUrl(meta.especificos.roteiroUrl) || '';
@@ -1907,15 +1985,23 @@ ${saldosEditorHtml(m)}`;
       }
       atualizarPrevia();
     }
-    if (t.dataset.saldo != null && t.tagName !== 'SELECT' && t.type !== 'date') {
+    if (t.dataset.saldo != null && t.tagName !== 'SELECT' && t.type !== 'date' && t.type !== 'checkbox') {
       const v = a.meta.vinculos[Number(t.dataset.saldo)];
       if (v) {
-        if (t.dataset.saldoCampo === 'instituicao') v.instituicao = t.value;
+        const kS = t.dataset.saldoCampo;
+        if (kS === 'instituicao') v.instituicao = t.value;
+        else if (kS === 'nome') v.nome = t.value;
+        else if (kS === 'cdiPct') { const nC = parseNumeroBR(t.value); v.cdiPct = nC > 0 ? nC : null; } // 07/10/2026: rendimento estimado em % do CDI
         else { v.saldo = parseNumeroBR(t.value); v.atualizadoEm = String(estado.ctx.hoje || '').slice(0, 10); }
         const brl = t.closest('li') && t.closest('li').querySelector('.mt-saldo-brl');
         const cot = cotacao(v.moeda || 'BRL', estado.ctx.cambio);
         if (brl) brl.textContent = v.moeda !== 'BRL' && cot ? `≈ ${r0((Number(v.saldo) || 0) * cot)}` : '';
       }
+      atualizarPrevia();
+    }
+    if (t.dataset.cresc === 'valor' && a.meta.aporteCrescimento) { // 07/10/2026: quanto o aporte aumenta por ano (R$ ou %)
+      const nA = parseNumeroBR(t.value);
+      a.meta.aporteCrescimento.valor = nA == null || nA <= 0 ? null : (a.meta.aporteCrescimento.tipo === 'pct' ? nA / 100 : nA);
       atualizarPrevia();
     }
     if (t.dataset.vincQtd) {
@@ -1988,8 +2074,40 @@ ${saldosEditorHtml(m)}`;
     }
     if (t.dataset.saldo != null && t.tagName === 'SELECT') {
       const v = a.meta.vinculos[Number(t.dataset.saldo)];
-      if (v) v.moeda = t.value;
+      if (v) { v.moeda = t.value; if (v.moeda !== 'BRL') v.cdiPct = null; } // CDI só vale pra saldo em reais
       desenharAssistente();
+    }
+    if (t.dataset.saldo != null && t.type === 'checkbox') { // 07/10/2026: "conta no meu patrimônio"
+      const v = a.meta.vinculos[Number(t.dataset.saldo)];
+      if (v) v.contaNoPatrimonio = t.checked;
+    }
+    if (t.dataset.semAlvo != null) { // 07/10/2026: "Ainda não sei o valor nem a data"
+      const m = a.meta;
+      const esp = m.especificos || (m.especificos = {});
+      if (t.checked) {
+        m.valorAlvo = null; m.dataAlvo = null; m.itens = [];
+        if (m.tipo === 'casa') esp.valorImovel = null;
+        if (m.tipo === 'carro') esp.valorCarro = null;
+      } else m.dataAlvo = somarMeses(mesDe(estado.ctx.hoje), m.tipo === 'casa' ? 60 : (m.tipo === 'carro' ? 24 : 12));
+      desenharAssistente();
+      return;
+    }
+    if (t.dataset.cresc && t.dataset.cresc !== 'valor') { // 07/10/2026: aporte crescente - tipo, mês do aumento e "começou em"
+      const k = t.dataset.cresc;
+      const mesHoje = mesDe(estado.ctx.hoje);
+      if (k === 'tipo') {
+        if (!t.value) delete a.meta.aporteCrescimento;
+        else {
+          const cr = a.meta.aporteCrescimento || { valor: null, mes: null, referencia: mesHoje, inicio: null };
+          if (cr.tipo !== t.value) cr.valor = null;
+          cr.tipo = t.value;
+          a.meta.aporteCrescimento = cr;
+        }
+        desenharAssistente();
+        return;
+      }
+      if (a.meta.aporteCrescimento) a.meta.aporteCrescimento[k] = k === 'mes' ? (t.value ? Number(t.value) : null) : (t.value || null);
+      atualizarPrevia();
     }
     if (t.dataset.saldo != null && t.type === 'date') {
       const v = a.meta.vinculos[Number(t.dataset.saldo)];
@@ -2043,6 +2161,9 @@ ${saldosEditorHtml(m)}`;
     }
   });
   doc.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && estado.assistente) fecharAssistente(); });
+
+  // 07/10/2026: lembra se a seção Estimativas estava aberta (o detalhe é redesenhado ao salvar)
+  el.tela.addEventListener('toggle', (ev) => { if (ev.target && ev.target.id === 'mtEstimDet') estado.estimAberta = ev.target.open; }, true);
 
   // eventos da tela
   el.tela.addEventListener('click', async (ev) => {

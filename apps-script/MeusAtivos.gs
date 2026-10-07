@@ -153,7 +153,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
       var tipoInvestimento = linha[3];
       if (!codigo && !tipoInvestimento) return; // linha em branco no fim da aba
 
-      var marca = linha[1];       // 'Renda Emergencial' | 'Renda Fixa' (a nossa "Longo Prazo")
+      var marca = linha[1];       // 'Renda Emergencial' | 'Objetivo' | 'Renda Fixa' (a nossa "Longo Prazo")
       var nome = String(linha[2] == null ? '' : linha[2]).replace(/\s+/g, ' ').trim() || null; // C: Nome personalizado (coluna nova, 18/09/2026); 06/10/2026 (A-71): sem o "\t\n" que a planilha põe na frente
       var indexador = linha[4];
       var instituicao = linha[5]; // Instituição (mesma coluna que Transações Renda Fixa usa)
@@ -179,7 +179,7 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         idEstavel: idsEstaveisRf[i] || null,
         nome: nome,
         instituicao: instituicao || null, // 25/09/2026: ref da tela do ativo (rf:<nome>|<instituição>)
-        marca: marca === 'Renda Emergencial' ? 'emergencial' : 'longo-prazo',
+        marca: destinoRendaFixa_(marca), // 07/10/2026: 'emergencial' | 'longo-prazo' | 'objetivo' (Planilha.gs)
         tipoInvestimento: tipoInvestimento || null,
         indexador: indexador || null,
         quantidade: numeroOuNulo_(linha[6]),

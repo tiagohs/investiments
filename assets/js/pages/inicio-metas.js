@@ -31,6 +31,7 @@ const STATUS_AMARELO = ['atrasada', 'vencida', 'abaixo', 'ideal-bruto'];
 const ROTULO_CURTO = {
   concluida: 'concluída', 'no-ritmo': 'no ritmo', atrasada: 'atrasada', vencida: 'prazo passou', 'sem-prazo': 'sem prazo',
   'saldo-ideal': 'saldo ideal', 'ideal-bruto': 'ideal só no bruto', abaixo: 'abaixo',
+  acompanhando: 'acompanhando', // 07/10/2026: meta sem valor alvo ainda - cinza, nunca "atenção"
 };
 
 /** 'good' (verde) | 'warn' (amarelo) | 'na' (cinza) do status de uma meta. */
@@ -67,13 +68,14 @@ export function modeloMetasHome(resposta, { raizSite } = {}) {
       url: urlMetas(meta.id, raizSite ? { raizSite } : undefined),
     };
   });
-  return { quantidade: res.quantidade, noRitmo: res.noRitmo, atencao: res.atrasadas, aporteNecessario: res.aporteNecessario, aporteAtual, linhas };
+  return { quantidade: res.quantidade, noRitmo: res.noRitmo, acompanhando: res.acompanhando || 0, atencao: res.atrasadas, aporteNecessario: res.aporteNecessario, aporteAtual, linhas };
 }
 
 /** "4 metas · 2 no ritmo · 2 precisam de atenção" como partes (a cor de cada uma vem da classe). */
 export function resumoTexto(m) {
   const partes = [{ t: `${m.quantidade} ${m.quantidade === 1 ? 'meta' : 'metas'}` }];
   if (m.noRitmo) partes.push({ t: `${m.noRitmo} no ritmo`, classe: 'good' });
+  if (m.acompanhando) partes.push({ t: `${m.acompanhando} acompanhando` }); // 07/10/2026: sem alvo - neutra, fora de "precisam de atenção"
   if (m.atencao) partes.push({ t: `${m.atencao} ${m.atencao === 1 ? 'precisa' : 'precisam'} de atenção`, classe: 'warn' });
   return partes;
 }

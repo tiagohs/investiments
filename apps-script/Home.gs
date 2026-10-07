@@ -61,7 +61,7 @@
  *     c71eca5): M6 passou a ser só o rótulo de texto "Renda
  *     Emergencial:" e o valor numérico empurrou pra N6. Ajustado aqui
  *     pra ler N6 — conferido direto na planilha real antes de mexer.
- *   - Patrimônio Longo Prazo = Total − Renda Emergencial. Ações, FIIs e
+ *   - Patrimônio Longo Prazo = Total − Renda Emergencial − Reservado para objetivos (07/10/2026). Ações, FIIs e
  *     Ações EUA são sempre Longo Prazo; dentro de Renda Fixa, tudo que
  *     NÃO está marcado "Renda Emergencial" é Longo Prazo — por isso a
  *     subtração do total resolve isso sem precisar somar de novo.
@@ -264,8 +264,13 @@ function montarHome_() {
   var rendaFixaClasse = blocoDash[14][4]; // I18
   var acoesEua = blocoDash[15][4]; // I19
 
-  var rendaEmergencial = carteiraRF.getRange('N6').getValue();
-  var longoPrazo = total - rendaEmergencial;
+  // 07/10/2026: destino de cada título pela coluna B (destinoRendaFixa_, Planilha.gs): 'Renda Emergencial' -> reserva,
+  // 'Objetivo' -> reservado pra objetivos (entra no total, sai do longo prazo), o resto -> longo prazo. A fórmula N6 da
+  // planilha (SOMASE "Renda Emergencial") continua valendo só como reserva (e é o plano B se a leitura da aba falhar).
+  var porDestinoRf = somarCarteiraRendaFixaPorDestino_(ss);
+  var rendaEmergencial = porDestinoRf.ok ? porDestinoRf.emergencial : carteiraRF.getRange('N6').getValue();
+  var objetivos = porDestinoRf.ok ? porDestinoRf.objetivo : 0;
+  var longoPrazo = total - rendaEmergencial - objetivos;
   // Nacional = Longo Prazo sem os investimentos internacionais (Ações
   // EUA) - pedido do Tiago em 17/09/2026. Mesma fórmula, dia a dia, em
   // HistoricoInicio.gs!montarSerieHistoricoInicio_ (campo `nacional`).
@@ -301,6 +306,7 @@ function montarHome_() {
       longoPrazo: longoPrazo,
       nacional: nacional,
       rendaEmergencial: rendaEmergencial,
+      objetivos: objetivos, // 07/10/2026: Renda Fixa 'Reservado para objetivos' (já dentro de `total` e de porClasse.rendaFixa)
       porClasse: {
         acoes: acoes,
         fiis: fiis,
@@ -361,13 +367,14 @@ function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
     longoPrazo: patrimonio.longoPrazo,
     nacional: patrimonio.nacional,
     rendaEmergencial: patrimonio.rendaEmergencial,
+    objetivos: patrimonio.objetivos,
     acoes: porClasse.acoes,
     fiis: porClasse.fiis,
     acoesEua: porClasse.acoesEua,
     rendaFixaTotal: porClasse.rendaFixa
   };
   if (typeof porClasse.rendaFixa === 'number' && typeof patrimonio.rendaEmergencial === 'number') {
-    camposAoVivo.rendaFixaLongoPrazo = porClasse.rendaFixa - patrimonio.rendaEmergencial;
+    camposAoVivo.rendaFixaLongoPrazo = porClasse.rendaFixa - patrimonio.rendaEmergencial - (Number(patrimonio.objetivos) || 0);
   }
   // 23/09/2026 (bug real, achado com o Controle 7): Renda Fixa tem DUAS
   // fontes que nunca batem exatamente - o histórico (aux_historico-renda-
@@ -394,17 +401,23 @@ function sincronizarUltimoPontoHistoricoComAoVivo_(serie, dadosHome) {
   if (typeof patrimonio.rendaEmergencial === 'number' && Number.isFinite(patrimonio.rendaEmergencial) && typeof ultimo.rendaEmergencial === 'number') {
     ajusteRe = patrimonio.rendaEmergencial - ultimo.rendaEmergencial;
   }
+  var ajusteOb = 0; // 07/10/2026: mesma conta pra Renda Fixa reservada pra objetivos
+  if (typeof patrimonio.objetivos === 'number' && Number.isFinite(patrimonio.objetivos) && typeof ultimo.objetivos === 'number') {
+    ajusteOb = patrimonio.objetivos - ultimo.objetivos;
+  }
   function somarAoFluxo(campo, valor) {
     ultimo[campo] = arredondar2Inicio_((Number(ultimo[campo]) || 0) + valor);
   }
   somarAoFluxo('fluxoCaixaPatrimonio', ajusteRf);
-  somarAoFluxo('fluxoCaixaLongoPrazo', ajusteRf - ajusteRe);
-  somarAoFluxo('fluxoCaixaNacional', ajusteRf - ajusteRe);
+  somarAoFluxo('fluxoCaixaLongoPrazo', ajusteRf - ajusteRe - ajusteOb);
+  somarAoFluxo('fluxoCaixaNacional', ajusteRf - ajusteRe - ajusteOb);
   somarAoFluxo('fluxoCaixaRendaEmergencial', ajusteRe);
+  somarAoFluxo('fluxoCaixaObjetivos', ajusteOb);
   somarAoFluxo('fluxoCaixaRendaFixaTotal', ajusteRf);
-  somarAoFluxo('fluxoCaixaRendaFixaLongoPrazo', ajusteRf - ajusteRe);
+  somarAoFluxo('fluxoCaixaRendaFixaLongoPrazo', ajusteRf - ajusteRe - ajusteOb);
   ultimo.ajusteMarcacaoRendaFixa = arredondar2Inicio_(ajusteRf);
   ultimo.ajusteMarcacaoRendaEmergencial = arredondar2Inicio_(ajusteRe);
+  ultimo.ajusteMarcacaoObjetivos = arredondar2Inicio_(ajusteOb);
 
   if (indices.ibovespa && typeof indices.ibovespa.valor === 'number') camposAoVivo.ibovespa = indices.ibovespa.valor;
   if (indices.ifix && typeof indices.ifix.valor === 'number') camposAoVivo.ifix = indices.ifix.valor;
@@ -444,12 +457,14 @@ function montarOntemDaSerie_(serie) {
   if (!ontem) return null;
   var ajRf = Number(hoje.ajusteMarcacaoRendaFixa) || 0;
   var ajRe = Number(hoje.ajusteMarcacaoRendaEmergencial) || 0;
+  var ajOb = Number(hoje.ajusteMarcacaoObjetivos) || 0;
   return {
     data: ontem.data,
     fonte: 'serie',
     total: arredondar2Inicio_(ontem.patrimonio + ajRf),
-    longoPrazo: arredondar2Inicio_(ontem.longoPrazo + ajRf - ajRe),
-    nacional: arredondar2Inicio_(ontem.nacional + ajRf - ajRe),
-    rendaEmergencial: arredondar2Inicio_(ontem.rendaEmergencial + ajRe)
+    longoPrazo: arredondar2Inicio_(ontem.longoPrazo + ajRf - ajRe - ajOb),
+    nacional: arredondar2Inicio_(ontem.nacional + ajRf - ajRe - ajOb),
+    rendaEmergencial: arredondar2Inicio_(ontem.rendaEmergencial + ajRe),
+    objetivos: arredondar2Inicio_((Number(ontem.objetivos) || 0) + ajOb)
   };
 }

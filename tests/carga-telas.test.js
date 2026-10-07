@@ -73,14 +73,16 @@ test('modulepreload: cada módulo listado existe e cobre o fecho do script inlin
 // se estourar, ou a tela voltou a importar algo que não usa (consertar), ou cresceu de verdade (subir o teto de propósito).
 const ORCAMENTO = {
   'index.html': { modulos: 58, kb: 830 },
-  'distribuicoes-metas.html': { modulos: 58, kb: 930 },
+  // 07/10/2026: Metas ganhou aporte crescente, estimativas e investimento fora da carteira (metas-calc-aporte/fora/grupo + metas-estimativas): de propósito, +2 módulos (+4 só em metas.html) e ~10 KB nas telas que importam o cálculo
+  'distribuicoes-metas.html': { modulos: 58, kb: 945 },
   // 07/10/2026: +analise-cambio.js (dólar x preço nas análises de Ações EUA) subiu esses dois ~9 KB: teto 1010 -> 1025 de propósito
-  'metas.html': { modulos: 54, kb: 1025 },
-  'carteiras/index.html': { modulos: 61, kb: 1025 },
+  // 07/10/2026: +destino-renda-fixa.js (o conceito único do destino de um título de Renda Fixa: emergencial | longo prazo | objetivo): de propósito, +1 módulo (~2 KB) onde a tela decide o destino
+  'metas.html': { modulos: 57, kb: 1075 },
+  'carteiras/index.html': { modulos: 62, kb: 1040 },
   'ativo/index.html': { modulos: 62, kb: 1190 },
   'transacoes/index.html': { modulos: 58, kb: 830 },
   'proventos/index.html': { modulos: 46, kb: 680 },
-  'organizacao/despesas.html': { modulos: 66, kb: 1460 },
+  'organizacao/despesas.html': { modulos: 68, kb: 1460 },
   'login.html': { modulos: 6, kb: 50 },
 };
 for (const [html, teto] of Object.entries(ORCAMENTO)) {

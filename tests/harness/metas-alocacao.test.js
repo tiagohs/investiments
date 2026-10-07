@@ -56,6 +56,34 @@ test('A-11: a alocação do Apps Script (progresso das metas) é a mesma do fron
   assert.ok(gs.find((m) => m.id === 'a').progresso.cortadoBRL > 0);
 });
 
+test('Destino "objetivo" (07/10/2026): classe rf e longo-prazo não pegam o título; marca objetivo pega; Apps Script = front; aposentadoria não rouba da chácara', () => {
+  const ativos = [
+    ...ATIVOS,
+    { id: 'rf:Fundo DI|XP@objetivo', ref: 'rf:Fundo DI|XP', nome: 'Fundo DI', classe: 'rf', marca: 'objetivo', valorBRL: 30000 },
+  ];
+  const metas = [
+    { id: 'a', tipo: 'aposentadoria', nome: 'Apos', vinculos: [{ tipo: 'classe', classe: 'rf', modo: 'total' }, { tipo: 'marca', marca: 'longo-prazo', modo: 'total' }, { tipo: 'classe', classe: 'acoes', modo: 'total' }] },
+    { id: 'c', tipo: 'juntarAteData', nome: 'Chácara', vinculos: [{ tipo: 'marca', marca: 'objetivo', modo: 'total' }] },
+  ];
+  const sb = sandbox();
+  const gs = plain(metas);
+  sb.alocarMetasVinculos_(gs, ativos, {});
+  const aloc = alocarMetas(metas, ativos, {});
+  const total = (id) => gs.find((m) => m.id === id).progresso.valorVinculado;
+  assert.equal(total('c'), 30000, 'a chácara fica com o fundo inteiro');
+  assert.equal(total('a'), 12000 + 8000 + 20000, 'aposentadoria: longo prazo + emergencial (classe rf) + ações; nunca o objetivo');
+  ['a', 'c'].forEach((id) => {
+    const front = resolverVinculos(metas.find((m) => m.id === id).vinculos, ativos, {}, { ocupado: aloc.ocupadoPorMeta[id] }).total;
+    assert.equal(total(id), front, `meta ${id}: Apps Script = front`);
+  });
+  // vínculo direto por ativo continua pegando qualquer título (inclusive o objetivo)
+  const direto = [{ id: 'd', tipo: 'aposentadoria', nome: 'Direto', vinculos: [{ tipo: 'ativo', id: 'rf:Fundo DI|XP@objetivo', modo: 'total' }] }];
+  const gd = plain(direto);
+  sb.alocarMetasVinculos_(gd, ativos, {});
+  assert.equal(gd[0].progresso.valorVinculado, 30000);
+  assert.equal(resolverVinculos(direto[0].vinculos, ativos, {}).total, 30000);
+});
+
 test('A-16: cotação idêntica à de outra moeda (libra = dólar) ou fora da razão plausível é descartada', () => {
   const sb = sandbox();
   const c = (valor) => ({ valor, celula: 'D0', como: 'posição' });

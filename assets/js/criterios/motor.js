@@ -41,6 +41,7 @@
  */
 
 import { avaliarAtivoParaMeta, mesesEntre as mesesEntreMeta } from '../pages/metas-calc-nucleo.js';
+import { ehObjetivoRf } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 import { sinaisMacro, LIMITE_PONTOS_MACRO } from './macro.js';
 
 import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './base-acoes.js';
@@ -810,7 +811,7 @@ function vinculoDoAtivo(meta, alvo) {
   const vincs = (meta.calc && meta.calc.vinculos && meta.calc.vinculos.length ? meta.calc.vinculos : meta.vinculos) || [];
   for (const v of vincs) {
     let pega = false;
-    if (v.tipo === 'classe') pega = v.classe === alvo.classeMeta;
+    if (v.tipo === 'classe') pega = v.classe === alvo.classeMeta && !(alvo.classeMeta === 'rf' && ehObjetivoRf(alvo.marca)); // 07/10/2026: classe rf não pega título 'objetivo'
     else if (v.tipo === 'marca') pega = alvo.classeMeta === 'rf' && !!alvo.marca && v.marca === alvo.marca;
     else if (v.tipo === 'ativo' || (!v.tipo && v.id)) {
       // 05/10/2026 (A-14): metas-calc!resolverVinculos já devolve o id com o alias resolvido (ticker antigo -> atual)

@@ -17,7 +17,8 @@
  * conta própria (uma falha não derruba o resto).
  */
 
-import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getFiiPortfolio, salvarCoordenadasFiiPortfolio } from '../api-client.js';
+import { getAtivo, getNoticiasAtivo, getTesesAtivo, getIntradia, getFiiPortfolio, salvarCoordenadasFiiPortfolio, definirDestinoRendaFixa } from '../api-client.js';
+import { DESTINOS_RENDA_FIXA, DESTINO_EMERGENCIAL, ROTULO_DESTINO_RF, destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026: destino único do título de Renda Fixa
 import { formatBRL, formatBRLCompacto, formatUSD, formatNumeroBR, formatPercentFromFraction, formatPercentFromPoints, formatDateBR, formatRelativeTime, variacaoNula, hojeSP, MESES_CURTOS, MESES_LONGOS, formatDMA } from '../format.js';
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -249,7 +250,7 @@ function sunoCarteiraUrl_(ctx) {
   if (ctx.classe === 'acoes') return TICKERS_SUNO_CARTEIRA_VALOR.has(ctx.ticker) ? SUNO_CARTEIRAS_URL.valor : SUNO_CARTEIRAS_URL.dividendos;
   if (ctx.classe === 'fiis') return SUNO_CARTEIRAS_URL.fiis;
   if (ctx.classe === 'acoesEua') return SUNO_CARTEIRAS_URL.internacional;
-  if (ctx.ehRf) return (ctx.ativo && ctx.ativo.tipoCarteira === 'emergencial') ? SUNO_CARTEIRAS_URL.reservaEmergencia : SUNO_CARTEIRAS_URL.rendaFixa;
+  if (ctx.ehRf) return (ctx.ativo && destinoRendaFixa(ctx.ativo.tipoCarteira) === DESTINO_EMERGENCIAL) ? SUNO_CARTEIRAS_URL.reservaEmergencia : SUNO_CARTEIRAS_URL.rendaFixa;
   return null;
 }
 
@@ -324,7 +325,7 @@ function heroHtml(ctx) {
     ? chipHtml(`${formatPercentFromFraction(ctx.percentualCarteira, 1).replace('+', '')} do patrimônio`, 'chip-primary') : '';
 
   if (ctx.ehRf) {
-    const carteira = a.tipoCarteira === 'emergencial' ? 'Reserva de emergência' : 'Longo prazo';
+    const carteira = ROTULO_CARTEIRA_RF[destinoRendaFixa(a.tipoCarteira)];
     const chips = [
       chipHtml('Renda fixa', 'chip-primary'),
       a.indexador ? chipHtml(esc(a.indexador)) : '',
@@ -677,6 +678,25 @@ export function conclusoesIndicadores(ctx) {
   return out;
 }
 
+/** Nome do destino na tela do título ("Carteira"). */
+const ROTULO_CARTEIRA_RF = { emergencial: 'Reserva de emergência', 'longo-prazo': 'Longo prazo', objetivo: ROTULO_DESTINO_RF.objetivo };
+
+/**
+ * 07/10/2026 (Tiago: fundo guardado pra comprar a chácara): o destino do título (reserva / longo prazo / reservado para objetivos) grava a
+ * coluna B da Carteira Renda Fixa - a única fonte do destino. Um fundo de investimento DI entra aqui como pós-fixado "% do CDI" (aproximação:
+ * taxa de administração e come-cotas não são modelados).
+ */
+function destinoRfHtml(a) {
+  const atual = destinoRendaFixa(a.tipoCarteira);
+  const opcoes = DESTINOS_RENDA_FIXA.map((d) => `<option value="${d}"${d === atual ? ' selected' : ''}>${esc(ROTULO_DESTINO_RF[d])}</option>`).join('');
+  return `<div class="at-destino-rf">
+      <label class="at-destino-rotulo" for="atDestinoRf">Destino deste título</label>
+      <select id="atDestinoRf" data-destino-rf data-titulo="${esc(a.nomePersonalizado || a.nome || a.tipoInvestimento || '')}" data-instituicao="${esc(a.instituicao || '')}">${opcoes}</select>
+      <p class="hint at-destino-dica">"Reservado para objetivos" conta no seu patrimônio, mas fica fora do longo prazo, da distribuição da carteira e da aposentadoria (use em Metas e Objetivos pra ligar a uma meta, como a chácara). É o que fica escrito na coluna B da Carteira Renda Fixa ("Objetivo"). Fundo de investimento entra como pós-fixado em % do CDI (aproximação: taxa de administração e come-cotas não entram na conta).</p>
+      <p class="hint at-destino-msg" data-destino-msg role="status" hidden></p>
+    </div>`;
+}
+
 export function indicadoresHtml(ctx) {
   const a = ctx.ativo;
   if (!a) return '';
@@ -695,7 +715,7 @@ export function indicadoresHtml(ctx) {
       indicadorHtml('Instituição', esc(a.instituicao || '—'), { texto: true }),
       indicadorHtml('Quantidade', n(a.quantidade, 2)),
       indicadorHtml('IR se resgatasse hoje', ir ? formatBRL(ir.impostoSeResgatasseHoje) : '—', { sub: ir && ir.detalhes ? esc(typeof ir.detalhes === 'string' ? ir.detalhes : '') : '' }),
-      indicadorHtml('Carteira', a.tipoCarteira === 'emergencial' ? 'Reserva de emergência' : 'Longo prazo', { texto: true }),
+      indicadorHtml('Carteira', ROTULO_CARTEIRA_RF[destinoRendaFixa(a.tipoCarteira)], { texto: true }),
     ];
   } else {
     itens = [
@@ -717,6 +737,7 @@ export function indicadoresHtml(ctx) {
     <details class="card at-card at-recolhe" id="at-indicadores" data-secao="indicadores" open>
       <summary class="at-card-titulo"><h2 id="at-ind-titulo">${titulo}</h2><svg class="ico at-recolhe-seta" aria-hidden="true"><use href="#ico-expand-more"/></svg></summary>
       <div class="at-ind-grade">${itens.join('')}</div>
+      ${ctx.ehRf ? destinoRfHtml(a) : ''}
     </details>`;
 }
 
@@ -955,7 +976,7 @@ function ligarGraficos(doc, ctx, dono) {
         analiseExtra: ctx.ehRf
           ? {
             rf: ctx.ativo ? { indexador: ctx.ativo.indexador || '', vencimento: ctx.ativo.vencimento || '', taxa: (ctx.ativo.rentabilidadeContratada && ctx.ativo.rentabilidadeContratada.texto) || '', nome: ctx.ativo.nomePersonalizado || ctx.ticker || '' } : null,
-            ...(ctx.ativo && ctx.ativo.tipoCarteira === 'emergencial' ? { classe: 'reserva' } : {}),
+            ...(ctx.ativo && destinoRendaFixa(ctx.ativo.tipoCarteira) === DESTINO_EMERGENCIAL ? { classe: 'reserva' } : {}),
           }
           : { proventosAReceber: emDolar ? null : ((ctx.resposta && ctx.resposta.aReceber) || null) },
         comparativo: true,
@@ -1860,6 +1881,7 @@ export async function montarPaginaAtivo(token, {
   doc = document,
   ref = refDaUrl(doc.location ? doc.location.href : ''),
   getAtivoImpl = getAtivo,
+  definirDestinoImpl = definirDestinoRendaFixa, // 07/10/2026: troca o destino do título (coluna B da Carteira Renda Fixa)
   getNoticiasImpl = getNoticiasAtivo,
   getTesesImpl = getTesesAtivo,
   carregarEstaticosImpl = carregarEstaticosPadrao,
@@ -1897,6 +1919,23 @@ export async function montarPaginaAtivo(token, {
   estadoTabelasAtivo.clear(); // página nova: filtros/ordem das tabelas voltam ao padrão
   const estado = { ctx: null, teses: null, noticias: null, noticiasPedidas: false, tesesPedidas: false, intradia: undefined, intradiaPedidoEm: 0, metas: null, metasPedidas: false };
   const estaticosPromise = carregarEstaticosImpl();
+
+  // 07/10/2026: troca do destino do título (reserva / longo prazo / reservado para objetivos) - grava a coluna B e recarrega a tela
+  if (conteudoEl) {
+    conteudoEl.addEventListener('change', async (ev) => {
+      const sel = ev.target && ev.target.closest ? ev.target.closest('[data-destino-rf]') : null;
+      if (!sel) return;
+      const msg = conteudoEl.querySelector('[data-destino-msg]');
+      const mostrar = (texto) => { if (msg) { msg.textContent = texto; msg.hidden = !texto; } };
+      sel.disabled = true;
+      mostrar('Salvando…');
+      let r;
+      try { r = await definirDestinoImpl(token, { titulo: sel.dataset.titulo, instituicao: sel.dataset.instituicao, destino: sel.value }); } catch (e) { r = { ok: false, erro: (e && e.message) || String(e) }; }
+      if (!r || !r.ok) { sel.disabled = false; mostrar(`Não consegui salvar: ${(r && r.erro) || 'sem resposta'}`); return; }
+      mostrar('Salvo. Atualizando…');
+      try { await carregarERedesenhar(); } catch (e) { /* a tela mostra o próprio erro */ }
+    });
+  }
 
   const preencherExtras = () => {
     if (!estado.ctx || estado.ctx.ehRf) return;

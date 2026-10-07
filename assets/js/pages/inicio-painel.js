@@ -20,9 +20,10 @@ import { urlAtivo, refAtivo } from '../link-ativo.js';
 import { logoCirculoHtml, iniciaisDe } from './logo-circulo.js';
 import { htmlBotaoFavorito, idFavoritoDoAtivo } from './inicio-favoritos.js';
 import {
-  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, splitValorExibicao, ROTULO_TOTAL_HOME,
+  resolverVisao, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, calcularDistribuicaoObjetivos, splitValorExibicao, ROTULO_TOTAL_HOME,
 } from './inicio-calc.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { DESTINO_OBJETIVO, DESTINO_EMERGENCIAL, ROTULO_DESTINO_RF, destinoRendaFixa } from '../destino-renda-fixa.js'; // 07/10/2026
 // 06/10/2026 (Onda 3, kit): KPI com contagem + sparkline, anel de composição e abas sublinhadas vêm da biblioteca/ui do kit.
 import { criarAnel } from '../charts/index.js';
 import { criarTabs } from '../ui/index.js';
@@ -91,7 +92,10 @@ const VISOES_RESUMO = [
   { id: 'longoPrazo', rotulo: 'Longo Prazo' },
   { id: 'nacional', rotulo: 'Nacional' },
   { id: 'rendaEmergencial', rotulo: 'Renda Emergencial' },
+  { id: 'objetivos', rotulo: ROTULO_DESTINO_RF[DESTINO_OBJETIVO], soComObjetivos: true }, // 07/10/2026: só aparece quando há título 'Objetivo' na Carteira Renda Fixa
 ];
+/** As visões que a Início mostra: 'Reservado para objetivos' só entra quando existe algo reservado (patrimonio.objetivos > 0). */
+const visoesResumo_ = (patrimonio) => VISOES_RESUMO.filter((v) => !v.soComObjetivos || (num(patrimonio && patrimonio.objetivos) && patrimonio.objetivos > 0));
 const CORES_EXTRA = ['--rf', '--fiis', '--usa', '--acoes', '--warn', '--na'];
 
 /** Fatias da distribuição de uma visão (mesmas contas do resumo antigo). */
@@ -99,11 +103,14 @@ export function fatiasDaVisao(visaoId, { patrimonio, ativos, cambio } = {}) {
   if (visaoId === 'rendaEmergencial') {
     return calcularDistribuicaoRendaEmergencial(ativos).map((f, i) => ({ ...f, cor: `var(${CORES_EXTRA[i % CORES_EXTRA.length]})` }));
   }
+  if (visaoId === 'objetivos') {
+    return calcularDistribuicaoObjetivos(ativos).map((f, i) => ({ ...f, cor: `var(${CORES_EXTRA[i % CORES_EXTRA.length]})` }));
+  }
   const pc = patrimonio && patrimonio.porClasse;
   const semReserva = visaoId === 'longoPrazo' || visaoId === 'nacional';
   const totaisPorClasse = pc ? {
     acoes: pc.acoes, fiis: pc.fiis, usa: pc.acoesEua,
-    rf: semReserva ? pc.rendaFixa - (patrimonio.rendaEmergencial || 0) : pc.rendaFixa,
+    rf: semReserva ? pc.rendaFixa - (patrimonio.rendaEmergencial || 0) - (patrimonio.objetivos || 0) : pc.rendaFixa,
   } : null;
   return calcularDistribuicaoPorClasse(ativos, {
     cambioUsd: cambio && cambio.usd, totaisPorClasse, excluirEmergencial: semReserva, excluirInternacional: visaoId === 'nacional',
@@ -152,9 +159,12 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
     container.innerHTML = '<p class="hint">Sem dado de patrimônio nesta chamada.</p>';
     return;
   }
-  const escolhida = VISOES_RESUMO.some((v) => v.id === container._visao) ? container._visao : 'total';
+  const visoes = visoesResumo_(patrimonio);
+  const escolhida = visoes.some((v) => v.id === container._visao) ? container._visao : 'total';
   container._visao = escolhida;
   let rc = container._rc;
+  // 07/10/2026: a aba "Reservado para objetivos" aparece/some conforme houver título 'Objetivo' - refaz o cartão quando isso muda
+  if (rc && rc.qtdVisoes !== visoes.length) { destruirResumo_(container); rc = null; }
   if (!rc || !container.querySelector('.rc-distrib-card')) {
     destruirResumo_(container);
     container.textContent = '';
@@ -169,12 +179,12 @@ export function renderResumoCompacto(doc, container, { patrimonio, ativos, cambi
       <div class="rc-tabs"></div>
       <div class="rc-distrib" id="rcDistrib" role="tabpanel" aria-labelledby="rcTitulo"></div>`;
     container.appendChild(cartao);
-    rc = { anel: null, tabs: null, cartao };
+    rc = { anel: null, tabs: null, cartao, qtdVisoes: visoes.length };
     container._rc = rc;
     container._rcLigado = true;
     rc.tabs = criarTabs(cartao.querySelector('.rc-tabs'), {
       variante: 'sublinhada', rotulo: 'Distribuição por visão do patrimônio', ativo: escolhida,
-      itens: VISOES_RESUMO.map((v) => ({ id: v.id, rotulo: v.rotulo })),
+      itens: visoes.map((v) => ({ id: v.id, rotulo: v.rotulo })),
       aoMudar: (id) => { container._visao = id; desenharDistribuicao_(doc, container, container._dadosResumo); },
     });
   }
@@ -195,9 +205,9 @@ function desenharDistribuicao_(doc, container, dados) {
   const rc = container._rc;
   if (!rc || !dados) return;
   const id = container._visao;
-  const rotulo = VISOES_RESUMO.find((v) => v.id === id).rotulo;
+  const rotulo = (VISOES_RESUMO.find((v) => v.id === id) || VISOES_RESUMO[0]).rotulo;
   rc.cartao.querySelector('#rcTitulo').textContent = rotulo;
-  rc.cartao.querySelector('.rc-distrib-por').textContent = id === 'rendaEmergencial' ? 'por tipo de título' : 'por classe';
+  rc.cartao.querySelector('.rc-distrib-por').textContent = (id === 'rendaEmergencial' || id === 'objetivos') ? 'por tipo de título' : 'por classe';
   const painel = rc.cartao.querySelector('#rcDistrib');
   const fatias = fatiasDaVisao(id, dados);
   const total = fatias.reduce((s, f) => s + f.valor, 0);
@@ -206,7 +216,7 @@ function desenharDistribuicao_(doc, container, dados) {
     painel.innerHTML = '<p class="hint">Sem dado suficiente pra montar a distribuição.</p>';
     return;
   }
-  const dadosAnel = { fatias: fatiasParaAnel(fatias), centro: { rotulo }, aria: `Distribuição de ${rotulo} (${id === 'rendaEmergencial' ? 'por tipo de título' : 'por classe'})` };
+  const dadosAnel = { fatias: fatiasParaAnel(fatias), centro: { rotulo }, aria: `Distribuição de ${rotulo} (${(id === 'rendaEmergencial' || id === 'objetivos') ? 'por tipo de título' : 'por classe'})` };
   if (rc.anel && painel.querySelector('svg')) rc.anel.atualizar(dadosAnel);
   else {
     if (rc.anel) rc.anel.destruir();
@@ -261,7 +271,7 @@ export function filtrarListaAtivos(ativos, { classe = 'todos', busca = '', ordem
 function linhaAtivoHtml(a, { favorito = false, cambioUsd = null } = {}) {
   const rf = a.classe === 'rf';
   const inst = String(a.instituicao || '').replace(/\s+/g, ' ').trim().split(' ')[0];
-  const nome = rf ? [a.indexador, a.marca === 'emergencial' ? 'reserva' : '', inst].filter(Boolean).join(' · ') : String(a.nome || '').trim();
+  const nome = rf ? [a.indexador, { [DESTINO_EMERGENCIAL]: 'reserva', [DESTINO_OBJETIVO]: 'objetivo' }[destinoRendaFixa(a.marca)] || '', inst].filter(Boolean).join(' · ') : String(a.nome || '').trim();
   const titulo = rf ? String(a.tipoInvestimento || a.ticker) : a.ticker;
   const logo = rf ? logoCirculoHtml('', { extra: 'rf', iniciais: iniciaisDe(titulo, 'RF') }) : logoCirculoHtml(a.ticker);
   const temVar = num(a.variacaoDia);

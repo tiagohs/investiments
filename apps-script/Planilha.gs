@@ -126,7 +126,63 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261007c';
+var VERSAO_CODIGO_CACHE_ = '20261007e'; // 07/10/2026: terceiro destino da Renda Fixa (`objetivo`) em Home, série, Carteiras RF, Metas e Patrimônio
+
+// ---------------------------------------------------------------------------
+// 07/10/2026 (Tiago: fundo guardado pra comprar a chácara com amigos): DESTINO de um título da Renda Fixa.
+// UM conceito, UMA fonte: coluna B da aba "Carteira Renda Fixa" -> 'emergencial' | 'longo-prazo' | 'objetivo'.
+//   "Renda Emergencial"                                              -> emergencial
+//   "Objetivo" / "Reservado" / "Reservado para objetivos" / "Meta"   -> objetivo (sem acento/maiúscula; "Objetivos"/"Metas" também)
+//   qualquer outra coisa (ex. "Renda Fixa", vazio)                   -> longo-prazo
+// O título 'objetivo' ENTRA no total investido/patrimônio, mas NÃO é Renda Fixa de longo prazo (nem Distribuição da
+// carteira, rebalanceamento, aposentadoria). As fórmulas da PLANILHA (ex. N6 = SOMASE "Renda Emergencial") não mudam: nela
+// o título 'objetivo' continua aparecendo como longo prazo - no site vale o destino novo. Todo .gs que decide emergencial x
+// longo prazo x objetivo chama destinoRendaFixa_ (nunca compara o texto da coluna B direto). O espelho no front é
+// assets/js/destino-renda-fixa.js.
+// ---------------------------------------------------------------------------
+
+var DESTINOS_RENDA_FIXA_ = ['emergencial', 'longo-prazo', 'objetivo'];
+/** O que se grava na coluna B da Carteira Renda Fixa pra cada destino. */
+var ROTULO_COLUNA_B_DESTINO_RF_ = { 'emergencial': 'Renda Emergencial', 'longo-prazo': 'Renda Fixa', 'objetivo': 'Objetivo' };
+
+function destinoRendaFixa_(valorColunaB) {
+  var t = String(valorColunaB == null ? '' : valorColunaB).toLowerCase();
+  try { t = t.normalize('NFD').replace(/[̀-ͯ]/g, ''); } catch (eNorm) { /* sem normalize: segue com acento */ }
+  t = t.replace(/\s+/g, ' ').trim();
+  if (t === 'renda emergencial') return 'emergencial';
+  if (t === 'objetivo' || t === 'objetivos' || t === 'reservado' || t === 'reservado para objetivo' || t === 'reservado para objetivos' ||
+      t === 'meta' || t === 'metas') return 'objetivo';
+  return 'longo-prazo';
+}
+
+/** Texto da coluna B (e da Classificação em aux_historico-renda-fixa) pra um destino: 'Renda Emergencial' | 'Objetivo' | 'Renda Fixa'. */
+function rotuloColunaBDestinoRf_(destino) {
+  return ROTULO_COLUNA_B_DESTINO_RF_[destino] || ROTULO_COLUNA_B_DESTINO_RF_['longo-prazo'];
+}
+
+/**
+ * Valor atualizado (coluna L) da Carteira Renda Fixa somado por destino (coluna B): { emergencial, 'longo-prazo', objetivo, total }.
+ * Uma leitura só (B e L das linhas reais). Aba ausente/ilegível -> zeros e `ok: false`.
+ */
+function somarCarteiraRendaFixaPorDestino_(ss) {
+  var out = { emergencial: 0, 'longo-prazo': 0, objetivo: 0, total: 0, ok: false };
+  try {
+    var aba = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName('Carteira Renda Fixa');
+    if (!aba) return out;
+    var ini = LINHA_CABECALHO_CARTEIRA_RF + 1;
+    var ultima = ultimaLinhaReal_(aba, [1, 4], ini);
+    out.ok = true;
+    if (ultima < ini) return out;
+    lerAbaUmaVez_(aba, ini, ultima - ini + 1, 12).forEach(function (l) {
+      if (!l[0] && !l[3]) return;
+      var v = Number(l[11]);
+      if (!isFinite(v)) return;
+      out[destinoRendaFixa_(l[1])] += v;
+      out.total += v;
+    });
+  } catch (e) { out.ok = false; }
+  return out;
+}
 
 function carimboEscritaPlanilha_() {
   var c = '0';

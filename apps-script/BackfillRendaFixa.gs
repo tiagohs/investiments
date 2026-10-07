@@ -482,7 +482,7 @@ function antesDoDiaRF_(data, referencia) {
 
 /**
  * Lê a Carteira Renda Fixa e monta um mapa "anoVencimento|instituicaoNormalizada|indexador"
- * -> Marca (Renda Emergencial / Renda Fixa). LCI/LCA entram com chave especial
+ * -> Marca (Renda Emergencial / Objetivo / Renda Fixa). LCI/LCA entram com chave especial
  * "LCI|instituicaoNormalizada", já que não tem um "ano" isolado no nome do
  * jeito que Tesouro tem.
  */
@@ -495,7 +495,7 @@ function montarMapaClassificacaoRF_(abaCarteira) {
 
   var dados = lerAbaUmaVez_(abaCarteira, LINHA_CABECALHO_CARTEIRA_RF + 1, qtdLinhas, 13);
   dados.forEach(function (linha) {
-    var marca = linha[1]; // B: Renda Emergencial / Renda Fixa
+    var marca = linha[1]; // B: Renda Emergencial / Objetivo / Renda Fixa
     // 18/09/2026: Tiago inseriu uma coluna nova ("Nome", C) em Carteira
     // Renda Fixa - Tipo de Investimento em diante deslocou 1 posição pra
     // direita (C->D, D->E, E->F, J->K). Índices corrigidos pra bater com
@@ -516,21 +516,37 @@ function montarMapaClassificacaoRF_(abaCarteira) {
     } else {
       return;
     }
-    mapa[chave] = marca;
+    // 07/10/2026: rótulo único do destino (destinoRendaFixa_, Planilha.gs): 'Renda Emergencial' | 'Objetivo' | 'Renda Fixa'
+    mapa[chave] = rotuloColunaBDestinoRf_(destinoRendaFixa_(marca));
   });
   return mapa;
 }
 
 function classificarPosicaoRF_(produto, institCanonica, indexador, mapaClassificacao) {
-  var chave;
-  if (/^lci/i.test(produto)) {
-    chave = 'LCI|' + institCanonica;
-  } else {
-    var match = produto.match(/(\d{4})/);
-    if (!match) return 'Renda Fixa'; // sem ano identificável: fallback
-    chave = match[1] + '|' + institCanonica + '|' + indexador;
-  }
+  var chave = chavePosicaoMapaRF_(produto, institCanonica, indexador);
+  if (!chave) return 'Renda Fixa'; // sem ano identificável: fallback
   return mapaClassificacao[chave] || 'Renda Fixa'; // não achou (já vencida/vendida): fallback combinado
+}
+
+/** Chave da posição no mapa de montarMapaClassificacaoRF_ ('LCI|inst' ou 'ano|inst|indexador'); null sem ano identificável. */
+function chavePosicaoMapaRF_(produto, institCanonica, indexador) {
+  if (/^lci/i.test(produto)) return 'LCI|' + institCanonica;
+  var match = String(produto || '').match(/(\d{4})/);
+  if (!match) return null;
+  return match[1] + '|' + institCanonica + '|' + indexador;
+}
+
+/**
+ * 07/10/2026: destino ATUAL ('emergencial'|'longo-prazo'|'objetivo') da posição segundo a Carteira Renda Fixa, ou null quando a
+ * posição não está mais lá (vendida/vencida). A série histórica usa pra reclassificar as linhas antigas de aux_historico-renda-fixa
+ * (que guardam a Classificação do dia em que foram gravadas): um título que virou 'objetivo' vale como objetivo desde a 1ª linha,
+ * então o Longo Prazo não tem salto no dia da troca.
+ */
+function destinoAtualPosicaoRF_(produto, instituicao, mapaClassificacao) {
+  if (!mapaClassificacao) return null;
+  var chave = chavePosicaoMapaRF_(produto, normalizarInstituicaoRF_(instituicao), detectarIndexadorRF_(produto));
+  if (!chave || !(chave in mapaClassificacao)) return null;
+  return destinoRendaFixa_(mapaClassificacao[chave]);
 }
 
 function normalizarInstituicaoRF_(instituicao) {

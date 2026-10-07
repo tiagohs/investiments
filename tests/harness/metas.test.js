@@ -51,7 +51,7 @@ function sandbox({ cache = new Map(), fetch = null } = {}) {
   };
   vm.createContext(sb);
   new vm.Script('this.Date = Date;').runInContext(sb);
-  for (const f of ['Metas.gs', 'Proventos.gs', 'RendaFixaIR.gs', 'Incorporacoes.gs']) { // RendaFixaIR.gs: tabela única de IOF; Incorporacoes.gs: aliases de ticker (A-13/A-14) // Proventos.gs: mediaRendaPassiva12Meses_ (janela de 12 meses)
+  for (const f of ['Planilha.gs', 'Metas.gs', 'Proventos.gs', 'RendaFixaIR.gs', 'Incorporacoes.gs']) { // 07/10/2026: Planilha.gs = destinoRendaFixa_ (destino do título de Renda Fixa); RendaFixaIR.gs: tabela única de IOF; Incorporacoes.gs: aliases de ticker (A-13/A-14) // Proventos.gs: mediaRendaPassiva12Meses_ (janela de 12 meses)
     new vm.Script(fs.readFileSync(path.join(ROOT, 'apps-script', f), 'utf8'), { filename: f }).runInContext(sb);
   }
   // dependências de outros .gs (só o que montarTelaMetas_ chama quando não recebe tudo pronto)

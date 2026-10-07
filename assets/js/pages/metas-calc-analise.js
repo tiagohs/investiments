@@ -6,6 +6,7 @@
 
 import { mesDe, ultimoMesFechadoMetas, num, r2, rotuloDuracao, rotuloMes, somarMeses } from './metas-calc-nucleo.js';
 import { aporteNecessario, arred, marcosProjecao, prazoParaAlvo, taxaMensal } from './metas-calc-plano.js';
+import { aporteDeCalc, somarAporte } from './metas-calc-aporte.js'; // 07/10/2026: aporte crescente (degraus anuais)
 import { formatBRL0, formatNumeroPt } from '../format.js';
 
 /**
@@ -29,7 +30,7 @@ export function velocidadeMeta(calc, { hoje } = {}) {
     // no ritmo = o aporte de hoje; nos outros, o que fecha naquele prazo
     const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: calc.alvoBRL, atual, meses, taxa: calc.taxa || 0, entradas: calc.entradasFluxo }) || 0);
     // 05/10/2026: "com isso, sua meta chega em ..., o 1º milhão em ..." de cada cenário
-    const rm = resumoMarcos(calc, { hoje, aporte });
+    const rm = resumoMarcos(calc, { hoje, aporte: f === 1 && origem === 'ritmo' && calc.planoAporte ? undefined : aporte }); // 07/10/2026: no ritmo com aporte crescente, os marcos seguem os degraus
     return { fracao: f, meses, data: somarMeses(mes, meses), aporte, aMais: r2(aporte - (calc.aporteAtual || 0)), comIsso: rm.frase, velocidadeMarcos: rm.velocidade };
   });
   return { origem, baseMeses, cenarios };
@@ -51,7 +52,8 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
   const mes = mesDe(hoje || new Date());
   const taxa = calc.taxa || 0;
   const aporte = calc.aporteAtual || 0;
-  const m0 = mesesAte(calc, { atual, aporte, taxa });
+  const apBase = aporteDeCalc(calc); // 07/10/2026: número, ou função por mês quando o aporte cresce
+  const m0 = mesesAte(calc, { atual, aporte: apBase, taxa });
   const dicas = [];
   const efeito = (m1) => {
     if (!Number.isFinite(m1)) return null;
@@ -60,16 +62,16 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
     return ganho >= 1 ? { texto: `antecipa ${rotuloDuracao(ganho)} (${rotuloMes(somarMeses(mes, Math.ceil(m1)))} em vez de ${rotuloMes(somarMeses(mes, Math.ceil(m0)))})`, mesesAMenos: ganho } : null;
   };
   const extraMes = aporte > 0 ? arred(aporte * 0.1, 50) : arred(Math.max(100, (calc.aporteNecessario || 0) * 0.25), 50);
-  const e1 = efeito(mesesAte(calc, { atual, aporte: aporte + extraMes, taxa }));
+  const e1 = efeito(mesesAte(calc, { atual, aporte: somarAporte(apBase, extraMes), taxa }));
   if (e1) dicas.push({ id: 'aporte', texto: `Aportar ${formatBRL0(extraMes)} a mais por mês (${formatBRL0(aporte + extraMes)}) ${e1.texto}.`, mesesAMenos: e1.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + extraMes }).frase });
   const unico = arred(Math.max(1000, aporte), 500);
-  const e2 = efeito(mesesAte(calc, { atual: atual + unico, aporte, taxa }));
+  const e2 = efeito(mesesAte(calc, { atual: atual + unico, aporte: apBase, taxa }));
   if (e2) dicas.push({ id: 'unico', texto: `Um aporte extra de ${formatBRL0(unico)} agora (13º, restituição do IR, bônus) ${e2.texto}.`, mesesAMenos: e2.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, atual: atual + unico }).frase });
   const rend = num(meta.rendimentoAnual) || 0;
-  const e3 = efeito(mesesAte(calc, { atual, aporte, taxa: taxaMensal(rend + 0.01) }));
+  const e3 = efeito(mesesAte(calc, { atual, aporte: apBase, taxa: taxaMensal(rend + 0.01) }));
   if (e3 && meta.tipo !== 'reservaEmergencia') dicas.push({ id: 'rendimento', texto: `Render 1 ponto percentual a mais ao ano (${formatNumeroPt(Math.round((rend + 0.01) * 1000) / 10)}% em vez de ${formatNumeroPt((Math.round(rend * 1000) / 10))}%) - ex. tirar dinheiro parado da conta - ${e3.texto}.`, mesesAMenos: e3.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, taxa: taxaMensal(rend + 0.01) }).frase });
   if (meta.tipo === 'rendaPassiva' && calc.renda && calc.renda.atual > 0) {
-    const e4 = efeito(mesesAte(calc, { atual, aporte: aporte + calc.renda.atual, taxa }));
+    const e4 = efeito(mesesAte(calc, { atual, aporte: somarAporte(apBase, calc.renda.atual), taxa }));
     if (e4) dicas.push({ id: 'reinvestir', texto: `Reinvestir todos os proventos (${formatBRL0(calc.renda.atual)}/mês hoje) somados ao aporte ${e4.texto} - a renda cresce sozinha (efeito bola de neve).`, mesesAMenos: e4.mesesAMenos, comIsso: resumoMarcos(calc, { hoje, aporte: aporte + calc.renda.atual }).frase });
   }
   if (calc.viagem) {
@@ -151,10 +153,11 @@ export function cenariosRendaMenor(calc, { hoje, reducoes = [0.1, 0.2] } = {}) {
   const atual = calc.atualRitmo != null ? calc.atualRitmo : calc.atualBRL;
   const mes = mesDe(hoje || new Date());
   const ent = calc.entradasFluxo;
-  const m0 = prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0, entradas: ent });
+  const apCalc = aporteDeCalc(calc);
+  const m0 = prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte: apCalc, taxa: calc.taxa || 0, entradas: ent });
   return reducoes.map((r) => {
     const montante = r2(calc.alvoBRL * (1 - r));
-    const n = prazoParaAlvo({ alvo: montante, atual, aporte: calc.aporteAtual || 0, taxa: calc.taxa || 0, entradas: ent });
+    const n = prazoParaAlvo({ alvo: montante, atual, aporte: apCalc, taxa: calc.taxa || 0, entradas: ent });
     return {
       reducao: r, renda: renda != null ? r2(renda * (1 - r)) : null, montante, economia: r2(calc.alvoBRL - montante),
       aporteNecessario: calc.mesesRestantes != null ? r2(aporteNecessario({ alvo: montante, atual, meses: Math.max(0, calc.mesesRestantes), taxa: calc.taxa || 0, entradas: ent }) || 0) : null,

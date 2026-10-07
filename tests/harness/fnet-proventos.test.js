@@ -90,7 +90,15 @@ test('FNet: rotina diária grava a aba, não baixa documento repetido, aplica re
   const hoje = Date.now();
   const d = (dias) => diaSp(hoje + dias * 86400000);
   const baseFutura = d(-3), pagFutura = d(10);
-  const basePassada = d(-25), pagPassada = d(-12);
+  // 07/10/2026: o pagamento "passado" inventado não pode cair no mesmo dia de um provento REAL do fiiA já lançado na aba
+  // (aí ele é "já lançado", não "pago e não lançado") - recua até achar um dia livre
+  const diasReaisA = new Set();
+  (fx.Proventos ? fx.Proventos.linhas : []).forEach((l) => {
+    if (!(l || []).some((c) => String(c || '').trim().toUpperCase() === fiiA)) return;
+    l.forEach((c) => { if (c && c.__date__) diasReaisA.add(chaveDeCelula(c)); });
+  });
+  let recuo = 12; while (diasReaisA.has(d(-recuo)) && recuo < 20) recuo += 1;
+  const basePassada = d(-recuo - 13), pagPassada = d(-recuo);
   // data com na VÉSPERA da última compra do fiiA: a quantidade tem que ser a de antes dela
   const comprasA = fx['Transações'].linhas.slice(6)
     .filter((l) => String(l[0] || '').trim().toUpperCase() === fiiA && l[1] && l[1].__date__ && Number(l[10]) > 0)

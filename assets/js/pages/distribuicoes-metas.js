@@ -739,6 +739,14 @@ export function renderObjetivosCarteira(doc, container, objetivos, { onSalvarPer
   }
 
   container.appendChild(grid);
+
+  // 07/10/2026: a base da distribuição não conta a Renda Fixa marcada "Objetivo" (a planilha conta como longo prazo; o servidor já descontou)
+  if (typeof objetivos.reservadoObjetivos === 'number' && objetivos.reservadoObjetivos > 0.005) {
+    const nota = doc.createElement('p');
+    nota.className = 'hint obj-reservado-nota';
+    nota.textContent = `Não conta ${formatBRL(objetivos.reservadoObjetivos)} reservados para objetivos (Renda Fixa marcada "Objetivo" na carteira): esse dinheiro tem destino próprio e fica fora da distribuição.`;
+    container.appendChild(nota);
+  }
 }
 
 /**

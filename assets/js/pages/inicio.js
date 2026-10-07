@@ -146,7 +146,7 @@ import { criarBlocosHome } from './inicio-blocos.js'; // 07/10/2026: hero "Patri
 import { NOME_ANALISE_TOTAL_HOME, ROTULO_TOTAL_HOME } from './inicio-calc.js';
 
 // Compatibilidade (A-76, 06/10/2026): estes nomes moraram aqui; agora vivem nos módulos abaixo e continuam exportados daqui.
-export { BENCHMARKS_POR_VISAO, CAMPO_FLUXO_APLICADO_POR_VISAO, CAMPO_FLUXO_POR_VISAO, CAMPO_PRINCIPAL_POR_VISAO, COR_PRINCIPAL_POR_VISAO, LABEL_POR_VISAO_RENTABILIDADE, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, calcularResumoEvolucao, calcularResumoRentabilidade, comCamposUsdAcoesEua, filtrarHistoricoPorPeriodo, historicoTemCambioUsd, inicioEhAbertura_, limitesDoHistorico_, montarAnaliseRentabilidade_, normalizarSerieRentabilidade, primeiroIndiceValidoInicio_, resolverVisao, somarProventosNoPeriodo, splitValorExibicao, ultimoValidoDe_ } from './inicio-calc.js';
+export { BENCHMARKS_POR_VISAO, CAMPO_FLUXO_APLICADO_POR_VISAO, CAMPO_FLUXO_POR_VISAO, CAMPO_PRINCIPAL_POR_VISAO, COR_PRINCIPAL_POR_VISAO, LABEL_POR_VISAO_RENTABILIDADE, calcularDistribuicaoPorClasse, calcularDistribuicaoRendaEmergencial, calcularDistribuicaoObjetivos, calcularResumoEvolucao, calcularResumoRentabilidade, comCamposUsdAcoesEua, filtrarHistoricoPorPeriodo, historicoTemCambioUsd, inicioEhAbertura_, limitesDoHistorico_, montarAnaliseRentabilidade_, normalizarSerieRentabilidade, primeiroIndiceValidoInicio_, resolverVisao, somarProventosNoPeriodo, splitValorExibicao, ultimoValidoDe_ } from './inicio-calc.js';
 export { renderGraficoRentabilidade, renderInfoEvolucao, renderInfoRentabilidade, wireGraficoRentabilidade } from './inicio-rentabilidade.js';
 export { criarAtivoCard, wireGraficoAtivo, wireTooltipAtivos } from './inicio-ativos.js';
 

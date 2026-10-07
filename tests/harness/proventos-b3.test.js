@@ -210,7 +210,11 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
       clique(doc.querySelector(`[data-periodo="${periodo}"]`));
       const cards = [...doc.querySelectorAll('.pv-card .chart-kpi-val')].map((el) => brl(el.textContent));
       const ini = periodo === 'inicio' ? '0000-00' : inicioPeriodo[periodo];
-      const renda = r2(s.filter((x) => x.data.slice(0, 7) >= ini && x.data <= hoje).reduce((a, x) => a + campos[classe].reduce((b, c) => b + (Number(x[c]) || 0), 0), 0));
+      // 07/10/2026: a tela conta como recebido o pago e ainda não lançado na aba (presumido, regra de 02/10); a série da Início só
+      // tem o que está lançado - no dia de um pagamento anunciado (ex. hoje), a diferença é exatamente esse presumido
+      const presumidos = (tela.pagosNaoLancados || []).filter((p) => p.conferencia !== 'nao_confirmado' && p.dataPagamento && p.dataPagamento <= hoje
+        && p.dataPagamento.slice(0, 7) >= ini && (classe === 'todas' || p.classe === classe)).reduce((a, p) => a + (Number(p.valor) || 0), 0);
+      const renda = r2(s.filter((x) => x.data.slice(0, 7) >= ini && x.data <= hoje).reduce((a, x) => a + campos[classe].reduce((b, c) => b + (Number(x[c]) || 0), 0), 0) + presumidos);
       if (Math.abs(cards[0] - aplicado) > 0.011) erros.push(`${classe}/${periodo}: Valor aplicado ${cards[0]} x série ${aplicado}`);
       if (Math.abs(cards[1] - renda) > 0.011) erros.push(`${classe}/${periodo}: Renda ${cards[1]} x série ${renda}`);
       // o gráfico soma o mesmo que o cartão
@@ -223,7 +227,9 @@ test('Tela Proventos (DOM) com a planilha real: cartões de cada classe e perío
   clique(doc.querySelector('#pvCabecalho [data-tab="agenda"]'));
   clique(doc.querySelector('[data-status="realizado"]'));
   const pagos = [...doc.querySelectorAll('.pv-agenda tbody tr')].filter((tr) => /^Pago$/.test(tr.querySelector('.pv-pill').textContent)).reduce((a, tr) => a + brl(tr.querySelector('.pv-ag-total b').textContent), 0);
-  const home = r.home.proventosAnunciados.recebidosNoMes.reduce((a, p) => a + p.valor, 0);
+  // o "Recebido no mês" da Início é o que a TELA mostra: recebidosNoMes + pagos não lançados do mês (separarPorDataInicio)
+  const { separarPorDataInicio } = await import('../../assets/js/pages/inicio-proventos.js');
+  const home = separarPorDataInicio(r.home.proventosAnunciados, { hoje: new Date(`${hoje}T12:00:00-03:00`) }).recebidos.reduce((a, p) => a + p.valor, 0);
   if (Math.abs(r2(pagos) - r2(home)) > 0.011) erros.push(`Agenda do mês (pagos) ${r2(pagos)} x Início ${r2(home)}`);
   t.diagnostic(`conferidos: 4 classes × 5 períodos; agenda do mês: ${doc.querySelectorAll('.pv-agenda tbody tr').length} linhas`);
   w.close();
