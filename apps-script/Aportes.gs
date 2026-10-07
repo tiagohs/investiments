@@ -275,8 +275,20 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
 // ---------------------------------------------------------------------------
 
 function comprasInvestidoComCache_(ss, abas, cambioHist) {
-  var chave = 'tx_compras_v2_' + chaveDiaISOInicio_(new Date()) + '_' +
-    ['transacoes', 'transacoesUsa', 'rendaFixa'].map(function (d) { return abas[d].itens.length; }).join('_');
+  // 07/10/2026 (Tiago: "a soma mensal parece errada... desconsiderando os investimentos em renda fixa"): a chave era só o
+  // NÚMERO de linhas de cada aba. Limpar as 2 linhas pela metade da LCI e reimportar as 2 completas deixou a contagem igual -
+  // o cache seguiu servindo as compras de antes (sem a LCI e o Tesouro) por até 6 h. Agora a chave é o CONTEÚDO das linhas
+  // (as abas já estão lidas aqui - custa só o hash) + o carimbo de escrita do site.
+  var h1 = 5381, h2 = 52711, n = 0;
+  ['transacoes', 'transacoesUsa', 'rendaFixa'].forEach(function (d) {
+    abas[d].itens.forEach(function (it) {
+      var t = JSON.stringify(it);
+      n += t.length;
+      for (var i = 0; i < t.length; i++) { var c = t.charCodeAt(i); h1 = ((h1 * 33) ^ c) >>> 0; h2 = ((h2 * 31) + c) >>> 0; }
+    });
+  });
+  var chave = 'tx_compras_v3_' + chaveDiaISOInicio_(new Date()) + '_' + h1.toString(36) + h2.toString(36) + n.toString(36) +
+    '_' + (typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '0');
   // 06/10/2026: a lista de compras (uma por linha das abas) passa de 100 KB: o cache em pedaços (CacheRespostas.gs) cuida disso
   if (typeof cacheDeResposta_ === 'function') return cacheDeResposta_('tx_compras', chave, 21600, function () { return comprasDaPlanilha_(ss, abas, cambioHist); });
   return comprasDaPlanilha_(ss, abas, cambioHist);

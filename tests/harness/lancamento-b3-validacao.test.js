@@ -123,3 +123,30 @@ test('repararLancamentosIncompletosDireto: limpa só linha com Produto+Data e o 
   assert.equal(sb.ultimaLinhaPreenchidaLanc_(aba, cfg), ult, 'as 2 linhas pela metade saíram');
   assert.ok(plain(aba.getRange(ult, 1, 1, 8).getValues())[0].slice(2).some((v) => v !== ''), 'a linha completa de antes ficou');
 });
+
+// 07/10/2026 (Tiago: "em transações, na área de aporte, a soma mensal parece errada... desconsiderando os investimentos em
+// renda fixa"): o cache das compras do "Investido por mês" era chaveado só pelo NÚMERO de linhas de cada aba - limpar as 2
+// linhas pela metade e reimportar as 2 completas não mudava a contagem, e o mês seguia sem a LCI e o Tesouro.
+test('Transações › Aportes: depois de limpar as linhas pela metade e reimportar (mesma contagem de linhas), o mês soma a Renda Fixa nova', (t) => {
+  if (!TEM) return pular(t);
+  if (!temValidacao()) return t.skip('fixtures sem as validações');
+  const { sb, ss } = ambiente();
+  const pend = pendentesRf(sb, ss);
+  const itens = itensB3(pend);
+  const mes = itens[0].data.slice(0, 7);
+  const aba = ss.getSheetByName('Transações Renda Fixa');
+  const cfg = { linha: 7, colChave: 1, cols: 8 };
+  // o estado do Tiago: N linhas pela metade no fim da aba (uma por item da importação que falhou)
+  sb.repararLancamentosIncompletosDireto({});
+  const ult = sb.ultimaLinhaPreenchidaLanc_(aba, cfg);
+  const dataPlan = sb.dataNaPlanilha_(ss, itens[0].data);
+  aba.getRange(ult + 1, 1, itens.length, 2).setValues(itens.map((it) => [it.produto, dataPlan]));
+  const totalMes = () => { const r = plain(sb.montarTelaTransacoes_()); return (r.resumo[mes] || {}).rendaFixa || 0; };
+  const antes = totalMes(); // fica no cache
+  sb.repararLancamentosIncompletosDireto({});
+  const r = plain(sb.importarLancamentos_(plain(itens), { origem: 'Importação' }));
+  assert.equal(r.gravados.rendaFixa, itens.length);
+  assert.equal(sb.ultimaLinhaPreenchidaLanc_(aba, cfg), ult + itens.length, 'mesma contagem de linhas de antes');
+  const soma = itens.reduce((s, it) => s + it.valor, 0);
+  assert.ok(Math.abs(totalMes() - (antes + soma)) < 0.01, `Renda Fixa do mês: ${antes} + ${soma}`);
+});
