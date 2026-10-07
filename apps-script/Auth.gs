@@ -157,7 +157,13 @@ function jsonOut(obj) {
 function handlePing(auth) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    return jsonOut({ ok: true, autenticado_como: auth.email, planilha: ss.getName(), planilhaUrl: ss.getUrl() });
+    // 07/10/2026: versão do código que a IMPLANTAÇÃO está rodando (o editor roda o código salvo; o site, a versão implantada) -
+    // pra conferir pelo navegador se a nova versão foi mesmo implantada na URL que o site usa
+    var versao = {
+      codigo: typeof VERSAO_CODIGO_CACHE_ !== 'undefined' ? VERSAO_CODIGO_CACHE_ : null,
+      serieInicio: typeof montarChaveCacheSerie_ === 'function' ? String(montarChaveCacheSerie_(0, 0, 0, 0)).split('_').slice(0, 3).join('_') : null
+    };
+    return jsonOut({ ok: true, autenticado_como: auth.email, planilha: ss.getName(), planilhaUrl: ss.getUrl(), versao: versao });
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }

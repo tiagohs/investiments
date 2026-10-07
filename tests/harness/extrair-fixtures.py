@@ -128,6 +128,62 @@ def serialize(v):
     return v
 
 
+def validacoes_por_aba(xlsx_path):
+    """07/10/2026 (Tiago: lançamento da B3 gravou só Produto+Data e parou - a coluna Movimentação da planilha só aceita
+    "Compra,Venda"): as VALIDAÇÕES DE DADOS (lista) de cada aba, lidas direto do XML do .xlsx (o openpyxl read_only não
+    traz). { aba: [ { ref: 'C7:C10800', lista: ['Compra','Venda'] | None, listaRef: "'Aba'!$B$1:$B$3" | None, rejeita: bool } ] }.
+    O harness (gas-vm-harness.mjs) recusa a escrita fora da lista, como o Apps Script."""
+    import zipfile, html
+    out = {}
+    try:
+        z = zipfile.ZipFile(xlsx_path)
+        wbx = z.read('xl/workbook.xml').decode('utf-8', 'ignore')
+        rels = z.read('xl/_rels/workbook.xml.rels').decode('utf-8', 'ignore')
+    except Exception as e:  # noqa: BLE001
+        print('AVISO: não consegui ler as validações do .xlsx:', e, file=sys.stderr)
+        return out
+    alvo_por_id = {}
+    for m in re.finditer(r'<Relationship\b([^>]*)/?>', rels):
+        a = m.group(1)
+        i = re.search(r'Id="([^"]+)"', a)
+        t = re.search(r'Target="([^"]+)"', a)
+        if i and t:
+            alvo_por_id[i.group(1)] = t.group(1)
+    for m in re.finditer(r'<sheet\b([^>]*)/?>', wbx):
+        a = m.group(1)
+        nome = re.search(r'name="([^"]+)"', a)
+        rid = re.search(r'r:id="([^"]+)"', a)
+        if not nome or not rid or rid.group(1) not in alvo_por_id:
+            continue
+        alvo = alvo_por_id[rid.group(1)].lstrip('/')
+        caminho = alvo if alvo.startswith('xl/') else 'xl/' + alvo
+        try:
+            x = z.read(caminho).decode('utf-8', 'ignore')
+        except KeyError:
+            continue
+        regras = []
+        for attrs, corpo in re.findall(r'<dataValidation\b([^>]*)>(.*?)</dataValidation>', x, re.S):
+            tipo = re.search(r'type="([^"]+)"', attrs)
+            if not tipo or tipo.group(1) != 'list':
+                continue
+            ref = re.search(r'sqref="([^"]+)"', attrs)
+            f1 = re.search(r'<formula1>(.*?)</formula1>', corpo, re.S)
+            if not ref or not f1:
+                continue
+            formula = html.unescape(f1.group(1)).strip()
+            lista, lista_ref = None, None
+            if formula.startswith('"') and formula.endswith('"'):
+                lista = [v.strip() for v in formula[1:-1].split(',')]
+            else:
+                lista_ref = formula
+            rejeita = 'showErrorMessage="1"' in attrs and 'errorStyle="warning"' not in attrs and 'errorStyle="information"' not in attrs
+            for parte in ref.group(1).split():
+                regras.append({'ref': parte, 'lista': lista, 'listaRef': lista_ref, 'rejeita': rejeita})
+        if regras:
+            out[html.unescape(nome.group(1))] = regras
+    return out
+
+
 def main():
     if len(sys.argv) < 2:
         print('uso: extrair-fixtures.py <planilha.xlsx> [saida.json]', file=sys.stderr)
@@ -138,6 +194,7 @@ def main():
     wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
 
     usadas = abas_usadas_no_codigo()
+    validacoes = validacoes_por_aba(xlsx_path)
     todas = list(SHEETS) + [n for n in sorted(usadas) if n not in SHEETS]
     ausentes = []
     out = {}
@@ -155,6 +212,8 @@ def main():
             if any(c is not None for c in linha):
                 last_row_idx = i
         out[nome] = {'linhas': linhas[:last_row_idx], 'lastRow': last_row_idx}
+        if nome in validacoes:
+            out[nome]['validacoes'] = validacoes[nome]
         print(nome, '-> lastRow', last_row_idx, 'cols', len(linhas[0]) if linhas else 0)
 
     # 23/09/2026 #4: de onde as fixtures vieram - o relatório de conferência

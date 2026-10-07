@@ -209,3 +209,34 @@ test('importar arquivo continua sem origem (só simular) e o painel colar não i
   assert.deepEqual(srv.chamadas[0].opcoes, { simular: true });
   assert.match(txt(doc.querySelector('.tx-rev-grupo-cab')), /1 no arquivo/);
 });
+
+// 07/10/2026 (Tiago: lançamento da B3 deixou linha pela metade - a validação da planilha recusou a Movimentação): o que o
+// Apps Script recusar volta como 'recusado' com o motivo; a revisão diz o que NÃO entrou em vez de "Lançado" só.
+test('lançar: linha recusada pela validação da planilha aparece como "Não lançado" com o motivo, e o resumo conta', async () => {
+  const chamadas = [];
+  const MOTIVO = '"Juros" não é aceito em "Movimentação" da aba Transações Renda Fixa (a planilha só aceita: Compra, Venda)';
+  const impl = async (t, itens, opcoes) => {
+    chamadas.push({ itens: structuredClone(itens), opcoes: { ...opcoes } });
+    if (opcoes.simular) return { ok: true, resultado: { itens: itens.map((it) => ({ uid: it.uid, situacao: 'novo', motivo: '' })) } };
+    const [primeiro, ...resto] = itens;
+    return { ok: true, resultado: {
+      itens: [{ uid: primeiro.uid, situacao: 'recusado', motivo: MOTIVO }, ...resto.map((it) => ({ uid: it.uid, situacao: 'gravado' }))],
+      gravados: { rendaFixa: resto.length }, total: resto.length, lotesRf: 0, titulosRfCriados: [],
+      recusadas: [{ destino: 'rendaFixa', ativo: primeiro.produto, data: primeiro.data, motivo: MOTIVO }],
+    } };
+  };
+  const { doc, w } = await montar(impl);
+  clique(w, doc.querySelector('[data-lanc="colar-abrir"]'));
+  digitar(w, doc.getElementById('txColarTexto'), TABELA);
+  digitar(w, doc.getElementById('txColarTitulo'), 'Fundo DI Teste');
+  digitar(w, doc.getElementById('txColarInst'), 'CORRETORA Z');
+  digitar(w, doc.getElementById('txColarDestinoRf'), 'objetivo', 'change');
+  clique(w, doc.querySelector('[data-lanc="colar-conferir"]'));
+  await esperar(() => doc.querySelector('.tx-tabela-rev'));
+  clique(w, doc.querySelector('[data-lanc="gravar"]'));
+  const textoRev = () => (doc.querySelector('.tx-revisao') ? txt(doc.querySelector('.tx-revisao')) : '');
+  await esperar(() => chamadas.length >= 2 && /não foi lançada/.test(textoRev()));
+  const rev = textoRev();
+  assert.match(rev, /1 não foi lançada \(a planilha recusou: "Juros" não é aceito em "Movimentação"/);
+  assert.match(rev, /Não lançado/);
+});

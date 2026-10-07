@@ -45,6 +45,7 @@ const FILTROS_LISTA = [
 const SITUACAO = {
   novo: { txt: 'Novo', cls: 'good' }, lancado: { txt: 'Já lançado', cls: 'na' }, parecido: { txt: 'Parecido', cls: 'warn' },
   bloqueado: { txt: 'Bloqueado', cls: 'bad' }, invalido: { txt: 'Incompleto', cls: 'bad' }, gravado: { txt: 'Lançado agora', cls: 'good' },
+  recusado: { txt: 'Não lançado', cls: 'bad' }, // 07/10/2026: a validação da planilha recusou (motivo na linha)
 };
 
 /** Erro de uma etapa (conferir, lançar): texto humano e, recolhido, o detalhe técnico (A-60/A-61). */
@@ -1004,8 +1005,9 @@ async function gravarRevisao(ctx) {
   }
   const g = resp.resultado.gravados || {};
   (resp.resultado.itens || []).forEach((c) => {
-    if (c.situacao === 'gravado') { rev.situacao[c.uid] = c; delete rev.marcados[c.uid]; }
+    if (c.situacao === 'gravado' || c.situacao === 'recusado' || c.situacao === 'bloqueado') { rev.situacao[c.uid] = c; delete rev.marcados[c.uid]; }
   });
+  const recusadas = resp.resultado.recusadas || [];
   rev.erro = '';
   if (resp.resultado.consolidacao) { rev.consolidacao = resp.resultado.consolidacao; avisarConsolidacao(ctx, resp.resultado.consolidacao); }
   // 06/10/2026: "N linhas já estavam na planilha e foram ignoradas" = o que a conferência marcou como já lançado + lotes de RF que já existiam
@@ -1013,7 +1015,8 @@ async function gravarRevisao(ctx) {
   const textoIgn = ignoradas ? ` ${esc(textoIgnoradas(ignoradas))}` : '';
   rev.resultado = resp.resultado.total
     ? `Lançado: ${Object.keys(g).map((d) => `<b>${g[d]}</b> em ${esc(DESTINOS[d].aba)}`).join(', ')}${resp.resultado.lotesRf ? ` e ${resp.resultado.lotesRf} lote(s) em RF Contratada` : ''}.${textoIgn} As telas já vão mostrar os números novos.`
-    : `Nada foi lançado (tudo já estava na planilha).${textoIgn}`;
+    : `Nada foi lançado${recusadas.length ? '.' : ' (tudo já estava na planilha).'}${textoIgn}`;
+  if (recusadas.length) rev.resultado += ` <b>${recusadas.length} não ${recusadas.length > 1 ? 'foram lançadas' : 'foi lançada'}</b> (a planilha recusou: ${recusadas.map((x) => esc(x.motivo)).join('; ')}).`;
   const criados = resp.resultado.titulosRfCriados || [];
   if (criados.length) rev.resultado += ` Título${criados.length > 1 ? 's' : ''} criado${criados.length > 1 ? 's' : ''} em Carteiras › Renda Fixa: ${criados.map((t) => `<b>${esc(t.titulo)}</b> (${esc(ROTULO_DESTINO_RF[t.destino] || t.destino)})`).join(', ')}.`;
   if (ignoradas) toast(textoIgnoradas(ignoradas), { tipo: 'info', doc: ctx.doc });

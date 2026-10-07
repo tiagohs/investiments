@@ -332,12 +332,14 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
   var ultima = ultimaLinhaReal_(aba, [1, 4], ini);
   var existentes = {};
   var semInstituicao = {}; // 07/10/2026: linha já cadastrada MAS sem instituição (incompleta) - a sincronização completa; criar outra seria duplicar
+  var linhasExistentes = []; // 07/10/2026: LCI/LCA/CDB - "LCI - 26J02815956" (código da B3) é o mesmo título que "LCI - BANCO INTER S/A" (RendaFixaIR.gs!casaTituloRf_)
   if (ultima >= ini) {
     aba.getRange(ini, 1, ultima - ini + 1, 6).getValues().forEach(function (l) {
       if (!l[0] && !l[3]) return;
       var nome = String(l[2] || l[3] || '').replace(/\s+/g, ' ').trim();
       existentes[chaveTituloRf_(nome, l[5])] = true;
       if (l[0]) existentes[chaveTituloRf_(nome, l[5], l[0])] = true;
+      linhasExistentes.push({ nome: nome, inst: normalizarInstituicaoChaveRf_(l[5]) });
       if (!String(l[5] || '').trim()) semInstituicao[normalizarNomeRf_(nome)] = true;
     });
   }
@@ -346,6 +348,7 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
   ordem.forEach(function (k) {
     var t = porChave[k];
     if (existentes[k] || semInstituicao[normalizarNomeRf_(t.nome)]) return;
+    if (typeof casaTituloRf_ === 'function' && linhasExistentes.some(function (e) { return casaTituloRf_(e.nome, e.inst, t.nome, t.instituicao); })) return;
     if (proxima > aba.getMaxRows()) aba.insertRowsAfter(aba.getMaxRows(), 5);
     var modelo = ultima >= ini ? ultima : 0;
     if (modelo) {
@@ -371,6 +374,46 @@ function garantirTitulosCarteiraRfLanc_(ss, itens) {
     try { if (typeof invalidarCacheCarteirasRf_ === 'function') invalidarCacheCarteirasRf_(); } catch (eInv) { /* idem */ }
   }
   return criados;
+}
+
+/**
+ * Função pra rodar 1x no editor (07/10/2026): limpa as linhas que uma importação deixou PELA METADE (só Produto/Ticker e
+ * Data, todo o resto vazio) em Transações, Transações - USA e Transações Renda Fixa - foi o que a validação "Compra,Venda"
+ * da coluna Movimentação fez com a LCI ("APLICAÇÃO"). Só mexe em linha com a 1ª e a 2ª coluna preenchidas e TODAS as
+ * outras vazias; apaga o conteúdo das colunas do lançamento (não remove a linha da aba). `{ simular: true }` só mostra.
+ * Depois: importe de novo o extrato da B3 (o que já está na planilha é ignorado; o que faltou entra).
+ */
+function repararLancamentosIncompletosDireto(opcoes) {
+  var simular = !!(opcoes && opcoes.simular === true);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var trava = null;
+  if (!simular) { trava = travaRecurso_('carteira', 'reparar lançamentos incompletos'); trava.waitLock(30000); }
+  var achadas = [];
+  try {
+    ['transacoes', 'transacoesUsa', 'rendaFixa'].forEach(function (d) {
+      var cfg = LANC_ABAS[d];
+      var aba = ss.getSheetByName(cfg.aba);
+      if (!aba) return;
+      var ultima = ultimaLinhaPreenchidaLanc_(aba, cfg);
+      if (ultima < cfg.linha) return;
+      var linhas = aba.getRange(cfg.linha, 1, ultima - cfg.linha + 1, cfg.cols).getValues();
+      var vazio = function (v) { return v === '' || v === null; };
+      linhas.forEach(function (l, i) {
+        if (vazio(l[0]) || vazio(l[1])) return;
+        for (var c = 2; c < l.length; c++) if (!vazio(l[c])) return;
+        achadas.push({ aba: cfg.aba, linha: cfg.linha + i, ativo: String(l[0]), data: chaveDataLanc_(l[1]) });
+      });
+      if (!simular) achadas.filter(function (a) { return a.aba === cfg.aba; }).forEach(function (a) { aba.getRange(a.linha, 1, 1, cfg.cols).clearContent(); });
+    });
+    if (!simular && achadas.length) {
+      try { if (typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_(); } catch (eReg) { /* cache é só otimização */ }
+      try { if (typeof limparCacheHistoricoInicio_ === 'function') limparCacheHistoricoInicio_(); } catch (eCache) { /* idem */ }
+    }
+  } finally {
+    if (trava) trava.releaseLock();
+  }
+  Logger.log((simular ? 'SIMULAÇÃO - ' : '') + achadas.length + ' linha(s) pela metade' + (simular ? ' seriam limpas' : ' limpas') + ': ' + JSON.stringify(achadas));
+  return achadas;
 }
 
 /**
@@ -414,6 +457,16 @@ function importarLancamentos_(itens, opcoes) {
       if (destinos.indexOf('proventos') === -1 || typeof registrarExtratoB3Proventos_ !== 'function') return;
       try { resultado.conferenciaProventos = registrarExtratoB3Proventos_(itens, { semTrava: semTrava }); } catch (eConf) { Logger.log('registrarExtratoB3Proventos_: ' + eConf); }
     };
+    // 07/10/2026: o que a validação de dados da planilha recusaria já aparece na CONFERÊNCIA como "Bloqueado" (com o motivo),
+    // antes de o Tiago clicar em Lançar - e nunca vai pra gravação. ("APLICAÇÃO" não é recusado: vira "Compra".)
+    if (typeof linhasAceitasPelaValidacao_ === 'function') {
+      destinos.forEach(function (d) {
+        var cand = itens.filter(function (it) { var c = porUid[it.uid]; return it.destino === d && c && (c.situacao === 'novo' || c.situacao === 'parecido'); });
+        if (!cand.length || !abas[d]) return;
+        var ajuste = linhasAceitasPelaValidacao_(abas[d].aba, abas[d].ultima + 1, 1, cand.map(linhaDoItemLanc_), LANC_ABAS[d].linha - 1);
+        ajuste.recusadas.forEach(function (r) { var c = porUid[cand[r.indice].uid]; c.situacao = 'bloqueado'; c.motivo = r.motivo; });
+      });
+    }
     if (o.simular) { contarIgnoradas(); conferirProventos(false); return resultado; }
 
     var gravar = itens.filter(function (it) {
@@ -428,8 +481,25 @@ function importarLancamentos_(itens, opcoes) {
       var cfg = LANC_ABAS[d];
       var info = abas[d];
       var inicio = info.ultima + 1;
+      // 07/10/2026: as linhas passam pela validação de dados da aba ANTES de gravar (Planilha.gs!linhasAceitasPelaValidacao_) -
+      // "APLICAÇÃO" da B3 vira "Compra" (a coluna Movimentação só aceita "Compra,Venda"); o que a planilha recusaria não é
+      // gravado (com o motivo na resposta) em vez de deixar linha pela metade e derrubar a importação inteira.
+      var linhasGravar = lista.map(linhaDoItemLanc_);
+      if (typeof linhasAceitasPelaValidacao_ === 'function') {
+        var ajuste = linhasAceitasPelaValidacao_(info.aba, inicio, 1, linhasGravar, cfg.linha - 1);
+        ajuste.recusadas.forEach(function (r) {
+          var it = lista[r.indice];
+          porUid[it.uid].situacao = 'recusado';
+          porUid[it.uid].motivo = r.motivo;
+          resultado.recusadas = (resultado.recusadas || []).concat([{ destino: d, ativo: it.produto || it.ticker || '', data: it.data, motivo: r.motivo }]);
+        });
+        lista = ajuste.indicesAceitos.map(function (i) { return lista[i]; });
+        linhasGravar = ajuste.linhas;
+        lista.forEach(function (it, i) { if (it.destino === 'rendaFixa' && linhasGravar[i]) it.movimentacao = linhasGravar[i][2]; });
+      }
+      if (!lista.length) return;
       if (inicio + lista.length - 1 > info.aba.getMaxRows()) info.aba.insertRowsAfter(info.aba.getMaxRows(), lista.length + 10);
-      info.aba.getRange(inicio, 1, lista.length, cfg.cols).setValues(lista.map(linhaDoItemLanc_));
+      info.aba.getRange(inicio, 1, lista.length, cfg.cols).setValues(linhasGravar);
       var ultimaData = info.itens.reduce(function (m, x) { return x.data > m ? x.data : m; }, '');
       if (ordenar && ultimaData && lista[0].data < ultimaData) {
         info.aba.getRange(cfg.linha, 1, inicio + lista.length - cfg.linha, cfg.cols).sort({ column: 2, ascending: true });
@@ -441,7 +511,7 @@ function importarLancamentos_(itens, opcoes) {
     // quem ficou como "já lançado" não grava (nem o lote de RF): conta como ignorada
     var ignoradasLote = { ignoradasDuplicadas: 0, exemplos: [] };
     contarIgnoradas();
-    resultado.lotesRf = gravarLotesRfLanc_(ss, gravar, ignoradasLote, manual);
+    resultado.lotesRf = gravarLotesRfLanc_(ss, gravar.filter(function (it) { return porUid[it.uid].situacao === 'gravado'; }), ignoradasLote, manual); // 07/10/2026: sem as recusadas pela validação
     resultado.ignoradasDuplicadas += ignoradasLote.ignoradasDuplicadas;
     resultado.lotesRfIgnoradas = ignoradasLote.ignoradasDuplicadas; // lotes de RF Contratada que já existiam (a tela soma aos "já lançados")
     resultado.exemplos = resultado.exemplos.concat(ignoradasLote.exemplos).slice(0, DEDUP_MAX_EXEMPLOS_);

@@ -228,7 +228,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     Object.defineProperty(fixtures, nome, {
       configurable: true, enumerable: true,
       get() {
-        const pronta = { lastRow: bruta.lastRow, linhas: bruta.linhas.map((linha) => linha.map(revive)) };
+        const pronta = { lastRow: bruta.lastRow, linhas: bruta.linhas.map((linha) => linha.map(revive)), validacoes: bruta.validacoes || [] };
         Object.defineProperty(fixtures, nome, { value: pronta, writable: true, configurable: true, enumerable: true });
         return pronta;
       },
@@ -243,6 +243,46 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
       deleteProperty: (k) => { m.delete(k); }, getKeys: () => [...m.keys()],
     };
   })();
+
+  // 07/10/2026 (Tiago: o lançamento da B3 gravou só Produto+Data e parou - "Movimentação" da planilha só aceita "Compra,Venda"):
+  // as VALIDAÇÕES DE DADOS (lista) da planilha real (extrair-fixtures.py!validacoes_por_aba) valem aqui como no Apps Script:
+  // escrever fora da lista numa célula que rejeita lança o MESMO erro e deixa gravado só o que veio antes (célula a célula,
+  // linha a linha) - era o que fazia o site deixar linha pela metade. getDataValidation(s) devolve a regra (VALUE_IN_LIST).
+  const regrasCache = {};
+  function regrasDaAba_(nome) {
+    if (regrasCache[nome]) return regrasCache[nome];
+    const brutas = (fixtures[nome] && fixtures[nome].validacoes) || [];
+    const lerListaRef = (ref) => {
+      const m = String(ref || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?$/);
+      if (!m || !fixtures[m[1]]) return null;
+      const p = parseA1_(`${m[2]}${m[3]}${m[4] ? `:${m[4]}${m[5]}` : ''}`);
+      const out = [];
+      for (let r = 0; r < p.numRows; r++) for (let c = 0; c < p.numCols; c++) {
+        const v = (fixtures[m[1]].linhas[p.row - 1 + r] || [])[p.col - 1 + c];
+        if (v !== null && v !== undefined && v !== '') out.push(String(v));
+      }
+      return out;
+    };
+    regrasCache[nome] = brutas.map((b) => {
+      let p;
+      try { p = parseA1_(b.ref); } catch (e) { return null; }
+      const lista = b.lista || lerListaRef(b.listaRef);
+      if (!lista) return null;
+      return { r1: p.row, c1: p.col, r2: p.row + p.numRows - 1, c2: p.col + p.numCols - 1, lista, rejeita: !!b.rejeita };
+    }).filter(Boolean);
+    return regrasCache[nome];
+  }
+  function regraNaCelula_(nome, r, c) {
+    return regrasDaAba_(nome).find((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2) || null;
+  }
+  function objetoRegra_(g) {
+    return g ? {
+      getCriteriaType: () => 'VALUE_IN_LIST',
+      getCriteriaValues: () => [g.lista.slice(), true],
+      getAllowInvalid: () => !g.rejeita,
+    } : null;
+  }
+  function valorVazio_(v) { return v === '' || v === null || v === undefined; }
 
   function makeSheet(nome) {
     const dados = fixtures[nome];
@@ -301,10 +341,23 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
             valores.forEach((linhaNova, r) => {
               const idx = row - 1 + r;
               while (dados.linhas.length <= idx) dados.linhas.push([]);
-              linhaNova.forEach((v, c2) => { dados.linhas[idx][col - 1 + c2] = v; });
+              linhaNova.forEach((v, c2) => {
+                const g = regraNaCelula_(nome, row + r, col + c2);
+                if (g && g.rejeita && !valorVazio_(v) && !g.lista.includes(String(v))) {
+                  dados.lastRow = Math.max(dados.lastRow, row + r);
+                  const letra = String.fromCharCode(64 + col + c2);
+                  throw new Error(`Os dados inseridos na célula ${letra}${row + r} violam o respectivo conjunto de regras de validação de dados. Insira um destes valores: ${g.lista.join(', ')}.`);
+                }
+                dados.linhas[idx][col - 1 + c2] = v;
+              });
             });
             dados.lastRow = Math.max(dados.lastRow, row + valores.length - 1);
           },
+          getDataValidations() {
+            return Array.from({ length: numRows }, (_, r) => Array.from({ length: numCols }, (_, c2) => objetoRegra_(regraNaCelula_(nome, row + r, col + c2))));
+          },
+          getDataValidation() { return objetoRegra_(regraNaCelula_(nome, row, col)); },
+          getA1Notation() { return `${String.fromCharCode(64 + col)}${row}`; },
           // 06/10/2026 (Controle 17): a sincronização da Carteira Renda Fixa grava célula a célula (setValue) quando a planilha difere do cálculo
           setValue(valor) { this.setValues([[valor]]); return this; },
           clearContent() {
@@ -328,7 +381,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
   };
 
   Object.assign(sandbox, {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getActive: () => ss },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss, getActive: () => ss, DataValidationCriteria: { VALUE_IN_LIST: 'VALUE_IN_LIST', VALUE_IN_RANGE: 'VALUE_IN_RANGE' } },
     Session: { getScriptTimeZone: () => FUSO_PROJETO_APPS_SCRIPT },
     CacheService: { getScriptCache: () => scriptCache },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },

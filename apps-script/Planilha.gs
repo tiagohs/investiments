@@ -126,7 +126,7 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261007g'; // 07/10/2026 (g): série da Início sem FIIs no cache (lista vazia); (f) fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
+var VERSAO_CODIGO_CACHE_ = '20261007h'; // 07/10/2026 (h): validação de dados nas gravações e "a confirmar" de LCI por tipo+instituição; (g): série da Início sem FIIs no cache (lista vazia); (f) fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
 
 // ---------------------------------------------------------------------------
 // 07/10/2026 (Tiago colou as 20 compras do fundo e as datas ficaram UM DIA ANTES na planilha): FUSO DAS DATAS GRAVADAS.
@@ -149,6 +149,88 @@ function fusoDaPlanilha_(ss) {
 
 /** É uma Date? (não usa instanceof: vale também pra Date vinda de outro contexto de execução) */
 function ehDataPlanilha_(v) { return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime()); }
+
+// ---------------------------------------------------------------------------
+// 07/10/2026 (Tiago: "enviei o lançamento da B3 ... duplicação da aplicação do LCI, e as minhas aplicações continuam
+// como a confirmar"): a coluna "Movimentação" de Transações / Transações - USA / Transações Renda Fixa tem VALIDAÇÃO DE
+// DADOS em lista ("Compra,Venda") que REJEITA o resto. O setValues do Apps Script grava célula a célula e para no 1º valor
+// recusado: a linha da LCI ("APLICAÇÃO", como vem da B3) ficou só com Produto+Data, o Tesouro da mesma importação nem
+// entrou, e o erro voltou pro site. Toda escrita de linha em aba com validação passa por aqui ANTES de gravar:
+//  - valor que a lista aceita: fica; mesma palavra com outra grafia (acento/maiúscula): vira o item da lista;
+//  - sinônimo conhecido (APLICAÇÃO/Subscrição -> Compra; Resgate/Vencimento -> Venda) quando a lista tem o destino;
+//  - nada disso: a linha é RECUSADA inteira (com o motivo) e nada dela é gravado - nunca mais linha pela metade.
+// ---------------------------------------------------------------------------
+var SINONIMOS_VALIDACAO_ = [
+  { re: /^(aplica[cç][aã]o|compra|subscri[cç][aã]o)\b/i, para: 'Compra' },
+  { re: /^(venda|resgate|vencimento)\b/i, para: 'Venda' }
+];
+
+function textoNormalizadoValidacao_(t) {
+  return String(t == null ? '' : t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+]+/g, ' ').trim();
+}
+
+/** A lista que a célula exige (só quando ela RECUSA o resto), ou null. `regra` = DataValidation do Apps Script (ou null). */
+function listaQueRejeita_(regra) {
+  if (!regra) return null;
+  try {
+    if (typeof regra.getAllowInvalid === 'function' && regra.getAllowInvalid()) return null;
+    var tipos = (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.DataValidationCriteria) || {};
+    var criterio = String(regra.getCriteriaType()), args = regra.getCriteriaValues() || [];
+    if (criterio === String(tipos.VALUE_IN_LIST || 'VALUE_IN_LIST')) return (args[0] || []).map(function (x) { return String(x == null ? '' : x).trim(); }).filter(function (x) { return x; });
+    if (criterio === String(tipos.VALUE_IN_RANGE || 'VALUE_IN_RANGE') && args[0] && args[0].getValues) {
+      return [].concat.apply([], args[0].getValues()).map(function (x) { return String(x == null ? '' : x).trim(); }).filter(function (x) { return x; });
+    }
+  } catch (e) { return null; }
+  return null;
+}
+
+/** O valor que a lista aceita no lugar de `valor` (ele mesmo, a grafia da lista ou o sinônimo), ou undefined se nenhum. */
+function valorNaListaValidacao_(lista, valor) {
+  if (valor === '' || valor === null || valor === undefined) return valor;
+  var texto = String(valor);
+  if (lista.indexOf(texto) >= 0) return valor;
+  var alvo = textoNormalizadoValidacao_(texto);
+  for (var i = 0; i < lista.length; i++) if (textoNormalizadoValidacao_(lista[i]) === alvo) return lista[i];
+  for (var j = 0; j < SINONIMOS_VALIDACAO_.length; j++) {
+    var s = SINONIMOS_VALIDACAO_[j];
+    if (s.re.test(texto.trim()) && lista.indexOf(s.para) >= 0) return s.para;
+  }
+  return undefined;
+}
+
+/**
+ * Ajusta `linhas` (que vão ser gravadas a partir de linha/coluna em `aba`) às validações em lista da planilha. As regras
+ * são lidas da 1ª linha de destino (a validação vale pra coluna inteira); `linhaCabecalho` (opcional) dá o nome da coluna no motivo. Devolve { linhas, recusadas: [{ indice, motivo }] }
+ * - `linhas` já sem as recusadas, na mesma ordem. Nunca grava nada.
+ */
+function linhasAceitasPelaValidacao_(aba, linha, coluna, linhas, linhaCabecalho) {
+  var saida = { linhas: [], recusadas: [], indicesAceitos: [] };
+  if (!linhas || !linhas.length) return saida;
+  var largura = linhas[0].length;
+  var regras = null;
+  try {
+    var rng = aba.getRange(linha, coluna, 1, largura);
+    regras = typeof rng.getDataValidations === 'function' ? rng.getDataValidations()[0] : null;
+  } catch (e) { regras = null; }
+  var listas = (regras || []).map(listaQueRejeita_);
+  var cab = null;
+  linhas.forEach(function (l, i) {
+    var nova = l.slice(), motivo = '';
+    for (var c = 0; c < nova.length && !motivo; c++) {
+      var lista = listas[c];
+      if (!lista || !lista.length) continue;
+      var aceito = valorNaListaValidacao_(lista, nova[c]);
+      if (aceito === undefined) {
+        if (cab === null) { try { cab = linhaCabecalho > 0 ? aba.getRange(linhaCabecalho, coluna, 1, largura).getValues()[0] : []; } catch (eCab) { cab = []; } }
+        var nomeCol = String((cab && cab[c]) || '').trim() || ('coluna ' + (coluna + c));
+        motivo = '"' + nova[c] + '" não é aceito em "' + nomeCol + '" da aba ' + aba.getName() + ' (a planilha só aceita: ' + lista.join(', ') + ')';
+      } else nova[c] = aceito;
+    }
+    if (motivo) saida.recusadas.push({ indice: i, motivo: motivo });
+    else { saida.linhas.push(nova); saida.indicesAceitos.push(i); }
+  });
+  return saida;
+}
 
 /**
  * Date à MEIA-NOITE, no fuso da planilha, do dia 'aaaa-mm-dd' (ou de uma Date - vale o dia dela no fuso do script). '' se vazio.

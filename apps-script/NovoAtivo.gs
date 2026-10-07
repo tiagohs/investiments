@@ -260,6 +260,12 @@ function adicionarAtivo_(dados, opcoes) {
     if (linhaCarteira > carteira.getMaxRows()) carteira.insertRowsAfter(carteira.getMaxRows(), 5);
     var ultimaColCarteira = carteira.getLastColumn();
     copiarFormatoLinha_(carteira, ultimaCarteira, linhaCarteira, ultimaColCarteira);
+    // 07/10/2026: a coluna de tipo/segmento pode ter validação em lista na planilha - confere ANTES de gravar (nada pela metade)
+    if (typeof linhasAceitasPelaValidacao_ === 'function') {
+      var ajusteCarteira = linhasAceitasPelaValidacao_(carteira, linhaCarteira, 1, [valoresManuais]);
+      if (ajusteCarteira.recusadas.length) throw new Error('A planilha recusou o ativo: ' + ajusteCarteira.recusadas[0].motivo + '. Nada foi gravado.');
+      valoresManuais = ajusteCarteira.linhas[0];
+    }
     carteira.getRange(linhaCarteira, 1, 1, valoresManuais.length).setValues([valoresManuais]);
     copiarFormulasLinha_(carteira, ultimaCarteira, linhaCarteira, valoresManuais.length + 1, ultimaColCarteira);
 

@@ -375,7 +375,7 @@ function historicoInvestido_(compras, aportes) {
     var dia = diaDaChaveAporte_(p.data);
     var coberto = 0;
     lista.forEach(function (l) {
-      if (coberto >= p.medida || l.resta <= 0 || l.destino !== p.destino || l.chave !== p.chave) return;
+      if (coberto >= p.medida || l.resta <= 0 || l.destino !== p.destino || !mesmoTituloAporte_(l, p)) return;
       if (!(l.dia >= dia - ACONFIRMAR_DIAS_ANTES && l.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
       if (p.destino === 'rendaFixa' && l.inst && p.inst && l.inst !== p.inst) return;
       var usa = Math.min(l.resta, p.medida - coberto);
@@ -428,6 +428,20 @@ function historicoInvestido_(compras, aportes) {
 // com tolerância. Cada lançamento real cobre no máximo um aporte (consumo).
 // ---------------------------------------------------------------------------
 
+/**
+ * 07/10/2026 (Tiago: "minhas aplicações continuam como a confirmar" depois de lançar o extrato da B3): o aporte guarda o
+ * título como está na Carteira ("LCI - BANCO INTER S/A") e a B3 lança cada aplicação com o código ("LCI - 26J02815956").
+ * Mesmo título = mesmo nome, ou (Renda Fixa) LCI/LCA/CDB do mesmo tipo na mesma instituição - a regra de
+ * RendaFixaIR.gs!casaTituloRf_. `x`/`y` = { destino, chave (nome normalizado), inst (instituição normalizada) }.
+ */
+function mesmoTituloAporte_(x, y) {
+  if (x.chave === y.chave) return true;
+  if (x.destino !== 'rendaFixa' || !x.inst || !y.inst || x.inst !== y.inst) return false;
+  var tipo = function (t) { return String(t || '').trim().split(/[\s-]/)[0].toUpperCase(); };
+  var tx = tipo(x.chave);
+  return ['LCI', 'LCA', 'CDB'].indexOf(tx) >= 0 && tx === tipo(y.chave);
+}
+
 var ACONFIRMAR_DIAS_ANTES = 2;   // lançamento real até 2 dias antes da data do aporte (data conferida na mão)
 var ACONFIRMAR_DIAS_DEPOIS = 10; // ... e até 10 dias depois (a B3 lança pela data do negócio; o aporte pode ter sido concluído antes)
 var ACONFIRMAR_TOLERANCIA = 0.02;
@@ -479,7 +493,7 @@ function lancamentosAConfirmar_(aportes, abas) {
     var dia = diaDaChaveAporte_(p.aporte.data);
     var coberto = 0;
     compras.forEach(function (c) {
-      if (coberto >= p.medida || c.resta <= 0 || c.destino !== p.destino || c.chave !== p.chave) return;
+      if (coberto >= p.medida || c.resta <= 0 || c.destino !== p.destino || !mesmoTituloAporte_(c, p)) return;
       if (!(c.dia >= dia - ACONFIRMAR_DIAS_ANTES && c.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
       if (p.destino === 'rendaFixa' && c.inst && p.inst && c.inst !== p.inst) return;
       var usa = Math.min(c.resta, p.medida - coberto);

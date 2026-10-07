@@ -97,7 +97,9 @@ function chaveDedup_(tipo, x) {
       // a taxa não entra: a mesma ordem vem com taxa num extrato e sem taxa na linha lançada à mão
       return [tipo, dedupDia_(x.data), dedupTicker_(x.ticker), dedupTexto_(x.tipo), dedupQtd_(x.qtd), dedupCentavos_(x.preco, true)].join('|');
     case 'rendaFixa':
-      return [tipo, dedupDia_(x.data), dedupTituloRf_(x.produto, x.instituicao), dedupAlfanum_(x.movimentacao),
+      // 07/10/2026: movimentação canônica - a planilha só aceita "Compra,Venda" (Planilha.gs!SINONIMOS_VALIDACAO_ grava APLICAÇÃO
+      // como Compra e Resgate/Vencimento como Venda), então "APLICAÇÃO" do extrato é a MESMA operação que "Compra" na aba
+      return [tipo, dedupDia_(x.data), dedupTituloRf_(x.produto, x.instituicao), dedupMovimentacaoRf_(x.movimentacao),
         dedupQtd_(x.qtd), dedupCentavos_(x.preco, true), dedupCentavos_(x.valor, true)].join('|');
     case 'lotesRf':
       return [tipo, dedupDia_(x.data), dedupTituloRf_(x.produto, x.instituicao), dedupQtd_(x.qtd), dedupCentavos_(x.preco, true), dedupCentavos_(x.valor, true)].join('|');
@@ -115,6 +117,14 @@ function chaveDedup_(tipo, x) {
       }).sort().join(';')].join('|');
   }
   throw new Error('tipo de linha desconhecido para deduplicar: ' + tipo);
+}
+
+/** Movimentação de Renda Fixa na chave: compra/aplicação/subscrição = COMPRA; venda/resgate/vencimento = VENDA; o resto como está. */
+function dedupMovimentacaoRf_(m) {
+  var t = String(m == null ? '' : m).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  if (/^(aplicacao|compra|subscricao)\b/i.test(t)) return 'COMPRA';
+  if (/^(venda|resgate|vencimento)\b/i.test(t)) return 'VENDA';
+  return dedupAlfanum_(m);
 }
 
 /** { chave: quantas } das linhas existentes. */
