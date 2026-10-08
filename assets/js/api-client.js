@@ -13,14 +13,48 @@
 
 import { APPS_SCRIPT_URL } from './config.js';
 import { clearToken } from './auth.js';
+// 08/10/2026: cache-dados.js e desempenho.js carregam sob demanda (import dinâmico) - não pesam no 1º carregamento das telas
+let cacheDadosMod = null;
+const cacheDados = () => (cacheDadosMod ||= import('./cache-dados.js'));
+let desempenhoMod = null;
+function registrarDesempenho(acao, medida) {
+  (desempenhoMod ||= import('./desempenho.js')).then((m) => m.registrarDesempenho(acao, medida)).catch(() => {});
+}
+
+// 08/10/2026 (Etapa 0): última resposta de cada leitura (GET) com a impressão digital do conteúdo (_etag, Auth.gs!jsonOut).
+// Na próxima leitura igual o navegador manda a etag; se o conteúdo não mudou o servidor responde só { naoMudou: true } e
+// a resposta guardada é reaproveitada (a Início tem ~1,8 MB). Memória + IndexedDB (sobrevive a recarregar a página).
+const respostasGuardadas = new Map();
+const IDADE_RESPOSTA_GUARDADA_MS = 3 * 24 * 60 * 60 * 1000;
+const agoraMs = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
+const clonar = (o) => (typeof structuredClone === 'function' ? structuredClone(o) : JSON.parse(JSON.stringify(o)));
+
+function chaveResposta(action, params) {
+  return `resp:${action}?${Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join('&')}`;
+}
+
+async function respostaGuardada(chave) {
+  if (respostasGuardadas.has(chave)) return respostasGuardadas.get(chave);
+  try {
+    const r = await (await cacheDados()).lerCacheDados(chave, { maxIdadeMs: IDADE_RESPOSTA_GUARDADA_MS });
+    if (r && r.dados && r.dados.etag && r.dados.json) { respostasGuardadas.set(chave, r.dados); return r.dados; }
+  } catch (e) { /* sem armazenamento: segue sem etag */ }
+  return null;
+}
+
+/** Esquece as respostas guardadas (Limpar cache / sair da conta). */
+export function esquecerRespostasGuardadas() { respostasGuardadas.clear(); }
 
 /**
  * Low-level request helper — GET for read actions, POST (form-encoded,
  * matching what Router.gs/doPost expects) for write actions.
  */
-async function request(method, action, token, params = {}) {
+async function request(method, action, token, params = {}, { _semEtag = false } = {}) {
+  const inicio = agoraMs();
+  const chave = method === 'GET' ? chaveResposta(action, params) : null;
   try {
     let response;
+    const guardada = chave && !_semEtag ? await respostaGuardada(chave) : null;
     if (method === 'GET') {
       const url = new URL(APPS_SCRIPT_URL);
       url.searchParams.set('action', action);
@@ -28,12 +62,27 @@ async function request(method, action, token, params = {}) {
       for (const [key, value] of Object.entries(params)) {
         url.searchParams.set(key, value);
       }
+      if (guardada) url.searchParams.set('etag', guardada.etag);
       response = await fetch(url.toString(), { method: 'GET' });
     } else {
       const body = new URLSearchParams({ action, token, ...params });
       response = await fetch(APPS_SCRIPT_URL, { method: 'POST', body });
     }
-    const json = await response.json();
+    let json, bytes = null;
+    if (typeof response.text === 'function') { const texto = await response.text(); bytes = texto.length; json = JSON.parse(texto); } else json = await response.json();
+    // 08/10/2026 (Etapa 0): "não mudou" = usa a resposta guardada; resposta nova com etag = guarda
+    if (chave && json && json.naoMudou) {
+      if (!guardada) return request(method, action, token, params, { _semEtag: true });
+      registrarDesempenho(action, { total: agoraMs() - inicio, servidor: json._ms, naoMudou: true, bytes, ok: true });
+      return { ...clonar(guardada.json), _ms: json._ms, _naoMudou: true };
+    }
+    if (chave && json && json.ok === true && json._etag) {
+      const reg = { etag: json._etag, json };
+      respostasGuardadas.set(chave, reg);
+      cacheDados().then((m) => m.gravarCacheDados(chave, reg)).catch(() => {});
+      json = clonar(json); // quem chama pode mexer no objeto; a cópia guardada fica intacta
+    }
+    registrarDesempenho(action, { total: agoraMs() - inicio, servidor: json ? json._ms : null, naoMudou: false, bytes, ok: !!(json && json.ok !== false) });
     // 07/10/2026: toda gravação (POST) pode mudar o Registro de Controle ou marcar/limpar a consolidação
     // (aporte concluído, lançamentos, importação, consolidar): esquece o resumo guardado do header (A-43),
     // pra próxima carga buscar o estado novo em vez de mostrar o aviso velho por até 15 min.

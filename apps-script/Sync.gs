@@ -100,7 +100,7 @@ var TICKERS_FORA_DO_HISTORICO = ['STR'];
 // ---------------------------------------------------------------------------
 // 06/10/2026: tickers e 1ª data de transação LIDOS DA PLANILHA (nada disso fica no código; ver comentário das listas acima).
 // ---------------------------------------------------------------------------
-var CACHE_TICKERS_PLANILHA_ = 'SYNC_TICKERS_PLANILHA_V1';
+var CACHE_TICKERS_PLANILHA_ = 'SYNC_TICKERS_PLANILHA_V2'; // v2 (08/10/2026): guarda a geração junto
 var CACHE_TICKERS_PLANILHA_TTL_S_ = 10 * 60;      // ativo cadastrado/removido à mão na Auxiliar_ativos aparece em até 10 min
 var CACHE_PRIMEIRA_TRANSACAO_ = 'SYNC_PRIMEIRA_TRANSACAO_V1';
 var CACHE_PRIMEIRA_TRANSACAO_TTL_S_ = 6 * 60 * 60; // só muda se alguém lançar uma transação mais antiga que todas
@@ -141,14 +141,19 @@ function carregarTickersDaPlanilha_(ss) {
   _tickersPlanilhaLeituras_++;
   var cache = cacheScriptSync_();
   var lista = null;
+  // 08/10/2026: a lista em cache vale só pra mesma GERAÇÃO (Planilha.gs!carimboEscritaPlanilha_) - ativo cadastrado à mão na
+  // Auxiliar_ativos aparece na hora, não em até 10 min
+  var geracao = typeof carimboEscritaPlanilha_ === 'function' ? carimboEscritaPlanilha_() : '';
   if (!forcar && cache) {
     try { var bruto = cache.get(CACHE_TICKERS_PLANILHA_); lista = bruto ? JSON.parse(bruto) : null; } catch (eCache) { lista = null; }
+    if (lista && lista.g !== geracao) lista = null;
     if (lista && !(lista.acoes && lista.fiis && lista.usa)) lista = null;
     // 07/10/2026: lista em cache sem nenhum ativo (leitura que falhou) não vale - relê a planilha
     if (lista && !(lista.acoes.length + lista.fiis.length + lista.usa.length)) lista = null;
   }
   if (!lista) {
     lista = lerTickersAuxiliarAtivos_(ss);
+    lista.g = geracao;
     try { if (cache) cache.put(CACHE_TICKERS_PLANILHA_, JSON.stringify(lista), CACHE_TICKERS_PLANILHA_TTL_S_); } catch (ePut) { /* só otimização */ }
   }
   TICKERS_ACOES_BR.length = 0; TICKERS_FIIS_BR.length = 0; TICKERS_BR.length = 0; TICKERS_USA.length = 0;

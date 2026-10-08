@@ -743,6 +743,9 @@ export function setupSyncPopoverSobDemanda(doc, { token, carregarStatusSyncImpl 
   let ultima = 0;
   btn.addEventListener('click', () => {
     if (btn.getAttribute('aria-expanded') !== 'true') return; // fechando
+    // 08/10/2026 (Etapa 0): tabela "Desempenho neste aparelho" - local, sempre atual ao abrir
+    const corpo = doc.getElementById('syncDesempenhoCorpo');
+    if (corpo) import('./desempenho.js').then((m) => { corpo.innerHTML = m.htmlDesempenho(m.resumoDesempenho()); }).catch(() => { /* só informativo */ });
     if (agora() - ultima < 30000) return;
     ultima = agora();
     carregarStatusSyncImpl(doc, { token });

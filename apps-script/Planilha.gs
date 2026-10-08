@@ -379,31 +379,52 @@ function carimboEscritaPlanilha_() {
   return VERSAO_CODIGO_CACHE_ + '.' + c;
 }
 
-/** Marca "a planilha mudou agora" (chamado ao fim de lançamentos/importações/Limpar cache). */
+/** Marca "a planilha mudou agora" = sobe a GERAÇÃO dos dados (chamado por toda escrita - ver aoEditarPlanilha_ e travaRecurso_). */
 function registrarEscritaPlanilha_() {
   esquecerLeituraUnica_();
-  try { PropertiesService.getScriptProperties().setProperty(PROP_CARIMBO_ESCRITA_PLANILHA_, String(Date.now())); } catch (e) { /* cache é só otimização */ }
+  // 08/10/2026: + sufixo aleatório - 2 escritas no mesmo milissegundo também mudam a geração
+  try { PropertiesService.getScriptProperties().setProperty(PROP_CARIMBO_ESCRITA_PLANILHA_, String(Date.now()) + Math.random().toString(36).slice(2, 6)); } catch (e) { /* cache é só otimização */ }
 }
 
-var ABAS_QUE_INVALIDAM_CACHE_ = ['Transações', 'Transações - USA', 'Transações Renda Fixa', 'Carteira Renda Fixa', 'Proventos', 'Proventos - USA'];
+/**
+ * 08/10/2026: começo de cada execução do Web App (Router.gs!doGet/doPost). No Apps Script cada execução já nasce com as
+ * variáveis globais zeradas; isto deixa explícito (e vale no harness, que reaproveita o mesmo contexto entre chamadas):
+ * memória de cálculo de uma execução nunca atravessa pra outra - o que atravessa é só o CacheService, chaveado pela geração.
+ */
+function iniciarExecucao_() {
+  if (typeof MEMO_ATIVO_ !== 'undefined') MEMO_ATIVO_ = {};
+  if (typeof _listasTickersCarregadas_ !== 'undefined') _listasTickersCarregadas_ = false;
+  if (typeof _tickersPlanilhaLeituras_ !== 'undefined') _tickersPlanilhaLeituras_ = 0;
+  _leituraUnica_ = null;
+}
 
 /**
- * OPCIONAL: gatilho instalável "Ao editar" (instalarGatilhoCarimboEdicao, rodar 1x no editor).
- * Só carimba quando a edição é numa das abas-fonte do fluxo de caixa - edição manual de
- * aporte/provento passa a refletir no app sem esperar o dia virar nem o "Limpar cache".
+ * 08/10/2026 (Etapa 0 - "geração" dos dados; Tiago: "o cache às vezes dá falsos positivos"): a geração (o carimbo de
+ * escrita) sobe em TODA mudança - gravação pelo site (Router.gs!doPost), trava de escrita solta (gatilhos de sincronização,
+ * consolidação...) e EDIÇÃO À MÃO na planilha (estes gatilhos instaláveis: "Ao editar" pega valores; "Ao alterar" pega
+ * linha/aba inserida ou apagada). Edição feita pelo próprio script não dispara gatilho - essa já carimba pela trava.
+ * Rode instalarGatilhoCarimboEdicao() 1x no editor.
  */
 function aoEditarPlanilha_(e) {
+  try { registrarEscritaPlanilha_(); } catch (erro) { /* nunca atrapalha a edição */ }
+}
+
+function aoAlterarPlanilha_(e) {
   try {
-    var nome = e && e.range && e.range.getSheet().getName();
-    if (nome && ABAS_QUE_INVALIDAM_CACHE_.indexOf(nome) !== -1) registrarEscritaPlanilha_();
+    var tipo = e && e.changeType ? String(e.changeType) : '';
+    if (tipo === 'EDIT') return; // o "Ao editar" já carimbou
+    registrarEscritaPlanilha_();
   } catch (erro) { /* nunca atrapalha a edição */ }
 }
 
 function instalarGatilhoCarimboEdicao() {
-  var jaExiste = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'aoEditarPlanilha_'; });
-  if (jaExiste) { Logger.log('Gatilho já existe, nada a fazer.'); return; }
-  ScriptApp.newTrigger('aoEditarPlanilha_').forSpreadsheet(SpreadsheetApp.getActiveSpreadsheet()).onEdit().create();
-  Logger.log('Gatilho "Ao editar" (carimbo de escrita) instalado.');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var existentes = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  var feitos = [];
+  if (existentes.indexOf('aoEditarPlanilha_') === -1) { ScriptApp.newTrigger('aoEditarPlanilha_').forSpreadsheet(ss).onEdit().create(); feitos.push('Ao editar'); }
+  if (existentes.indexOf('aoAlterarPlanilha_') === -1) { ScriptApp.newTrigger('aoAlterarPlanilha_').forSpreadsheet(ss).onChange().create(); feitos.push('Ao alterar'); }
+  Logger.log(feitos.length ? 'Gatilhos instalados: ' + feitos.join(', ') + ' - edição à mão na planilha passa a atualizar o site na hora.' : 'Os 2 gatilhos já existiam, nada a fazer.');
+  return feitos;
 }
 
 // ---------------------------------------------------------------------------
@@ -577,6 +598,10 @@ function travaRecurso_(recursos, dono, opcoes) {
     releaseLock: function () {
       if (!segura) return;
       segura = false;
+      // 08/10/2026 (Etapa 0 - "geração" dos dados): soltar uma trava de ESCRITA = a planilha pode ter mudado. Carimba aqui,
+      // num lugar só, em vez de cada gravação lembrar (gatilhos de sincronização, consolidação, agenda...). A leitura que
+      // só espera a escrita terminar (Gastos) passa { leitura: true } e não carimba.
+      if (!(opcoes && opcoes.leitura) && typeof registrarEscritaPlanilha_ === 'function') { try { registrarEscritaPlanilha_(); } catch (eReg) { /* só cache */ } }
       if (legado) { legado.releaseLock(); return; }
       var mutex = null, tem = false;
       try { mutex = LockService.getScriptLock(); mutex.waitLock(5000); tem = true; } catch (eM) { tem = false; }

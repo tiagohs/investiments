@@ -124,13 +124,16 @@ test('A-32: a chave de cache passa a mudar quando entra uma linha na aba (mesmo 
   assert.match(a.sb.montarChaveCacheSerie_(1, 2, 3, chaveA), /^historico_serie_v\d+_\d{4}-\d{2}-\d{2}_1_2_3_/);
 });
 
-test('A-32: aoEditarPlanilha_ só carimba edição nas abas-fonte do fluxo de caixa', () => {
+// 08/10/2026 (Etapa 0 - geração): qualquer edição à mão sobe a geração (antes: só as abas do fluxo de caixa - editar
+// Carteira Ações, Auxiliar_ativos, Metas... à mão deixava o site com o número velho)
+test('A-32: aoEditarPlanilha_ carimba edição à mão em QUALQUER aba (a geração dos dados sobe)', () => {
   const { sb, props } = sandboxGas(planilhaFalsa({}));
   const edicao = (nome) => ({ range: { getSheet: () => ({ getName: () => nome }) } });
   sb.aoEditarPlanilha_(edicao('Salário'));
-  assert.equal(props.get('PLANILHA_CARIMBO_ESCRITA'), undefined);
+  const g1 = props.get('PLANILHA_CARIMBO_ESCRITA');
+  assert.ok(g1);
   sb.aoEditarPlanilha_(edicao('Transações'));
-  assert.ok(Number(props.get('PLANILHA_CARIMBO_ESCRITA')) > 0);
+  assert.notEqual(props.get('PLANILHA_CARIMBO_ESCRITA'), g1);
   assert.doesNotThrow(() => sb.aoEditarPlanilha_(null));
 });
 

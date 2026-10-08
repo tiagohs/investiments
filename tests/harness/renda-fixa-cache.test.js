@@ -128,8 +128,10 @@ test('Renda Fixa: a ação do Router (carteirasRendaFixa) responde ok mesmo com 
   comPropriedades(sb);
   sb.UrlFetchApp = { fetch() { throw new Error('Erro de DNS'); } };
   const calc = contarCalculos(sb);
-  const r1 = JSON.parse(sb.doGet({ parameter: { action: 'carteirasRendaFixa' } }).getContent());
-  const r2 = JSON.parse(sb.doGet({ parameter: { action: 'carteirasRendaFixa' } }).getContent());
+  // 08/10/2026: _ms (tempo do servidor) muda a cada chamada; o resto - inclusive a _etag do conteúdo - tem de ser igual
+  const semMs = (r) => { delete r._ms; return r; };
+  const r1 = semMs(JSON.parse(sb.doGet({ parameter: { action: 'carteirasRendaFixa' } }).getContent()));
+  const r2 = semMs(JSON.parse(sb.doGet({ parameter: { action: 'carteirasRendaFixa' } }).getContent()));
   assert.equal(r1.ok, true);
   assert.deepEqual(r2, r1);
   assert.equal(calc.n, 1);

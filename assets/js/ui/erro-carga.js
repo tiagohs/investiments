@@ -18,12 +18,14 @@ import { criar, icone } from './dom.js';
  */
 export const RE_AUTORIZACAO_APPS_SCRIPT = /n[aã]o tem permiss[aã]o para chamar|do not have permission to call|authorization is required|autoriza[cç][aã]o (é|e) necess[aá]ria/i;
 
-/** Classifica a falha: 'offline' | 'rede' | 'autorizacao' | 'sessao' | 'planilha' | 'servidor'. */
+/** Classifica a falha: 'offline' | 'rede' | 'autorizacao' | 'semAcesso' | 'sessao' | 'planilha' | 'servidor'. */
 export function classificarErroCarga({ resposta, erro, online } = {}) {
   const txt = [resposta && resposta.erro, resposta && resposta.error, erro && erro.message, erro].filter(Boolean).map(String).join(' ');
   if (online === false) return 'offline';
   if ((resposta && resposta.etapa === 'network') || /failed to fetch|networkerror|load failed|network request failed|err_internet|timeout|timed out/i.test(txt)) return 'rede';
   if (RE_AUTORIZACAO_APPS_SCRIPT.test(txt)) return 'autorizacao';
+  // 08/10/2026 (2ª conta do Tiago entrou e viu "Sua sessão expirou"): a conta Google não está na lista de e-mails autorizados
+  if (/e-?mail n[aã]o autorizado/i.test(txt)) return 'semAcesso';
   if (/auth|token|sess[aã]o|expirad|n[aã]o autorizad|unauthori[sz]ed|login/i.test(txt)) return 'sessao';
   if (/planilha|spreadsheet|aba |range|n[aã]o encontrad|not found/i.test(txt)) return 'planilha';
   return 'servidor';
@@ -33,6 +35,7 @@ const MENSAGENS = {
   offline: (t) => ({ titulo: 'Você está sem internet', texto: `Não consegui carregar a tela “${t}”. Volte a ficar online e toque em “Tentar de novo”.` }),
   rede: (t) => ({ titulo: 'Não consegui falar com o servidor', texto: `A tela “${t}” depende do Apps Script e ele não respondeu. Pode ser a conexão ou uma lentidão do Google; tente de novo em instantes.` }),
   autorizacao: (t) => ({ titulo: 'O Apps Script perdeu a autorização do Google', texto: `A tela “${t}” não carregou porque o Apps Script precisa ser autorizado de novo. No editor do Apps Script, rode a função autorizarProjetoDireto e aceite as permissões; depois toque em “Tentar de novo”.` }),
+  semAcesso: () => ({ titulo: 'Esta conta Google não tem acesso', texto: 'Você entrou com uma conta que ainda não foi liberada. Peça ao dono do site para liberar o seu e-mail e depois entre de novo (ou entre com outra conta).' }),
   sessao: (t) => ({ titulo: 'Sua sessão expirou', texto: `Para abrir a tela “${t}” é preciso entrar de novo com a sua conta Google.` }),
   planilha: (t) => ({ titulo: 'A planilha não entregou esses dados', texto: `O servidor respondeu, mas faltou algo na planilha para montar a tela “${t}”. Tente de novo; se continuar, confira o painel de sincronização (ícone no topo).` }),
   servidor: (t) => ({ titulo: `Não consegui carregar a tela “${t}”`, texto: 'Deu um problema do lado do servidor. Tente de novo; se continuar, confira o painel de sincronização (ícone no topo).' }),
@@ -68,8 +71,8 @@ export function mostrarErroCarga(el, { tela = 'esta tela', resposta, erro, aoTen
   );
   const acoes = criar(d, 'div', { class: 'estado-acoes' });
   let botao = null;
-  if (tipo === 'sessao') {
-    botao = criar(d, 'button', { type: 'button', class: 'btn btn-filled' }, ['Entrar de novo']);
+  if (tipo === 'sessao' || tipo === 'semAcesso') {
+    botao = criar(d, 'button', { type: 'button', class: 'btn btn-filled' }, [tipo === 'semAcesso' ? 'Entrar com outra conta' : 'Entrar de novo']);
     botao.addEventListener('click', () => { if (typeof aoEntrar === 'function') aoEntrar(); else if (win && win.location) win.location.reload(); });
     acoes.append(botao);
   } else if (typeof aoTentar === 'function') {

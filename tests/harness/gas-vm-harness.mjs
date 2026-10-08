@@ -47,6 +47,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -387,6 +388,10 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     Logger: { log: (...args) => console.log('[Logger]', ...args) },
     Utilities: {
+      // 08/10/2026: etag das respostas (Auth.gs!jsonOut) - mesmo MD5 do Apps Script
+      DigestAlgorithm: { MD5: 'md5' }, Charset: { UTF_8: 'utf8' },
+      computeDigest: (alg, texto) => [...createHash(alg).update(String(texto), 'utf8').digest()].map((b) => (b > 127 ? b - 256 : b)),
+      base64EncodeWebSafe: (bytes) => Buffer.from((Array.isArray(bytes) ? bytes : [...Buffer.from(String(bytes))]).map((b) => b & 255)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_'),
       formatDate: (data, tz, fmt) => {
         if (!(data instanceof sandbox.Date)) return String(data);
         // 23/09/2026: formata no fuso pedido (igual o Utilities real) -

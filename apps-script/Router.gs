@@ -10,13 +10,15 @@
  * pro Google (tokeninfo), então checar 2x por request gastava um round-trip
  * externo à toa. Mesmo padrão que handlePing(auth) (Auth.gs) já usava.
  *
- * IMPORTANTE: depois de colar isso e salvar, o Web App só passa a
- * responder com o comportamento novo depois de uma NOVA VERSÃO de
- * implantação — Implantar → Gerenciar implantações → ✎ (editar) →
- * Versão: Nova versão → Implantar. Só salvar no editor não é suficiente.
+ * IMPORTANTE: o Web App só responde com o código novo depois de uma NOVA
+ * VERSÃO na implantação que o site usa. 08/10/2026: `npm run gas:publicar`
+ * (scripts/gas.mjs, clasp) envia a pasta apps-script/ e atualiza essa
+ * implantação; no editor: Implantar → Gerenciar implantações → ✎ → Nova versão.
  */
 
 function doGet(e) {
+  if (typeof iniciarExecucao_ === 'function') iniciarExecucao_(); // 08/10/2026: nada de memória de outra execução (Planilha.gs)
+  if (typeof iniciarRequisicao_ === 'function') iniciarRequisicao_(e, 'GET'); // 08/10/2026: _ms e etag (Auth.gs!jsonOut)
   var action = e.parameter.action;
 
   var auth = verificarToken(e.parameter.token);
@@ -157,6 +159,8 @@ function doGet(e) {
  * trocam de chave sozinhas, sem cada handler lembrar de invalidar.
  */
 function doPost(e) {
+  if (typeof iniciarExecucao_ === 'function') iniciarExecucao_();
+  if (typeof iniciarRequisicao_ === 'function') iniciarRequisicao_(e, 'POST');
   _POST_AUTENTICADO_ = false;
   try {
     return doPostRotas_(e);

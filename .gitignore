@@ -26,3 +26,7 @@ documents/
 assets/imgs/*.pdf
 __pycache__/
 *.pyc
+
+# 08/10/2026: clasp (scripts/gas.mjs) - ID do script e credenciais ficam só no seu computador
+.clasp.json
+.clasprc.json

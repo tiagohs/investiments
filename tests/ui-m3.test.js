@@ -266,3 +266,14 @@ test('erro de autorização do Apps Script: tela de erro e aviso parcial dizem p
   renderAvisosParciais(d.getElementById('a'), { home: 'Timeout' }, {});
   assert.match(d.getElementById('a').textContent, /Algumas partes não carregaram agora/);
 });
+
+// 08/10/2026: a 2ª conta entrou antes de ser liberada e o site dizia "Sua sessão expirou"
+test('conta Google não liberada: "Esta conta Google não tem acesso" e botão pra entrar com outra conta', () => {
+  const resposta = { ok: false, etapa: 'autenticação', erro: 'e-mail não autorizado: alguem@exemplo.test' };
+  assert.equal(classificarErroCarga({ resposta }), 'semAcesso');
+  const { window } = new JSDOM('<div id="e"></div>');
+  const d = window.document;
+  mostrarErroCarga(d.getElementById('e'), { tela: 'Início', resposta });
+  assert.match(d.getElementById('e').textContent, /Esta conta Google não tem acesso.*liberar o seu e-mail.*Entrar com outra conta/);
+  assert.equal(classificarErroCarga({ resposta: { ok: false, etapa: 'autenticação', erro: 'sessão expirada' } }), 'sessao');
+});

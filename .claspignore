@@ -1,0 +1,4 @@
+# 08/10/2026 (scripts/gas.mjs): o clasp envia só o código do Apps Script e o manifesto
+**/**
+!**/*.gs
+!appsscript.json

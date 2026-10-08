@@ -124,7 +124,8 @@ function chaveCacheCarteirasRf_(ss, leitura) {
   var linhas = function (nome) { var aba = ss.getSheetByName(nome); return aba ? aba.getLastRow() : 0; };
   var contagens = [ABA_TRANSACOES_RF, ABA_HISTORICO_INDICES].map(linhas).join('_');
   var conteudo = hashTextoRf_(JSON.stringify([leitura.carteira, leitura.resumo, leitura.lotes]));
-  return 'rfcart_v1_' + conteudo + '_' + chaveDiaISOInicio_(new Date()) + '_' + contagens + '_' + versaoRf + '_' + versaoAtivos;
+  // 08/10/2026: + geração (Planilha.gs!carimboEscritaPlanilha_) - toda mudança na planilha, até à mão, recalcula
+  return 'rfcart_v2_' + conteudo + '_' + chaveDiaISOInicio_(new Date()) + '_' + contagens + '_' + versaoRf + '_' + versaoAtivos + '_g' + carimboEscritaPlanilha_();
 }
 
 /** Resultado montado: do CacheService se a chave (conteúdo/contagens/dia/versão) é a mesma, senão calcula e guarda. */

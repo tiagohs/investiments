@@ -628,3 +628,12 @@ a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:cen
 
 /* 05/10/2026: no trilho o rótulo existe só pra leitor de tela / testes (o ícone tem title e aria-label) */
 .nav-rail .nav-label{ position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+
+/* 08/10/2026 (Etapa 0): "Desempenho neste aparelho" no popover do Registro de Controle */
+.sync-desempenho{ margin:0 0 10px; border-top:1px solid var(--border); padding-top:8px; }
+.sync-desempenho > summary{ cursor:pointer; font-weight:600; font-size:.85rem; padding:4px; }
+.desempenho-tabela{ width:100%; border-collapse:collapse; font-size:.8rem; font-variant-numeric:tabular-nums; margin-top:6px; }
+.desempenho-tabela th, .desempenho-tabela td{ text-align:right; padding:5px 4px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.desempenho-tabela th[scope="row"], .desempenho-tabela thead th:first-child{ text-align:left; white-space:normal; }
+.desempenho-tabela th[scope="row"] small{ display:block; font-weight:400; color:var(--text-muted, inherit); opacity:.8; }
+.desempenho-tabela thead th{ font-weight:600; font-size:.75rem; }

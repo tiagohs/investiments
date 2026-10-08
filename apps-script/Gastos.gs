@@ -73,7 +73,7 @@ function handleGastos(e, auth) {
   } catch (eC) { chave = null; }
   // 05/10/2026 (Tiago, P3: depois de importar, a seção Gastos aparecia vazia até dar reload): a gravação reescreve a aba
   // inteira (limpa e escreve); uma leitura no meio disso voltava SEM lançamentos. A leitura espera a gravação terminar.
-  var trava = travaRecurso_('gastos', 'gastos (importar/salvar/ler)');
+  var trava = travaRecurso_('gastos', 'gastos (importar/salvar/ler)', { leitura: true }); // 08/10/2026: só espera a escrita; não muda a geração
   var travou = false;
   try { trava.waitLock(8000); travou = true; } catch (eL) { /* lê mesmo assim */ }
   try {

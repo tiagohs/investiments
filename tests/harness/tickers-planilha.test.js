@@ -50,13 +50,13 @@ test('carregarListasTickersDaPlanilha_ (Planilha.gs) delega, 1x por execução; 
   sb.carregarListasTickersDaPlanilha_(ss);
   sb.carregarListasTickersDaPlanilha_(ss);
   assert.equal(leituras, 1, '2 chamadas na mesma execução, 1 leitura');
-  assert.ok(cache.get('SYNC_TICKERS_PLANILHA_V1'), 'cache gravado');
+  assert.ok(cache.get('SYNC_TICKERS_PLANILHA_V2'), 'cache gravado');
   // ativo novo cadastrado (NovoAtivo/Consolidação zeram a flag): aparece na hora, sem esperar o cache vencer
   aux.l.push(['Ações', 'FFFF3', 'novo'].map((v) => ({ v, f: '', r1c1: '' })));
   sb._listasTickersCarregadas_ = false;
   sb.carregarListasTickersDaPlanilha_(ss);
   assert.ok(sb.TICKERS_BR.includes('FFFF3') && sb.TICKERS_ACOES_BR.includes('FFFF3'));
-  assert.equal(JSON.parse(cache.get('SYNC_TICKERS_PLANILHA_V1')).acoes.includes('FFFF3'), true, 'cache renovado');
+  assert.equal(JSON.parse(cache.get('SYNC_TICKERS_PLANILHA_V2')).acoes.includes('FFFF3'), true, 'cache renovado');
 });
 
 test('carregarTickersDaPlanilha_: numa execução NOVA usa o cache (não lê a planilha) até ele vencer', () => {
@@ -70,7 +70,7 @@ test('carregarTickersDaPlanilha_: numa execução NOVA usa o cache (não lê a p
   sb.carregarTickersDaPlanilha_(ss);
   assert.equal(leituras, 0, 'veio do cache');
   assert.deepEqual(plain(sb.TICKERS_BR), ['AAAA3', 'AAAA7', 'BBBB11', 'BBBC11']);
-  cache.delete('SYNC_TICKERS_PLANILHA_V1'); sb._tickersPlanilhaLeituras_ = 0;
+  cache.delete('SYNC_TICKERS_PLANILHA_V2'); sb._tickersPlanilhaLeituras_ = 0;
   sb.carregarTickersDaPlanilha_(ss);
   assert.equal(leituras, 1, 'cache vazio: lê de novo');
 });

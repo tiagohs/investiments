@@ -10,7 +10,10 @@
     "verificar": "node tests/harness/verificar.mjs",
     "vigiar": "node tests/harness/verificar.mjs --vigiar",
     "relatorio": "node tests/harness/relatorio-telas.mjs",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "gas:configurar": "node scripts/gas.mjs configurar",
+    "gas:conferir": "node scripts/gas.mjs conferir",
+    "gas:publicar": "node scripts/gas.mjs publicar"
   },
   "engines": {
     "node": ">=20"

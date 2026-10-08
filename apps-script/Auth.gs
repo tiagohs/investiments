@@ -61,6 +61,8 @@ function validarEmail_(email) {
  * como usuário de teste (docs/historico-projeto.md, 08/10/2026).
  */
 function autorizarOutroEmailDireto(email) {
+  // 08/10/2026: o botão "Executar" do editor chama a função SEM parâmetro - diz o que fazer em vez de "E-mail inválido: undefined"
+  if (!email) throw new Error('Falta o e-mail. O botão Executar não passa parâmetro: crie uma função com a linha autorizarOutroEmailDireto("conta@exemplo.com") e rode ela, ou edite em Configurações do projeto › Propriedades do script a EMAIL_AUTORIZADO (e-mails separados por vírgula, o seu primeiro).');
   var e = validarEmail_(email);
   var lista = emailsAutorizados_();
   if (!lista.length) throw new Error('Nenhum e-mail configurado ainda: rode configurarEmailAutorizado() primeiro (o seu).');
@@ -195,8 +197,45 @@ function verificarToken(token) {
   }
 }
 
+/**
+ * 08/10/2026 (Etapa 0): estado da requisição atual, preenchido por Router.gs!doGet/doPost - quando começou (pro `_ms`) e
+ * a "impressão digital" (etag) da resposta que o navegador já tem (GET).
+ */
+var _REQ_ = null;
+
+function iniciarRequisicao_(e, metodo) {
+  _REQ_ = { inicio: Date.now(), metodo: metodo, etag: String((e && e.parameter && e.parameter.etag) || '') };
+}
+
+/** MD5 da resposta em base64url (impressão digital do conteúdo); '' se o ambiente não tiver o Utilities. */
+function etagDoTexto_(texto) {
+  try {
+    var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, texto, Utilities.Charset.UTF_8);
+    return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, '');
+  } catch (e) { return ''; }
+}
+
+/**
+ * Resposta JSON. 08/10/2026 (Etapa 0 - medir e não reenviar o que o navegador já tem):
+ *  - toda resposta ganha `_ms` (tempo do servidor nesta execução) - o site mostra em "Desempenho";
+ *  - GET com ok: ganha `_etag` (impressão digital do CONTEÚDO). Se o navegador mandou a mesma etag (já tem exatamente
+ *    esse conteúdo), volta só { ok, naoMudou: true } em vez de reenviar tudo (a Início tem ~1,8 MB). Pela impressão do
+ *    conteúdo, não por pista: nunca devolve "não mudou" quando mudou.
+ */
 function jsonOut(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  var texto = JSON.stringify(obj);
+  var ms = _REQ_ ? Date.now() - _REQ_.inicio : null;
+  if (_REQ_ && _REQ_.metodo === 'GET' && obj && obj.ok === true && texto.length > 2 && texto.charAt(texto.length - 1) === '}') {
+    var etag = etagDoTexto_(texto);
+    if (etag && _REQ_.etag && etag === _REQ_.etag) {
+      texto = JSON.stringify({ ok: true, naoMudou: true, _etag: etag, _ms: ms });
+    } else if (etag) {
+      texto = texto.slice(0, -1) + ',"_etag":"' + etag + '","_ms":' + ms + '}';
+    }
+  } else if (ms !== null && obj && typeof obj === 'object' && !Array.isArray(obj) && texto.charAt(texto.length - 1) === '}' && texto.length > 2) {
+    texto = texto.slice(0, -1) + ',"_ms":' + ms + '}';
+  }
+  return ContentService.createTextOutput(texto).setMimeType(ContentService.MimeType.JSON);
 }
 
 /**
