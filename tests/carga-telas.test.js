@@ -82,7 +82,7 @@ const ORCAMENTO = {
   'ativo/index.html': { modulos: 63, kb: 1210 },
   'transacoes/index.html': { modulos: 58, kb: 830 },
   'proventos/index.html': { modulos: 46, kb: 680 },
-  'organizacao/despesas.html': { modulos: 68, kb: 1460 },
+  'organizacao/despesas.html': { modulos: 68, kb: 1465 }, // 08/10/2026: +~1 KB - aviso de autorização do Apps Script (ui/erro-carga.js, avisos-parciais.js)
   'login.html': { modulos: 6, kb: 50 },
 };
 for (const [html, teto] of Object.entries(ORCAMENTO)) {

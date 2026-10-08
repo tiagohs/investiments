@@ -44,7 +44,7 @@ export function cotaFundoHtml(ctx) {
   const f = ctx.fundoRf;
   if (!f) return '';
   const c = f.comparacao;
-  const hoje = hojeSP(new Date());
+  const hoje = f.hoje || hojeSP(new Date()); // 08/10/2026: o dia do servidor quando veio (o teste fixava 07/10 e o relógio virou)
   const linhas = [];
   if (c) {
     linhas.push(

@@ -182,7 +182,7 @@ export function montarFundoRf(resposta, fundos = null) {
   const informada = (resposta.fundo && resposta.fundo.cotaInformada) || null;
   const cota = cotaMaisRecente(detalhes, informada);
   return {
-    nome, info: detalhes, chave: info ? info.chave : null,
+    nome, info: detalhes, chave: info ? info.chave : null, hoje: resposta.hoje || null, // 08/10/2026: "hoje" do servidor (limite da data da cota)
     cdiMensal: (resposta.fundo && resposta.fundo.cdiMensal) || {},
     cotaInformada: informada, cota, cotas,
     comparacao: compararCota({ cotas, cota, valorEstimado: ultimo ? ultimo.valor : null, dataEstimado: ultimo ? ultimo.data : null, valorTitulo: num(a.totalAtualizado) }),

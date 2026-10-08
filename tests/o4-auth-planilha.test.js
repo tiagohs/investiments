@@ -86,3 +86,24 @@ test('A-80: opcoesTeste só aceita abas "aux_tests*"; teste.html saiu da raiz; _
   assert.match(fs.readFileSync(new URL('.gitignore', raiz), 'utf8'), /__pycache__/);
   for (const a of ['apps-script/ImportB3.gs', 'apps-script/Sync.gs']) assert.match(fs.readFileSync(new URL(a, raiz), 'utf8'), /nomeAbaTesteValido_\(opcoesTeste\./);
 });
+
+// 08/10/2026 (Tiago: "quero adicionar mais um usuário, com outro gmail, para acessar o site e todos os funcionamentos")
+test('mais de um e-mail autorizado: autorizar, listar, remover (o dono não sai) e trocar o dono mantém os outros', () => {
+  const { sb, props } = sandbox('dono@exemplo.test');
+  assert.throws(() => sb.autorizarOutroEmailDireto('outra@exemplo.test'), /configurarEmailAutorizado/, 'sem dono configurado, não começa pela 2ª conta');
+  sb.configurarEmailAutorizado();
+  sb.autorizarOutroEmailDireto(' Outra@Exemplo.test ');
+  sb.autorizarOutroEmailDireto('outra@exemplo.test');
+  assert.equal(props.get('EMAIL_AUTORIZADO'), 'dono@exemplo.test,outra@exemplo.test');
+  assert.equal(sb.emailConfere_('OUTRA@exemplo.test'), true);
+  assert.equal(sb.emailConfere_('terceira@exemplo.test'), false);
+  assert.equal(sb.emailAutorizado_(), 'dono@exemplo.test');
+  assert.deepEqual([...sb.listarEmailsAutorizadosDireto()], ['dono@exemplo.test', 'outra@exemplo.test']);
+  assert.throws(() => sb.autorizarOutroEmailDireto('sem-arroba'));
+  assert.throws(() => sb.removerEmailAutorizadoDireto('dono@exemplo.test'), /dono/);
+  sb.configurarEmailAutorizado('novo-dono@exemplo.test');
+  assert.equal(props.get('EMAIL_AUTORIZADO'), 'novo-dono@exemplo.test,outra@exemplo.test');
+  sb.removerEmailAutorizadoDireto('outra@exemplo.test');
+  assert.equal(sb.emailConfere_('outra@exemplo.test'), false);
+  assert.equal(sb.emailConfere_('novo-dono@exemplo.test'), true);
+});

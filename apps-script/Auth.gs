@@ -3,8 +3,10 @@
  * token direto com o Google) e o helper de resposta JSON, compartilhados
  * por todos os handlers do projeto (Router.gs, Sync.gs, ImportB3.gs).
  *
- * Single-user app: só aceita o e-mail guardado na propriedade EMAIL_AUTORIZADO
- * do script (PropertiesService) — não há gestão de múltiplos usuários.
+ * Só aceita os e-mails guardados na propriedade EMAIL_AUTORIZADO do script (PropertiesService).
+ * 08/10/2026 (Tiago: "quero adicionar mais um usuário, com outro gmail... todos os funcionamentos"): a
+ * propriedade aceita uma LISTA (separada por vírgula) - todos veem e mexem nos MESMOS dados (o app roda
+ * como o dono). autorizarOutroEmailDireto / removerEmailAutorizadoDireto / listarEmailsAutorizadosDireto.
  *
  * 06/10/2026 (A-27): o e-mail saiu do código (repositório público). Rode
  * configurarEmailAutorizado() UMA vez no editor ANTES de implantar esta versão
@@ -28,15 +30,61 @@ const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleuser
 var SESSAO_DIAS = 7;
 var PROP_SEGREDO_SESSAO = 'SESSAO_SEGREDO';
 
-/** E-mail autorizado (propriedade EMAIL_AUTORIZADO); '' se ainda não configurado. */
-function emailAutorizado_() {
-  return String(PropertiesService.getScriptProperties().getProperty(PROP_EMAIL_AUTORIZADO) || '').trim().toLowerCase();
+/** E-mails autorizados (propriedade EMAIL_AUTORIZADO, separados por vírgula), minúsculos e sem repetição; [] se nada configurado. */
+function emailsAutorizados_() {
+  var bruto = String(PropertiesService.getScriptProperties().getProperty(PROP_EMAIL_AUTORIZADO) || '');
+  var out = [];
+  bruto.split(/[,;\s]+/).forEach(function (e) { e = e.trim().toLowerCase(); if (e && out.indexOf(e) === -1) out.push(e); });
+  return out;
 }
 
-/** Confere `email` contra o autorizado; sem e-mail configurado, NINGUÉM entra (falha fechada). */
+/** O 1º e-mail autorizado (o dono); '' se ainda não configurado. */
+function emailAutorizado_() {
+  return emailsAutorizados_()[0] || '';
+}
+
+/** Confere `email` contra a lista; sem e-mail configurado, NINGUÉM entra (falha fechada). */
 function emailConfere_(email) {
-  var autorizado = emailAutorizado_();
-  return !!autorizado && String(email || '').trim().toLowerCase() === autorizado;
+  var e = String(email || '').trim().toLowerCase();
+  return !!e && emailsAutorizados_().indexOf(e) !== -1;
+}
+
+function validarEmail_(email) {
+  var e = String(email || '').trim().toLowerCase();
+  if (!/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(e)) throw new Error('E-mail inválido: "' + email + '"');
+  return e;
+}
+
+/**
+ * Rode no editor: dá acesso ao site a mais uma conta Google (`email`). Ela entra com "Fazer login com o Google" e vê/mexe
+ * nos MESMOS dados que você (a planilha é a sua). Se o login do Google estiver em modo "Em teste", adicione o e-mail também
+ * como usuário de teste (docs/historico-projeto.md, 08/10/2026).
+ */
+function autorizarOutroEmailDireto(email) {
+  var e = validarEmail_(email);
+  var lista = emailsAutorizados_();
+  if (!lista.length) throw new Error('Nenhum e-mail configurado ainda: rode configurarEmailAutorizado() primeiro (o seu).');
+  if (lista.indexOf(e) === -1) lista.push(e);
+  PropertiesService.getScriptProperties().setProperty(PROP_EMAIL_AUTORIZADO, lista.join(','));
+  Logger.log('E-mails autorizados: ' + lista.join(', '));
+  return lista;
+}
+
+/** Rode no editor: tira o acesso de `email` (as sessões abertas dele param de valer na hora). O dono (1º da lista) não sai. */
+function removerEmailAutorizadoDireto(email) {
+  var e = validarEmail_(email);
+  var lista = emailsAutorizados_();
+  if (lista[0] === e) throw new Error('Esse é o e-mail do dono (o 1º da lista) - não removo.');
+  lista = lista.filter(function (x) { return x !== e; });
+  PropertiesService.getScriptProperties().setProperty(PROP_EMAIL_AUTORIZADO, lista.join(','));
+  Logger.log('E-mails autorizados: ' + lista.join(', '));
+  return lista;
+}
+
+function listarEmailsAutorizadosDireto() {
+  var lista = emailsAutorizados_();
+  Logger.log(lista.length ? 'E-mails autorizados: ' + lista.join(', ') : 'Nenhum e-mail autorizado (ninguém entra).');
+  return lista;
 }
 
 /**
@@ -47,8 +95,10 @@ function emailConfere_(email) {
 function configurarEmailAutorizado(email) {
   var e = String(email || Session.getEffectiveUser().getEmail() || '').trim().toLowerCase();
   if (!e || e.indexOf('@') < 1) throw new Error('Não consegui descobrir o e-mail: chame configurarEmailAutorizado("seu@email.com").');
-  PropertiesService.getScriptProperties().setProperty(PROP_EMAIL_AUTORIZADO, e);
-  Logger.log('E-mail autorizado gravado: ' + e + ' — agora pode implantar a nova versão.');
+  // 08/10/2026: troca só o DONO (1º da lista); os outros e-mails autorizados continuam
+  var outros = emailsAutorizados_().slice(1).filter(function (x) { return x !== e; });
+  PropertiesService.getScriptProperties().setProperty(PROP_EMAIL_AUTORIZADO, [e].concat(outros).join(','));
+  Logger.log('E-mail autorizado gravado: ' + e + (outros.length ? ' (+ ' + outros.join(', ') + ')' : '') + ' — agora pode implantar a nova versão.');
 }
 
 function segredoSessao_() {
@@ -167,4 +217,25 @@ function handlePing(auth) {
   } catch (erro) {
     return jsonOut({ ok: false, erro: String(erro) });
   }
+}
+
+/**
+ * 08/10/2026 (Tiago: "Você não tem permissão para chamar SpreadsheetApp.getActiveSpreadsheet" - vez ou outra, e ele tinha
+ * que achar uma função pra rodar): rode no editor quando o site mostrar "O Apps Script perdeu a autorização do Google".
+ * Usa uma vez cada serviço que o projeto usa (planilha, Drive só leitura, internet, gatilhos, e-mail, seu e-mail), então
+ * o Google pede TODAS as permissões numa tela só. Não grava nada.
+ * Por que acontece: o Apps Script calcula as permissões pelo código; colar um arquivo que usa um serviço novo muda esse
+ * conjunto e a autorização anterior deixa de valer pra implantação até alguém aceitar de novo. Com "oauthScopes" fixo no
+ * appsscript.json (docs/historico-projeto.md, 08/10/2026), colar código não muda mais o conjunto.
+ */
+function autorizarProjetoDireto() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ok = ['Planilha: ' + ss.getName()];
+  ok.push('Drive: ' + DriveApp.getRootFolder().getName());
+  ok.push('Internet: ' + UrlFetchApp.fetch('https://www.google.com/generate_204', { muteHttpExceptions: true }).getResponseCode());
+  ok.push('Gatilhos: ' + ScriptApp.getProjectTriggers().length);
+  ok.push('E-mail (cota do dia): ' + MailApp.getRemainingDailyQuota());
+  ok.push('Conta: ' + Session.getEffectiveUser().getEmail());
+  Logger.log('Autorização OK - ' + ok.join(' | '));
+  return ok;
 }

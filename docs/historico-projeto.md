@@ -494,3 +494,15 @@ Objetivo: cada tela carrega só o que usa, **sem mudar o deploy** (GitHub Pages 
 - A coluna "Movimentação" de Transações / Transações - USA / Transações Renda Fixa tem validação "Compra,Venda" que recusa o resto. A B3 manda "APLICAÇÃO" (LCI) e o `setValues` do Apps Script parava na célula C: linha só com Produto+Data e o resto do arquivo fora. Agora toda gravação de lançamento passa por `Planilha.gs!linhasAceitasPelaValidacao_` antes: APLICAÇÃO/Subscrição viram Compra, Resgate/Vencimento viram Venda; o que a planilha não aceita (ex. "Juros") aparece como "Bloqueado" na conferência e "Não lançado" com o motivo - nunca linha pela metade. A deduplicação compara a movimentação já canônica (APLICAÇÃO = Compra). Função 1x: `repararLancamentosIncompletosDireto({ simular: true })`.
 - "A confirmar" de Renda Fixa: o aporte guarda "LCI - BANCO INTER S/A" e a B3 lança "LCI - <código>" - LCI/LCA/CDB casam por tipo + instituição (`Aportes.gs!mesmoTituloAporte_`, a regra de `casaTituloRf_`).
 - O harness lê as validações reais do .xlsx (`extrair-fixtures.py!validacoes_por_aba`) e recusa a escrita como o Apps Script (gravando até a célula recusada) - testes com a planilha real pegam esse tipo de erro.
+
+### 08/10/2026 (autorização do Apps Script que "some")
+
+- Sintoma: "Você não tem permissão para chamar SpreadsheetApp.getActiveSpreadsheet" em todas as seções, de vez em quando. Causa: sem `oauthScopes` no manifesto, o Apps Script deduz as permissões do código a cada vez que se salva; colar um arquivo que usa um serviço novo muda o conjunto e a autorização de antes deixa de valer até alguém aceitar de novo no editor.
+- Correção: escopos FIXOS no `appsscript.json` (Configurações do projeto › "Mostrar o arquivo de manifesto appsscript.json"), acrescentando (sem tirar o resto do arquivo):
+  `"oauthScopes": ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/script.external_request", "https://www.googleapis.com/auth/script.scriptapp", "https://www.googleapis.com/auth/script.send_mail", "https://www.googleapis.com/auth/userinfo.email"]`
+  (planilha; Drive só leitura - teses, IR, holerites, faturas; internet; gatilhos; e-mail do aviso de sync; o e-mail da conta). Serviço novo no código = acrescentar o escopo aqui.
+- `Auth.gs!autorizarProjetoDireto()` usa cada serviço uma vez (uma tela de permissões só); o site reconhece o erro e diz pra rodar essa função (ui/erro-carga.js `autorizacao`, avisos-parciais.js).
+
+### 08/10/2026 (mais de uma conta no site)
+
+- `EMAIL_AUTORIZADO` (Propriedades do script) aceita uma lista separada por vírgula: o 1º é o dono. No editor: `autorizarOutroEmailDireto('outra@gmail.com')`, `removerEmailAutorizadoDireto(...)` (as sessões dela param na hora), `listarEmailsAutorizadosDireto()`. Todas as contas veem e mexem nos MESMOS dados (o Web App roda como o dono). Se a tela de consentimento do cliente OAuth do login estiver "Em teste", a conta nova também precisa estar em "Usuários de teste" (Google Cloud › Google Auth Platform › Público-alvo) - ou publique o app (grátis; com só os escopos de login não precisa de verificação).

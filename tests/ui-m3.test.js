@@ -248,3 +248,21 @@ test('mountRefreshControl: falha (resultado false ou exceção) mostra "Falhou a
   assert.ok(!r.querySelector('.refresh-status').classList.contains('erro'));
   dom.window.close();
 });
+
+// 08/10/2026 (Tiago: "Você não tem permissão para chamar SpreadsheetApp.getActiveSpreadsheet" vez ou outra): isso é o Apps
+// Script sem autorização (não é sessão do site, não é rede) - a mensagem diz o que fazer (autorizarProjetoDireto no editor).
+test('erro de autorização do Apps Script: tela de erro e aviso parcial dizem pra rodar autorizarProjetoDireto (não "sessão expirou")', async () => {
+  const ERRO = 'Exception: Você não tem permissão para chamar SpreadsheetApp.getActiveSpreadsheet. Permissões necessárias: (https://www.googleapis.com/auth/spreadsheets.currentonly || https://www.googleapis.com/auth/spreadsheets).';
+  assert.equal(classificarErroCarga({ resposta: { ok: false, etapa: 'home', erro: ERRO } }), 'autorizacao');
+  assert.equal(classificarErroCarga({ resposta: { ok: false, erro: 'Exception: You do not have permission to call UrlFetchApp.fetch' } }), 'autorizacao');
+  assert.equal(classificarErroCarga({ resposta: { ok: false, etapa: 'autenticação', erro: 'token expirado' } }), 'sessao', 'sessão do site continua sessão');
+  const { window } = new JSDOM('<div id="e"></div><div id="a" hidden></div>');
+  const d = window.document;
+  mostrarErroCarga(d.getElementById('e'), { tela: 'Início', resposta: { ok: false, erro: ERRO }, aoTentar: () => {} });
+  assert.match(d.getElementById('e').textContent, /perdeu a autorização do Google.*autorizarProjetoDireto/);
+  const { renderAvisosParciais } = await import('../assets/js/pages/avisos-parciais.js');
+  renderAvisosParciais(d.getElementById('a'), { home: ERRO, historico: ERRO }, { home: 'dados gerais', historico: 'histórico' });
+  assert.match(d.getElementById('a').textContent, /perdeu a autorização do Google.*autorizarProjetoDireto.*dados gerais, histórico/);
+  renderAvisosParciais(d.getElementById('a'), { home: 'Timeout' }, {});
+  assert.match(d.getElementById('a').textContent, /Algumas partes não carregaram agora/);
+});
