@@ -268,6 +268,11 @@ function handlePing(auth) {
  * appsscript.json (docs/historico-projeto.md, 08/10/2026), colar código não muda mais o conjunto.
  */
 function autorizarProjetoDireto() {
+  // 08/10/2026 (Tiago: rodou, não abriu janela nenhuma e o log disse "FALTAM PERMISSÕES: spreadsheets, drive.file" com o
+  // appsscript.json certo): o Google agora tem consentimento GRANULAR - dá pra aceitar só parte das permissões (ou ficar
+  // com uma autorização antiga, de antes do "oauthScopes" fixo), e rodar uma função que só usa as já aceitas não pergunta
+  // nada. requireAllScopes encerra esta execução e ABRE a janela pedindo o que falta; aceite tudo e rode de novo.
+  if (typeof ScriptApp.requireAllScopes === 'function') ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var ok = ['Planilha: ' + ss.getName()];
   ok.push('Drive: ' + DriveApp.getRootFolder().getName());
@@ -275,6 +280,50 @@ function autorizarProjetoDireto() {
   ok.push('Gatilhos: ' + ScriptApp.getProjectTriggers().length);
   ok.push('E-mail (cota do dia): ' + MailApp.getRemainingDailyQuota());
   ok.push('Conta: ' + Session.getEffectiveUser().getEmail());
-  Logger.log('Autorização OK - ' + ok.join(' | '));
+  // confere de verdade as permissões que o Google deu (o "OK" acima não garante o drive.file, que só a cópia .xlsx usa)
+  var p = permissoesDoToken_();
+  var faltam = p.faltam;
+  if (faltam.length) {
+    ok.push('FALTAM PERMISSÕES: ' + faltam.join(', ') + '. Se a janela de permissão não abriu: em myaccount.google.com/connections remova o acesso de "' +
+      'Finanças - Ações" (o projeto do Apps Script), volte aqui, rode esta função de novo e marque TODAS as caixas');
+    ok.push('O Google deu: ' + (p.tem.length ? p.tem.join(', ') : '(não consegui ler)'));
+  } else ok.push('Permissões: todas');
+  Logger.log('Autorização ' + (faltam.length ? 'INCOMPLETA' : 'OK') + ' - ' + ok.join(' | '));
   return ok;
+}
+
+/** Escopos do manifesto (scripts/gas.mjs!ESCOPOS) - o que o projeto pede ao Google. */
+var ESCOPOS_PROJETO_ = [
+  'https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/script.external_request', 'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/script.send_mail', 'https://www.googleapis.com/auth/userinfo.email'
+];
+
+function abreviarEscopo_(e) { return String(e).replace('https://www.googleapis.com/auth/', ''); }
+
+/**
+ * { tem, faltam } (nomes curtos). Pergunta ao próprio Google: primeiro o Apps Script (getAuthorizationInfo, que conhece o
+ * consentimento granular), e na falta dele o tokeninfo do token desta execução.
+ */
+function permissoesDoToken_() {
+  var tem = [];
+  try {
+    if (typeof ScriptApp.getAuthorizationInfo === 'function') {
+      var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL, ESCOPOS_PROJETO_);
+      if (info && typeof info.getAuthorizedScopes === 'function') tem = info.getAuthorizedScopes() || [];
+    }
+    if (!tem.length) {
+      var r = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(ScriptApp.getOAuthToken()), { muteHttpExceptions: true });
+      tem = String(JSON.parse(r.getContentText()).scope || '').split(/\s+/).filter(String);
+    }
+  } catch (e) { return { tem: [], faltam: [] }; }
+  return {
+    tem: tem.map(abreviarEscopo_),
+    faltam: ESCOPOS_PROJETO_.filter(function (e) { return tem.indexOf(e) === -1; }).map(abreviarEscopo_)
+  };
+}
+
+/** Compatível com quem já chamava: só a lista do que falta. */
+function permissoesQueFaltam_() {
+  return permissoesDoToken_().faltam;
 }

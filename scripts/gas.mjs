@@ -26,6 +26,7 @@ const CLASP = ['--yes', '@google/clasp@2.4.2'];
 export const ESCOPOS = [
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.readonly',
+  'https://www.googleapis.com/auth/drive.file', // 08/10/2026: só o que o script cria (cópia .xlsx diária - ExportarPlanilha.gs)
   'https://www.googleapis.com/auth/script.external_request',
   'https://www.googleapis.com/auth/script.scriptapp',
   'https://www.googleapis.com/auth/script.send_mail',
@@ -69,9 +70,36 @@ export function manifestoComEscopos(manifesto) {
   return m;
 }
 
+/**
+ * 08/10/2026 (Tiago: "sempre rode para mim"): se existir .clasprc.json na RAIZ do repositório (fora do git - .gitignore), o
+ * clasp usa ESSA credencial, numa pasta "home" temporária - assim o publicar roda de qualquer máquina que tenha a pasta
+ * (inclusive a do Claude, pela pasta conectada). Sem o arquivo, usa o login normal (~/.clasprc.json). A credencial
+ * renovada pelo clasp volta pro arquivo da raiz.
+ */
+const CLASPRC_RAIZ = path.join(RAIZ, '.clasprc.json');
+
+export function ambienteClasp(raizRc = CLASPRC_RAIZ, env = process.env) {
+  if (!fs.existsSync(raizRc)) return { env, depois: () => {} };
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'clasp-home-'));
+  const rcTemp = path.join(home, '.clasprc.json');
+  fs.copyFileSync(raizRc, rcTemp);
+  const npmCache = env.npm_config_cache || path.join(env.HOME || os.homedir(), '.npm');
+  return {
+    env: { ...env, HOME: home, USERPROFILE: home, npm_config_cache: npmCache },
+    depois: () => {
+      try { if (fs.readFileSync(rcTemp, 'utf8') !== fs.readFileSync(raizRc, 'utf8')) fs.copyFileSync(rcTemp, raizRc); } catch (e) { /* mantém a antiga */ }
+      try { fs.rmSync(home, { recursive: true, force: true }); } catch (e) { /* temporário */ }
+    },
+  };
+}
+
 function clasp(args, { cwd = RAIZ, capturar = false, dica = '' } = {}) {
   // 08/10/2026: a saída do clasp é sempre capturada e mostrada (antes, no erro, só aparecia "falhou" sem o motivo)
-  const r = spawnSync('npx', [...CLASP, ...args], { cwd, stdio: ['inherit', 'pipe', 'pipe'], encoding: 'utf8', shell: process.platform === 'win32' });
+  const amb = ambienteClasp();
+  let r;
+  try {
+    r = spawnSync('npx', [...CLASP, ...args], { cwd, env: amb.env, stdio: ['inherit', 'pipe', 'pipe'], encoding: 'utf8', shell: process.platform === 'win32' });
+  } finally { amb.depois(); }
   const txt = `${r.stdout || ''}${r.stderr || ''}`.trim();
   if (!capturar && txt) console.log(txt);
   if (r.status !== 0) {

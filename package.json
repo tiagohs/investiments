@@ -13,7 +13,8 @@
     "prepare": "git config core.hooksPath .githooks || true",
     "gas:configurar": "node scripts/gas.mjs configurar",
     "gas:conferir": "node scripts/gas.mjs conferir",
-    "gas:publicar": "node scripts/gas.mjs publicar"
+    "gas:publicar": "node scripts/gas.mjs publicar",
+    "fixtures:atualizar": "node scripts/atualizar-fixtures.mjs"
   },
   "engines": {
     "node": ">=20"
