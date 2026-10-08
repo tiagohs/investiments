@@ -59,7 +59,10 @@ export function ativoDoRadar(item, chaveTabela) {
     precoAtual: num(item.precoAtual),
     precoTeto: num(item.precoTeto),
     precoMedio: num(item.precoMedio),
-    quantidade: num(item.carteiraAtual) > 0 ? 1 : 0, // o Radar não tem a quantidade; só importa se tem posição
+    // 08/10/2026: o Radar agora traz a quantidade (DistribuicoesMetas.gs, das abas Carteira); sem ela (versão antiga do Apps Script)
+    // só importa se tem posição - e aí a conta de "quantas cotas pra ficar no lucro" não entra (quantidadeReal: false)
+    quantidade: num(item.quantidade) > 0 ? item.quantidade : (num(item.carteiraAtual) > 0 ? 1 : 0),
+    quantidadeReal: num(item.quantidade) > 0,
     variacaoDia: num(item.variacaoDia),
     ultimoPago: null,
     // 03/10/2026: pro motor de critérios - segmento/tipo do FII e os fundamentos (contrato, quando o Radar trouxer)

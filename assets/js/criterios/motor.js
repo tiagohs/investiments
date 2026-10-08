@@ -47,6 +47,7 @@ import { sinaisMacro, LIMITE_PONTOS_MACRO } from './macro.js';
 import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './base-acoes.js';
 import { CRITERIOS_FIIS, REGRAS_FIIS, SEGMENTOS_FII, segmentoDoFii, classeDoSegmento } from './base-fiis.js';
 import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
+import { simularSaidaPrejuizo, resumoSaidaPrejuizo } from '../preco-medio-lucro.js'; // 08/10/2026: quantas cotas pra ficar no lucro
 
 // ---------------------------------------------------------------------------
 // Formatação (pt-BR, sem depender de format.js pra ficar puro e testável)
@@ -792,14 +793,22 @@ export function vereditoDe(nota, cobertura, eliminatorios, pontos) {
  * ponto positivo pra investir; se não, pode ser um ponto neutro").
  * { tom: 'bom'|'neutro', texto, peso, variacao } ou null sem posição.
  */
-export function sinalPrecoMedio({ precoAtual, precoMedio, quantidade, moeda = 'BRL' } = {}) {
+export function sinalPrecoMedio({ precoAtual, precoMedio, quantidade, moeda = 'BRL', quantidadeReal = true } = {}) {
   const p = num(precoAtual); const pm = num(precoMedio);
   if (!(p > 0) || !(pm > 0) || !((num(quantidade) || 0) > 0)) return null;
   const v = p / pm - 1;
   const pct = `${br(Math.abs(v) * 100, 1)}%`;
   const ajuda = 'Compara o preço de hoje com o preço médio que você pagou: abaixo dele, um aporte baixa o seu custo médio (ponto a favor, peso 1 a 1,5); acima, é só neutro.';
   if (Math.abs(v) < 0.005) return { tom: 'neutro', peso: 0, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} praticamente igual ao seu preço médio (${dinheiro(pm, moeda)})` };
-  if (v < 0) return { tom: 'bom', peso: v <= -0.1 + 1e-9 ? 1.5 : 1, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} abaixo do seu preço médio ${dinheiro(pm, moeda)} (−${pct}): aporte baixa seu custo médio` };
+  if (v < 0) {
+    // 08/10/2026 (Tiago: "inclua essa variável nas análises"): quanto falta pra sair do prejuízo (preco-medio-lucro.js) - só com a
+    // quantidade de verdade (o Radar antigo não mandava a quantidade)
+    const lucro = quantidadeReal ? resumoSaidaPrejuizo(simularSaidaPrejuizo({ quantidade, precoMedio: pm, precoAtual: p }), { moeda }) : null;
+    return {
+      tom: 'bom', peso: v <= -0.1 + 1e-9 ? 1.5 : 1, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} abaixo do seu preço médio ${dinheiro(pm, moeda)} (−${pct}): aporte baixa seu custo médio`,
+      textoLucro: lucro ? lucro.frase : null, dicaLucro: lucro ? lucro.dica : null,
+    };
+  }
   return { tom: 'neutro', peso: 0, variacao: v, ajuda, texto: `Preço ${dinheiro(p, moeda)} acima do seu preço médio ${dinheiro(pm, moeda)} (+${pct}): aporte sobe um pouco seu custo médio` };
 }
 
@@ -1019,6 +1028,11 @@ function pontosDeCarteira(e) {
   const out = [];
   const pm = sinalPrecoMedio({ precoAtual: ind.precoAtual, precoMedio: num(cart.precoMedio) != null ? cart.precoMedio : ind.precoMedio, quantidade: cart.quantidade, moeda: e.moeda === 'USD' ? 'USD' : 'BRL' });
   if (pm) out.push({ criterioId: 'carteira_preco_medio', nome: 'Preço x seu preço médio', grupo: 'carteira', tom: pm.tom, texto: `${pm.texto}.`, valor: pm.variacao, valorTexto: `${pm.variacao >= 0 ? '+' : '−'}${br(Math.abs(pm.variacao) * 100, 1)}%`, faixa: 'abaixo do preço médio', regua: '', fonte: null, fontes: [], peso: pm.tom === 'bom' ? 1.5 : 0.5, eliminatorio: false, informativo: true, ajuda: pm.ajuda });
+  // 08/10/2026: com a cotação abaixo do preço médio, quanto falta pra ficar no lucro (a conta da seção "Para ficar no lucro" do ativo)
+  if (pm && pm.textoLucro) {
+    const t = pm.textoLucro.replace(/^./, (c) => c.toUpperCase());
+    out.push({ criterioId: 'carteira_lucro', nome: 'Para ficar no lucro', grupo: 'carteira', tom: 'neutro', texto: `${t}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: 1, eliminatorio: false, informativo: true, ajuda: pm.dicaLucro });
+  }
   sinaisDeMetas({ classe: e.classe, ticker: e.ticker, ref: e.ref, marca: e.marca, metas: e.metas, valorSugerido: e.valorSugerido, moeda: e.moeda, cambio: e.cambio, dy: e.indicadores && e.indicadores.dy, max: 3 })
     .forEach((s) => out.push({ criterioId: `meta_${s.tipo}`, nome: `Meta: ${s.metaNome}`, grupo: 'carteira', tom: s.tom, texto: `${s.texto}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: s.tipo === 'completa' ? 2.5 : (s.tom === 'bom' ? 1.5 : 0.5), eliminatorio: false, informativo: true, metaId: s.metaId, ajuda: s.ajuda }));
   if (e.classe === 'rendaFixa') {

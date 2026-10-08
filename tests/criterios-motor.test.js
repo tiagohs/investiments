@@ -302,6 +302,14 @@ test('avaliarAtivo: pontos da carteira (preço médio e metas) entram fora da no
   const pm = com.pontos.find((p) => p.criterioId === 'carteira_preco_medio');
   assert.equal(pm.tom, 'bom');
   assert.equal(pm.grupo, 'carteira');
+  // 08/10/2026: e, abaixo do preço médio, "Para ficar no lucro" (informativo, neutro, com o detalhe no "i")
+  const lucro = com.pontos.find((p) => p.criterioId === 'carteira_lucro');
+  assert.ok(lucro, 'ponto "Para ficar no lucro"');
+  assert.equal(lucro.tom, 'neutro');
+  assert.equal(lucro.grupo, 'carteira');
+  assert.match(lucro.texto, /^(Lucro se a cota subir 10%: compre cerca de \d+ cotas|A cota precisa subir [\d,]+% para você empatar)/);
+  assert.match(lucro.ajuda, /para você empatar/);
+  assert.equal(com.nota, sem.nota);
   const rf = avaliarAtivo({ classe: 'rendaFixa', ticker: 'Tesouro Exemplo 2032', marca: 'emergencial', metas: [metaReserva(800)] });
   assert.equal(rf.nota, null);
   assert.equal(rf.pontos.length, 1);

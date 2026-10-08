@@ -833,3 +833,18 @@ test('Ações EUA a confirmar: "Lançar agora" chama a rotina do aporte, recarre
   assert.equal(doc.querySelectorAll('#txLista tr.tx-lista-aconfirmar').length, 0, 'virou lançamento real: some');
   assert.ok(toasts(doc).some((t) => /Lançado em Transações - USA: AAA ×2/.test(t)));
 });
+
+// 08/10/2026 (Tiago: "quantas cotas pra ficar no lucro"): no carrinho, o subtotal mostra o preço médio depois da compra
+test('aportes: subtotal com o preço médio depois da compra (PM R$ 24,00 → R$ 23,92) e o momento com as cotas pra ficar no lucro', async () => {
+  const dados = structuredClone(DADOS);
+  dados.classes.acoes[0].precoMedio = 24; // 100 cotas a 24, cotação 20
+  const { doc, w } = await montar({ getTransacoesImpl: async () => structuredClone(dados) });
+  clique(w, doc.querySelector('[data-stepper="acoes:ABCD3"] [data-passo="1"]'));
+  clique(w, doc.querySelector('[data-stepper="acoes:ABCD3"] [data-passo="1"]'));
+  const sub = doc.querySelector('[data-subtotal="acoes:ABCD3"]');
+  assert.match(txt(sub), /R\$ 40,00/);
+  assert.match(txt(sub.querySelector('.tx-novo-pm')), /^PM R\$ 24,00 → R\$ 23,92$/); // (100×24 + 2×20) / 102
+  assert.ok(sub.querySelector('.tx-novo-pm.good'));
+  // momento: subir 20% pra empatar; comprar hoje pra lucrar com +10% (22): 100 × 2 / 2 = 100 cotas
+  assert.match(txt(doc.querySelector('.tx-momento-tr')), /aporte baixa seu custo médio; lucro se a cota subir 10%: compre cerca de 100 cotas \(R\$ 2\.000\)/);
+});

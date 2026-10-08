@@ -1187,6 +1187,25 @@ test('renderRadarOportunidades(): tag de Preço médio fica vermelha quando a co
   assert.equal(badge.classList.contains('good'), false);
 });
 
+// 08/10/2026: embaixo do preço médio, no prejuízo e com a quantidade (Apps Script novo), o resumo de quantas cotas pra ficar no lucro
+test('renderRadarOportunidades(): no prejuízo com a quantidade, o preço médio ganha "Empata com +X%" e as cotas pra lucrar com +10%', () => {
+  const doc = makeDom('<div id="c"></div>');
+  const container = doc.getElementById('c');
+  const item = { ...RADAR_EXEMPLO.acoesNacionais.itens[0], precoAtual: 10, precoMedio: 15, quantidade: 100 };
+  renderRadarOportunidades(doc, container, { ...RADAR_EXEMPLO, acoesNacionais: { itens: [item], total: {} } });
+  const cel = container.querySelector('.radar-table tbody tr.radar-linha').children[3];
+  const linhas = [...cel.querySelectorAll('.radar-lucro small')].map((x) => x.textContent);
+  // 100 × (15 − 11) / (11 − 10) = 400 cotas
+  assert.deepEqual(linhas, ['Empata com +50,0%', 'Lucro em +10%: 400 cotas']);
+  assert.match(cel.querySelector('.radar-lucro').title, /Comprando 400 cotas hoje \(R\$\s4\.000\)/);
+  // sem a quantidade (Apps Script antigo) ou no lucro: nada
+  for (const outro of [{ ...item, quantidade: null }, { ...item, precoAtual: 16 }]) {
+    const c2 = doc.createElement('div');
+    renderRadarOportunidades(doc, c2, { ...RADAR_EXEMPLO, acoesNacionais: { itens: [outro], total: {} } });
+    assert.equal(c2.querySelector('.radar-lucro'), null);
+  }
+});
+
 test('renderRadarOportunidades(): tag de Preço médio sem cor (nem verde nem vermelha) quando os valores são iguais ou o dado falta', () => {
   const doc = makeDom('<div id="c"></div>');
   const container = doc.getElementById('c');

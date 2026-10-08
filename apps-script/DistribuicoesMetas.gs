@@ -471,12 +471,12 @@ function indiceColunaRadar_(letras) {
  *     - Tijolo/Híbrido/Papel - já vem de outro lugar, a coluna S do
  *     bloco de FIIs na própria Distribuição e Metas, não daqui).
  */
-function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento) {
+function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento, colQuantidade) {
   var mapa = {};
   if (!sheet) return mapa;
   var ultimaLinha = sheet.getLastRow();
   if (ultimaLinha < 9) return mapa;
-  var numCols = Math.max(colTicker, colVariacao, colSegmento || 0);
+  var numCols = Math.max(colTicker, colVariacao, colSegmento || 0, colQuantidade || 0);
   var valores = sheet.getRange(9, 1, ultimaLinha - 9 + 1, numCols).getValues();
   for (var i = 0; i < valores.length; i++) {
     var linha = valores[i];
@@ -484,18 +484,21 @@ function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento) {
     if (!ticker) continue;
     mapa[ticker] = {
       variacaoDia: linha[colVariacao - 1],
-      segmento: colSegmento ? linha[colSegmento - 1] : null
+      segmento: colSegmento ? linha[colSegmento - 1] : null,
+      // 08/10/2026: "Quantidade de cotas" - pra conta de quantas cotas comprar pra ficar no lucro (preco-medio-lucro.js)
+      quantidade: colQuantidade ? linha[colQuantidade - 1] : null
     };
   }
   return mapa;
 }
 
-/** Copia variacaoDia/segmento (quando existir) do mapa pra cada item, por ticker (item.ativo). */
+/** Copia variacaoDia/segmento/quantidade (quando existir) do mapa pra cada item, por ticker (item.ativo). */
 function enriquecerRadarComCarteira_(itens, mapa) {
   itens.forEach(function (item) {
     var info = mapa[item.ativo];
     item.variacaoDia = info && typeof info.variacaoDia === 'number' ? info.variacaoDia : null;
     if (info && info.segmento) item.segmento = info.segmento;
+    item.quantidade = info && typeof info.quantidade === 'number' && info.quantidade > 0 ? info.quantidade : null;
   });
 }
 
@@ -530,9 +533,10 @@ function montarRadarOportunidades_() {
   var internacionais = lerBlocoRadar_(dm, local.radarUsa, colunasInternacionais);
   var fiis = lerBlocoRadar_(dm, local.radarFiis, colunasFiis);
 
-  var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6);
-  var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6);
-  var mapaFiis = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira FIIs'), 1, 9, 4);
+  // quantidade: G nas abas de Ações (BR e USA), E na de FIIs
+  var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6, 7);
+  var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6, 7);
+  var mapaFiis = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira FIIs'), 1, 9, 4, 5);
   enriquecerRadarComCarteira_(nacionais.itens, mapaAcoes);
   enriquecerRadarComCarteira_(internacionais.itens, mapaAcoesUsa);
   enriquecerRadarComCarteira_(fiis.itens, mapaFiis);

@@ -385,3 +385,8 @@
 #distribuicaoMetaGrid:not(:empty){ margin-bottom:28px; }
 .dm-dist-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); }
 @media (max-width:900px){ .dm-dist-grid{ grid-template-columns:minmax(0,1fr); } }
+
+/* 08/10/2026: embaixo do preço médio (só no prejuízo) - quanto falta pra empatar e as cotas pra lucrar com +10% (preco-medio-lucro.js) */
+.radar-lucro{ display:flex; flex-direction:column; gap:0; margin-top:4px; cursor:help; }
+.radar-lucro small{ display:block; font-size:var(--md-sys-typescale-label-small-size, 11px); line-height:15px; color:var(--ink-muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.radar-lucro small:first-child{ color:var(--bad-ink); font-weight:600; }

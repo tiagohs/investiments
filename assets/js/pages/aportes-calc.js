@@ -373,8 +373,9 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     } else if (at - d >= 0.01) sinal(sinais, 'ruim', `Acima do % desejado no Radar (${formatPct(at)} de ${formatPct(d)})`, -1.5);
     else sinal(sinais, 'neutro', `No % desejado do Radar (${formatPct(at)} de ${formatPct(d)})`, 0);
   }
-  const pm = sinalPrecoMedio({ precoAtual: preco, precoMedio: a.precoMedio, quantidade: a.quantidade, moeda: a.moeda });
-  if (pm) sinal(sinais, pm.tom, pm.texto, pm.peso, pm.ajuda ? { ajuda: pm.ajuda } : null);
+  const pm = sinalPrecoMedio({ precoAtual: preco, precoMedio: a.precoMedio, quantidade: a.quantidade, moeda: a.moeda, quantidadeReal: a.quantidadeReal !== false });
+  // 08/10/2026: abaixo do preço médio, a mesma linha diz quanto falta pra ficar no lucro (o detalhe vai no "i")
+  if (pm) sinal(sinais, pm.tom, pm.textoLucro ? `${pm.texto}; ${pm.textoLucro}` : pm.texto, pm.peso, pm.ajuda ? { ajuda: pm.dicaLucro ? `${pm.ajuda} ${pm.dicaLucro}` : pm.ajuda } : null);
   const u = a.ultimoPago;
   if (preco > 0 && u && u.preco > 0) {
     const v = preco / u.preco - 1;

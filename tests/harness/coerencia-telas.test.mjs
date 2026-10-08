@@ -75,6 +75,25 @@ test('patrimônio de hoje: Início = soma das classes = Carteiras = Organizaçã
   ]), []);
 });
 
+// 08/10/2026: a conta de "quantas cotas pra ficar no lucro" do Radar usa a quantidade das abas Carteira - a mesma das telas de Carteiras
+test('Radar (Acompanhamento de Ativos): a quantidade de cada ativo é a mesma das Carteiras (Ações, FIIs, EUA)', (t) => {
+  if (!exigirFixtures(t, ABAS)) return;
+  const x = telas();
+  const pares = [['acoesNacionais', 'carteirasAcoes'], ['fiis', 'carteirasFiis'], ['acoesInternacionais', 'carteirasAcoesEua']];
+  const erros = [];
+  let comparados = 0;
+  for (const [bloco, tela] of pares) {
+    const qtd = new Map((x[tela].carteira.ativos || []).map((a) => [a.ticker, a.quantidade]));
+    for (const it of x.distribuicoesMetas.radar[bloco].itens || []) {
+      if (!qtd.has(it.ativo) || !(qtd.get(it.ativo) > 0)) continue;
+      comparados += 1;
+      erros.push(perto(`${bloco} ${it.ativo}: quantidade`, it.quantidade, qtd.get(it.ativo), 1e-6));
+    }
+  }
+  assert.ok(comparados > 0, 'nenhum ativo do Radar casou com as Carteiras');
+  assert.deepEqual(so(erros), []);
+});
+
 test('reserva de emergência: bruto igual em todas as telas; líquido = bruto - IR/IOF estimados (e é o que Distribuição e Metas usa)', (t) => {
   if (!exigirFixtures(t, ABAS)) return;
   const x = telas();

@@ -15,7 +15,15 @@ const rendaPassiva = { id: 'p1', nome: 'Renda passiva', tipo: 'rendaPassiva', st
 test('momento: preço abaixo do preço médio = bom ("aporte baixa seu custo médio"); acima = neutro (não pesa contra)', () => {
   const base = { ticker: 'ABCD3', moeda: 'BRL', precoAtual: 20, precoTeto: 30, quantidade: 10 };
   const abaixo = momentoAporte({ ...base, precoMedio: 22 }, 'acoes');
-  assert.ok(abaixo.sinais.some((s) => s.tom === 'bom' && s.texto === 'Preço R$ 20,00 abaixo do seu preço médio R$ 22,00 (−9,1%): aporte baixa seu custo médio'));
+  // 08/10/2026: + quanto falta pra ficar no lucro (22/20 = +10%: sem compra) e o detalhe no "i"
+  const sPm = abaixo.sinais.find((s) => s.tom === 'bom' && /preço médio/.test(s.texto));
+  assert.equal(sPm.texto, 'Preço R$ 20,00 abaixo do seu preço médio R$ 22,00 (−9,1%): aporte baixa seu custo médio; a cota precisa subir 10,0% para você empatar');
+  assert.match(sPm.ajuda, /Se cair 10% \(R\$\s18,00\), 10 cotas/);
+  const longe = momentoAporte({ ...base, precoMedio: 30 }, 'acoes').sinais.find((s) => /preço médio/.test(s.texto));
+  assert.match(longe.texto, /; lucro se a cota subir 10%: compre cerca de \d+ cotas \(R\$\s[\d.]+\)$/);
+  // Radar sem a quantidade (Apps Script antigo): sem a conta de cotas
+  const semQtd = momentoAporte({ ...base, precoMedio: 30, quantidade: 1, quantidadeReal: false }, 'acoes').sinais.find((s) => /preço médio/.test(s.texto));
+  assert.match(semQtd.texto, /aporte baixa seu custo médio$/);
   const acima = momentoAporte({ ...base, precoMedio: 15 }, 'acoes');
   const pm = acima.sinais.find((s) => /preço médio/.test(s.texto));
   assert.equal(pm.tom, 'neutro');

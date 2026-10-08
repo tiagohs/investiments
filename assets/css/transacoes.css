@@ -168,6 +168,10 @@ a.tx-kpi:hover{ background:var(--md-ext-color-card-hover); }
 .tx-qtd::placeholder{ color:var(--tx-muted); }
 .tx-subtotal{ display:block; margin-top:4px; font-family:var(--mono); font-size:var(--md-sys-typescale-body-small-size); font-weight:600; white-space:nowrap; text-align:right; }
 .tx-subtotal:empty{ display:none; }
+/* 08/10/2026: preço médio depois da compra, embaixo do subtotal */
+.tx-novo-pm{ display:block; margin-top:2px; font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; }
+.tx-novo-pm.good{ color:var(--good-ink); }
+.tx-novo-pm.bad{ color:var(--ink-muted); }
 .tx-rf-novo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:12px 16px; border:1px dashed var(--md-sys-color-outline); border-radius:16px; }
 .tx-rf-novo-rot{ font-size:var(--md-sys-typescale-label-medium-size); font-weight:500; color:var(--tx-muted); }
 .tx-rf-novo > .input{ min-height:44px; min-width:0; flex:1 1 160px; width:auto; font-size:var(--md-sys-typescale-body-medium-size); }

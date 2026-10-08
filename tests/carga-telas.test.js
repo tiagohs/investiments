@@ -74,13 +74,13 @@ test('modulepreload: cada módulo listado existe e cobre o fecho do script inlin
 const ORCAMENTO = {
   'index.html': { modulos: 59, kb: 840 },
   // 07/10/2026: Metas ganhou aporte crescente, estimativas e investimento fora da carteira (metas-calc-aporte/fora/grupo + metas-estimativas): de propósito, +2 módulos (+4 só em metas.html) e ~10 KB nas telas que importam o cálculo
-  'distribuicoes-metas.html': { modulos: 58, kb: 950 }, // 08/10/2026: +~1 KB - mensagens de autorização/conta sem acesso (ui/erro-carga.js) // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
+  'distribuicoes-metas.html': { modulos: 59, kb: 962 }, // 08/10/2026: +1 módulo e +10 KB - preco-medio-lucro.js (quantas cotas pra ficar no lucro, usado pelo motor de critérios) // 08/10/2026: +~1 KB - mensagens de autorização/conta sem acesso (ui/erro-carga.js) // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
   // 07/10/2026: +analise-cambio.js (dólar x preço nas análises de Ações EUA) subiu esses dois ~9 KB: teto 1010 -> 1025 de propósito
   // 07/10/2026: +destino-renda-fixa.js (o conceito único do destino de um título de Renda Fixa: emergencial | longo prazo | objetivo): de propósito, +1 módulo (~2 KB) onde a tela decide o destino
   'metas.html': { modulos: 57, kb: 1077 }, // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
   'carteiras/index.html': { modulos: 63, kb: 1060 },
-  'ativo/index.html': { modulos: 63, kb: 1210 },
-  'transacoes/index.html': { modulos: 58, kb: 832 }, // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
+  'ativo/index.html': { modulos: 65, kb: 1232 }, // 08/10/2026: +2 módulos e +20 KB - preco-medio-lucro.js e ativo-preco-medio.js (seção "Para ficar no lucro")
+  'transacoes/index.html': { modulos: 59, kb: 844 }, // 08/10/2026: +1 módulo e +10 KB - preco-medio-lucro.js (PM depois da compra no carrinho) // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
   'proventos/index.html': { modulos: 46, kb: 682 }, // 08/10/2026 (Etapa 0): +2 KB - api-client (etag + medida de tempo)
   'organizacao/despesas.html': { modulos: 68, kb: 1465 }, // 08/10/2026: +~1 KB - aviso de autorização do Apps Script (ui/erro-carga.js, avisos-parciais.js)
   'login.html': { modulos: 6, kb: 53 }, // 08/10/2026 (Etapa 0): +2 KB - api-client guarda a resposta com etag e mede o tempo (cache-dados.js e desempenho.js vêm sob demanda)

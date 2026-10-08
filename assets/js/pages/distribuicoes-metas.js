@@ -150,6 +150,7 @@
  * segurar o resto da página; enquanto não chegam, o rodapé fica "carregando".
  */
 
+import { simularSaidaPrejuizo, resumoSaidaPrejuizo } from '../preco-medio-lucro.js'; // 08/10/2026: quantas cotas pra ficar no lucro
 import {
   getDistribuicoesMetas,
   salvarMetaRendaPassiva as salvarMetaRendaPassivaApi,
@@ -1320,6 +1321,21 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       badge.className = `radar-desconto-badge chip-tonal${classe ? ` ${classe} ${classe === 'good' ? 'chip-good' : classe === 'bad' ? 'chip-bad' : ''}` : ''}`;
       badge.innerHTML = formatarPrecoRadarComConversao_(item.precoMedio, chaveTabela, cotacaoDolar);
       td.appendChild(badge);
+      // 08/10/2026 (Tiago: "quantas cotas preciso comprar pra ficar no lucro", resumido na tabela): só no prejuízo e com a
+      // quantidade (que o Apps Script novo manda); o detalhe completo fica no title e na tela do ativo
+      const lucro = resumoSaidaPrejuizo(simularSaidaPrejuizo({ quantidade: item.quantidade, precoMedio: item.precoMedio, precoAtual: item.precoAtual }),
+        { moeda: chaveTabela === 'acoesInternacionais' ? 'USD' : 'BRL' });
+      if (lucro) {
+        const resumo = doc.createElement('span');
+        resumo.className = 'radar-lucro';
+        resumo.title = lucro.dica;
+        lucro.curto.forEach((linha) => {
+          const l = doc.createElement('small');
+          l.textContent = linha;
+          resumo.appendChild(l);
+        });
+        td.appendChild(resumo);
+      }
     } else if (coluna.chave === 'precoTeto') {
       td.classList.add('radar-preco-teto');
       td.innerHTML = formatarPrecoRadarComConversao_(item.precoTeto, chaveTabela, cotacaoDolar);

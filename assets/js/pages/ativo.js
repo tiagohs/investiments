@@ -48,6 +48,8 @@ import { ajudaHtml, resumoMacro } from '../criterios/macro.js';
 import { carregarMacroMomento } from './momento-carga.js';
 import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de Análise (proventos por mês)
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
+// 08/10/2026: quantas cotas comprar pra ficar no lucro (resumo no card de cotação + seção com tabela, gráfico e simulador)
+import { resumoPmFaixaHtml, secaoPmHtml, ligarSecaoPm } from './ativo-preco-medio.js';
 // 05/10/2026: aba "Patrimônio" dos FIIs (imóveis, CRI com indexador, mapa) - ativo-patrimonio.js
 import { patrimonioPlaceholderHtml } from './ativo-patrimonio-esqueleto.js'; // o controlador (ativo-patrimonio.js, 45 KB) só é importado quando o ativo é um FII
 
@@ -545,6 +547,7 @@ export function faixaHtml(ctx) {
         <div><dt>Seu preço médio</dt><dd>${ctx.fmt(f.precoMedio)}</dd></div>
         <div><dt>Acima do mínimo</dt><dd>${formatPercentFromFraction(f.distanciaMinimo, 1)}</dd></div>
       </dl>
+      ${resumoPmFaixaHtml(ctx)}
       <p class="hint at-fonte">${fonteTexto} O preço-teto e o viés vêm de ${linkAcompanhamentoHtml_()}.</p>
     </section>`;
 }
@@ -1771,6 +1774,7 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
       ${graficosHtml(ctx)}
       ${ctx.canal ? videos : ''}` : `
       ${graficosHtml(ctx)}
+      ${secaoPmHtml(ctx)}
       ${proventosHtml(ctx)}
       ${noticiasCardHtml_()}
       ${videos}
@@ -1877,6 +1881,7 @@ function desenhar(doc, conteudoEl, ctx, patrimonio = null, { cabEl = null, refre
   montarAneisNota(doc, doc.getElementById('at-analise'), conteudoEl);
   ligarBarras(doc, ctx, conteudoEl);
   ligarGraficos(doc, ctx, conteudoEl);
+  ligarSecaoPm(doc, ctx, conteudoEl);
   ligarExtratoEMensal(doc, ctx, conteudoEl);
   ligarTese(doc.getElementById('atTeseConteudo'));
   ligarCopiarIr(doc, conteudoEl);

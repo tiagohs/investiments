@@ -25,6 +25,7 @@
 // em reais (câmbio de hoje; o último pago também no câmbio DO DIA da
 // compra, vindo de Aportes.gs!ativosParaAporte_ -> ultimoPago.cambioDia).
 
+import { pmAposCompra } from '../preco-medio-lucro.js'; // 08/10/2026: preço médio depois da compra (subtotal do carrinho)
 import { formatBRL, formatNumeroBR, formatUSD as usd, formatNumeroPt, formatDM, formatDMA, formatPercentFromPoints } from '../format.js';
 import { logoAtivoHtml, logoRendaFixaHtml, statusVies } from './carteiras-pecas.js';
 import { urlAtivoTicker } from '../link-ativo.js';
@@ -303,6 +304,21 @@ function stepperHtml(classe, ativo, qtd, moeda) {
     </span>`;
 }
 
+/**
+ * Subtotal da linha no carrinho + (08/10/2026, Tiago: "quantas cotas pra ficar no lucro") o preço médio depois da compra:
+ * "PM R$ 95,80 → R$ 90,12" (verde quando cai), pra ver na hora o efeito de cada cota a mais.
+ */
+function subtotalHtml(a, qtd, preco, cambio) {
+  if (!(qtd > 0)) return '';
+  const moeda = a.moeda;
+  const sub = qtd * preco;
+  const novoPm = a.quantidade > 0 && a.precoMedio > 0 && preco > 0 ? pmAposCompra(a, qtd, preco) : null;
+  const pm = novoPm != null && Math.abs(novoPm - a.precoMedio) >= 0.005
+    ? `<small class="tx-novo-pm ${novoPm < a.precoMedio ? 'good' : 'bad'}" title="Seu preço médio depois desta compra (hoje: ${precoTxt(a.precoMedio, moeda)})">PM ${precoTxt(a.precoMedio, moeda)} → ${precoTxt(novoPm, moeda)}</small>`
+    : '';
+  return `${dinheiro(sub, moeda)}${moeda === 'USD' && cambio > 0 ? brlHtml(sub * cambio) : ''}${pm}`;
+}
+
 // 26/09/2026: "momento de aporte" embaixo de cada ativo - HTML compartilhado com o Radar (momento-aporte.js)
 function prateleiraRvHtml(estado, dados, classe) {
   const lista = filtrarPrateleira(dados.classes[classe] || [], estado, { classe, metas: dados.metas, hoje: dados.hoje, cambio: dados.cambio });
@@ -323,7 +339,7 @@ function prateleiraRvHtml(estado, dados, classe) {
         <td data-rot="Preço-teto">${tetoHtml(a)}</td>
         <td data-rot="Viés">${chipVies}</td>
         <td data-rot="Na classe" class="tx-mono">${formatNumeroBR((a.peso || 0) * 100, 1)}%</td>
-        <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}<span class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${qtd ? `${dinheiro(subtotalUsd, a.moeda)}${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(subtotalUsd * dados.cambio) : ''}` : ''}</span></td>
+        <td data-rot="Quantidade" class="tx-td-qtd">${stepperHtml(classe, a.ticker, qtd, a.moeda)}<span class="tx-subtotal" data-subtotal="${esc(classe)}:${esc(a.ticker)}">${subtotalHtml(a, qtd, a.precoAtual || 0, dados.cambio)}</span></td>
       </tr>${momentoLinhaHtml(momentoAporte(a, classe, dados.metas, dados.hoje, { totalRanking: nRanking, ...opcoesMomento(estado, dados, qtd ? qtd * (a.precoAtual || 0) : null) }), 7)}`;
   }).join('');
   return `
@@ -811,9 +827,7 @@ function atualizarLinhaRv(ctx, classe, ticker) {
   const it = estado.carrinho.itens[chaveItem(classe, ticker)];
   const cel = el.querySelector(`[data-subtotal="${classe}:${ticker}"]`);
   if (cel) {
-    cel.innerHTML = it
-      ? `${dinheiro(it.qtd * it.preco, it.moeda)}${it.moeda === 'USD' && dados.cambio > 0 ? brlHtml(it.qtd * it.preco * dados.cambio) : ''}`
-      : '';
+    cel.innerHTML = it ? subtotalHtml(a || { moeda: it.moeda }, it.qtd, it.preco, dados.cambio) : '';
   }
   const linha = el.querySelector(`[data-linha="${classe}:${ticker}"]`);
   if (linha) linha.classList.toggle('no-carrinho', !!it);
