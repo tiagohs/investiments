@@ -28,7 +28,7 @@ export function velocidadeMeta(calc, { hoje } = {}) {
   const cenarios = [1, 0.75, 0.5].map((f) => {
     const meses = Math.max(1, f === 1 ? Math.ceil(baseMeses) : Math.round(baseMeses * f));
     // no ritmo = o aporte de hoje; nos outros, o que fecha naquele prazo
-    const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: calc.alvoBRL, atual, meses, taxa: calc.taxa || 0, entradas: calc.entradasFluxo }) || 0);
+    const aporte = f === 1 && origem === 'ritmo' ? r2(calc.aporteAtual || 0) : r2(aporteNecessario({ alvo: alvoRitmo(calc), atual, meses, taxa: calc.taxa || 0, entradas: calc.entradasFluxo }) || 0);
     // 05/10/2026: "com isso, sua meta chega em ..., o 1º milhão em ..." de cada cenário
     const rm = resumoMarcos(calc, { hoje, aporte: f === 1 && origem === 'ritmo' && calc.planoAporte ? undefined : aporte }); // 07/10/2026: no ritmo com aporte crescente, os marcos seguem os degraus
     return { fracao: f, meses, data: somarMeses(mes, meses), aporte, aMais: r2(aporte - (calc.aporteAtual || 0)), comIsso: rm.frase, velocidadeMarcos: rm.velocidade };
@@ -36,8 +36,11 @@ export function velocidadeMeta(calc, { hoje } = {}) {
   return { origem, baseMeses, cenarios };
 }
 
+/** 09/10/2026: o alvo que o ritmo persegue - o alvo + o IR/custódia da renda fixa vinculada na data da meta (metas-calc-ir.js). */
+const alvoRitmo = (calc) => (num(calc.alvoParaRitmo) != null ? calc.alvoParaRitmo : calc.alvoBRL);
+
 function mesesAte(calc, { atual, aporte, taxa }) {
-  return prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte, taxa, entradas: calc.entradasFluxo });
+  return prazoParaAlvo({ alvo: alvoRitmo(calc), atual, aporte, taxa, entradas: calc.entradasFluxo });
 }
 
 /**
@@ -81,6 +84,12 @@ export function dicasAcelerar(calc, meta = {}, { hoje } = {}) {
   }
   if (meta.tipo === 'reservaEmergencia' && calc.liquido && calc.liquido.impostoBRL > 0) {
     dicas.push({ id: 'imposto', texto: `${formatBRL0(calc.liquido.impostoBRL)} da reserva iriam para IR/IOF num resgate hoje. O IR cai com o tempo (15% depois de 2 anos): numa emergência, resgate primeiro os títulos mais antigos.`, mesesAMenos: 0 });
+  }
+  // 09/10/2026: fora da reserva - o IR que a renda fixa vinculada paga NA DATA da meta (cada lote na faixa daquele dia)
+  const nd = calc.rfNaData;
+  if (meta.tipo !== 'reservaEmergencia' && nd && calc.impostoNaData >= 1) {
+    const acima15 = nd.titulos.some((t) => t.aliquotaEfetiva != null && t.aliquotaEfetiva > 0.1501);
+    dicas.push({ id: 'imposto-data', texto: `Na data da meta (${rotuloMes(calc.dataAlvo)}) a renda fixa vinculada deve valer ${formatBRL0(nd.bruto)} e pagar ${formatBRL0(calc.impostoNaData)} de IR${nd.custodia >= 1 ? ' e custódia' : ''} (hoje seriam ${formatBRL0(nd.hoje.imposto)}, sobre um rendimento menor): o aporte necessário já soma esse imposto ao alvo.${acima15 ? ' Algum lote ainda não terá 2 anos nessa data: resgatar depois disso cai para a menor alíquota (15%).' : ''}`, mesesAMenos: 0 });
   }
   return dicas.sort((a, b) => (b.mesesAMenos || 0) - (a.mesesAMenos || 0));
 }
@@ -154,7 +163,7 @@ export function cenariosRendaMenor(calc, { hoje, reducoes = [0.1, 0.2] } = {}) {
   const mes = mesDe(hoje || new Date());
   const ent = calc.entradasFluxo;
   const apCalc = aporteDeCalc(calc);
-  const m0 = prazoParaAlvo({ alvo: calc.alvoBRL, atual, aporte: apCalc, taxa: calc.taxa || 0, entradas: ent });
+  const m0 = prazoParaAlvo({ alvo: alvoRitmo(calc), atual, aporte: apCalc, taxa: calc.taxa || 0, entradas: ent });
   return reducoes.map((r) => {
     const montante = r2(calc.alvoBRL * (1 - r));
     const n = prazoParaAlvo({ alvo: montante, atual, aporte: apCalc, taxa: calc.taxa || 0, entradas: ent });
@@ -267,12 +276,12 @@ export function analisarProjecaoMeta(calc, { pontos = [], marcos = [], hoje } = 
   if (calc.aporteNecessario > 0 && calc.mesesRestantes > 0) {
     const n = calc.mesesRestantes;
     const aportes = calc.aporteNecessario * n;
-    const rend = Math.max(0, calc.alvoBRL - (calc.atualRitmo || 0) - aportes - (calc.entradasTotal || 0));
+    const rend = Math.max(0, alvoRitmo(calc) - (calc.atualRitmo || 0) - aportes - (calc.entradasTotal || 0));
     const gap = calc.aporteNecessario - (calc.aporteAtual || 0);
     const fraseNec = resumoMarcos(calc, { hoje, aporte: calc.aporteNecessario }).frase; // 05/10/2026
     out.push({
       tipo: 'composicao', tom: gap > 0.5 ? 'atencao' : 'bom', peso: 70,
-      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${formatBRL0(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${formatBRL0(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${formatBRL0(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${formatBRL0(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${formatBRL0(rend)} rendimento (${Math.round((rend / Math.max(1, calc.alvoBRL - (calc.atualRitmo || 0))) * 100)}% do que falta).${fraseNec ? ` ${fraseNec}` : ''}`,
+      texto: `Para fechar em ${rotuloMes(calc.dataAlvo)}: ${formatBRL0(calc.aporteNecessario)}/mês${gap > 0.5 ? ` (${formatBRL0(gap)} a mais que hoje)` : ' (você já aporta isso)'}. Desse caminho, ${formatBRL0(aportes)} seriam aportes${calc.entradasTotal > 0 ? `, ${formatBRL0(calc.entradasTotal)} entradas programadas (13º, FGTS...)` : ''} e ${formatBRL0(rend)} rendimento (${Math.round((rend / Math.max(1, alvoRitmo(calc) - (calc.atualRitmo || 0))) * 100)}% do que falta).${calc.impostoNaData >= 1 ? ` O caminho já cobre ${formatBRL0(calc.impostoNaData)} de IR${calc.rfNaData && calc.rfNaData.custodia >= 1 ? ' e custódia' : ''} da renda fixa na data, pra você ter o alvo líquido.` : ''}${fraseNec ? ` ${fraseNec}` : ''}`,
       resumo: gap > 0.5 ? `faltam ${formatBRL0(gap)}/mês pro prazo` : 'aporte cobre o prazo',
     });
   }

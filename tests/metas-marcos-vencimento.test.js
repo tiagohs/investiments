@@ -134,8 +134,12 @@ test('vencimento: reserva folgada continua acima do mínimo ("Sim"); LCI/LCA ise
   assert.equal(ev[0].tom, 'neutro');
   assert.equal(ev[1].ir, 0, 'LCI/LCA isentas');
   assert.equal(calcularMeta(RESERVA, { ...CTX, ativos: [CDB] }).vencimentos, null, 'sem vencimento nos dados');
-  // fora da reserva não projeta
-  assert.equal(calcularMeta({ ...APOS, vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }] }, { ...CTX, ativos: [TESOURO] }).vencimentos, null);
+  // 09/10/2026 (Tiago: "considere isso também nos cálculos das metas"): fora da reserva também projeta, sem "mínimo" a manter
+  const fora = calcularMeta({ ...APOS, vinculos: [{ tipo: 'marca', marca: 'emergencial', modo: 'total' }] }, { ...CTX, ativos: [TESOURO] }).vencimentos;
+  assert.equal(fora.reserva, false);
+  assert.equal(fora.minimo, null);
+  assert.equal(fora.eventos[0].tom, 'neutro');
+  assert.doesNotMatch(fora.eventos[0].texto, /reserva/i);
 });
 
 test('vencimento sem dados de IR do .gs: estima com 15% sobre o que ainda vai render (estimado)', () => {

@@ -162,6 +162,7 @@ export function contextoMetas(resposta) {
     historico: resposta.historicoResumo || {}, // 03/10/2026: aporte real (Metas.gs, cache do metasHistorico)
     aliases, ocupadoPorMeta: aloc.ocupadoPorMeta, alocacao: aloc,
     cdi: resposta.cdi || null, // 07/10/2026: série do CDI (Metas.gs) pra estimar o saldo/investimento fora da carteira
+    juros: resposta.juros || null, // 09/10/2026: Selic/IPCA (Metas.gs!jurosParaMetas_) pra levar cada título até a data da meta
   };
 }
 

@@ -126,7 +126,7 @@ var PROP_CARIMBO_ESCRITA_PLANILHA_ = 'PLANILHA_CARIMBO_ESCRITA';
  * no carimbo, então toda resposta em cache (gastos, metas, série, proventos...) vira chave nova quando o formato muda.
  * Suba este valor sempre que um .gs mudar o FORMATO de uma resposta cacheada.
  */
-var VERSAO_CODIGO_CACHE_ = '20261008a'; // 08/10/2026 (a): Radar com a quantidade de cotas (conta de quantas cotas pra ficar no lucro); 07/10/2026 (h): validação de dados nas gravações e "a confirmar" de LCI por tipo+instituição; (g): série da Início sem FIIs no cache (lista vazia); (f) fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
+var VERSAO_CODIGO_CACHE_ = '20261009b'; // 09/10/2026 (b): Metas com os lotes de cada título, a taxa contratada e os juros (IR por lote na data da meta); (a): Carteira RF com a data completa do vencimento (IR hoje x no vencimento); 08/10/2026 (a): Radar com a quantidade de cotas (conta de quantas cotas pra ficar no lucro); 07/10/2026 (h): validação de dados nas gravações e "a confirmar" de LCI por tipo+instituição; (g): série da Início sem FIIs no cache (lista vazia); (f) fundo DI (cota informada, valor pela cota) e título completo na Carteira RF; antes: terceiro destino da Renda Fixa (`objetivo`)
 
 // ---------------------------------------------------------------------------
 // 07/10/2026 (Tiago colou as 20 compras do fundo e as datas ficaram UM DIA ANTES na planilha): FUSO DAS DATAS GRAVADAS.

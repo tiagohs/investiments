@@ -200,6 +200,33 @@ a.at-dia:hover .at-dia-gf, a.at-dia:focus-visible .at-dia-gf{ color:var(--md-sys
   .at-pm-tabela .at-pm-curto{ display:inline; }
 }
 
+/* ================= IR: resgatar hoje x no vencimento (09/10/2026 - ativo-ir-resgate.js) ================= */
+.at-irr{ display:flex; flex-direction:column; gap:14px; }
+.at-irr-lead{ margin:0; max-width:72ch; font-size:var(--md-sys-typescale-body-large-size); line-height:1.5; }
+.at-irr-lead b{ font-weight:600; }
+.at-irr-lead .good, .at-irr-marco.good{ color:var(--good-ink); }
+.at-irr-tabela{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:var(--md-sys-typescale-body-medium-size); }
+.at-irr-tabela th, .at-irr-tabela td{ padding:8px 10px; text-align:right; border-bottom:1px solid var(--md-sys-color-outline-variant); white-space:nowrap; }
+.at-irr-tabela th:first-child, .at-irr-tabela td:first-child{ text-align:left; }
+.at-irr-tabela thead th{ font-size:var(--md-sys-typescale-label-medium-size); font-weight:600; color:var(--ink-muted); }
+.at-irr-tabela tbody th{ font-weight:600; }
+.at-irr-tabela small{ display:block; font-weight:400; font-size:var(--md-sys-typescale-label-small-size); color:var(--ink-muted); }
+.at-irr-tabela td{ font-family:var(--mono); }
+.at-irr-taxa{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
+.at-irr-taxa label{ font-size:var(--md-sys-typescale-label-large-size); font-weight:500; }
+.at-irr-taxa small{ flex-basis:100%; color:var(--ink-muted); font-size:var(--md-sys-typescale-label-medium-size); }
+.at-irr-input{ display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:0 12px; border:1px solid var(--md-sys-color-outline); border-radius:var(--md-sys-shape-corner-medium); background:var(--md-ext-color-card); }
+.at-irr-input:focus-within{ border-color:var(--md-sys-color-primary); box-shadow:0 0 0 1px var(--md-sys-color-primary); }
+.at-irr-input input{ width:72px; border:none; outline:none; background:none; font:600 var(--md-sys-typescale-body-large-size) var(--mono); color:var(--ink); text-align:right; }
+.at-irr-input span{ font-size:var(--md-sys-typescale-label-medium-size); color:var(--ink-muted); }
+.at-irr-marco{ margin:0; padding:10px 12px; border-radius:var(--md-sys-shape-corner-medium); background:var(--md-sys-color-surface-container); border-left:3px solid var(--accent, var(--md-sys-color-primary)); }
+.at-irr-marcos{ margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:4px; font-size:var(--md-sys-typescale-body-medium-size); color:var(--ink-muted); }
+.at-irr-marcos span{ display:inline-block; min-width:92px; font-family:var(--mono); color:var(--ink); }
+.at-irr-lotes summary{ cursor:pointer; font-weight:600; font-size:var(--md-sys-typescale-label-large-size); }
+.at-irr-lotes summary:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; }
+.at-irr-lotes .tabela-wrap{ margin-top:8px; }
+.at-irr-notas{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:2px; }
+
 /* ================= Indicadores ================= */
 .at-ind-grade{ display:grid; grid-template-columns:minmax(0,1fr); gap:0; }
 .at-ind{ display:flex; flex-direction:column; gap:2px; min-width:0; padding:10px 0; border-top:1px solid var(--md-sys-color-outline-variant); }

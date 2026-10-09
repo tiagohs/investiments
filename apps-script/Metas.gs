@@ -773,6 +773,11 @@ function montarTelaMetas_(ss, agora, opcoes) {
   var r = { metas: metas, arquivadas: arquivadas, ativos: ativos, cambio: cambio, referencias: referencias, proventos12m: proventos12m, hoje: isoDiaMeta_(agora || new Date()) };
   // 05/10/2026 (A-14): ticker antigo -> atual (Incorporacoes.gs), pro front achar vínculos a ticker renomeado
   if (cdi) r.cdi = cdi;
+  // 09/10/2026: juros pra projetar os títulos de renda fixa vinculados até a data da meta / o vencimento (IR por lote)
+  if (ativos.some(function (a) { return a.classe === 'rf'; })) {
+    var juros = opcoes.juros !== undefined ? opcoes.juros : jurosParaMetas_(ss);
+    if (juros) r.juros = juros;
+  }
   try { r.aliasesTicker = tabelaAliasesTicker_(); } catch (eAl) { r.aliasesTicker = {}; }
   // 03/10/2026: aporte real de cada meta (o último metasHistorico calculado, 6h de cache)
   var resumo = opcoes.historicoResumo !== undefined ? opcoes.historicoResumo : lerResumoHistoricoMetas_();
@@ -796,6 +801,13 @@ function ativosParaMetas_(ss) {
   try {
     montarIRRendaFixa_().forEach(function (p) { irPorChave[chaveTituloRf_(p.titulo, p.instituicao)] = p; });
   } catch (eIr) { irPorChave = null; }
+  // 09/10/2026: rentabilidade contratada ("SELIC + 0,10%", "IPCA + 6,5%") pra projetar cada título até a data da meta
+  var taxaPorChave = {};
+  try {
+    lerLinhasAbaPequenaRf_(ss, ABA_RESUMO_RF_SUBPAGINA, LINHA_DADOS_RESUMO_RF_SUBPAGINA, 7).forEach(function (l) {
+      if (l[0] && l[6]) taxaPorChave[chaveTituloRf_(l[0], l[1])] = String(l[6]).trim();
+    });
+  } catch (eTx) { taxaPorChave = {}; }
   montarMeusAtivos_().forEach(function (a) {
     var valor = null;
     if (a.classe === 'rf') valor = typeof a.valorAtualizado === 'number' ? a.valorAtualizado : null;
@@ -821,6 +833,11 @@ function ativosParaMetas_(ss) {
     if (a.classe === 'rf' && irPorChave) {
       var chaveIr = chaveTituloRf_(a.nome || a.tipoInvestimento || a.ticker, a.instituicao);
       item.irResgate = irResgateDoAtivo_(irPorChave[chaveIr], item.valorBRL, a.vencimento);
+    }
+    if (a.classe === 'rf') {
+      if (a.vencimentoData) item.vencimentoData = a.vencimentoData;
+      var chaveTx = chaveTituloRf_(a.nome || a.tipoInvestimento || a.ticker, a.instituicao);
+      if (taxaPorChave[chaveTx]) item.taxaTexto = taxaPorChave[chaveTx];
     }
     out.push(item);
   });
@@ -857,7 +874,47 @@ function irResgateDoAtivo_(pos, valorAtivo, vencimentoTexto) {
   var saida = { ir: ir, iof: iof, liquido: Math.round((valorAtivo - ir - iof) * 100) / 100, isento: !!pos.isento, precisao: pos.precisao || null };
   var venc = irNoVencimentoMetas_(pos, vencimentoTexto, valorAtivo, fator, new Date());
   if (venc) saida.vencimento = venc;
+  var lotes = lotesIrMetas_(pos, fator);
+  if (lotes.length) saida.lotes = lotes;
   return saida;
+}
+
+/**
+ * 09/10/2026 (Tiago: "considere isso [IR hoje × no vencimento] também nos cálculos das metas"): os lotes do título, na
+ * proporção do ativo (`fator`), pro front (assets/js/ir-resgate-rf.js!compararResgate) cobrar de cada lote a alíquota que
+ * ele terá NA DATA da meta ou do vencimento. Cada lote = [data, investido, atual, imposto de hoje, IOF de hoje (só se > 0)]
+ * (assets/js/pages/metas-calc-ir.js!loteDoServidor). Sem valor investido/atual o lote fica de fora (o front cai na conta antiga).
+ */
+function lotesIrMetas_(pos, fator) {
+  var f = typeof fator === 'number' && isFinite(fator) ? fator : 1;
+  var r2 = function (v) { return Math.round(v * f * 100) / 100; };
+  var out = [];
+  (pos && pos.detalhes || []).forEach(function (l) {
+    var inv = Number(l.valorInvestido), atual = Number(l.valorAtual);
+    if (!l.dataAplicacao || !(inv > 0) || !isFinite(atual) || l.valorAtual == null) return;
+    // compacto (a resposta de metas tem orçamento de tamanho): [data 'dd/MM/yyyy', investido, atual, IR+IOF de hoje, IOF de hoje]
+    var lote = [l.dataAplicacao, r2(inv), r2(atual), r2(Number(l.imposto) || 0)];
+    if (Number(l.iof) > 0) lote.push(r2(Number(l.iof)));
+    out.push(lote);
+  });
+  return out;
+}
+
+/**
+ * 09/10/2026: juros pra projetar os títulos até a data da meta (Selic, IPCA esperado...). Usa o macro em cache (Macro.gs,
+ * com o Focus) e, sem ele, os índices já salvos na planilha (sem rede). Nunca lança; null sem nada.
+ */
+function jurosParaMetas_(ss) {
+  try {
+    var c = CacheService.getScriptCache().get(MACRO_CACHE_CHAVE_);
+    var j = c ? (JSON.parse(c) || {}).juros : null;
+    if (j && j.selic != null) return { selic: j.selic, ipcaEsperado: j.ipcaEsperado12m, ipca12m: j.ipca12m, cdi12m: j.cdi12m, fonte: 'macro' };
+  } catch (e0) { /* segue */ }
+  try {
+    var b = benchmarksRendaFixaSemRede_(ss);
+    if (b && (b.selic != null || b.cdi != null)) return { selic: b.selic, ipcaEsperado: null, ipca12m: b.ipca, cdi12m: b.cdi, fonte: 'planilha' };
+  } catch (e1) { /* sem juros */ }
+  return null;
 }
 
 /**

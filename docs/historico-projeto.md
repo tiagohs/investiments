@@ -525,3 +525,30 @@ Objetivo: cada tela carrega só o que usa, **sem mudar o deploy** (GitHub Pages 
 - Tela do ativo (só com a cotação abaixo do PM): resumo no card "Cotação × preço-teto" e a seção "Para ficar no lucro" (`pages/ativo-preco-medio.js`) com a tabela, o gráfico "preço médio × cotas compradas" (uma linha por preço de compra + a cotação de hoje tracejada) e o simulador (preço de compra + cotas ↔ preço médio desejado, nos dois sentidos).
 - Acompanhamento de Ativos (Radar): embaixo do preço médio, "Empata com +X%" e "Lucro em +10%: N cotas" (detalhe no title). O Radar passou a trazer a `quantidade` (DistribuicoesMetas.gs, abas Carteira: coluna G em Ações/USA, E em FIIs; `tests/harness/coerencia-telas.test.mjs` confere que bate com Carteiras). Transações › Aportes: o subtotal do carrinho mostra "PM R$ X → R$ Y".
 - Análises: `criterios/motor.js!sinalPrecoMedio` devolve `textoLucro`/`dicaLucro`; o momento de aporte junta na mesma linha do preço médio e a análise do ativo ganha o ponto "Para ficar no lucro" (carteira, informativo, fora da nota).
+
+### 09/10/2026 (IR do título de Renda Fixa: resgatar hoje x no vencimento)
+
+- Tela do título (Renda Fixa, fora LCI/LCA e fundos): seção "Imposto: resgatar hoje ou no vencimento" (`pages/ativo-ir-resgate.js`, conta em `assets/js/ir-resgate-rf.js`, testes em `tests/ir-resgate-rf.test.js`). Hoje = o IR por lote do Apps Script (RendaFixaIR.gs) + a alíquota efetiva; no vencimento = o valor de hoje rendendo pela taxa do título (Selic/CDI/IPCA esperado do contexto de mercado + o contratado, campo editável) até a data, cada lote na alíquota que terá NAQUELA data, menos a custódia da B3 (0,20% a.a.; Tesouro Selic isento até R$ 10 mil, considerado só no título). Mostra quando cada lote muda de faixa e a partir de quando toda a posição paga 15%, e as notas (IR retido na fonte, venda antecipada a preço de mercado, juros semestrais fora da projeção). Ilustrativo.
+- `CarteirasRendaFixa.gs` passou a mandar `vencimentoData` (aaaa-mm-dd): o Tesouro Selic vence dia 1º e o IPCA+ dia 15; sem ela, a tela usa o dia 1º e marca "dia aproximado".
+
+### 09/10/2026 (Metas: IR por lote na data da meta e no vencimento)
+
+Pedido do Tiago, depois da seção "IR: resgatar hoje x no vencimento": "considere isso também quando for fazer os cálculos das metas, que considera valor líquido se incluir um vencimento (sei que tem isso na renda emergencial)".
+
+- Conta nova `assets/js/pages/metas-calc-ir.js` (pura), em cima de `ir-resgate-rf.js!compararResgate`. Leva cada título de renda fixa vinculado até a data da meta ou até o vencimento, o que vier antes. O título rende pela própria taxa: Selic, CDI ou IPCA esperados mais o contratado; sem isso, usa o rendimento da meta, marcado "estimado". Cada lote paga a alíquota que terá naquela data. A custódia da B3 sai do líquido. Se o título vence antes da data da meta, o IR é cobrado no vencimento e o líquido é reaplicado até a data, com IR pelo tempo que ficar aplicado.
+- `calcularMeta`, nas metas com data, exceto reserva e recorrente:
+  - `rfNaData` guarda a renda fixa na data.
+  - `impostoNaData` guarda o IR e a custódia nessa data.
+  - `alvoParaRitmo` é o alvo mais `impostoNaData`. O aporte necessário e o prazo estimado perseguem esse valor, pra chegar com o alvo líquido.
+  - As dicas e as simulações usam o mesmo alvo. A dica nova `imposto-data` mostra o IR na data contra o de hoje.
+- Títulos que vencem: agora em todas as metas (antes era só a reserva).
+  - Fora da reserva, mostra só o que vence até a data da meta, sem "mínimo".
+  - Com lotes, a reserva também usa a taxa do título, o IR por lote no dia do vencimento e a custódia.
+  - Sem lotes, continua a conta antiga.
+- Tela: a linha "Renda fixa em mês/ano" (bruto, IR e custódia, líquido) aparece na lista de vínculos. Há também um bloco "Títulos que vencem antes da data" para as outras metas.
+- Apps Script (Metas.gs):
+  - `irResgate.lotes` vem na proporção do ativo (`lotesIrMetas_`).
+  - `vencimentoData` (MeusAtivos.gs) e `taxaTexto` (a aba RF Contratada - Resumo) entram em cada título.
+  - `juros` (`jurosParaMetas_`) vem do macro em cache ou, sem ele, dos índices já salvos na planilha, sem rede.
+- Testes: `tests/metas-calc-ir.test.js` (inclui o .gs). `tests/metas-marcos-vencimento.test.js` foi ajustado, porque fora da reserva agora projeta.
+

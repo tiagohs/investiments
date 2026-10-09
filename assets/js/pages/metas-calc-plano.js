@@ -66,6 +66,7 @@ import { ativoRfObjetivo } from '../destino-renda-fixa.js'; // 07/10/2026: desti
 import { pesosPadraoDistribuicao } from './metas-distribuicao.js'; // 06/10/2026: tipo "Distribuição da carteira"
 import { planoAporte, aporteNoMes, aporteFn, resumoAporteCrescente, aporteDeCalc } from './metas-calc-aporte.js'; // 07/10/2026: aporte crescente
 import { estimarSaldoCdi } from './metas-calc-fora.js'; // 07/10/2026: saldo/investimento fora da carteira (% do CDI)
+import { projetarTituloAte, rendaFixaNaData } from './metas-calc-ir.js'; // 09/10/2026: IR por lote na data da meta / no vencimento
 
 
 /**
@@ -78,11 +79,13 @@ export const EXPLICACOES = {
   liquido: 'Valor líquido = o que cairia na sua conta se resgatasse tudo hoje: valor bruto menos IR (tabela regressiva: 22,5% até 180 dias, 20% até 360, 17,5% até 720 e 15% depois, sobre o rendimento) e IOF (só nos primeiros 30 dias). LCI/LCA são isentas. Mesmo cálculo da Carteira Renda Fixa.',
   bruto: 'Valor bruto = o valor de hoje dos investimentos, sem descontar impostos de um resgate.',
   aporteReal: 'Aporte real = média do que você colocou de fato por mês (compras menos vendas/resgates) nos investimentos vinculados nos últimos 12 meses fechados - calculado do histórico, sem precisar digitar. Se você informar um aporte em Editar, ele passa a valer no lugar.',
-  aporteNecessario: 'Quanto aportar por mês, a partir de agora, para chegar no alvo exatamente no prazo, contando o rendimento esperado (juros compostos, aporte no fim de cada mês). Parcelas de itens fixos que ainda correm entram somadas.',
+  aporteNecessario: 'Quanto aportar por mês, a partir de agora, para chegar no alvo exatamente no prazo, contando o rendimento esperado (juros compostos, aporte no fim de cada mês). Parcelas de itens fixos que ainda correm entram somadas. Com renda fixa vinculada, o IR e a custódia que ela paga na data da meta entram somados ao alvo (pra chegar com o alvo líquido).',
   noSeuRitmo: 'Quando você chega no alvo se continuar aportando o seu aporte atual (real ou informado) com o rendimento esperado.',
   saldoIdeal: 'Saldo ideal da reserva = meses de custo de vida x custo de vida mensal (Despesas essenciais) x (1 + sobra de segurança).',
   rendaMedia: 'Média mensal dos proventos recebidos nos últimos 12 meses fechados pelos ativos vinculados que você ainda tem (a mesma janela da Distribuição e Metas; proventos de um ativo já vendido ou convertido em outro ticker ficam de fora, por isso pode dar um pouco menos que lá).',
   patrimonioRenda: 'Patrimônio que gera a renda = valor de hoje dos ativos vinculados. O necessário é a renda anual dividida pelo rendimento em proventos (DY) esperado.',
+  liquidoNaData: 'A renda fixa vinculada levada até a data da meta: cada título rende pela própria taxa (Selic, CDI ou IPCA esperados + o contratado; sem ela, o rendimento da meta), cada lote paga a alíquota do IR que terá NAQUELA data (tabela regressiva pelo tempo desde a aplicação dele) e a custódia da B3 sai do líquido. Título que vence antes paga o IR no vencimento e é reaplicado até a data. O aporte necessário soma esse imposto ao alvo, pra você chegar com o alvo líquido. Venda antes do vencimento de prefixado/IPCA+ sai a preço de mercado: o valor pode ser outro. É uma estimativa: a taxa muda.',
+  vencimentosMeta: 'Título de renda fixa vinculado que vence antes da data da meta: no vencimento o IR é descontado de qualquer jeito (tabela regressiva pelo tempo desde a aplicação de cada lote) e o dinheiro cai na conta. Reaplicando, ele continua contando para a meta.',
   vencimentos: 'Título de renda fixa vinculado que vence: no vencimento o IR é descontado de qualquer jeito (tabela regressiva pelo tempo desde a aplicação) e o dinheiro cai na conta. "Sem reaplicar" é a reserva sem esse título (o dinheiro sai da carteira); "reaplicando" é a reserva se você puser o valor líquido de volta em um título vinculado. O mínimo é o saldo ideal líquido da meta.',
   velocidade: 'Simulação: o aporte mensal que faz você chegar no alvo em 75% ou 50% do tempo que levaria no ritmo atual (mesmo rendimento).',
   historico: 'Valor da meta no fim de cada mês, reconstruído pelo histórico dos ativos vinculados (cotações e títulos dia a dia) e dos saldos em conta. As barras são o aporte líquido do mês (compras - vendas).',
@@ -719,9 +722,17 @@ export function calcularMeta(meta, ctx = {}) {
   const entradasValidas = entradas.filter((e) => e.valor > 0);
   const entradasFluxo = entradasValidas.map((e) => ({ k: Math.max(1, mesesEntre(hoje, e.mes)), valor: e.valor, mes: e.mes }));
   const entradasTotal = r2(entradasValidas.reduce((s, e) => s + e.valor, 0));
+  // 09/10/2026 (Tiago: "considere [o IR hoje × no vencimento] também nos cálculos das metas, que considera valor líquido"):
+  // com data, os títulos de renda fixa vinculados vão até ela (ou até vencer) e pagam o IR de cada lote NAQUELA data + a
+  // custódia. Esse imposto sai do que você terá: pra ter o alvo LÍQUIDO na data, o bruto precisa cobrir o alvo + ele.
+  const rfNaData = !ehReserva && !recorrente && dataAlvo && mesesRestantes != null && mesesRestantes >= 0
+    ? rendaFixaNaData(vinc.itens, { mes: dataAlvo, hoje: ctx.hoje || hoje, juros: ctx.juros || null, taxaMetaAnual: num(meta.rendimentoAnual) })
+    : null;
+  const impostoNaData = rfNaData ? r2(rfNaData.imposto + rfNaData.custodia) : 0;
+  const alvoParaRitmo = alvoBRL != null ? r2(alvoBRL + impostoNaData) : null;
   let necessario = null;
   if (recorrente) necessario = recorrente.restantes > 0 ? recorrente.parcela : 0;
-  else if (alvoBRL != null && mesesRestantes != null) necessario = r2(aporteNecessario({ alvo: alvoBRL, atual: atualRitmo, meses: mesesRestantes, taxa, entradas: entradasFluxo }));
+  else if (alvoBRL != null && mesesRestantes != null) necessario = r2(aporteNecessario({ alvo: alvoParaRitmo, atual: atualRitmo, meses: mesesRestantes, taxa, entradas: entradasFluxo }));
   // 04/10/2026: na viagem, as parcelas do cartão são pagas à parte (não somam no aporte)
   const parcelasCorrendo = viagem ? viagem.aPagar.mesAtualBRL : (conta && conta.ativa ? num(conta.valor) : 0);
   const necessarioTotal = viagem ? necessario : (necessario != null ? r2(necessario + parcelasCorrendo) : (parcelasCorrendo ? r2(parcelasCorrendo) : null));
@@ -729,7 +740,7 @@ export function calcularMeta(meta, ctx = {}) {
   // prazo estimado no ritmo atual
   let mesesEstimados = null;
   if (recorrente) mesesEstimados = recorrente.restantes;
-  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoBRL, atual: atualRitmo, aporte: planoAp ? aporteFn(planoAp, hoje) : aporteAtual, taxa, entradas: entradasFluxo });
+  else if (alvoBRL != null) mesesEstimados = prazoParaAlvo({ alvo: alvoParaRitmo, atual: atualRitmo, aporte: planoAp ? aporteFn(planoAp, hoje) : aporteAtual, taxa, entradas: entradasFluxo });
   const dataEstimada = mesesEstimados != null && Number.isFinite(mesesEstimados) ? somarMeses(hoje, Math.ceil(mesesEstimados)) : null;
 
   // 07/10/2026 (Tiago, chácara com amigos: "sem valor final nem prazo"): objetivo de juntar SEM alvo = "acompanhando" (cinza). Só os
@@ -757,7 +768,9 @@ export function calcularMeta(meta, ctx = {}) {
     percentual, percentualBruto, dataAlvo, mesesRestantes, taxa, aporteAtual, aporteNecessario: necessario, aporteNecessarioTotal: necessarioTotal,
     mesesEstimados, dataEstimada, status, vinculos: vinc.itens, itens, conta, recorrente, renda, partes, avisos,
     // 03/10/2026 (v2)
-    atualLiquidoBRL, faltaLiquida: alvoBRL != null ? Math.max(0, r2(alvoBRL - atualLiquidoBRL)) : null, liquido, atualRitmo, aporteReal, aporteInformado: aporteInformado || null, aporteOrigem,
+    atualLiquidoBRL, faltaLiquida: alvoBRL != null ? Math.max(0, r2(alvoBRL - atualLiquidoBRL)) : null, liquido, atualRitmo,
+    // 09/10/2026: renda fixa vinculada levada até a data da meta (IR por lote naquela data + custódia) e o quanto isso soma ao alvo
+    rfNaData, impostoNaData, alvoParaRitmo, aporteReal, aporteInformado: aporteInformado || null, aporteOrigem,
     aporte3m: hist && num(hist.aporte3m) != null ? r2(num(hist.aporte3m)) : null, mesesBaseAporte: hist ? hist.mesesBase || 0 : 0,
     // 05/10/2026 (A-15): ritmo médio dos últimos meses <= 0 (sem aporte ou só resgates) - a projeção não vira "nunca" calado
     ritmoSemAporte: !(aporteInformado > 0) && aporteReal != null && aporteReal <= 0,
@@ -783,7 +796,8 @@ export function calcularMeta(meta, ctx = {}) {
   const proximoMarco = !ehReserva && !recorrente && alvoBRL >= 1.5e6 ? marcosProjecao(calcPronto, { hoje }).find((m) => !m.ja && m.rotulo !== 'Alvo') : null;
   calcPronto.marcoProximo = proximoMarco && proximoMarco.mes ? { rotulo: proximoMarco.rotulo, mes: proximoMarco.mes, ano: proximoMarco.ano } : null;
   // 05/10/2026: reserva com títulos de renda fixa que vencem
-  calcPronto.vencimentos = ehReserva ? eventosVencimento(calcPronto, { hoje }) : null;
+  // 09/10/2026: as outras metas também (só o que vence até a data delas): no vencimento o IR é cobrado e o dinheiro cai na conta
+  calcPronto.vencimentos = eventosVencimento(calcPronto, { hoje, hojeDia: ctx.hoje || null, juros: ctx.juros || null, taxaAnual: num(meta.rendimentoAnual), ate: ehReserva ? null : dataAlvo, reserva: ehReserva });
   calcPronto.excedente = ehReserva ? excedenteReserva(calcPronto) : null; // 06/10/2026
   return calcPronto;
 }
@@ -798,7 +812,7 @@ export function serieProjecao(calc, { maxMeses = 360, hoje, meses = null } = {})
   const inicio = mesDe(hoje || new Date());
   let n = calc.mesesRestantes != null && calc.mesesRestantes > 0 ? calc.mesesRestantes : (Number.isFinite(calc.mesesEstimados) && calc.mesesEstimados > 0 ? Math.ceil(calc.mesesEstimados) : 12);
   // 05/10/2026: reserva com título vencendo - o horizonte padrão chega até o último vencimento
-  if (meses == null && calc.vencimentos && calc.vencimentos.eventos.length) n = Math.max(n, ...calc.vencimentos.eventos.map((e) => e.em + 3));
+  if (meses == null && !calc.dataAlvo && calc.vencimentos && calc.vencimentos.eventos.length) n = Math.max(n, ...calc.vencimentos.eventos.map((e) => e.em + 3));
   if (meses != null) n = meses; // 03/10/2026: o gráfico escolhe o horizonte (filtro de período)
   n = Math.min(maxMeses, Math.max(1, n));
   const necessario = calc.aporteNecessario != null ? calc.aporteNecessario : null;
@@ -1096,9 +1110,10 @@ export const SUGESTOES_INVESTIMENTO = {
  */
 export const LIMITE_ALERTA_VENCIMENTO_MESES = 12;
 
-export function eventosVencimento(calc, { hoje } = {}) {
+export function eventosVencimento(calc, { hoje, hojeDia = null, juros = null, taxaAnual = null, ate = null, reserva = true } = {}) {
   if (!calc || !Array.isArray(calc.vinculos)) return null;
   const mesHoje = mesDe(hoje || new Date());
+  const taxaMetaAnual = num(taxaAnual) != null ? taxaAnual : (calc.taxa ? (1 + calc.taxa) ** 12 - 1 : null);
   const taxa = calc.taxa || 0;
   const porMes = new Map();
   calc.vinculos.forEach((v) => {
@@ -1108,8 +1123,18 @@ export function eventosVencimento(calc, { hoje } = {}) {
       const mes = mesVenc(a.vencimento);
       const n = mes ? mesesEntre(mesHoje, mes) : null;
       if (n == null || n < 0) return;
+      if (ate && mes > ate) return; // meta com data: só o que vence até ela
       const valorHoje = (Number(a.valorBRL) || 0) * parte;
       if (!(valorHoje > 0)) return;
+      // 09/10/2026: com os lotes, a mesma conta da tela do título (taxa do próprio título, IR de cada lote no dia do
+      // vencimento e custódia da B3); sem eles, a conta antiga (alíquota média + rendimento da meta)
+      const p = projetarTituloAte(a, { parte, hoje: hojeDia || hoje, juros, taxaMetaAnual });
+      if (p && p.venceAntes) {
+        const item = { nome: String(a.nome || '').split(' · ')[0], valorHoje: r2(valorHoje), liquidoHoje: p.hoje.liquido, bruto: p.bruto, ir: p.imposto, custodia: p.custodia, liquido: p.liquido, estimado: p.estimado, porLote: true, taxaBase: p.base, aliquotaEfetiva: p.aliquotaEfetiva, indexador: a.indexador || null, descricao: a.descricao || null };
+        if (!porMes.has(mes)) porMes.set(mes, []);
+        porMes.get(mes).push(item);
+        return;
+      }
       const ir0 = a.irResgate || {};
       const irHoje = ((Number(ir0.ir) || 0) + (Number(ir0.iof) || 0)) * parte;
       const bruto = valorHoje * Math.pow(1 + taxa, n);
@@ -1119,20 +1144,20 @@ export function eventosVencimento(calc, { hoje } = {}) {
       if (ir0.isento) ir = 0; // LCI/LCA: isentas
       else if (iv && Number.isFinite(iv.aliquota) && Number.isFinite(iv.principal)) ir = Math.max(0, bruto - iv.principal * parte) * iv.aliquota;
       else { ir = irHoje + Math.max(0, bruto - valorHoje) * (iv && Number.isFinite(iv.aliquota) ? iv.aliquota : 0.15); estimado = true; }
-      const item = { nome: String(a.nome || '').split(' · ')[0], valorHoje: r2(valorHoje), liquidoHoje: r2(valorHoje - irHoje), bruto: r2(bruto), ir: r2(ir), liquido: r2(bruto - ir), estimado, indexador: a.indexador || null, descricao: a.descricao || null };
+      const item = { nome: String(a.nome || '').split(' · ')[0], valorHoje: r2(valorHoje), liquidoHoje: r2(valorHoje - irHoje), bruto: r2(bruto), ir: r2(ir), custodia: 0, liquido: r2(bruto - ir), estimado, indexador: a.indexador || null, descricao: a.descricao || null };
       if (!porMes.has(mes)) porMes.set(mes, []);
       porMes.get(mes).push(item);
     });
   });
   if (!porMes.size) return null;
-  const minimo = calc.alvoBRL != null ? calc.alvoBRL : null;
+  const minimo = reserva && calc.alvoBRL != null ? calc.alvoBRL : null; // fora da reserva não há "mínimo" a manter
   let reaplicando = calc.atualLiquidoBRL || 0;
   let semReaplicar = calc.atualLiquidoBRL || 0;
   const jaAbaixo = (calc.alvoBRL != null) && (calc.atualLiquidoBRL || 0) < calc.alvoBRL - 0.5;
   const eventos = [...porMes.keys()].sort().map((mes, idx) => {
     const titulos = porMes.get(mes);
     const soma = (k) => r2(titulos.reduce((t, x) => t + x[k], 0));
-    const liquido = soma('liquido'); const ir = soma('ir'); const bruto = soma('bruto'); const liquidoHoje = soma('liquidoHoje');
+    const liquido = soma('liquido'); const ir = soma('ir'); const bruto = soma('bruto'); const liquidoHoje = soma('liquidoHoje'); const custodia = soma('custodia');
     semReaplicar = Math.max(0, semReaplicar - liquidoHoje); // o título sai da meta; o dinheiro vai pra conta
     reaplicando += liquido - liquidoHoje; // reaplicado, volta a contar (já sem o IR cobrado)
     const acimaMinimo = minimo == null ? null : semReaplicar >= minimo - 0.5;
@@ -1150,13 +1175,14 @@ export function eventosVencimento(calc, { hoje } = {}) {
     const emMeses = mesesEntre(mesHoje, mes);
     const tom = minimo != null && !acimaMinimo && emMeses < LIMITE_ALERTA_VENCIMENTO_MESES ? 'atencao' : 'neutro';
     const partes = [
-      `Em ${rotuloMes(mes)} ${titulos.length > 1 ? 'vencem' : 'vence'} ${todos}: entram ${formatBRL0(liquido)} líquidos (IR ${formatBRL0(ir)}${titulos.some((t) => t.estimado) ? ', estimado' : ''}).`,
+      `Em ${rotuloMes(mes)} ${titulos.length > 1 ? 'vencem' : 'vence'} ${todos}: entram ${formatBRL0(liquido)} líquidos (IR ${formatBRL0(ir)}${custodia >= 1 ? ` e custódia da B3 ${formatBRL0(custodia)}` : ''}${titulos.some((t) => t.estimado) ? ', estimado' : ''}).`,
     ];
+    if (!reserva && ate) partes.push(`O dinheiro cai na conta antes da data da meta: reaplicado, continua contando.`);
     if (minimo != null) partes.push(acimaMinimo ? `Sua reserva continua acima do mínimo? Sim (${formatBRL0(semReaplicar)} contra ${formatBRL0(minimo)}).` : `Sua reserva continua acima do mínimo? Não${jaAbaixo ? ' (já está abaixo hoje)' : ''}: sem ${idx > 0 ? 'esse título e os que vencem antes' : 'esse título'} ela fica em ${formatBRL0(semReaplicar)} e faltam ${formatBRL0(falta)} pro mínimo de ${formatBRL0(minimo)}${acimaReaplicando ? ' - reaplicando o dinheiro, volta a ficar acima.' : ` - mesmo reaplicando faltam ${formatBRL0(faltaReaplicando)}.`}`);
-    partes.push(`Reaplique em ${sugestao}. Sem reaplicar, o dinheiro fica na conta e para de render${perdeMes ? ` (cerca de ${formatBRL0(perdeMes)}/mês a menos)` : ''}.`);
-    return { mes, em: mesesEntre(mesHoje, mes), titulos, bruto, ir, liquido, reservaSemReaplicar: r2(semReaplicar), reservaReaplicando: r2(reaplicando), acimaMinimo, acimaReaplicando, falta, faltaReaplicando, perdeMes, tom, sugestao, texto: partes.join(' ') };
+    partes.push(reserva ? `Reaplique em ${sugestao}. Sem reaplicar, o dinheiro fica na conta e para de render${perdeMes ? ` (cerca de ${formatBRL0(perdeMes)}/mês a menos)` : ''}.` : `Reaplique em um título que vença perto da data da meta (ou com liquidez diária). Sem reaplicar, o dinheiro para de render${perdeMes ? ` (cerca de ${formatBRL0(perdeMes)}/mês a menos)` : ''}.`);
+    return { mes, em: mesesEntre(mesHoje, mes), titulos, bruto, ir, custodia, liquido, reservaSemReaplicar: r2(semReaplicar), reservaReaplicando: r2(reaplicando), acimaMinimo, acimaReaplicando, falta, faltaReaplicando, perdeMes, tom, sugestao, texto: partes.join(' ') };
   });
-  return { eventos, minimo, proximo: eventos[0], temAtencao: eventos.some((e) => e.tom === 'atencao') };
+  return { eventos, minimo, proximo: eventos[0], temAtencao: eventos.some((e) => e.tom === 'atencao'), reserva: !!reserva, porLote: eventos.some((e) => e.titulos.some((t) => t.porLote)) };
 }
 
 /**

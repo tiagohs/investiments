@@ -50,6 +50,8 @@ import { renderAnalise } from '../analise-grafico.js'; // 02/10/2026: card de An
 import { analisarProventosMensais, proventosPorMes, somarMeses as somarMesesProv } from './proventos-calc.js';
 // 08/10/2026: quantas cotas comprar pra ficar no lucro (resumo no card de cotação + seção com tabela, gráfico e simulador)
 import { resumoPmFaixaHtml, secaoPmHtml, ligarSecaoPm } from './ativo-preco-medio.js';
+// 09/10/2026: IR do título de Renda Fixa resgatando hoje x no vencimento
+import { irResgateHtml, preencherIrResgate } from './ativo-ir-resgate.js';
 // 05/10/2026: aba "Patrimônio" dos FIIs (imóveis, CRI com indexador, mapa) - ativo-patrimonio.js
 import { patrimonioPlaceholderHtml } from './ativo-patrimonio-esqueleto.js'; // o controlador (ativo-patrimonio.js, 45 KB) só é importado quando o ativo é um FII
 
@@ -1772,6 +1774,7 @@ export function paginaHtml(ctx, { aba = 'visao' } = {}) {
   });
   const principal = ctx.ehRf ? `
       ${graficosHtml(ctx)}
+      ${irResgateHtml(ctx)}
       ${ctx.canal ? videos : ''}` : `
       ${graficosHtml(ctx)}
       ${secaoPmHtml(ctx)}
@@ -1882,6 +1885,7 @@ function desenhar(doc, conteudoEl, ctx, patrimonio = null, { cabEl = null, refre
   ligarBarras(doc, ctx, conteudoEl);
   ligarGraficos(doc, ctx, conteudoEl);
   ligarSecaoPm(doc, ctx, conteudoEl);
+  preencherIrResgate(doc, ctx);
   ligarExtratoEMensal(doc, ctx, conteudoEl);
   ligarTese(doc.getElementById('atTeseConteudo'));
   ligarCopiarIr(doc, conteudoEl);
@@ -2021,6 +2025,7 @@ export async function montarPaginaAtivo(token, {
     estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas, macro: estado.macro });
     estado.ctx.macro = estado.macro || null;
     trocarAnalise(conteudoEl, estado.ctx);
+    preencherIrResgate(conteudoEl.ownerDocument, estado.ctx); // a Selic/IPCA de hoje chegou: refaz a projeção até o vencimento
   };
   // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata, NTN-B) - 1 busca por tela; falhou = análise sem ele
   const pedirMacro = () => {

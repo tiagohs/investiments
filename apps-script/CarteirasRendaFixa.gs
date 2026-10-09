@@ -251,6 +251,8 @@ function calcularCarteirasRendaFixa_(ss, leitura) {
         quantidade: quantidade,
         vencimento: vencimento instanceof Date ?
           Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'MM/yyyy') : (vencimento || null),
+        // 09/10/2026: a data completa (o Tesouro Selic vence dia 1º, o IPCA+ dia 15) - comparação do IR hoje x no vencimento (ir-resgate-rf.js)
+        vencimentoData: vencimento instanceof Date ? Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'yyyy-MM-dd') : null,
         totalInvestido: typeof valorInvestido === 'number' ? arredondarCarteirasRf_(valorInvestido) : valorInvestido,
         totalAtualizado: valorAtualizado,
         rentabilidadeContratada: rentabilidadeContratada ? {

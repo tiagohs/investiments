@@ -185,6 +185,8 @@ function montarMeusAtivos_(dadosRendaFixaCache) {
         indexador: indexador || null,
         quantidade: numeroOuNulo_(linha[6]),
         vencimento: vencimentoTexto,
+        // 09/10/2026: a data completa (Metas projeta o IR por lote até o dia do vencimento)
+        vencimentoData: vencimento instanceof Date ? Utilities.formatDate(vencimento, Session.getScriptTimeZone(), 'yyyy-MM-dd') : null,
         valorAtualizado: numeroOuNulo_(linha[11]),
         variacaoDia: (chaveVariacao && chaveVariacao in variacoesRF) ? variacoesRF[chaveVariacao] : null,
         moeda: 'R$'

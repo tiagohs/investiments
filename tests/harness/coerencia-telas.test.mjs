@@ -272,7 +272,9 @@ const MEDIDO = {
   proventos:            { celulas: 158712, getValues: 24, getValue: 0, bytes: 99261 },
   // 06/10/2026 (o5-objetivos): +6 leituras do "atual" da meta Distribuição da carteira (4 blocos B:E + posição do bloco de FIIs) e, SÓ no cold da
   // 1ª leitura, a migração única que cria a meta a partir dos % da planilha (~+9). Em regime a ação lê ~50.
-  metas:                { celulas: 247692, getValues: 50, getValue: 9, bytes: 22409 },
+  // 09/10/2026: +5 KB - os lotes de cada título de renda fixa (compactos: [data, investido, atual, imposto]), a data completa do
+  // vencimento, a taxa contratada e os juros, pro IR por lote na data da meta (metas-calc-ir.js); +1 leitura (RF Contratada - Resumo)
+  metas:                { celulas: 247692, getValues: 50, getValue: 9, bytes: 27512 },
   metasHistorico:       { celulas: 273021, getValues: 37, getValue: 0, bytes: 14003 },
   distribuicoesMetas:   { celulas: 249120, getValues: 51, getValue: 8, bytes: 37634 },
   // patrimonio/despesas remedidos com o Controle 17 (06/10/2026): o CÓDIGO é o mesmo (com as fixtures do Controle 16 deram 274.213 células/41 leituras/30,4 KB e 126/2/3,1 KB); a planilha ganhou

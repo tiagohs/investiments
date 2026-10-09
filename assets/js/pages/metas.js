@@ -987,7 +987,8 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
    */
   function vencimentosHtml(meta, c) {
     const v = c.vencimentos;
-    if (meta.tipo !== 'reservaEmergencia' || !v || !v.eventos.length) return '';
+    if (!v || !v.eventos.length) return '';
+    if (meta.tipo !== 'reservaEmergencia') return vencimentosMetaHtml(meta, c);
     const itens = v.eventos.map((e) => {
       const alerta = e.tom === 'atencao';
       const nomes = e.titulos.map((t) => esc(t.nome)).join(' e ');
@@ -1006,7 +1007,27 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
     }).join('');
     return `<section class="mt-bloco" id="mtVencimentos"><div class="mt-bloco-cab"><h3>Títulos que vencem${infoHtml(EXPLICACOES.vencimentos)}</h3><span class="mt-fraco">mínimo ${v.minimo != null ? formatMoeda(v.minimo, 'BRL', { casas: 0 }) : '-'} (líquido)</span></div>
   <ul class="mt-vencs">${itens}</ul>
-  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta: deixa de ser o título e de contar na reserva, até você reaplicar. Só vira alerta o que vence em menos de ${LIMITE_ALERTA_VENCIMENTO_MESES} meses e derruba a reserva abaixo do mínimo. Valores projetados com ${c.taxa ? `rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.` : 'rendimento zero (informe o rendimento em Editar)'}, sem novos aportes.</p></section>`;
+  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente (tabela regressiva pelo tempo total aplicado) e o dinheiro cai na conta: deixa de ser o título e de contar na reserva, até você reaplicar. Só vira alerta o que vence em menos de ${LIMITE_ALERTA_VENCIMENTO_MESES} meses e derruba a reserva abaixo do mínimo. ${notaProjecaoVenc(meta, c)}</p></section>`;
+  }
+
+  /** 09/10/2026: como os valores no vencimento foram projetados (a taxa de cada título, ou o rendimento da meta). */
+  function notaProjecaoVenc(meta, c) {
+    const rend = c.taxa ? `rendimento de ${pct(meta.rendimentoAnual || 0, 1)} a.a.` : 'rendimento zero (informe o rendimento em Editar)';
+    return c.vencimentos && c.vencimentos.porLote
+      ? `Cada título rende pela própria taxa (Selic, CDI ou IPCA esperados + o contratado; sem ela, ${rend}), cada lote paga a alíquota que terá no dia do vencimento e a custódia da B3 até lá sai do líquido. Sem novos aportes.`
+      : `Valores projetados com ${rend}, sem novos aportes.`;
+  }
+
+  /** 09/10/2026: as outras metas - títulos vinculados que vencem ANTES da data (ou, sem data, todos): IR cobrado e dinheiro na conta. */
+  function vencimentosMetaHtml(meta, c) {
+    const v = c.vencimentos;
+    const itens = v.eventos.map((e) => `<li class="mt-venc">
+    <div class="mt-venc-cab"><span class="mt-venc-data">${iconeNum('marco', 14)} ${rotuloMes(e.mes)}<small>${e.em > 0 ? `daqui a ${rotuloDuracao(e.em)}` : 'este mês'}</small></span><span class="mt-venc-nome">${e.titulos.map((t) => esc(t.nome)).join(' e ')}</span>
+      <span class="mt-venc-liq mono">entram ${formatMoeda(e.liquido, 'BRL', { casas: 0 })}<small> (IR ${formatMoeda(e.ir, 'BRL', { casas: 0 })}${e.custodia >= 1 ? ` · custódia ${formatMoeda(e.custodia, 'BRL', { casas: 0 })}` : ''})</small></span></div>
+    <details class="mt-venc-det"><summary>detalhes</summary><p class="mt-venc-txt">${esc(e.texto)}</p></details></li>`).join('');
+    return `<section class="mt-bloco" id="mtVencimentos"><div class="mt-bloco-cab"><h3>Títulos que vencem${c.dataAlvo ? ' antes da data' : ''}${infoHtml(EXPLICACOES.vencimentosMeta)}</h3></div>
+  <ul class="mt-vencs">${itens}</ul>
+  <p class="mt-nota">No vencimento o IR é cobrado obrigatoriamente e o dinheiro cai na conta${c.dataAlvo ? ': reaplicado, continua contando para a meta (a conta do aporte já considera isso)' : ''}. ${notaProjecaoVenc(meta, c)}</p></section>`;
   }
 
   function marcosHtml(meta, c, marcosRitmo) {
@@ -1056,9 +1077,14 @@ ${heroiHtml(meta, c, { arquivada, marcos: marcosRitmo })}
       const nome = v.tipo === 'classe' ? `Toda a classe ${ROTULO_CLASSE[v.classe]}` : ROTULO_MARCA[v.marca];
       return `<li class="mt-v-grupo"><details><summary><span class="mt-v-nome"><strong>${esc(nome)}</strong><em>${v.ativos.length} ${v.classe === 'rf' || v.tipo === 'marca' ? 'títulos' : 'ativos'} · ${esc(modo)}${v.impostoBRL > 0.004 ? ` · <span class="mt-ruim">IR −${r0(v.impostoBRL)}</span>` : ''}</em></span><b class="mono">${formatMoeda(v.valorBRL)}</b></summary><ul>${v.ativos.slice().sort((x, y) => y.valorBRL - x.valorBRL).map((a) => detalheAtivo(a, parte)).join('')}</ul></details></li>`;
     }).join('');
-    const liquidoLinha = c.liquido.impostoBRL > 0 || reserva
-      ? `<li class="total liquido"><span>Líquido se resgatasse hoje${infoHtml(EXPLICACOES.liquido)}</span><b class="mono">${formatMoeda(c.atualLiquidoBRL)}</b></li>${c.liquido.rvSemEstimativa ? '<li class="nota"><span class="mt-fraco">IR de ações/FIIs não estimado (depende do preço médio e da isenção de R$ 20 mil/mês em ações).</span></li>' : ''}`
+    // 09/10/2026: a renda fixa vinculada levada até a data da meta (IR de cada lote naquela data + custódia)
+    const nd = c.rfNaData;
+    const naDataLinha = nd && c.impostoNaData >= 0.5
+      ? `<li class="liquido-data"><span class="mt-v-nome">Renda fixa em ${rotuloMes(nd.mes)}${infoHtml(EXPLICACOES.liquidoNaData)}<em>${formatMoeda(nd.bruto, 'BRL', { casas: 0 })} bruto · <span class="mt-ruim">IR${nd.custodia >= 1 ? ' + custódia' : ''} −${formatMoeda(c.impostoNaData, 'BRL', { casas: 0 })}</span>${nd.vencemAntes ? ` · ${nd.vencemAntes === 1 ? '1 título vence' : `${nd.vencemAntes} títulos vencem`} antes (reaplicado)` : ''}${nd.estimado ? ' · estimado' : ''}</em></span><b class="mono">${formatMoeda(nd.liquido, 'BRL', { casas: 0 })}</b></li>`
       : '';
+    const liquidoLinha = c.liquido.impostoBRL > 0 || reserva
+      ? `<li class="total liquido"><span>Líquido se resgatasse hoje${infoHtml(EXPLICACOES.liquido)}</span><b class="mono">${formatMoeda(c.atualLiquidoBRL)}</b></li>${naDataLinha}${c.liquido.rvSemEstimativa ? '<li class="nota"><span class="mt-fraco">IR de ações/FIIs não estimado (depende do preço médio e da isenção de R$ 20 mil/mês em ações).</span></li>' : ''}`
+      : naDataLinha;
     return `<ul class="mt-vinculos">${linhas}${c.valorInicial ? `<li><span class="mt-v-nome">Guardado fora dos investimentos<em>informado por você</em></span><b class="mono">${formatMoeda(c.valorInicial)}</b></li>` : ''}${c.itensConcluidosBRL ? `<li><span class="mt-v-nome">Itens já pagos</span><b class="mono">${formatMoeda(c.itensConcluidosBRL)}</b></li>` : ''}<li class="total"><span>Total${c.liquido.impostoBRL > 0 ? ' (bruto)' : ''}</span><b class="mono">${formatMoeda(c.atualBRL)}</b></li>${liquidoLinha}</ul>${arquivada ? '' : '<button type="button" class="mt-link mt-add-saldo" data-add-saldo>+ Saldo em conta (ex. Wise em euro)</button>'}`;
   }
 
