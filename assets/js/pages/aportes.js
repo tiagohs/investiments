@@ -43,7 +43,7 @@ import { ehTesouro, puDoTitulo, dataCotacao, compraPorValor, compraPorQuantidade
 import { gravarTaxasRemessa, sugerirDivisaoCaixa, caixaValido } from './aportes-eua-calc.js';
 import { estadoInicialEua, euaFluxoHtml, remessaResultadoHtml, remessaDoEstado, necessidadeHtml, lerNumeroCampo as lerNumeroEua } from './aportes-eua.js';
 import { getToken } from '../auth.js';
-import { avisosSobrecomprometimento } from '../carrinho-global.js'; // 05/10/2026 (A-11): aviso de ativo em mais de uma meta
+import { avisosSobrecomprometimento, carrinhoNoDia } from '../carrinho-global.js'; // 05/10/2026 (A-11): aviso de ativo em mais de uma meta
 import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
 import { celulaMapa } from './aportes-mapa-calc.js';
 import { ligarFiltroPeriodo, botoesSegmentadoHtml, ehPeriodoPersonalizado, rotuloPeriodo } from '../periodo-personalizado.js'; // 06/10/2026 (A-67): períodos canônicos
@@ -333,7 +333,7 @@ function prateleiraRvHtml(estado, dados, classe) {
     const subtotalUsd = qtd ? qtd * (a.precoAtual || 0) : 0;
     return `
       <tr class="${qtd ? 'no-carrinho' : ''}" data-linha="${esc(classe)}:${esc(a.ticker)}">
-        <td class="esq">${ativoCelHtml(logoAtivoHtml(a.ticker), a.ticker, a.nome || '', { href: urlAtivoTicker(a.ticker) })}</td>
+        <td class="esq">${ativoCelHtml(logoAtivoHtml(a.ticker), a.ticker, a.nome || '', { href: urlAtivoTicker(a.ticker) })}${a.encerrada ? `<span class="tx-chip-encerrada" title="Você vendeu tudo${a.encerrada.data ? ` em ${formatDMA(a.encerrada.data)}` : ''}: saiu do ranking e das metas do Radar">encerrada</span>` : ''}</td>
         <td data-rot="Cotação"><b class="tx-mono">${precoTxt(a.precoAtual, a.moeda)}</b>${a.moeda === 'USD' && dados.cambio > 0 ? brlHtml(a.precoAtual * dados.cambio, '', `câmbio de hoje: ${formatNumeroBR(dados.cambio, 2)}`) : ''}${variacao != null ? `<span class="var tx-var-dia ${variacao >= 0 ? 'sobe' : 'desce'}">${ic(variacao >= 0 ? 'arrow-circle-up' : 'arrow-circle-down')}${formatPercentFromPoints(variacao, 2)} hoje</span>` : ''}</td>
         <td data-rot="Último pago">${ultimoPagoHtml(a, dados.hoje, { cambioHoje: dados.cambio })}</td>
         <td data-rot="Preço-teto">${tetoHtml(a)}</td>
@@ -470,7 +470,7 @@ function prateleiraRfHtml(estado, dados) {
 export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, metas = null, hoje = '', cambio = null } = {}) {
   const busca = String(estado.busca || '').trim().toLowerCase();
   let out = lista.filter((a) => !busca || `${a.ticker || a.titulo} ${a.nome || ''} ${a.instituicao || ''}`.toLowerCase().includes(busca));
-  if (estado.soComprar && estado.classeAtiva !== 'rendaFixa') out = out.filter((a) => statusVies(a.vies).classe === 'good');
+  if (estado.soComprar && estado.classeAtiva !== 'rendaFixa') out = out.filter((a) => statusVies(a.vies).classe === 'good' && !a.encerrada);
   const ordem = estado.ordem || 'carteira';
   const nome = (a) => a.ticker || a.titulo || '';
   if (ordem === 'nome') out = [...out].sort((a, b) => nome(a).localeCompare(nome(b)));
@@ -485,7 +485,8 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
     const d = (a) => (a.ultimoPago && a.ultimoPago.data) || '';
     out = [...out].sort((a, b) => (d(a) < d(b) ? -1 : d(a) > d(b) ? 1 : 0));
   } else out = [...out].sort((a, b) => (b.totalAtualizado || b.valorAtualizado || 0) - (a.totalAtualizado || a.valorAtualizado || 0));
-  return out;
+  // 27/10/2026: posição encerrada (vendeu tudo) vai pro fim, em qualquer ordem - dá pra recomprar, mas não é prioridade
+  return [...out.filter((a) => !a.encerrada), ...out.filter((a) => a.encerrada)];
 }
 
 function classesSegHtml(estado) {
@@ -560,6 +561,7 @@ function carrinhoConteudoHtml(estado, dados) {
     <div class="tx-recibo-campos">
       <label class="tx-rotulo">Data da compra<input type="date" class="input" id="txDataAporte" value="${esc(c.data)}"></label>
       <label class="tx-rotulo">Observação<input type="text" class="input" id="txObsAporte" value="${esc(c.observacao || '')}" placeholder="opcional" maxlength="140"></label>
+      ${c.data && dados.hoje && c.data !== dados.hoje && !c.editandoId ? `<p class="tx-recibo-data-aviso" role="status">${ic('info')}<span>Este carrinho está com a data de <b>${formatDMA(c.data)}</b>, não de hoje. A importação da B3 confirma pela data da compra.</span><button type="button" class="btn btn-text btn-sm" data-acao="data-hoje">Comprei hoje</button></p>` : ''}
     </div>
     <div class="tx-recibo-acoes">
       <button type="button" class="btn btn-filled" data-acao="confirmar-carrinho"${itens.length ? '' : ' disabled'}>${editando ? 'Salvar alterações' : (mesclar.length ? 'Somar ao aporte do dia' : 'Confirmar aporte')}</button>
@@ -798,8 +800,9 @@ function avisarMensagem(ctx) {
   else toast.ok(texto, { doc });
 }
 
-function mudarCarrinho(ctx, novo, { prateleira = false } = {}) {
+function mudarCarrinho(ctx, novo0, { prateleira = false } = {}) {
   const { el, dados, estado } = ctx;
+  const novo = carrinhoNoDia(novo0, dados.hoje); // 27/10/2026: mexeu num carrinho de outro dia = compra de hoje
   estado.carrinho = novo;
   ctx.salvarCarrinho(novo);
   const cart = el.querySelector('#txCarrinho');
@@ -949,6 +952,7 @@ function repetirDoMapa(ctx, ativo, mes) {
     const dif = cel.precoMedio ? (preco / cel.precoMedio - 1) * 100 : null;
     estado.mensagem = { tipo: 'ok', html: `<b>${esc(ativo)}</b> foi pro carrinho: ${qtdTxt(cel.qtd)} × ${precoTxt(preco, a.moeda)} (cotação de agora${dif != null && Math.abs(dif) >= 0.05 ? `, ${formatPercentFromPoints(dif, 1)} vs os ${precoTxt(cel.precoMedio, a.moeda)} de ${rotulo}` : ''}).` };
   }
+  estado.carrinho = carrinhoNoDia(estado.carrinho, dados.hoje); // 27/10/2026
   ctx.salvarCarrinho(estado.carrinho);
   estado.classeAtiva = classe;
   estado.busca = '';
@@ -1170,6 +1174,7 @@ function ligarAportes(el) {
       });
       return;
     }
+    if (acao === 'data-hoje') { mudarCarrinho(ctx, { ...estado.carrinho, data: dados.hoje, dataManual: false }); return; } // 27/10/2026
     if (acao === 'esvaziar') { mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'descartar-edicao') { estado.carrinhoAberto = false; mudarCarrinho(ctx, carrinhoVazio(dados.hoje), { prateleira: true }); return; }
     if (acao === 'cancelar' || acao === 'excluir') {
@@ -1329,7 +1334,8 @@ function ligarAportes(el) {
     const t = ev.target;
     if (t.matches('[data-qtd]')) { aoMudarQtd(ctx, t.getAttribute('data-qtd'), lerNumeroCampo(t.value) || 0, { escreverCampo: true }); return; }
     if (t.id === 'txRemData' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) { estado.eua.data = t.value; return; }
-    if (t.id === 'txDataAporte' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) { estado.carrinho = { ...estado.carrinho, data: t.value }; ctx.salvarCarrinho(estado.carrinho); return; }
+    // 27/10/2026: data escolhida à mão fica fixa (dataManual); sem isso o carrinho acompanha o dia de hoje (carrinho-global.js)
+    if (t.id === 'txDataAporte' && /^\d{4}-\d{2}-\d{2}$/.test(t.value)) { estado.carrinho = { ...estado.carrinho, data: t.value, dataManual: t.value !== dados.hoje }; ctx.salvarCarrinho(estado.carrinho); return; }
     if (t.id === 'txOrdem' || t.id === 'txSoComprar') {
       if (t.id === 'txOrdem') estado.ordem = t.value; else estado.soComprar = t.checked;
       const lista = el.querySelector('#txPrateleiraLista');

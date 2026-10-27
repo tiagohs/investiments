@@ -499,6 +499,8 @@ function enriquecerRadarComCarteira_(itens, mapa) {
     item.variacaoDia = info && typeof info.variacaoDia === 'number' ? info.variacaoDia : null;
     if (info && info.segmento) item.segmento = info.segmento;
     item.quantidade = info && typeof info.quantidade === 'number' && info.quantidade > 0 ? info.quantidade : null;
+    // 27/10/2026: a quantidade crua (0 = vendeu tudo ou nunca comprou) - PosicoesEncerradas.gs decide se encerrou
+    item.quantidadeCarteira = info && typeof info.quantidade === 'number' ? info.quantidade : null;
   });
 }
 
@@ -550,6 +552,14 @@ function montarRadarOportunidades_() {
     } catch (eFund) { /* sem fundamentos: o Radar segue só com a planilha */ }
   }
 
+  // 27/10/2026: posição encerrada (vendeu tudo) - sai do ranking no front; o resumo do ciclo vai em item.encerrada
+  var prefsEncerradas = {};
+  try {
+    prefsEncerradas = anexarPosicoesEncerradasRadar_(ss, [
+      { classe: 'acoes', itens: nacionais.itens }, { classe: 'acoesEua', itens: internacionais.itens }, { classe: 'fiis', itens: fiis.itens }
+    ]);
+  } catch (eEnc) { /* sem o resumo: o Radar segue como antes */ }
+
   function total_(linhaTotal, colCarteiraAtual, colNovaCarteira, colValorInvestir) {
     // 05/10/2026 (A-34): 1 leitura da linha de total (A:S) em vez de 3 getValue
     var linhaVal = dm.getRange(linhaTotal, 1, 1, 19).getValues()[0];
@@ -564,7 +574,8 @@ function montarRadarOportunidades_() {
     acoesNacionais: { itens: nacionais.itens, total: total_(nacionais.linhaTotal, 'N', 'Q', 'S') },
     acoesInternacionais: { itens: internacionais.itens, total: total_(internacionais.linhaTotal, 'M', 'N', 'Q') },
     fiis: { itens: fiis.itens, total: total_(fiis.linhaTotal, 'M', 'N', 'Q') },
-    cotacaoDolar: dm.getRange(local.dolar).getValue()
+    cotacaoDolar: dm.getRange(local.dolar).getValue(),
+    prefsEncerradas: prefsEncerradas
   };
 }
 

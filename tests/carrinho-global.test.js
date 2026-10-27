@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   carrinhoVazio, carrinhoValido, definirQuantidade, definirValorRf, totaisCarrinho, usaHorarioVeraoEUA, fechamentoMercado,
-  situacaoCarrinho, dataBRT, minutosBRT, horaTxt, itensDoCarrinho,
+  situacaoCarrinho, dataBRT, minutosBRT, horaTxt, itensDoCarrinho, carrinhoNoDia,
 } from '../assets/js/carrinho-global.js';
 
 // "agora" em Brasília (UTC-3) a partir de 'aaaa-mm-dd hh:mm'
@@ -115,4 +115,22 @@ test('A-23: quantidade fracionada trunca em 4 casas com tolerância (0,29 não v
   const t = totaisCarrinho(d, 5);
   assert.deepEqual(itensDoCarrinho(d).map((i) => i.subtotal), [11.11, 9.6]);
   assert.equal(t.totalUsd, 20.71);
+});
+
+test('27/10/2026: carrinhoNoDia - mexer num carrinho de outro dia traz a data pra hoje; data escolhida e edição de aporte ficam', () => {
+  const velho = { data: '2026-10-08', observacao: '', itens: { 'acoes:ABCD3': { classe: 'acoes', ativo: 'ABCD3', qtd: 3, preco: 10 } } };
+  assert.equal(carrinhoNoDia(velho, '2026-10-26').data, '2026-10-26', 'montado em 08/10, mexido em 26/10');
+  assert.equal(carrinhoNoDia({ ...velho, dataManual: true }, '2026-10-26').data, '2026-10-08', 'data escolhida por você');
+  assert.equal(carrinhoNoDia({ ...velho, editandoId: 'AP-1' }, '2026-10-26').data, '2026-10-08', 'editando um aporte que já existe');
+  assert.equal(carrinhoValido(velho, '2026-10-26').data, '2026-10-08', 'só abrir não muda (o aviso "Você comprou?" pergunta)');
+  assert.equal(carrinhoValido({ ...velho, dataManual: true }, '2026-10-26').dataManual, true);
+});
+
+test('27/10/2026: carrinho vazio guardado de outro dia é de hoje (começar uma compra hoje nunca herda 05/10)', () => {
+  const vazioVelho = { editandoId: null, data: '2026-10-05', observacao: '', itens: {} };
+  assert.equal(carrinhoValido(vazioVelho, '2026-10-27').data, '2026-10-27');
+  assert.equal(carrinhoValido({ ...vazioVelho, dataManual: true }, '2026-10-27').data, '2026-10-27');
+  // e o 1º item colocado nele também é de hoje
+  const c = definirQuantidade(carrinhoValido(vazioVelho, '2026-10-27'), { classe: 'acoes', ativo: 'ABCD3', moeda: 'BRL', preco: 18 }, 1);
+  assert.equal(carrinhoNoDia(c, '2026-10-27').data, '2026-10-27');
 });

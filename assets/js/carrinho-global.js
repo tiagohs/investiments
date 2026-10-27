@@ -50,6 +50,16 @@ export function carrinhoVazio(hoje) {
   return { editandoId: null, data: hoje, observacao: '', itens: {} };
 }
 
+/**
+ * 27/10/2026 (bug: carrinho montado em 08/10, comprado em 26/10, foi confirmado com a data 08/10 - e a importação da B3
+ * de 26/10 não casava): mexer no carrinho num dia depois do dele traz a data pra hoje. Fica a data antiga só quando ela é
+ * escolhida (campo "Data da compra" ou "Comprei em dd/mm" no aviso - dataManual) ou quando se edita um aporte que já existe.
+ */
+export function carrinhoNoDia(c, hoje) {
+  if (!c || !hoje || c.editandoId || c.dataManual || c.data === hoje) return c;
+  return { ...c, data: hoje };
+}
+
 /** Carrinho lido do navegador, conferido (formato antigo/estragado vira vazio). */
 export function carrinhoValido(c, hoje) {
   if (!c || typeof c !== 'object' || typeof c.itens !== 'object' || !c.itens) return carrinhoVazio(hoje);
@@ -59,6 +69,10 @@ export function carrinhoValido(c, hoje) {
     if (it.classe === 'rendaFixa' ? num(it.valor) > 0 : num(it.qtd) > 0) itens[k] = it;
   });
   const out = { editandoId: c.editandoId || null, data: /^\d{4}-\d{2}-\d{2}$/.test(c.data || '') ? c.data : hoje, observacao: String(c.observacao || ''), itens };
+  if (c.dataManual) out.dataManual = true; // 27/10/2026: data escolhida por você no campo do carrinho (não segue o dia de hoje)
+  // 27/10/2026 (Tiago: carrinho começado hoje aparecia com 05/10 - o carrinho vazio guardado era de 05/10): carrinho vazio é
+  // sempre de hoje (nada foi montado em outro dia)
+  if (!out.editandoId && !Object.keys(itens).length && hoje) { out.data = hoje; delete out.dataManual; }
   if (num(c.cambio) > 0) out.cambio = c.cambio;
   if (/^\d{4}-\d{2}-\d{2}$/.test(c.perguntadoEm || '')) out.perguntadoEm = c.perguntadoEm;
   return out;

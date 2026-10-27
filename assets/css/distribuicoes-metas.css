@@ -390,3 +390,43 @@
 .radar-lucro{ display:flex; flex-direction:column; gap:0; margin-top:4px; cursor:help; }
 .radar-lucro small{ display:block; font-size:var(--md-sys-typescale-label-small-size, 11px); line-height:15px; color:var(--ink-muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
 .radar-lucro small:first-child{ color:var(--bad-ink); font-weight:600; }
+
+/* 27/10/2026: posições encerradas (vendeu tudo) - aviso do % desejado e bloco recolhido no fim de cada aba do Radar */
+.radar-enc-aviso{ display:flex; flex-direction:column; gap:8px; margin:0 8px 12px; padding:12px 14px; border-radius:var(--md-sys-shape-corner-medium); background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-body-medium-size); line-height:20px; }
+.radar-enc-aviso p{ margin:0; }
+.radar-enc-aviso-acoes{ display:flex; flex-wrap:wrap; gap:8px; }
+.radar-enc-plano summary{ cursor:pointer; font-size:var(--md-sys-typescale-body-small-size); }
+.radar-enc-plano ul{ list-style:none; margin:6px 0 0; padding:0; display:grid; gap:2px; }
+.radar-enc-plano li{ display:flex; justify-content:space-between; gap:12px; font-size:var(--md-sys-typescale-body-small-size); }
+.radar-encerradas{ margin:12px 8px 4px; border:1px solid var(--border); border-radius:var(--md-sys-shape-corner-medium); background:var(--md-ext-color-card); }
+.radar-encerradas > summary{ display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; padding:12px 14px; cursor:pointer; color:var(--ink-muted); font-size:var(--md-sys-typescale-label-large-size); }
+.radar-encerradas > summary b{ color:var(--ink); }
+.radar-encerradas > .hint{ margin:0 14px 8px; }
+.radar-enc-total.good, .radar-enc-resultado.good, .radar-enc-item .good{ color:var(--good-ink); }
+.radar-enc-total.bad, .radar-enc-resultado.bad, .radar-enc-item .bad{ color:var(--bad); }
+.radar-enc-lista{ list-style:none; margin:0; padding:0 14px 8px; display:grid; gap:0; }
+.radar-enc-item{ padding:10px 0; border-top:1px solid var(--border); display:grid; gap:6px; }
+.radar-enc-cab{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.radar-enc-periodo{ color:var(--ink-muted); font-size:var(--md-sys-typescale-body-small-size); }
+.radar-enc-resultado{ margin-left:auto; font-weight:600; }
+.radar-enc-nums{ display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:4px 12px; margin:0; }
+.radar-enc-nums div{ min-width:0; }
+.radar-enc-nums dt{ color:var(--ink-muted); font-size:var(--md-sys-typescale-label-small-size); }
+.radar-enc-nums dd{ margin:0; font-size:var(--md-sys-typescale-body-small-size); overflow-wrap:anywhere; }
+.radar-enc-nums small{ display:block; color:var(--ink-muted); }
+.radar-enc-acoes{ display:flex; flex-wrap:wrap; gap:4px; }
+.radar-enc-chip{ display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-label-small-size); white-space:nowrap; }
+@media (max-width:640px){ .radar-enc-nums{ grid-template-columns:repeat(2, minmax(0,1fr)); } .radar-enc-resultado{ margin-left:0; } }
+
+/* 27/10/2026: ranking arrastando os itens (alça no #) */
+.radar-table td.radar-rank{ white-space:nowrap; }
+.radar-arrastar{ display:inline-flex; align-items:center; justify-content:center; width:28px; height:32px; margin-right:2px; padding:0; border:0; border-radius:var(--md-sys-shape-corner-small); background:transparent; color:var(--ink-muted); cursor:grab; touch-action:none; vertical-align:middle; }
+.radar-arrastar svg{ width:18px; height:18px; fill:currentColor; }
+.radar-arrastar:hover{ background:var(--md-sys-color-surface-container-high, var(--border)); color:var(--ink); }
+.radar-arrastar:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:1px; }
+.radar-em-arrasto, .radar-em-arrasto *{ cursor:grabbing !important; user-select:none; }
+.radar-table tr.radar-arrastando{ opacity:.45; }
+.radar-table tr.radar-drop-antes > td{ box-shadow:inset 0 3px 0 var(--md-sys-color-primary); }
+.radar-table tr.radar-drop-depois > td{ box-shadow:inset 0 -3px 0 var(--md-sys-color-primary); }
+@media (max-width:640px){ .radar-arrastar{ width:36px; height:36px; } }
+@media (prefers-reduced-motion: reduce){ .radar-table tr.radar-arrastando{ transition:none; } }

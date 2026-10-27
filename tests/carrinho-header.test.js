@@ -120,6 +120,20 @@ test('"Você comprou?" - Sim: leva pra Transações (#carrinho) pra confirmar e 
   assert.equal(t.doc.getElementById('carrinhoAviso').hidden, false, 'no dia seguinte pergunta outra vez');
 });
 
+test('27/10/2026: carrinho de outro dia - "Comprei hoje" troca a data pra hoje; "Comprei em dd/mm" fixa a dele', () => {
+  const t = montar({ carrinho: { ...CARRINHO, data: '2026-10-08' }, agora: brt('2026-10-26 12:00') });
+  assert.match(txt(t.doc.getElementById('carrinhoAviso')), /Comprei hoje.*Comprei em 08\/10/);
+  t.doc.querySelector('[data-carrinho-resp="hoje"]').click();
+  const g = JSON.parse(t.guardado['transacoes.carrinho.v1']);
+  assert.equal(g.data, '2026-10-26');
+  assert.equal(g.dataManual, false);
+  const t2 = montar({ carrinho: { ...CARRINHO, data: '2026-10-08' }, agora: brt('2026-10-26 12:00') });
+  t2.doc.querySelector('[data-carrinho-resp="sim"]').click();
+  const g2 = JSON.parse(t2.guardado['transacoes.carrinho.v1']);
+  assert.equal(g2.data, '2026-10-08');
+  assert.equal(g2.dataManual, true, 'mexer depois não muda mais a data');
+});
+
 test('na própria tela Transações o botão abre o carrinho dela (não navega)', () => {
   const t = montar({ secao: 'transacoes' });
   const abrir = t.doc.querySelector('#carrinhoPanelConteudo [data-carrinho-abrir]');

@@ -552,3 +552,37 @@ Pedido do Tiago, depois da seção "IR: resgatar hoje x no vencimento": "conside
   - `juros` (`jurosParaMetas_`) vem do macro em cache ou, sem ele, dos índices já salvos na planilha, sem rede.
 - Testes: `tests/metas-calc-ir.test.js` (inclui o .gs). `tests/metas-marcos-vencimento.test.js` foi ajustado, porque fora da reserva agora projeta.
 
+### 27/10/2026 (posição encerrada: vendeu tudo de um ativo)
+
+Pedido do Tiago, depois de vender todo o WIZC3: o ativo não deve mais contar no ranking do Acompanhamento. Decisões: encerramento automático, perguntar e redistribuir o % desejado, bloco recolhido no Acompanhamento.
+
+- Regra (`apps-script/PosicoesEncerradas.gs`): é encerrada a posição de um item do Radar com quantidade 0 na Carteira cujo último ciclo terminou numa venda. Item nunca comprado (só observando) continua no ranking. Se o ativo for comprado de novo, volta sozinho.
+- `item.encerrada` traz o resumo do ciclo, da 1ª compra até a venda que zerou: compras, vendas, preços médios, proventos com data-com no ciclo, resultado em R$ e %, e a cotação de hoje contra o preço da venda. Transações e Proventos só são lidos quando algum item do Radar tem quantidade 0.
+- Acompanhamento (`assets/js/pages/radar-encerradas.js`):
+  - a encerrada sai da tabela, do "X de N" e da contagem de "bom momento";
+  - vai para o bloco recolhido "Posições encerradas (N)" no fim da aba, com as opções "Voltar a acompanhar" (volta ao ranking com o selo "encerrada · observando") e "Ocultar";
+  - as preferências ficam em ScriptProperties (`salvarPosicaoEncerrada`).
+- % desejado: se a encerrada ainda tem %, um aviso propõe zerar. Se as outras ficarem abaixo de 100%, o que ela tinha é redistribuído na proporção de cada uma, sem nunca passar de 100%. Se as outras já somam 100% ou mais, só zera. A gravação é em lote e confere todas as linhas antes de gravar (`salvarPercentuaisRadar`).
+- Aportes: posição encerrada (quantidade 0 e última operação foi venda) ganha o selo "encerrada", vai para o fim da prateleira, sai do filtro "só Comprar" e não usa a meta do Radar.
+- Testes: `tests/posicoes-encerradas.test.js`.
+
+### 27/10/2026 (ranking do Radar arrastando os itens)
+
+Pedido do Tiago: editar o ranking item por item pelo "Editar" era trabalhoso. Agora basta arrastar o item no Acompanhamento; quem vai para o topo vira o nº 1.
+
+- Uma alça ao lado do # de cada linha funciona com mouse, toque e teclado (setas sobem e descem uma posição). Durante o arrasto, uma linha marca onde o item vai cair. Só aparece na ordem do ranking (# crescente) e sem filtro de tipo de FII, porque fora disso a posição na tela não é o ranking.
+- A tela muda na hora. A planilha recebe só os números que mudaram (`radar-ranking.js!rankingsDaOrdem`, renumerando 1..N; as posições encerradas ficam depois). Várias setas seguidas viram uma gravação só. O envio é em lote, pela ação `salvarRankingRadar` (PosicoesEncerradas.gs), que confere todas as linhas antes de gravar a coluna B. O ranking não entra em nenhuma fórmula da Distribuição e Metas, então não há recarga depois de salvar.
+- Testes: `tests/radar-ranking.test.js`.
+- UNIP6: logo incluído no mapa (`node scripts/gerar-logos-ativos.mjs`).
+
+### 27/10/2026 (bug: aporte de 26/10 gravado como 08/10 e a B3 não confirmava)
+
+Causa: o carrinho fica guardado no navegador com a data do dia em que foi montado. O carrinho foi montado em 08/10 e comprado em 26/10, e o aporte foi gravado com 08/10. A importação da B3 trouxe as compras de 26/10, mas o "a confirmar" só casa lançamentos de 2 dias antes a 10 dias depois da data do aporte. Por isso os 5 itens continuaram "a confirmar".
+
+- Carrinho (`carrinho-global.js!carrinhoNoDia`): mexer num carrinho de outro dia traz a data para hoje. A data antiga só fica quando é escolhida no campo "Data da compra" ou em "Comprei em dd/mm" (`dataManual`), ou quando se edita um aporte que já existe.
+- O aviso "Você comprou?" de um carrinho de outro dia agora pergunta "Comprei hoje" / "Comprei em dd/mm" / "Não, descartar".
+- O recibo avisa quando a data não é a de hoje, com o botão "Comprei hoje".
+- Servidor (`Aportes.gs!dentroDaJanelaAporte_`): o lançamento real casa com o aporte pela data dele ou pelo dia em que foi criado no site. Vale para o "a confirmar" e para o "Investido por mês". Com isso, o aporte de 26/10 já confirma sem mexer na planilha.
+- Testes: `tests/harness/aconfirmar.test.js`, `tests/carrinho-global.test.js`, `tests/carrinho-header.test.js` e `tests/transacoes.test.js`.
+- Mais um caso, visto no mesmo dia: o carrinho vazio que ficou guardado de 05/10 passava essa data para uma compra começada em 27/10. Agora `carrinhoValido` sempre trata o carrinho vazio como de hoje.
+

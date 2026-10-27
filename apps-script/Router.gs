@@ -298,6 +298,15 @@ function doPostRotas_(e) {
   if (action === 'salvarRadarItem') {
     return handleSalvarRadarItem(e);
   }
+  if (action === 'salvarPercentuaisRadar') { // 27/10/2026: % desejado de vários tickers (zerar o encerrado e redistribuir) - PosicoesEncerradas.gs
+    return handleSalvarPercentuaisRadar(e);
+  }
+  if (action === 'salvarRankingRadar') { // 27/10/2026: ranking do Radar arrastando os itens - PosicoesEncerradas.gs
+    return handleSalvarRankingRadar(e);
+  }
+  if (action === 'salvarPosicaoEncerrada') { // 27/10/2026: "Voltar a acompanhar" / "Ocultar" uma posição encerrada - PosicoesEncerradas.gs
+    return handleSalvarPosicaoEncerrada(e);
+  }
   if (action === 'salvarSplitInterno') {
     return handleSalvarSplitInterno(e);
   }

@@ -182,6 +182,19 @@ function numeroAporte_(v) {
   return String(v == null ? '' : v).trim() !== '' && isFinite(n) ? n : null;
 }
 
+/**
+ * 27/10/2026: venda mais recente de cada ticker: { TICKER: 'yyyy-MM-dd' }. Com a quantidade em 0 e a última operação sendo
+ * uma venda, a posição está ENCERRADA (PosicoesEncerradas.gs): o carrinho mostra o selo e não usa a meta do Radar dela.
+ */
+function ultimasVendasAporte_(itens) {
+  var out = {};
+  itens.forEach(function (it) {
+    if (!/venda/i.test(it.tipo) || !it.data) return;
+    if (!out[it.ticker] || it.data > out[it.ticker]) out[it.ticker] = it.data;
+  });
+  return out;
+}
+
 /** Compra mais recente de cada ticker nas transações: { TICKER: { preco, data, origem } }. */
 function ultimasComprasAporte_(itens) {
   var out = {};
@@ -203,6 +216,8 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
   var out = { acoes: [], fiis: [], acoesEua: [], rendaFixa: [] };
   var ultimas = ultimasComprasAporte_(abas.transacoes.itens);
   var ultimasUsa = ultimasComprasAporte_(abas.transacoesUsa.itens);
+  var vendas = ultimasVendasAporte_(abas.transacoes.itens);
+  var vendasUsa = ultimasVendasAporte_(abas.transacoesUsa.itens);
   var ultimasRf = {};
   abas.rendaFixa.itens.forEach(function (it) {
     if (!/compra|aplica/i.test(it.movimentacao) || !it.data) return;
@@ -242,6 +257,11 @@ function ativosParaAporte_(ss, abas, aportes, cambioHist) {
         totalAtualizado: numeroAporte_(l[19]) || 0,
         ultimoPago: (classe === 'acoesEua' ? ultimasUsa : ultimas)[ticker] || null
       });
+      // 27/10/2026: vendeu tudo (quantidade 0 e a última operação foi venda) = posição encerrada
+      var item = out[classe][out[classe].length - 1];
+      var venda = (classe === 'acoesEua' ? vendasUsa : vendas)[ticker];
+      var compra = item.ultimoPago ? item.ultimoPago.data : null; // aporte concluído depois da venda (ainda não importado) = comprou de novo
+      if (!(item.quantidade > 0) && venda && (!compra || venda >= compra)) item.encerrada = { data: venda };
     });
   }
   ['acoes', 'fiis', 'acoesEua'].forEach(function (c) {
@@ -375,20 +395,19 @@ function historicoInvestido_(compras, aportes) {
     (a.itens || []).forEach(function (it) {
       if (it.classe === 'rendaFixa') {
         var valor = it.valorFinal > 0 ? it.valorFinal : it.valorPlanejado;
-        if (valor > 0) pedidos.push({ data: a.data, destino: 'rendaFixa', chave: normTextoLanc_(it.ativo), inst: normalizarInstituicaoRF_(it.instituicao), medida: valor });
+        if (valor > 0) pedidos.push({ data: a.data, aporte: a, destino: 'rendaFixa', chave: normTextoLanc_(it.ativo), inst: normalizarInstituicaoRF_(it.instituicao), medida: valor });
       } else if (it.classe === 'acoes' || it.classe === 'fiis' || it.classe === 'acoesEua') {
         var qtd = it.qtdFinal > 0 ? it.qtdFinal : it.qtdPlanejada;
-        if (qtd > 0) pedidos.push({ data: a.data, destino: it.classe === 'acoesEua' ? 'transacoesUsa' : 'transacoes', chave: String(it.ativo).trim().toUpperCase(), medida: qtd });
+        if (qtd > 0) pedidos.push({ data: a.data, aporte: a, destino: it.classe === 'acoesEua' ? 'transacoesUsa' : 'transacoes', chave: String(it.ativo).trim().toUpperCase(), medida: qtd });
       }
     });
   });
   pedidos.sort(function (x, y) { return x.data < y.data ? -1 : (x.data > y.data ? 1 : 0); });
   pedidos.forEach(function (p) {
-    var dia = diaDaChaveAporte_(p.data);
     var coberto = 0;
     lista.forEach(function (l) {
       if (coberto >= p.medida || l.resta <= 0 || l.destino !== p.destino || !mesmoTituloAporte_(l, p)) return;
-      if (!(l.dia >= dia - ACONFIRMAR_DIAS_ANTES && l.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
+      if (!dentroDaJanelaAporte_(l.dia, p.aporte)) return; // 27/10/2026: data do aporte OU dia de criação
       if (p.destino === 'rendaFixa' && l.inst && p.inst && l.inst !== p.inst) return;
       var usa = Math.min(l.resta, p.medida - coberto);
       l.resta -= usa;
@@ -458,6 +477,28 @@ var ACONFIRMAR_DIAS_ANTES = 2;   // lançamento real até 2 dias antes da data d
 var ACONFIRMAR_DIAS_DEPOIS = 10; // ... e até 10 dias depois (a B3 lança pela data do negócio; o aporte pode ter sido concluído antes)
 var ACONFIRMAR_TOLERANCIA = 0.02;
 
+/**
+ * 27/10/2026 (bug: aporte criado em 26/10 gravado com data 08/10 - o carrinho guardado no navegador mantinha a data do
+ * dia em que foi aberto - e a importação da B3 de 26/10 não confirmava): o lançamento real casa com o aporte se cair na
+ * janela da DATA do aporte OU do dia em que ele foi CRIADO no site. Aporte retroativo (data conferida na mão) segue
+ * casando pela data; aporte com a data errada casa pelo dia de criação.
+ */
+function dentroDaJanelaAporte_(diaCompra, aporte) {
+  var dentro = function (dia) { return dia >= 0 && diaCompra >= dia - ACONFIRMAR_DIAS_ANTES && diaCompra <= dia + ACONFIRMAR_DIAS_DEPOIS; };
+  if (dentro(diaDaChaveAporte_(aporte.data))) return true;
+  var criado = diaCriacaoAporte_(aporte.criadoEm);
+  return criado ? dentro(diaDaChaveAporte_(criado)) : false;
+}
+
+/** 'yyyy-MM-dd' do "Criado em" (ISO em UTC) no fuso do projeto; '' sem data. */
+function diaCriacaoAporte_(criadoEm) {
+  var t = Date.parse(String(criadoEm || ''));
+  if (!isFinite(t)) return '';
+  var dia = '';
+  try { dia = String(Utilities.formatDate(new Date(t), Session.getScriptTimeZone(), 'yyyy-MM-dd')); } catch (e) { dia = ''; }
+  return /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia : new Date(t - 3 * 3600000).toISOString().slice(0, 10); // sem fuso: Brasília (UTC-3)
+}
+
 function diaDaChaveAporte_(chave) {
   var p = String(chave || '').split('-');
   return p.length === 3 ? Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) / 86400000 : NaN;
@@ -502,11 +543,10 @@ function lancamentosAConfirmar_(aportes, abas) {
 
   var out = [];
   pedidos.forEach(function (p) {
-    var dia = diaDaChaveAporte_(p.aporte.data);
     var coberto = 0;
     compras.forEach(function (c) {
       if (coberto >= p.medida || c.resta <= 0 || c.destino !== p.destino || !mesmoTituloAporte_(c, p)) return;
-      if (!(c.dia >= dia - ACONFIRMAR_DIAS_ANTES && c.dia <= dia + ACONFIRMAR_DIAS_DEPOIS)) return;
+      if (!dentroDaJanelaAporte_(c.dia, p.aporte)) return;
       if (p.destino === 'rendaFixa' && c.inst && p.inst && c.inst !== p.inst) return;
       var usa = Math.min(c.resta, p.medida - coberto);
       c.resta -= usa;
@@ -733,7 +773,8 @@ function enriquecerMomentoAporte_(ss, classes) {
       fiis: radarEmLoteAporte_(vals, local.radarFiis, { ranking: 1, pvp: 7, desejado: 10, atual: 11, investir: 16, tipo: 18 })
     };
     ['acoes', 'fiis', 'acoesEua'].forEach(function (c) {
-      (classes[c] || []).forEach(function (a) { a.radar = radar[c][a.ticker] || null; });
+      // 27/10/2026: posição encerrada não leva a meta do Radar (o % desejado dela não é mais um alvo de compra)
+      (classes[c] || []).forEach(function (a) { a.radar = a.encerrada ? null : (radar[c][a.ticker] || null); });
     });
     var linha = function (r) { return vals[r - 1] || null; };
     metas.acoesENacionais = metaDaLinhaAporte_(linha(11));

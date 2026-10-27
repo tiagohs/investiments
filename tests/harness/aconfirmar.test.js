@@ -188,3 +188,13 @@ test('A-22: custo em reais de cada ação EUA com o câmbio do dia de cada compr
   usa._dados.push(['BBB', D('2026-07-01'), 'Venda', 6, 2, 0]);
   assert.deepEqual(plain(sb.custoBrlAcoesEuaPorTicker_(ss)), { AAA: 118 });
 });
+
+test('27/10/2026: aporte gravado com a data errada (carrinho antigo) casa pelo dia em que foi criado no site', () => {
+  const ss = planilhaBase();
+  const sb = sandbox(ss);
+  const hoje = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10); // dia de hoje em Brasília = dia de criação
+  concluido(sb, ss, '2026-05-04', [{ classe: 'acoes', ativo: 'NOVO3', qtdFinal: 3, precoFinal: 50 }]);
+  assert.deepEqual(plain(sb.lancamentosAConfirmarDaPlanilha_(ss, null, null)).map((x) => x.ativo), ['NOVO3']);
+  sb.importarLancamentos_([{ destino: 'transacoes', ticker: 'NOVO3', data: hoje, tipo: 'Compra', preco: 50, qtd: 3, taxa: 0 }], { origem: 'Teste' });
+  assert.deepEqual(plain(sb.lancamentosAConfirmarDaPlanilha_(ss, null, null)), [], 'a compra de hoje confirma o aporte criado hoje, mesmo com a data de maio');
+});

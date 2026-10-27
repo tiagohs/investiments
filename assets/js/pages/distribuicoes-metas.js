@@ -157,6 +157,9 @@ import {
   salvarMetaPatrimonio as salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencial as salvarMesesRendaEmergencialApi,
   salvarRadarItem as salvarRadarItemApi,
+  salvarPercentuaisRadar as salvarPercentuaisRadarApi,
+  salvarPosicaoEncerrada as salvarPosicaoEncerradaApi,
+  salvarRankingRadar as salvarRankingRadarApi,
   getIntradia,
   getMetas,
   getMacro,
@@ -170,6 +173,8 @@ import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
 import { montarCabecalhoPagina, mostrarErroCarga, criarTabs, toast, icone, definirTituloPagina } from '../ui/index.js'; // 06/10/2026 (Onda 3)
 import { renderAvisosParciais } from './avisos-parciais.js';
 import { momentoHtml, momentoDoRadar, metasDaDistribuicao, carregarMacroMomento } from './momento-aporte.js';
+import { radarSemEncerradas, separarEncerradas, planoPercentualEncerrada, textoPlano, blocoEncerradasHtml } from './radar-encerradas.js'; // 27/10/2026: vendeu tudo -> fora do ranking
+import { mover, rankingsDaOrdem, indiceNaAltura } from './radar-ranking.js'; // 27/10/2026: ranking arrastando os itens
 // 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
 import { desenharIntradia, rotuloDiaIntradia, valoresIntradia } from './inicio-intradia.js';
 import { criarAnelProgresso as criarAnelProgressoLib, criarBarraComposicao, criarBarraProgresso, criarKpi } from '../charts/index.js'; // 06/10/2026 (Onda 3)
@@ -1411,6 +1416,13 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       infoAtivo.className = 'radar-info-icon';
       infoAtivo.textContent = 'i';
       td.appendChild(infoAtivo);
+      // 27/10/2026: vendeu tudo mas você pediu pra continuar acompanhando
+      if (item.encerrada && item.encerrada.preferencia === 'acompanhar') {
+        const chip = doc.createElement('span');
+        chip.className = 'radar-enc-chip';
+        chip.textContent = 'encerrada · observando';
+        td.appendChild(chip);
+      }
     } else {
       td.textContent = formatarCelulaRadar_(item, coluna, chaveTabela);
     }
@@ -1632,7 +1644,7 @@ function compararRadar_(a, b, campo) {
  * `ordenacao`/`onOrdenar` são geridos por quem chama (renderRadarOportunidades)
  * pra sobreviver a troca de aba sem perder o estado.
  */
-function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null, itensDoBloco = null, opcoesMomento = {} }) {
+function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, onOrdenar, cotacaoDolar, metas = null, itensDoBloco = null, opcoesMomento = {}, onReordenar = null }) {
   const colunas = colunasRadarPara_(chaveTabela);
   const wrap = doc.createElement('div');
   wrap.className = 'radar-table-wrap';
@@ -1683,15 +1695,82 @@ function criarTabelaRadar_(doc, { chaveTabela, itens, onSalvarItem, ordenacao, o
       return ordenacao.direcao === 'asc' ? cmp : -cmp;
     });
   }
-  for (const item of ordenados) {
-    tbody.appendChild(criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar));
+  ordenados.forEach((item, idx) => {
+    const tr = criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar);
+    tr.dataset.radarIdx = String(idx);
+    if (onReordenar) {
+      // 27/10/2026: alça de arrastar no # (mouse, dedo e teclado: setas pra cima/baixo)
+      const tdRank = tr.querySelector('td.radar-rank');
+      const alca = doc.createElement('button');
+      alca.type = 'button';
+      alca.className = 'radar-arrastar';
+      alca.dataset.idx = String(idx);
+      alca.dataset.ativo = item.ativo;
+      alca.setAttribute('aria-label', `Mudar a posição de ${item.ativo} no ranking: arraste ou use as setas`);
+      alca.title = 'Arraste pra mudar o ranking (ou use as setas do teclado)';
+      alca.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+      if (tdRank) tdRank.prepend(alca);
+    }
+    tbody.appendChild(tr);
     const momento = criarLinhaMomentoRadar_(doc, item, chaveTabela, metas, colunas.length + 1, itensDoBloco || itens, opcoesMomento);
-    if (momento) tbody.appendChild(momento);
-  }
+    if (momento) { momento.dataset.radarIdx = String(idx); tbody.appendChild(momento); }
+  });
   table.appendChild(tbody);
+  if (onReordenar) ligarArrasteRadar_(doc, tbody, ordenados, onReordenar);
 
   wrap.appendChild(table);
   return wrap;
+}
+
+/**
+ * 27/10/2026 (Tiago: "editar o ranking arrastando o item pra cima ou pra baixo"): arrastar pela alça (Pointer Events -
+ * mouse e toque, com touch-action:none na alça) mostra onde o item vai cair; soltar chama onReordenar(novaOrdem, ticker).
+ * No teclado, as setas sobem/descem uma posição. A conta do ranking fica em radar-ranking.js.
+ */
+function ligarArrasteRadar_(doc, tbody, ordenados, onReordenar) {
+  const win = doc.defaultView;
+  const grupos = ordenados.map((_, idx) => [...tbody.querySelectorAll(`tr[data-radar-idx="${idx}"]`)]);
+  const limpar = () => tbody.querySelectorAll('.radar-drop-antes, .radar-drop-depois, .radar-arrastando').forEach((tr) => tr.classList.remove('radar-drop-antes', 'radar-drop-depois', 'radar-arrastando'));
+  tbody.querySelectorAll('.radar-arrastar').forEach((alca) => {
+    const de = Number(alca.dataset.idx);
+    alca.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+      ev.preventDefault();
+      const para = de + (ev.key === 'ArrowUp' ? -1 : 1);
+      if (para < 0 || para >= ordenados.length) return;
+      onReordenar(mover(ordenados, de, para), ordenados[de].ativo, { teclado: true });
+    });
+    alca.addEventListener('pointerdown', (ev) => {
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      ev.preventDefault();
+      if (alca.setPointerCapture) { try { alca.setPointerCapture(ev.pointerId); } catch (e) { /* jsdom */ } }
+      let destino = de;
+      grupos[de].forEach((tr) => tr.classList.add('radar-arrastando'));
+      tbody.classList.add('radar-em-arrasto');
+      const meios = () => grupos.map((g) => { const r = g[0].getBoundingClientRect(); return r.top + r.height / 2; });
+      const aoMover = (e) => {
+        destino = indiceNaAltura(meios(), e.clientY, de);
+        limpar();
+        grupos[de].forEach((tr) => tr.classList.add('radar-arrastando'));
+        if (destino < de) grupos[destino][0].classList.add('radar-drop-antes');
+        else if (destino > de) grupos[destino][grupos[destino].length - 1].classList.add('radar-drop-depois');
+        if (win && typeof win.scrollBy === 'function' && win.innerHeight) {
+          if (e.clientY < 64) win.scrollBy(0, -14); else if (e.clientY > win.innerHeight - 64) win.scrollBy(0, 14);
+        }
+      };
+      const aoSoltar = (e) => {
+        alca.removeEventListener('pointermove', aoMover);
+        alca.removeEventListener('pointerup', aoSoltar);
+        alca.removeEventListener('pointercancel', aoSoltar);
+        limpar();
+        tbody.classList.remove('radar-em-arrasto');
+        if (e.type === 'pointerup' && destino !== de) onReordenar(mover(ordenados, de, destino), ordenados[de].ativo, { teclado: false });
+      };
+      alca.addEventListener('pointermove', aoMover);
+      alca.addEventListener('pointerup', aoSoltar);
+      alca.addEventListener('pointercancel', aoSoltar);
+    });
+  });
 }
 
 const TABELAS_RADAR = [
@@ -1722,16 +1801,26 @@ const TABELAS_RADAR = [
  * meta" do momento; devolve { atualizarMomentos() } pra página redesenhar
  * quando elas chegarem (sem perder aba, ordem e filtro).
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null, obterMacro = () => null } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null, obterMacro = () => null, onPlanoPercentual = null, onPreferenciaEncerrada = null, onSalvarRanking = null, abaInicial = null } = {}) {
   if (!container) return null;
   container.innerHTML = '';
   if (!radar) return null;
+  // 27/10/2026 (Tiago, vendeu todo o WIZC3): posição encerrada sai do ranking, do "X de N" e da contagem de "bom momento";
+  // o resto do Radar só vê os ativos (radarSemEncerradas) e as encerradas ficam num bloco recolhido no fim de cada aba
+  const radarCompleto = radar;
+  radar = radarSemEncerradas(radar);
+  let mostrarOcultas = false;
+  let encerradasAbertas = false;
   const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null, macro: obterMacro() || null }); // 05/10/2026: + contexto de mercado
 
   wirePointerTooltipRadar_(doc, container);
 
-  let abaAtiva = 'acoesNacionais';
+  let abaAtiva = abaInicial && radar[abaInicial] ? abaInicial : 'acoesNacionais'; // 27/10/2026: depois de salvar, volta na mesma aba
   let ordenacao = { campo: 'ranking', direcao: 'asc' };
+  // 27/10/2026: ranking arrastando - mudanças juntadas (várias setas seguidas = 1 gravação) e o ticker que fica com o foco
+  let rankingPendente = {};
+  let rankingTimer = null;
+  let focoRanking = null;
   // Filtro por Tipo de FII (Tijolo/Híbrido/Papel), ligado à legenda
   // clicável acima da tabela — null = mostra todos. Só existe pra
   // FIIs; resetado toda vez que a aba muda (ver o handler das
@@ -1762,11 +1851,13 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     });
     tableContainer.innerHTML = '';
     const bloco = radar[abaAtiva];
+    desenharAvisosEncerradas();
     if (!bloco || !bloco.itens || bloco.itens.length === 0) {
       const vazio = doc.createElement('p');
       vazio.className = 'hint';
       vazio.textContent = 'Nenhum ativo nesta tabela.';
       tableContainer.appendChild(vazio);
+      desenharBlocoEncerradas();
       return;
     }
     if (abaAtiva === 'acoesInternacionais' && typeof radar.cotacaoDolar === 'number') {
@@ -1801,6 +1892,8 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
       metas,
       opcoesMomento: opcoesMomento(),
       itensDoBloco: bloco.itens, // ranking "X de N" conta o bloco todo, mesmo com filtro de tipo de FII
+      // 27/10/2026: arrastar só na ordem do ranking (# crescente) e sem filtro de tipo - senão a posição na tela não é o ranking
+      onReordenar: onSalvarRanking && ordenacao.campo === 'ranking' && ordenacao.direcao === 'asc' && !filtroTipoFii ? reordenarRanking : null,
       onOrdenar: (campo) => {
         ordenacao = ordenacao.campo === campo
           ? { campo, direcao: ordenacao.direcao === 'asc' ? 'desc' : 'asc' }
@@ -1810,9 +1903,101 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     }));
     const nota = doc.createElement('p');
     nota.className = 'radar-momento-nota';
-    nota.textContent = 'Embaixo de cada ativo, o gráfico do dia (toque pra abrir no Google Finance) e a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L, suas metas de Metas e Objetivos e a análise de fundamentos (critérios Suno e outros). Não é recomendação de compra.';
+    nota.textContent = `${onSalvarRanking ? (ordenacao.campo === 'ranking' && ordenacao.direcao === 'asc' && !filtroTipoFii ? 'Arraste pela alça ao lado do # para mudar o ranking (o 1º da lista vira o nº 1). ' : 'Para arrastar e mudar o ranking, ordene pela coluna # (crescente)' + (filtroTipoFii ? ' e tire o filtro de tipo' : '') + '. ') : ''}Embaixo de cada ativo, o gráfico do dia (toque pra abrir no Google Finance) e a leitura dos seus critérios: preço-teto, ranking da Suno, % desejado x atual, preço médio, P/VP e P/L, suas metas de Metas e Objetivos e a análise de fundamentos (critérios Suno e outros). Não é recomendação de compra.`;
     tableContainer.appendChild(nota);
+    desenharBlocoEncerradas();
     pedirIntradia();
+    if (focoRanking) {
+      const alca = tableContainer.querySelector(`.radar-arrastar[data-ativo="${focoRanking}"]`);
+      focoRanking = null;
+      if (alca) alca.focus();
+    }
+  }
+
+  // 27/10/2026: nova ordem do ranking - a tela muda na hora; a planilha recebe só os números que mudaram (juntados)
+  function reordenarRanking(novaOrdem, ticker, { teclado = false } = {}) {
+    const aba = abaAtiva;
+    const completo = radarCompleto[aba];
+    const sep = separarEncerradas(completo.itens);
+    const mudancas = rankingsDaOrdem(novaOrdem, sep.encerradas.concat(sep.ocultas));
+    if (!mudancas.length) return;
+    mudancas.forEach((m) => {
+      const it = completo.itens.find((x) => x.linha === m.linha);
+      if (it) it.ranking = m.ranking;
+      rankingPendente[m.linha] = { linha: m.linha, ativo: m.ativo, ranking: m.ranking };
+    });
+    if (teclado) focoRanking = ticker;
+    desenhar();
+    clearTimeout(rankingTimer);
+    rankingTimer = setTimeout(() => {
+      const itens = Object.values(rankingPendente);
+      rankingPendente = {};
+      Promise.resolve(onSalvarRanking(aba, itens))
+        .then(() => toast(`Ranking salvo na planilha (${itens.length} ${itens.length === 1 ? 'ativo' : 'ativos'})`, { tipo: 'ok', doc }))
+        .catch((erro) => toast(`Não deu pra salvar o ranking: ${erro && erro.message ? erro.message : erro}. Recarregue a tela para ver o que está na planilha.`, { tipo: 'erro', doc }));
+    }, teclado ? 700 : 0);
+  }
+
+  // 27/10/2026: encerrada que ainda tem % desejado - a planilha continua sugerindo aporte nela; 1 aviso por ticker
+  function desenharAvisosEncerradas() {
+    const completo = radarCompleto[abaAtiva];
+    if (!completo || !Array.isArray(completo.itens)) return;
+    const sepAviso = separarEncerradas(completo.itens);
+    sepAviso.encerradas.concat(sepAviso.ocultas).forEach((item) => {
+      const plano = planoPercentualEncerrada(completo.itens, item.ativo);
+      if (!plano) return;
+      const aviso = doc.createElement('div');
+      aviso.className = 'radar-enc-aviso';
+      aviso.setAttribute('role', 'status');
+      aviso.innerHTML = `<p>${textoPlano(plano)}</p><div class="radar-enc-aviso-acoes">
+        <button type="button" class="btn btn-tonal btn-sm" data-plano="principal">${plano.modo === 'redistribuir' ? 'Zerar e redistribuir' : 'Zerar o % desejado'}</button>
+        ${plano.modo === 'redistribuir' ? '<button type="button" class="btn btn-text btn-sm" data-plano="zerar">Só zerar</button>' : ''}</div>`;
+      if (plano.modo === 'redistribuir') {
+        const det = doc.createElement('details');
+        det.className = 'radar-enc-plano';
+        det.innerHTML = `<summary>Ver o que muda</summary><ul>${plano.mudancas.map((m) => `<li><span>${esc(m.ativo)}</span><span class="mono">${formatPercentualPreciso(m.de)} → <b>${formatPercentualPreciso(m.para)}</b></span></li>`).join('')}</ul>`;
+        aviso.appendChild(det);
+      }
+      aviso.querySelectorAll('button[data-plano]').forEach((btn) => btn.addEventListener('click', async () => {
+        if (!onPlanoPercentual) return;
+        const mudancas = btn.dataset.plano === 'zerar' ? plano.mudancas.slice(0, 1) : plano.mudancas;
+        aviso.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        try {
+          await onPlanoPercentual(abaAtiva, mudancas);
+          toast(mudancas.length > 1 ? `% desejado atualizado em ${mudancas.length} ativos` : `% desejado de ${plano.ticker} zerado`, { tipo: 'ok', doc });
+        } catch (erro) {
+          aviso.querySelectorAll('button').forEach((b) => { b.disabled = false; });
+          toast(`Não deu pra gravar na planilha: ${erro && erro.message ? erro.message : erro}`, { tipo: 'erro', doc });
+        }
+      }));
+      tableContainer.appendChild(aviso);
+    });
+  }
+
+  function desenharBlocoEncerradas() {
+    const completo = radarCompleto[abaAtiva];
+    if (!completo || !Array.isArray(completo.itens)) return;
+    const sep = separarEncerradas(completo.itens);
+    const html = blocoEncerradasHtml(sep.encerradas, { ocultas: sep.ocultas, mostrarOcultas, aberto: encerradasAbertas });
+    if (!html) return;
+    const wrap = doc.createElement('div');
+    wrap.innerHTML = html;
+    const det = wrap.firstElementChild;
+    det.addEventListener('toggle', () => { encerradasAbertas = det.open; });
+    const btnOcultas = det.querySelector('[data-enc-mostrar-ocultas]');
+    if (btnOcultas) btnOcultas.addEventListener('click', () => { mostrarOcultas = true; encerradasAbertas = true; desenhar(); });
+    det.querySelectorAll('[data-enc-acao]').forEach((btn) => btn.addEventListener('click', async () => {
+      const li = btn.closest('[data-encerrada]');
+      if (!li || !onPreferenciaEncerrada) return;
+      btn.disabled = true;
+      try {
+        await onPreferenciaEncerrada(li.dataset.encerrada, btn.dataset.encAcao);
+      } catch (erro) {
+        btn.disabled = false;
+        toast(`Não deu pra salvar: ${erro && erro.message ? erro.message : erro}`, { tipo: 'erro', doc });
+      }
+    }));
+    tableContainer.appendChild(det);
   }
 
   // Gráfico do dia dos ativos da aba na tela (quem busca/guarda é a página).
@@ -2161,6 +2346,9 @@ export async function montarPaginaDistribuicoesMetas(token, {
   salvarMetaPatrimonioImpl = salvarMetaPatrimonioApi,
   salvarMesesRendaEmergencialImpl = salvarMesesRendaEmergencialApi,
   salvarRadarItemImpl = salvarRadarItemApi,
+  salvarPercentuaisRadarImpl = salvarPercentuaisRadarApi, // 27/10/2026: posição encerrada - zerar/redistribuir o % desejado
+  salvarPosicaoEncerradaImpl = salvarPosicaoEncerradaApi, // 27/10/2026: "Voltar a acompanhar" / "Ocultar"
+  salvarRankingRadarImpl = salvarRankingRadarApi, // 27/10/2026: ranking arrastando os itens
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
   getMacroImpl = getMacro, // 05/10/2026: contexto de mercado do momento do Radar (Macro.gs)
@@ -2224,6 +2412,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   garantirEstiloMetas(doc);
   let metasObjetivos = null;
   let radarApi = null; // 03/10/2026: pra redesenhar os momentos do Radar quando as metas chegam
+  let abaRadarAtual = null; // 27/10/2026: aba do Radar aberta (recarregar volta nela)
   let buscandoMetas = null;
   let leuCacheMetas = false;
   function carregarMetasObjetivos() {
@@ -2291,7 +2480,23 @@ export async function montarPaginaDistribuicoesMetas(token, {
         if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
         await carregarERedesenhar();
       },
+      onPlanoPercentual: async (tabela, mudancas) => {
+        const r = await salvarPercentuaisRadarImpl(token, tabela, mudancas.map((m) => ({ linha: m.linha, ativo: m.ativo, percentualDesejado: m.para })));
+        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+        await carregarERedesenhar();
+      },
+      onSalvarRanking: async (tabela, itens) => {
+        const r = await salvarRankingRadarImpl(token, tabela, itens);
+        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+      },
+      abaInicial: abaRadarAtual,
+      onPreferenciaEncerrada: async (ticker, preferencia) => {
+        const r = await salvarPosicaoEncerradaImpl(token, ticker, preferencia);
+        if (!r.ok) throw new Error(r.erro || 'erro desconhecido');
+        await carregarERedesenhar();
+      },
       onTrocarAba: (abaAtiva) => {
+        abaRadarAtual = abaAtiva; // 27/10/2026: recarregar (depois de salvar) volta na mesma aba
         // 06/10/2026: o Radar só mostra a tabela (+ os links da carteira recomendada da Suno); os pesos moram na meta
         renderSplitInterno(doc, splitInternoContainer, { linksRecomendados: resposta.linksRecomendados, abaAtiva, somenteLinks: true });
       },

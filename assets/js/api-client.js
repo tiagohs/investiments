@@ -485,6 +485,33 @@ export async function salvarRadarItem(token, tabela, item) {
 }
 
 /**
+ * 27/10/2026: % desejado de vários tickers de UM bloco do Radar de uma vez (action=salvarPercentuaisRadar,
+ * PosicoesEncerradas.gs) - zerar uma posição encerrada e redistribuir entre as outras. O back-end confere cada linha.
+ * @param {string} token
+ * @param {'acoesNacionais'|'acoesInternacionais'|'fiis'} tabela
+ * @param {Array<{linha: number, ativo: string, percentualDesejado: number}>} itens
+ */
+export async function salvarPercentuaisRadar(token, tabela, itens) {
+  return request('POST', 'salvarPercentuaisRadar', token, { tabela, itens: JSON.stringify(itens) });
+}
+
+/**
+ * 27/10/2026: ranking de vários tickers de UM bloco do Radar (action=salvarRankingRadar) - arrastar pra reordenar.
+ * @param {Array<{linha: number, ativo: string, ranking: number}>} itens
+ */
+export async function salvarRankingRadar(token, tabela, itens) {
+  return request('POST', 'salvarRankingRadar', token, { tabela, itens: JSON.stringify(itens) });
+}
+
+/**
+ * 27/10/2026: preferência de uma posição encerrada (action=salvarPosicaoEncerrada): 'acompanhar' (volta ao ranking,
+ * como observação), 'oculta' (some do bloco de encerradas) ou '' (padrão).
+ */
+export async function salvarPosicaoEncerrada(token, ticker, preferencia) {
+  return request('POST', 'salvarPosicaoEncerrada', token, { ticker, preferencia: preferencia || '' });
+}
+
+/**
  * Runs "importarTransacoesB3" — a single batch, no round logic (unlike
  * syncNow, a batch import never partially times out and resumes).
  *

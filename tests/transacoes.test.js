@@ -509,6 +509,23 @@ test('carrinho: abrir com "#carrinho" e com carrinho de ontem (preços congelado
   dom.window.close();
 });
 
+test('27/10/2026: carrinho de outro dia mostra o aviso da data; mexer nele (ou "Comprei hoje") traz pra hoje e confirma com hoje', async () => {
+  const velho = { editandoId: null, data: '2026-09-08', observacao: '', perguntadoEm: '2026-09-26', itens: { 'acoes:ABCD3': { classe: 'acoes', ativo: 'ABCD3', moeda: 'BRL', qtd: 5, preco: 19 } } };
+  const { dom, doc, w } = montarDom('#carrinho');
+  const { montarPaginaTransacoes } = await import('../assets/js/pages/transacoes.js');
+  w.localStorage.setItem('transacoes.carrinho.v1', JSON.stringify(velho));
+  const salvos = [];
+  await montarPaginaTransacoes('tk', { doc, getTransacoesImpl: async () => structuredClone(DADOS), salvarAporteImpl: async (t, ap) => { salvos.push(ap); return { ok: true, id: 'AP-9', aportes: [{ ...ap, id: 'AP-9', itens: ap.itens }] }; } });
+  assert.match(txt(doc.querySelector('.tx-recibo-data-aviso')), /data de 08\/09\/2026 ?, não de hoje/);
+  digitar(w, doc.querySelector('[data-qtd="acoes:EFGH3"]'), '2');
+  assert.equal(doc.getElementById('txDataAporte').value, DADOS.hoje, 'mexeu hoje = compra de hoje');
+  assert.equal(doc.querySelector('.tx-recibo-data-aviso'), null);
+  clique(w, doc.querySelector('[data-acao="confirmar-carrinho"]'));
+  await esperar();
+  assert.equal(salvos[0].data, DADOS.hoje);
+  dom.window.close();
+});
+
 test('carrinho: outro carrinho no MESMO dia soma no aporte que já está aguardando (sem duplicar o confirmado); Editar continua', async () => {
   const { doc, w, chamadas } = await montar();
   digitar(w, doc.querySelector('[data-qtd="acoes:ABCD3"]'), '10');

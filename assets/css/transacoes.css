@@ -694,3 +694,9 @@ table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width
   .tx-origem{ display:none; }
 }
 .tx-lancar-agora{ margin-left:8px; vertical-align:middle; } /* 07/10/2026: "Lançar agora" nas Ações EUA a confirmar */
+
+/* 27/10/2026: posição encerrada (vendeu tudo) na prateleira de Aportes */
+.tx-chip-encerrada{ display:inline-block; margin-top:4px; padding:1px 8px; border-radius:999px; background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-label-small-size); }
+/* 27/10/2026: carrinho com data de outro dia */
+.tx-recibo-data-aviso{ grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0; padding:8px 10px; border-radius:var(--md-sys-shape-corner-small); background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-body-small-size); }
+.tx-recibo-data-aviso span{ flex:1 1 200px; }

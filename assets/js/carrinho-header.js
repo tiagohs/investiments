@@ -165,7 +165,12 @@ export function carrinhoAvisoHtml(carrinho, sit) {
       <b class="carrinho-aviso-titulo">Você comprou?</b>
       <p>Seu carrinho (${t.n} ite${t.n === 1 ? 'm' : 'ns'} · ${formatBRL(t.totalBrl)}) ficou aberto. ${quando}; como os preços mudam de um dia pro outro, ele não vale mais.</p>
       <div class="carrinho-aviso-botoes">
-        <button type="button" class="btn btn-primary" data-carrinho-resp="sim">Sim, comprei — ir confirmar</button>
+        ${sit.motivo === 'dia'
+    // 27/10/2026: "comprei" podia ser num dia depois do carrinho (montado em 08/10, comprado em 26/10) - a data certa é o que a
+    // importação da B3 usa pra confirmar o aporte
+    ? `<button type="button" class="btn btn-primary" data-carrinho-resp="hoje">Comprei hoje</button>
+        <button type="button" class="btn btn-tonal" data-carrinho-resp="sim">Comprei em ${formatDM(carrinho.data, '')}</button>`
+    : '<button type="button" class="btn btn-primary" data-carrinho-resp="sim">Sim, comprei — ir confirmar</button>'}
         <button type="button" class="btn btn-ghost" data-carrinho-resp="nao">Não, descartar</button>
       </div>
     </div>`;
@@ -265,8 +270,11 @@ export function setupCarrinhoHeader(doc, {
       atualizar();
       return;
     }
-    // "Sim": segue pra Transações pra confirmar (com os preços do dia do carrinho); não pergunta de novo hoje
-    try { storage.setItem(CHAVE_CARRINHO, JSON.stringify({ ...c, perguntadoEm: dataBRT(agora()) })); } catch (e) { /* só conveniência */ }
+    // "Sim": segue pra Transações pra confirmar (com os preços do dia do carrinho); não pergunta de novo hoje.
+    // 27/10/2026: "Comprei em dd/mm" fixa a data do carrinho (dataManual); "Comprei hoje" troca pra hoje
+    const hoje = dataBRT(agora());
+    const confirmado = resp === 'hoje' ? { ...c, data: hoje, dataManual: false } : { ...c, dataManual: c.data !== hoje };
+    try { storage.setItem(CHAVE_CARRINHO, JSON.stringify({ ...confirmado, perguntadoEm: hoje })); } catch (e) { /* só conveniência */ }
     avisar();
     atualizar();
     if (naTransacoes) { win.dispatchEvent(new win.CustomEvent(EVENTO_ABRIR_CARRINHO)); return; }
