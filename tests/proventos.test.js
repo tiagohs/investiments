@@ -208,6 +208,7 @@ test('Importar planilha da B3: lê o arquivo, mostra a prévia, só envia depois
   // 06/10/2026 (A-62): a prévia é um confirmar() (diálogo/folha), não uma faixa na página
   const dialogo = () => doc.querySelector('.dialogo');
   assert.match(txt(dialogo()), /Encontrei 1 proventos a receber, somando R\$\s*9,00/);
+  assert.match(txt(dialogo()), /Junta com o que já foi importado/, '28/10/2026: não substitui mais');
   assert.equal(enviado, null, 'nada é enviado antes de confirmar');
   const antes = chamadas();
   clique(w, dialogo().querySelector('[data-acao="cancelar"]'));
@@ -218,7 +219,7 @@ test('Importar planilha da B3: lê o arquivo, mostra a prévia, só envia depois
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(enviado, matriz);
   assert.ok(chamadas() > antes, 'recarrega a tela depois de importar');
-  assert.match(txt(doc.querySelector('.toasts')), /Importado: 1 proventos \(R\$\s*9,00\)/, 'feedback em toast');
+  assert.match(txt(doc.querySelector('.toasts')), /Proventos a receber: 1 novo \(R\$\s*9,00 no arquivo\)/, 'feedback em toast');
   arquivoAtual = [['Data', 'Ativo'], ['01/01/2026', 'ABCD11']];
   enviado = null;
   await escolher();
@@ -295,4 +296,37 @@ test('Consolidado: card de Análise lembra se estava aberto entre redesenhos; se
   // intervalo sem nenhum provento recebido (nov/24): sem card
   doc.getElementById('pvPeriodo')._filtroPeriodo.definir({ inicio: '2024-11-01', fim: '2024-11-30' });
   assert.equal(doc.getElementById('pvHistAnalise').hidden, true);
+});
+
+test('28/10/2026: o extrato "Proventos recebidos" vai pra aba Proventos (Lançamentos, repetido ignorado) e NÃO substitui o "a receber"', async () => {
+  const recebidos = [
+    ['Produto', 'Pagamento', 'Tipo de Evento', 'Instituição', 'Quantidade', 'Preço unitário', 'Valor líquido'],
+    ['ABCD11 - FUNDO TESTE', '15/10/2026', 'Rendimento', 'CORRETORA TESTE', '10', 0.9, 9],
+    ['WXYZ3 - EMPRESA TESTE', '20/10/2026', 'Dividendo', 'CORRETORA TESTE', '5', 1, 5],
+    ['', '', '', '', '', 'Total', 14],
+  ];
+  const falsoXlsx = async () => ({ read: () => ({ SheetNames: ['Proventos Recebidos'], Sheets: { 'Proventos Recebidos': {} } }), utils: { sheet_to_json: () => recebidos } });
+  let aReceber = null; let lancados = null; let opcoes = null;
+  const { doc, w, chamadas } = await montar({
+    carregarXlsx: falsoXlsx,
+    importarImpl: async (tk, l) => { aReceber = l; return { ok: true, importados: 0, total: 0 }; },
+    importarRecebidosImpl: async (tk, itens, o) => { lancados = itens; opcoes = o; return { ok: true, resultado: { gravadas: 1, ignoradasDuplicadas: 1 } }; },
+  });
+  const input = doc.getElementById('pvImportarArquivo');
+  Object.defineProperty(input, 'files', { configurable: true, value: [{ name: 'proventos-recebidos.xlsx', arrayBuffer: async () => new ArrayBuffer(8) }] });
+  input.dispatchEvent(new w.Event('change'));
+  await new Promise((r) => setTimeout(r, 10));
+  const dialogo = doc.querySelector('.dialogo');
+  assert.match(txt(dialogo), /proventos RECEBIDOS da B3: 2 linhas, somando R\$\s*14,00/);
+  const antes = chamadas();
+  clique(w, dialogo.querySelector('[data-acao="confirmar"]'));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(aReceber, null, 'o "a receber" não é tocado');
+  assert.deepEqual(lancados.map((it) => [it.destino, it.ticker, it.dataPagamento, it.valor, it.arquivo]), [
+    ['proventos', 'ABCD11', '2026-10-15', 9, 'proventos-recebidos.xlsx'], ['proventos', 'WXYZ3', '2026-10-20', 5, 'proventos-recebidos.xlsx'],
+  ]);
+  assert.equal(opcoes.origem, 'Proventos recebidos (B3)');
+  assert.match(txt(doc.querySelector('.toasts')), /1 lançado na aba Proventos, 1 já estava lá/);
+  assert.ok(chamadas() > antes, 'recarrega');
+  w.close();
 });

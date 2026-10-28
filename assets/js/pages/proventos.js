@@ -20,7 +20,7 @@
 //    essenciais - o resto abre ao tocar na linha (folha);
 //  - importar a B3 confirma com confirmar() e avisa com toast(); falha de
 //    carga = mostrarErroCarga ("Tentar de novo"), detalhe técnico recolhido.
-import { getProventos, importarProventosB3 } from '../api-client.js';
+import { getProventos, importarProventosB3, importarLancamentos } from '../api-client.js';
 import { formatBRL, formatNumeroBR, hojeSP, formatUSD as usd, formatNumeroPt, formatDM, formatDMA } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { ligarFiltroPeriodo, ehPeriodoPersonalizado, botoesSegmentadoHtml } from '../periodo-personalizado.js'; // 02/10/2026: "Escolher período"
@@ -533,7 +533,7 @@ export async function lerArquivoB3(doc, arquivo, { carregarXlsx = carregarSheetJ
  * toast(); a linha #pvImportarStatus só mostra o andamento ("Lendo...", "Enviando...") e o erro, com o detalhe
  * técnico recolhido.
  */
-function ligarImportacao(doc, token, { botao, input, status, importarImpl, carregarXlsx, aoImportar }) {
+function ligarImportacao(doc, token, { botao, input, status, importarImpl, importarRecebidosImpl, carregarXlsx, aoImportar }) {
   if (!botao || !input || !status) return;
   const andamento = (texto) => { status.hidden = false; status.className = 'pv-importar-status'; status.textContent = texto; };
   const erro = (texto, detalhe) => {
@@ -556,6 +556,16 @@ function ligarImportacao(doc, token, { botao, input, status, importarImpl, carre
       erro('Não consegui ler esse arquivo. Confira se é a planilha .xlsx baixada da B3 e tente de novo.', String((e && e.message) || e));
       return;
     }
+    // 28/10/2026 (Tiago: "importei a de outubro dos que vou receber e a dos que recebi, e uma substituiu a outra"): o extrato
+    // "Proventos recebidos" tem as mesmas colunas (Produto, Valor líquido), mas é histórico: vai pra aba Proventos pelos
+    // Lançamentos (o que já está lá é ignorado), sem mexer no "a receber".
+    // o leitor dos extratos (lancamentos-parse.js) só carrega aqui, na hora de importar - a tela não paga esse peso ao abrir
+    let parse = null;
+    try { parse = await import('./lancamentos-parse.js'); } catch (e) { parse = null; }
+    if (parse && parse.identificarArquivo({ linhas }) === 'b3Proventos') {
+      await importarRecebidos(arquivo.name, linhas, parse);
+      return;
+    }
     const previa = previaExportacaoB3(linhas);
     if (!previa.ok) {
       erro('Esse arquivo não parece a planilha "Proventos a receber" da B3 (não achei as colunas Produto e Valor líquido).');
@@ -564,7 +574,7 @@ function ligarImportacao(doc, token, { botao, input, status, importarImpl, carre
     limpar();
     const ok = await confirmar({
       titulo: 'Importar proventos da B3?',
-      mensagem: `Encontrei ${previa.itens.length} proventos a receber, somando ${formatBRL(previa.total)}. Isso substitui a importação anterior.`,
+      mensagem: `Encontrei ${previa.itens.length} proventos a receber, somando ${formatBRL(previa.total)}. Junta com o que já foi importado: o que vier repetido é atualizado, não duplica.`,
       confirmarTexto: 'Enviar pra planilha', cancelarTexto: 'Cancelar', icone: 'upload', doc,
     });
     if (!ok) return;
@@ -573,9 +583,36 @@ function ligarImportacao(doc, token, { botao, input, status, importarImpl, carre
     try { r = await importarImpl(token, linhas); } catch (e) { r = { ok: false, erro: String((e && e.message) || e) }; }
     if (!r || !r.ok) { erro('Não deu pra importar agora. Tente de novo em instantes.', (r && r.erro) || 'erro desconhecido'); return; }
     limpar();
-    toast.ok(`Importado: ${r.importados} proventos (${formatBRL(r.total)}).`, { doc });
+    const novos = typeof r.gravadas === 'number' ? r.gravadas : r.importados;
+    const partes = [`${novos} novo${novos === 1 ? '' : 's'}`];
+    if (r.ignoradasDuplicadas) partes.push(`${r.ignoradasDuplicadas} já estava${r.ignoradasDuplicadas === 1 ? '' : 'm'} lá`);
+    if (r.mantidos) partes.push(`${r.mantidos} da importação anterior mantido${r.mantidos === 1 ? '' : 's'}`);
+    toast.ok(`Proventos a receber: ${partes.join(', ')} (${formatBRL(r.total)} no arquivo).`, { doc });
     await aoImportar();
   });
+
+  async function importarRecebidos(nome, linhas, parse) {
+    const lido = parse.lerArquivos([{ nome, linhas }]);
+    const itens = lido.itens.filter((it) => it.destino === 'proventos' || it.destino === 'rendaFixa');
+    if (!itens.length) { erro('Não achei nenhum provento com ativo, data e valor nesse extrato de "Proventos recebidos".'); return; }
+    const soma = itens.filter((it) => it.destino === 'proventos').reduce((t, it) => t + (it.valor || 0), 0);
+    limpar();
+    const ok = await confirmar({
+      titulo: 'Lançar proventos recebidos?',
+      mensagem: `Esse é o extrato de proventos RECEBIDOS da B3: ${itens.length} linha${itens.length === 1 ? '' : 's'}, somando ${formatBRL(soma)}. Vão para a aba Proventos; o que já estiver lá é ignorado. O "a receber" importado antes continua como está.`,
+      confirmarTexto: 'Lançar na planilha', cancelarTexto: 'Cancelar', icone: 'upload', doc,
+    });
+    if (!ok) return;
+    andamento('Lançando…');
+    let r;
+    try { r = await importarRecebidosImpl(token, itens, { origem: 'Proventos recebidos (B3)' }); } catch (e) { r = { ok: false, erro: String((e && e.message) || e) }; }
+    if (!r || !r.ok || !r.resultado) { erro('Não deu pra lançar agora. Tente de novo em instantes.', (r && r.erro) || 'erro desconhecido'); return; }
+    limpar();
+    const g = r.resultado.gravadas || 0;
+    const ign = r.resultado.ignoradasDuplicadas || 0;
+    toast.ok(`Proventos recebidos: ${g} lançado${g === 1 ? '' : 's'} na aba Proventos${ign ? `, ${ign} já estava${ign === 1 ? '' : 'm'} lá` : ''}.`, { doc });
+    await aoImportar();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -629,7 +666,7 @@ export function desenharProventos(doc, conteudo, dadosBrutos, estado, { hojeLoca
   restaurarFoco(conteudo, foco);
 }
 
-export async function montarPaginaProventos(token, { doc = document, getProventosImpl = getProventos, importarImpl = importarProventosB3, carregarXlsx = carregarSheetJs, hojeLocal = null } = {}) {
+export async function montarPaginaProventos(token, { doc = document, getProventosImpl = getProventos, importarImpl = importarProventosB3, importarRecebidosImpl = importarLancamentos, carregarXlsx = carregarSheetJs, hojeLocal = null } = {}) {
   const hojeDe = () => hojeLocal || hojeSaoPaulo(); // 02/10/2026 (testes fixam o dia)
   const loadingEl = doc.getElementById('proventosLoading');
   const erroEl = doc.getElementById('proventosErro');
@@ -691,7 +728,7 @@ export async function montarPaginaProventos(token, { doc = document, getProvento
     return true;
   }
 
-  ligarImportacao(doc, token, { botao: botaoImportar, input: inputArquivo, status: statusEl, importarImpl, carregarXlsx, aoImportar: carregar });
+  ligarImportacao(doc, token, { botao: botaoImportar, input: inputArquivo, status: statusEl, importarImpl, importarRecebidosImpl, carregarXlsx, aoImportar: carregar });
 
   const cache = await lerCacheDados(CHAVE_CACHE);
   if (cache) desenhar(cache.dados);

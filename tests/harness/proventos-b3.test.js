@@ -71,37 +71,54 @@ test('B3 "Proventos a receber": lê a exportação como vem (texto, "-" sem data
   assert.equal(l2.valorPorCota, 1.23456);
 });
 
-test('B3: importar pela tela grava a aba (substitui a anterior), a data vira data de verdade, carimba "Importado em" e a Home lê o mesmo', () => {
+test('B3: importar pela tela JUNTA com a importação anterior (28/10/2026), repetido atualiza sem duplicar, a data vira data de verdade, carimba "Importado em" e a Home lê o mesmo', () => {
   const sb = sandboxVazio();
   const hoje = Date.now();
   const futuro = diaSp(hoje + 20 * 86400000);
+  const outro = diaSp(hoje + 30 * 86400000);
   const ss = sb.SpreadsheetApp.getActiveSpreadsheet();
-  // uma importação antiga com mais linhas: a nova substitui tudo
-  const velha = exportacaoB3([1, 2, 3, 4, 5].map((i) => ({ ticker: `VELH${i}`, evento: 'DIVIDENDO', pag: futuro, qtd: 1, preco: 1, valor: 1 })));
-  assert.equal(plain(sb.importarProventosB3_(JSON.stringify(velha))).importados, 5);
+  // uma importação anterior: AAAA3 (vai vir de novo, com valor revisado) e VELH1 (não vem no arquivo novo: continua)
+  const velha = exportacaoB3([
+    { ticker: 'AAAA3', evento: 'DIVIDENDO', pag: futuro, qtd: 10, preco: 0.4, valor: 4 },
+    { ticker: 'VELH1', evento: 'RENDIMENTO', pag: outro, qtd: 2, preco: 1, valor: 2 },
+  ]);
+  assert.equal(plain(sb.importarProventosB3_(JSON.stringify(velha))).importados, 2);
   const m = exportacaoB3([
     { ticker: 'AAAA3', evento: 'DIVIDENDO', pag: futuro, qtd: 10, preco: 0.5, valor: 5 },
     { ticker: 'CCCC4', evento: 'DIVIDENDO', pag: '', qtd: 7, preco: 1, valor: 7 },
   ]);
   const r = plain(sb.importarProventosB3_(JSON.stringify(m)));
-  assert.deepEqual(r, { ok: true, importados: 2, total: 12, gravadas: 2, ignoradasDuplicadas: 0, exemplos: [] });
+  assert.deepEqual(r, { ok: true, importados: 2, total: 12, gravadas: 1, ignoradasDuplicadas: 1, mantidos: 1, totalGeral: 14, exemplos: [] });
   const aba = ss.getSheetByName('B3 - proventos a receber');
   const valores = aba.getRange(1, 1, aba.getLastRow(), aba.getLastColumn()).getValues();
-  assert.equal(valores.length, 4, 'cabeçalho + 2 + total (a importação velha sumiu)');
+  assert.equal(valores.length, 5, 'cabeçalho + 2 do arquivo + 1 mantida + total');
   assert.ok(valores[1][3] instanceof sb.Date, 'data de pagamento gravada como data');
   assert.equal(sb.chaveDiaISOInicio_(valores[1][3]), futuro, 'sem virar o dia');
   assert.equal(valores[2][3], '-', '"-" continua "-"');
   assert.equal(valores[0][10], 'Importado em');
   const lido = plain(sb.lerProventosB3AReceber_(ss));
   assert.equal(lido.atualizadoEm, diaSp(hoje));
-  assert.deepEqual(lido.itens.map((p) => [p.ticker, p.dataPagamento, p.valor]), [['AAAA3', futuro, 5], ['CCCC4', '', 7]]);
+  assert.deepEqual(lido.itens.map((p) => [p.ticker, p.dataPagamento, p.tipo, p.valor]), [['AAAA3', futuro, 'Dividendo', 5], ['CCCC4', '', 'Dividendo', 7], ['VELH1', outro, 'Rendimento', 2]]);
+  // reimportar o mesmo arquivo não duplica nada
+  const de2 = plain(sb.importarProventosB3_(JSON.stringify(m)));
+  assert.equal(de2.gravadas, 0);
+  assert.equal(de2.ignoradasDuplicadas, 2);
+  assert.equal(plain(sb.lerProventosB3AReceber_(ss)).itens.length, 3);
   const out = plain(sb.montarProventosAnunciados_(null, {}));
-  assert.deepEqual(out.aReceber.map((p) => [p.ticker, p.dataPagamento, p.valor, p.fonte, p.classe]), [['AAAA3', futuro, 5, 'B3', 'acoes'], ['CCCC4', '', 7, 'B3', 'acoes']]);
+  assert.ok(out.aReceber.every((p) => p.fonte === 'B3' && p.classe === 'acoes'));
+  assert.deepEqual(out.aReceber.map((p) => p.ticker).sort(), ['AAAA3', 'CCCC4', 'VELH1']);
   assert.equal(out.atualizadoB3, diaSp(hoje));
   // arquivo errado: recusa sem apagar a aba
   const ruim = plain(sb.importarProventosB3_(JSON.stringify([['Data', 'Ativo'], ['01/01/2030', 'AAAA3']])));
   assert.equal(ruim.ok, false);
-  assert.equal(plain(sb.lerProventosB3AReceber_(ss)).itens.length, 2, 'aba anterior continua lá');
+  assert.equal(plain(sb.lerProventosB3AReceber_(ss)).itens.length, 3, 'aba anterior continua lá');
+  // o extrato de RECEBIDOS que foi parar na aba por engano (sem "Previsão de pagamento") não é mantido no próximo "a receber"
+  const recebidos = [['Produto', 'Pagamento', 'Tipo de Evento', 'Instituição', 'Quantidade', 'Preço unitário', 'Valor líquido'], ['ZZZZ11 - FUNDO', '15/10/2026', 'Rendimento', 'X', '3', 1, 3]];
+  ss.getSheetByName('B3 - proventos a receber').clearContents();
+  ss.getSheetByName('B3 - proventos a receber').getRange(1, 1, 2, 7).setValues(recebidos);
+  const limpo = plain(sb.importarProventosB3_(JSON.stringify(m)));
+  assert.equal(limpo.mantidos, 0);
+  assert.deepEqual(plain(sb.lerProventosB3AReceber_(ss)).itens.map((p) => p.ticker), ['AAAA3', 'CCCC4']);
 });
 
 test('B3 + planilha real: o que já está na aba Proventos não volta (mesmo com o tipo escrito diferente), JCP e dividendo do mesmo dia entram os 2, 2 contas somam, sem data fica "a definir"', async (t) => {

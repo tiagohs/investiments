@@ -134,8 +134,17 @@ export function renderProventosAnunciados(doc, secao, dados, { hoje = new Date()
       <span class="prov-stat"><small>A receber em ${nomeMes}</small> <b>${formatBRL(r.aReceberEsteMes)}</b></span>
       ${r.aReceberDepois > 0 ? `<span class="prov-stat"><small>Depois</small> <b>${formatBRL(r.aReceberDepois)}</b></span>` : ''}
     </div>`;
-  if (aReceber.length) {
-    html += `<h3 class="prov-subtitulo">A receber</h3><ul class="prov-lista lista-resumo">${aReceber.map((p) => linhaHtml_(p)).join('')}</ul>`;
+  // 28/10/2026 (Tiago: "na home, a receber tá mostrando outros meses, sendo que os proventos aqui são do mês atual"): a lista
+  // aberta é só a do mês; os de meses seguintes (e sem data) ficam recolhidos em "Depois de <mês>", com o total no resumo.
+  const mes = anoMesLocal_(hoje);
+  const doMes = aReceber.filter((p) => String(p.dataPagamento || '').slice(0, 7) === mes);
+  const depois = aReceber.filter((p) => String(p.dataPagamento || '').slice(0, 7) !== mes);
+  if (doMes.length) {
+    html += `<h3 class="prov-subtitulo">A receber em ${nomeMes}</h3><ul class="prov-lista lista-resumo">${doMes.map((p) => linhaHtml_(p)).join('')}</ul>`;
+  }
+  if (depois.length) {
+    html += `<details class="prov-depois"${secao._provDepoisAberto ? ' open' : ''}><summary class="prov-subtitulo">Depois de ${nomeMes} · ${depois.length} provento${depois.length === 1 ? '' : 's'} · ${formatBRL(soma_(depois))}</summary>
+      <ul class="prov-lista lista-resumo">${depois.map((p) => linhaHtml_(p)).join('')}</ul></details>`;
   }
   if (recebidos.length) {
     html += `<h3 class="prov-subtitulo">Recebidos em ${nomeMes}</h3><ul class="prov-lista lista-resumo">${visiveis.map((p) => linhaHtml_(p, { modo: 'recebido' })).join('')}</ul>`;
@@ -148,6 +157,8 @@ export function renderProventosAnunciados(doc, secao, dados, { hoje = new Date()
       <ul class="prov-lista prov-lista-aviso lista-resumo">${naoLancados.map((p) => linhaHtml_(p, { modo: 'naoLancado' })).join('')}</ul>`;
   }
   corpo.innerHTML = html;
+  const det = corpo.querySelector('.prov-depois');
+  if (det) det.addEventListener('toggle', () => { secao._provDepoisAberto = det.open; });
   const botao = corpo.querySelector('.prov-mais');
   if (botao) {
     botao.addEventListener('click', () => {

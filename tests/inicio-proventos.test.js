@@ -44,6 +44,13 @@ test('renderProventosAnunciados(): resumo do mês, a receber (com "a definir" e 
   assert.match(txt(), /EFGH3 ?lançado pagamento a definir · Dividendo/);
   assert.match(txt(), /10 × R\$\s*0,90/);
   assert.equal(secao.querySelectorAll('.prov-selo').length, 1);
+  // 28/10/2026: a lista aberta é só do mês; o resto fica recolhido em "Depois de setembro"
+  assert.match(txt(), /A receber em setembro ABCD11|A RECEBER EM SETEMBRO/i);
+  const depois = secao.querySelector('details.prov-depois');
+  assert.ok(depois && !depois.open, 'outros meses recolhidos');
+  assert.match(depois.querySelector('summary').textContent, /Depois de setembro · 1 provento · R\$\s*12,00/);
+  assert.ok(depois.textContent.includes('EFGH3'));
+  assert.ok(!secao.querySelector('.prov-lista:not(details .prov-lista)').textContent.includes('EFGH3'), 'EFGH3 (sem data) não está na lista do mês');
   // recebidos: 6 visíveis (mais recentes primeiro) + botão
   assert.match(txt(), /R7AA11 pago 17\/09/);
   assert.ok(!/R0AA11/.test(txt()));

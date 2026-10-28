@@ -611,7 +611,7 @@ function extrairProventosB3DeLinhas_(linhas) {
       quantidade: cQtd === -1 ? 0 : (numero(l[cQtd]) || 0), valorPorCota: cPreco === -1 ? 0 : (numero(l[cPreco]) || 0), valor: valor
     });
   }
-  return { itens: itens, atualizadoEm: atualizadoEm };
+  return { itens: itens, atualizadoEm: atualizadoEm, temPrevisao: cPag !== -1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -621,9 +621,10 @@ function extrairProventosB3DeLinhas_(linhas) {
 /**
  * e.parameter.linhas: STRING JSON com a matriz da planilha exportada (lida no
  * navegador com SheetJS, como veio - ver assets/js/pages/proventos.js).
- * A exportação é uma foto de TUDO o que está a receber, então substitui o
- * conteúdo da aba (não acumula). Datas "dd/mm/aaaa" viram data de verdade
- * (meio-dia, sem virar o dia por fuso); "-" continua "-".
+ * 28/10/2026 (Tiago: "uma deveria agregar a outra, e se vier dado repetido, é só ignorar"): JUNTA com o que já estava na aba
+ * em vez de apagar. A mesma linha (ticker + pagamento + tipo + quantidade) fica com o valor do arquivo novo (a B3 pode ter
+ * revisado); as anteriores que não vieram no arquivo novo continuam (já pagas = recebidas presumidas, como antes).
+ * Datas "dd/mm/aaaa" viram data de verdade (meio-dia, sem virar o dia por fuso); "-" continua "-".
  */
 function handleImportarProventosB3(e) {
   try {
@@ -669,13 +670,44 @@ function importarProventosB3_(linhasJson) {
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var aba = ss.getSheetByName(ABA_B3_PROVENTOS_A_RECEBER) || ss.insertSheet(ABA_B3_PROVENTOS_A_RECEBER);
+  // 28/10/2026: o que já estava na aba e não veio no arquivo novo entra de volta, no layout de colunas do arquivo novo
+  var chave = function (p) { return [p.ticker, p.dataPagamento || '-', p.tipo, Math.round((Number(p.quantidade) || 0) * 1e6)].join('|'); };
+  var noArquivo = {};
+  lido.itens.forEach(function (p) { noArquivo[chave(p)] = true; });
+  // a aba só é "a receber" se tiver a coluna Previsão de pagamento; o extrato de RECEBIDOS importado ali por engano (antes de
+  // 28/10/2026 a tela aceitava) não é mantido - senão os pagos voltariam como "pagamento a definir"
+  var leituraAnterior = lerProventosB3AReceber_(ss);
+  var anteriores = leituraAnterior.temPrevisao ? leituraAnterior.itens : [];
+  var mantidos = anteriores.filter(function (p) { return !noArquivo[chave(p)]; });
+  var repetidas = anteriores.length - mantidos.length;
+  if (mantidos.length) {
+    var nomes = linhas[cab].map(function (v) { return String(v == null ? '' : v).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); });
+    var colDe = function (prefixo) { for (var j = 0; j < nomes.length; j++) if (nomes[j].indexOf(prefixo) === 0) return j; return -1; };
+    var cP = colDe('produto'), cE = colDe('tipo de evento'), cD = colDe('previsao de pagamento'), cQ = colDe('quantidade'), cU = colDe('preco unitario'), cV = colDe('valor liquido');
+    // a linha de total do arquivo novo fica no fim: as mantidas entram antes dela
+    var fim = matriz.length;
+    while (fim > cab + 1 && !String(matriz[fim - 1][cP] || '').trim()) fim--;
+    var extras = mantidos.map(function (p) {
+      var l = []; while (l.length < total) l.push('');
+      l[cP] = p.ticker;
+      if (cE !== -1) l[cE] = p.tipo;
+      if (cD !== -1) l[cD] = p.dataPagamento ? new Date(Number(p.dataPagamento.slice(0, 4)), Number(p.dataPagamento.slice(5, 7)) - 1, Number(p.dataPagamento.slice(8, 10)), 12) : '-';
+      if (cQ !== -1) l[cQ] = p.quantidade || '';
+      if (cU !== -1) l[cU] = p.valorPorCota || '';
+      l[cV] = p.valor;
+      return l;
+    });
+    matriz = matriz.slice(0, fim).concat(extras, matriz.slice(fim));
+  }
   aba.clearContents();
   aba.getRange(1, 1, matriz.length, total).setValues(matriz);
   invalidarCacheProventos_();
+  var r2 = function (n) { return Math.round(n * 100) / 100; };
   var soma = lido.itens.reduce(function (s, p) { return s + p.valor; }, 0);
-  // 06/10/2026: esta importação é uma FOTO do "a receber" (apaga e regrava a aba auxiliar), então reimportar o mesmo arquivo
-  // nunca repete linha; os campos abaixo seguem o contrato das outras importações (Deduplicacao.gs).
-  return { ok: true, importados: lido.itens.length, total: Math.round(soma * 100) / 100, gravadas: lido.itens.length, ignoradasDuplicadas: 0, exemplos: [] };
+  var somaMantidos = mantidos.reduce(function (s, p) { return s + p.valor; }, 0);
+  // campos no contrato das outras importações (Deduplicacao.gs): "ignoradasDuplicadas" = já estavam na aba (atualizadas pelo arquivo novo)
+  return { ok: true, importados: lido.itens.length, total: r2(soma), gravadas: lido.itens.length - repetidas, ignoradasDuplicadas: repetidas,
+    mantidos: mantidos.length, totalGeral: r2(soma + somaMantidos), exemplos: [] };
 }
 
 // ---------------------------------------------------------------------------
