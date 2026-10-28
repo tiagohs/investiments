@@ -494,7 +494,7 @@ function atualizarHistoricoInterno_(origem, tickersEspecificos, opcoes) {
     if (inicioMaisAntigoUsa) {
       var orcamentoCambioInicial = LIMITE_MS_ABSOLUTO - (Date.now() - inicioExecucao) - 2000;
       cambioCache = orcamentoCambioInicial > 3000
-        ? buscarPrecoHistorico_('CURRENCY:USDBRL', 'USA', inicioMaisAntigoUsa, ontem, orcamentoCambioInicial)
+        ? buscarCambioUsdBrlPorDia_(inicioMaisAntigoUsa, ontem, orcamentoCambioInicial) // 28/10/2026: PTAX (BCB) primeiro
         : { precos: [], completo: false };
     }
   }
@@ -1086,6 +1086,115 @@ function mesmoDia_(a, b) {
  * Câmbio USD/BRL não varia o suficiente de um dia pro outro (~0,5-2% nos
  * dados reais do Tiago) pra esse pequeno desvio importar.
  */
+/**
+ * 28/10/2026 (Tiago, conferindo com o Gorila): o câmbio do GOOGLEFINANCE (CURRENCY:USDBRL) vem com a data UM DIA ATRASADA -
+ * a barra marcada no dia D é o fechamento de D-1. Prova nos dados: o dólar disparou ~8% no pregão de 26/10/2026 (2ª-feira,
+ * circuit breaker na B3) e no histórico o salto aparece em 27/10 (26/10 ficou com o dólar de sexta); no 1º turno, a queda
+ * de 05/10 apareceu em 06/10. É também a explicação do "buraco das segundas" (a barra de 2ª seria o domingo, que não existe).
+ * Resultado: a parte em dólar da carteira ficava um pregão atrasada - num dia de dólar forte, o ganho caía no dia seguinte.
+ *
+ * Agora a fonte é a PTAX de venda do Banco Central (Olinda, CotacaoDolarPeriodo): datada pelo próprio dia, oficial, sem chave.
+ * Se o BCB não responder, cai pro GOOGLEFINANCE com a data corrigida (D -> D-1; sábado/domingo -> sexta).
+ * Devolve o mesmo formato de buscarPrecoHistorico_: { precos: [{ data, preco }], completo, fonte }.
+ */
+function buscarCambioUsdBrlPorDia_(inicio, fim, orcamentoMs) {
+  var ptax = cambioPtaxPorDia_(inicio, fim);
+  if (ptax && ptax.length) return { precos: ptax, completo: true, lacunas: [], fonte: 'PTAX' };
+  var gf = buscarPrecoHistorico_('CURRENCY:USDBRL', 'USA', inicio, fim, orcamentoMs) || { precos: [], completo: false };
+  return { precos: corrigirDataCambioGoogleFinance_(gf.precos || []), completo: gf.completo, lacunas: gf.lacunas || [], fonte: 'GOOGLEFINANCE' };
+}
+
+/** Barra do GOOGLEFINANCE no dia D = fechamento de D-1 (fim de semana vai pra sexta). Se 2 caírem no mesmo dia, fica a mais nova. */
+function corrigirDataCambioGoogleFinance_(precos) {
+  var porDia = {};
+  precos.forEach(function (p) {
+    if (!(p && p.data instanceof Date) || !(Number(p.preco) > 0)) return;
+    var d = new Date(p.data.getFullYear(), p.data.getMonth(), p.data.getDate() - 1, p.data.getHours(), p.data.getMinutes());
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    var k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    if (!porDia[k] || p.data > porDia[k].orig) porDia[k] = { data: d, preco: Number(p.preco), orig: p.data };
+  });
+  return Object.keys(porDia).map(function (k) { return { data: porDia[k].data, preco: porDia[k].preco }; })
+    .sort(function (a, b) { return a.data - b.data; });
+}
+
+/**
+ * PTAX de venda (BCB/Olinda) por dia, de `inicio` a `fim`: [{ data (meia-noite local), preco }] ou null se falhar.
+ * Dia com mais de um boletim: fica o último (o de fechamento). Pedidos em pedaços de 1 ano.
+ */
+function cambioPtaxPorDia_(inicio, fim) {
+  try {
+    if (!(inicio instanceof Date) || !(fim instanceof Date) || fim < inicio) return null;
+    var fmt = function (d) { return ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) + '-' + d.getFullYear(); };
+    var porDia = {};
+    var ini = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate());
+    var ate = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate());
+    while (ini <= ate) {
+      var fimPedaco = new Date(ini.getFullYear() + 1, ini.getMonth(), ini.getDate() - 1);
+      if (fimPedaco > ate) fimPedaco = ate;
+      var url = 'https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarPeriodo(dataInicial=@dataInicial,dataFinalCotacao=@dataFinalCotacao)'
+        + "?@dataInicial='" + fmt(ini) + "'&@dataFinalCotacao='" + fmt(fimPedaco) + "'&$format=json&$select=cotacaoVenda,dataHoraCotacao&$top=10000";
+      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (typeof resp.getResponseCode === 'function' && resp.getResponseCode() !== 200) return null;
+      var lista = (JSON.parse(resp.getContentText()) || {}).value || [];
+      lista.forEach(function (c) {
+        var m = String(c.dataHoraCotacao || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2}:\d{2})?/);
+        var v = Number(c.cotacaoVenda);
+        if (!m || !(v > 0)) return;
+        var k = m[1] + '-' + m[2] + '-' + m[3];
+        var hora = String(c.dataHoraCotacao).slice(11);
+        if (!porDia[k] || hora >= porDia[k].hora) porDia[k] = { preco: v, hora: hora, data: new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) };
+      });
+      ini = new Date(fimPedaco.getFullYear(), fimPedaco.getMonth(), fimPedaco.getDate() + 1);
+    }
+    var out = Object.keys(porDia).sort().map(function (k) { return { data: porDia[k].data, preco: porDia[k].preco }; });
+    return out.length ? out : null;
+  } catch (e) {
+    Logger.log('cambioPtaxPorDia_: ' + e);
+    return null;
+  }
+}
+
+/**
+ * 28/10/2026: reparo (rodar 1x no editor): regrava Câmbio e Valor BRL das linhas USA de aux_historico-patrimonio com a PTAX do
+ * próprio dia (ver buscarCambioUsdBrlPorDia_ - o GOOGLEFINANCE gravava o dólar do dia anterior). `desdeIso` opcional
+ * ('yyyy-mm-dd'); sem ele, o histórico inteiro. Só reescreve as colunas G:H, de uma vez; limpa os caches no fim.
+ */
+function corrigirCambioHistoricoUsaDireto(desdeIso) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var aba = ss.getSheetByName(NOME_ABA_HISTORICO);
+  var ultima = aba ? aba.getLastRow() : 0;
+  if (ultima < 2) return { ok: true, corrigidas: 0 };
+  var desde = desdeIso ? new Date(Number(desdeIso.slice(0, 4)), Number(desdeIso.slice(5, 7)) - 1, Number(desdeIso.slice(8, 10))) : null;
+  var dados = aba.getRange(2, 1, ultima - 1, 8).getValues();
+  var menor = null, maior = null;
+  dados.forEach(function (l) {
+    if (l[2] !== 'USA' || !(l[0] instanceof Date) || (desde && l[0] < desde)) return;
+    if (!menor || l[0] < menor) menor = l[0];
+    if (!maior || l[0] > maior) maior = l[0];
+  });
+  if (!menor) return { ok: true, corrigidas: 0 };
+  var ptax = cambioPtaxPorDia_(menor, maior);
+  if (!ptax) return { ok: false, erro: 'PTAX do Banco Central não respondeu - tente de novo' };
+  var gh = aba.getRange(2, 7, ultima - 1, 2).getValues();
+  var corrigidas = 0;
+  dados.forEach(function (l, i) {
+    if (l[2] !== 'USA' || !(l[0] instanceof Date) || (desde && l[0] < desde)) return;
+    var c = cambioParaDia_(ptax, l[0]);
+    if (c === null) return;
+    var valorUsd = Number(l[5]);
+    var novo = [c, isFinite(valorUsd) ? valorUsd * c : ''];
+    if (Number(gh[i][0]) !== c) corrigidas++;
+    gh[i] = novo;
+  });
+  aba.getRange(2, 7, ultima - 1, 2).setValues(gh);
+  try { if (typeof limparCachesConsolidacao_ === 'function') limparCachesConsolidacao_(); } catch (e) { /* só cache */ }
+  var detalhe = 'Câmbio do histórico USA pela PTAX do dia: ' + corrigidas + ' linha(s) regravada(s)' + (desdeIso ? ' desde ' + desdeIso : '') + '.';
+  try { gravarRegistroControle_('Sucesso', 'Manual', detalhe); } catch (e2) { /* ok */ }
+  Logger.log(detalhe);
+  return { ok: true, corrigidas: corrigidas };
+}
+
 var TOLERANCIA_DIAS_CAMBIO = 5;
 function cambioParaDia_(cambioPorDia, data) {
   if (!cambioPorDia || !cambioPorDia.length) return null;
@@ -1520,7 +1629,7 @@ function repararHistoricoDuplicatasECambio_() {
     // intervalo real (câmbio faltando desde jun/2025) passa de 1 ano,
     // bem mais que 1 CHUNK_DIAS de 180, então precisa de vários chunks.
     var orcamentoCambio = 4.5 * 60 * 1000;
-    var buscaCambio = buscarPrecoHistorico_('CURRENCY:USDBRL', 'USA', inicioBusca, fimBusca, orcamentoCambio);
+    var buscaCambio = buscarCambioUsdBrlPorDia_(inicioBusca, fimBusca, orcamentoCambio); // 28/10/2026: PTAX (BCB) primeiro
 
     var corrigidas = 0;
     faltantes.forEach(function (f) {

@@ -624,3 +624,7 @@ Pedido do Tiago, depois da live "O governo está queimando o seu dinheiro?" (Sun
   - Ficou de fora, porque não temos o dado: inadimplência e custo do risco dos bancos.
 - Testes: `tests/inflacao-pessoal.test.js`.
 
+
+### 28/10/2026 (câmbio do histórico USA: PTAX do dia)
+
+O GOOGLEFINANCE (CURRENCY:USDBRL) marca no dia D o fechamento de D-1 (o salto do dólar de 26/10, dia do circuit breaker, só aparecia em 27/10; é também a origem do "buraco das segundas"). `Sync.gs!buscarCambioUsdBrlPorDia_` agora usa a PTAX de venda do BCB (Olinda, datada pelo próprio dia) e só cai no GOOGLEFINANCE, com a data corrigida, se o BCB não responder. Reparo do que já estava gravado: `corrigirCambioHistoricoUsaDireto()` no editor (regrava Câmbio e Valor BRL das linhas USA). Testes: tests/harness/cambio-ptax.test.js.
