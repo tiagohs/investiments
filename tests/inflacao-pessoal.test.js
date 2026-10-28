@@ -6,8 +6,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 import {
-  sugerirIndice, calcularMinhaInflacao, mesesAte, composto, taxaDoMes, ganhoReal, retornoMinimo, dolarEquilibrio, corrigir,
-} from '../assets/js/inflacao-pessoal.js';
+  sugerirIndice, calcularMinhaInflacao, mesesAte, composto, taxaDoMes, ganhoReal, retornoMinimo, dolarEquilibrio, corrigir, resumoInflacaoHome } from '../assets/js/inflacao-pessoal.js';
 import { montarMinhaInflacao, linhasRendeDeVerdade, vereditoInflacao } from '../assets/js/pages/organizacao-inflacao.js';
 
 const perto = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -154,6 +153,29 @@ test('veredito (28/10/2026): bem abaixo do IPCA, no ritmo ou acima; atenção qu
   assert.match(ruim.titulo, /Atenção: .* acima do IPCA/);
   assert.doesNotMatch(ruim.atencao, /parcelas acabarem/, 'sem parcelas, não promete mudança');
   assert.equal(vereditoInflacao(null), null);
+});
+
+test('Início (28/10/2026): resumoInflacaoHome numa linha - minha × IPCA e se está bem', () => {
+  const r = resumoInflacaoHome(JSON.parse(JSON.stringify(DADOS)));
+  assert.ok(r);
+  assert.ok(r.minha < r.ipca, 'parcela na TR e fixos seguram a média');
+  assert.equal(r.tom, 'bom');
+  assert.match(r.texto, /Você está bem/);
+  assert.match(r.rotuloMinha, /^\d+,\d%$/);
+  assert.doesNotMatch(r.texto, /Sem as parcelas/, 'o que segue preços está abaixo do IPCA: sem aviso');
+  // mercado no IPCA e o seguro como a energia (1%/mês): o que segue preços passa do IPCA, a média segue abaixo - avisa quanto seria sem as parcelas
+  const subindo = JSON.parse(JSON.stringify(DADOS));
+  subindo.cesta.mapa = { Supermercado: 'ipca', 'Seguro anual': 'energia' };
+  const r1 = resumoInflacaoHome(subindo);
+  assert.equal(r1.tom, 'bom');
+  assert.match(r1.texto, /Sem as parcelas, seria \d+,\d%/);
+  const caro = JSON.parse(JSON.stringify(DADOS));
+  caro.cesta.mapa = { 'Parcela do Apartamento': 'energia', 'Empréstimo': 'energia', 'Seguro anual': 'energia' };
+  const r2 = resumoInflacaoHome(caro);
+  assert.equal(r2.tom, 'ruim');
+  assert.match(r2.texto, /Atenção: o seu custo de vida sobe mais que o IPCA/);
+  assert.equal(resumoInflacaoHome({ ok: false }), null);
+  assert.equal(resumoInflacaoHome(null), null);
 });
 
 // ---- Apps Script ----

@@ -59,8 +59,10 @@ export function criarHero(doc, el, { aoTentar = null, raizSite = null } = {}) {
   const avisoEl = criar(doc, 'p', { class: 'hero-aviso', hidden: true });
   const sparkEl = criar(doc, 'div', { class: 'hero-spark', hidden: true });
   const kpisEl = criar(doc, 'div', { class: 'hero-kpis' });
+  // 28/10/2026: "minha inflação × IPCA" numa linha, abaixo dos 3 atalhos (dado à parte: definirInflacao, de inicio-blocos.js)
+  const inflEl = criar(doc, 'a', { class: 'hero-inflacao', hidden: true, href: url('organizacao/despesas.html#ogInflacao') });
   const topo = criar(doc, 'div', { class: 'hero-topo' }, [criar(doc, 'h2', { class: 'hero-rotulo', texto: 'Patrimônio líquido' }), periodoEl]);
-  const texto = criar(doc, 'div', { class: 'hero-texto' }, [topo, valorEl, linhaEl, destaqueEl, infoTxt, decompEl, corteEl, avisoEl, sparkEl, kpisEl]);
+  const texto = criar(doc, 'div', { class: 'hero-texto' }, [topo, valorEl, linhaEl, destaqueEl, infoTxt, decompEl, corteEl, avisoEl, sparkEl, kpisEl, inflEl]);
 
   // ---- direita (anel + conta) ----
   const anelEl = criar(doc, 'div', { class: 'hero-anel-grafico' });
@@ -170,6 +172,19 @@ export function criarHero(doc, el, { aoTentar = null, raizSite = null } = {}) {
       if (desenhado) return;
       estado('erro');
       mostrarErroCarga(erroEl, { tela: 'Patrimônio líquido', resposta, erro: erroCapturado, aoTentar, doc });
+    },
+    /** 28/10/2026: { tom, rotuloMinha, rotuloIpca, texto } (inflacao-pessoal.js!resumoInflacaoHome) ou null (esconde). */
+    definirInflacao(r) {
+      inflEl.hidden = !r;
+      inflEl.textContent = '';
+      if (!r) return;
+      inflEl.className = `hero-inflacao hero-inflacao-${r.tom}`;
+      inflEl.append(
+        criar(doc, 'span', { class: 'hero-inflacao-nums' }, [
+          'Sua inflação ', criar(doc, 'b', { texto: r.rotuloMinha }), ' × IPCA ', criar(doc, 'b', { texto: r.rotuloIpca }), criar(doc, 'small', { texto: ' (12 meses)' }),
+        ]),
+        criar(doc, 'span', { class: 'hero-inflacao-txt', texto: r.texto }),
+      );
     },
     get periodo() { return filtro ? filtro.periodo : PERIODO_PADRAO_HERO; },
     get desenhado() { return desenhado; },

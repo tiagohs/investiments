@@ -8,7 +8,7 @@
  * chega. Se a busca falhar e não houver nada na tela, o bloco mostra o erro compacto com "Tentar de novo"; um bloco com erro
  * nunca derruba a Home nem o outro bloco.
  */
-import { getPatrimonio, getMetas } from '../api-client.js';
+import { getPatrimonio, getMetas, getInflacaoPessoal } from '../api-client.js';
 import { gravarCacheDados, lerCacheDados } from '../cache-dados.js';
 
 /** Dois "Atualizar dados" seguidos (ex.: a busca inicial logo depois do desenho do cache) não repetem a busca dentro desta janela. */
@@ -41,7 +41,9 @@ export async function carregarBloco({ chave, buscar, ui }) {
  * Liga os dois blocos. Elementos: #patrimonioHero e #metasHome (ausentes = bloco ignorado: HTML antigo em cache).
  * Devolve { iniciar({ forcar }) } - chamado a cada desenho bem-sucedido da Home.
  */
-export function criarBlocosHome(doc, token, { getPatrimonioImpl = getPatrimonio, getMetasImpl = getMetas, raizSite = null, agora = () => Date.now() } = {}) {
+export function criarBlocosHome(doc, token, { getPatrimonioImpl = getPatrimonio, getMetasImpl = getMetas, getInflacaoPessoalImpl, raizSite = null, agora = () => Date.now() } = {}) {
+  // 28/10/2026: a linha "sua inflação × IPCA" do hero. Sem impl explícita, só busca de verdade quando o patrimônio também é o real (teste injeta o seu)
+  const getInfl = getInflacaoPessoalImpl !== undefined ? getInflacaoPessoalImpl : (getPatrimonioImpl === getPatrimonio ? getInflacaoPessoal : null);
   let ultima = 0;
   let uis = null;
   async function montarUis() {
@@ -65,6 +67,18 @@ export function criarBlocosHome(doc, token, { getPatrimonioImpl = getPatrimonio,
     const b = bloco(nome, u);
     if (b && b.ui) await carregarBloco(b);
   }
+  /** A linha de inflação do hero: cache primeiro, depois a resposta nova; falha = a linha só não aparece. */
+  async function carregarInflacao(hero) {
+    try {
+      const { resumoInflacaoHome } = await import('../inflacao-pessoal.js');
+      const pintar = (resp) => { try { if (hero.definirInflacao) hero.definirInflacao(resumoInflacaoHome(resp)); } catch (e) { /* ok */ } };
+      let chegou = false;
+      lerCacheDados('inflacaoPessoal').then((c) => { if (!chegou && c && c.dados && c.dados.ok) pintar(c.dados); }).catch(() => {});
+      const resp = await getInfl(token);
+      chegou = true;
+      if (resp && resp.ok) { gravarCacheDados('inflacaoPessoal', resp); pintar(resp); }
+    } catch (erro) { console.error('inflação da Início não carregou', erro); }
+  }
   return {
     async iniciar({ forcar = false } = {}) {
       const t = agora();
@@ -73,7 +87,10 @@ export function criarBlocosHome(doc, token, { getPatrimonioImpl = getPatrimonio,
       try {
         const u = await montarUis();
         // em paralelo: um bloco com erro não espera nem derruba o outro
-        await Promise.all(['hero', 'metas'].map((n) => { const b = bloco(n, u); return b && b.ui ? carregarBloco(b) : null; }));
+        await Promise.all([
+          ...['hero', 'metas'].map((n) => { const b = bloco(n, u); return b && b.ui ? carregarBloco(b) : null; }),
+          u.hero && getInfl ? carregarInflacao(u.hero) : null,
+        ]);
       } catch (erro) { console.error('blocos da Início não carregaram', erro); }
     },
   };

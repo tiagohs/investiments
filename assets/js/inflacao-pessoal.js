@@ -200,3 +200,24 @@ export function pisoDaResposta(resp) {
   const m = retornoMinimo(c.minha, premio);
   return { liquido: m.liquido, inflacao: c.minha, premio, ipca: c.ipca, pisoIpca: retornoMinimo(c.ipca, premio).liquido };
 }
+
+/**
+ * 28/10/2026 (Tiago: "na home, de forma muito sucinta, abaixo dos três cards: minha inflação real vs a do IBGE, e se tô bem ou
+ * não"). Uma linha para a Início, a partir da resposta de getInflacaoPessoal (a cesta salva). null = sem dado.
+ * tom: bom (abaixo do IPCA), neutro (±0,25 p.p.) ou ruim (acima) - o mesmo limiar do veredito da tela de Despesas.
+ */
+export function resumoInflacaoHome(resp) {
+  const c = resp && resp.ok !== false ? calcularMinhaInflacao(resp) : null;
+  if (!c || !num(c.minha) || !num(c.ipca)) return null;
+  const dif = c.minha - c.ipca;
+  const tom = dif <= -0.0025 ? 'bom' : (dif < 0.0025 ? 'neutro' : 'ruim');
+  let texto = tom === 'bom' ? 'Você está bem: o seu custo de vida sobe menos que o IPCA.'
+    : tom === 'neutro' ? 'O seu custo de vida sobe no ritmo do IPCA.'
+      : 'Atenção: o seu custo de vida sobe mais que o IPCA.';
+  const g = c.grupos || {};
+  const pct = (v) => `${(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  if (tom === 'bom' && num(c.semParcelas) && c.semParcelas - c.ipca >= 0.0025 && (g.tr || 0) + (g.fixo || 0) >= 0.2) {
+    texto += ` Sem as parcelas, seria ${pct(c.semParcelas)}.`;
+  }
+  return { tom, minha: c.minha, ipca: c.ipca, rotuloMinha: pct(c.minha), rotuloIpca: pct(c.ipca), texto };
+}

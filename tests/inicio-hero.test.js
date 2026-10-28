@@ -633,3 +633,27 @@ test('Início: com cache das duas respostas, hero e Metas aparecem antes da rede
     assert.equal(chamou, false);
   } finally { usarMemoriaNoCacheDados(null); limparPeriodoSalvo(); }
 });
+
+test('Início (28/10/2026): linha "Sua inflação × IPCA" abaixo dos 3 atalhos, com o veredito; falha = a linha não aparece', async () => {
+  limparPeriodoSalvo();
+  usarMemoriaNoCacheDados(new Map());
+  try {
+    const serie = (t) => Object.fromEntries(Array.from({ length: 13 }, (_, i) => { const d = new Date(Date.UTC(2025, 8 + i, 1)); return [d.toISOString().slice(0, 7), t]; }));
+    const infl = { ok: true, ultimoMes: '2026-09', catalogo: [], series: { ipca: serie(0.004), tr: serie(0.001) },
+      cesta: { itens: [{ nome: 'Parcela do Apartamento', valor: 2000, frequencia: 'Mensal' }, { nome: 'Mercado', valor: 1000, frequencia: 'Mensal' }], mapa: {} } };
+    const doc = domPaginaCompleta();
+    await criarBlocosHome(doc, 't', { raizSite: RAIZ, getPatrimonioImpl: async () => patrimonioFalso(), getMetasImpl: async () => respostaMetas([]), getInflacaoPessoalImpl: async () => infl }).iniciar();
+    await espera(10);
+    const linha = doc.querySelector('#patrimonioHero .hero-inflacao');
+    assert.ok(linha && !linha.hidden, 'aparece');
+    assert.ok(linha.previousElementSibling.classList.contains('hero-kpis'), 'logo abaixo dos 3 cards');
+    assert.match(linha.textContent, /Sua inflação \d+,\d% × IPCA \d+,\d%/);
+    assert.match(linha.textContent, /Você está bem/);
+    assert.ok(linha.classList.contains('hero-inflacao-bom'));
+    assert.match(linha.getAttribute('href'), /organizacao\/despesas\.html#ogInflacao$/);
+    usarMemoriaNoCacheDados(new Map()); // sem a resposta guardada (com ela, a linha do cache continua)
+    const doc2 = domPaginaCompleta();
+    await criarBlocosHome(doc2, 't', { raizSite: RAIZ, getPatrimonioImpl: async () => patrimonioFalso(), getMetasImpl: async () => respostaMetas([]), getInflacaoPessoalImpl: async () => { throw new Error('rede'); } }).iniciar();
+    assert.equal(doc2.querySelector('#patrimonioHero .hero-inflacao').hidden, true);
+  } finally { usarMemoriaNoCacheDados(null); limparPeriodoSalvo(); }
+});
