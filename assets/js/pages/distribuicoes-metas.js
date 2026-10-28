@@ -160,6 +160,7 @@ import {
   salvarPercentuaisRadar as salvarPercentuaisRadarApi,
   salvarPosicaoEncerrada as salvarPosicaoEncerradaApi,
   salvarRankingRadar as salvarRankingRadarApi,
+  getInflacaoPessoal,
   getIntradia,
   getMetas,
   getMacro,
@@ -175,6 +176,8 @@ import { renderAvisosParciais } from './avisos-parciais.js';
 import { momentoHtml, momentoDoRadar, metasDaDistribuicao, carregarMacroMomento } from './momento-aporte.js';
 import { radarSemEncerradas, separarEncerradas, planoPercentualEncerrada, textoPlano, blocoEncerradasHtml } from './radar-encerradas.js'; // 27/10/2026: vendeu tudo -> fora do ranking
 import { mover, rankingsDaOrdem, indiceNaAltura } from './radar-ranking.js'; // 27/10/2026: ranking arrastando os itens
+import { pisoDaResposta } from '../inflacao-pessoal.js'; // 28/10/2026: retorno mínimo (minha inflação + prêmio)
+import { repasseDeInflacao } from './setor-inflacao.js'; // 28/10/2026: o setor repassa a inflação?
 // 02/10/2026: gráfico do dia (mesmo desenho dos Favoritos da Início) no Radar - ver criarCelulaIntradiaRadar_.
 import { desenharIntradia, rotuloDiaIntradia, valoresIntradia } from './inicio-intradia.js';
 import { criarAnelProgresso as criarAnelProgressoLib, criarBarraComposicao, criarBarraProgresso, criarKpi } from '../charts/index.js'; // 06/10/2026 (Onda 3)
@@ -1416,6 +1419,15 @@ function criarLinhaRadar_(doc, item, chaveTabela, onSalvarItem, cotacaoDolar) {
       infoAtivo.className = 'radar-info-icon';
       infoAtivo.textContent = 'i';
       td.appendChild(infoAtivo);
+      // 28/10/2026: o setor repassa a inflação? (live da Suno: energia/saneamento e bancos sim, varejo não)
+      const rep = repasseDeInflacao({ setor: item.setor, segmento: item.segmento, tipo: item.tipo, nome: item.nome }, chaveTabela);
+      if (rep) {
+        const chipRep = doc.createElement('span');
+        chipRep.className = `radar-repasse radar-repasse-${rep.nivel}`;
+        chipRep.textContent = rep.rotulo;
+        chipRep.title = rep.porque;
+        td.appendChild(chipRep);
+      }
       // 27/10/2026: vendeu tudo mas você pediu pra continuar acompanhando
       if (item.encerrada && item.encerrada.preferencia === 'acompanhar') {
         const chip = doc.createElement('span');
@@ -1801,7 +1813,7 @@ const TABELAS_RADAR = [
  * meta" do momento; devolve { atualizarMomentos() } pra página redesenhar
  * quando elas chegarem (sem perder aba, ordem e filtro).
  */
-export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null, obterMacro = () => null, onPlanoPercentual = null, onPreferenciaEncerrada = null, onSalvarRanking = null, abaInicial = null } = {}) {
+export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, onTrocarAba, metas = null, slotDistrib = null, buscarIntradia = null, obterMetasObjetivos = () => null, obterMacro = () => null, onPlanoPercentual = null, onPreferenciaEncerrada = null, onSalvarRanking = null, abaInicial = null, obterPiso = () => null } = {}) {
   if (!container) return null;
   container.innerHTML = '';
   if (!radar) return null;
@@ -1811,7 +1823,7 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
   radar = radarSemEncerradas(radar);
   let mostrarOcultas = false;
   let encerradasAbertas = false;
-  const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null, macro: obterMacro() || null }); // 05/10/2026: + contexto de mercado
+  const opcoesMomento = () => ({ metasObjetivos: obterMetasObjetivos() || null, cambio: typeof radar.cotacaoDolar === 'number' ? radar.cotacaoDolar : null, macro: obterMacro() || null, piso: obterPiso() || null }); // 05/10/2026: + contexto de mercado; 28/10/2026: + retorno mínimo
 
   wirePointerTooltipRadar_(doc, container);
 
@@ -1851,6 +1863,14 @@ export function renderRadarOportunidades(doc, container, radar, { onSalvarItem, 
     });
     tableContainer.innerHTML = '';
     const bloco = radar[abaAtiva];
+    const pisoAgora = obterPiso();
+    if (pisoAgora) {
+      // 28/10/2026: a régua do "rende acima do seu mínimo" que entra no momento de cada ativo
+      const faixa = doc.createElement('p');
+      faixa.className = 'radar-piso';
+      faixa.innerHTML = `<b>Seu retorno mínimo: ${esc(formatPercentFromFraction(pisoAgora.liquido, 1))} a.a.</b> (sua inflação ${esc(formatPercentFromFraction(pisoAgora.inflacao, 1))} + prêmio ${esc(formatPercentFromFraction(pisoAgora.premio, 1))}, líquido) · pelo IPCA seria ${esc(formatPercentFromFraction(pisoAgora.pisoIpca, 1))}. ${abaAtiva === 'fiis' ? 'O DY de cada FII' : 'O retorno pelo lucro (1 ÷ P/L) de cada ação'} é comparado com ele no momento.`;
+      tableContainer.appendChild(faixa);
+    }
     desenharAvisosEncerradas();
     if (!bloco || !bloco.itens || bloco.itens.length === 0) {
       const vazio = doc.createElement('p');
@@ -2352,6 +2372,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
   getMacroImpl = getMacro, // 05/10/2026: contexto de mercado do momento do Radar (Macro.gs)
+  getInflacaoPessoalImpl = getInflacaoPessoal, // 28/10/2026: retorno mínimo do momento (InflacaoPessoal.gs)
   raizSite,
 } = {}) {
   const loadingEl = doc.getElementById('metasLoading');
@@ -2443,6 +2464,17 @@ export async function montarPaginaDistribuicoesMetas(token, {
     return buscandoMetas;
   }
 
+  // 28/10/2026: retorno mínimo (minha inflação + prêmio) - entra no momento de cada ativo quando chegar
+  let piso = null; let buscandoPiso = null;
+  function carregarPiso() {
+    if (buscandoPiso || !getInflacaoPessoalImpl) return buscandoPiso || Promise.resolve();
+    buscandoPiso = Promise.resolve().then(() => getInflacaoPessoalImpl(token)).then((r) => {
+      piso = pisoDaResposta(r);
+      if (radarApi && piso) radarApi.atualizarMomentos();
+    }).catch(() => null).finally(() => { buscandoPiso = null; });
+    return buscandoPiso;
+  }
+
   // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata) - só o momento do Radar usa; falhou = momento como antes
   let macro = null;
   let buscandoMacro = null;
@@ -2473,6 +2505,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
       metas: metasDaDistribuicao(resposta),
       obterMetasObjetivos: () => (metasObjetivos && metasObjetivos.ok ? metasObjetivos.metas : null),
       obterMacro: () => macro,
+      obterPiso: () => piso,
       slotDistrib: splitInternoContainer,
       buscarIntradia: buscarIntradiaRadar,
       onSalvarItem: async (tabela, item) => {
@@ -2544,7 +2577,7 @@ export async function montarPaginaDistribuicoesMetas(token, {
   // 03/10/2026: "Atualizar dados" (e o timer de 5 min) também atualiza as metas - em paralelo, sem esperar.
   let metasProntas = null;
   await mountRefreshControl(doc, refreshControlEl, () => {
-    metasProntas = Promise.all([carregarMetasObjetivos(), carregarMacro()]).then(() => {});
+    metasProntas = Promise.all([carregarMetasObjetivos(), carregarMacro(), carregarPiso()]).then(() => {});
     return carregarERedesenhar();
   }).atualizar();
   return { metasProntas: metasProntas || Promise.resolve() };

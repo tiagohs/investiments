@@ -63,7 +63,10 @@ export const LINHAS_INFLACAO = [
   { id: 'pl', nome: 'Patrimônio líquido', cor: 'var(--chart-1)', dash: null, curto: 'Você' },
   { id: 'ipca', nome: 'Aportes + IPCA', nomePct: 'IPCA', cor: 'var(--chart-4)', dash: '6 4', curto: 'IPCA' },
   { id: 'cdi', nome: 'Aportes + CDI', nomePct: 'CDI', cor: 'var(--chart-axis)', dash: '6 4', curto: 'CDI' },
+  // 28/10/2026 (Tiago: "quero ainda o IPCA real lá, mas em paralelo... a minha inflação"): só aparece com a série dela
+  { id: 'minha', nome: 'Aportes + minha inflação', nomePct: 'Minha inflação', cor: 'var(--chart-2)', dash: '2 3', curto: 'Minha' },
 ];
+const linhasVisiveis = (r) => LINHAS_INFLACAO.filter((s) => s.id !== 'minha' || (r && r.minha));
 
 // ---------------------------------------------------------------------------
 // Datas
@@ -122,7 +125,7 @@ export function taxasMensaisIndice(niveis, meses, hoje) {
  * `ctx` (contextoPatrimonio, opcional): ritmo - aporte médio, usado só se o
  * histórico não trouxer o aporte do mês (aproximação: aporte fixo).
  */
-export function seriesReais(patrimonio, { hoje = null, ctx = null } = {}) {
+export function seriesReais(patrimonio, { hoje = null, ctx = null, minha = null } = {}) {
   const d = patrimonio || {};
   const cfg = d.config || {};
   const hj = hoje || d.hoje || '';
@@ -161,6 +164,8 @@ export function seriesReais(patrimonio, { hoje = null, ctx = null } = {}) {
   });
   const pontos = comp.map((b, k) => {
     const out = { ...b, ipca: ipca.taxas[k], cdi: cdi.taxas[k], ipcaEstimado: ipca.estimados.includes(b.mes), cdiEstimado: cdi.estimados.includes(b.mes) };
+    // 28/10/2026: minha inflação do mês (inflacao-pessoal.js); mês fora da série dela = o IPCA do mês (marcado)
+    if (minha) { const t = minha[b.mes]; out.minha = num(t) ? t : ipca.taxas[k]; out.minhaComIpca = !num(t); }
     if (k === 0) return { ...out, retorno: null, fluxo: null, partes: null };
     const a = comp[k - 1];
     const rInv = b.inv - a.inv - b.aporte;
@@ -186,7 +191,7 @@ export function seriesReais(patrimonio, { hoje = null, ctx = null } = {}) {
   });
   if (ipca.estimados.length) avisos.push('ipcaEstimado');
   return {
-    pontos, avisos, aportesAproximados: !temAporte,
+    pontos, avisos, aportesAproximados: !temAporte, temMinha: !!minha,
     ipca: { ultimo: ipca.ultimo, estimados: ipca.estimados, semDados: ipca.semDados || !hm.length },
     cdi: { ultimo: cdi.ultimo, estimados: cdi.estimados, semDados: cdi.semDados || !hm.length },
     componentes: {
@@ -285,17 +290,20 @@ export function resumoPeriodo(base, periodo, { hoje = null } = {}) {
   // "e se" os juros pagos nas parcelas contassem como perda: o salário pagou juros + amortização (fluxo), o patrimônio perdeu os juros
   const dPlJ = retornoDietz(W.map((p, k) => ({ valor: p.pl, fluxo: k ? p.fluxo + (p.jurosPagos || 0) : 0 })), { minBase });
   const dInv = retornoDietz(W.map((p) => ({ valor: p.inv, fluxo: p.aporte })), { minBase: Math.max(1000, 0.01 * Math.max(...W.map((p) => Math.abs(p.inv)), 1)) });
-  let bI = p0.pl; let bC = p0.pl; let bInvC = p0.inv; let fI = 1; let fC = 1;
+  const temMinha = !!(base && base.temMinha);
+  let bI = p0.pl; let bC = p0.pl; let bM = p0.pl; let bInvC = p0.inv; let fI = 1; let fC = 1; let fM = 1;
   const linhas = W.map((p, k) => {
     if (k > 0) {
-      const i = p.ipca || 0; const c = p.cdi || 0;
+      const i = p.ipca || 0; const c = p.cdi || 0; const m = num(p.minha) ? p.minha : i;
       bI = bI * (1 + i) + p.fluxo * (1 + i / 2);
       bC = bC * (1 + c) + p.fluxo * (1 + c / 2);
+      bM = bM * (1 + m) + p.fluxo * (1 + m / 2);
       bInvC = bInvC * (1 + c) + p.aporte * (1 + c / 2);
-      fI *= 1 + i; fC *= 1 + c;
+      fI *= 1 + i; fC *= 1 + c; fM *= 1 + m;
     }
     return {
       mes: p.mes, data: p.data, pl: p.pl, ipca: bI, cdi: bC, inv: p.inv,
+      minha: temMinha ? bM : null, pctMinha: temMinha ? fM - 1 : null, minhaMes: temMinha && k ? p.minha : null,
       pctPl: dPl.curva[k], pctInv: dInv.curva[k], pctIpca: fI - 1, pctCdi: fC - 1,
       fluxo: k ? p.fluxo : null, retorno: k ? p.retorno : null, aporte: k ? p.aporte : null,
       ipcaMes: k ? p.ipca : null, cdiMes: k ? p.cdi : null, ipcaEstimado: k ? p.ipcaEstimado : false,
@@ -303,6 +311,7 @@ export function resumoPeriodo(base, periodo, { hoje = null } = {}) {
   });
   const passos = W.slice(1);
   const ipcaAcc = composto(passos.map((p) => p.ipca));
+  const minhaAcc = temMinha ? composto(passos.map((p) => (num(p.minha) ? p.minha : p.ipca))) : null;
   const cdiAcc = composto(passos.map((p) => p.cdi));
   const fluxos = soma(passos, (p) => p.fluxo);
   const retornos = soma(passos, (p) => p.retorno);
@@ -333,7 +342,13 @@ export function resumoPeriodo(base, periodo, { hoje = null } = {}) {
     },
     ipca: { acumulado: ipcaAcc, anual: anualizar(ipcaAcc, dias), estimados: passos.filter((p) => p.ipcaEstimado).map((p) => p.mes) },
     cdi: { acumulado: cdiAcc, anual: anualizar(cdiAcc, dias) },
-    benchmarks: { ipca: bI, cdi: bC, excessoIpca: pF.pl - bI, excessoCdi: pF.pl - bC },
+    // 28/10/2026: em paralelo ao IPCA - a minha inflação no mesmo período (meses antes da série dela = IPCA)
+    minha: temMinha ? {
+      acumulado: minhaAcc, anual: anualizar(minhaAcc, dias), mesesComIpca: passos.filter((p) => p.minhaComIpca).length,
+      realPl: num(dPl.acumulado) ? (1 + dPl.acumulado) / (1 + minhaAcc) - 1 : null,
+      realInv: num(dInv.acumulado) ? (1 + dInv.acumulado) / (1 + minhaAcc) - 1 : null,
+    } : null,
+    benchmarks: { ipca: bI, cdi: bC, minha: temMinha ? bM : null, excessoIpca: pF.pl - bI, excessoCdi: pF.pl - bC, excessoMinha: temMinha ? pF.pl - bM : null },
     fluxos, retornos, custoInflacao: bI - (p0.pl + fluxos), partes,
     imovel: imovelAcc != null ? { acumulado: imovelAcc, anual: anualizar(imovelAcc, diasImo) } : null,
     aporteMensal: nMeses ? partes.aportes / nMeses : null,
@@ -465,10 +480,11 @@ const eixoPct = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${formatNumeroBR(Math
 export function opcoesInflacao(linhas, vista = 'rs') {
   const n = (linhas || []).length;
   if (n < 2) return null;
-  const campo = vista === 'pct' ? { pl: 'pctPl', ipca: 'pctIpca', cdi: 'pctCdi' } : { pl: 'pl', ipca: 'ipca', cdi: 'cdi' };
+  const campo = vista === 'pct' ? { pl: 'pctPl', ipca: 'pctIpca', cdi: 'pctCdi', minha: 'pctMinha' } : { pl: 'pl', ipca: 'ipca', cdi: 'cdi', minha: 'minha' };
   const longo = n > 36;
   const nomeDe = (sr) => (vista === 'pct' ? (sr.id === 'pl' ? 'Patrimônio (sem aportes)' : sr.nomePct) : sr.nome);
-  const series = [...LINHAS_INFLACAO].reverse().map((sr) => ({
+  const temMinha = linhas.some((l) => num(l.minha));
+  const series = [...LINHAS_INFLACAO].filter((sr) => sr.id !== 'minha' || temMinha).reverse().map((sr) => ({
     id: sr.id, nome: nomeDe(sr), cor: sr.cor, valores: linhas.map((l) => (num(l[campo[sr.id]]) ? l[campo[sr.id]] : null)),
     principal: sr.id === 'pl', area: sr.id === 'pl', pontilhada: !!sr.dash, largura: sr.id === 'pl' ? 3 : 2,
   }));
@@ -504,6 +520,7 @@ export function dicaExtra(l, vista, primeiro = false) {
     if (num(l.retorno)) extra.push({ nome: 'Rendeu no mês', valor: sinal(l.retorno) });
     if (num(l.ipcaMes)) extra.push({ nome: `IPCA do mês${l.ipcaEstimado ? ' (estimado)' : ''}`, valor: formatPctSinal(l.ipcaMes, 2) });
     if (num(l.cdiMes)) extra.push({ nome: 'CDI do mês', valor: formatPctSinal(l.cdiMes, 2) });
+    if (num(l.minhaMes)) extra.push({ nome: 'Minha inflação do mês', valor: formatPctSinal(l.minhaMes, 2) });
   }
   return extra;
 }
@@ -530,14 +547,17 @@ export function htmlTiles(r) {
       num(invReal) ? `${aa}, já sem a inflação (nominal ${esc(formatPctSinal(r.anualizado ? inv.anual : inv.acumulado))})` : 'sem base suficiente no período', num(invReal) ? (invReal >= 0 ? 'bom' : 'atencao') : ''),
     tile('', '% do CDI', esc(num(pl.pctCdi) ? `${formatNumeroBR(pl.pctCdi * 100, 0)}%` : '—'),
       `patrimônio sem aportes${num(inv.pctCdi) ? ` · investimentos ${esc(formatNumeroBR(inv.pctCdi * 100, 0))}%` : ''} · CDI ${esc(formatPctSinal(r.anualizado ? r.cdi.anual : r.cdi.acumulado))} ${aa}`),
+    // 28/10/2026: a mesma régua com a SUA inflação, ao lado da do IPCA
+    r.minha ? tile('', 'Acima da sua inflação', esc(`${r.benchmarks.excessoMinha >= 0 ? '+' : '−'}${milAbs(r.benchmarks.excessoMinha)}`),
+      `sua inflação ${esc(formatPctSinal(r.anualizado ? r.minha.anual : r.minha.acumulado))} ${aa} (IPCA ${esc(formatPctSinal(r.anualizado ? r.ipca.anual : r.ipca.acumulado))})${num(r.minha.realInv) ? ` · investimentos ${esc(formatPctSinal(r.anualizado ? anualizar(r.minha.realInv, r.dias) : r.minha.realInv))} real` : ''}`, r.benchmarks.excessoMinha >= 0 ? 'bom' : 'atencao') : '',
   ].join('');
 }
 
 export function htmlLegenda(r, vista) {
   if (!r) return '';
   const u = r.linhas[r.linhas.length - 1];
-  const valor = { pl: vista === 'pct' ? formatPctSinal(u.pctPl) : mil(u.pl), ipca: vista === 'pct' ? formatPctSinal(u.pctIpca) : mil(u.ipca), cdi: vista === 'pct' ? formatPctSinal(u.pctCdi) : mil(u.cdi) };
-  return LINHAS_INFLACAO.map((s) => `<span class="chart-leg-item"><i class="chart-leg-dot${s.dash ? ' is-trac' : ''}" style="--cor:${s.cor}"></i><span class="chart-leg-nome">${esc(vista === 'pct' && s.nomePct ? s.nomePct : (vista === 'pct' ? 'Patrimônio (sem aportes)' : s.nome))}</span> <b class="chart-leg-val">${esc(valor[s.id])}</b></span>`).join('');
+  const valor = { pl: vista === 'pct' ? formatPctSinal(u.pctPl) : mil(u.pl), ipca: vista === 'pct' ? formatPctSinal(u.pctIpca) : mil(u.ipca), cdi: vista === 'pct' ? formatPctSinal(u.pctCdi) : mil(u.cdi), minha: vista === 'pct' ? formatPctSinal(u.pctMinha) : mil(u.minha) };
+  return linhasVisiveis(r).map((s) => `<span class="chart-leg-item"><i class="chart-leg-dot${s.dash ? ' is-trac' : ''}" style="--cor:${s.cor}"></i><span class="chart-leg-nome">${esc(vista === 'pct' && s.nomePct ? s.nomePct : (vista === 'pct' ? 'Patrimônio (sem aportes)' : s.nome))}</span> <b class="chart-leg-val">${esc(valor[s.id])}</b></span>`).join('');
 }
 
 export function htmlMetodo(r, base, vista) {
@@ -552,6 +572,7 @@ export function htmlMetodo(r, base, vista) {
     : '<b>Como é calculado:</b> as linhas tracejadas são o patrimônio do início + cada aporte do mês (investimentos, amortizações, FGTS), corrigidos pelo IPCA (só manter o poder de compra) ou pelo CDI.';
   const notas = [`Patrimônio = ${comp}; outros bens ficam de fora.`];
   if (r.ipca.estimados.length) notas.push(`IPCA de ${r.ipca.estimados.map(mesCurto).join(', ')} ainda não divulgado: usei a média dos últimos 12 meses.`);
+  if (r.minha) notas.push(`Minha inflação = a das suas despesas essenciais (Gastos e Despesas), com o peso de cada uma hoje${r.minha.mesesComIpca ? `; ${r.minha.mesesComIpca} ${r.minha.mesesComIpca === 1 ? 'mês' : 'meses'} antes da série dela usam o IPCA` : ''}.`);
   if (base.aportesAproximados) notas.push('Sem o aporte de cada mês no histórico: usei o aporte médio (aproximação).');
   if (r.cortadoDe) notas.push(`Começa em ${mesCurto(r.de)}: antes disso o patrimônio líquido era negativo ou quase zero (dívidas maiores que o que você tinha), e rentabilidade sobre isso não tem sentido.`);
   if (r.pl.mesesSemBase) notas.push(`${r.pl.mesesSemBase} ${r.pl.mesesSemBase === 1 ? 'mês ficou' : 'meses ficaram'} fora da rentabilidade (patrimônio perto de zero ou negativo).`);
@@ -608,10 +629,10 @@ export function dadosAnalise(r, base) {
  *  doc: document; hoje: 'aaaa-mm-dd' (padrão: patrimonio.hoje).
  * Devolve { atualizar({ patrimonio, ctx, hoje }), periodo, vista, pronto }.
  */
-export function montarPatrimonioVsInflacao(raiz, { patrimonio, ctx = null, doc = null, hoje = null } = {}) {
+export function montarPatrimonioVsInflacao(raiz, { patrimonio, ctx = null, doc = null, hoje = null, minha = null } = {}) {
   const D = doc || (raiz && raiz.ownerDocument);
   if (!raiz || !D) return null;
-  const est = { patrimonio, ctx, hoje: hoje || (patrimonio && patrimonio.hoje) || '', vista: 'rs', periodo: '12m', base: null, r: null, g: null };
+  const est = { patrimonio, ctx, minha, hoje: hoje || (patrimonio && patrimonio.hoje) || '', vista: 'rs', periodo: '12m', base: null, r: null, g: null };
   raiz.classList.add('pi-raiz');
   raiz.innerHTML = `
     <section class="pt-sec pi-sec">
@@ -644,7 +665,7 @@ export function montarPatrimonioVsInflacao(raiz, { patrimonio, ctx = null, doc =
   }
 
   function recalcularBase() {
-    est.base = seriesReais(est.patrimonio, { hoje: est.hoje, ctx: est.ctx });
+    est.base = seriesReais(est.patrimonio, { hoje: est.hoje, ctx: est.ctx, minha: est.minha });
   }
 
   function vazio(msg) {
@@ -712,8 +733,8 @@ export function montarPatrimonioVsInflacao(raiz, { patrimonio, ctx = null, doc =
     get vista() { return est.vista; },
     get resumo() { return est.r; },
     pronto: Promise.resolve(),
-    atualizar({ patrimonio: p = est.patrimonio, ctx: c = est.ctx, hoje: h = null } = {}) {
-      est.patrimonio = p; est.ctx = c; est.hoje = h || (p && p.hoje) || est.hoje;
+    atualizar({ patrimonio: p = est.patrimonio, ctx: c = est.ctx, hoje: h = null, minha: m = est.minha } = {}) {
+      est.patrimonio = p; est.ctx = c; est.minha = m; est.hoje = h || (p && p.hoje) || est.hoje;
       recalcularBase();
       if (filtro) filtro.definirLimites(limites() || { min: null, max: null });
       desenhar();

@@ -105,8 +105,8 @@ export function metasDaDistribuicao(resposta) {
  * Momento de um item do Radar (tabela = acoesNacionais | acoesInternacionais | fiis).
  * itensDoBloco = o bloco inteiro (sem filtro de tipo de FII), pro "ranking X de N".
  */
-export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null, { metasObjetivos = null, cambio = null, macro = null } = {}) {
+export function momentoDoRadar(item, chaveTabela, metas = null, itensDoBloco = null, { metasObjetivos = null, cambio = null, macro = null, piso = null } = {}) {
   return momentoAporte(ativoDoRadar(item, chaveTabela), CLASSE_DA_TABELA_RADAR[chaveTabela], metas, '', {
-    totalRanking: totalRanking(itensDoBloco || [item]), metasObjetivos, cambio, macro,
+    totalRanking: totalRanking(itensDoBloco || [item]), metasObjetivos, cambio, macro, piso, // 28/10/2026: + retorno mínimo
   });
 }

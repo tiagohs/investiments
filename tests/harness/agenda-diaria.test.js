@@ -60,7 +60,7 @@ function montar(agoraIso, jobs = {}) {
   const props = {};
   const gatilhos = [];
   let uid = 0;
-  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [], portfolioFii: [], preAquecer: [], snapshotPrecos: [] };
+  const chamadas = { ativos: [], rendaFixaIndices: [], snapshotResumo: [], proventosFnet: [], informesFnet: [], fundamentos: [], portfolioFii: [], preAquecer: [], inflacaoPessoal: [], snapshotPrecos: [] };
   const registro = [];
   const emails = [];
   const relogio = { ms: Date.parse(agoraIso) };
@@ -92,6 +92,7 @@ function montar(agoraIso, jobs = {}) {
     fundamentos: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 03/10/2026 (Fundamentos.gs)
     portfolioFii: () => ({ status: 'Sucesso', detalhe: 'ok', porTempo: false }), // 05/10/2026 (PortfolioFii.gs)
     preAquecer: () => ({ ativos: 3, calculados: 3, jaEmCache: 0, faltaramPorTempo: 0, falhas: [], ms: 1 }), // 05/10/2026 (A-53, Ativo.gs)
+    inflacaoPessoal: () => ({ status: 'Sucesso', detalhe: 'ok' }), // 28/10/2026 (InflacaoPessoal.gs)
     snapshotPrecos: () => ({ dia: '2026-10-02', gravados: 3, ignorados: [], regravou: false, detalhe: '3 preço(s) gravado(s)' }), // 06/10/2026 (A-56, SnapshotPrecos.gs)
   };
   const job = (id) => (...args) => { chamadas[id].push(args); return (jobs[id] || padrao[id])(chamadas[id].length, ...args); };
@@ -109,6 +110,7 @@ function montar(agoraIso, jobs = {}) {
     atualizarFundamentos_: job('fundamentos'),
     atualizarPortfolioFii_: job('portfolioFii'),
     preAquecerCacheAtivos_: job('preAquecer'),
+    atualizarInflacaoPessoal_: job('inflacaoPessoal'),
     gravarSnapshotPrecosHoje_: job('snapshotPrecos'),
     gravarRegistroControle_: (...a) => registro.push(a),
     notificarFalhaSincronizacao_: (...a) => emails.push(a),
@@ -183,14 +185,14 @@ test('Agenda: domingo não agenda nada', () => {
 test('Agenda: dia normal roda tudo na ordem, principal às 10:01, e não sobra one-shot', () => {
   const a = montar('2026-10-02T11:40:00Z');
   const ordem = [];
-  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_', fundamentos: 'atualizarFundamentos_', portfolioFii: 'atualizarPortfolioFii_', preAquecer: 'preAquecerCacheAtivos_' };
+  const nomes = { ativos: 'atualizarHistorico', rendaFixaIndices: 'atualizarRendaFixaEIndicesDiario_', snapshotResumo: 'gravarSnapshotResumoHoje_', proventosFnet: 'atualizarProventosAnunciadosFii_', informesFnet: 'atualizarInformesFiiFnet_', fundamentos: 'atualizarFundamentos_', portfolioFii: 'atualizarPortfolioFii_', preAquecer: 'preAquecerCacheAtivos_', inflacaoPessoal: 'atualizarInflacaoPessoal_' };
   for (const [id, fn] of Object.entries(nomes)) {
     const orig = a.sb[fn];
     a.sb[fn] = (...x) => { ordem.push([id, a.relogio.ms]); return orig(...x); };
   }
   a.sb.despertadorAgendaDiaria();
   a.rodarFila();
-  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet', 'fundamentos', 'portfolioFii', 'preAquecer']);
+  assert.deepEqual(ordem.map((o) => o[0]), ['ativos', 'rendaFixaIndices', 'snapshotResumo', 'proventosFnet', 'informesFnet', 'fundamentos', 'portfolioFii', 'preAquecer', 'inflacaoPessoal']);
   assert.equal(ordem[0][1], utc('2026-10-02T13:01:00Z'), 'ativos começa exatamente às 10:01 SP');
   assert.equal(ordem[1][1], utc('2026-10-02T13:02:00Z'), 'RF + índices logo depois (+1 min)');
   assert.deepEqual(plain(a.chamadas.ativos[0]), ['Automático', null]);
@@ -672,7 +674,7 @@ test('Agenda (A-54): as linhas que a rotina grava saem rotuladas com a etapa e a
   a.sb.despertadorAgendaDiaria();
   a.rodarFila();
   assert.deepEqual(vistos.slice(0, 4), [{ etapa: 'ativos', tentativa: 1 }, null, { etapa: 'rendaFixaIndices', tentativa: 1 }, null]);
-  assert.equal(vistos.filter(Boolean).length, 9); // 8 + snapshotPrecos (A-56)
+  assert.equal(vistos.filter(Boolean).length, 10); // 8 + inflacaoPessoal (28/10/2026) + snapshotPrecos (A-56)
 });
 
 // A-55: calendário B3

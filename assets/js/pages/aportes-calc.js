@@ -415,10 +415,31 @@ function momentoRendaVariavel(a, classe, metas, totalRanking, opcoes = {}) {
     else sinal(sinais, 'neutro', `Ranking ${rk} de ${totalRanking} na Suno`, 0);
   }
   sinaisDoMacro(sinais, opcoes.macro, classe); // 05/10/2026: contexto de mercado (<= 0,5 ponto no total)
+  sinalPiso(sinais, a, classe, opcoes.piso); // 28/10/2026: rende acima do seu retorno mínimo?
   const pontos = somaPontos(sinais);
   let nivel = acimaDoTeto || pontos <= -1 ? 'esperar' : (pontos >= 3 ? 'bom' : 'neutro');
   if (nivel === 'bom' && (entreOsUltimos || motor.eliminatorio)) nivel = 'neutro';
   return fechar(sinais, nivel);
+}
+
+/**
+ * 28/10/2026 (live da Suno: "o custo de oportunidade precisa ser acima da sua inflação"): o retorno do ativo contra o SEU
+ * retorno mínimo (piso = inflacao-pessoal.js!retornoMinimo: a sua inflação + o prêmio que você exige, já líquido). FII: o DY
+ * (isento de IR). Ação: o retorno pelo lucro (1 ÷ P/L) - aproximação do que a empresa rende por ano sobre o preço.
+ * `piso` = { liquido, inflacao, premio }. Peso ±0,5.
+ */
+export function sinalPiso(sinais, a, classe, piso) {
+  if (!piso || typeof piso.liquido !== 'number' || !(piso.liquido > 0)) return;
+  const r = a.radar || {};
+  const pl = typeof r.pl === 'number' && r.pl > 0 ? r.pl : (a.fundamentos && typeof a.fundamentos.pl === 'number' && a.fundamentos.pl > 0 ? a.fundamentos.pl : null);
+  const dy = typeof a.dy === 'number' ? (a.dy > 1 ? a.dy / 100 : a.dy) : null;
+  const ret = classe === 'fiis' ? dy : (pl ? 1 / pl : null);
+  if (!(ret > 0)) return;
+  const nome = classe === 'fiis' ? 'DY' : 'Retorno pelo lucro (1 ÷ P/L)';
+  const regua = `seu retorno mínimo de ${formatPct(piso.liquido)} a.a. (sua inflação ${formatPct(piso.inflacao)} + prêmio ${formatPct(piso.premio)})`;
+  const ajuda = `Retorno mínimo = (1 + sua inflação de 12 meses) × (1 + o prêmio que você exige) − 1, já líquido de IR. Sua inflação vem das despesas essenciais (Organização › Gastos e Despesas); o prêmio você ajusta lá. ${classe === 'fiis' ? 'O DY do FII é isento de IR.' : 'O retorno pelo lucro é uma aproximação: o lucro não vira todo dividendo e pode crescer ou cair.'}`;
+  if (ret >= piso.liquido) sinal(sinais, 'bom', `${nome} de ${formatPct(ret)}: acima do ${regua}`, 0.5, { ajuda });
+  else sinal(sinais, 'ruim', `${nome} de ${formatPct(ret)}: abaixo do ${regua}`, -0.5, { ajuda });
 }
 
 /** Maior ranking do Radar numa lista de ativos (da prateleira ou do próprio Radar) - o "de N" do ranking. */
@@ -510,9 +531,9 @@ function momentoRendaFixa(t, metas, hoje, opcoes = {}) {
  * = quanto se pensa aportar (moeda do ativo; padrão: o "R$ a investir" do
  * Radar), opcoes.cambio = dólar (ativos EUA).
  */
-export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0, metasObjetivos = null, valorSugerido = null, cambio = null, macro = null } = {}) {
+export function momentoAporte(a, classe, metas = null, hoje = '', { totalRanking: total = 0, metasObjetivos = null, valorSugerido = null, cambio = null, macro = null, piso = null } = {}) {
   if (!a) return fechar([], 'neutro');
-  const opcoes = { metasObjetivos, valorSugerido, cambio, macro };
+  const opcoes = { metasObjetivos, valorSugerido, cambio, macro, piso };
   return classe === 'rendaFixa' ? momentoRendaFixa(a, metas, hoje, opcoes) : momentoRendaVariavel(a, classe, metas, total, opcoes);
 }
 

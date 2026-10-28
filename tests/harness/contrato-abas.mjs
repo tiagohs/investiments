@@ -51,7 +51,8 @@ export const CONTRATO_ABAS = {
   'Salário': { cabecalho: { linha: 1, colunas: ['Mês', 'Tipo', 'Status', 'Data de crédito', 'Salário base', 'Outros vencimentos', 'Total vencimentos', 'INSS', 'IRRF', 'Outros descontos', 'Total descontos', 'Líquido', 'FGTS', 'Base IRRF'] } },
   // --- abas que a planilha ainda não tem no export usado pelas fixtures (o código cria no 1º uso) ou só diagnóstico ---
   'Auxiliar_favoritos': {}, 'aux_caixa_dolar': {}, 'aux_aportes_eua': {}, 'aux_cambio': {}, 'aux_feriados-b3': {}, 'aux_snapshot-precos': {}, 'aux_fii-geocache': {}, 'aux_fii-portfolio': {},
-  'aux_fundamentos-gf': {}, 'aux_gastos-regras': { opcional: 'criada por Gastos.gs (insertSheet(nome)) no 1º uso' }, 'aux_historico-despesas': {}, 'aux_holerites-arquivos': {}, 'aux_patrimonio-indices': {},
+  'aux_fundamentos-gf': {}, 'aux_gastos-regras': { opcional: 'criada por Gastos.gs (insertSheet(nome)) no 1º uso' }, 'aux_historico-despesas': {},
+  'aux_inflacao-indices': { opcional: 'criada por InflacaoPessoal.gs (insertSheet) no 1º uso' }, 'aux_inflacao-cesta': { opcional: 'criada por InflacaoPessoal.gs (insertSheet) no 1º uso' }, 'aux_holerites-arquivos': {}, 'aux_patrimonio-indices': {},
   'aux_videos': {}, 'aux_videos-canais': {}, 'aux_videos-termos': {}, 'B3 - proventos a receber': {},
   'Carteira Ações': { opcional: 'só DiagnosticoAtivos.gs/NovoAtivo.gs mexem (a Início lê Auxiliar_ativos)' },
   'Carteira Ações USA': { opcional: 'só DiagnosticoAtivos.gs/NovoAtivo.gs mexem (a Início lê Auxiliar_ativos)' },

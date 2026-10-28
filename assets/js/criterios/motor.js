@@ -48,6 +48,7 @@ import { CRITERIOS_ACOES, REGRAS_ACOES, SETORES_ACOES, setorDaAcao } from './bas
 import { CRITERIOS_FIIS, REGRAS_FIIS, SEGMENTOS_FII, segmentoDoFii, classeDoSegmento } from './base-fiis.js';
 import { formatNumeroPt } from '../format.js'; // 05/10/2026 (A-68)
 import { simularSaidaPrejuizo, resumoSaidaPrejuizo } from '../preco-medio-lucro.js'; // 08/10/2026: quantas cotas pra ficar no lucro
+import { repasseDeInflacao } from '../pages/setor-inflacao.js'; // 28/10/2026: o setor repassa a inflação? (live da Suno)
 
 // ---------------------------------------------------------------------------
 // Formatação (pt-BR, sem depender de format.js pra ficar puro e testável)
@@ -1038,6 +1039,29 @@ function pontosDeCarteira(e) {
   if (e.classe === 'rendaFixa') {
     sinaisRendaFixaMeta({ titulo: e.titulo || { titulo: e.ticker, indexador: e.indexador, vencimento: e.vencimento, descricao: e.descricaoRf }, ref: e.ref, marca: e.marca, metas: e.metas, hoje: e.hoje })
       .forEach((s) => out.push({ criterioId: `meta_${s.tipo}`, nome: `Meta: ${s.metaNome}`, grupo: 'carteira', tom: s.tom, texto: `${s.texto}.`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: Math.abs(s.peso) >= 1 ? 2 : 1, eliminatorio: false, informativo: true, metaId: s.metaId, ajuda: s.ajuda }));
+  }
+  // 28/10/2026 (live da Suno, "o custo de oportunidade precisa ser acima da SUA inflação"): o retorno do ativo contra o seu
+  // retorno mínimo (minha inflação + prêmio, líquido) - pessoal, fora da nota. FII: DY (isento); ação: retorno pelo lucro (1/P/L).
+  const piso = e.piso;
+  if (piso && num(piso.liquido) > 0 && (e.classe === 'fiis' || CLASSE_BASE[e.classe])) {
+    const dy = num(ind.dy) != null ? (ind.dy > 1 ? ind.dy / 100 : ind.dy) : null;
+    const pl = num(ind.pl) > 0 ? ind.pl : null;
+    const ret = e.classe === 'fiis' ? dy : (pl ? 1 / pl : null);
+    if (ret > 0) {
+      const nome = e.classe === 'fiis' ? 'DY' : 'Retorno pelo lucro';
+      const acima = ret >= piso.liquido;
+      out.push({ criterioId: 'carteira_piso', nome: 'Seu retorno mínimo', grupo: 'carteira', tom: acima ? 'bom' : 'atencao',
+        texto: `${nome} de ${br(ret * 100, 1)}% ${acima ? 'acima' : 'abaixo'} do seu retorno mínimo de ${br(piso.liquido * 100, 1)}% a.a. (sua inflação ${br(piso.inflacao * 100, 1)}% + prêmio ${br(piso.premio * 100, 1)}%).`,
+        valor: ret, valorTexto: `${br(ret * 100, 1)}%`, faixa: `≥ ${br(piso.liquido * 100, 1)}%`, regua: '', fonte: null, fontes: [], peso: 1, eliminatorio: false, informativo: true,
+        ajuda: 'Retorno mínimo = (1 + sua inflação de 12 meses) × (1 + o prêmio que você exige) − 1, líquido. A sua inflação é a das despesas essenciais (Organização › Gastos e Despesas), em paralelo ao IPCA. Ação: o lucro não vira todo dividendo e pode crescer ou cair - é uma régua, não uma promessa.' });
+    }
+  }
+  // 28/10/2026: o negócio repassa a inflação pro preço? (qualitativo, pelo setor/segmento; fora da nota)
+  if (e.classe === 'fiis' || CLASSE_BASE[e.classe]) {
+    const fund = (e.fundamentos && e.fundamentos.valores) || {};
+    const rp = repasseDeInflacao({ setor: fund.setor || e.setor || '', segmento: fund.segmento || e.segmento || '', tipo: e.tipoFii || '', nome: e.nome || '' }, e.classe === 'fiis' ? 'fiis' : 'acoes');
+    if (rp) out.push({ criterioId: 'qualidade_repasse_inflacao', nome: 'Repasse de inflação', grupo: 'qualidade', tom: rp.nivel === 'repassa' ? 'bom' : (rp.nivel === 'dificil' ? 'atencao' : 'neutro'),
+      texto: `${rp.rotulo.replace(/^./, (c) => c.toUpperCase())}: ${rp.porque}`, valor: null, valorTexto: '', faixa: '', regua: '', fonte: null, fontes: [], peso: 0.5, eliminatorio: false, informativo: true, ajuda: rp.porque });
   }
   // contexto de mercado (macro.js): fora da nota, no máximo 2 linhas, cada uma com o "i"
   if (e.macro) {

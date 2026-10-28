@@ -12,6 +12,7 @@ import {
   lerTaxasRemessa, remessaPorReais, remessaPorDolares, vetRemessa, caixaValido, necessidadeDeDolares, PADROES_REMESSA,
 } from './aportes-eua-calc.js';
 import { esc } from '../util/html.js'; // 05/10/2026 (A-68): escape único
+import { dolarEquilibrio } from '../inflacao-pessoal.js'; // 28/10/2026: dólar de equilíbrio (live da Suno)
 import { ic } from './transacoes-ui.js'; // 06/10/2026 (Onda 3, kit Figma)
 
 
@@ -102,6 +103,33 @@ function sugestaoHtml(estado) {
     </div>`;
 }
 
+/** % da carteira em dólar (Ações EUA × câmbio ÷ tudo) - classes de Aportes ({ acoes, fiis, acoesEua (US$), rendaFixa }). */
+export function percentualEmDolar(classes, cambio) {
+  const c = classes || {};
+  const soma = (l, f) => (l || []).reduce((s, a) => s + (Number(f(a)) || 0), 0);
+  const eua = soma(c.acoesEua, (a) => a.totalAtualizado) * (cambio > 0 ? cambio : 0);
+  const total = soma(c.acoes, (a) => a.totalAtualizado) + soma(c.fiis, (a) => a.totalAtualizado) + soma(c.rendaFixa, (a) => a.valorAtualizado || a.totalAtualizado) + eua;
+  return total > 0 && cambio > 0 ? { pct: eua / total, emDolarBrl: eua, total } : null;
+}
+
+/**
+ * 28/10/2026 (live da Suno, Daniele Lopes: "comprar dólar é ficar vendido no CDI"; "tenha pelo menos 30% em dólar"): quanto o
+ * dólar precisa valer em 12 meses pra empatar com o CDI (os dois líquidos de IR) e o seu % em dólar contra a sua meta.
+ * estado.macro (juros.selic) e estado.inflacao ({ juroUsd, config.metaDolar }) chegam depois - sem eles o bloco some.
+ */
+export function dolarEquilibrioHtml(estado, dados) {
+  const j = estado.macro && estado.macro.juros;
+  const inf = estado.inflacao || null;
+  const cambio = dados.cambio > 0 ? dados.cambio : null;
+  if (!j || typeof j.selic !== 'number' || !cambio) return '';
+  const juroUsd = inf && inf.juroUsd && typeof inf.juroUsd.taxa === 'number' ? inf.juroUsd.taxa : null;
+  const eq = dolarEquilibrio({ dolar: cambio, cdi: j.selic - 0.001, juroUsd: juroUsd || 0 });
+  const pd = percentualEmDolar(dados.classes, cambio);
+  const meta = inf && inf.config && typeof inf.config.metaDolar === 'number' ? inf.config.metaDolar : null;
+  const linhaMeta = pd ? ` Hoje você tem <b>${formatPct(pd.pct, 1)}</b> da carteira em dólar${meta != null ? ` (sua meta: ${formatPct(meta, 0)}${pd.pct + 0.005 < meta ? `; faltam ${formatBRL(Math.max(0, meta * pd.total - pd.emDolarBrl))} pra chegar lá` : ': já atingida'})` : ''}.` : '';
+  return `<p class="tx-eua-equilibrio" id="txEuaEquilibrio">Dólar de equilíbrio em 12 meses: <b>R$ ${formatNumeroBR(eq.valor, 2)}</b> (+${formatPct(eq.alta, 1)} sobre os R$ ${formatNumeroBR(cambio, 2)} de hoje). Abaixo disso, o CDI líquido teria rendido mais que o dólar${juroUsd != null ? ` aplicado a ${formatPct(juroUsd, 2)} a.a. (T-bill de 3 meses)` : ' parado'}. Dólar é proteção e diversificação, não aposta de curto prazo: compre aos poucos (preço médio).${linhaMeta}</p>`;
+}
+
 export function euaFluxoHtml(estado, dados, totalUsdCarrinho = 0) {
   const e = estado.eua;
   const caixa = caixaValido(dados.caixaDolar);
@@ -111,6 +139,7 @@ export function euaFluxoHtml(estado, dados, totalUsdCarrinho = 0) {
   const modoBtn = (id, rotulo) => `<button type="button" role="tab" class="tx-seg-btn${e.modo === id ? ' active' : ''}" data-rem-modo="${id}" aria-selected="${e.modo === id}">${rotulo}</button>`;
   return `
     <section class="tx-eua" id="txEuaFluxo" aria-label="Fluxo das ações internacionais">
+      ${dolarEquilibrioHtml(estado, dados) || '<p class="tx-eua-equilibrio" id="txEuaEquilibrio" hidden></p>'}
       <p class="tx-eua-intro">Ações internacionais em <b>2 etapas</b>: primeiro você <b>envia dólares</b> pela Remessa Online; depois <b>compra as ações</b> com esse caixa (no mesmo dia ou em outro). Também dá pra começar pelas ações e ver quantos dólares enviar.</p>
       <div class="tx-eua-passos">
         <article class="card tx-eua-passo" id="txEuaEnviar">

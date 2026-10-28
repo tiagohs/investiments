@@ -441,3 +441,32 @@ a.hint:hover{ color:var(--acoes); }
 .og-detalhe{ margin:6px 0 0; font-size:var(--md-sys-typescale-body-small-size); }
 .og-detalhe summary{ cursor:pointer; color:var(--ink-muted); min-height:24px; }
 .og-detalhe code{ display:block; margin-top:4px; overflow-wrap:anywhere; white-space:pre-wrap; }
+
+/* 28/10/2026: Minha inflação x IPCA (organizacao-inflacao.js) */
+.og-inflacao{ margin-top:16px; padding:18px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+.og-inf-cab{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
+.og-inf-cab h2{ margin:0; font-size:var(--md-sys-typescale-title-medium-size); }
+.og-inf-kpis{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; }
+.og-inf-kpis .kpi-valor small{ font-size:.55em; color:var(--ink-muted); margin-left:2px; }
+.og-inf-kpi-minha .kpi-valor{ color:var(--md-sys-color-primary); }
+.og-inf-grafico{ min-height:170px; }
+.og-inf-sub{ margin:8px 0 0; font-size:var(--md-sys-typescale-title-small-size); }
+.og-inf-det > summary{ cursor:pointer; font-weight:600; padding:4px 0; }
+.og-inf-tabela-wrap{ overflow-x:auto; margin-top:8px; }
+.og-inf-tabela{ width:100%; border-collapse:collapse; font-size:var(--md-sys-typescale-body-small-size); font-variant-numeric:tabular-nums; }
+.og-inf-tabela th, .og-inf-tabela td{ padding:7px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:middle; }
+.og-inf-tabela thead th{ color:var(--ink-muted); font-weight:600; white-space:nowrap; }
+.og-inf-tabela .num{ text-align:right; white-space:nowrap; }
+.og-inf-tabela tbody th{ font-weight:600; }
+.og-inf-tabela small{ display:block; color:var(--ink-muted); font-weight:400; }
+.og-inf-tabela tfoot th, .og-inf-tabela tfoot td{ border-bottom:0; font-weight:700; }
+.og-inf-tabela td.good{ color:var(--good-ink); } .og-inf-tabela td.bad{ color:var(--bad-ink); }
+.og-inf-sel{ min-width:190px; padding:4px 8px; font-size:inherit; }
+.og-inf-sug{ display:inline-block !important; margin-left:6px; font-size:11px; }
+.og-inf-acoes{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:8px; }
+.og-inf-acoes .og-nota{ margin:0; flex:1 1 260px; }
+@media (max-width:640px){ .og-inflacao{ padding:14px; } .og-inf-sel{ min-width:150px; } }
+.og-inf-regua{ display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 14px; }
+.og-inf-campo{ display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--ink-muted); }
+.og-inf-campo-in{ display:flex; align-items:center; gap:4px; }
+.og-inf-campo-in .input{ width:88px; padding:6px 8px; }

@@ -35,6 +35,7 @@ import { lerValorBR } from './organizacao-calc.js';
 import { ligarFiltroPeriodo, rotuloPeriodo } from '../periodo-personalizado.js'; // 05/10/2026 (A-67): rótulos canônicos
 import { analisarSerie, renderAnalise } from '../analise-grafico.js';
 import { montarPatrimonioVsInflacao, seriesReais } from './patrimonio-inflacao.js';
+import { calcularMinhaInflacao } from '../inflacao-pessoal.js'; // 28/10/2026: minha inflação em paralelo ao IPCA
 import {
   identificarDocumento, lerDeclaracaoIr, lerExtratoFgts, lerCtps, lerExtratoCaixaHabitacao, lerExtratoFies, contaFgtsParaSalvar, GRUPOS_IR, MOTIVOS_SAQUE_FGTS,
 } from './patrimonio-import.js';
@@ -648,9 +649,11 @@ function base64ParaBytes(b64) {
 export function montarAbaPatrimonio({
   doc, el, token, getPatrimonioImpl = getPatrimonio, salvarImpl = salvarPatrimonio, getArquivosIrImpl = getArquivosIrPatrimonio,
   getArquivoIrImpl = getArquivoIrPatrimonio, carregarPdf = carregarPdfJs, lerPdf = extrairLinhasPdf,
-  aoMudarDados = null,
+  aoMudarDados = null, getInflacaoImpl = null,
 }) {
   let dados = null;
+  // 28/10/2026: a série mensal da minha inflação (pesos das despesas de hoje) - pedida 1x, entra quando chegar
+  let minhaSerie = null; let pediuMinha = false;
   let ctx = null;
   const est = {
     prefs: {}, editando: null, importacao: null, drive: null, msgEditor: '', perHist: 'tudo', perOrigem: '12m',
@@ -786,8 +789,17 @@ export function montarAbaPatrimonio({
     const box = el.querySelector('#ptInflacao');
     if (!box) return;
     try {
-      if (!inflacao) inflacao = montarPatrimonioVsInflacao(box, { patrimonio: dados, ctx, doc, hoje: dados.hoje });
-      else inflacao.atualizar({ patrimonio: dados, ctx, hoje: dados.hoje });
+      if (!inflacao) inflacao = montarPatrimonioVsInflacao(box, { patrimonio: dados, ctx, doc, hoje: dados.hoje, minha: minhaSerie });
+      else inflacao.atualizar({ patrimonio: dados, ctx, hoje: dados.hoje, minha: minhaSerie });
+      if (!pediuMinha && getInflacaoImpl) {
+        pediuMinha = true;
+        Promise.resolve().then(() => getInflacaoImpl()).then((r) => {
+          const c = r && r.ok ? calcularMinhaInflacao(r) : null;
+          if (!c) return;
+          minhaSerie = Object.fromEntries(c.mensal.map((x) => [x.mes, x.minha]));
+          if (inflacao) inflacao.atualizar({ patrimonio: dados, ctx, hoje: dados.hoje, minha: minhaSerie });
+        }).catch(() => { /* sem a minha inflação: fica só o IPCA */ });
+      }
     } catch (e) {
       box.innerHTML = `<p class="pt-nota">Não deu pra montar "Patrimônio vs. inflação": ${esc(e.message || e)}</p>`;
     }

@@ -106,6 +106,9 @@ function doGet(e) {
   if (action === 'salario') { // 26/09/2026: Organização Financeira - aba Salário (Salario.gs)
     return handleSalario(e, auth);
   }
+  if (action === 'inflacaoPessoal') { // 28/10/2026: minha inflação x IPCA (InflacaoPessoal.gs)
+    return handleInflacaoPessoal(e, auth);
+  }
   if (action === 'despesas') { // 26/09/2026: tela Organização Financeira (Despesas.gs)
     return handleDespesas(e, auth);
   }
@@ -300,6 +303,9 @@ function doPostRotas_(e) {
   }
   if (action === 'salvarPercentuaisRadar') { // 27/10/2026: % desejado de vários tickers (zerar o encerrado e redistribuir) - PosicoesEncerradas.gs
     return handleSalvarPercentuaisRadar(e);
+  }
+  if (action === 'salvarInflacaoPessoal') { // 28/10/2026: índice de cada despesa + config (InflacaoPessoal.gs)
+    return handleSalvarInflacaoPessoal(e);
   }
   if (action === 'salvarRankingRadar') { // 27/10/2026: ranking do Radar arrastando os itens - PosicoesEncerradas.gs
     return handleSalvarRankingRadar(e);

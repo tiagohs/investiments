@@ -46,6 +46,7 @@ export const CANAIS_YOUTUBE = Object.freeze({
   AXIA3: AXIA, // mesma empresa da AXIA7 (outra classe de ação)
   TUPY3: { nome: 'Tupy', handle: '@TupySA', url: yt('@TupySA'), channelId: 'UCzV0NFuSm5wk9_NK8n4YkYQ' },
   AGRO3: { nome: 'BrasilAgro', handle: '@BrasilAgro_Oficial', url: yt('c/BrasilAgro_Oficial'), channelId: 'UC5XAKGmH_40af0G7dxpQYmw' },
+  UNIP6: { nome: 'Grupo Unipar', handle: '@grupounipar', url: yt('channel/UCSbo_3ZIZ_313Jzex_fKR6A'), channelId: 'UCSbo_3ZIZ_313Jzex_fKR6A' }, // 28/10/2026 (link do Tiago)
   EGIE3: { nome: 'ENGIE Brasil', handle: '@ENGIEBrasil', url: yt('@ENGIEBrasil'), channelId: 'UCLk-Odz551_0tRgjoR8yfhw' },
   // FIIs (canal da gestora)
   PMLL11: PATRIA,

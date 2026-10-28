@@ -41,7 +41,9 @@ import { momentoHtml, carregarMetasMomento, carregarMacroMomento } from './momen
 // merge de aportes do mesmo dia (aportes-calc.js!mesclarAporteComCarrinho)
 import { ehTesouro, puDoTitulo, dataCotacao, compraPorValor, compraPorQuantidade, acharTesouroHoje, minimoTesouro, textoMinimo } from './aportes-rf-calc.js';
 import { gravarTaxasRemessa, sugerirDivisaoCaixa, caixaValido } from './aportes-eua-calc.js';
-import { estadoInicialEua, euaFluxoHtml, remessaResultadoHtml, remessaDoEstado, necessidadeHtml, lerNumeroCampo as lerNumeroEua } from './aportes-eua.js';
+import { estadoInicialEua, euaFluxoHtml, remessaResultadoHtml, remessaDoEstado, necessidadeHtml, lerNumeroCampo as lerNumeroEua, dolarEquilibrioHtml } from './aportes-eua.js';
+import { getInflacaoPessoal } from '../api-client.js'; // 28/10/2026: minha inflação (retorno mínimo, juro em dólar)
+import { pisoDaResposta } from '../inflacao-pessoal.js';
 import { getToken } from '../auth.js';
 import { avisosSobrecomprometimento, carrinhoNoDia } from '../carrinho-global.js'; // 05/10/2026 (A-11): aviso de ativo em mais de uma meta
 import { estadoInicialMapa, mapaHtml, popoverMapaHtml, dadosDoMapa, ativoDaCarteira } from './aportes-mapa.js';
@@ -357,7 +359,7 @@ function prateleiraRvHtml(estado, dados, classe) {
  * carrinho (senão o "R$ a investir" do Radar). Metas buscadas 1x por tela.
  */
 function opcoesMomento(estado, dados, valorNoCarrinho) {
-  return { metasObjetivos: estado.metasObjetivos || null, cambio: dados.cambio || null, valorSugerido: valorNoCarrinho > 0 ? valorNoCarrinho : null, macro: estado.macro || null };
+  return { metasObjetivos: estado.metasObjetivos || null, cambio: dados.cambio || null, valorSugerido: valorNoCarrinho > 0 ? valorNoCarrinho : null, macro: estado.macro || null, piso: estado.piso || null };
 }
 
 function garantirMetasMomento(ctx) {
@@ -387,7 +389,24 @@ function garantirMetasMomento(ctx) {
   Promise.resolve(carregarMacro((macro) => {
     estado.macro = macro;
     refazer();
+    refazerEquilibrio();
   })).catch(() => { /* sem macro */ });
+  // 28/10/2026: minha inflação -> retorno mínimo no momento de cada ativo, juro em dólar e meta de % em dólar (Ações EUA)
+  function refazerEquilibrio() {
+    const atual = ctx.el && ctx.el._txCtx ? ctx.el._txCtx : ctx;
+    const alvo = atual.el && atual.el.querySelector('#txEuaEquilibrio');
+    if (!alvo) return;
+    const html = dolarEquilibrioHtml(atual.estado, atual.dados);
+    if (html) { alvo.outerHTML = html; }
+  }
+  const carregarInflacao = ctx.carregarInflacao || (() => { const token = getToken(); return token ? getInflacaoPessoal(token) : Promise.resolve(null); });
+  Promise.resolve().then(() => carregarInflacao()).then((r) => {
+    if (!r || !r.ok) return;
+    estado.inflacao = { juroUsd: r.juroUsd || null, config: r.config || null };
+    estado.piso = pisoDaResposta(r);
+    refazer();
+    refazerEquilibrio();
+  }).catch(() => { /* sem a minha inflação */ });
 }
 
 function momentoLinhaHtml(m, colunas) {
@@ -479,7 +498,7 @@ export function filtrarPrateleira(lista, estado, { classe = estado.classeAtiva, 
     out = [...out].sort((a, b) => folga(a) - folga(b));
   } else if (ordem === 'momento') {
     const n = totalRanking(lista);
-    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n, metasObjetivos: estado.metasObjetivos || null, cambio, macro: estado.macro || null }).pontos]));
+    const pontos = new Map(out.map((a) => [a, momentoAporte(a, classe, metas, hoje, { totalRanking: n, metasObjetivos: estado.metasObjetivos || null, cambio, macro: estado.macro || null, piso: estado.piso || null }).pontos]));
     out = [...out].sort((a, b) => pontos.get(b) - pontos.get(a));
   } else if (ordem === 'ultimo') {
     const d = (a) => (a.ultimoPago && a.ultimoPago.data) || '';

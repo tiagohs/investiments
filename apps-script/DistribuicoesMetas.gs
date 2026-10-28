@@ -471,12 +471,12 @@ function indiceColunaRadar_(letras) {
  *     - Tijolo/Híbrido/Papel - já vem de outro lugar, a coluna S do
  *     bloco de FIIs na própria Distribuição e Metas, não daqui).
  */
-function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento, colQuantidade) {
+function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento, colQuantidade, colSetor) {
   var mapa = {};
   if (!sheet) return mapa;
   var ultimaLinha = sheet.getLastRow();
   if (ultimaLinha < 9) return mapa;
-  var numCols = Math.max(colTicker, colVariacao, colSegmento || 0, colQuantidade || 0);
+  var numCols = Math.max(colTicker, colVariacao, colSegmento || 0, colQuantidade || 0, colSetor || 0);
   var valores = sheet.getRange(9, 1, ultimaLinha - 9 + 1, numCols).getValues();
   for (var i = 0; i < valores.length; i++) {
     var linha = valores[i];
@@ -486,7 +486,9 @@ function lerMapaCarteiraPorTicker_(sheet, colTicker, colVariacao, colSegmento, c
       variacaoDia: linha[colVariacao - 1],
       segmento: colSegmento ? linha[colSegmento - 1] : null,
       // 08/10/2026: "Quantidade de cotas" - pra conta de quantas cotas comprar pra ficar no lucro (preco-medio-lucro.js)
-      quantidade: colQuantidade ? linha[colQuantidade - 1] : null
+      quantidade: colQuantidade ? linha[colQuantidade - 1] : null,
+      // 28/10/2026: setor (Utilidade Pública, Financeiro, Consumo Cíclico...) - o selo "repassa a inflação?" do Radar
+      setor: colSetor ? String(linha[colSetor - 1] || '').trim() || null : null
     };
   }
   return mapa;
@@ -498,6 +500,7 @@ function enriquecerRadarComCarteira_(itens, mapa) {
     var info = mapa[item.ativo];
     item.variacaoDia = info && typeof info.variacaoDia === 'number' ? info.variacaoDia : null;
     if (info && info.segmento) item.segmento = info.segmento;
+    if (info && info.setor) item.setor = info.setor;
     item.quantidade = info && typeof info.quantidade === 'number' && info.quantidade > 0 ? info.quantidade : null;
     // 27/10/2026: a quantidade crua (0 = vendeu tudo ou nunca comprou) - PosicoesEncerradas.gs decide se encerrou
     item.quantidadeCarteira = info && typeof info.quantidade === 'number' ? info.quantidade : null;
@@ -536,8 +539,8 @@ function montarRadarOportunidades_() {
   var fiis = lerBlocoRadar_(dm, local.radarFiis, colunasFiis);
 
   // quantidade: G nas abas de Ações (BR e USA), E na de FIIs
-  var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6, 7);
-  var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6, 7);
+  var mapaAcoes = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações'), 1, 11, 6, 7, 4); // D = Setor
+  var mapaAcoesUsa = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira Ações USA'), 1, 11, 6, 7, 4);
   var mapaFiis = lerMapaCarteiraPorTicker_(ss.getSheetByName('Carteira FIIs'), 1, 9, 4, 5);
   enriquecerRadarComCarteira_(nacionais.itens, mapaAcoes);
   enriquecerRadarComCarteira_(internacionais.itens, mapaAcoesUsa);

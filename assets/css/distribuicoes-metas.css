@@ -430,3 +430,11 @@
 .radar-table tr.radar-drop-depois > td{ box-shadow:inset 0 -3px 0 var(--md-sys-color-primary); }
 @media (max-width:640px){ .radar-arrastar{ width:36px; height:36px; } }
 @media (prefers-reduced-motion: reduce){ .radar-table tr.radar-arrastando{ transition:none; } }
+
+/* 28/10/2026: retorno mínimo (minha inflação + prêmio) e selo "repassa a inflação?" do setor */
+.radar-piso{ margin:0 8px 12px; padding:8px 12px; border-radius:var(--md-sys-shape-corner-small); background:var(--md-sys-color-surface-container, var(--border)); font-size:var(--md-sys-typescale-body-small-size); line-height:18px; color:var(--ink-muted); }
+.radar-piso b{ color:var(--ink); }
+.radar-repasse{ display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; font-size:var(--md-sys-typescale-label-small-size); white-space:nowrap; cursor:help; }
+.radar-repasse-repassa{ background:var(--good-soft); color:var(--good-ink); }
+.radar-repasse-parcial{ background:var(--md-sys-color-surface-container-high, var(--border)); color:var(--ink-muted); }
+.radar-repasse-dificil{ background:var(--warn-soft); color:var(--warn-ink); }

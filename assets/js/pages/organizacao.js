@@ -38,7 +38,10 @@
 import {
   getDespesas, salvarDespesas, getPatrimonio, getSalario, getArquivosHolerites, getGastos, getArquivosGastos, getArquivoGastos,
   salvarImportacaoGastos, salvarRegraGastos, excluirArquivoGastos, excluirArquivosGastos, salvarFontesGastos, getMacro,
+  getInflacaoPessoal, salvarInflacaoPessoal,
 } from '../api-client.js';
+import { montarMinhaInflacao } from './organizacao-inflacao.js'; // 28/10/2026: minha inflação x IPCA
+import { montarMacro } from '../criterios/macro.js';
 import { mountRefreshControl } from '../shell.js';
 import { montarCabecalhoPagina, criarTabs, mostrarErroCarga, definirTituloPagina, toast } from '../ui/index.js'; // 06/10/2026 (Onda 3): cabeçalho, abas em pílula e erro de carga padrão do kit
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
@@ -392,7 +395,7 @@ export const ABA_DO_HASH = {
 
 export async function montarPaginaOrganizacao(token, {
   doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true, salarioOpcoes = {}, patrimonioOpcoes = {},
-  gastosOpcoes = {}, rendaOpcoes = {}, simuladorOpcoes = {}, documentosOpcoes = {}, hoje = null,
+  gastosOpcoes = {}, rendaOpcoes = {}, simuladorOpcoes = {}, documentosOpcoes = {}, hoje = null, inflacaoOpcoes = {},
 } = {}) {
   let gastos = null;
   const loadingEl = doc.getElementById('organizacaoLoading');
@@ -456,11 +459,34 @@ export async function montarPaginaOrganizacao(token, {
           <section class="card" id="ogHistorico"></section>
         </aside>
       </div>
+      <section class="card og-inflacao" id="ogInflacao" aria-live="polite"></section>
       <div class="og-barra" id="ogBarra" hidden role="region" aria-label="Alterações não salvas"></div>
       <datalist id="ogListaCategorias">${CATEGORIAS.map((c) => `<option value="${esc(c)}"></option>`).join('')}</datalist>`;
     // 06/10/2026 (Onda 3, A-59): no celular a lista de despesas começa recolhida (eram ~2.300px de rolagem)
     tornarRecolhiveis(conteudo, { seletor: '.og-lista-card', cabecalho: '.og-lista-cab', abertasNoCelular: 0, doc });
     ligarEventos();
+    montarInflacao();
+  }
+
+  // 28/10/2026: minha inflação x IPCA - a conta usa a lista em edição (rascunho); redesenha um pouco depois de cada edição
+  let inflacao = null; let timerInflacao = null;
+  function montarInflacao() {
+    if (!infl || !$('#ogInflacao')) return;
+    const getInf = () => infl.obter();
+    const salvarInf = inflacaoOpcoes.salvarInflacaoPessoalImpl || ((m) => salvarInflacaoPessoal(token, { mapa: m }));
+    const macroInf = inflacaoOpcoes.getMacroImpl || getMacroPagina;
+    inflacao = montarMinhaInflacao($('#ogInflacao'), {
+      obterDados: getInf, salvar: salvarInf, doc,
+      salvarConfig: inflacaoOpcoes.salvarConfigImpl || ((cfg) => salvarInflacaoPessoal(token, { config: cfg })),
+      obterItens: () => (rascunho ? rascunho.itens : []),
+      obterReserva: () => { try { const c = calcular(); return { meta: c && c.meta > 0 ? c.meta : null }; } catch (e) { return null; } },
+      obterMacro: macroInf ? (() => Promise.resolve(macroInf()).then((r) => (r && r.ok !== false ? montarMacro(r) : null))) : null,
+    });
+  }
+  function agendarInflacao() {
+    if (!inflacao) return;
+    clearTimeout(timerInflacao);
+    timerInflacao = setTimeout(() => inflacao.atualizar(), 350);
   }
 
   function desenharLista(c) {
@@ -474,6 +500,7 @@ export async function montarPaginaOrganizacao(token, {
 
   function atualizarResumo({ lista = false } = {}) {
     const c = calcular();
+    agendarInflacao();
     $('#ogHero').innerHTML = htmlHero(c, calcBase);
     montarBarrasProgresso($('#ogHero'));
     atualizarConta($('#ogConta'), c);
@@ -751,6 +778,9 @@ export async function montarPaginaOrganizacao(token, {
   const hojeIso = () => hoje || (pat.valor && pat.valor.hoje) || (dados && dados.hoje) || null;
   // 06/10/2026 (A-78): taxas do contexto de mercado (Macro.gs) pro simulador e pra tabela de IPCA da Renda; só na página real (nos testes, doc não é o document global)
   const getMacroPagina = (token && doc === globalThis.document) ? (() => getMacro(token)) : null;
+  // 28/10/2026: minha inflação (InflacaoPessoal.gs) - 1 busca, compartilhada entre Gastos e Despesas e o Patrimônio vs. inflação
+  const getInfBase = inflacaoOpcoes.getInflacaoPessoalImpl || ((token && doc === globalThis.document) ? (() => getInflacaoPessoal(token)) : null);
+  const infl = getInfBase ? criarCarregador(getInfBase) : null;
 
   // respostas compartilhadas
   const api = {
@@ -879,6 +909,7 @@ export async function montarPaginaOrganizacao(token, {
     patrimonio = montarAbaPatrimonio({
       doc, el: el.patrimonio, token, ...patrimonioOpcoes, getPatrimonioImpl: primeiraDepoisRecarrega(pat),
       aoMudarDados: (d, ctx) => { ctxPat = ctx || null; pat.definir(d); },
+      getInflacaoImpl: infl ? (() => infl.obter()) : null, // 28/10/2026: minha inflação em paralelo ao IPCA
     });
     return patrimonio;
   }

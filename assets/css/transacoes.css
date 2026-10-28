@@ -700,3 +700,6 @@ table.tx-mapa{ border-collapse:separate; border-spacing:0; width:100%; min-width
 /* 27/10/2026: carrinho com data de outro dia */
 .tx-recibo-data-aviso{ grid-column:1 / -1; display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0; padding:8px 10px; border-radius:var(--md-sys-shape-corner-small); background:var(--warn-soft); color:var(--warn-ink); font-size:var(--md-sys-typescale-body-small-size); }
 .tx-recibo-data-aviso span{ flex:1 1 200px; }
+/* 28/10/2026: dólar de equilíbrio e % em dólar (Ações EUA) */
+.tx-eua-equilibrio{ margin:0 0 12px; padding:10px 12px; border-radius:var(--md-sys-shape-corner-small); background:var(--md-sys-color-surface-container, var(--border)); font-size:var(--md-sys-typescale-body-small-size); line-height:19px; color:var(--ink-muted); }
+.tx-eua-equilibrio b{ color:var(--ink); }

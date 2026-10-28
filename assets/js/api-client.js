@@ -729,6 +729,22 @@ export async function getDespesas(token) {
 }
 
 /**
+ * 28/10/2026: minha inflação x IPCA (InflacaoPessoal.gs): catálogo de índices, séries mensais (IPCA por item, TR), a cesta
+ * (despesas essenciais + o índice de cada uma), config (prêmio do retorno mínimo, % em dólar desejado) e o juro em dólar.
+ */
+export async function getInflacaoPessoal(token) {
+  return request('GET', 'inflacaoPessoal', token);
+}
+
+/** 28/10/2026: grava o índice de cada despesa (mapa { despesa: índice }, a cesta inteira) e/ou a config. */
+export async function salvarInflacaoPessoal(token, { mapa = null, config = null } = {}) {
+  const params = {};
+  if (mapa) params.mapa = JSON.stringify(mapa);
+  if (config) params.config = JSON.stringify(config);
+  return request('POST', 'salvarInflacaoPessoal', token, params);
+}
+
+/**
  * Grava a lista inteira de despesas (+ folga, meses e sobra da reserva) de uma
  * vez. `assinatura` é a que veio no getDespesas: se a aba mudou nesse meio
  * tempo o back-end recusa ({ ok:false, conflito:true }) em vez de atropelar.

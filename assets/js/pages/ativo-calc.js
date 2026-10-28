@@ -661,7 +661,7 @@ export function ordenarTeses(teses) {
 // ---------------------------------------------------------------------------
 
 /** Entrada de criterios/motor!avaliarAtivo a partir da resposta do ativo. */
-export function entradaMotorDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null, macro = null } = {}) {
+export function entradaMotorDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null, macro = null, piso = null } = {}) {
   const r = resposta || {};
   const a = r.ativo || {};
   const ehRf = r.tipo === 'rf';
@@ -694,6 +694,7 @@ export function entradaMotorDoAtivo(resposta, { faixa = null, percentualCarteira
     metas,
     // 05/10/2026: contexto de mercado (criterios/macro.js) e, na renda fixa, o tipo/vencimento do título (encaixe na meta)
     macro,
+    piso, // 28/10/2026: retorno mínimo (minha inflação + prêmio) - inflacao-pessoal.js!pisoDaResposta
     ...(ehRf ? { indexador: a.indexador || '', vencimento: a.vencimento || '', descricaoRf: a.tipoInvestimento || '' } : {}),
   };
 }

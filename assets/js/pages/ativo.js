@@ -42,7 +42,8 @@ import {
 } from './ativo-calc.js';
 // 03/10/2026: análise por critérios (base Suno e outras fontes) + metas de Metas e Objetivos
 import { avaliarAtivo, GRUPOS } from '../criterios/motor.js';
-import { getMetas, getMacro } from '../api-client.js';
+import { getMetas, getMacro, getInflacaoPessoal } from '../api-client.js';
+import { pisoDaResposta } from '../inflacao-pessoal.js'; // 28/10/2026: retorno mínimo na Análise
 // 05/10/2026: contexto de mercado na Análise (criterios/macro.js, Macro.gs)
 import { ajudaHtml, resumoMacro } from '../criterios/macro.js';
 import { carregarMacroMomento } from './momento-carga.js';
@@ -181,9 +182,9 @@ async function metasComCalculo(dados) {
 }
 
 /** 03/10/2026: a análise do motor de critérios - nunca derruba a página (erro = sem análise). */
-export function avaliacaoDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null, macro = null } = {}) {
+export function avaliacaoDoAtivo(resposta, { faixa = null, percentualCarteira = null, metas = null, macro = null, piso = null } = {}) {
   try {
-    return avaliarAtivo(entradaMotorDoAtivo(resposta, { faixa, percentualCarteira, metas, macro }));
+    return avaliarAtivo(entradaMotorDoAtivo(resposta, { faixa, percentualCarteira, metas, macro, piso }));
   } catch (erro) {
     if (typeof console !== 'undefined') console.error('análise do ativo', erro);
     return null;
@@ -1921,6 +1922,7 @@ export async function montarPaginaAtivo(token, {
   getIntradiaImpl = getIntradia,
   getMetasImpl = getMetas,
   getMacroImpl = getMacro, // 05/10/2026: contexto de mercado da Análise (Macro.gs)
+  getInflacaoPessoalImpl = getInflacaoPessoal, // 28/10/2026: retorno mínimo da Análise (InflacaoPessoal.gs)
   getFiiPortfolioImpl = getFiiPortfolio, // 05/10/2026: aba Patrimônio do FII (PortfolioFii.gs)
   salvarCoordsImpl = salvarCoordenadasFiiPortfolio,
   carregarManualPatrimonioImpl = carregarManualPatrimonioPadrao,
@@ -2021,11 +2023,17 @@ export async function montarPaginaAtivo(token, {
   // completa a meta" da Análise) - 1 busca por tela, o cache 'metas' (o mesmo
   // da tela Metas) aparece na hora; falhou = análise sem os pontos de meta.
   const aplicarMetas = () => {
-    if (!estado.ctx || !(estado.metas || estado.macro)) return;
-    estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas, macro: estado.macro });
+    if (!estado.ctx || !(estado.metas || estado.macro || estado.piso)) return;
+    estado.ctx.avaliacao = avaliacaoDoAtivo(estado.ctx.resposta, { faixa: estado.ctx.faixa, percentualCarteira: estado.ctx.percentualCarteira, metas: estado.metas, macro: estado.macro, piso: estado.piso });
     estado.ctx.macro = estado.macro || null;
     trocarAnalise(conteudoEl, estado.ctx);
     preencherIrResgate(conteudoEl.ownerDocument, estado.ctx); // a Selic/IPCA de hoje chegou: refaz a projeção até o vencimento
+  };
+  // 28/10/2026: retorno mínimo (minha inflação + prêmio) - um ponto a mais na Análise; falhou = análise sem ele
+  const pedirPiso = () => {
+    if (estado.pisoPedido || !getInflacaoPessoalImpl) return;
+    estado.pisoPedido = true;
+    Promise.resolve().then(() => getInflacaoPessoalImpl(token)).then((r) => { const p = pisoDaResposta(r); if (p) { estado.piso = p; aplicarMetas(); } }).catch(() => null);
   };
   // 05/10/2026: contexto de mercado (juro real, bolsa cara/barata, NTN-B) - 1 busca por tela; falhou = análise sem ele
   const pedirMacro = () => {
@@ -2072,6 +2080,7 @@ export async function montarPaginaAtivo(token, {
     pedirIntradia();
     pedirMetas();
     pedirMacro();
+    pedirPiso();
     // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece.
     // 02/10/2026: + o canal oficial do ativo (canais-youtube.js); renda fixa só com canal (Tesouro).
     if (!estado.ctx.ehRf || estado.ctx.canal) {

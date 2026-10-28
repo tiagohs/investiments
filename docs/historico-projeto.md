@@ -586,3 +586,41 @@ Causa: o carrinho fica guardado no navegador com a data do dia em que foi montad
 - Testes: `tests/harness/aconfirmar.test.js`, `tests/carrinho-global.test.js`, `tests/carrinho-header.test.js` e `tests/transacoes.test.js`.
 - Mais um caso, visto no mesmo dia: o carrinho vazio que ficou guardado de 05/10 passava essa data para uma compra começada em 27/10. Agora `carrinhoValido` sempre trata o carrinho vazio como de hoje.
 
+### 28/10/2026 (minha inflação × IPCA, e o que a live da Suno trouxe para as análises)
+
+Pedido do Tiago, depois da live "O governo está queimando o seu dinheiro?" (Suno, Daniele Lopes): manter o IPCA oficial em todo lugar e mostrar, em paralelo, a inflação das despesas dele. A parcela do apê é corrigida pela TR.
+
+- Motor:
+  - `apps-script/InflacaoPessoal.gs`:
+    - busca o IPCA por subitem (IBGE SIDRA 7060, variável 63, 37 meses), a TR (BCB SGS 226, período que começa no dia 1º) e o juro em dólar (FRED DTB3);
+    - guarda tudo em `aux_inflacao-indices` e atualiza pela etapa `inflacaoPessoal` da agenda diária, ou na 1ª leitura sem dado;
+    - o índice de cada despesa fica em `aux_inflacao-cesta`;
+    - prêmio e % em dólar desejado ficam nas Propriedades;
+    - GET `inflacaoPessoal`, POST `salvarInflacaoPessoal`.
+  - `assets/js/inflacao-pessoal.js` (puro):
+    - sugestão de índice pelo nome ou categoria;
+    - minha inflação = Σ peso × inflação de 12 meses do índice (cesta de hoje);
+    - série mensal, 12 meses móveis, ganho real (com IR), retorno mínimo, dólar de equilíbrio.
+- Gastos e Despesas: seção "Minha inflação × IPCA" (`organizacao-inflacao.js`):
+  - KPIs (minha, IPCA, R$/mês, sem as parcelas);
+  - divisão fixo × TR × preços;
+  - gráfico de 12 meses móveis;
+  - tabela por despesa, com o índice editável;
+  - a reserva corrigida pelas duas inflações;
+  - "O que o seu dinheiro rende de verdade" (confisco inflacionário: parado, poupança, CDI, IPCA+ e prefixado líquidos, contra as duas inflações);
+  - "Sua régua" (prêmio e % em dólar).
+- Em paralelo ao IPCA em outras telas:
+  - Patrimônio vs. inflação ganhou a linha "Aportes + minha inflação" e o tile "Acima da sua inflação";
+  - Metas mostram o "poder de compra" do alvo na data (na reserva, em 12 meses).
+- Regras de análise novas (o que a live trouxe e ainda não estava nas análises):
+  - **Retorno mínimo pessoal** = (1 + minha inflação) × (1 + prêmio) − 1. Comparado com o DY do FII e com o retorno pelo lucro (1/P/L) da ação:
+    - no momento do Acompanhamento e de Aportes (±0,5 ponto);
+    - na Análise do ativo (`carteira_piso`, fora da nota);
+    - o Radar mostra a régua no topo de cada aba.
+  - **Repasse de inflação por setor** (`setor-inflacao.js`): energia, saneamento e concessões repassam; bancos e seguradoras crescem com juros/inflação; commodities repassam via preço; varejo tem repasse difícil. FII pelo tipo (shopping depende do varejo). Aparece como selo no Radar e como ponto na Análise (`qualidade_repasse_inflacao`, fora da nota). Novo: o Radar lê o Setor (coluna D) das abas Carteira.
+  - **Dólar de equilíbrio em 12 meses** (dólar × (1 + CDI líquido) ÷ (1 + T-bill líquido)) e % da carteira em dólar contra a meta, em Aportes › EUA.
+  - **Curva longa:** chip "Juro longo (prefixado)" no contexto de mercado, com o prefixado sem cupom mais longo contra a Selic.
+  - Já estavam nas análises e não mudaram: margem de segurança (preço-teto, Bazin/Graham), lucro rende acima da renda fixa (`combo_retorno_implicito`), juro real e NTN-B longa (macro), réguas por setor e inadimplência nos FIIs.
+  - Ficou de fora, porque não temos o dado: inadimplência e custo do risco dos bancos.
+- Testes: `tests/inflacao-pessoal.test.js`.
+

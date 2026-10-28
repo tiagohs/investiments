@@ -15,7 +15,7 @@ const NOMES = {
   carteirasHome: 'Carteiras', carteirasAcoes: 'Carteiras › Ações', carteirasFiis: 'Carteiras › FIIs',
   carteirasAcoesEua: 'Carteiras › EUA', carteirasRendaFixa: 'Carteiras › Renda Fixa', proventos: 'Proventos',
   transacoes: 'Transações', metas: 'Metas', metasHistorico: 'Metas (histórico)', distribuicoesMetas: 'Distribuição',
-  patrimonio: 'Patrimônio', salario: 'Salário', despesas: 'Despesas', gastos: 'Gastos', syncStatus: 'Registro de Controle',
+  patrimonio: 'Patrimônio', salario: 'Salário', despesas: 'Despesas', inflacaoPessoal: 'Minha inflação', gastos: 'Gastos', syncStatus: 'Registro de Controle',
 };
 
 function ler(armazenamento) {

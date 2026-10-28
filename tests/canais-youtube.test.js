@@ -18,6 +18,7 @@ const LISTA = {
   TRXF11: 'https://www.youtube.com/@trxinvestimentos2945', XPML11: 'https://www.youtube.com/@XP_Oficial', HGRU11: 'https://www.youtube.com/@patriainvestments',
   RBRY11: 'https://www.youtube.com/c/RBRAssetManagement', KNUQ11: 'https://www.youtube.com/@KineaInvestimentos', PAM: 'https://www.youtube.com/@PampaEnergia',
   CHTR: 'https://www.youtube.com/chartercommunications', PROSY: 'https://www.youtube.com/channel/UC4Yj3qrCYB7On4T58f2BEDQ', EWBC: 'https://www.youtube.com/@eastwestbancorp',
+  UNIP6: 'https://www.youtube.com/channel/UCSbo_3ZIZ_313Jzex_fKR6A',
 };
 
 test('canais: cada ticker da lista do Tiago aponta pro link dele, com nome, @handle e ID UC... válidos', () => {

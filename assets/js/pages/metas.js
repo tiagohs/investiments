@@ -38,8 +38,9 @@
 
 import {
   getMetas, salvarMeta as salvarMetaApi, excluirMeta as excluirMetaApi,
-  getMetasHistorico, excluirMetaDefinitivamente as excluirDefinitivoApi,
+  getMetasHistorico, excluirMetaDefinitivamente as excluirDefinitivoApi, getInflacaoPessoal,
 } from '../api-client.js';
+import { calcularMinhaInflacao, corrigir } from '../inflacao-pessoal.js'; // 28/10/2026: alvo corrigido pela minha inflação (e pelo IPCA)
 import { mountRefreshControl, resolveSiteRootUrl } from '../shell.js';
 import { lerCacheDados, gravarCacheDados } from '../cache-dados.js';
 import { urlAtivo } from '../link-ativo.js';
@@ -362,6 +363,23 @@ export function excedenteHtml(meta, c, { raizSite = null } = {}) {
   <p class="mt-exc-acoes"><span class="mt-fraco">Pra onde levar:</span> <a class="btn btn-tonal mt-btn-sm" href="${esc(radar)}">Ver no Radar de oportunidades</a> <a class="btn btn-text mt-btn-sm" href="${esc(aportes)}">Registrar o aporte</a></p></section>`;
 }
 
+// 28/10/2026 (Tiago: "quero ainda o IPCA real lá, mas em paralelo... a minha inflação"): as duas inflações de 12 meses
+// ({ minha, ipca }) - a página busca depois (InflacaoPessoal.gs) e redesenha; sem elas a linha não aparece.
+let inflacaoMetas = null;
+export function definirInflacaoMetas(x) { inflacaoMetas = x && typeof x.minha === 'number' && typeof x.ipca === 'number' ? x : null; }
+
+/** "Poder de compra": quanto o alvo de hoje vai precisar valer na data (ou em 12 meses, na reserva) pelas duas inflações. */
+export function poderDeCompraHtml(meta, c, inf = inflacaoMetas) {
+  if (!inf || !c || !(c.alvoBRL > 0) || c.recorrente) return '';
+  const reserva = meta.tipo === 'reservaEmergencia';
+  const meses = reserva ? 12 : (c.mesesRestantes != null && c.mesesRestantes > 0 ? c.mesesRestantes : null);
+  if (!meses) return '';
+  const minha = corrigir(c.alvoBRL, inf.minha, meses);
+  const ipca = corrigir(c.alvoBRL, inf.ipca, meses);
+  const quando = reserva ? 'daqui a 12 meses' : `em ${rotuloMes(c.dataAlvo)}`;
+  return `<p class="mt-heroi-legenda mt-poder-compra">Poder de compra: os ${r0(c.alvoBRL)} de hoje valem <b>${r0(minha)}</b> ${quando} pela sua inflação (${pct(inf.minha, 1)} a.a.) e <b>${r0(ipca)}</b> pelo IPCA (${pct(inf.ipca, 1)} a.a.)${reserva ? ': a reserva precisa crescer pelo menos isso pra continuar cobrindo os mesmos meses.' : ', se os preços seguirem como nos últimos 12 meses.'}${infoHtml(EXPLICACOES.poderDeCompra || 'Minha inflação = a das suas despesas essenciais (Organização › Gastos e Despesas), com o peso de cada uma; o IPCA é a inflação oficial. O alvo da meta continua o que você definiu: isto mostra quanto ele precisaria valer pra comprar a mesma coisa.', { rotulo: 'O que é?' })}</p>`;
+}
+
 export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
   const ap = aparenciaMeta(meta);
   const reserva = meta.tipo === 'reservaEmergencia';
@@ -446,6 +464,7 @@ export function heroiHtml(meta, c, { arquivada = false, marcos = [] } = {}) {
     <div class="mt-heroi-numeros">${nums.join('')}</div>
   </div>
   ${c.viagem ? porMesHtml(c) : ''}
+  ${poderDeCompraHtml(meta, c)}
   ${reserva && c.liquido.impostoBRL > 0 ? `<p class="mt-heroi-legenda">${pct(c.percentual)} do saldo ideal no líquido · bruto (antes do IR/IOF) ${pct(c.percentualBruto)}</p>` : ''}
   <p class="mt-heroi-ritmo ${ritmo.tom}">${iconeNum(ritmo.tom === 'bom' ? 'foguete' : 'relogio', 16)}<span>${ritmo.html}</span>${infoHtml(EXPLICACOES.noSeuRitmo, { rotulo: 'Como o ritmo é calculado?' })}</p>
   ${meta.notas ? `<p class="mt-notas">${esc(meta.notas)}</p>` : ''}
@@ -508,6 +527,7 @@ export async function montarPaginaMetas(token, {
   carregarDadosViagemImpl = carregarDadosViagemPadrao, // 04/10/2026: países, cidades e taxas turísticas
   win = doc.defaultView,
   usarCache = true,
+  getInflacaoPessoalImpl = null, // 28/10/2026: minha inflação (padrão: a da API, só na página real)
 } = {}) {
   garantirEstiloMetas(doc);
   const el = {
@@ -2279,5 +2299,15 @@ ${saldosEditorHtml(m)}`;
     if (emCache) { try { desenharResposta(emCache.dados); } catch (erro) { console.error('cache das metas não desenhou', erro); } }
   }
   await mountRefreshControl(doc, el.refresh, carregarERedesenhar).atualizar();
+  // 28/10/2026: minha inflação x IPCA de 12 meses (o "poder de compra" do alvo); não segura a tela
+  const getInf = getInflacaoPessoalImpl || ((token && doc === globalThis.document) ? (() => getInflacaoPessoal(token)) : null);
+  if (getInf) {
+    Promise.resolve().then(() => getInf()).then((r) => {
+      const c = r && r.ok ? calcularMinhaInflacao(r) : null;
+      if (!c) return;
+      definirInflacaoMetas({ minha: c.minha, ipca: c.ipca });
+      try { desenhar(); } catch (e) { /* a tela segue sem a linha */ }
+    }).catch(() => { /* sem a minha inflação */ });
+  }
   return { estado, desenhar, abrirAssistente, irPara, carregarHistorico };
 }

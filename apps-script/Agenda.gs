@@ -110,7 +110,7 @@ var AGENDA_ESPERA_PROXIMA_MIN_ = 1;         // deu certo -> próxima etapa daqui
 var AGENDA_VIGIA_MIN_ = 8;                  // > 6 min do limite do Apps Script
 var AGENDA_PROP_ESTADO_ = 'AGENDA_DIARIA_ESTADO';
 var AGENDA_PROP_ESTADO_ANTERIOR_ = 'AGENDA_DIARIA_ESTADO_ANTERIOR';
-var AGENDA_MAX_LOG_ = 20;
+var AGENDA_MAX_LOG_ = 24; // 28/10/2026: era 20; com a etapa inflacaoPessoal o dia tem mais linhas e a "interrompida" da manhã sumia do log
 // handlers dos gatilhos antigos, substituídos por esta agenda (gatilhoPreAquecerAtivos: 05/10/2026, A-53)
 var AGENDA_GATILHOS_ANTIGOS_ = ['gatilhoDiario', 'gatilhoDiarioRendaFixaEIndices', 'gatilhoDiarioProventosFnet', 'gatilhoDiarioInformesFnet', 'gatilhoPreAquecerAtivos'];
 
@@ -141,6 +141,7 @@ var AGENDA_ETAPAS_ = [
   { id: 'fundamentos', nome: 'Fundamentos', principal: false, depende: [], recuperavel: false }, // 03/10/2026 (Fundamentos.gs)
   { id: 'portfolioFii', nome: 'Portfólio dos FIIs', principal: false, depende: ['informesFnet'], recuperavel: false }, // 05/10/2026 (PortfolioFii.gs): lê os fatos relevantes dos informes
   { id: 'preAquecer', nome: 'Pré-aquecimento das telas de ativo', principal: false, depende: ['ativos'], recuperavel: false }, // 05/10/2026 (A-53, Ativo.gs)
+  { id: 'inflacaoPessoal', nome: 'Minha inflação (IPCA por item, TR, juro em dólar)', principal: false, depende: [], recuperavel: false }, // 28/10/2026 (InflacaoPessoal.gs)
   // 06/10/2026 (A-56, MODO SOMBRA): snapshot diário de PREÇO em aux_snapshot-precos (SnapshotPrecos.gs), sem mexer na série atual.
   // `depoisDe`: não roda antes dessa hora (SP) - a agenda espera (one-shot às 18:30) pra pegar o preço de fechamento. Última da fila.
   { id: 'snapshotPrecos', nome: 'Snapshot de preços (sombra, A-56)', principal: false, depende: ['ativos'], recuperavel: false, depoisDe: '18:30' }
@@ -432,6 +433,11 @@ function agendaRodarJob_(id, est) {
         ((pa.falhas && pa.falhas.length) ? ', ' + pa.falhas.length + ' falha(s): ' + pa.falhas.slice(0, 3).join('; ') : '') +
         (extra ? ' | ' + extra.detalhe : '')
     };
+  }
+  if (id === 'inflacaoPessoal') {
+    // 28/10/2026: IPCA por subitem (IBGE), TR (BCB) e juro em dólar (FRED). "Atenção" (uma fonte fora) não repete: amanhã tem de novo.
+    var ip = atualizarInflacaoPessoal_('Automático'); // InflacaoPessoal.gs
+    return { ok: ip.status !== 'Erro', detalhe: ip.status + ' — ' + ip.detalhe };
   }
   if (id === 'snapshotPrecos') {
     // 06/10/2026 (A-56, modo sombra): grava o preço do dia (1 getValues + 1 setValues). Só escreve em aux_snapshot-precos.

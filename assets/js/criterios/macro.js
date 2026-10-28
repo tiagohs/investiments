@@ -95,6 +95,21 @@ export function analisarNtnb(tesouro, hoje) {
   return { longa, curta, nivel: longa.taxa >= L.ntnbAlta ? 'alto' : (longa.taxa <= L.ntnbBaixa ? 'baixo' : 'medio') };
 }
 
+/**
+ * 28/10/2026 (curva de juros longa, live da Suno: "a trajetória de juros de daqui a anos conta uma história muito melhor do que
+ * os juros de hoje"): o Tesouro Prefixado mais longo à venda (sem cupom) - a taxa nominal travada até lá. null sem título.
+ * { nome, vencimento, taxa (fração), anos }
+ */
+export function analisarPrefixado(tesouro, hoje) {
+  const ref = String(hoje || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  const anos = (v) => (Date.parse(`${String(v).slice(0, 10)}T12:00:00Z`) - Date.parse(`${ref}T12:00:00Z`)) / (365.25 * 86400000);
+  const lista = (tesouro || [])
+    .filter((t) => t && /prefixado/i.test(String(t.tipo || t.nome || '')) && !/juros semestrais/i.test(String(t.tipo || t.nome || '')) && num(t.taxa) > 0 && Number.isFinite(anos(t.vencimento)) && anos(t.vencimento) > 0)
+    .map((t) => ({ nome: t.nome || t.tipo, vencimento: String(t.vencimento).slice(0, 10), taxa: t.taxa / 100, anos: anos(t.vencimento) }));
+  if (!lista.length) return null;
+  return lista.reduce((a, b) => (b.anos > a.anos ? b : a));
+}
+
 // ---------------------------------------------------------------------------
 // Termômetro da bolsa (carteira do Tiago x a média histórica dela mesma)
 // ---------------------------------------------------------------------------
@@ -172,12 +187,14 @@ export function montarMacro(resposta, { tesouroExtra = null, hoje = '' } = {}) {
   const r = resposta && resposta.macro ? resposta.macro : resposta;
   const dia = hoje || (r && r.hoje) || '';
   const juros = r && r.juros ? analisarJuros(r.juros) : null;
-  const ntnb = analisarNtnb(r && r.tesouro && r.tesouro.length ? r.tesouro : tesouroExtra, dia);
+  const listaTesouro = r && r.tesouro && r.tesouro.length ? r.tesouro : tesouroExtra;
+  const ntnb = analisarNtnb(listaTesouro, dia);
+  const prefixado = analisarPrefixado(listaTesouro, dia); // 28/10/2026: curva longa
   const carteira = (r && r.carteira) || [];
   const bolsa = {};
   ['acoes', 'fiis', 'acoesEua'].forEach((c) => { const t = termometroBolsa(carteira, c, dia); if (t) bolsa[c] = t; });
   if (!juros && !ntnb && !Object.keys(bolsa).length) return null;
-  return { hoje: dia, juros, ntnb, bolsa, avisos: (r && r.avisos) || [] };
+  return { hoje: dia, juros, ntnb, prefixado, bolsa, avisos: (r && r.avisos) || [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +294,12 @@ export function resumoMacro(macro) {
   const j = macro.juros;
   if (j) {
     out.push({ id: 'juro-real', rotulo: 'Juro real', valor: `${formatPct(j.real)} a.a.`, tom: j.nivel === 'baixo' ? 'bom' : (j.nivel === 'medio' ? 'neutro' : 'atencao'), ajuda: `${AJUDA_JUROS} Selic ${formatPct(j.selic, 2)}${j.ipcaEsperado != null ? `, IPCA esperado ${formatPct(j.ipcaEsperado, 2)}` : ''}.` });
+  }
+  // 28/10/2026: curva longa - o prefixado mais longo (o juro nominal que o mercado trava por anos) contra a Selic de hoje
+  if (macro.prefixado) {
+    const pf = macro.prefixado; const selic = j && j.selic;
+    const acima = num(selic) ? pf.taxa - selic : null;
+    out.push({ id: 'prefixado', rotulo: 'Juro longo (prefixado)', valor: `${formatPct(pf.taxa, 2)} a.a.`, tom: acima != null && acima > 0.005 ? 'atencao' : 'neutro', ajuda: `${pf.nome}: taxa de compra de hoje, travada por ~${Math.round(pf.anos)} anos.${acima != null ? ` ${acima >= 0 ? 'Acima' : 'Abaixo'} da Selic de hoje (${formatPct(selic, 2)}) em ${formatPct(Math.abs(acima), 2)}: ${acima > 0.005 ? 'o mercado espera juros altos por mais tempo (risco fiscal ou inflação).' : 'o mercado espera juros caindo.'}` : ''}` });
   }
   if (macro.ntnb) out.push({ id: 'ntnb', rotulo: 'NTN-B longa', valor: `IPCA + ${formatPct(macro.ntnb.longa.taxa)}`, tom: macro.ntnb.nivel === 'alto' ? 'bom' : (macro.ntnb.nivel === 'baixo' ? 'atencao' : 'neutro'), ajuda: `${macro.ntnb.longa.nome}: taxa de compra de hoje. Régua: 7% ou mais é alto, 5% ou menos é baixo.` });
   const nomes = { acoes: 'Bolsa BR', fiis: 'FIIs', acoesEua: 'Bolsa EUA' };
