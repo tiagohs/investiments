@@ -8,7 +8,7 @@ import { JSDOM } from 'jsdom';
 import {
   sugerirIndice, calcularMinhaInflacao, mesesAte, composto, taxaDoMes, ganhoReal, retornoMinimo, dolarEquilibrio, corrigir,
 } from '../assets/js/inflacao-pessoal.js';
-import { montarMinhaInflacao, linhasRendeDeVerdade } from '../assets/js/pages/organizacao-inflacao.js';
+import { montarMinhaInflacao, linhasRendeDeVerdade, vereditoInflacao } from '../assets/js/pages/organizacao-inflacao.js';
 
 const perto = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const MESES = mesesAte('2026-09', 14);
@@ -118,6 +118,7 @@ test('tela: KPIs minha × IPCA, tabela por despesa e trocar o índice + salvar g
   assert.match(el.textContent, /Minha inflação \(12 meses\)/);
   assert.match(el.textContent, /IPCA oficial \(12 meses\)/);
   assert.match(el.textContent, /precisa de R\$/);
+  assert.ok(el.querySelector('.og-inf-veredito'), 'o veredito aparece logo abaixo dos KPIs');
   const sel = el.querySelector('select[data-indice="Luz"]');
   sel.value = 'ipca';
   sel.dispatchEvent(new doc.defaultView.Event('change', { bubbles: true }));
@@ -127,6 +128,32 @@ test('tela: KPIs minha × IPCA, tabela por despesa e trocar o índice + salvar g
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(salvos[0].Luz, 'ipca');
   assert.equal(salvos[0]['Parcela do Apartamento'], 'tr', 'o sugerido vira escolha');
+});
+
+test('veredito (28/10/2026): bem abaixo do IPCA, no ritmo ou acima; atenção quando o que acompanha preços passa do IPCA', () => {
+  const base = { minha: 0.0401, ipca: 0.0458, impactoMensal: 200, impactoIpca: 230, grupos: { fixo: 0.096, tr: 0.47, precos: 0.434 }, semParcelas: 0.072,
+    porItem: [
+      { nome: 'Plano de saúde', indice: 'planoSaude', mensal: 800, variacao: 0.12 },
+      { nome: 'Mercado', indice: 'alimentacaoCasa', mensal: 1500, variacao: 0.06 },
+      { nome: 'Luz', indice: 'energia', mensal: 200, variacao: 0.02 },
+      { nome: 'Parcela do Apartamento', indice: 'tr', mensal: 3000, variacao: 0.02 },
+    ] };
+  const v = vereditoInflacao(base, { linhas: [{ id: 'cdi', realMinha: 0.08 }] });
+  assert.equal(v.tom, 'bom');
+  assert.match(v.titulo, /Você está bem/);
+  assert.match(v.titulo, /0,6 p\.p\. abaixo do IPCA/);
+  assert.match(v.texto, /R\$\s?30,00 a menos/);
+  assert.match(v.texto, /47% na TR e 10% fixo em reais/);
+  assert.match(v.atencao, /7,2%/);
+  assert.match(v.atencao, /Plano de saúde \+12,0%, Mercado \+6,0%/, 'os que mais puxaram, por R$ acima do IPCA; Luz (abaixo) e a TR ficam de fora');
+  assert.match(v.atencao, /Quando as parcelas acabarem/);
+  assert.match(v.texto, /CDI \(líquido\) o dinheiro rende 8,0% acima/);
+  assert.equal(vereditoInflacao({ ...base, minha: 0.046 }).tom, 'neutro');
+  const ruim = vereditoInflacao({ ...base, minha: 0.06, grupos: { fixo: 0, tr: 0, precos: 1 }, semParcelas: 0.06 });
+  assert.equal(ruim.tom, 'ruim');
+  assert.match(ruim.titulo, /Atenção: .* acima do IPCA/);
+  assert.doesNotMatch(ruim.atencao, /parcelas acabarem/, 'sem parcelas, não promete mudança');
+  assert.equal(vereditoInflacao(null), null);
 });
 
 // ---- Apps Script ----

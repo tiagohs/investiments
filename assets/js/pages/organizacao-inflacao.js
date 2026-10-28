@@ -7,7 +7,7 @@
  * Conta em ../inflacao-pessoal.js. O índice escolhido por despesa grava na aba aux_inflacao-cesta (InflacaoPessoal.gs).
  */
 import { calcularMinhaInflacao, ganhoReal, corrigir, porMes, retornoMinimo } from '../inflacao-pessoal.js';
-import { formatBRL, formatPct, formatPctSinal } from '../format.js';
+import { formatBRL, formatPct, formatPctSinal, formatPctAbs } from '../format.js';
 import { esc } from '../util/html.js';
 import { kpiHtml, chipHtml } from './organizacao-ui.js';
 import { criarGraficoLinha, criarBarraComposicao } from '../charts/index.js';
@@ -39,6 +39,50 @@ export function linhasRendeDeVerdade(macro, { minha, ipca, tr = 0, prefixado = n
     ...l, liquido: l.rendimento * (1 - l.ir),
     realIpca: ganhoReal(l.rendimento, ipca, l.ir), realMinha: ganhoReal(l.rendimento, minha, l.ir),
   }));
+}
+
+/**
+ * 28/10/2026 (Tiago: "senti falta de uma área me dizendo se estou bem ou não, abaixo desses heroes"): o veredito em palavras,
+ * no mesmo espírito do "Sem contar o dinheiro novo..." da Início. `r` = calcularMinhaInflacao; `linhas` = linhasRendeDeVerdade.
+ * tom: bom (abaixo do IPCA), neutro (no ritmo, ±0,25 p.p.) ou ruim (acima). A "atenção" sai à parte: o que acompanha os preços
+ * subindo acima do IPCA (o número de quando as parcelas acabarem) e quem mais puxou.
+ */
+export function vereditoInflacao(r, { linhas = [] } = {}) {
+  if (!r || !num(r.minha) || !num(r.ipca)) return null;
+  const dif = r.minha - r.ipca;
+  const LIMIAR = 0.0025;
+  const tom = dif <= -LIMIAR ? 'bom' : (dif < LIMIAR ? 'neutro' : 'ruim');
+  const ppAbs = `${Math.abs(dif * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} p.p.`;
+  const titulo = tom === 'bom' ? `Você está bem: a sua inflação (${formatPct(r.minha, 1)}) ficou ${ppAbs} abaixo do IPCA (${formatPct(r.ipca, 1)}).`
+    : tom === 'neutro' ? `A sua inflação (${formatPct(r.minha, 1)}) está no ritmo do IPCA (${formatPct(r.ipca, 1)}).`
+      : `Atenção: a sua inflação (${formatPct(r.minha, 1)}) está ${ppAbs} acima do IPCA (${formatPct(r.ipca, 1)}).`;
+  const frases = [];
+  if (num(r.impactoMensal) && num(r.impactoIpca)) {
+    const gap = r.impactoIpca - r.impactoMensal;
+    frases.push(Math.abs(gap) < 1 ? `O seu custo de vida subiu ${formatBRL(r.impactoMensal)} por mês, o mesmo que pelo IPCA.`
+      : `O seu custo de vida subiu ${formatBRL(r.impactoMensal)} por mês: ${formatBRL(Math.abs(gap))} ${gap > 0 ? 'a menos' : 'a mais'} do que se acompanhasse o IPCA.`);
+  }
+  const g = r.grupos || {};
+  const segura = (g.tr || 0) + (g.fixo || 0);
+  if (segura >= 0.2) frases.push(`Quem segura a sua média: ${[g.tr > 0.0005 ? `${formatPct(g.tr, 0)} na TR` : '', g.fixo > 0.0005 ? `${formatPct(g.fixo, 0)} fixo em reais` : ''].filter(Boolean).join(' e ')}.`);
+  let atencao = null;
+  if (num(r.semParcelas) && r.semParcelas - r.ipca >= LIMIAR) {
+    const puxam = (r.porItem || []).filter((p) => p.indice !== 'fixo' && p.indice !== 'tr' && p.variacao - r.ipca >= LIMIAR)
+      .map((p) => ({ ...p, excesso: p.mensal * (p.variacao - r.ipca) })).sort((a, b) => b.excesso - a.excesso).slice(0, 2);
+    atencao = `O que acompanha os preços subiu ${formatPct(r.semParcelas, 1)}, acima do IPCA${puxam.length ? ` (quem mais puxou: ${puxam.map((p) => `${p.nome} ${formatPctSinal(p.variacao, 1)}`).join(', ')})` : ''}. ${segura >= 0.2 ? 'Quando as parcelas acabarem, é perto disso que a sua inflação vai ficar.' : ''}`.trim();
+  }
+  const cdi = linhas.find((l) => l.id === 'cdi');
+  if (cdi && num(cdi.realMinha)) frases.push(`No CDI (líquido) o dinheiro rende ${formatPctAbs(cdi.realMinha, 1)} ${cdi.realMinha >= 0 ? 'acima' : 'abaixo'} da sua inflação; parado na conta, perde ${formatPct(r.minha, 1)} de poder de compra por ano.`);
+  return { tom, titulo, frases, atencao, texto: [titulo, ...frases, atencao || ''].join(' ').trim() };
+}
+
+function vereditoHtml(v) {
+  if (!v) return '';
+  return `<div class="og-inf-veredito og-inf-tom-${v.tom}" role="status">
+    <p class="og-inf-veredito-titulo">${esc(v.titulo)}</p>
+    ${v.frases.length ? `<p>${v.frases.map(esc).join(' ')}</p>` : ''}
+    ${v.atencao ? `<p class="og-inf-veredito-atencao"><b>Ponto de atenção:</b> ${esc(v.atencao)}</p>` : ''}
+  </div>`;
 }
 
 function tabelaRendeHtml(linhas, r) {
@@ -118,6 +162,7 @@ export function montarMinhaInflacao(el, { obterDados, obterItens = () => null, s
     const tom = r.minha <= r.ipca ? 'bom' : 'aviso';
     const prefixado = macro && macro.prefixado ? macro.prefixado : null;
     const trAno = dados.series && dados.series.tr ? Object.keys(dados.series.tr).sort().slice(-12).reduce((a, m) => a * (1 + dados.series.tr[m]), 1) - 1 : 0;
+    const linhasRende = linhasRendeDeVerdade(macro, { minha: r.minha, ipca: r.ipca, tr: trAno, prefixado });
     el.innerHTML = `${cab}
       <p class="og-nota">Últimos 12 meses (${esc(mesAno(r.periodo.de))} a ${esc(mesAno(r.periodo.ate))}), com o peso de cada despesa de hoje no seu mês. O IPCA continua sendo a referência oficial; esta é a <b>sua</b> inflação, em paralelo.</p>
       <div class="og-inf-kpis grid-kpi">
@@ -126,6 +171,7 @@ export function montarMinhaInflacao(el, { obterDados, obterItens = () => null, s
         ${kpiHtml({ rotulo: 'Seu custo de vida subiu', valorHtml: `${esc(formatBRL(r.impactoMensal))}<small>/mês</small>`, subHtml: `pelo IPCA seriam ${esc(formatBRL(r.impactoIpca))}/mês` })}
         ${kpiHtml({ rotulo: 'Sem as parcelas (apê e dívidas)', valorHtml: esc(num(r.semParcelas) ? formatPct(r.semParcelas, 2) : '—'), subHtml: 'o que acompanha os preços: a sua inflação quando elas acabarem' })}
       </div>
+      ${vereditoHtml(vereditoInflacao(r, { linhas: linhasRende }))}
       <div class="og-inf-comp" data-out="comp"></div>
       <p class="og-nota">${esc(formatPct(r.grupos.fixo, 0))} do seu gasto é fixo em reais (não sobe com a inflação: fica mais barato a cada ano)${r.grupos.tr > 0.0005 ? `, ${esc(formatPct(r.grupos.tr, 0))} segue a TR (${esc(formatPct(trAno, 2))} em 12 meses)` : ''} e ${esc(formatPct(r.grupos.precos, 0))} acompanha os preços.${metaReserva ? ` A meta da reserva (${esc(formatBRL(metaReserva))}) precisa de <b>${esc(formatBRL(corrigir(metaReserva, r.minha, 12)))}</b> daqui a 12 meses pela sua inflação (${esc(formatBRL(corrigir(metaReserva, r.ipca, 12)))} pelo IPCA).` : ''}</p>
       <div class="og-inf-grafico" data-out="grafico"></div>
@@ -134,7 +180,7 @@ export function montarMinhaInflacao(el, { obterDados, obterItens = () => null, s
         <div class="og-inf-acoes">${salvar ? `<button type="button" class="btn btn-tonal og-btn-sm" data-acao="salvar-indices"${mudouMapa && !salvando ? '' : ' disabled'}>${salvando ? 'Salvando…' : 'Salvar índices'}</button>` : ''}<span class="og-nota">Conta: peso da despesa × inflação de 12 meses do índice dela, somado. "Sugerido" = o site escolheu pelo nome; troque se não for o seu caso.${r.estimada ? ' Item sem série no IBGE usa o IPCA geral.' : ''}</span></div>
       </details>
       <h3 class="og-inf-sub">O que o seu dinheiro rende de verdade</h3>
-      ${tabelaRendeHtml(linhasRendeDeVerdade(macro, { minha: r.minha, ipca: r.ipca, tr: trAno, prefixado }), r)}
+      ${tabelaRendeHtml(linhasRende, r)}
       ${reguaHtml(r, dados.config || {}, !!salvarConfig)}`;
     const compEl = el.querySelector('[data-out="comp"]');
     if (compEl) comp = criarBarraComposicao(compEl, { fatias: [

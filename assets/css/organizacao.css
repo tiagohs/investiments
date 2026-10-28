@@ -447,6 +447,13 @@ a.hint:hover{ color:var(--acoes); }
 .og-inf-cab{ display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; }
 .og-inf-cab h2{ margin:0; font-size:var(--md-sys-typescale-title-medium-size); }
 .og-inf-kpis{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:12px; }
+.og-inf-veredito{ margin-top:12px; padding:12px 16px; border-radius:var(--md-sys-shape-corner-medium, 12px); font-size:var(--md-sys-typescale-body-medium-size); line-height:1.5; display:flex; flex-direction:column; gap:6px; }
+.og-inf-veredito p{ margin:0; }
+.og-inf-veredito-titulo{ font-weight:600; font-size:var(--md-sys-typescale-body-large-size, 1rem); }
+.og-inf-tom-bom{ background:var(--good-soft); color:var(--good-ink); }
+.og-inf-tom-neutro{ background:color-mix(in srgb, var(--ink) 7%, transparent); color:var(--ink); }
+.og-inf-tom-ruim{ background:var(--bad-soft); color:var(--bad-ink); }
+.og-inf-veredito-atencao{ padding-top:6px; border-top:1px solid color-mix(in srgb, currentColor 20%, transparent); }
 .og-inf-kpis .kpi-valor small{ font-size:.55em; color:var(--ink-muted); margin-left:2px; }
 .og-inf-kpi-minha .kpi-valor{ color:var(--md-sys-color-primary); }
 .og-inf-grafico{ min-height:170px; }
