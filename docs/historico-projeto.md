@@ -644,3 +644,11 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - **Bug**: depois de qualquer gravação o site deixava de usar o Worker. A geração publicada era o carimbo da última gravação, sempre anterior ao `_agora` que o site passa a exigir. E as telas iguais não eram reenviadas, então continuavam com a geração antiga. Correções: a geração agora é o instante em que a montagem começa; as telas iguais **confirmam** a geração nova (`confirmar: [{chave, hash}]` no lote; o Worker só atualiza quando o hash é o mesmo e a geração é mais nova). Testes: publicacao-leitura (depois de gravar, todas as telas são aceitas) e worker-leitura (confirmação).
 - Transações, o carrinho (`aportesPendentes`) e os gastos (janela padrão) passam a ser publicados e lidos do Worker (18 telas). A ordem de envio começa por Início, Transações, carrinho, despesas e gastos.
 - Organização › "Atualizar dados" espera só a aba aberta. As listas do Drive (faturas ~9 s, holerites ~4 s) e as outras abas atualizam em segundo plano. Teste em organizacao-abas.
+
+### 29/10/2026 (F0 - emagrecer a planilha, ADR-08)
+
+- `apps-script/EmagrecerPlanilha.gs`: `simularEmagrecerPlanilhaDireto()` mostra o que sairia, sem mexer em nada; `emagrecerPlanilhaDireto()` faz uma cópia de segurança no Drive e executa.
+  - Abas de lançamentos (Transações, USA, RF, Proventos, Proventos - USA): as fórmulas ficam nas linhas com dado + uma margem de 300 linhas. Abaixo disso, só o conteúdo das colunas de fórmula é apagado (nenhuma linha é removida, então as referências das outras abas não mudam). Coluna com valor digitado abaixo da última linha não é tocada.
+  - Abas `aux_tests*`: fica só o cabeçalho.
+- As gravações (Lancamentos.gs, ImportB3.gs) completam as fórmulas de uma linha nova que passe da margem (`garantirFormulasLanc_`). Rodar de novo repõe a margem.
+- Testes: `tests/harness/emagrecer-planilha.test.js`.

@@ -143,6 +143,8 @@ function importarTransacoesB3Interno_(params, opcoes) {
       Number(t.taxa || 0)
     ]]);
 
+    // 29/10/2026: linha além da margem de fórmulas (EmagrecerPlanilha.gs) ganha as fórmulas da linha de cima
+    if (typeof garantirFormulasLanc_ === 'function' && typeof LANC_ABAS !== 'undefined') garantirFormulasLanc_(abaTransacoes, LANC_ABAS.transacoes, linha, linha);
     resultado.gravadas.push(t.ticker);
   });
 

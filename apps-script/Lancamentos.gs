@@ -500,6 +500,8 @@ function importarLancamentos_(itens, opcoes) {
       if (!lista.length) return;
       if (inicio + lista.length - 1 > info.aba.getMaxRows()) info.aba.insertRowsAfter(info.aba.getMaxRows(), lista.length + 10);
       info.aba.getRange(inicio, 1, lista.length, cfg.cols).setValues(linhasGravar);
+      // 29/10/2026: linha além da margem de fórmulas (EmagrecerPlanilha.gs) ganha as fórmulas da linha de cima
+      if (typeof garantirFormulasLanc_ === 'function') garantirFormulasLanc_(info.aba, cfg, inicio, inicio + lista.length - 1);
       var ultimaData = info.itens.reduce(function (m, x) { return x.data > m ? x.data : m; }, '');
       if (ordenar && ultimaData && lista[0].data < ultimaData) {
         info.aba.getRange(cfg.linha, 1, inicio + lista.length - cfg.linha, cfg.cols).sort({ column: 2, ascending: true });
