@@ -12,7 +12,7 @@
  */
 
 import { APPS_SCRIPT_URL, LEITURA_URL } from './config.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, IDADE_MAXIMA_COTACAO_MS, talvezNoPregao } from './leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, IDADE_MAXIMA_COTACAO_MS, IDADE_MAXIMA_LEITURA_MS, talvezNoPregao } from './leitura-chave.js';
 import { clearToken } from './auth.js';
 // 08/10/2026: cache-dados.js e desempenho.js carregam sob demanda (import dinâmico) - não pesam no 1º carregamento das telas
 let cacheDadosMod = null;
@@ -181,6 +181,7 @@ async function lerDoWorker(action, params, token, chave, guardada, inicio) {
     const res = await fetch(`${LEITURA_URL}/v1/tela/${k}`, { method: 'GET', headers, ...(ctrl ? { signal: ctrl.signal } : {}) });
     const geracao = res.headers && typeof res.headers.get === 'function' ? res.headers.get('X-Geracao') : null;
     if (instanteDaGeracao(geracao) < lerGeracaoMinima(action)) return null; // anterior à última gravação deste aparelho (que mexe nesta tela)
+    if (IDADE_MAXIMA_LEITURA_MS[action] && Date.now() - instanteDaGeracao(geracao) > IDADE_MAXIMA_LEITURA_MS[action]) return null; // cópia velha demais pra esta tela
     const remendar = (j) => (action === 'home' ? remendoFavoritos(j, geracao) : j);
     if (res.status === 200 || (res.status === 304 && guardada)) registrarCotacaoLida(action, instanteDaGeracao(geracao), token);
     if (res.status === 304 && guardada) {

@@ -676,3 +676,12 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - Tela de cotação lida do Worker com mais de 5 min no pregão: aparece na hora, o site pede a publicação das cotações e a tela se atualiza sozinha quando ela chega (evento `investiments:leitura-atualizada`). O Apps Script só publica no pregão e se a última montagem de cotação tiver mais de 5 min (`cotacaoPrecisaPublicar_`). Por ser execução do Web App, não gasta a cota de gatilhos, e o gatilho do pregão continua em 30 min.
 - "Atualizar dados" mostra "Cotações de HH:MM" quando o preço na tela tem mais de 2 min.
 - Testes: leitura-cliente (pede, avisa, 1 pedido por 3 min, nada fora do pregão ou com cotação nova), cotacao-tela (rótulo e atualização sozinha) e publicacao-leitura (regra do Apps Script, `LEITURA_COTACAO_EM`, lista de telas com cotação igual nos dois lados).
+
+### 29/10/2026 (F5 - saúde da leitura; Registro de Controle pelo Worker; diagnóstico de fórmulas)
+
+- O Registro de Controle do topo de toda tela (`syncHistorico` com limite 1 e 20, `syncStatus`) é publicado junto de cada publicação de cotação. O site só aceita a cópia com até 10 min (`IDADE_MAXIMA_LEITURA_MS`); mais velha, vai ao Apps Script. Não pede cotação nem mexe no rótulo "Cotações de HH:MM" (`preco: false`).
+- Popover do Registro de Controle:
+  - "Leitura rápida (Cloudflare)" (`leitura-saude.js`, lido do `GET /v1/estado` só ao abrir): de quando é cada tela guardada, em vermelho o que passou do esperado (cotação com mais de 35 min no pregão; qualquer tela com mais de 26 h), e as telas dos ativos agrupadas.
+  - "Desempenho neste aparelho" ganhou a coluna "Cloudflare" (% das leituras que vieram prontas).
+- `diagnosticarFormulasPlanilhaDireto()` (EmagrecerPlanilha.gs, só leitura): fórmulas por aba, funções que recalculam sozinhas e fórmulas abaixo do último valor digitado. Serve para decidir o próximo emagrecimento (ex.: DB-Stocks).
+- Teste de arquitetura de formatação (que não estava no pre-commit das últimas mudanças) pegou `toLocaleString('pt-BR')` e uma lista de meses própria em `inflacao-pessoal.js` e `organizacao-inflacao.js`. Agora usam `formatNumeroPt` e `MESES_CURTOS` de format.js, com o mesmo texto na tela.

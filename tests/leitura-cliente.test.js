@@ -4,7 +4,7 @@
 //  - depois de gravar: guarda o instante (_agora do Apps Script) e pede a republicação em segundo plano.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHome, getAtivo, instanteDasCotacoes, reiniciarInstanteCotacoes, EVENTO_LEITURA_ATUALIZADA, getIntradia, INTRADIA_MAX_POR_PEDIDO, INTRADIA_WORKER_MAX, salvarFavoritos, salvarRegraGastos, getGastos, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
+import { ping, getSyncHistorico, getHome, getAtivo, instanteDasCotacoes, reiniciarInstanteCotacoes, EVENTO_LEITURA_ATUALIZADA, getIntradia, INTRADIA_MAX_POR_PEDIDO, INTRADIA_WORKER_MAX, salvarFavoritos, salvarRegraGastos, getGastos, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL, APPS_SCRIPT_URL } from '../assets/js/config.js';
 
@@ -66,12 +66,12 @@ test('Worker com 404, 500, rede fora ou mais de 1,5 s: a tela vem do Apps Script
   }
 });
 
-test('sem sessão s1 (token do Google) ou tela não publicada (syncStatus): direto no Apps Script', async (t) => {
+test('sem sessão s1 (token do Google) ou tela não publicada (ping): direto no Apps Script', async (t) => {
   limpar();
   const urls = [];
   t.mock.method(globalThis, 'fetch', async (url) => { urls.push(String(url)); return resposta(200, { ok: true, _etag: 'E' }); });
   await getHome('eyJhbGciOi.google.token');
-  await getSyncStatus(S1);
+  await ping(S1);
   assert.ok(urls.every((u) => u.startsWith(APPS_SCRIPT_URL)), urls.join(' | '));
 });
 
@@ -296,4 +296,20 @@ test('29/10/2026 (cotação de agora ao entrar): tela de cotação do Worker com
   reiniciarInstanteCotacoes();
   await getGastos(S1);
   assert.equal(instanteDasCotacoes(), null);
+});
+
+test('29/10/2026: Registro de Controle do topo vem do Worker só com cópia de até 10 min; mais velha vai ao Apps Script', async (t) => {
+  limpar();
+  let idadeMin = 3;
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(String(url));
+    if (String(url).startsWith(LEITURA_URL)) return resposta(200, { ok: true, v: 'worker', resultado: [] }, { ETag: `"S${idadeMin}"`, 'X-Geracao': `20261029a.${Date.now() - idadeMin * 60000}pub` });
+    return resposta(200, { ok: true, v: 'apps-script', resultado: [], _etag: 'E' });
+  });
+  assert.equal((await getSyncHistorico(S1, 1)).v, 'worker');
+  assert.ok(urls[0].startsWith(`${LEITURA_URL}/v1/tela/syncHistorico?limite=1`), urls[0]);
+  esquecerRespostasGuardadas(); usarMemoriaNoCacheDados(new Map());
+  idadeMin = 15;
+  assert.equal((await getSyncHistorico(S1)).v, 'apps-script', '15 min: velha demais pro status da sincronização');
 });

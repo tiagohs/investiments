@@ -28,7 +28,9 @@ export function instanteDaGeracao(geracao) {
  */
 export const ACOES_PUBLICADAS = Object.freeze(['home', 'transacoes', 'aportesPendentes', 'despesas', 'gastos', 'distribuicoesMetas',
   'carteirasHome', 'carteirasAcoes', 'carteirasFiis', 'carteirasAcoesEua', 'carteirasRendaFixa', 'metas', 'patrimonio', 'macro',
-  'proventos', 'inflacaoPessoal', 'salario', 'metasHistorico']);
+  'proventos', 'inflacaoPessoal', 'salario', 'metasHistorico', 'syncHistorico', 'syncStatus']);
+/** 29/10/2026: telas que só valem do Worker se a cópia for recente (o Registro de Controle muda a cada sincronização). */
+export const IDADE_MAXIMA_LEITURA_MS = Object.freeze({ syncHistorico: 10 * 60 * 1000, syncStatus: 10 * 60 * 1000 });
 // 29/10/2026 (Tiago: "Transações e Organização ainda lentas no Atualizar"): agora TODAS as telas publicadas são lidas do
 // Worker - inclusive Transações, o carrinho e os gastos. Depois de uma gravação, a geração mínima (api-client.js) recusa a
 // cópia anterior à gravação e a leitura cai no Apps Script até a nova publicação chegar.

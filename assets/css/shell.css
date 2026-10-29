@@ -637,3 +637,8 @@ a.carrinho-ir, button.carrinho-ir{ display:flex; width:100%; justify-content:cen
 .desempenho-tabela th[scope="row"], .desempenho-tabela thead th:first-child{ text-align:left; white-space:normal; }
 .desempenho-tabela th[scope="row"] small{ display:block; font-weight:400; color:var(--text-muted, inherit); opacity:.8; }
 .desempenho-tabela thead th{ font-weight:600; font-size:.75rem; }
+
+/* 29/10/2026 (F5): saúde da leitura rápida (leitura-saude.js) */
+.leitura-saude-tabela tr.atencao th, .leitura-saude-tabela tr.atencao td{ color:var(--bad); font-weight:600; }
+.leitura-saude-aviso{ margin:6px 0; font-size:.8rem; color:var(--bad); }
+.leitura-saude-ok{ margin:6px 0; font-size:.8rem; color:var(--good); }

@@ -51,12 +51,18 @@ function familiasLeitura_() {
     { acao: 'proventos', fn: handleProventos, cotacao: false },
     { acao: 'inflacaoPessoal', fn: handleInflacaoPessoal, cotacao: false },
     { acao: 'salario', fn: handleSalario, cotacao: false },
-    { acao: 'metasHistorico', fn: handleMetasHistorico, cotacao: false }
+    { acao: 'metasHistorico', fn: handleMetasHistorico, cotacao: false },
+    // 29/10/2026: o Registro de Controle do topo de TODA tela (3-4 s no Apps Script). Vai junto de cada publicação de
+    // cotação (`cotacao: true`, mas `preco: false` - não é preço: não pede cotação nova nem muda o "Cotações de HH:MM"); o
+    // site só aceita a cópia com até 10 min (leitura-chave.js!IDADE_MAXIMA_LEITURA_MS) - mais velha, vai ao Apps Script.
+    { acao: 'syncHistorico', params: { limite: '1' }, fn: handleSyncHistorico, cotacao: true, preco: false },
+    { acao: 'syncHistorico', params: { limite: '20' }, fn: handleSyncHistorico, cotacao: true, preco: false },
+    { acao: 'syncStatus', fn: handleSyncStatus, cotacao: true, preco: false }
   ];
 }
 
 /** Ações GET que ficam SÓ no Apps Script (dependem de fonte externa na hora, do Drive, ou de parâmetro livre). */
-var LEITURA_SO_APPS_SCRIPT_ = ['ping', 'syncStatus', 'syncHistorico', 'historico_inicio', 'meusAtivos', 'historicoAtivo', 'irRendaFixa',
+var LEITURA_SO_APPS_SCRIPT_ = ['ping', 'historico_inicio', 'meusAtivos', 'historicoAtivo', 'irRendaFixa',
   'noticiasAtivo', 'tesesAtivo', 'fundamentos', 'fiiPortfolio', 'videos', 'infoNovoAtivo', 'patrimonioIrArquivos',
   'patrimonioIrArquivo', 'holeritesArquivos', 'holeriteArquivo', 'gastosArquivos', 'gastosArquivo', 'intradia',
   'consolidacao', 'capacidade'];
@@ -225,7 +231,7 @@ function publicarLeituraSemTrava_(opcoes) {
       } catch (eF) {
         erros.push({ acao: f.acao, erro: String(eF) });
       } finally {
-        tempos[f.acao] = Date.now() - t0;
+        tempos[chaveLeitura_(f.acao, f.params)] = Date.now() - t0;
       }
     });
     if (confirmar.length) enviar([]);
@@ -267,7 +273,7 @@ function publicarLeituraSemTrava_(opcoes) {
       ms: Date.now() - inicio, tempos: tempos, origem: o.origem || 'Manual', em: new Date().toISOString() };
     props.setProperty(LEITURA_PROP_ULTIMA_, JSON.stringify(resumo).slice(0, 8000));
     // 29/10/2026: todas as telas de cotação foram (re)confirmadas com esta geração
-    var todasCotacao = familiasLeitura_().filter(function (f) { return f.cotacao; }).every(function (f) { return escolhidas.some(function (e) { return e.acao === f.acao; }); });
+    var todasCotacao = familiasLeitura_().filter(function (f) { return f.cotacao && f.preco !== false; }).every(function (f) { return escolhidas.some(function (e) { return e.acao === f.acao; }); });
     if (todasCotacao && !erros.length) props.setProperty(LEITURA_PROP_COTACAO_EM_, String(instanteDaGeracaoLeitura_(geracao)));
     if (erros.length && typeof gravarRegistroControle_ === 'function') {
       try { gravarRegistroControle_('Atenção', o.origem || 'Manual', 'Publicação da leitura (Cloudflare): ' + erros.length + ' tela(s) com erro - ' + erros.slice(0, 3).map(function (x) { return x.acao + ': ' + x.erro; }).join(' | ')); } catch (eR) { /* ok */ }

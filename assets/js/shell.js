@@ -758,6 +758,9 @@ export function setupSyncPopoverSobDemanda(doc, { token, carregarStatusSyncImpl 
     // 08/10/2026 (Etapa 0): tabela "Desempenho neste aparelho" - local, sempre atual ao abrir
     const corpo = doc.getElementById('syncDesempenhoCorpo');
     if (corpo) import('./desempenho.js').then((m) => { corpo.innerHTML = m.htmlDesempenho(m.resumoDesempenho()); }).catch(() => { /* só informativo */ });
+    // 29/10/2026 (F5): de quando é cada tela guardada no Cloudflare - só ao abrir
+    const corpoLeitura = doc.getElementById('syncLeituraCorpo');
+    if (corpoLeitura) import('./leitura-saude.js').then((m) => m.carregarSaudeLeitura(corpoLeitura, token)).catch(() => { /* só informativo */ });
     if (agora() - ultima < 30000) return;
     ultima = agora();
     carregarStatusSyncImpl(doc, { token });

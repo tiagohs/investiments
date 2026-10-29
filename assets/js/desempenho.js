@@ -16,7 +16,12 @@ const NOMES = {
   carteirasAcoesEua: 'Carteiras › EUA', carteirasRendaFixa: 'Carteiras › Renda Fixa', proventos: 'Proventos',
   transacoes: 'Transações', metas: 'Metas', metasHistorico: 'Metas (histórico)', distribuicoesMetas: 'Distribuição',
   patrimonio: 'Patrimônio', salario: 'Salário', despesas: 'Despesas', inflacaoPessoal: 'Minha inflação', gastos: 'Gastos', syncStatus: 'Registro de Controle',
+  syncHistorico: 'Registro de Controle', ativoBase: 'Detalhe do ativo (base)', intradia: 'Gráfico do dia', aportesPendentes: 'Carrinho de aportes',
+  macro: 'Contexto de mercado', noticiasAtivo: 'Notícias do ativo', tesesAtivo: 'Tese do ativo', gastosArquivos: 'Faturas no Drive',
+  holeritesArquivos: 'Holerites no Drive', videos: 'Vídeos', fiiPortfolio: 'Patrimônio do FII',
 };
+/** Nome de gente de uma ação da API (29/10/2026: também usado pela saúde da leitura, leitura-saude.js). */
+export const nomeDaAcao = (acao) => NOMES[acao] || acao;
 
 function ler(armazenamento) {
   try { const t = armazenamento && armazenamento.getItem(CHAVE); return t ? JSON.parse(t) || {} : {}; } catch (e) { return {}; }
@@ -57,6 +62,7 @@ export function resumoDesempenho({ armazenamento = armazenamentoPadrao() } = {})
       acao, nome: NOMES[acao] || acao, n: l.length,
       mediana: quantil(tempos, 0.5), p95: quantil(tempos, 0.95), medianaServidor: quantil(serv, 0.5),
       pctNaoMudou: l.length ? Math.round((l.filter((x) => x.nm).length / l.length) * 100) : 0,
+      pctCf: l.length ? Math.round((l.filter((x) => x.f === 'cf').length / l.length) * 100) : 0, // 29/10/2026: vezes que veio do Worker
       kb: bytes.length ? Math.round(quantil(bytes, 0.5) / 1024) : null,
     };
   }).filter((r) => r.n > 0).sort((a, b) => (b.mediana || 0) - (a.mediana || 0));
@@ -73,7 +79,7 @@ export function htmlDesempenho(linhas) {
   if (!linhas.length) return '<p class="hint">Ainda sem medidas neste aparelho - navegue pelo site e volte aqui.</p>';
   return `
     <table class="desempenho-tabela">
-      <thead><tr><th scope="col">Tela</th><th scope="col" title="Metade das vezes foi mais rápido que isso">Normal</th><th scope="col" title="95% das vezes foi mais rápido que isso">Pior</th><th scope="col" title="Quanto disso foi o Apps Script trabalhando">Servidor</th><th scope="col" title="Vezes em que nada tinha mudado e o servidor não precisou reenviar">Sem mudança</th></tr></thead>
-      <tbody>${linhas.map((r) => `<tr><th scope="row">${esc(r.nome)}<small>${r.n} vez${r.n > 1 ? 'es' : ''}${r.kb != null ? ` · ${r.kb} KB` : ''}</small></th><td>${seg(r.mediana)}</td><td>${seg(r.p95)}</td><td>${seg(r.medianaServidor)}</td><td>${r.pctNaoMudou}%</td></tr>`).join('')}</tbody>
+      <thead><tr><th scope="col">Tela</th><th scope="col" title="Metade das vezes foi mais rápido que isso">Normal</th><th scope="col" title="95% das vezes foi mais rápido que isso">Pior</th><th scope="col" title="Quanto disso foi o Apps Script trabalhando">Servidor</th><th scope="col" title="Vezes em que nada tinha mudado e o servidor não precisou reenviar">Sem mudança</th><th scope="col" title="Vezes em que a resposta veio pronta do Cloudflare, sem esperar o Apps Script">Cloudflare</th></tr></thead>
+      <tbody>${linhas.map((r) => `<tr><th scope="row">${esc(r.nome)}<small>${r.n} vez${r.n > 1 ? 'es' : ''}${r.kb != null ? ` · ${r.kb} KB` : ''}</small></th><td>${seg(r.mediana)}</td><td>${seg(r.p95)}</td><td>${seg(r.medianaServidor)}</td><td>${r.pctNaoMudou}%</td><td>${r.pctCf}%</td></tr>`).join('')}</tbody>
     </table>`;
 }

@@ -10,6 +10,7 @@
  * categoria (sugerirIndice). Pesos = valor por mês de hoje (anual ÷ 12), fixos no período (cesta de hoje).
  * As séries vêm em fração por mês ({ 'aaaa-mm': 0,0082 }). Testes: tests/inflacao-pessoal.test.js.
  */
+import { formatNumeroPt } from './format.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const semAcento = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -215,7 +216,7 @@ export function resumoInflacaoHome(resp) {
     : tom === 'neutro' ? 'O seu custo de vida sobe no ritmo do IPCA.'
       : 'Atenção: o seu custo de vida sobe mais que o IPCA.';
   const g = c.grupos || {};
-  const pct = (v) => `${(v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  const pct = (v) => `${formatNumeroPt(v * 100, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   if (tom === 'bom' && num(c.semParcelas) && c.semParcelas - c.ipca >= 0.0025 && (g.tr || 0) + (g.fixo || 0) >= 0.2) {
     texto += ` Sem as parcelas, seria ${pct(c.semParcelas)}.`;
   }

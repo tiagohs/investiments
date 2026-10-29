@@ -249,3 +249,58 @@ function garantirFormulasLanc_(aba, cfg, primeira, ultima) {
     return 0;
   }
 }
+
+/**
+ * 29/10/2026 (próximo passo do ADR-08: "a DB-Stocks ainda tem ~145 mil fórmulas"): SÓ LÊ. Conta, por aba, as fórmulas,
+ * as funções que recalculam sozinhas (HOJE/AGORA/GOOGLEFINANCE/IMPORT...) e quantas fórmulas estão abaixo da última
+ * linha com valor digitado (candidatas a sair). Rode no editor e mande o log.
+ */
+function diagnosticarFormulasPlanilhaDireto() {
+  var r = diagnosticarFormulasPlanilha_(SpreadsheetApp.getActiveSpreadsheet());
+  Logger.log(textoDiagnosticoFormulas_(r));
+  return r;
+}
+
+var EMAGRECER_VOLATEIS_ = /\b(HOJE|TODAY|AGORA|NOW|GOOGLEFINANCE|IMPORTXML|IMPORTHTML|IMPORTDATA|IMPORTRANGE|IMPORTFEED|ALEATÓRIO|RAND|RANDBETWEEN|ALEATÓRIOENTRE|INDIRETO|INDIRECT|DESLOC|OFFSET)\s*\(/gi;
+
+function diagnosticarFormulasPlanilha_(ss) {
+  var abas = ss.getSheets().map(function (aba) {
+    var maxL = aba.getMaxRows(), maxC = Math.max(aba.getLastColumn(), 1), ultimaL = aba.getLastRow();
+    var r = { aba: aba.getName(), linhas: maxL, colunas: maxC, ultimaLinha: ultimaL, formulas: 0, volateis: {}, ultimaComDigitado: 0, formulasAbaixoDoDigitado: 0 };
+    var porLinha = []; // fórmulas por linha (pra contar as que ficam abaixo da última linha digitada)
+    for (var ini = 1; ini <= ultimaL; ini += EMAGRECER_LINHAS_POR_BLOCO_) {
+      var n = Math.min(EMAGRECER_LINHAS_POR_BLOCO_, ultimaL - ini + 1);
+      var rg = aba.getRange(ini, 1, n, maxC);
+      var fs = rg.getFormulas(), vs = rg.getValues();
+      for (var i = 0; i < n; i++) {
+        var nf = 0, digitado = false;
+        for (var j = 0; j < maxC; j++) {
+          var f = fs[i][j];
+          if (f) {
+            nf++;
+            var m = String(f).match(EMAGRECER_VOLATEIS_);
+            if (m) m.forEach(function (x) { var k = x.replace(/\s*\($/, '').toUpperCase(); r.volateis[k] = (r.volateis[k] || 0) + 1; });
+          } else if (vs[i][j] !== '' && vs[i][j] !== null) digitado = true;
+        }
+        r.formulas += nf;
+        porLinha.push(nf);
+        if (digitado) r.ultimaComDigitado = ini + i;
+      }
+    }
+    for (var k = r.ultimaComDigitado; k < porLinha.length; k++) r.formulasAbaixoDoDigitado += porLinha[k];
+    return r;
+  });
+  abas.sort(function (a, b) { return b.formulas - a.formulas; });
+  var total = abas.reduce(function (s, a) { return s + a.formulas; }, 0);
+  return { total: total, abas: abas };
+}
+
+function textoDiagnosticoFormulas_(r) {
+  var l = ['Fórmulas na planilha: ' + r.total + ' (só leitura - nada foi alterado)'];
+  r.abas.filter(function (a) { return a.formulas > 0; }).forEach(function (a) {
+    var vol = Object.keys(a.volateis).map(function (k) { return k + ' ' + a.volateis[k]; }).join(', ');
+    l.push('- ' + a.aba + ': ' + a.formulas + ' fórmulas; ' + a.linhas + ' linhas (dados até a ' + a.ultimaLinha + ', digitado até a ' + a.ultimaComDigitado + ')' +
+      (a.formulasAbaixoDoDigitado ? '; ' + a.formulasAbaixoDoDigitado + ' abaixo do último digitado' : '') + (vol ? '; recalculam sozinhas: ' + vol : ''));
+  });
+  return l.join('\n');
+}

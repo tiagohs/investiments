@@ -79,21 +79,23 @@ test('PARIDADE: cada tela publicada é idêntica à resposta do doGet (sem _etag
   assert.equal(r.configurado, true);
   assert.deepEqual(r.erros, [], 'nenhuma tela com erro');
   assert.ok(respostas.every((x) => x.ok && x.recusadas.length === 0), JSON.stringify(respostas));
-  const familias = plain(sb.familiasLeitura_().map((f) => f.acao));
+  const familias = plain(sb.familiasLeitura_().map((f) => ({ acao: f.acao, params: f.params || {} })));
   assert.equal(r.publicadas, familias.length);
   assert.match(enviados[0].op.headers['X-Assinatura'], /^[\w-]{43}$/);
-  for (const acao of familias) {
+  for (const { acao, params } of familias) {
     // a resposta do doGet de hoje, como o site recebe (sem os carimbos da requisição)
     sb.iniciarExecucao_();
-    sb.iniciarRequisicao_({ parameter: {} }, 'GET');
-    const doGet = JSON.parse(sb[`handle${acao.charAt(0).toUpperCase()}${acao.slice(1)}`]
-      ? sb[`handle${acao.charAt(0).toUpperCase()}${acao.slice(1)}`]({ parameter: {} }, { ok: true, email: 'a@b.test' }).getContent()
-      : sb.familiasLeitura_().find((f) => f.acao === acao).fn({ parameter: {} }, { ok: true }).getContent());
+    sb.iniciarRequisicao_({ parameter: params }, 'GET');
+    const nome = `handle${acao.charAt(0).toUpperCase()}${acao.slice(1)}`;
+    const doGet = JSON.parse(sb[nome]
+      ? sb[nome]({ parameter: params }, { ok: true, email: 'a@b.test' }).getContent()
+      : sb.familiasLeitura_().find((f) => f.acao === acao).fn({ parameter: params }, { ok: true }).getContent());
     delete doGet._etag; delete doGet._ms;
-    const pub = await lerDoWorker(env, acao);
-    assert.ok(pub, `${acao} publicada`);
-    assert.deepEqual(pub.json, doGet, `${acao}: Worker = doGet`);
-    assert.equal(pub.json._ms, undefined, `${acao}: sem _ms`);
+    const chave = chaveLeitura(acao, params);
+    const pub = await lerDoWorker(env, chave);
+    assert.ok(pub, `${chave} publicada`);
+    assert.deepEqual(pub.json, doGet, `${chave}: Worker = doGet`);
+    assert.equal(pub.json._ms, undefined, `${chave}: sem _ms`);
     assert.equal(pub.geracao, r.geracao);
   }
 });
@@ -168,7 +170,7 @@ test('contrato: toda ação GET do Router.gs é publicada ou está na lista "só
   const doGet = router.slice(router.indexOf('function doGet'), router.indexOf('function doPost'));
   const acoes = [...doGet.matchAll(/action === '([A-Za-z_]+)'/g)].map((m) => m[1]);
   const { sandbox: sb } = criarSandboxGs({ silencioso: true });
-  const publicadas = plain(sb.familiasLeitura_().map((f) => f.acao));
+  const publicadas = [...new Set(plain(sb.familiasLeitura_().map((f) => f.acao)))];
   const so = plain(sb.LEITURA_SO_APPS_SCRIPT_);
   const porAtivo = plain(sb.LEITURA_POR_ATIVO_);
   assert.deepEqual([...ACOES_PUBLICADAS_POR_ATIVO].sort(), [...porAtivo].sort(), 'telas por ativo: a mesma lista nos dois lados');
@@ -264,7 +266,7 @@ test('telas dos ativos: sem tempo, só vai o que já está no cache do Apps Scri
 
 test('pedidos de publicação anotados se juntam (29/10/2026: o site pede só as telas que a gravação mudou)', () => {
   const { sandbox: sb } = criarSandboxGs({ silencioso: true });
-  const cot = plain(sb.familiasLeitura_().filter((f) => f.cotacao).map((f) => f.acao));
+  const cot = [...new Set(plain(sb.familiasLeitura_().filter((f) => f.cotacao).map((f) => f.acao)))];
   assert.equal(sb.juntarFamiliasLeitura_(null, ['home']).join(), 'home');
   assert.deepEqual(plain(sb.juntarFamiliasLeitura_(['gastos'], ['home', 'gastos'])), ['gastos', 'home']);
   assert.equal(sb.juntarFamiliasLeitura_(['gastos'], 'tudo'), 'tudo');
@@ -274,7 +276,7 @@ test('pedidos de publicação anotados se juntam (29/10/2026: o site pede só as
 
 test('cotação de agora ao entrar (29/10/2026): o pedido do site só publica no pregão e se a última montagem de cotação tiver mais de 5 min; a publicação de cotação anota quando foi', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async () => {
   const { sb, pendentes } = montar();
-  assert.deepEqual([...ACOES_COM_COTACAO].sort(), plain(sb.familiasLeitura_().filter((f) => f.cotacao).map((f) => f.acao)).sort(), 'o site sabe quais telas têm cotação');
+  assert.deepEqual([...ACOES_COM_COTACAO].sort(), plain(sb.familiasLeitura_().filter((f) => f.cotacao && f.preco !== false).map((f) => f.acao)).sort(), 'o site sabe quais telas têm cotação');
   const props = sb.PropertiesService.getScriptProperties();
   const sp = (iso) => new sb.Date(new Date(iso).getTime());
   props.setProperty('LEITURA_COTACAO_EM', String(Date.parse('2026-10-29T16:50:00Z')));

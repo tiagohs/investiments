@@ -240,3 +240,21 @@ test('cópia de segurança (bug 29/10/2026): sem DriveApp/escopo novo - cópia n
   assert.throws(() => sb.emagrecerPlanilhaDireto(), /cópia de segurança/);
   assert.equal(formulasEm(aba, 150), 3, 'nada foi apagado');
 });
+
+test('diagnóstico de fórmulas (só leitura): por aba, as que recalculam sozinhas e as que estão abaixo do último valor digitado', () => {
+  const aba = transacoes({ ate: 50 });
+  aba.getRange(8, 14).setFormulasR1C1([['GOOGLEFINANCE("PETR4")+HOJE()']]);
+  const vazia = abaFalsa('Notas', { linhas: [['só texto']], maxRows: 5, maxCols: 2 });
+  const ss = planilha([aba, vazia]);
+  const sb = sandbox(ss);
+  const antes = formulasEm(aba, 40);
+  const r = plain(sb.diagnosticarFormulasPlanilha_(ss));
+  const t = r.abas.find((a) => a.aba === 'Transações');
+  assert.equal(t.formulas, (50 - 6) * 3 + 1);
+  assert.equal(t.ultimaComDigitado, 9);
+  assert.equal(t.formulasAbaixoDoDigitado, (50 - 9) * 3);
+  assert.deepEqual(t.volateis, { HOJE: 50 - 6 + 1, GOOGLEFINANCE: 1 });
+  assert.equal(r.abas[0].aba, 'Transações', 'a com mais fórmulas primeiro');
+  assert.equal(formulasEm(aba, 40), antes, 'não mexe em nada');
+  assert.match(sb.textoDiagnosticoFormulas_(r), /Transações: 133 fórmulas/);
+});

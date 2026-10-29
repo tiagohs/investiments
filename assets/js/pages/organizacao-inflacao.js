@@ -7,15 +7,15 @@
  * Conta em ../inflacao-pessoal.js. O índice escolhido por despesa grava na aba aux_inflacao-cesta (InflacaoPessoal.gs).
  */
 import { calcularMinhaInflacao, ganhoReal, corrigir, porMes, retornoMinimo } from '../inflacao-pessoal.js';
-import { formatBRL, formatPct, formatPctSinal, formatPctAbs } from '../format.js';
+import { formatBRL, formatPct, formatPctSinal, formatPctAbs, formatNumeroPt, MESES_CURTOS } from '../format.js';
 import { esc } from '../util/html.js';
 import { kpiHtml, chipHtml } from './organizacao-ui.js';
 import { criarGraficoLinha, criarBarraComposicao } from '../charts/index.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
-const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MESES = MESES_CURTOS;
 const mesAno = (m) => (m ? `${MESES[Number(m.slice(5, 7)) - 1]}/${m.slice(2, 4)}` : '');
-const pp = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} p.p.`;
+const pp = (v) => `${v >= 0 ? '+' : '−'}${formatNumeroPt(Math.abs(v), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} p.p.`;
 
 /**
  * "O que o seu dinheiro rende de verdade": cada aplicação com o rendimento líquido de 12 meses e o ganho real contra o IPCA e
@@ -52,7 +52,7 @@ export function vereditoInflacao(r, { linhas = [] } = {}) {
   const dif = r.minha - r.ipca;
   const LIMIAR = 0.0025;
   const tom = dif <= -LIMIAR ? 'bom' : (dif < LIMIAR ? 'neutro' : 'ruim');
-  const ppAbs = `${Math.abs(dif * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} p.p.`;
+  const ppAbs = `${formatNumeroPt(Math.abs(dif * 100), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} p.p.`;
   const titulo = tom === 'bom' ? `Você está bem: a sua inflação (${formatPct(r.minha, 1)}) ficou ${ppAbs} abaixo do IPCA (${formatPct(r.ipca, 1)}).`
     : tom === 'neutro' ? `A sua inflação (${formatPct(r.minha, 1)}) está no ritmo do IPCA (${formatPct(r.ipca, 1)}).`
       : `Atenção: a sua inflação (${formatPct(r.minha, 1)}) está ${ppAbs} acima do IPCA (${formatPct(r.ipca, 1)}).`;
@@ -103,7 +103,7 @@ function reguaHtml(r, cfg, editavel) {
   const meta = typeof cfg.metaDolar === 'number' ? cfg.metaDolar : 0.3;
   const m = retornoMinimo(r.minha, premio, 0.15);
   const mi = retornoMinimo(r.ipca, premio, 0.15);
-  const campo = (id, rot, v) => `<label class="tx-rotulo og-inf-campo">${rot}<span class="og-inf-campo-in"><input type="text" inputmode="decimal" class="input" id="${id}" value="${esc((v * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 }))}"${editavel ? '' : ' disabled'}><span>%</span></span></label>`;
+  const campo = (id, rot, v) => `<label class="tx-rotulo og-inf-campo">${rot}<span class="og-inf-campo-in"><input type="text" inputmode="decimal" class="input" id="${id}" value="${esc(formatNumeroPt(v * 100, { maximumFractionDigits: 2 }))}"${editavel ? '' : ' disabled'}><span>%</span></span></label>`;
   return `<h3 class="og-inf-sub">Sua régua de investimento</h3>
     <p class="og-nota">Retorno mínimo exigido = (1 + sua inflação) × (1 + o prêmio que você exige) − 1: <b>${esc(formatPct(m.liquido, 1))} a.a. líquido</b> (≈ ${esc(formatPct(m.bruto, 1))} bruto com IR de 15%). Pelo IPCA seria ${esc(formatPct(mi.liquido, 1))}. Ele aparece no momento de cada ativo (Acompanhamento e Aportes) e na Análise do ativo: DY do FII e retorno pelo lucro da ação contra essa régua.</p>
     <div class="og-inf-regua">${campo('ogInfPremio', 'Prêmio acima da inflação', premio)}${campo('ogInfMetaDolar', '% da carteira em dólar (meta)', meta)}${editavel ? '<button type="button" class="btn btn-tonal og-btn-sm" data-acao="salvar-regua">Salvar régua</button>' : ''}</div>`;
@@ -129,7 +129,7 @@ function tabelaItensHtml(r, catalogo) {
     <tbody>${r.porItem.map((p) => `<tr>
       <th scope="row">${esc(p.nome)}</th><td class="num">${esc(formatBRL(p.mensal))}</td><td class="num">${esc(formatPct(p.peso, 1))}</td>
       <td><select class="input og-inf-sel" data-indice="${esc(p.nome)}" aria-label="Índice de ${esc(p.nome)}">${opcoes(p.indice)}</select>${p.sugerido ? '<small class="og-inf-sug">sugerido</small>' : ''}</td>
-      <td class="num">${esc(formatPct(p.variacao, 2))}${p.estimada ? '<small>com IPCA geral</small>' : ''}</td><td class="num"><b>${esc((p.contribuicao * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</b></td>
+      <td class="num">${esc(formatPct(p.variacao, 2))}${p.estimada ? '<small>com IPCA geral</small>' : ''}</td><td class="num"><b>${esc(formatNumeroPt(p.contribuicao * 100, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</b></td>
     </tr>`).join('')}</tbody>
     <tfoot><tr><th scope="row">Total</th><td class="num">${esc(formatBRL(r.total))}</td><td class="num">100%</td><td></td><td></td><td class="num"><b>${esc(formatPct(r.minha, 2))}</b></td></tr></tfoot>
   </table></div>`;
