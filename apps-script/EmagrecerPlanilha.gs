@@ -24,6 +24,19 @@
 var EMAGRECER_MARGEM_LINHAS_ = 300;     // linhas vazias que continuam com fórmula depois da última linha com dado
 var EMAGRECER_LINHAS_POR_BLOCO_ = 2000; // leitura em blocos (memória do Apps Script)
 var EMAGRECER_PREFIXO_TESTES_ = 'aux_tests';
+var EMAGRECER_ABAS_SEM_USO_ = ['[RV] Metas de compra e venda']; // 29/10/2026: o Tiago não usa (os painéis 📈Dash ele usa: ficam)
+
+/** Última linha com algum valor DIGITADO (célula sem fórmula) - 0 se não tiver nenhum. */
+function ultimaLinhaDigitada_(aba) {
+  var ultimaL = aba.getLastRow(), maxC = Math.max(aba.getLastColumn(), 1), ultima = 0;
+  for (var ini = 1; ini <= ultimaL; ini += EMAGRECER_LINHAS_POR_BLOCO_) {
+    var n = Math.min(EMAGRECER_LINHAS_POR_BLOCO_, ultimaL - ini + 1);
+    var rg = aba.getRange(ini, 1, n, maxC);
+    var fs = rg.getFormulas(), vs = rg.getValues();
+    for (var i = 0; i < n; i++) for (var j = 0; j < maxC; j++) if (!fs[i][j] && vs[i][j] !== '' && vs[i][j] !== null) { ultima = ini + i; break; }
+  }
+  return ultima;
+}
 
 function simularEmagrecerPlanilhaDireto() {
   var r = emagrecerPlanilha_(SpreadsheetApp.getActiveSpreadsheet(), { executar: false });
@@ -108,6 +121,17 @@ function emagrecerPlanilha_(ss, opcoes) {
     saida.formulasRemovidas += r.formulasRemovidas;
     saida.hojeRemovidos += r.hojeRemovidos;
   });
+  // 29/10/2026 (Tiago: "[RV] Metas de compra e venda? não uso"): abas sem uso - fórmula só até a última linha com valor
+  // DIGITADO, sem margem (a aba tinha dado até a linha 9 e fórmula até a 100: ~360 GOOGLEFINANCE em linha vazia)
+  EMAGRECER_ABAS_SEM_USO_.forEach(function (nome) {
+    var aba = ss.getSheetByName(nome);
+    if (!aba) return;
+    var r = emagrecerAbaLancamentos_(aba, { aba: nome, linha: 1, cols: 0, ultima: ultimaLinhaDigitada_(aba) }, 0, !!o.executar);
+    r.semUso = true;
+    saida.abas.push(r);
+    saida.formulasRemovidas += r.formulasRemovidas;
+    saida.hojeRemovidos += r.hojeRemovidos;
+  });
   ss.getSheets().forEach(function (aba) {
     if (String(aba.getName()).indexOf(EMAGRECER_PREFIXO_TESTES_) !== 0) return;
     var r = emagrecerAbaTestes_(aba, !!o.executar);
@@ -115,6 +139,11 @@ function emagrecerPlanilha_(ss, opcoes) {
     saida.formulasRemovidas += r.formulasRemovidas;
   });
   return saida;
+}
+
+function contarGfEmagrecer_(f) {
+  var m = String(f).toUpperCase().match(/\bGOOGLEFINANCE\s*\(/g);
+  return m ? m.length : 0;
 }
 
 function contarHojeEmagrecer_(f) {
@@ -125,7 +154,7 @@ function contarHojeEmagrecer_(f) {
 function emagrecerAbaLancamentos_(aba, cfg, margem, executar) {
   var colunas = [];
   for (var c = 1; c <= cfg.cols; c++) colunas.push(c);
-  var ultima = ultimaLinhaReal_(aba, colunas, cfg.linha);
+  var ultima = cfg.ultima != null ? cfg.ultima : ultimaLinhaReal_(aba, colunas, cfg.linha);
   var corte = Math.max(ultima, cfg.linha - 1) + margem; // da linha corte+1 pra baixo, sem fórmula
   var maxLinhas = aba.getMaxRows();
   var maxCols = aba.getLastColumn();
@@ -138,7 +167,7 @@ function emagrecerAbaLancamentos_(aba, cfg, margem, executar) {
   }
   if (corte >= maxLinhas || maxCols < 1) return r;
   var porColuna = [];
-  for (var j = 0; j < maxCols; j++) porColuna.push({ formulas: 0, hoje: 0, digitados: 0, exemplo: '' });
+  for (var j = 0; j < maxCols; j++) porColuna.push({ formulas: 0, hoje: 0, gf: 0, digitados: 0, exemplo: '' });
   for (var ini = corte + 1; ini <= maxLinhas; ini += EMAGRECER_LINHAS_POR_BLOCO_) {
     var n = Math.min(EMAGRECER_LINHAS_POR_BLOCO_, maxLinhas - ini + 1);
     var rg = aba.getRange(ini, 1, n, maxCols);
@@ -150,6 +179,7 @@ function emagrecerAbaLancamentos_(aba, cfg, margem, executar) {
         if (fs[i][k]) {
           p.formulas++;
           p.hoje += contarHojeEmagrecer_(fs[i][k]);
+          p.gf += contarGfEmagrecer_(fs[i][k]);
           if (!p.exemplo) p.exemplo = fs[i][k];
         } else if (vs[i][k] !== '' && vs[i][k] !== null) {
           p.digitados++;
@@ -162,7 +192,7 @@ function emagrecerAbaLancamentos_(aba, cfg, margem, executar) {
     if (!p.formulas) return;
     var letra = letraColunaEmagrecer_(k + 1);
     if (p.digitados) { r.colunasComValorDigitado.push({ coluna: letra, formulas: p.formulas, digitados: p.digitados }); return; }
-    r.colunas.push({ coluna: letra, formulas: p.formulas, hoje: p.hoje, exemplo: String(p.exemplo).slice(0, 120) });
+    r.colunas.push({ coluna: letra, formulas: p.formulas, hoje: p.hoje, gf: p.gf, exemplo: String(p.exemplo).slice(0, 120) });
     r.formulasRemovidas += p.formulas;
     r.hojeRemovidos += p.hoje;
     limpar.push(k + 1);
@@ -213,7 +243,7 @@ function textoRelatorioEmagrecer_(r) {
     'Fórmulas a remover: ' + r.formulasRemovidas + ' (HOJE(): ' + r.hojeRemovidos + ')'];
   r.abas.forEach(function (a) {
     l.push('- ' + a.aba + ': dados até a linha ' + a.ultimaLinhaComDado + ', fórmulas ficam até a ' + a.manterAte + ' (a aba tem ' + a.linhasNaAba + ' linhas); remove ' + a.formulasRemovidas);
-    a.colunas.forEach(function (c) { l.push('    ' + c.coluna + ': ' + c.formulas + (c.hoje ? ' (HOJE: ' + c.hoje + ')' : '') + '  ex.: ' + c.exemplo); });
+    a.colunas.forEach(function (c) { l.push('    ' + c.coluna + ': ' + c.formulas + (c.hoje ? ' (HOJE: ' + c.hoje + ')' : '') + (c.gf ? ' (GOOGLEFINANCE: ' + c.gf + ')' : '') + '  ex.: ' + c.exemplo); });
     a.colunasComValorDigitado.forEach(function (c) { l.push('    ' + c.coluna + ': NÃO mexi - ' + c.digitados + ' valor(es) digitado(s) abaixo da última linha'); });
   });
   r.testes.forEach(function (t) { l.push('- ' + t.aba + ': fica só o cabeçalho; remove ' + t.formulasRemovidas + ' fórmulas e ' + t.linhasRemovidas + ' linhas'); });

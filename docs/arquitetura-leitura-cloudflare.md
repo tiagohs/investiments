@@ -10,7 +10,7 @@ Medido em 29/10/2026 (cópia .xlsx da planilha e harness com as fixtures):
 
 | Fato | Valor | Consequência |
 |---|---|---|
-| Fórmulas na planilha | **1,18 milhão** (Transações/USA/RF ≈ 237 mil cada, `aux_tests` ≈ 237 mil, DB-Stocks ≈ 145 mil, 11 mil `HOJE()` em Proventos, 573 GOOGLEFINANCE) | toda leitura do Apps Script espera o recálculo |
+| Fórmulas na planilha | **1,18 milhão** antes da F0 (Transações/USA/RF ≈ 240-250 mil cada e `aux_tests` ≈ 259 mil, quase tudo em linha vazia; ~10 mil `HOJE()` em Proventos); **47 mil** depois (`diagnosticarFormulasPlanilhaDireto`, 29/10/2026). As DB-* são 1 IMPORTRANGE cada (os ~145 mil eram células importadas, não fórmulas) | toda leitura do Apps Script espera o recálculo |
 | Cálculo das telas em Node (mesmo código .gs, dados já em memória) | Início 207 ms; demais telas 1–50 ms | **o custo não é o cálculo, é o acesso à planilha** + partida do Apps Script |
 | Tamanho das respostas | `home` 1,97 MB, `historico_inicio` 1,95 MB, `transacoes` 237 KB, `proventos` 97 KB, demais < 40 KB | download e `JSON.parse` pesados no celular |
 | Chamadas por tela | Início: home + patrimônio + metas + inflação + intradia + status do cabeçalho | cada uma paga a partida (1–3 s) e disputa a planilha |

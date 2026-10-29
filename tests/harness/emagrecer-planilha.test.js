@@ -258,3 +258,23 @@ test('diagnóstico de fórmulas (só leitura): por aba, as que recalculam sozinh
   assert.equal(formulasEm(aba, 40), antes, 'não mexe em nada');
   assert.match(sb.textoDiagnosticoFormulas_(r), /Transações: 133 fórmulas/);
 });
+
+test('aba sem uso ([RV] Metas de compra e venda, 29/10/2026): fórmula só até a última linha com valor digitado - os GOOGLEFINANCE das linhas vazias saem', () => {
+  const formulas = {};
+  for (let r = 2; r <= 100; r++) { formulas[`${r},5`] = 'GOOGLEFINANCE(R[0]C[-4])'; formulas[`${r},6`] = 'GOOGLEFINANCE(R[0]C[-5];"high52")'; }
+  const linhas = [['Ativo', 'Compra', 'Venda'], ...Array.from({ length: 8 }, (_, i) => [`T${i}3`, 10, 20])];
+  const rv = abaFalsa('[RV] Metas de compra e venda', { linhas, formulas, maxRows: 100, maxCols: 6 });
+  const ss = planilha([rv]);
+  const sb = sandbox(ss);
+  const sim = plain(sb.emagrecerPlanilha_(ss, { executar: false }));
+  const a = sim.abas.find((x) => x.aba === '[RV] Metas de compra e venda');
+  assert.equal(a.ultimaLinhaComDado, 9);
+  assert.equal(a.formulasRemovidas, 91 * 2);
+  assert.deepEqual(a.colunas.map((c) => [c.coluna, c.gf]), [['E', 91], ['F', 91]]);
+  assert.match(sb.textoRelatorioEmagrecer_(sim), /GOOGLEFINANCE: 91/);
+  sb.emagrecerPlanilha_(ss, { executar: true });
+  assert.equal(rv.getRange(9, 5, 1, 1).getFormulas()[0][0], 'GOOGLEFINANCE(R[0]C[-4])', 'linha com dado continua');
+  assert.equal(rv.getRange(10, 5, 1, 1).getFormulas()[0][0], '');
+  assert.equal(rv.getLastRow(), 9);
+  assert.equal(rv.getRange(5, 1).getValue(), 'T33', 'valores digitados intactos');
+});
