@@ -670,3 +670,9 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - `GET /v1/intradia` no Worker (`worker/src/intradia.js`), com a mesma conta do Intradia.gs (`assets/js/intradia-yahoo.js`). O que o Yahoo não responder lá vai ao Apps Script; se ele recusar tudo, há pausa de 30 min por aba.
 - `ESCOPO_GRAVACAO` (api-client.js): gastos invalidam só os gastos. Favoritos não invalidam nada: a Início publicada vale com a lista salva por cima. O resto continua invalidando todas as telas. A republicação pedida vai só para as telas afetadas, e os pedidos anotados se juntam (`juntarFamiliasLeitura_`).
 - Testes: harness/intradia-worker (paridade com o Intradia.gs, falhas x null, memória, sessão), leitura-cliente (favoritos, gastos, intradia com queda para o Apps Script e pausa) e publicacao-leitura (junção dos pedidos).
+
+### 29/10/2026 (cotação de agora ao entrar - ADR-11, RNF-05 revisto)
+
+- Tela de cotação lida do Worker com mais de 5 min no pregão: aparece na hora, o site pede a publicação das cotações e a tela se atualiza sozinha quando ela chega (evento `investiments:leitura-atualizada`). O Apps Script só publica no pregão e se a última montagem de cotação tiver mais de 5 min (`cotacaoPrecisaPublicar_`). Por ser execução do Web App, não gasta a cota de gatilhos, e o gatilho do pregão continua em 30 min.
+- "Atualizar dados" mostra "Cotações de HH:MM" quando o preço na tela tem mais de 2 min.
+- Testes: leitura-cliente (pede, avisa, 1 pedido por 3 min, nada fora do pregão ou com cotação nova), cotacao-tela (rótulo e atualização sozinha) e publicacao-leitura (regra do Apps Script, `LEITURA_COTACAO_EM`, lista de telas com cotação igual nos dois lados).

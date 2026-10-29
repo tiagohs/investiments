@@ -39,3 +39,20 @@ export const ACOES_PUBLICADAS = Object.freeze(['home', 'transacoes', 'aportesPen
  */
 export const ACOES_PUBLICADAS_POR_ATIVO = Object.freeze(['ativo', 'ativoBase']);
 export const ACOES_LIDAS_DO_WORKER = Object.freeze([...ACOES_PUBLICADAS, ...ACOES_PUBLICADAS_POR_ATIVO]);
+
+/**
+ * 29/10/2026: telas com cotação (Publicacao.gs!familiasLeitura_ com `cotacao: true` - testado que é a mesma lista). Ao ler
+ * uma delas do Worker com mais de IDADE_MAXIMA_COTACAO_MS no pregão, o site pede a publicação das cotações e se atualiza.
+ */
+export const ACOES_COM_COTACAO = Object.freeze(['home', 'transacoes', 'distribuicoesMetas', 'carteirasHome', 'carteirasAcoes', 'carteirasFiis',
+  'carteirasAcoesEua', 'carteirasRendaFixa', 'metas', 'patrimonio', 'macro']);
+export const IDADE_MAXIMA_COTACAO_MS = 5 * 60 * 1000;
+
+/** Pregão da B3 visto do aparelho (seg-sex, 10:00-18:30 em São Paulo). Feriado quem confere é o Apps Script. */
+export function talvezNoPregao(agoraMs = Date.now()) {
+  const partes = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(agoraMs)).map((p) => [p.type, p.value]));
+  if (partes.weekday === 'Sat' || partes.weekday === 'Sun') return false;
+  const min = Number(partes.hour) * 60 + Number(partes.minute);
+  return min >= 10 * 60 && min <= 18 * 60 + 30;
+}

@@ -12,7 +12,7 @@
  */
 
 import { APPS_SCRIPT_URL, LEITURA_URL } from './config.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER } from './leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, IDADE_MAXIMA_COTACAO_MS, talvezNoPregao } from './leitura-chave.js';
 import { clearToken } from './auth.js';
 // 08/10/2026: cache-dados.js e desempenho.js carregam sob demanda (import dinâmico) - não pesam no 1º carregamento das telas
 let cacheDadosMod = null;
@@ -123,6 +123,53 @@ export function pedirPublicacao(token, { familias = ['*'], atrasoMs = 1500, agen
   }, atrasoMs);
 }
 
+// ---------------------------------------------------------------------------
+// 29/10/2026 (Tiago: "quando eu entro no site, o valor da cotação naquele momento tem que ser o último disponível")
+// ---------------------------------------------------------------------------
+// Cada tela de cotação lida do Worker diz de quando é (a geração = início da montagem no Apps Script). Mais de 5 min no
+// pregão: o site mostra o que tem, pede em segundo plano a publicação das cotações (o Apps Script lê o GOOGLEFINANCE de
+// agora) e, quando ela chega, avisa as telas (evento EVENTO_LEITURA_ATUALIZADA - o "Atualizar dados" de cada uma busca de
+// novo). O botão mostra "Cotações de HH:MM" quando o que está na tela não é de agora.
+export const EVENTO_LEITURA_ATUALIZADA = 'investiments:leitura-atualizada';
+const CHAVE_COTACAO_PEDIDA = 'investiments_cotacao_pedida_em';
+const INTERVALO_PEDIDO_COTACAO_MS = 3 * 60 * 1000;
+let cotacoesDaRodada = null;
+/** Começo de uma busca da tela ("Atualizar dados"): esquece de quando eram as cotações da busca anterior. */
+export function reiniciarInstanteCotacoes() { cotacoesDaRodada = null; }
+/** Instante (ms) da cotação MAIS VELHA lida desde reiniciarInstanteCotacoes (null = nenhuma tela de cotação lida). */
+export function instanteDasCotacoes() { return cotacoesDaRodada; }
+
+function registrarCotacaoLida(action, instanteMs, token) {
+  if (!ACOES_COM_COTACAO.includes(action) || !Number.isFinite(instanteMs) || instanteMs <= 0) return;
+  cotacoesDaRodada = cotacoesDaRodada == null ? instanteMs : Math.min(cotacoesDaRodada, instanteMs);
+  if (Date.now() - instanteMs > IDADE_MAXIMA_COTACAO_MS && talvezNoPregao()) pedirCotacoesFrescas(token);
+}
+
+let cotacaoEmVoo = null;
+/** Pede a publicação das cotações (no máx. 1 a cada 3 min por aparelho) e avisa as telas quando terminar. */
+export function pedirCotacoesFrescas(token, { agendar = typeof setTimeout === 'function' ? setTimeout : null } = {}) {
+  if (!LEITURA_URL || !token || cotacaoEmVoo) return cotacaoEmVoo;
+  try {
+    const ultimo = Number(typeof localStorage !== 'undefined' && localStorage.getItem(CHAVE_COTACAO_PEDIDA)) || 0;
+    if (Date.now() - ultimo < INTERVALO_PEDIDO_COTACAO_MS) return null;
+    localStorage.setItem(CHAVE_COTACAO_PEDIDA, String(Date.now()));
+  } catch (e) { /* sem armazenamento: segue (o Apps Script também segura pedidos repetidos) */ }
+  const avisar = () => {
+    try { if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent === 'function') globalThis.dispatchEvent(new CustomEvent(EVENTO_LEITURA_ATUALIZADA, { detail: { familias: 'cotacao' } })); } catch (e) { /* sem eventos */ }
+  };
+  cotacaoEmVoo = fetch(APPS_SCRIPT_URL, { method: 'POST', body: new URLSearchParams({ action: 'publicarLeitura', token, familias: 'cotacao', seMaisVelhaQueMin: '5' }) })
+    .then((r) => r.json())
+    .then((j) => {
+      const pub = j && j.publicacao;
+      if (pub && pub.adiada) { if (agendar) agendar(avisar, 90 * 1000); } // outra publicação estava rodando: ela termina com as cotações
+      else if (pub && (pub.publicadas > 0 || pub.confirmadas > 0)) avisar();
+      return j;
+    })
+    .catch(() => null)
+    .finally(() => { cotacaoEmVoo = null; });
+  return cotacaoEmVoo;
+}
+
 async function lerDoWorker(action, params, token, chave, guardada, inicio) {
   if (!LEITURA_URL || !ACOES_LIDAS_DO_WORKER.includes(action) || !String(token || '').startsWith('s1.')) return null;
   const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -135,6 +182,7 @@ async function lerDoWorker(action, params, token, chave, guardada, inicio) {
     const geracao = res.headers && typeof res.headers.get === 'function' ? res.headers.get('X-Geracao') : null;
     if (instanteDaGeracao(geracao) < lerGeracaoMinima(action)) return null; // anterior à última gravação deste aparelho (que mexe nesta tela)
     const remendar = (j) => (action === 'home' ? remendoFavoritos(j, geracao) : j);
+    if (res.status === 200 || (res.status === 304 && guardada)) registrarCotacaoLida(action, instanteDaGeracao(geracao), token);
     if (res.status === 304 && guardada) {
       registrarDesempenho(action, { total: agoraMs() - inicio, servidor: null, naoMudou: true, bytes: 0, ok: true, fonte: 'cf' });
       return { ...remendar(clonar(guardada.json)), _naoMudou: true, _fonte: 'leitura' };
@@ -191,6 +239,7 @@ async function request(method, action, token, params = {}, { _semEtag = false } 
     if (chave && json && json.naoMudou) {
       if (!guardada) return request(method, action, token, params, { _semEtag: true });
       registrarDesempenho(action, { total: agoraMs() - inicio, servidor: json._ms, naoMudou: true, bytes, ok: true });
+      if (ACOES_COM_COTACAO.includes(action)) cotacoesDaRodada = cotacoesDaRodada == null ? Date.now() : Math.min(cotacoesDaRodada, Date.now());
       return { ...clonar(guardada.json), _ms: json._ms, _naoMudou: true };
     }
     if (chave && json && json.ok === true && json._etag) {
@@ -200,6 +249,7 @@ async function request(method, action, token, params = {}, { _semEtag = false } 
       json = clonar(json); // quem chama pode mexer no objeto; a cópia guardada fica intacta
     }
     registrarDesempenho(action, { total: agoraMs() - inicio, servidor: json ? json._ms : null, naoMudou: false, bytes, ok: !!(json && json.ok !== false) });
+    if (method === 'GET' && json && json.ok === true && ACOES_COM_COTACAO.includes(action)) cotacoesDaRodada = cotacoesDaRodada == null ? Date.now() : Math.min(cotacoesDaRodada, Date.now()); // do Apps Script = de agora
     // 07/10/2026: toda gravação (POST) pode mudar o Registro de Controle ou marcar/limpar a consolidação
     // (aporte concluído, lançamentos, importação, consolidar): esquece o resumo guardado do header (A-43),
     // pra próxima carga buscar o estado novo em vez de mostrar o aviso velho por até 15 min.

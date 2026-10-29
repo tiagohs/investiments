@@ -71,7 +71,7 @@ Critérios de aceite (Dado/Quando/Então):
 | RNF-02 | Tempo de servidor do Worker: p95 ≤ 50 ms (leitura de 1 linha do D1 + verificação HMAC). |
 | RNF-03 | Primeira abertura do dia com cache do aparelho vazio: Início completa em ≤ 2 s. |
 | RNF-04 | Corpo transferido: Início ≤ 300 KB comprimido; demais telas ≤ 100 KB. |
-| RNF-05 | Cotações publicadas com no máximo **30 min** de idade no pregão; meta de 15 min depois da F0 (o GOOGLEFINANCE já tem ~20 min de atraso). |
+| RNF-05 | No pregão, a tela aberta mostra a cotação com no máximo **5 min** a mais que o GOOGLEFINANCE (que já tem ~15-20 min de atraso): mostra a última publicação na hora e, se ela tiver mais de 5 min, se atualiza sozinha com a nova (ADR-11). Sem ninguém no site, a publicação de cotação roda a cada 30 min. Toda tela de cotação diz de quando é o preço ("Cotações de HH:MM"). |
 | RNF-06 | Publicação após gravação visível em ≤ 90 s; até lá a tela usa o Apps Script (sem dado velho). |
 | RNF-07 | Paridade: 100% das telas publicadas idênticas ao `doGet` nos testes do harness. |
 | RNF-08 | Custo: R$ 0 (planos grátis do Cloudflare e do Google). Uso diário ≤ 50% de cada cota (gatilhos do Apps Script 90 min/dia; D1 100 mil gravações/dia; Workers 100 mil requisições/dia). |
@@ -215,6 +215,11 @@ sequenceDiagram
 - **Contexto:** qualquer gravação fazia o aparelho recusar todo o Worker até a próxima publicação. Salvar favoritos deixava a Início 30 a 40 s no Apps Script.
 - **Escolha:** `ESCOPO_GRAVACAO` (api-client.js) lista as telas afetadas por gravação. O padrão é todas: a planilha liga as abas por fórmula. Só entram gravações em abas que apenas o Apps Script lê (`aux_gastos*`) ou que não são publicadas. Favoritos: a Início publicada continua valendo, com a lista salva no aparelho por cima, até a publicação nova. A republicação pedida também se limita a essas telas.
 - **Atende:** RF-05, RNF-01.
+
+**ADR-11. Cotação de agora ao entrar no site.**
+- **Contexto:** a cópia publicada pode ter até 30 min, e um gatilho de 15 min arrisca a cota diária de gatilhos do Apps Script (~90 min/dia na conta grátis), que também roda a agenda.
+- **Escolha:** cada tela de cotação lida do Worker traz a geração (o início da montagem). Se ela tiver mais de 5 min no pregão, o site mostra a cópia na hora e pede `publicarLeitura&familias=cotacao&seMaisVelhaQueMin=5`. É uma execução do Web App, fora da cota de gatilhos. O Apps Script só publica no pregão e se a última montagem de cotação (`LEITURA_COTACAO_EM`) tiver mais de 5 min: vários aparelhos ou telas pedindo juntos dão uma publicação só. Quando ela termina, o site dispara `investiments:leitura-atualizada` e o "Atualizar dados" de cada tela busca de novo. O botão mostra "Cotações de HH:MM" quando o preço na tela tem mais de 2 min. O gatilho do pregão continua em 30 min.
+- **Atende:** RNF-05.
 
 ## 7. Estratégia de testes
 

@@ -4,7 +4,7 @@
 //  - depois de gravar: guarda o instante (_agora do Apps Script) e pede a republicação em segundo plano.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHome, getAtivo, getIntradia, INTRADIA_MAX_POR_PEDIDO, INTRADIA_WORKER_MAX, salvarFavoritos, salvarRegraGastos, getGastos, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
+import { getHome, getAtivo, instanteDasCotacoes, reiniciarInstanteCotacoes, EVENTO_LEITURA_ATUALIZADA, getIntradia, INTRADIA_MAX_POR_PEDIDO, INTRADIA_WORKER_MAX, salvarFavoritos, salvarRegraGastos, getGastos, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL, APPS_SCRIPT_URL } from '../assets/js/config.js';
 
@@ -248,4 +248,52 @@ test('29/10/2026: gráfico do dia pelo Worker (Yahoo direto); o que ele não con
   await getIntradia(S1, ['IBOV']);
   assert.deepEqual(pedidos.map((p) => p.origem), ['as'], 'pausa: nem tenta o Worker');
   delete globalThis.sessionStorage;
+});
+
+test('29/10/2026 (cotação de agora ao entrar): tela de cotação do Worker com mais de 5 min no pregão - mostra, pede a publicação das cotações e avisa as telas quando chega', async (t) => {
+  limpar();
+  const QUI_14H_SP = Date.parse('2026-10-29T17:00:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now: QUI_14H_SP });
+  let idadeMin = 10;
+  const pedidos = [];
+  const eventos = [];
+  globalThis.dispatchEvent = (ev) => { eventos.push(ev.type); return true; };
+  t.after(() => { delete globalThis.dispatchEvent; });
+  t.mock.method(globalThis, 'fetch', async (url, op = {}) => {
+    const u = String(url);
+    pedidos.push({ url: u, corpo: op.body ? String(op.body) : '' });
+    if (u.startsWith(LEITURA_URL)) return resposta(200, { ok: true, v: 'worker' }, { ETag: `"H${idadeMin}"`, 'X-Geracao': `20261029a.${Date.now() - idadeMin * 60000}pub` });
+    if (String(op.body || '').includes('action=publicarLeitura')) return resposta(200, { ok: true, publicacao: { publicadas: 3, confirmadas: 8 } });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  reiniciarInstanteCotacoes();
+  assert.equal((await getHome(S1)).v, 'worker', 'mostra o que tem, na hora');
+  assert.equal(instanteDasCotacoes(), QUI_14H_SP - 10 * 60000, 'de quando é a cotação na tela');
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+  const pub = pedidos.filter((p) => p.corpo.includes('action=publicarLeitura'));
+  assert.equal(pub.length, 1);
+  assert.match(pub[0].corpo, /familias=cotacao/);
+  assert.match(pub[0].corpo, /seMaisVelhaQueMin=5/);
+  assert.deepEqual(eventos, [EVENTO_LEITURA_ATUALIZADA], 'as telas buscam de novo');
+  // outra tela logo em seguida: não pede de novo (no máx. 1 a cada 3 min por aparelho)
+  esquecerRespostasGuardadas();
+  await getCarteirasFiis(S1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pedidos.filter((p) => p.corpo.includes('action=publicarLeitura')).length, 1);
+  // cotação de 1 min: nada a pedir
+  memoria.clear(); esquecerRespostasGuardadas(); idadeMin = 1;
+  await getHome(S1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pedidos.filter((p) => p.corpo.includes('action=publicarLeitura')).length, 1);
+  // sábado: o preço não muda, não pede
+  t.mock.timers.setTime(Date.parse('2026-10-31T17:00:00Z'));
+  memoria.clear(); esquecerRespostasGuardadas(); idadeMin = 60;
+  await getHome(S1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(pedidos.filter((p) => p.corpo.includes('action=publicarLeitura')).length, 1);
+  // tela que não tem cotação (gastos) não conta
+  reiniciarInstanteCotacoes();
+  await getGastos(S1);
+  assert.equal(instanteDasCotacoes(), null);
 });

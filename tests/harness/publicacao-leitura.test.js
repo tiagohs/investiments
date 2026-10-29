@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { criarSandboxGs } from './gas-vm-harness.mjs';
 import worker, { gravarLote } from '../../worker/src/index.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_PUBLICADAS_POR_ATIVO, ACOES_LIDAS_DO_WORKER } from '../../assets/js/leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_PUBLICADAS_POR_ATIVO, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, talvezNoPregao } from '../../assets/js/leitura-chave.js';
 import { getAtivo, esquecerRespostasGuardadas } from '../../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../../assets/js/cache-dados.js';
 import { LEITURA_URL } from '../../assets/js/config.js';
@@ -270,4 +270,30 @@ test('pedidos de publicação anotados se juntam (29/10/2026: o site pede só as
   assert.equal(sb.juntarFamiliasLeitura_(['gastos'], 'tudo'), 'tudo');
   assert.equal(sb.juntarFamiliasLeitura_('tudo', ['home']), 'tudo');
   assert.deepEqual(plain(sb.juntarFamiliasLeitura_('cotacao', ['gastos'])), [...cot, 'gastos']);
+});
+
+test('cotação de agora ao entrar (29/10/2026): o pedido do site só publica no pregão e se a última montagem de cotação tiver mais de 5 min; a publicação de cotação anota quando foi', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async () => {
+  const { sb, pendentes } = montar();
+  assert.deepEqual([...ACOES_COM_COTACAO].sort(), plain(sb.familiasLeitura_().filter((f) => f.cotacao).map((f) => f.acao)).sort(), 'o site sabe quais telas têm cotação');
+  const props = sb.PropertiesService.getScriptProperties();
+  const sp = (iso) => new sb.Date(new Date(iso).getTime());
+  props.setProperty('LEITURA_COTACAO_EM', String(Date.parse('2026-10-29T16:50:00Z')));
+  assert.equal(sb.cotacaoPrecisaPublicar_(5, sp('2026-10-29T17:00:00Z')).precisa, true, 'quinta 14:00 SP, publicada 10 min antes');
+  assert.match(sb.cotacaoPrecisaPublicar_(5, sp('2026-10-29T16:53:00Z')).motivo, /menos de 5 min/);
+  assert.match(sb.cotacaoPrecisaPublicar_(5, sp('2026-10-31T17:00:00Z')).motivo, /fora do pregão/, 'sábado');
+  assert.match(sb.cotacaoPrecisaPublicar_(5, sp('2026-11-02T17:00:00Z')).motivo, /fora do pregão/, 'feriado da B3');
+  props.deleteProperty('LEITURA_COTACAO_EM');
+  const antes = Date.now();
+  plain(sb.publicarLeitura_({ familias: 'cotacao' }));
+  await Promise.all(pendentes);
+  assert.ok(Number(props.getProperty('LEITURA_COTACAO_EM')) >= antes, 'anotou o início da montagem');
+  props.deleteProperty('LEITURA_COTACAO_EM');
+  plain(sb.publicarLeitura_({ familias: ['gastos'] }));
+  await Promise.all(pendentes);
+  assert.equal(props.getProperty('LEITURA_COTACAO_EM'), null, 'publicação sem as telas de cotação não conta');
+  // o pregão visto do aparelho (feriado o Apps Script confere)
+  assert.equal(talvezNoPregao(Date.parse('2026-10-29T17:00:00Z')), true);
+  assert.equal(talvezNoPregao(Date.parse('2026-10-29T12:59:00Z')), false, '09:59 SP');
+  assert.equal(talvezNoPregao(Date.parse('2026-10-29T21:31:00Z')), false, '18:31 SP');
+  assert.equal(talvezNoPregao(Date.parse('2026-11-01T17:00:00Z')), false, 'domingo');
 });

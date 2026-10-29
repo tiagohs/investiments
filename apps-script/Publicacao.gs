@@ -22,6 +22,7 @@ var LEITURA_PROP_URL_ = 'LEITURA_URL';
 var LEITURA_PROP_SEGREDO_ = 'LEITURA_SEGREDO';
 var LEITURA_PROP_HASHES_ = 'LEITURA_HASHES';   // { chave: hash } do que o Worker já tem
 var LEITURA_PROP_ULTIMA_ = 'LEITURA_ULTIMA';   // resumo da última publicação (saúde)
+var LEITURA_PROP_COTACAO_EM_ = 'LEITURA_COTACAO_EM'; // 29/10/2026: quando COMEÇOU a última montagem com as telas de cotação (ms)
 var LEITURA_PREGAO_INICIO_ = '10:00';
 var LEITURA_PREGAO_FIM_ = '18:30';
 
@@ -265,6 +266,9 @@ function publicarLeituraSemTrava_(opcoes) {
     var resumo = { ok: erros.length === 0, configurado: true, geracao: geracao, publicadas: publicadas, iguais: iguais, confirmadas: confirmadas, ativos: ativos, erros: erros,
       ms: Date.now() - inicio, tempos: tempos, origem: o.origem || 'Manual', em: new Date().toISOString() };
     props.setProperty(LEITURA_PROP_ULTIMA_, JSON.stringify(resumo).slice(0, 8000));
+    // 29/10/2026: todas as telas de cotação foram (re)confirmadas com esta geração
+    var todasCotacao = familiasLeitura_().filter(function (f) { return f.cotacao; }).every(function (f) { return escolhidas.some(function (e) { return e.acao === f.acao; }); });
+    if (todasCotacao && !erros.length) props.setProperty(LEITURA_PROP_COTACAO_EM_, String(instanteDaGeracaoLeitura_(geracao)));
     if (erros.length && typeof gravarRegistroControle_ === 'function') {
       try { gravarRegistroControle_('Atenção', o.origem || 'Manual', 'Publicação da leitura (Cloudflare): ' + erros.length + ' tela(s) com erro - ' + erros.slice(0, 3).map(function (x) { return x.acao + ': ' + x.erro; }).join(' | ')); } catch (eR) { /* ok */ }
     }
@@ -294,8 +298,34 @@ function enviarLoteLeitura_(cfg, lote) {
 }
 
 /** POST action=publicarLeitura (o site chama depois de gravar, em segundo plano). e.parameter.familias: 'tudo' (padrão) ou lista "a,b". */
+/** Instante (ms) de uma geração "<versão>.<ms>..." - o mesmo de assets/js/leitura-chave.js!instanteDaGeracao. */
+function instanteDaGeracaoLeitura_(g) {
+  var m = String(g || '').match(/\.(\d{10,})[a-z0-9]*$/);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
+ * 29/10/2026 (Tiago: "sempre que eu entro no site, o valor da cotação naquele momento seja o último disponível"): o site,
+ * ao ler do Worker uma tela de cotação com mais de 5 min no pregão, pede action=publicarLeitura&familias=cotacao&
+ * seMaisVelhaQueMin=5. Aqui só publica se ainda for preciso: no pregão e com a última montagem de cotação mais velha que
+ * isso (vários aparelhos/telas pedindo ao mesmo tempo = 1 publicação). É uma execução do Web App, não de gatilho: não
+ * gasta a cota diária de gatilhos (por isso o gatilho do pregão continua de 30 em 30 min).
+ */
+function cotacaoPrecisaPublicar_(minutos, agora) {
+  var t = agora || new Date();
+  if (!dentroDoPregaoLeitura_(t)) return { precisa: false, motivo: 'fora do pregão' };
+  var em = Number(PropertiesService.getScriptProperties().getProperty(LEITURA_PROP_COTACAO_EM_)) || 0;
+  if (t.getTime() - em < minutos * 60000) return { precisa: false, motivo: 'publicada há menos de ' + minutos + ' min', em: em };
+  return { precisa: true, em: em };
+}
+
 function handlePublicarLeitura(e) {
   var f = String((e && e.parameter && e.parameter.familias) || 'tudo');
+  var seMin = Number(e && e.parameter && e.parameter.seMaisVelhaQueMin);
+  if (f === 'cotacao' && seMin > 0) {
+    var p = cotacaoPrecisaPublicar_(seMin);
+    if (!p.precisa) return jsonOut({ ok: true, pulado: p.motivo, cotacaoEm: p.em || null });
+  }
   var familias = f === 'tudo' || f === 'cotacao' ? f : f.split(',').map(function (x) { return x.trim(); }).filter(String);
   var r = publicarLeitura_({ familias: familias, origem: 'Site' });
   return jsonOut({ ok: r.ok !== false || r.configurado === false, publicacao: r });

@@ -49,7 +49,7 @@
 
 import { initTheme, toggleTheme } from './theme.js';
 import { getToken, clearToken, decodeTokenPayload } from './auth.js';
-import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico, consolidar } from './api-client.js';
+import { getSyncHistorico, syncNow, syncRendaFixaEIndices, syncProventosFnet, syncInformesFnet, syncVideos, limparCacheHistorico, consolidar, reiniciarInstanteCotacoes, instanteDasCotacoes, EVENTO_LEITURA_ATUALIZADA } from './api-client.js';
 import { formatDateTimeBR, formatRelativeTime } from './format.js';
 import { limparCacheDados, lerCacheDados } from './cache-dados.js';
 import { montarBuscaGlobal } from './ui/busca.js'; // 05/10/2026: busca em pílula na top bar (ativos do cache local + telas)
@@ -452,12 +452,19 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
     status.textContent = 'Falhou ao atualizar';
     status.classList.add('erro');
   }
+  const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   function registrarAtualizacao_() {
     status.classList.remove('erro');
     const d = agora();
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    status.textContent = `Atualizado às ${hh}:${mm}`;
+    // 29/10/2026: as cotações vieram de uma publicação de mais de 2 min atrás - diz DE QUANDO são, não quando a tela buscou
+    const cot = instanteDasCotacoes();
+    if (cot && d.getTime() - cot > 2 * 60 * 1000) {
+      status.textContent = `Cotações de ${hhmm(new Date(cot))}`;
+      status.title = `Os preços são da última publicação (${hhmm(new Date(cot))}). No pregão, o site já pediu as cotações de agora e se atualiza sozinho quando chegarem.`;
+      return;
+    }
+    status.title = '';
+    status.textContent = `Atualizado às ${hhmm(d)}`;
   }
 
   let emAndamento = false;
@@ -471,6 +478,7 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
     try {
       // 05/10/2026: aoAtualizar() devolvendo `false` (ou lançando) conta como falha
       let resultado;
+      reiniciarInstanteCotacoes();
       try { resultado = await aoAtualizar(); } catch (erro) { registrarFalha_(); return; }
       if (resultado === false) registrarFalha_(); else registrarAtualizacao_();
     } finally {
@@ -482,6 +490,10 @@ export function mountRefreshControl(doc, container, aoAtualizar, {
   }
 
   btn.addEventListener('click', atualizar);
+  // 29/10/2026: as cotações novas foram publicadas (api-client.js!pedirCotacoesFrescas): a tela busca de novo sozinha
+  const janela = doc.defaultView || globalThis;
+  if (janela && typeof janela.addEventListener === 'function') janela.addEventListener(EVENTO_LEITURA_ATUALIZADA, () => { atualizar(); });
+  if (janela !== globalThis && typeof globalThis.addEventListener === 'function') globalThis.addEventListener(EVENTO_LEITURA_ATUALIZADA, () => { atualizar(); });
 
   let timer = null;
   if (intervaloMs > 0 && setIntervalImpl) {
