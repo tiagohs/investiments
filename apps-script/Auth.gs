@@ -233,7 +233,9 @@ function jsonOut(obj) {
       texto = texto.slice(0, -1) + ',"_etag":"' + etag + '","_ms":' + ms + '}';
     }
   } else if (ms !== null && obj && typeof obj === 'object' && !Array.isArray(obj) && texto.charAt(texto.length - 1) === '}' && texto.length > 2) {
-    texto = texto.slice(0, -1) + ',"_ms":' + ms + '}';
+    // 29/10/2026: _agora (relógio do Apps Script) nas gravações - o site só volta a ler do Worker de leitura uma publicação
+    // com geração a partir deste instante (Publicacao.gs, ADR-05)
+    texto = texto.slice(0, -1) + ',"_ms":' + ms + (_REQ_ && _REQ_.metodo === 'POST' ? ',"_agora":' + Date.now() : '') + '}';
   }
   return ContentService.createTextOutput(texto).setMimeType(ContentService.MimeType.JSON);
 }

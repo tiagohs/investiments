@@ -31,7 +31,11 @@ test('Renda Fixa: backfill incremental não regrava dias que já estão no hist�
   const depois1 = chaves(ler());
   assert.equal(new Set(depois1).size, depois1.length, 'nenhum (dia, título, instituição) repetido depois do incremental');
   const posicoes = r1.posicoes || 1;
-  assert.ok(r1.linhasGravadas <= posicoes * 10, `grava só os dias que faltam (gravou ${r1.linhasGravadas} para ${posicoes} posições; antes eram ${antes} linhas)`);
+  // 29/10/2026: o teto dependia do relógio (fixtures de dias atrás = mais dias faltando); agora é o nº de dias desde o
+  // último dia gravado nas fixtures até hoje, + 3 de folga - continua pegando o "regravar tudo" (milhares de linhas)
+  const ultimo = limpo.filter((l) => ehData(l[0])).reduce((m, l) => Math.max(m, l[0].getTime()), 0);
+  const diasFaltando = Math.ceil((Date.now() - ultimo) / 86400000) + 3;
+  assert.ok(r1.linhasGravadas <= posicoes * diasFaltando, `grava só os dias que faltam (gravou ${r1.linhasGravadas} para ${posicoes} posições e ${diasFaltando} dias; antes eram ${antes} linhas)`);
 
   const r2 = sb.executarBackfillRendaFixaIncremental_();
   assert.equal(r2.linhasGravadas || 0, 0, '2ª execução seguida não grava nada');

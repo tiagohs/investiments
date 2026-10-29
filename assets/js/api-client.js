@@ -11,7 +11,8 @@
  * only ever need to check `response.ok` once.
  */
 
-import { APPS_SCRIPT_URL } from './config.js';
+import { APPS_SCRIPT_URL, LEITURA_URL } from './config.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER } from './leitura-chave.js';
 import { clearToken } from './auth.js';
 // 08/10/2026: cache-dados.js e desempenho.js carregam sob demanda (import dinâmico) - não pesam no 1º carregamento das telas
 let cacheDadosMod = null;
@@ -45,6 +46,70 @@ async function respostaGuardada(chave) {
 /** Esquece as respostas guardadas (Limpar cache / sair da conta). */
 export function esquecerRespostasGuardadas() { respostasGuardadas.clear(); }
 
+// ---------------------------------------------------------------------------
+// 29/10/2026: camada de leitura no Cloudflare (docs/arquitetura-leitura-cloudflare.md, RF-03/RF-04/RF-05)
+// ---------------------------------------------------------------------------
+// As telas publicadas são lidas do Worker (resposta pronta, ~100 ms). Qualquer problema - sem sessão s1, erro, 404,
+// 1,5 s sem resposta, ou publicação MAIS VELHA que a última gravação feita neste aparelho - cai no Apps Script, como antes.
+const CHAVE_GERACAO_MINIMA = 'investiments_geracao_minima';
+export const TEMPO_MAXIMO_LEITURA_MS = 1500;
+
+function lerGeracaoMinima() {
+  try { return Number(typeof localStorage !== 'undefined' && localStorage.getItem(CHAVE_GERACAO_MINIMA)) || 0; } catch (e) { return 0; }
+}
+/** Depois de gravar: publicação com geração anterior a este instante (relógio do Apps Script) não serve mais. */
+export function marcarGeracaoMinima(instanteMs) {
+  if (!Number.isFinite(instanteMs) || instanteMs <= lerGeracaoMinima()) return;
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(CHAVE_GERACAO_MINIMA, String(instanteMs)); } catch (e) { /* sem armazenamento: só esta aba */ }
+}
+
+let publicacaoAgendada = null;
+/** Pede ao Apps Script, em segundo plano, a republicação (várias gravações seguidas = 1 pedido). Nunca atrapalha quem gravou. */
+export function pedirPublicacao(token, { atrasoMs = 1500, agendar = typeof setTimeout === 'function' ? setTimeout : null, cancelar = typeof clearTimeout === 'function' ? clearTimeout : null } = {}) {
+  if (!LEITURA_URL || !token || !agendar) return;
+  if (publicacaoAgendada && cancelar) cancelar(publicacaoAgendada);
+  publicacaoAgendada = agendar(() => {
+    publicacaoAgendada = null;
+    try {
+      fetch(APPS_SCRIPT_URL, { method: 'POST', body: new URLSearchParams({ action: 'publicarLeitura', token, familias: 'tudo' }), keepalive: true }).catch(() => {});
+    } catch (e) { /* segundo plano */ }
+  }, atrasoMs);
+}
+
+async function lerDoWorker(action, params, token, chave, guardada, inicio) {
+  if (!LEITURA_URL || !ACOES_LIDAS_DO_WORKER.includes(action) || !String(token || '').startsWith('s1.')) return null;
+  const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+  const relogio = ctrl && typeof setTimeout === 'function' ? setTimeout(() => ctrl.abort(), TEMPO_MAXIMO_LEITURA_MS) : null;
+  try {
+    const k = chaveLeitura(action, params);
+    const headers = { Authorization: `Bearer ${token}` };
+    if (guardada && guardada.etag) headers['If-None-Match'] = `"${guardada.etag}"`;
+    const res = await fetch(`${LEITURA_URL}/v1/tela/${k}`, { method: 'GET', headers, ...(ctrl ? { signal: ctrl.signal } : {}) });
+    const geracao = res.headers && typeof res.headers.get === 'function' ? res.headers.get('X-Geracao') : null;
+    if (instanteDaGeracao(geracao) < lerGeracaoMinima()) return null; // anterior à última gravação deste aparelho
+    if (res.status === 304 && guardada) {
+      registrarDesempenho(action, { total: agoraMs() - inicio, servidor: null, naoMudou: true, bytes: 0, ok: true, fonte: 'cf' });
+      return { ...clonar(guardada.json), _naoMudou: true, _fonte: 'leitura' };
+    }
+    if (res.status !== 200) return null;
+    const texto = await res.text();
+    const json = JSON.parse(texto);
+    if (!json || json.ok !== true) return null;
+    const etag = String(res.headers.get('ETag') || '').replace(/"/g, '');
+    if (etag) {
+      const reg = { etag, json };
+      respostasGuardadas.set(chave, reg);
+      cacheDados().then((m) => m.gravarCacheDados(chave, reg)).catch(() => {});
+    }
+    registrarDesempenho(action, { total: agoraMs() - inicio, servidor: null, naoMudou: false, bytes: texto.length, ok: true, fonte: 'cf' });
+    return { ...clonar(json), _fonte: 'leitura' };
+  } catch (e) {
+    return null; // rede, 1,5 s esgotado, JSON ruim: Apps Script
+  } finally {
+    if (relogio) clearTimeout(relogio);
+  }
+}
+
 /**
  * Low-level request helper — GET for read actions, POST (form-encoded,
  * matching what Router.gs/doPost expects) for write actions.
@@ -55,6 +120,10 @@ async function request(method, action, token, params = {}, { _semEtag = false } 
   try {
     let response;
     const guardada = chave && !_semEtag ? await respostaGuardada(chave) : null;
+    if (chave && !_semEtag) {
+      const doWorker = await lerDoWorker(action, params, token, chave, guardada, inicio);
+      if (doWorker) return doWorker;
+    }
     if (method === 'GET') {
       const url = new URL(APPS_SCRIPT_URL);
       url.searchParams.set('action', action);
@@ -87,6 +156,11 @@ async function request(method, action, token, params = {}, { _semEtag = false } 
     // (aporte concluído, lançamentos, importação, consolidar): esquece o resumo guardado do header (A-43),
     // pra próxima carga buscar o estado novo em vez de mostrar o aviso velho por até 15 min.
     if (method !== 'GET') { try { if (typeof localStorage !== 'undefined') localStorage.removeItem('investiments_sync_resumo'); } catch (_) { /* só conveniência */ } }
+    // 29/10/2026: gravou -> o Worker só volta a valer com a geração nova; e pede a republicação em segundo plano
+    if (method !== 'GET' && json && json.ok !== false && action !== 'criarSessao' && action !== 'publicarLeitura') {
+      marcarGeracaoMinima(Number(json._agora) || Date.now());
+      pedirPublicacao(token);
+    }
     // 25/09/2026: sessão recusada (expirou/foi encerrada) - esquece o token,
     // e a próxima página já manda pro login em vez de repetir o erro.
     if (json && json.ok === false && json.etapa === 'autenticação') clearToken();

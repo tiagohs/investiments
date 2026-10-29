@@ -30,3 +30,7 @@ __pycache__/
 # 08/10/2026: clasp (scripts/gas.mjs) - ID do script e credenciais ficam só no seu computador
 .clasp.json
 .clasprc.json
+
+# 29/10/2026: Worker de leitura - segredo da publicação e arquivos locais do wrangler (nunca no git)
+worker/.segredos.local
+worker/.wrangler/

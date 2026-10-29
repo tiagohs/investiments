@@ -628,3 +628,13 @@ Pedido do Tiago, depois da live "O governo está queimando o seu dinheiro?" (Sun
 ### 28/10/2026 (câmbio do histórico USA: PTAX do dia)
 
 O GOOGLEFINANCE (CURRENCY:USDBRL) marca no dia D o fechamento de D-1 (o salto do dólar de 26/10, dia do circuit breaker, só aparecia em 27/10; é também a origem do "buraco das segundas"). `Sync.gs!buscarCambioUsdBrlPorDia_` agora usa a PTAX de venda do BCB (Olinda, datada pelo próprio dia) e só cai no GOOGLEFINANCE, com a data corrigida, se o BCB não responder. Reparo do que já estava gravado: `corrigirCambioHistoricoUsaDireto()` no editor (regrava Câmbio e Valor BRL das linhas USA). Testes: tests/harness/cambio-ptax.test.js.
+
+### 29/10/2026 (camada de leitura no Cloudflare - F1 e F2)
+
+Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
+- **Worker** (`worker/`): `GET /v1/tela/:acao` (sessão s1 verificada com o mesmo HMAC do Auth.gs, corpo gzip pronto, ETag/304), `GET /v1/estado`, `POST /v1/publicar` (assinado, janela de 10 min, geração mais velha não sobrescreve a nova). D1 (`worker/schema.sql`). Chave canônica compartilhada: `assets/js/leitura-chave.js`.
+- **Publicação** (`apps-script/Publicacao.gs`): 17 telas montadas pelas mesmas funções do doGet, só vai o que mudou (etag), etapa `publicarLeitura` na agenda, gatilho do pregão (15 min), `POST action=publicarLeitura` (não sobe a geração). Sem `LEITURA_URL`/`LEITURA_SEGREDO`, nada acontece.
+- **Testes**: `tests/worker-leitura.test.js` (Worker com D1 em node:sqlite, sessão criada pelo Auth.gs real) e `tests/harness/publicacao-leitura.test.js` (paridade Worker = doGet em todas as telas, contrato de rotas, pregão).
+- Tamanhos com as fixtures (gzip): Início 149 KB (1,97 MB sem compressão), Transações 28 KB, demais ≤ 11 KB.
+- Bug achado: `AGENDA_FERIADOS_B3_` não tinha 12/10 e 02/11 (B3 fechada) - corrigido, coberto no teste do pregão. Teste da Renda Fixa incremental dependia do relógio - teto agora pelos dias desde as fixtures.
+- Próximo: `npm run worker:configurar` (Tiago, no Terminal) e F3 (Início lendo do Worker).

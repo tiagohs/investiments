@@ -33,7 +33,7 @@ export function registrarDesempenho(acao, medida, { armazenamento = armazenament
     const dados = ler(armazenamento);
     const lista = Array.isArray(dados[acao]) ? dados[acao] : [];
     lista.push({ em: agora, t: Math.round(medida.total || 0), s: Number.isFinite(medida.servidor) ? Math.round(medida.servidor) : null,
-      nm: !!medida.naoMudou, b: Number.isFinite(medida.bytes) ? medida.bytes : null, ok: medida.ok !== false });
+      nm: !!medida.naoMudou, b: Number.isFinite(medida.bytes) ? medida.bytes : null, ok: medida.ok !== false, f: medida.fonte || 'as' }); // f: 'cf' = Worker de leitura, 'as' = Apps Script (29/10/2026)
     dados[acao] = lista.slice(-MAX_POR_ACAO);
     armazenamento.setItem(CHAVE, JSON.stringify(dados));
   } catch (e) { /* cota cheia / modo privado: só não mede */ }

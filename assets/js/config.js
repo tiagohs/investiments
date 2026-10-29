@@ -13,6 +13,9 @@ export const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw4WvFaA
 
 // Google Identity Services OAuth Client ID — must match what the Apps
 // Script validates in Auth.gs (verificarToken checks payload.aud).
+// 29/10/2026: Worker de leitura (docs/arquitetura-leitura-cloudflare.md) - endereço público, sem segredo. '' desliga.
+export const LEITURA_URL = 'https://investiments-leitura.tiago-silva-93.workers.dev';
+
 export const CLIENT_ID = '778662849882-rcbhu8btlamd3qs45pdgujtdbki20lmo.apps.googleusercontent.com';
 
 // 06/10/2026 (A-27): o link da planilha NÃO mora mais aqui (repositório público):

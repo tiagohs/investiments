@@ -14,7 +14,8 @@
     "gas:configurar": "node scripts/gas.mjs configurar",
     "gas:conferir": "node scripts/gas.mjs conferir",
     "gas:publicar": "node scripts/gas.mjs publicar",
-    "fixtures:atualizar": "node scripts/atualizar-fixtures.mjs"
+    "fixtures:atualizar": "node scripts/atualizar-fixtures.mjs",
+    "worker:configurar": "node scripts/worker.mjs"
   },
   "engines": {
     "node": ">=20"

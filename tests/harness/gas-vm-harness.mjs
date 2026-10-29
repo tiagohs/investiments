@@ -385,7 +385,7 @@ export function montarSandboxComFixtures_(fixturesRaw, sandbox) {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, getActive: () => ss, DataValidationCriteria: { VALUE_IN_LIST: 'VALUE_IN_LIST', VALUE_IN_RANGE: 'VALUE_IN_RANGE' } },
     Session: { getScriptTimeZone: () => FUSO_PROJETO_APPS_SCRIPT },
     CacheService: { getScriptCache: () => scriptCache },
-    LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
+    LockService: { getScriptLock: () => ({ waitLock() {}, tryLock() { return true; }, releaseLock() {} }) },
     Logger: { log: (...args) => console.log('[Logger]', ...args) },
     Utilities: {
       // 08/10/2026: etag das respostas (Auth.gs!jsonOut) - mesmo MD5 do Apps Script

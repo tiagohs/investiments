@@ -1,0 +1,13 @@
+# Worker de leitura (docs/arquitetura-leitura-cloudflare.md). Deploy: cd worker && npx wrangler deploy
+# Segredos (nunca no repositório): npx wrangler secret put SESSAO_SEGREDO | PUBLICACAO_SEGREDO | EMAILS_AUTORIZADOS
+name = "investiments-leitura"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+ORIGENS = "https://tiagohs.github.io,http://localhost:8000,http://127.0.0.1:8000"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "investiments-leitura"
+database_id = "b692f9ef-6ee9-4e2c-9091-c7a46187d506"

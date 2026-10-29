@@ -181,11 +181,14 @@ function doPostRotas_(e) {
   if (!auth.ok) {
     return jsonOut({ ok: false, etapa: 'autenticação', erro: auth.erro });
   }
-  _POST_AUTENTICADO_ = action !== 'criarSessao'; // só quem passou na autenticação carimba (antes e depois da ação); login não escreve na planilha
+  _POST_AUTENTICADO_ = action !== 'criarSessao' && action !== 'publicarLeitura'; // 29/10/2026: publicar a leitura só lê a planilha (não muda a geração) // só quem passou na autenticação carimba (antes e depois da ação); login não escreve na planilha
   if (_POST_AUTENTICADO_ && typeof registrarEscritaPlanilha_ === 'function') registrarEscritaPlanilha_();
 
   if (action === 'criarSessao') { // 25/09/2026: login do Google (1h) -> sessão de vários dias (Auth.gs)
     return handleCriarSessao(auth);
+  }
+  if (action === 'publicarLeitura') { // 29/10/2026: camada de leitura no Cloudflare (Publicacao.gs)
+    return handlePublicarLeitura(e);
   }
   if (action === 'importarTransacoesB3') {
     return handleImportarTransacoesB3(e);

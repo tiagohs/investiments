@@ -117,9 +117,10 @@ var AGENDA_GATILHOS_ANTIGOS_ = ['gatilhoDiario', 'gatilhoDiarioRendaFixaEIndices
 // 05/10/2026 (A-55): feriados em que a B3 não opera (além de sábado e domingo). A aba "aux_feriados-b3"
 // (coluna A = data, aaaa-mm-dd ou dd/mm/aaaa) soma datas a esta lista sem mexer em código. Só entram as datas
 // de que há certeza; 12/10 e 02/11, por exemplo, ficam de fora (se a B3 fechar, é só incluir na aba).
+// 29/10/2026: faltavam 12/10 (Aparecida) e 02/11 (Finados) - a B3 não abre (calendário oficial de 2026); 2027 também 15/11
 var AGENDA_FERIADOS_B3_ = [
-  '2026-01-01', '2026-02-16', '2026-02-17', '2026-04-03', '2026-04-21', '2026-05-01', '2026-06-04', '2026-09-07', '2026-11-20', '2026-12-24', '2026-12-25', '2026-12-31',
-  '2027-01-01', '2027-02-08', '2027-02-09', '2027-03-26', '2027-04-21', '2027-05-27', '2027-09-07', '2027-11-20', '2027-12-24', '2027-12-31'
+  '2026-01-01', '2026-02-16', '2026-02-17', '2026-04-03', '2026-04-21', '2026-05-01', '2026-06-04', '2026-09-07', '2026-10-12', '2026-11-02', '2026-11-20', '2026-12-24', '2026-12-25', '2026-12-31',
+  '2027-01-01', '2027-02-08', '2027-02-09', '2027-03-26', '2027-04-21', '2027-05-27', '2027-09-07', '2027-10-12', '2027-11-02', '2027-11-15', '2027-11-20', '2027-12-24', '2027-12-31'
 ];
 var AGENDA_ABA_FERIADOS_ = 'aux_feriados-b3';
 
@@ -142,6 +143,7 @@ var AGENDA_ETAPAS_ = [
   { id: 'portfolioFii', nome: 'Portfólio dos FIIs', principal: false, depende: ['informesFnet'], recuperavel: false }, // 05/10/2026 (PortfolioFii.gs): lê os fatos relevantes dos informes
   { id: 'preAquecer', nome: 'Pré-aquecimento das telas de ativo', principal: false, depende: ['ativos'], recuperavel: false }, // 05/10/2026 (A-53, Ativo.gs)
   { id: 'inflacaoPessoal', nome: 'Minha inflação (IPCA por item, TR, juro em dólar)', principal: false, depende: [], recuperavel: false }, // 28/10/2026 (InflacaoPessoal.gs)
+  { id: 'publicarLeitura', nome: 'Publicar a leitura no Cloudflare', principal: false, depende: [], recuperavel: false }, // 29/10/2026 (Publicacao.gs): depois das atualizações do dia
   // 06/10/2026 (A-56, MODO SOMBRA): snapshot diário de PREÇO em aux_snapshot-precos (SnapshotPrecos.gs), sem mexer na série atual.
   // `depoisDe`: não roda antes dessa hora (SP) - a agenda espera (one-shot às 18:30) pra pegar o preço de fechamento. Última da fila.
   { id: 'snapshotPrecos', nome: 'Snapshot de preços (sombra, A-56)', principal: false, depende: ['ativos'], recuperavel: false, depoisDe: '18:30' }
@@ -433,6 +435,12 @@ function agendaRodarJob_(id, est) {
         ((pa.falhas && pa.falhas.length) ? ', ' + pa.falhas.length + ' falha(s): ' + pa.falhas.slice(0, 3).join('; ') : '') +
         (extra ? ' | ' + extra.detalhe : '')
     };
+  }
+  if (id === 'publicarLeitura') {
+    // 29/10/2026: sem LEITURA_URL/LEITURA_SEGREDO não há o que publicar - a etapa sai ok (o site segue lendo do Apps Script)
+    var pub = publicarLeituraAgenda_(); // Publicacao.gs
+    if (pub.configurado === false) return { ok: true, detalhe: 'não configurada' };
+    return { ok: pub.ok !== false, detalhe: (pub.publicadas || 0) + ' publicada(s), ' + (pub.iguais || 0) + ' igual(is)' + (pub.erros && pub.erros.length ? ', ' + pub.erros.length + ' com erro' : '') + (pub.erro ? ' - ' + pub.erro : '') };
   }
   if (id === 'inflacaoPessoal') {
     // 28/10/2026: IPCA por subitem (IBGE), TR (BCB) e juro em dólar (FRED). "Atenção" (uma fonte fora) não repete: amanhã tem de novo.
