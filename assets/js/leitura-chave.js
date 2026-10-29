@@ -24,9 +24,12 @@ export function instanteDaGeracao(geracao) {
 
 /**
  * Ações que o Apps Script publica (Publicacao.gs!familiasLeitura_ - testado que é a mesma lista) e que o site lê do Worker.
- * transacoes e aportesPendentes ficam de fora por enquanto (carrinho e aportes mudam a cada clique - leem do Apps Script).
+ * Todas são lidas do Worker (ACOES_LIDAS_DO_WORKER, abaixo).
  */
-export const ACOES_PUBLICADAS = Object.freeze(['home', 'distribuicoesMetas', 'carteirasHome', 'carteirasAcoes', 'carteirasFiis',
-  'carteirasAcoesEua', 'carteirasRendaFixa', 'metas', 'patrimonio', 'transacoes', 'macro', 'proventos', 'aportesPendentes', 'despesas',
-  'inflacaoPessoal', 'salario', 'metasHistorico']);
-export const ACOES_LIDAS_DO_WORKER = Object.freeze(ACOES_PUBLICADAS.filter((a) => a !== 'transacoes' && a !== 'aportesPendentes'));
+export const ACOES_PUBLICADAS = Object.freeze(['home', 'transacoes', 'aportesPendentes', 'despesas', 'gastos', 'distribuicoesMetas',
+  'carteirasHome', 'carteirasAcoes', 'carteirasFiis', 'carteirasAcoesEua', 'carteirasRendaFixa', 'metas', 'patrimonio', 'macro',
+  'proventos', 'inflacaoPessoal', 'salario', 'metasHistorico']);
+// 29/10/2026 (Tiago: "Transações e Organização ainda lentas no Atualizar"): agora TODAS as telas publicadas são lidas do
+// Worker - inclusive Transações, o carrinho e os gastos. Depois de uma gravação, a geração mínima (api-client.js) recusa a
+// cópia anterior à gravação e a leitura cai no Apps Script até a nova publicação chegar.
+export const ACOES_LIDAS_DO_WORKER = ACOES_PUBLICADAS;

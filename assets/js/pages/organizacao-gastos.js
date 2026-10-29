@@ -1001,7 +1001,9 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     timerCarga = t;
   }
 
-  async function carregar({ comDrive = false, automatica = false } = {}) {
+  // 29/10/2026: esperarDrive=false (botão "Atualizar dados" da página): a promessa termina quando os GASTOS chegam;
+  // a lista do Drive (~9 s no Apps Script) continua em segundo plano e redesenha quando chegar.
+  async function carregar({ comDrive = false, automatica = false, esperarDrive = true } = {}) {
     const meu = seqCarga += 1;
     const pDrive = comDrive || !est.drive ? api.getArquivosGastos().catch((e) => ({ ok: false, erro: String(e) })) : null;
     let r;
@@ -1022,10 +1024,13 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
     est.completo = !r.janela || !!r.janela.completo; // já tem o histórico inteiro? (resposta sem `janela` = tudo)
     desenhar();
     if (pDrive && !automatica) {
-      const d = await pDrive;
-      if (d && d.ok) est.drive = { configurado: d.configurado !== false, arquivos: d.arquivos || [] };
-      else if (d) est.drive = { erro: ERRO_DRIVE_HUMANO, detalhe: String(d.erro || 'erro') };
-      desenhar();
+      const aplicarDrive = (d) => {
+        if (d && d.ok) est.drive = { configurado: d.configurado !== false, arquivos: d.arquivos || [] };
+        else if (d) est.drive = { erro: ERRO_DRIVE_HUMANO, detalhe: String(d.erro || 'erro') };
+        desenhar();
+      };
+      if (esperarDrive) aplicarDrive(await pDrive);
+      else pDrive.then(aplicarDrive, () => { /* pDrive já devolve {ok:false} */ });
     }
   }
 
@@ -1045,7 +1050,7 @@ export function montarSecaoGastos(raiz, opcoes = {}) {
   });
   return {
     pronto,
-    recarregar: () => carregar({ comDrive: true }),
+    recarregar: () => carregar({ comDrive: true, esperarDrive: false }),
     /** A aba Gastos e Despesas voltou a aparecer: refaz o desenho (os gráficos medem a largura) e relê se a última releitura falhou ou a tela está vazia. */
     aoMostrar() {
       if (!dados) return;

@@ -395,7 +395,7 @@ export const ABA_DO_HASH = {
 
 export async function montarPaginaOrganizacao(token, {
   doc = document, getDespesasImpl = getDespesas, salvarDespesasImpl = salvarDespesas, refresh = true, salarioOpcoes = {}, patrimonioOpcoes = {},
-  gastosOpcoes = {}, rendaOpcoes = {}, simuladorOpcoes = {}, documentosOpcoes = {}, hoje = null, inflacaoOpcoes = {},
+  gastosOpcoes = {}, rendaOpcoes = {}, simuladorOpcoes = {}, documentosOpcoes = {}, hoje = null, inflacaoOpcoes = {}, janelaRecenteMs = 5000,
 } = {}) {
   let gastos = null;
   const loadingEl = doc.getElementById('organizacaoLoading');
@@ -1062,21 +1062,31 @@ export async function montarPaginaOrganizacao(token, {
   // pede de novo o que começou há menos de 5 s (eram 5 chamadas duplicadas,
   // 4 execuções pesadas simultâneas no Apps Script). Abas fora de vista só
   // buscam ao abrir (mostrarAba -> montarX -> obter()).
-  const JANELA_RECENTE_MS = 5000;
+  const JANELA_RECENTE_MS = janelaRecenteMs;
   const recente = (c) => c.iniciado && c.iniciadoHa() < JANELA_RECENTE_MS;
+  // 29/10/2026 (Tiago: "o botão Atualizar da Organização ainda é lento"): o botão esperava TUDO - inclusive as listas do
+  // Drive (gastosArquivos ~9 s, holerites ~4 s), que nenhuma conta da aba aberta usa. Agora ele espera só o que a aba
+  // aberta mostra; o resto (outras abas, Drive) atualiza em segundo plano DEPOIS, sem disputar a planilha com o essencial.
+  const essenciaisDaAba = (aba) => {
+    if (aba === 'despesas') return ['gastos'];
+    if (aba === 'renda') return ['salario'];
+    if (aba === 'patrimonio' || aba === 'simulacoes') return ['patrimonio'];
+    return [];
+  };
+  const recarregadores = () => ({
+    patrimonio: () => { if (patrimonio && patrimonio.dados) { if (!recente(pat)) return patrimonio.recarregar(); } else if (pat.iniciado && !recente(pat)) return pat.recarregar(); return null; },
+    salario: () => { if (salario && salario.dados) { if (!recente(sal)) return salario.recarregar(); } else if (sal.iniciado && !recente(sal)) return sal.recarregar(); return null; },
+    gastos: () => { if (gastos && gastos.dados) { if (!recente(gas)) return gastos.recarregar(); } else if (gas.iniciado && !recente(gas)) return gas.recarregar(); return null; },
+    gastosDrive: () => ((!(gastos && gastos.dados) && gasDrive.iniciado && !recente(gasDrive)) ? gasDrive.recarregar() : null),
+    holeritesDrive: () => ((holDrive.iniciado && !recente(holDrive)) ? holDrive.recarregar() : null),
+  });
   const atualizarTudo = async () => {
-    const tarefas = [carregar()];
-    if (patrimonio && patrimonio.dados) { if (!recente(pat)) tarefas.push(patrimonio.recarregar()); }
-    else if (pat.iniciado && !recente(pat)) tarefas.push(pat.recarregar());
-    if (salario && salario.dados) { if (!recente(sal)) tarefas.push(salario.recarregar()); }
-    else if (sal.iniciado && !recente(sal)) tarefas.push(sal.recarregar());
-    if (gastos && gastos.dados) { if (!recente(gas)) tarefas.push(gastos.recarregar()); }
-    else {
-      if (gas.iniciado && !recente(gas)) tarefas.push(gas.recarregar());
-      if (gasDrive.iniciado && !recente(gasDrive)) tarefas.push(gasDrive.recarregar());
-    }
-    if (holDrive.iniciado && !recente(holDrive)) tarefas.push(holDrive.recarregar());
-    await Promise.all(tarefas);
+    const r = recarregadores();
+    const essenciais = essenciaisDaAba(abaAtual);
+    await Promise.all([carregar(), ...essenciais.map((k) => r[k]())]);
+    Object.keys(r).filter((k) => !essenciais.includes(k)).forEach((k) => {
+      try { const p = r[k](); if (p && typeof p.catch === 'function') p.catch(() => { /* segundo plano: o erro já aparece na própria seção */ }); } catch (e) { /* ok */ }
+    });
   };
 
   const cache = await lerCacheDados(CHAVE_CACHE);
@@ -1104,6 +1114,6 @@ export async function montarPaginaOrganizacao(token, {
     get gastos() { return gastos; }, get simulador() { return simulador; }, get simulacoes() { return simulacoes; }, get renda() { return renda; }, get carreira() { return carreira; },
     get documentos() { return painelDocs; }, get abaAtual() { return abaAtual; },
     carregadores: { patrimonio: pat, salario: sal, gastos: gas, gastosDrive: gasDrive, holeritesDrive: holDrive },
-    mostrarAba, acaoDocumento,
+    mostrarAba, acaoDocumento, atualizar: atualizarTudo,
   };
 }

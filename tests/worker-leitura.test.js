@@ -104,7 +104,7 @@ test('publicar + ler: corpo em gzip com ETag, 304 quando igual, 404 sem publica�
   const home = { ok: true, patrimonio: { total: 1234.56 }, texto: 'ação com acento ç' };
   const r = await publicar(env, { geracao: geracao(1761700000000), itens: [item('home', home), item('ativo?ticker=AAAA3', { ok: true, t: 'AAAA3' })] });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { ok: true, gravadas: 2, recusadas: [] });
+  assert.deepEqual(await r.json(), { ok: true, gravadas: 2, confirmadas: 0, recusadas: [] });
   const token = authGs().criarTokenSessao_(EMAIL).token;
   const a = await ler(env, '/v1/tela/home', { token });
   assert.equal(a.status, 200);
@@ -157,6 +157,25 @@ test('publicação: geração mais velha não sobrescreve a mais nova; corpo que
   assert.equal(ruins.ok, false);
   assert.deepEqual(ruins.recusadas.map((r) => r.chave), ['x', 'home; DROP TABLE', 'grande']);
   assert.equal(env.DB.db.prepare('SELECT COUNT(*) n FROM publicacao').get().n, 1);
+});
+
+test('confirmação (tela que não mudou): sobe a geração sem reenviar o corpo - só com o MESMO hash e geração mais nova', async () => {
+  // 29/10/2026 (bug): sem isso a tela igual ficava com a geração antiga e o site a recusava depois de qualquer gravação
+  const env = ambiente();
+  const token = authGs().criarTokenSessao_(EMAIL).token;
+  const home = { ok: true, v: 1 };
+  await gravarLote(env, { geracao: geracao(1000000000000), itens: [item('home', home), item('metas', { ok: true })] }, '2026-10-29T12:00:00Z');
+  const r = await gravarLote(env, { geracao: geracao(2000000000000), itens: [], confirmar: [{ chave: 'home', hash: md5(home) }, { chave: 'metas', hash: 'outrohash1' }] }, '2026-10-29T12:05:00Z');
+  assert.equal(r.ok, true);
+  assert.equal(r.confirmadas, 2);
+  const a = await ler(env, '/v1/tela/home', { token });
+  assert.equal(a.headers.get('X-Geracao'), geracao(2000000000000), 'mesmo hash: geração nova');
+  assert.deepEqual(await corpoJson(a), home, 'corpo intacto');
+  assert.equal((await ler(env, '/v1/tela/metas', { token })).headers.get('X-Geracao'), geracao(1000000000000), 'hash diferente: não confirma');
+  await gravarLote(env, { geracao: geracao(1500000000000), itens: [], confirmar: [{ chave: 'home', hash: md5(home) }] }, '2026-10-29T12:06:00Z');
+  assert.equal((await ler(env, '/v1/tela/home', { token })).headers.get('X-Geracao'), geracao(2000000000000), 'confirmação velha não volta a geração');
+  const ruim = await gravarLote(env, { geracao: geracao(3000000000000), itens: [], confirmar: [{ chave: 'home; DROP', hash: 'abcdefgh' }] }, '2026-10-29T12:07:00Z');
+  assert.equal(ruim.ok, false);
 });
 
 test('chave canônica e instante da geração', () => {

@@ -4,7 +4,7 @@
 //  - depois de gravar: guarda o instante (_agora do Apps Script) e pede a republicação em segundo plano.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHome, getCarteirasFiis, getTransacoes, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
+import { getHome, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL, APPS_SCRIPT_URL } from '../assets/js/config.js';
 
@@ -66,13 +66,25 @@ test('Worker com 404, 500, rede fora ou mais de 1,5 s: a tela vem do Apps Script
   }
 });
 
-test('sem sessão s1 (token do Google) ou tela não publicada (transacoes): direto no Apps Script', async (t) => {
+test('sem sessão s1 (token do Google) ou tela não publicada (syncStatus): direto no Apps Script', async (t) => {
   limpar();
   const urls = [];
   t.mock.method(globalThis, 'fetch', async (url) => { urls.push(String(url)); return resposta(200, { ok: true, _etag: 'E' }); });
   await getHome('eyJhbGciOi.google.token');
-  await getTransacoes(S1);
+  await getSyncStatus(S1);
   assert.ok(urls.every((u) => u.startsWith(APPS_SCRIPT_URL)), urls.join(' | '));
+});
+
+test('29/10/2026: Transações também vem do Worker (o Atualizar não espera os ~15 s do Apps Script)', async (t) => {
+  limpar();
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(String(url));
+    if (String(url).startsWith(LEITURA_URL)) return resposta(200, { ok: true, v: 'worker' }, { ETag: '"T"', 'X-Geracao': geracao(1) });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  assert.equal((await getTransacoes(S1)).v, 'worker');
+  assert.ok(urls[0].startsWith(`${LEITURA_URL}/v1/tela/transacoes`), urls.join(' | '));
 });
 
 test('depois de gravar: publicação mais velha que a gravação não serve (Apps Script); a nova serve; republicação pedida em segundo plano', async (t) => {

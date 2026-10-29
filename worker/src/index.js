@@ -96,11 +96,22 @@ export async function gravarLote(env, lote, agoraIso) {
        WHERE excluded.geracao_ms >= publicacao.geracao_ms`,
     ).bind(String(it.chave), lote.geracao, geracaoMs, String(it.hash), agoraIso, Number(it.bytes) || corpo.length, corpo.buffer)); // D1: ArrayBuffer vira BLOB
   }
+  // 29/10/2026: telas que não mudaram - o Apps Script confirma (chave + hash) que o corpo guardado vale pra esta geração.
+  // Só vale se o hash for o mesmo (o corpo é aquele) e a geração for mais nova.
+  const confirmar = Array.isArray(lote.confirmar) ? lote.confirmar : [];
+  let confirmadas = 0;
+  for (const c of confirmar) {
+    if (!c || !CHAVE_VALIDA.test(String(c.chave)) || !HASH_VALIDO.test(String(c.hash))) { recusadas.push({ chave: c && c.chave, motivo: 'confirmação inválida' }); continue; }
+    confirmadas++;
+    comandos.push(env.DB.prepare(
+      'UPDATE publicacao SET geracao = ?, geracao_ms = ?, publicado_em = ? WHERE chave = ? AND hash = ? AND geracao_ms <= ?',
+    ).bind(lote.geracao, geracaoMs, agoraIso, String(c.chave), String(c.hash), geracaoMs));
+  }
   comandos.push(env.DB.prepare(
     `INSERT INTO estado (chave, valor) VALUES ('ultima_publicacao', ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor`,
-  ).bind(JSON.stringify({ em: agoraIso, geracao: lote.geracao, itens: lote.itens.length, recusadas: recusadas.length })));
+  ).bind(JSON.stringify({ em: agoraIso, geracao: lote.geracao, itens: lote.itens.length, confirmadas, recusadas: recusadas.length })));
   await env.DB.batch(comandos);
-  return { ok: recusadas.length === 0, gravadas: comandos.length - 1, recusadas };
+  return { ok: recusadas.length === 0, gravadas: comandos.length - 1 - confirmadas, confirmadas, recusadas };
 }
 
 async function publicar(request, env, cors) {

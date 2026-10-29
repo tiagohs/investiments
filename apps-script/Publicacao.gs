@@ -30,8 +30,14 @@ var LEITURA_PREGAO_FIM_ = '18:30';
  * que o site pede hoje (assets/js/api-client.js). Função (e não var) pra ler os handlers na hora da chamada.
  */
 function familiasLeitura_() {
+  // 29/10/2026: a ordem é a ordem de envio (cada tela vai ao Worker assim que fica pronta). Primeiro as telas que o
+  // Tiago abre e atualiza mais - home, Transações (e o carrinho de aportes) e os gastos da Organização.
   return [
     { acao: 'home', fn: handleHome, cotacao: true },
+    { acao: 'transacoes', fn: handleTransacoes, cotacao: true },
+    { acao: 'aportesPendentes', fn: handleAportesPendentes, cotacao: false },
+    { acao: 'despesas', fn: handleDespesas, cotacao: false },
+    { acao: 'gastos', fn: handleGastos, cotacao: false },
     { acao: 'distribuicoesMetas', fn: handleDistribuicoesMetas, cotacao: true },
     { acao: 'carteirasHome', fn: handleCarteirasHome, cotacao: true },
     { acao: 'carteirasAcoes', fn: handleCarteirasAcoes, cotacao: true },
@@ -40,11 +46,8 @@ function familiasLeitura_() {
     { acao: 'carteirasRendaFixa', fn: handleCarteirasRendaFixa, cotacao: true },
     { acao: 'metas', fn: handleMetas, cotacao: true },
     { acao: 'patrimonio', fn: handlePatrimonio, cotacao: true },
-    { acao: 'transacoes', fn: handleTransacoes, cotacao: true },
     { acao: 'macro', fn: handleMacro, cotacao: true },
     { acao: 'proventos', fn: handleProventos, cotacao: false },
-    { acao: 'aportesPendentes', fn: handleAportesPendentes, cotacao: false },
-    { acao: 'despesas', fn: handleDespesas, cotacao: false },
     { acao: 'inflacaoPessoal', fn: handleInflacaoPessoal, cotacao: false },
     { acao: 'salario', fn: handleSalario, cotacao: false },
     { acao: 'metasHistorico', fn: handleMetasHistorico, cotacao: false }
@@ -54,7 +57,7 @@ function familiasLeitura_() {
 /** Ações GET que ficam SÓ no Apps Script (dependem de fonte externa na hora, do Drive, ou de parâmetro livre). */
 var LEITURA_SO_APPS_SCRIPT_ = ['ping', 'syncStatus', 'syncHistorico', 'historico_inicio', 'meusAtivos', 'historicoAtivo', 'irRendaFixa',
   'ativo', 'noticiasAtivo', 'tesesAtivo', 'fundamentos', 'fiiPortfolio', 'videos', 'infoNovoAtivo', 'patrimonioIrArquivos',
-  'patrimonioIrArquivo', 'holeritesArquivos', 'holeriteArquivo', 'gastos', 'gastosArquivos', 'gastosArquivo', 'intradia',
+  'patrimonioIrArquivo', 'holeritesArquivos', 'holeriteArquivo', 'gastosArquivos', 'gastosArquivo', 'intradia',
   'consolidacao', 'capacidade'];
 
 /** A chave canônica - o MESMO formato de assets/js/leitura-chave.js!chaveLeitura (testado nos dois lados). */
@@ -137,8 +140,11 @@ function publicarLeituraSemTrava_(opcoes) {
   try {
     if (typeof iniciarExecucao_ === 'function') iniciarExecucao_();
     if (typeof ativarLeituraUnica_ === 'function') ativarLeituraUnica_();
-    // a geração ANTES de ler: uma gravação que acontecer durante a montagem gera uma geração mais nova (ADR-05)
-    var geracao = carimboEscritaPlanilha_();
+    // a geração ANTES de ler (ADR-05). 29/10/2026 (bug): era o carimbo da última GRAVAÇÃO - mas o site exige, depois de
+    // gravar, uma geração >= o relógio do fim da gravação (_agora, Auth.gs!jsonOut), e o carimbo da gravação é sempre
+    // ANTERIOR a esse relógio: depois de qualquer gravação o site nunca mais aceitava o Worker (tudo voltava ao Apps Script).
+    // Agora a geração é o instante em que esta montagem começou a ler a planilha: tudo o que foi gravado antes dele está aqui.
+    var geracao = VERSAO_CODIGO_CACHE_ + '.' + String(Date.now()) + 'pub';
     var props = PropertiesService.getScriptProperties();
     var hashes = {};
     try { hashes = JSON.parse(props.getProperty(LEITURA_PROP_HASHES_) || '{}') || {}; } catch (eH) { hashes = {}; }
@@ -151,10 +157,15 @@ function publicarLeituraSemTrava_(opcoes) {
     var itens = [], erros = [], iguais = 0, tempos = {}, publicadas = 0;
     // 29/10/2026: cada tela vai assim que fica pronta (a 1ª publicação levou ~2,5 min: a Início chega ao Worker em segundos,
     // não no fim de tudo)
+    // 29/10/2026: tela IGUAL à do Worker não reenvia o corpo, mas CONFIRMA a geração nova (chave + hash) - senão ela ficava
+    // com a geração antiga e o site, depois de uma gravação em outra tela, a recusava pra sempre. Vai junto do próximo envio.
+    var confirmar = [], confirmadas = 0;
     function enviar(lote) {
-      var r = enviarLoteLeitura_(cfg, { geracao: geracao, itens: lote });
+      var conf = confirmar; confirmar = [];
+      var r = enviarLoteLeitura_(cfg, { geracao: geracao, itens: lote, confirmar: conf });
       var recusadas = (r.recusadas || []).map(function (x) { return x.chave; });
-      if (!r.enviado) { lote.forEach(function (it) { erros.push({ acao: it.chave, erro: r.erro }); }); return; }
+      if (!r.enviado) { lote.concat(conf).forEach(function (it) { erros.push({ acao: it.chave, erro: r.erro }); }); return; }
+      confirmadas += conf.length;
       lote.forEach(function (it) {
         if (recusadas.indexOf(it.chave) === -1) { hashes[it.chave] = it.hash; publicadas++; } else erros.push({ acao: it.chave, erro: 'recusada pelo Worker' });
       });
@@ -167,7 +178,7 @@ function publicarLeituraSemTrava_(opcoes) {
         if (!obj || obj.ok !== true) { erros.push({ acao: f.acao, erro: String((obj && (obj.erro || obj.etapa)) || 'resposta sem ok') }); return; }
         var chave = chaveLeitura_(f.acao, f.params);
         var hash = etagDoTexto_(texto);
-        if (!o.forcar && hashes[chave] === hash) { iguais++; return; }
+        if (!o.forcar && hashes[chave] === hash) { iguais++; confirmar.push({ chave: chave, hash: hash }); return; }
         var gz = Utilities.gzip(Utilities.newBlob(texto, 'application/json'));
         var bytes = gz.getBytes();
         var item = { chave: chave, hash: hash, bytes: bytes.length, gz: Utilities.base64Encode(bytes) };
@@ -179,8 +190,9 @@ function publicarLeituraSemTrava_(opcoes) {
         tempos[f.acao] = Date.now() - t0;
       }
     });
+    if (confirmar.length) enviar([]);
     props.setProperty(LEITURA_PROP_HASHES_, JSON.stringify(hashes));
-    var resumo = { ok: erros.length === 0, configurado: true, geracao: geracao, publicadas: publicadas, iguais: iguais, erros: erros,
+    var resumo = { ok: erros.length === 0, configurado: true, geracao: geracao, publicadas: publicadas, iguais: iguais, confirmadas: confirmadas, erros: erros,
       ms: Date.now() - inicio, tempos: tempos, origem: o.origem || 'Manual', em: new Date().toISOString() };
     props.setProperty(LEITURA_PROP_ULTIMA_, JSON.stringify(resumo).slice(0, 8000));
     if (erros.length && typeof gravarRegistroControle_ === 'function') {

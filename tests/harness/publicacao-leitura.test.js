@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { criarSandboxGs } from './gas-vm-harness.mjs';
 import worker, { gravarLote } from '../../worker/src/index.js';
-import { chaveLeitura, ACOES_PUBLICADAS, ACOES_LIDAS_DO_WORKER } from '../../assets/js/leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_LIDAS_DO_WORKER } from '../../assets/js/leitura-chave.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(__dirname, '..', '..');
@@ -107,7 +107,9 @@ test('só vai o que mudou; sem configuração nada é publicado; telas de cotaç
   const r2 = plain(sb.publicarLeitura_({ familias: 'tudo' }));
   assert.equal(r2.publicadas, 0, 'nada mudou: nada vai');
   assert.equal(r2.iguais, sb.familiasLeitura_().length);
-  assert.equal(enviados.length, antes, 'nem um POST');
+  assert.equal(r2.confirmadas, sb.familiasLeitura_().length, 'as iguais só confirmam a geração nova');
+  assert.equal(enviados.length, antes + 1, 'um POST só, sem corpo de tela');
+  assert.deepEqual(JSON.parse(enviados[enviados.length - 1].op.payload).itens, []);
   const r3 = plain(sb.publicarLeitura_({ familias: 'cotacao', forcar: true }));
   assert.equal(r3.publicadas, plain(sb.familiasLeitura_().filter((f) => f.cotacao)).length);
   const r4 = plain(sb.publicarLeitura_({ familias: ['home', 'metas'], forcar: true }));
@@ -117,6 +119,24 @@ test('só vai o que mudou; sem configuração nada é publicado; telas de cotaç
   const r5 = plain(sb.publicarLeitura_({ familias: ['home'], forcar: true }));
   assert.equal(r5.ok, false);
   assert.match(r5.erros[0].erro, /HTTP 502/);
+});
+
+test('29/10/2026 (bug): depois de uma gravação, a publicação seguinte é aceita pelo site - mesmo nas telas que não mudaram', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async () => {
+  // o site exige geração >= _agora (relógio do fim da gravação). A geração era o carimbo da GRAVAÇÃO (sempre anterior
+  // ao _agora) e as telas iguais nem eram reenviadas: depois de gravar, o site nunca mais usava o Worker.
+  const { sb, env, pendentes } = montar();
+  plain(sb.publicarLeitura_({ familias: 'tudo' }));
+  await Promise.all(pendentes);
+  sb.registrarEscritaPlanilha_();
+  await new Promise((r) => setTimeout(r, 5));
+  const agora = Date.now(); // o _agora que o POST devolveria (Auth.gs!jsonOut)
+  await new Promise((r) => setTimeout(r, 5));
+  plain(sb.publicarLeitura_({ familias: 'tudo' }));
+  await Promise.all(pendentes);
+  for (const f of plain(sb.familiasLeitura_())) {
+    const linha = await lerDoWorker(env, chaveLeitura(f.acao, f.params || {}));
+    assert.ok(instanteDaGeracao(linha.geracao) >= agora, `${f.acao}: geração ${linha.geracao} anterior à gravação`);
+  }
 });
 
 test('trava: publicação não usa o lock do script (gravação não espera); a 2ª ao mesmo tempo fica anotada e roda no fim da 1ª', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async () => {

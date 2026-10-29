@@ -168,6 +168,33 @@ test('Carga inicial: cada ação (patrimônio, salário, gastos, Drive) é pedid
   assert.equal(chamadas.drive, 1, 'getArquivosGastos 1x');
 });
 
+test('Atualizar dados (29/10/2026): espera só o que a aba aberta mostra - listas do Drive e outras abas não seguram o botão', async () => {
+  const nunca = new Promise(() => {});
+  let lentas = false;
+  const chamadasDrive = { gastosDrive: 0, holerites: 0 };
+  const chamadasG = { gastos: 0, drive: 0 };
+  const apiG = gastosApi(chamadasG);
+  const driveRapido = apiG.getArquivosGastos;
+  apiG.getArquivosGastos = async () => { if (lentas) { chamadasDrive.gastosDrive += 1; return nunca; } return driveRapido(); };
+  const { pagina, chamadas } = await montar('#despesas', {
+    janelaRecenteMs: 0,
+    gastosOpcoes: { api: apiG, storage: null },
+    salarioOpcoes: { getSalarioImpl: async () => { if (lentas) await nunca; return clone(SALARIO); },
+      listarHoleritesImpl: async () => { chamadasDrive.holerites += 1; if (lentas) await nunca; return { ok: true, configurado: true, arquivos: [] }; },
+      carregarPdf: async () => ({}), lerPdf: async () => [] },
+  });
+  await esperar(30);
+  assert.equal(pagina.abaAtual, 'despesas');
+  assert.ok(chamadas);
+  // a partir daqui, as listas do Drive (gastos e holerites) e a aba Renda nunca respondem
+  lentas = true;
+  const antes = chamadasG.gastos;
+  const pronto = await Promise.race([pagina.atualizar().then(() => 'pronto'), esperar(300).then(() => 'preso')]);
+  assert.equal(pronto, 'pronto', 'o botão não espera o Drive nem a Renda');
+  assert.ok(chamadasDrive.gastosDrive >= 1, 'o Drive foi pedido (em segundo plano)');
+  assert.ok(chamadasG.gastos > antes, 'os gastos (aba aberta) foram atualizados');
+});
+
 test('Carga inicial (29/10/2026): a aba aberta carrega primeiro; os dados do painel Documentos (renda, gastos, Drive) só depois dela - ou na hora, se a lista for aberta', async () => {
   const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="organizacao">${MAIN}</body></html>`, { url: 'https://exemplo.test/organizacao/despesas.html', pretendToBeVisual: true });
   const w = dom.window;

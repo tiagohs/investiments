@@ -638,3 +638,9 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - Tamanhos com as fixtures (gzip): Início 149 KB (1,97 MB sem compressão), Transações 28 KB, demais ≤ 11 KB.
 - Bug achado: `AGENDA_FERIADOS_B3_` não tinha 12/10 e 02/11 (B3 fechada) - corrigido, coberto no teste do pregão. Teste da Renda Fixa incremental dependia do relógio - teto agora pelos dias desde as fixtures.
 - Próximo: `npm run worker:configurar` (Tiago, no Terminal) e F3 (Início lendo do Worker).
+
+### 29/10/2026 (leitura no Cloudflare - Transações e Organização)
+
+- **Bug**: depois de qualquer gravação o site deixava de usar o Worker. A geração publicada era o carimbo da última gravação, sempre anterior ao `_agora` que o site passa a exigir. E as telas iguais não eram reenviadas, então continuavam com a geração antiga. Correções: a geração agora é o instante em que a montagem começa; as telas iguais **confirmam** a geração nova (`confirmar: [{chave, hash}]` no lote; o Worker só atualiza quando o hash é o mesmo e a geração é mais nova). Testes: publicacao-leitura (depois de gravar, todas as telas são aceitas) e worker-leitura (confirmação).
+- Transações, o carrinho (`aportesPendentes`) e os gastos (janela padrão) passam a ser publicados e lidos do Worker (18 telas). A ordem de envio começa por Início, Transações, carrinho, despesas e gastos.
+- Organização › "Atualizar dados" espera só a aba aberta. As listas do Drive (faturas ~9 s, holerites ~4 s) e as outras abas atualizam em segundo plano. Teste em organizacao-abas.
