@@ -946,6 +946,7 @@ export async function montarPaginaOrganizacao(token, {
 
   // --- Documentos -------------------------------------------------------------
   let painelDocs = null;
+  let carregarDocumentos = () => {}; // definido mais abaixo (depois da 1ª carga da aba aberta)
   function atualizarDocumentos() {
     if (!painelDocs) return;
     try { painelDocs.atualizar({ patrimonio: pat.valor, salario: sal.valor, gastos: gas.valor, gastosDrive: gasDrive.valor, holeritesDrive: holDrive.valor, hoje: hojeIso() || new Date() }); } catch (e) { /* o painel é extra */ }
@@ -1014,7 +1015,7 @@ export async function montarPaginaOrganizacao(token, {
     return filaFontes;
   }
   if (el.documentos && documentosOpcoes !== false) {
-    painelDocs = montarPainelDocumentos(el.documentos, { doc, aoAcao: (a, x) => { acaoDocumento(a, x); }, ...(documentosOpcoes || {}) });
+    painelDocs = montarPainelDocumentos(el.documentos, { doc, aoAcao: (a, x) => { acaoDocumento(a, x); }, aoAbrir: () => carregarDocumentos(), ...(documentosOpcoes || {}) });
     atualizarDocumentos();
   }
 
@@ -1082,12 +1083,22 @@ export async function montarPaginaOrganizacao(token, {
   if (cache && cache.dados && cache.dados.ok) { aplicarDados(cache.dados); desenharTudo(); }
   // 03/10/2026: o painel Documentos precisa das 4 respostas - busca em
   // segundo plano (as que a aba aberta já pediu são reaproveitadas)
-  if (painelDocs) { pat.obter(); sal.obter(); gas.obter(); gasDrive.obter(); holDrive.obter(); }
+  // 29/10/2026 (Tiago: "a Organização carrega todas as abas de uma vez"): o painel Documentos precisa das respostas de todas
+  // as abas (patrimônio, renda, gastos, Drive) - eram pedidas JUNTO com a aba aberta, 5-6 execuções do Apps Script ao mesmo
+  // tempo disputando a planilha. Agora a aba aberta carrega sozinha; o painel busca o resto depois dela (ou na hora, se
+  // você abrir a lista antes).
+  let docsPedidos = false;
+  carregarDocumentos = () => {
+    if (docsPedidos || !painelDocs) return;
+    docsPedidos = true;
+    pat.obter(); sal.obter(); gas.obter(); gasDrive.obter(); holDrive.obter();
+  };
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
   if (refresh) await mountRefreshControl(doc, refreshEl, atualizarTudo, { setIntervalImpl: null }).atualizar();
   else await carregar();
+  carregarDocumentos();
   return {
     get rascunho() { return rascunho; }, get dados() { return dados; }, get salario() { return salario; }, get patrimonio() { return patrimonio; },
     get gastos() { return gastos; }, get simulador() { return simulador; }, get simulacoes() { return simulacoes; }, get renda() { return renda; }, get carreira() { return carreira; },

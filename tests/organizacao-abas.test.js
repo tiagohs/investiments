@@ -168,6 +168,37 @@ test('Carga inicial: cada ação (patrimônio, salário, gastos, Drive) é pedid
   assert.equal(chamadas.drive, 1, 'getArquivosGastos 1x');
 });
 
+test('Carga inicial (29/10/2026): a aba aberta carrega primeiro; os dados do painel Documentos (renda, gastos, Drive) só depois dela - ou na hora, se a lista for aberta', async () => {
+  const dom = new JSDOM(`<!doctype html><html><head></head><body data-section="organizacao">${MAIN}</body></html>`, { url: 'https://exemplo.test/organizacao/despesas.html', pretendToBeVisual: true });
+  const w = dom.window;
+  globalThis.localStorage = w.localStorage;
+  w.localStorage.clear();
+  w.fetch = async () => { throw new Error('sem rede no teste'); };
+  const doc = w.document;
+  const chamadas = { patrimonio: 0, salario: 0, gastos: 0, drive: 0 };
+  let liberar;
+  const despesasPendentes = new Promise((r) => { liberar = r; });
+  const { montarPaginaOrganizacao } = await import('../assets/js/pages/organizacao.js');
+  const pronta = montarPaginaOrganizacao('tk', {
+    doc, refresh: false, hoje: '2025-09-15',
+    getDespesasImpl: async () => { await despesasPendentes; return clone(DESPESAS); },
+    salvarDespesasImpl: async () => ({ ok: false }),
+    patrimonioOpcoes: { getPatrimonioImpl: async () => { chamadas.patrimonio += 1; return clone(PATRIMONIO); }, salvarImpl: async () => ({ ok: true }), carregarPdf: async () => ({}), lerPdf: async () => [], atrasoPrefsMs: 0 },
+    salarioOpcoes: { getSalarioImpl: async () => { chamadas.salario += 1; return clone(SALARIO); }, carregarPdf: async () => ({}), lerPdf: async () => [] },
+    gastosOpcoes: { api: gastosApi(chamadas), storage: null },
+    rendaOpcoes: { buscarIpca: false, storage: null },
+    simuladorOpcoes: { storage: null },
+    documentosOpcoes: { storage: null },
+  });
+  await esperar(30);
+  assert.equal(chamadas.patrimonio, 1, 'a aba aberta (Patrimônio) carrega');
+  assert.deepEqual([chamadas.salario, chamadas.gastos, chamadas.drive], [0, 0, 0], 'nada das outras abas enquanto a aberta carrega');
+  liberar();
+  await pronta;
+  await esperar(30);
+  assert.deepEqual([chamadas.patrimonio, chamadas.salario, chamadas.gastos, chamadas.drive], [1, 1, 1, 1], 'o painel Documentos busca depois, 1x cada');
+});
+
 test('Renda e Orçamentos: seção Renda (salário pelo IR, crescimento), Carreira e FGTS movidos, orçamento do salário, quanto investe (um só) e contas', async () => {
   const { doc, pagina } = await montar('#renda');
   await esperar(30);

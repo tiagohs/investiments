@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LEITURA_URL } from '../assets/js/config.js';
 
 const RAIZ = new URL('..', import.meta.url);
 const PAGINAS = ['index.html', 'distribuicoes-metas.html', 'metas.html', 'login.html', 'ativo/index.html', 'carteiras/index.html', 'organizacao/despesas.html', 'proventos/index.html', 'transacoes/index.html'];
@@ -41,6 +42,8 @@ for (const pagina of PAGINAS) {
     assert.deepEqual(d['font-src'], ["'self'"], 'font-src só do próprio site');
     assert.ok(!/fonts\.(googleapis|gstatic)\.com/.test(html), 'sem referência ao Google Fonts no HTML');
     assert.ok(d['connect-src'].includes('https://script.google.com') && d['connect-src'].includes('https://script.googleusercontent.com'), 'Apps Script (redireciona pro googleusercontent)');
+    // 29/10/2026: o Worker de leitura (config.js!LEITURA_URL) - sem ele na CSP o navegador bloqueia e tudo cai no Apps Script em silêncio
+    if (LEITURA_URL) assert.ok(d['connect-src'].includes(new URL(LEITURA_URL).origin), `Worker de leitura fora da CSP em ${pagina}`);
     assert.deepEqual(d['object-src'], ["'none'"]);
     assert.deepEqual(d['base-uri'], ["'self'"]);
   });

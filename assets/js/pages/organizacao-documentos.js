@@ -362,7 +362,7 @@ export function htmlListaDocumentos(r) {
 }
 
 /** Monta o painel (barra + lista recolhível). */
-export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null, storage = undefined } = {}) {
+export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument, aoAcao = null, aoAbrir = null, storage = undefined } = {}) {
   const win = doc && doc.defaultView;
   let store = storage;
   if (store === undefined) { try { store = win && win.localStorage; } catch (e) { store = null; } }
@@ -392,6 +392,7 @@ export function montarPainelDocumentos(raiz, { doc = raiz && raiz.ownerDocument,
     raiz.querySelector('.og-docs-ver-t').textContent = aberto ? 'Fechar' : 'Ver lista';
     try { if (store) store.setItem('organizacao.documentos', aberto ? '1' : '0'); } catch (e) { /* ok */ }
     if (aberto && r && !lista.innerHTML) lista.innerHTML = htmlListaDocumentos(r);
+    if (aberto && typeof aoAbrir === 'function') aoAbrir(); // 29/10/2026: os dados do painel só são pedidos quando precisa
   }
   raiz.classList.toggle('aberto', aberto);
   barra.addEventListener('click', () => abrir(!aberto));
