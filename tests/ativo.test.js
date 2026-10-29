@@ -743,3 +743,43 @@ test('ativo: com a home de hoje guardada pede o ativo sem `indices` e monta os �
     usarMemoriaNoCacheDados(null);
   }
 });
+
+// 29/10/2026 (Tiago: "telas com abas dá pra ser mais inteligentes"): notícias e tese (execuções do Apps Script) só saem
+// depois da tela principal chegar (não disputam o servidor com ela, mesmo com a página já desenhada do cache) e só
+// quando a Visão geral, onde ficam, estiver à vista. O gráfico do dia sai na hora.
+test('ativo: notícias e tese esperam a tela principal e a aba Visão geral; o gráfico do dia não espera', async () => {
+  const { usarMemoriaNoCacheDados, gravarCacheDados } = await import('../assets/js/cache-dados.js');
+  for (const hash of ['', '#extrato']) {
+    usarMemoriaNoCacheDados(new Map());
+    await gravarCacheDados('ativo_v1:TEST3', respostaAcao()); // a página desenha do cache na hora
+    const { doc, w } = montarDom('TEST3', hash);
+    const { montarPaginaAtivo } = await import('../assets/js/pages/ativo.js');
+    const chamadas = { noticias: 0, teses: 0, intradia: 0 };
+    let liberar;
+    const principal = new Promise((r) => { liberar = r; });
+    const pronta = montarPaginaAtivo('tk', {
+      doc,
+      getAtivoImpl: async () => { await principal; return structuredClone(respostaAcao()); },
+      getNoticiasImpl: async () => { chamadas.noticias++; return { ok: true, noticias: [] }; },
+      getTesesImpl: async () => { chamadas.teses++; return { ok: true, configurado: false, teses: [], resumos: [] }; },
+      getIntradiaImpl: async (t, chaves) => { chamadas.intradia++; return { ok: true, resultado: Object.fromEntries(chaves.map((c) => [c, null])) }; },
+      getMetasImpl: async () => ({ ok: false }),
+      carregarEstaticosImpl: async () => ESTATICOS,
+      agora: () => new Date('2026-03-10T15:00:00Z'),
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(doc.getElementById('ativoConteudo').hidden, false, `${hash}: desenhada do cache`);
+    assert.ok(chamadas.intradia >= 1, `${hash}: gráfico do dia na hora`);
+    assert.deepEqual([chamadas.noticias, chamadas.teses], [0, 0], `${hash}: nada de notícias/tese enquanto a principal não chega`);
+    liberar();
+    await pronta;
+    await new Promise((r) => setTimeout(r, 0));
+    if (!hash) { assert.deepEqual([chamadas.noticias, chamadas.teses], [1, 1], 'Visão geral à vista: pede 1x cada'); continue; }
+    assert.deepEqual([chamadas.noticias, chamadas.teses], [0, 0], 'aba Extrato aberta: ainda não');
+    const visao = doc.querySelector('#ativoCabecalho [data-tab="visao"], #ativoCabecalho [data-aba="visao"], #ativoCabecalho [aria-controls="at-aba-visao"]');
+    assert.ok(visao, 'pílula da Visão geral');
+    clique(w, visao);
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepEqual([chamadas.noticias, chamadas.teses], [1, 1], 'abriu a Visão geral: pede');
+  }
+});

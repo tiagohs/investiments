@@ -652,3 +652,15 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
   - Abas `aux_tests*`: fica só o cabeçalho.
 - As gravações (Lancamentos.gs, ImportB3.gs) completam as fórmulas de uma linha nova que passe da margem (`garantirFormulasLanc_`). Rodar de novo repõe a margem.
 - Testes: `tests/harness/emagrecer-planilha.test.js`.
+
+### 29/10/2026 (telas dos ativos pelo Worker - F4)
+
+- A tela de cada ativo passa a ser publicada no Worker nas publicações completas: agenda (depois do pré-aquecimento), depois de gravar e manual. Não entra no gatilho de cotação.
+  - Renda variável: `ativoBase?ref=TICKER`, a tela sem a posição de hoje. O site junta a linha da Carteira publicada (`api-client.js!getAtivo`), que é atualizada pela cotação a cada 30 min.
+  - Renda fixa: `ativo?ref=rf:…&semIndices=1`, a tela inteira.
+  - Ativo fora do cache do Apps Script só é calculado dentro do orçamento (`LEITURA_ATIVOS_ORCAMENTO_MS_`); o resto fica para a próxima publicação.
+- Ativo fora da carteira, não publicado ou mais velho que a última gravação: a leitura vai ao Apps Script, como antes.
+- `CarteirasClasses.gs`: a Carteira FIIs guarda `grupoCarteira` quando troca o grupo pelo tipo do Radar. A tela do ativo continua mostrando o grupo da aba. Divergência achada pelo teste de paridade.
+- Intradia: pedidos feitos juntos (~25 ms) viram um pedido só, com até 40 símbolos. Antes eram até 7 pedidos em fila, e o último esperava 12 s.
+- Tela do ativo: notícias e tese só são pedidas depois da tela principal chegar e com a Visão geral à vista.
+- Testes: publicacao-leitura (o site monta a tela igual ao doGet para todos os ativos das fixtures; orçamento; cotação sem ativos), leitura-cliente (composição, quedas para o Apps Script, intradia em lote) e ativo (notícias e tese esperando).

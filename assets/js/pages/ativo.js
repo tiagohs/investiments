@@ -1892,6 +1892,8 @@ function desenhar(doc, conteudoEl, ctx, patrimonio = null, { cabEl = null, refre
   ligarCopiarIr(doc, conteudoEl);
   ligarNoticias(conteudoEl);
   mostrar = criarTrocaAbas(doc, conteudoEl, { cab, aoMostrar: (id) => {
+    // 29/10/2026: quem espera uma aba abrir (notícias, tese e vídeos só buscam quando a Visão geral aparece)
+    try { conteudoEl.dispatchEvent(new janela.CustomEvent('ativo:aba', { detail: id })); } catch (_) { /* sem CustomEvent */ }
     if (id === 'extrato') desenharGraficoMensal(doc, ctx, conteudoEl);
     if (id === 'patrimonio' && patrimonio) patrimonio.mostrar(); // 05/10/2026: carrega só quando a aba abre
   } });
@@ -2081,6 +2083,14 @@ export async function montarPaginaAtivo(token, {
     pedirMetas();
     pedirMacro();
     pedirPiso();
+    preencherExtras();
+    // 29/10/2026 (Tiago: "telas com abas dá pra ser mais inteligentes"): notícias, tese e vídeos (3 execuções do Apps
+    // Script) só saem DEPOIS da tela principal chegar - não disputam o servidor com ela - e só quando a Visão geral (onde
+    // eles ficam) estiver à vista. O gráfico do dia, as metas e o contexto de mercado continuam na hora.
+    extrasDepoisDaPrincipal();
+  };
+  const pedirExtrasDaVisao = () => {
+    if (!estado.ctx) return;
     // 25/09/2026: vídeos do YouTube (ticker + apelidos do Sobre); busca 1x, quando a seção aparece.
     // 02/10/2026: + o canal oficial do ativo (canais-youtube.js); renda fixa só com canal (Tesouro).
     if (!estado.ctx.ehRf || estado.ctx.canal) {
@@ -2094,8 +2104,24 @@ export async function montarPaginaAtivo(token, {
       }
       estado.videos(doc.getElementById('at-videos'));
     }
-    preencherExtras();
-    pedirExtras(resposta);
+    pedirExtras(estado.ctx.resposta);
+  };
+  let liberarPrincipal;
+  const principalPronta = new Promise((r) => { liberarPrincipal = r; });
+  let esperandoVisao = false;
+  const extrasDepoisDaPrincipal = () => {
+    principalPronta.then(() => {
+      if ((conteudoEl._abaAtual || 'visao') === 'visao') { pedirExtrasDaVisao(); return; }
+      if (esperandoVisao) return;
+      esperandoVisao = true;
+      const aoTrocar = (ev) => {
+        if (!ev || ev.detail !== 'visao') return;
+        conteudoEl.removeEventListener('ativo:aba', aoTrocar);
+        esperandoVisao = false;
+        pedirExtrasDaVisao();
+      };
+      conteudoEl.addEventListener('ativo:aba', aoTrocar);
+    });
   };
 
   // 05/10/2026 (A-38): os índices (CDI, Ibovespa, dólar...) são os da Início - se a home guardada no IndexedDB está
@@ -2149,6 +2175,9 @@ export async function montarPaginaAtivo(token, {
   // 26/09/2026: o botão "Atualizar dados" entra ANTES da 1ª busca (mostra
   // "Atualizando…" enquanto carrega) e fica fora do conteúdo - visível no
   // carregamento e no erro também, que é quando mais se precisa dele.
-  if (refreshEl) await mountRefreshControl(doc, refreshEl, carregarERedesenhar).atualizar();
-  else await carregarERedesenhar();
+  const carregarPrincipal = async () => {
+    try { return await carregarERedesenhar(); } finally { liberarPrincipal(); }
+  };
+  if (refreshEl) await mountRefreshControl(doc, refreshEl, carregarPrincipal).atualizar();
+  else await carregarPrincipal();
 }

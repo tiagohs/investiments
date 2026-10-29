@@ -14,7 +14,11 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { criarSandboxGs } from './gas-vm-harness.mjs';
 import worker, { gravarLote } from '../../worker/src/index.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_LIDAS_DO_WORKER } from '../../assets/js/leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_PUBLICADAS_POR_ATIVO, ACOES_LIDAS_DO_WORKER } from '../../assets/js/leitura-chave.js';
+import { getAtivo, esquecerRespostasGuardadas } from '../../assets/js/api-client.js';
+import { usarMemoriaNoCacheDados } from '../../assets/js/cache-dados.js';
+import { LEITURA_URL } from '../../assets/js/config.js';
+import { hmacBase64Url } from '../../worker/src/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ = path.resolve(__dirname, '..', '..');
@@ -108,7 +112,7 @@ test('só vai o que mudou; sem configuração nada é publicado; telas de cotaç
   assert.equal(r2.publicadas, 0, 'nada mudou: nada vai');
   assert.equal(r2.iguais, sb.familiasLeitura_().length);
   assert.equal(r2.confirmadas, sb.familiasLeitura_().length, 'as iguais só confirmam a geração nova');
-  assert.equal(enviados.length, antes + 1, 'um POST só, sem corpo de tela');
+  assert.equal(enviados.length, antes + 2, 'um POST pras telas fixas e um pras dos ativos, só confirmando (sem corpo de tela)');
   assert.deepEqual(JSON.parse(enviados[enviados.length - 1].op.payload).itens, []);
   const r3 = plain(sb.publicarLeitura_({ familias: 'cotacao', forcar: true }));
   assert.equal(r3.publicadas, plain(sb.familiasLeitura_().filter((f) => f.cotacao)).length);
@@ -166,11 +170,14 @@ test('contrato: toda ação GET do Router.gs é publicada ou está na lista "só
   const { sandbox: sb } = criarSandboxGs({ silencioso: true });
   const publicadas = plain(sb.familiasLeitura_().map((f) => f.acao));
   const so = plain(sb.LEITURA_SO_APPS_SCRIPT_);
-  const semClasse = acoes.filter((a) => !publicadas.includes(a) && !so.includes(a));
+  const porAtivo = plain(sb.LEITURA_POR_ATIVO_);
+  assert.deepEqual([...ACOES_PUBLICADAS_POR_ATIVO].sort(), [...porAtivo].sort(), 'telas por ativo: a mesma lista nos dois lados');
+  const semClasse = acoes.filter((a) => !publicadas.includes(a) && !so.includes(a) && !porAtivo.includes(a));
   assert.deepEqual(semClasse, [], 'ação GET nova: classifique em Publicacao.gs (familiasLeitura_ ou LEITURA_SO_APPS_SCRIPT_)');
   assert.deepEqual(publicadas.filter((a) => so.includes(a)), [], 'nenhuma nas duas listas');
   assert.deepEqual([...ACOES_PUBLICADAS].sort(), [...publicadas].sort(), 'o site conhece exatamente as telas que o Apps Script publica');
-  assert.ok(ACOES_LIDAS_DO_WORKER.every((a) => publicadas.includes(a)), 'o site só lê do Worker o que é publicado');
+  assert.ok(ACOES_LIDAS_DO_WORKER.every((a) => publicadas.includes(a) || porAtivo.includes(a)), 'o site só lê do Worker o que é publicado');
+  assert.deepEqual(porAtivo.filter((a) => so.includes(a)), [], 'ativo não pode estar em "só Apps Script"');
   for (const [acao, params] of [['home', {}], ['ativo', { ref: 'PETR4', semIndices: 1 }], ['x', { q: 'a b/ç', vazio: '', nulo: null }]]) {
     assert.equal(sb.chaveLeitura_(acao, params), chaveLeitura(acao, params));
   }
@@ -186,4 +193,71 @@ test('gatilho do pregão: dia útil da B3 entre 10:00 e 18:30 de São Paulo; for
   assert.equal(sb.dentroDoPregaoLeitura_(sp('2026-11-02T14:00:00Z')), false, 'Finados (feriado da B3 - faltava na lista até 29/10/2026)');
   assert.equal(sb.dentroDoPregaoLeitura_(sp('2026-10-12T14:00:00Z')), false, 'Aparecida (feriado da B3 - faltava na lista até 29/10/2026)');
   assert.equal(sb.dentroDoPregaoLeitura_(sp('2026-11-03T14:00:00Z')), true, 'terça depois de Finados');
+});
+
+/** O site (api-client.js de verdade) lendo do Worker de verdade (D1 em memória) - nada vai ao Apps Script. */
+async function siteLendoDoWorker(t, env) {
+  const memoria = new Map();
+  globalThis.localStorage = { getItem: (k) => (memoria.has(k) ? memoria.get(k) : null), setItem: (k, v) => memoria.set(k, String(v)), removeItem: (k) => memoria.delete(k) };
+  usarMemoriaNoCacheDados(new Map());
+  esquecerRespostasGuardadas();
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    urls.push(String(url));
+    if (!String(url).startsWith(LEITURA_URL)) throw new Error(`foi ao Apps Script: ${url}`);
+    const r = await worker.fetch(new Request(String(url), init), env);
+    if (r.headers.get('Content-Encoding') !== 'gzip') return r;
+    const h = new Headers(r.headers); h.delete('Content-Encoding');
+    return new Response(zlib.gunzipSync(Buffer.from(await r.arrayBuffer())), { status: r.status, headers: h });
+  });
+  const payload = Buffer.from(JSON.stringify({ email: 'a@b.test', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+  return { token: `s1.${payload}.${await hmacBase64Url('s', payload)}`, urls };
+}
+
+test('telas dos ativos (29/10/2026): renda variável = tela sem posição + a linha da Carteira publicada - o site monta IGUAL ao doGet; renda fixa = a tela inteira', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async (t) => {
+  const { sb, env, pendentes } = montar();
+  const r = plain(sb.publicarLeituraDireto());
+  await Promise.all(pendentes);
+  assert.deepEqual(r.erros, []);
+  const refs = plain(sb.refsDosAtivosDaCarteira_(sb.SpreadsheetApp.getActiveSpreadsheet()));
+  const rv = refs.filter((x) => !/^rf:/i.test(x));
+  const rf = refs.filter((x) => /^rf:/i.test(x));
+  assert.ok(rv.length > 5 && rf.length > 0, 'fixtures com ativos de renda variável e fixa');
+  assert.equal(r.ativos.publicadas, refs.length, JSON.stringify(r.ativos));
+  const { token, urls } = await siteLendoDoWorker(t, env);
+  let comparados = 0;
+  for (const ticker of rv) {
+    sb.iniciarExecucao_();
+    const esperado = plain(sb.montarTelaAtivo_(ticker, { semIndices: true }));
+    if (!esperado.ativo) continue; // fora da carteira: o site vai ao Apps Script (testado no leitura-cliente)
+    const site = await getAtivo(token, ticker, { semIndices: true });
+    assert.equal(site._fonte, 'leitura', ticker);
+    const { _fonte, ativo, ...resto } = plain(site);
+    const { ativo: ativoEsperado, ...restoEsperado } = esperado;
+    assert.deepEqual(resto, restoEsperado, `${ticker}: série, transações, proventos, fundamentos...`);
+    for (const [k, v] of Object.entries(ativoEsperado)) assert.deepEqual(ativo[k], v, `${ticker}: ativo.${k}`);
+    comparados++;
+  }
+  assert.ok(comparados >= 5, `comparou ${comparados} ativos`);
+  for (const ref of rf) {
+    sb.iniciarExecucao_();
+    sb.iniciarRequisicao_({ parameter: {} }, 'GET');
+    const doGet = JSON.parse(sb.handleAtivo({ parameter: { ref, semIndices: '1' } }, { ok: true }).getContent());
+    delete doGet._etag; delete doGet._ms;
+    const pub = await lerDoWorker(env, chaveLeitura('ativo', { ref, semIndices: 1 }));
+    assert.deepEqual(pub.json, doGet, `${ref}: Worker = doGet`);
+  }
+  assert.ok(urls.every((u) => u.startsWith(LEITURA_URL)));
+});
+
+test('telas dos ativos: sem tempo, só vai o que já está no cache do Apps Script (o resto fica pra próxima publicação)', { skip: !TEM_FIXTURES && 'fixtures.json ausente' }, async () => {
+  const { sb, pendentes } = montar();
+  sb.LEITURA_ATIVOS_ORCAMENTO_MS_ = -1; // já sem tempo desde o 1º ativo
+  const r = plain(sb.publicarLeitura_({ familias: 'tudo' }));
+  await Promise.all(pendentes);
+  const total = plain(sb.refsDosAtivosDaCarteira_(sb.SpreadsheetApp.getActiveSpreadsheet())).length;
+  assert.equal(r.ativos.publicadas + r.ativos.semCache, total);
+  assert.ok(r.ativos.semCache > 0, 'cache frio: nada calculado');
+  const cota = plain(sb.publicarLeitura_({ familias: 'cotacao' }));
+  assert.equal(cota.ativos, null, 'o gatilho de cotação não publica os ativos');
 });

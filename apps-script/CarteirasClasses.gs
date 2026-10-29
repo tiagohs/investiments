@@ -271,7 +271,9 @@ function enriquecerFiisComTipoRadar_(dados) {
   var mapaTipo = lerMapaTipoFiisPorTicker_();
   dados.ativos.forEach(function (ativo) {
     var tipo = mapaTipo[ativo.ticker];
-    if (tipo) ativo.grupo = tipo;
+    // 29/10/2026: o grupo da aba Carteira FIIs (ex.: "Logística") fica guardado - a tela do ativo usa ESTE (Ativo.gs!
+    // posicaoAtualDoAtivo_), e o site monta a tela do ativo com a linha desta carteira publicada (api-client.js!getAtivo)
+    if (tipo) { if (tipo !== ativo.grupo) ativo.grupoCarteira = ativo.grupo; ativo.grupo = tipo; }
   });
   dados.distribuicaoPorGrupo = recomputarDistribuicaoPorGrupoClasses_(dados.ativos, dados.resumo.totalAtualizado);
 }

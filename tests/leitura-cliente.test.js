@@ -4,7 +4,7 @@
 //  - depois de gravar: guarda o instante (_agora do Apps Script) e pede a republicação em segundo plano.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHome, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
+import { getHome, getAtivo, getIntradia, INTRADIA_MAX_POR_PEDIDO, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL, APPS_SCRIPT_URL } from '../assets/js/config.js';
 
@@ -109,4 +109,61 @@ test('depois de gravar: publicação mais velha que a gravação não serve (App
   // o mínimo só sobe
   marcarGeracaoMinima(B + 10);
   assert.equal(Number(memoria.get('investiments_geracao_minima')), B + 5000);
+});
+
+test('29/10/2026: tela do ativo (renda variável) = ativoBase + a linha da Carteira publicada, sem Apps Script; o grupo é o da aba', async (t) => {
+  limpar();
+  const urls = [];
+  const base = { ok: true, tipo: 'rv', ticker: 'TEST11', classe: 'fiis', ativo: null, serie: [{ data: '2026-10-01', valor: 10 }], hoje: '2026-10-29' };
+  const carteira = { ok: true, carteira: { ativos: [{ ticker: 'OUTR11', grupo: 'Papel' }, { ticker: 'TEST11', cotacao: 101.5, grupo: 'Tijolo', grupoCarteira: 'Logística' }] } };
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(String(url));
+    if (String(url).startsWith(`${LEITURA_URL}/v1/tela/ativoBase?ref=TEST11`)) return resposta(200, base, { ETag: '"B"', 'X-Geracao': geracao(1) });
+    if (String(url).startsWith(`${LEITURA_URL}/v1/tela/carteirasFiis`)) return resposta(200, carteira, { ETag: '"C"', 'X-Geracao': geracao(1) });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  const r = await getAtivo(S1, 'test11', { semIndices: true });
+  assert.equal(r._fonte, 'leitura');
+  assert.deepEqual(r.ativo, { ticker: 'TEST11', cotacao: 101.5, grupo: 'Logística' });
+  assert.deepEqual(r.serie, base.serie);
+  assert.ok(urls.every((u) => u.startsWith(LEITURA_URL)), urls.join(' | '));
+});
+
+test('tela do ativo: fora da carteira, ainda não publicada, renda fixa ou sem índices da Início - cada um no caminho certo', async (t) => {
+  limpar();
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(String(url));
+    const u = String(url);
+    if (u.startsWith(`${LEITURA_URL}/v1/tela/ativoBase?ref=VEND3`)) return resposta(200, { ok: true, tipo: 'rv', ticker: 'VEND3', classe: 'acoes' }, { ETag: '"V"', 'X-Geracao': geracao(1) });
+    if (u.startsWith(`${LEITURA_URL}/v1/tela/carteirasAcoes`)) return resposta(200, { ok: true, carteira: { ativos: [{ ticker: 'ABCD3' }] } }, { ETag: '"A"', 'X-Geracao': geracao(1) });
+    if (u.startsWith(`${LEITURA_URL}/v1/tela/ativo?ref=rf`)) return resposta(200, { ok: true, tipo: 'rf', v: 'worker-rf' }, { ETag: '"R"', 'X-Geracao': geracao(1) });
+    if (u.startsWith(LEITURA_URL)) return resposta(404, { ok: false, erro: 'não publicado' });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  assert.equal((await getAtivo(S1, 'VEND3', { semIndices: true })).v, 'apps-script', 'vendido (fora da carteira): o Apps Script procura nas 3 classes');
+  assert.equal((await getAtivo(S1, 'NOVO3', { semIndices: true })).v, 'apps-script', 'não publicado (404)');
+  assert.equal((await getAtivo(S1, 'rf:Tesouro Selic 2029|XP', { semIndices: true })).v, 'worker-rf', 'renda fixa: a tela inteira');
+  urls.length = 0;
+  assert.equal((await getAtivo(S1, 'ABCD3')).v, 'apps-script', 'sem a série da Início no aparelho: com índices, do Apps Script');
+  assert.ok(urls.every((u) => !u.includes('/v1/tela/ativoBase')), 'nem tenta o ativoBase');
+});
+
+test('29/10/2026: intradia pedidos juntos viram 1 pedido (até 40 símbolos); cada um recebe só o que pediu', async (t) => {
+  limpar();
+  const pedidos = [];
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const simbolos = new URL(String(url)).searchParams.get('simbolos').split(',');
+    pedidos.push(simbolos);
+    return resposta(200, { ok: true, resultado: Object.fromEntries(simbolos.map((s) => [s, [{ t: 1, p: s.length }]])) });
+  });
+  const [a, b] = await Promise.all([getIntradia('tok', ['IBOV', 'acoes:AAAA3']), getIntradia('tok', ['acoes:AAAA3', 'usa:CCCC'])]);
+  assert.deepEqual(pedidos, [['IBOV', 'acoes:AAAA3', 'usa:CCCC']]);
+  assert.deepEqual(Object.keys(a.resultado), ['IBOV', 'acoes:AAAA3']);
+  assert.deepEqual(Object.keys(b.resultado), ['acoes:AAAA3', 'usa:CCCC']);
+  pedidos.length = 0;
+  const muitos = Array.from({ length: INTRADIA_MAX_POR_PEDIDO + 5 }, (_, i) => `acoes:T${i}`);
+  const c = await getIntradia('tok', muitos);
+  assert.deepEqual(pedidos.map((p) => p.length), [INTRADIA_MAX_POR_PEDIDO, 5]);
+  assert.equal(Object.keys(c.resultado).length, muitos.length);
 });

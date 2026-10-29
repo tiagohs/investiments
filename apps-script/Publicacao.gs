@@ -56,9 +56,32 @@ function familiasLeitura_() {
 
 /** Ações GET que ficam SÓ no Apps Script (dependem de fonte externa na hora, do Drive, ou de parâmetro livre). */
 var LEITURA_SO_APPS_SCRIPT_ = ['ping', 'syncStatus', 'syncHistorico', 'historico_inicio', 'meusAtivos', 'historicoAtivo', 'irRendaFixa',
-  'ativo', 'noticiasAtivo', 'tesesAtivo', 'fundamentos', 'fiiPortfolio', 'videos', 'infoNovoAtivo', 'patrimonioIrArquivos',
+  'noticiasAtivo', 'tesesAtivo', 'fundamentos', 'fiiPortfolio', 'videos', 'infoNovoAtivo', 'patrimonioIrArquivos',
   'patrimonioIrArquivo', 'holeritesArquivos', 'holeriteArquivo', 'gastosArquivos', 'gastosArquivo', 'intradia',
   'consolidacao', 'capacidade'];
+
+/**
+ * 29/10/2026 (Tiago: "as telas de ativos individuais ainda são lentas"): telas publicadas POR ATIVO (fora de
+ * familiasLeitura_, que é uma lista fixa). Renda variável: 'ativoBase?ref=TICKER' (a tela sem a posição de hoje - o site
+ * junta a linha da Carteira publicada). Renda fixa: 'ativo?ref=rf:...&semIndices=1' (a tela inteira, como o doGet).
+ * Vão nas publicações completas ('tudo': agenda, depois de gravar, manual) - não no gatilho de cotação. Ativo que não está
+ * no cache do Apps Script só é calculado enquanto houver tempo (LEITURA_ATIVOS_ORCAMENTO_MS_); o resto fica pra próxima.
+ */
+var LEITURA_POR_ATIVO_ = ['ativo', 'ativoBase'];
+var LEITURA_ATIVOS_ORCAMENTO_MS_ = 120000;
+
+function itensAtivosLeitura_(ss) {
+  return refsDosAtivosDaCarteira_(ss).map(function (ref) {
+    if (/^rf:/i.test(ref)) {
+      return { acao: 'ativo', params: { ref: ref, semIndices: '1' }, montar: function (o) { return montarTelaAtivo_(ref, { semIndices: true, soCache: o.soCache }); } };
+    }
+    var ticker = ref.toUpperCase();
+    return { acao: 'ativoBase', params: { ref: ticker }, montar: function (o) {
+      var classes = memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); });
+      return telaAtivoSemPosicao_(ss, ticker, classes[ticker] || null, { semIndices: true, soCache: o.soCache });
+    } };
+  });
+}
 
 /** A chave canônica - o MESMO formato de assets/js/leitura-chave.js!chaveLeitura (testado nos dois lados). */
 function chaveLeitura_(acao, params) {
@@ -191,8 +214,41 @@ function publicarLeituraSemTrava_(opcoes) {
       }
     });
     if (confirmar.length) enviar([]);
+    // 29/10/2026: as telas de cada ativo (só nas publicações completas)
+    var ativos = null;
+    if (o.familias === 'tudo' && o.ativos !== false) {
+      ativos = { publicadas: 0, iguais: 0, semCache: 0, ms: 0 };
+      var t0a = Date.now();
+      var antesPub = publicadas, antesConf = confirmadas;
+      var ssA = SpreadsheetApp.getActiveSpreadsheet();
+      var listaA = [];
+      try { listaA = itensAtivosLeitura_(ssA); } catch (eL) { erros.push({ acao: 'ativos', erro: String(eL) }); }
+      listaA.forEach(function (a) {
+        var chaveA = chaveLeitura_(a.acao, a.params);
+        try {
+          // sem calcular ativo novo quando o orçamento dos ativos acabou OU a execução já passou de 4 min (limite de 6 min)
+          var soCache = Date.now() - t0a > LEITURA_ATIVOS_ORCAMENTO_MS_ || Date.now() - inicio > 4 * 60 * 1000;
+          var resp = a.montar({ soCache: soCache });
+          if (!resp) { ativos.semCache++; return; }
+          if (resp.ok !== true) { erros.push({ acao: chaveA, erro: String(resp.erro || resp.etapa || 'resposta sem ok') }); return; }
+          var textoA = montarTextoLeitura_({ fn: function () { return jsonOut(resp); } }, auth);
+          var hashA = etagDoTexto_(textoA);
+          if (!o.forcar && hashes[chaveA] === hashA) { ativos.iguais++; confirmar.push({ chave: chaveA, hash: hashA }); return; }
+          var bytesA = Utilities.gzip(Utilities.newBlob(textoA, 'application/json')).getBytes();
+          enviar([{ chave: chaveA, hash: hashA, bytes: bytesA.length, gz: Utilities.base64Encode(bytesA) }]);
+        } catch (eA) {
+          erros.push({ acao: chaveA, erro: String(eA) });
+        }
+      });
+      if (confirmar.length) enviar([]);
+      ativos.publicadas = publicadas - antesPub;
+      ativos.confirmadas = confirmadas - antesConf;
+      publicadas = antesPub; confirmadas = antesConf; // os totais de cima continuam sendo das telas fixas
+      ativos.ms = Date.now() - t0a;
+      tempos.ativos = ativos.ms;
+    }
     props.setProperty(LEITURA_PROP_HASHES_, JSON.stringify(hashes));
-    var resumo = { ok: erros.length === 0, configurado: true, geracao: geracao, publicadas: publicadas, iguais: iguais, confirmadas: confirmadas, erros: erros,
+    var resumo = { ok: erros.length === 0, configurado: true, geracao: geracao, publicadas: publicadas, iguais: iguais, confirmadas: confirmadas, ativos: ativos, erros: erros,
       ms: Date.now() - inicio, tempos: tempos, origem: o.origem || 'Manual', em: new Date().toISOString() };
     props.setProperty(LEITURA_PROP_ULTIMA_, JSON.stringify(resumo).slice(0, 8000));
     if (erros.length && typeof gravarRegistroControle_ === 'function') {

@@ -32,4 +32,10 @@ export const ACOES_PUBLICADAS = Object.freeze(['home', 'transacoes', 'aportesPen
 // 29/10/2026 (Tiago: "Transações e Organização ainda lentas no Atualizar"): agora TODAS as telas publicadas são lidas do
 // Worker - inclusive Transações, o carrinho e os gastos. Depois de uma gravação, a geração mínima (api-client.js) recusa a
 // cópia anterior à gravação e a leitura cai no Apps Script até a nova publicação chegar.
-export const ACOES_LIDAS_DO_WORKER = ACOES_PUBLICADAS;
+/**
+ * 29/10/2026: telas publicadas POR ATIVO (Publicacao.gs!LEITURA_POR_ATIVO_): 'ativoBase?ref=TICKER' (renda variável, sem a
+ * posição de hoje - api-client.js!getAtivo junta a linha da Carteira) e 'ativo?ref=rf:...&semIndices=1' (renda fixa).
+ * Ativo ainda não publicado: o Worker responde 404 e a leitura vai ao Apps Script.
+ */
+export const ACOES_PUBLICADAS_POR_ATIVO = Object.freeze(['ativo', 'ativoBase']);
+export const ACOES_LIDAS_DO_WORKER = Object.freeze([...ACOES_PUBLICADAS, ...ACOES_PUBLICADAS_POR_ATIVO]);

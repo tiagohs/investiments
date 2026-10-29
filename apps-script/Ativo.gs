@@ -108,11 +108,12 @@ function familiaCacheAtivo_(chave) {
 }
 
 /** Lê do cache ou calcula e grava (mesmos helpers em pedaços da série da Início - passa de 100KB). */
-function comCacheAtivo_(ss, ref, fn) {
+function comCacheAtivo_(ss, ref, fn, opcoes) {
   var chave = chaveCacheAtivo_(ss, ref);
   var emCache = null;
   try { emCache = lerSerieHistoricoCache_(chave); } catch (e) { emCache = null; }
   if (emCache) return emCache;
+  if (opcoes && opcoes.soCache) return null; // 29/10/2026 (publicação da leitura): sem tempo pra calcular - fica pra próxima
   var r = fn();
   if (r && r.ok) { try { gravarSerieHistoricoCache_(chave, r, null, familiaCacheAtivo_(chave)); } catch (e) { /* segue sem cache */ } }
   return r;
@@ -140,15 +141,21 @@ function rodarPreAquecerAtivosDireto() {
   Logger.log(JSON.stringify(r));
 }
 
-function preAquecerCacheAtivos_() {
-  var inicio = Date.now();
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var refs = Object.keys(classesDaCarteiraParaProventos_(ss));
+/** Os ativos da carteira (renda variável: ticker; renda fixa: 'rf:<nome>|<instituição>') - pré-aquecimento e publicação. */
+function refsDosAtivosDaCarteira_(ss) {
+  var refs = Object.keys(memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); }));
   try {
-    (montarCarteirasRendaFixa_().ativos || []).forEach(function (a) {
+    (memoAtivo_('carteiraRf', function () { return montarCarteirasRendaFixa_(); }).ativos || []).forEach(function (a) {
       if (a.nomePersonalizado) refs.push('rf:' + String(a.nomePersonalizado).trim() + '|' + String(a.instituicao || '').trim());
     });
   } catch (e) { /* sem renda fixa */ }
+  return refs;
+}
+
+function preAquecerCacheAtivos_() {
+  var inicio = Date.now();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var refs = refsDosAtivosDaCarteira_(ss);
   var feitos = 0, jaEstavam = 0, falhas = [], faltaram = 0;
   refs.forEach(function (ref) {
     if (Date.now() - inicio > ATIVO_PREAQUECER_LIMITE_MS_) { faltaram++; return; }
@@ -181,16 +188,30 @@ function posicaoAtualDoAtivo_(ss, ticker, classeConhecida) {
 }
 
 function montarTelaAtivo_(ref, opcoes) {
+  var o = opcoes || {};
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var semIndices = !!(opcoes && opcoes.semIndices);
-  if (/^rf:/i.test(ref)) return anexarIndicesAtivo_(comCacheAtivo_(ss, ref, function () { return montarTelaAtivoRendaFixa_(ref.slice(3)); }), semIndices);
+  var semIndices = !!o.semIndices;
+  if (/^rf:/i.test(ref)) return anexarIndicesAtivo_(comCacheAtivo_(ss, ref, function () { return montarTelaAtivoRendaFixa_(ref.slice(3)); }, o), semIndices);
   var ticker = ref.toUpperCase();
   var classes = memoAtivo_('classes', function () { return classesDaCarteiraParaProventos_(ss); });
   var atual = posicaoAtualDoAtivo_(ss, ticker, classes[ticker] || null);
-  var base = comCacheAtivo_(ss, ticker, function () { return montarBaseAtivo_(ss, ticker, atual.classe); });
+  var base = telaAtivoSemPosicao_(ss, ticker, atual.classe, o);
   if (!base || !base.ok) return base;
-  anexarIndicesAtivo_(base, semIndices);
   base.ativo = atual.ativo;
+  return base;
+}
+
+/**
+ * A tela do ativo de renda variável SEM a posição de hoje (`ativo` fica null). 29/10/2026: é também o que vai ao Worker
+ * (chave 'ativoBase?ref=X', Publicacao.gs) - o site junta a posição da Carteira publicada (api-client.js!getAtivo), em vez
+ * de esperar o Apps Script montar a carteira inteira (7-30 s) só pra achar uma linha.
+ */
+function telaAtivoSemPosicao_(ss, ticker, classe, opcoes) {
+  var o = opcoes || {};
+  var base = comCacheAtivo_(ss, ticker, function () { return montarBaseAtivo_(ss, ticker, classe); }, o);
+  if (!base || !base.ok) return base;
+  anexarIndicesAtivo_(base, !!o.semIndices);
+  base.ativo = null;
   base.hoje = chaveDiaISOInicio_(new Date());
   // 03/10/2026 (Tiago: "largo banco de critérios"): fundamentos (Fundamentos.gs),
   // lidos da aba aux_fundamentos que a agenda diária enche - fora do cache do

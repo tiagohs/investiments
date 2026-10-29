@@ -629,7 +629,39 @@ export async function getProventos(token) {
  */
 export async function getAtivo(token, ref, { semIndices = false } = {}) {
   // 05/10/2026 (A-38): semIndices - o front já tem a série da Início (home) e monta os índices dela; a resposta vem ~200 KB menor
+  // 29/10/2026 (Tiago: "as telas de ativos ainda são lentas" - 10 a 30 s no Apps Script): renda variável vem do Worker,
+  // a tela publicada SEM a posição + a linha do ativo na Carteira publicada (a mesma que o Apps Script põe em `ativo`)
+  if (semIndices && !/^rf:/i.test(String(ref || ''))) {
+    const composta = await ativoDoWorker(token, String(ref).trim().toUpperCase());
+    if (composta) return composta;
+  }
   return request('GET', 'ativo', token, semIndices ? { ref, semIndices: 1 } : { ref });
+}
+
+const CARTEIRA_DA_CLASSE = Object.freeze({ acoes: 'carteirasAcoes', fiis: 'carteirasFiis', acoesEua: 'carteirasAcoesEua' });
+
+/** A tela do ativo montada com 2 leituras do Worker; qualquer peça faltando (não publicada, velha, fora da carteira) = null. */
+async function ativoDoWorker(token, ticker) {
+  if (!ticker || !LEITURA_URL) return null;
+  const inicio = agoraMs();
+  const lerPublicada = async (acao, params) => {
+    const chave = chaveResposta(acao, params);
+    return lerDoWorker(acao, params, token, chave, await respostaGuardada(chave), inicio);
+  };
+  const base = await lerPublicada('ativoBase', { ref: ticker });
+  if (!base || base.ok !== true || base.tipo !== 'rv') return null;
+  const acaoCarteira = CARTEIRA_DA_CLASSE[base.classe];
+  if (!acaoCarteira) return null;
+  const carteira = await lerPublicada(acaoCarteira, {});
+  const ativos = carteira && carteira.ok === true && carteira.carteira ? carteira.carteira.ativos : null;
+  const linha = Array.isArray(ativos) ? ativos.find((a) => String((a && a.ticker) || '').toUpperCase() === ticker) : null;
+  if (!linha) return null; // fora da carteira (vendido, nunca comprado): o Apps Script procura nas 3 classes
+  const posicao = clonar(linha);
+  // a Carteira FIIs troca o grupo pelo tipo do Radar (Tijolo/Papel/Híbrido); a tela do ativo mostra o da aba (CarteirasClasses.gs)
+  if (Object.prototype.hasOwnProperty.call(posicao, 'grupoCarteira')) { posicao.grupo = posicao.grupoCarteira; delete posicao.grupoCarteira; }
+  const { _fonte, _naoMudou, ...tela } = base;
+  registrarDesempenho('ativo', { total: agoraMs() - inicio, servidor: null, naoMudou: false, bytes: 0, ok: true, fonte: 'cf' });
+  return { ...tela, ativo: posicao, _fonte: 'leitura' };
 }
 
 /** 25/09/2026: notícias recentes do ativo (Google Notícias, cache de 2h no Apps Script). */
@@ -755,8 +787,35 @@ export async function removerAtivo(token, classe, ticker) {
  * índices da Início (apps-script/Intradia.gs). chaves: 'IBOV', 'IFIX', 'SPX',
  * 'USD', 'EUR' ou 'classe:TICKER' (acoes/fiis/usa). { ok, resultado: { chave: serie|null } }
  */
+// 29/10/2026 (desempenho do Tiago: até 7 pedidos de intradia em fila, o 7º esperando 12 s com o servidor levando 150 ms
+// cada): pedidos feitos juntos (mesma volta do navegador, ~25 ms) viram UM pedido com todos os símbolos (até 40 por
+// pedido, o limite do Intradia.gs). Cada um recebe a resposta com as séries que pediu.
+export const INTRADIA_MAX_POR_PEDIDO = 40;
+const JANELA_INTRADIA_MS = 25;
+let loteIntradia = null;
 export async function getIntradia(token, chaves) {
-  return request('GET', 'intradia', token, { simbolos: (chaves || []).join(',') });
+  const lista = [...new Set((chaves || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!lista.length) return { ok: true, resultado: {} };
+  if (!loteIntradia || loteIntradia.token !== token) {
+    const lote = { token, chaves: new Set(), promessa: null };
+    lote.promessa = new Promise((r) => setTimeout(r, JANELA_INTRADIA_MS)).then(async () => {
+      if (loteIntradia === lote) loteIntradia = null;
+      const todas = [...lote.chaves];
+      const partes = [];
+      for (let i = 0; i < todas.length; i += INTRADIA_MAX_POR_PEDIDO) partes.push(todas.slice(i, i + INTRADIA_MAX_POR_PEDIDO));
+      const respostas = await Promise.all(partes.map((p) => request('GET', 'intradia', token, { simbolos: p.join(',') })));
+      const falha = respostas.find((r) => !r || r.ok !== true);
+      if (falha && respostas.every((r) => !r || r.ok !== true)) return falha;
+      return { ok: true, resultado: Object.assign({}, ...respostas.map((r) => (r && r.ok === true && r.resultado) || {})) };
+    });
+    loteIntradia = lote;
+  }
+  lista.forEach((c) => loteIntradia.chaves.add(c));
+  const r = await loteIntradia.promessa;
+  if (!r || r.ok !== true || !r.resultado) return r;
+  const resultado = {};
+  lista.forEach((c) => { if (c in r.resultado) resultado[c] = r.resultado[c]; });
+  return { ...r, resultado };
 }
 
 /**
