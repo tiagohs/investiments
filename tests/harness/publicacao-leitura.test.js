@@ -261,3 +261,13 @@ test('telas dos ativos: sem tempo, só vai o que já está no cache do Apps Scri
   const cota = plain(sb.publicarLeitura_({ familias: 'cotacao' }));
   assert.equal(cota.ativos, null, 'o gatilho de cotação não publica os ativos');
 });
+
+test('pedidos de publicação anotados se juntam (29/10/2026: o site pede só as telas que a gravação mudou)', () => {
+  const { sandbox: sb } = criarSandboxGs({ silencioso: true });
+  const cot = plain(sb.familiasLeitura_().filter((f) => f.cotacao).map((f) => f.acao));
+  assert.equal(sb.juntarFamiliasLeitura_(null, ['home']).join(), 'home');
+  assert.deepEqual(plain(sb.juntarFamiliasLeitura_(['gastos'], ['home', 'gastos'])), ['gastos', 'home']);
+  assert.equal(sb.juntarFamiliasLeitura_(['gastos'], 'tudo'), 'tudo');
+  assert.equal(sb.juntarFamiliasLeitura_('tudo', ['home']), 'tudo');
+  assert.deepEqual(plain(sb.juntarFamiliasLeitura_('cotacao', ['gastos'])), [...cot, 'gastos']);
+});

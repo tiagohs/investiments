@@ -135,7 +135,10 @@ function publicarLeitura_(opcoes) {
   var props = PropertiesService.getScriptProperties();
   var trava = travaRecurso_('leitura-publicacao', 'Publicação da leitura (' + (o.origem || 'Manual') + ')', { ttlMs: 5 * 60 * 1000, leitura: true });
   if (!trava.tryLock(0)) {
-    props.setProperty(LEITURA_PROP_PENDENTE_, JSON.stringify({ familias: o.familias || 'tudo', em: Date.now() }));
+    // 29/10/2026: o site agora pede só as telas que a gravação mudou - pedidos anotados se JUNTAM (nunca um tira o outro)
+    var anterior = null;
+    try { anterior = JSON.parse(props.getProperty(LEITURA_PROP_PENDENTE_) || 'null'); } catch (eA) { anterior = null; }
+    props.setProperty(LEITURA_PROP_PENDENTE_, JSON.stringify({ familias: juntarFamiliasLeitura_(anterior && anterior.familias, o.familias || 'tudo'), em: Date.now() }));
     return { ok: true, configurado: true, adiada: true, publicadas: 0, iguais: 0, erros: [] };
   }
   try {
@@ -154,6 +157,17 @@ function publicarLeitura_(opcoes) {
   } finally {
     trava.releaseLock();
   }
+}
+
+/** 'tudo' ganha de qualquer lista; 'cotacao' vira a lista das telas de cotação; listas se unem. */
+function juntarFamiliasLeitura_(a, b) {
+  if (a == null) return b;
+  if (b == null) return a;
+  if (a === 'tudo' || b === 'tudo') return 'tudo';
+  var lista = function (x) { return x === 'cotacao' ? familiasLeitura_().filter(function (f) { return f.cotacao; }).map(function (f) { return f.acao; }) : [].concat(x); };
+  var out = [];
+  lista(a).concat(lista(b)).forEach(function (f) { if (out.indexOf(f) === -1) out.push(f); });
+  return out;
 }
 
 function publicarLeituraSemTrava_(opcoes) {

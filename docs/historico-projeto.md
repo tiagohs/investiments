@@ -664,3 +664,9 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - Intradia: pedidos feitos juntos (~25 ms) viram um pedido só, com até 40 símbolos. Antes eram até 7 pedidos em fila, e o último esperava 12 s.
 - Tela do ativo: notícias e tese só são pedidas depois da tela principal chegar e com a Visão geral à vista.
 - Testes: publicacao-leitura (o site monta a tela igual ao doGet para todos os ativos das fixtures; orçamento; cotação sem ativos), leitura-cliente (composição, quedas para o Apps Script, intradia em lote) e ativo (notícias e tese esperando).
+
+### 29/10/2026 (gráfico do dia pelo Worker; gravações com escopo - ADR-09/10)
+
+- `GET /v1/intradia` no Worker (`worker/src/intradia.js`), com a mesma conta do Intradia.gs (`assets/js/intradia-yahoo.js`). O que o Yahoo não responder lá vai ao Apps Script; se ele recusar tudo, há pausa de 30 min por aba.
+- `ESCOPO_GRAVACAO` (api-client.js): gastos invalidam só os gastos. Favoritos não invalidam nada: a Início publicada vale com a lista salva por cima. O resto continua invalidando todas as telas. A republicação pedida vai só para as telas afetadas, e os pedidos anotados se juntam (`juntarFamiliasLeitura_`).
+- Testes: harness/intradia-worker (paridade com o Intradia.gs, falhas x null, memória, sessão), leitura-cliente (favoritos, gastos, intradia com queda para o Apps Script e pausa) e publicacao-leitura (junção dos pedidos).

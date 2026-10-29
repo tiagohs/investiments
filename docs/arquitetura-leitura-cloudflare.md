@@ -205,6 +205,17 @@ sequenceDiagram
 - **Consequência:** acelera gravação, sincronização e publicação, que continuam passando pela planilha. Medido antes e depois.
 - **Atende:** RNF-06, RNF-08.
 
+**ADR-09. Gráfico do dia direto do Yahoo pelo Worker.**
+- **Contexto:** o intradia não vem da planilha (Intradia.gs lê o Yahoo). Pelo Apps Script, os pedidos entram em fila: 2 a 12 s para 150 ms de servidor.
+- **Escolha:** `GET /v1/intradia` no Worker, com a mesma conta do Intradia.gs (`assets/js/intradia-yahoo.js`, conferida nos dois lados) e 5 min de memória. Até 15 símbolos por pedido, por causa dos 10 ms de CPU. O que o Yahoo não responder lá (`falhas`) vai ao Apps Script; se ele recusar tudo, o site para de tentar o Worker por 30 min.
+- **Consequência:** é a única leitura que não vem da planilha publicada. Só o desenho do dia sai daqui; cotação e variação da tela continuam as da planilha.
+- **Atende:** RNF-01.
+
+**ADR-10. Cada gravação invalida só as telas que muda.**
+- **Contexto:** qualquer gravação fazia o aparelho recusar todo o Worker até a próxima publicação. Salvar favoritos deixava a Início 30 a 40 s no Apps Script.
+- **Escolha:** `ESCOPO_GRAVACAO` (api-client.js) lista as telas afetadas por gravação. O padrão é todas: a planilha liga as abas por fórmula. Só entram gravações em abas que apenas o Apps Script lê (`aux_gastos*`) ou que não são publicadas. Favoritos: a Início publicada continua valendo, com a lista salva no aparelho por cima, até a publicação nova. A republicação pedida também se limita a essas telas.
+- **Atende:** RF-05, RNF-01.
+
 ## 7. Estratégia de testes
 
 | Camada | O que garante | Como |

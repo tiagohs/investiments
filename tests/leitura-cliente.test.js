@@ -4,7 +4,7 @@
 //  - depois de gravar: guarda o instante (_agora do Apps Script) e pede a republicação em segundo plano.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHome, getAtivo, getIntradia, INTRADIA_MAX_POR_PEDIDO, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
+import { getHome, getAtivo, getIntradia, INTRADIA_MAX_POR_PEDIDO, INTRADIA_WORKER_MAX, salvarFavoritos, salvarRegraGastos, getGastos, getCarteirasFiis, getTransacoes, getSyncStatus, salvarDespesas, esquecerRespostasGuardadas, marcarGeracaoMinima, TEMPO_MAXIMO_LEITURA_MS } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL, APPS_SCRIPT_URL } from '../assets/js/config.js';
 
@@ -99,7 +99,7 @@ test('depois de gravar: publicação mais velha que a gravação não serve (App
   });
   assert.equal((await getHome(S1)).v, 'worker');
   await salvarDespesas(S1, []);
-  assert.equal(Number(memoria.get('investiments_geracao_minima')), B + 5000, 'instante do Apps Script');
+  assert.deepEqual(JSON.parse(memoria.get('investiments_geracao_minima')), { '*': B + 5000 }, 'instante do Apps Script, pra todas as telas (salvarDespesas não tem escopo menor)');
   assert.equal((await getHome(S1)).v, 'apps-script', 'publicação de antes da gravação não serve');
   geracaoWorker = geracao(6000);
   assert.equal((await getHome(S1)).v, 'worker', 'a publicação nova serve');
@@ -108,7 +108,12 @@ test('depois de gravar: publicação mais velha que a gravação não serve (App
   assert.equal(pub.length, 1, 'uma republicação em segundo plano');
   // o mínimo só sobe
   marcarGeracaoMinima(B + 10);
-  assert.equal(Number(memoria.get('investiments_geracao_minima')), B + 5000);
+  assert.deepEqual(JSON.parse(memoria.get('investiments_geracao_minima')), { '*': B + 5000 });
+  assert.match(pub[0].corpo, /familias=tudo/);
+  // formato antigo (um número) continua valendo pra todas
+  memoria.set('investiments_geracao_minima', String(B + 9000));
+  esquecerRespostasGuardadas();
+  assert.equal((await getHome(S1)).v, 'apps-script');
 });
 
 test('29/10/2026: tela do ativo (renda variável) = ativoBase + a linha da Carteira publicada, sem Apps Script; o grupo é o da aba', async (t) => {
@@ -166,4 +171,81 @@ test('29/10/2026: intradia pedidos juntos viram 1 pedido (até 40 símbolos); ca
   const c = await getIntradia('tok', muitos);
   assert.deepEqual(pedidos.map((p) => p.length), [INTRADIA_MAX_POR_PEDIDO, 5]);
   assert.equal(Object.keys(c.resultado).length, muitos.length);
+});
+
+test('29/10/2026: favoritos salvos - a Início do Worker continua servindo, com a lista salva por cima até a publicação nova; as outras telas nem sentem', async (t) => {
+  limpar();
+  let geracaoHome = geracao(1000);
+  const pedidos = [];
+  t.mock.method(globalThis, 'fetch', async (url, op = {}) => {
+    const u = String(url);
+    pedidos.push({ url: u, corpo: op.body ? String(op.body) : '' });
+    if (u.startsWith(`${LEITURA_URL}/v1/tela/home`)) return resposta(200, { ok: true, v: 'worker', favoritos: ['acoes:VELHA3'] }, { ETag: `"H${geracaoHome}"`, 'X-Geracao': geracaoHome });
+    if (u.startsWith(LEITURA_URL)) return resposta(200, { ok: true, v: 'worker' }, { ETag: '"X"', 'X-Geracao': geracao(1000) });
+    if (op.method === 'POST' && String(op.body).includes('action=salvarFavoritos')) return resposta(200, { ok: true, favoritos: ['acoes:NOVA3', 'fiis:TEST11'], _agora: B + 5000 });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  await salvarFavoritos(S1, ['acoes:NOVA3', 'fiis:TEST11']);
+  const h = await getHome(S1);
+  assert.equal(h.v, 'worker', 'sem esperar 30 s pelo Apps Script');
+  assert.deepEqual(h.favoritos, ['acoes:NOVA3', 'fiis:TEST11'], 'com a lista que acabou de ser salva');
+  assert.equal((await getCarteirasFiis(S1)).v, 'worker');
+  geracaoHome = geracao(6000); // a publicação nova já tem a lista: o remendo some
+  const h2 = await getHome(S1);
+  assert.deepEqual(h2.favoritos, ['acoes:VELHA3'], 'vale o que veio publicado');
+  assert.equal(memoria.has('investiments_favoritos_locais'), false);
+  await new Promise((r) => setTimeout(r, 1700));
+  const pub = pedidos.filter((p) => p.corpo.includes('action=publicarLeitura'));
+  assert.equal(pub.length, 1);
+  assert.match(pub[0].corpo, /familias=home(&|$)/, 'republica só a Início');
+});
+
+test('gravação nos gastos: só os gastos esperam a publicação nova (Apps Script); a Início continua no Worker', async (t) => {
+  limpar();
+  const pedidos = [];
+  t.mock.method(globalThis, 'fetch', async (url, op = {}) => {
+    const u = String(url);
+    pedidos.push({ url: u, corpo: op.body ? String(op.body) : '' });
+    if (u.startsWith(LEITURA_URL)) return resposta(200, { ok: true, v: 'worker' }, { ETag: '"X"', 'X-Geracao': geracao(1000) });
+    if (op.method === 'POST') return resposta(200, { ok: true, _agora: B + 5000 });
+    return resposta(200, { ok: true, v: 'apps-script', _etag: 'E' });
+  });
+  await salvarRegraGastos(S1, 'MERCADO', 'Mercado');
+  assert.equal((await getGastos(S1)).v, 'apps-script');
+  assert.equal((await getHome(S1)).v, 'worker');
+  await new Promise((r) => setTimeout(r, 1700));
+  assert.match(pedidos.find((p) => p.corpo.includes('action=publicarLeitura')).corpo, /familias=gastos(&|$)/);
+});
+
+test('29/10/2026: gráfico do dia pelo Worker (Yahoo direto); o que ele não conseguir vai ao Apps Script; Yahoo recusando = pausa', async (t) => {
+  limpar();
+  const sessao = new Map();
+  globalThis.sessionStorage = { getItem: (k) => (sessao.has(k) ? sessao.get(k) : null), setItem: (k, v) => sessao.set(k, String(v)), removeItem: (k) => sessao.delete(k) };
+  const pedidos = [];
+  let workerFalha = false;
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    const u = new URL(String(url));
+    const simbolos = (u.searchParams.get('simbolos') || '').split(',');
+    pedidos.push({ origem: String(url).startsWith(LEITURA_URL) ? 'cf' : 'as', simbolos });
+    if (String(url).startsWith(LEITURA_URL)) {
+      if (workerFalha) return resposta(200, { ok: true, resultado: {}, falhas: simbolos });
+      return resposta(200, { ok: true, resultado: Object.fromEntries(simbolos.filter((s) => s !== 'acoes:BLOQ3').map((s) => [s, { v: [1], de: 'cf' }])), falhas: simbolos.includes('acoes:BLOQ3') ? ['acoes:BLOQ3'] : [] });
+    }
+    return resposta(200, { ok: true, resultado: Object.fromEntries(simbolos.map((s) => [s, { v: [2], de: 'as' }])) });
+  });
+  const chaves = Array.from({ length: INTRADIA_WORKER_MAX + 2 }, (_, i) => `acoes:T${i}`).concat(['acoes:BLOQ3']);
+  const r = await getIntradia(S1, chaves);
+  assert.deepEqual(pedidos.filter((p) => p.origem === 'cf').map((p) => p.simbolos.length), [INTRADIA_WORKER_MAX, 3], 'Worker em pedaços de 15');
+  assert.deepEqual(pedidos.filter((p) => p.origem === 'as').map((p) => p.simbolos), [['acoes:BLOQ3']], 'só a falha vai ao Apps Script');
+  assert.equal(r.resultado['acoes:T0'].de, 'cf');
+  assert.equal(r.resultado['acoes:BLOQ3'].de, 'as');
+  // Yahoo recusando tudo no Cloudflare: Apps Script, e a aba para de tentar o Worker por 30 min
+  workerFalha = true;
+  pedidos.length = 0;
+  const r2 = await getIntradia(S1, ['IBOV', 'acoes:T1']);
+  assert.equal(r2.resultado.IBOV.de, 'as');
+  pedidos.length = 0;
+  await getIntradia(S1, ['IBOV']);
+  assert.deepEqual(pedidos.map((p) => p.origem), ['as'], 'pausa: nem tenta o Worker');
+  delete globalThis.sessionStorage;
 });

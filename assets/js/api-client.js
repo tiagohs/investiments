@@ -52,26 +52,73 @@ export function esquecerRespostasGuardadas() { respostasGuardadas.clear(); }
 // As telas publicadas são lidas do Worker (resposta pronta, ~100 ms). Qualquer problema - sem sessão s1, erro, 404,
 // 1,5 s sem resposta, ou publicação MAIS VELHA que a última gravação feita neste aparelho - cai no Apps Script, como antes.
 const CHAVE_GERACAO_MINIMA = 'investiments_geracao_minima';
+const CHAVE_FAVORITOS_LOCAIS = 'investiments_favoritos_locais';
 export const TEMPO_MAXIMO_LEITURA_MS = 1500;
 
-function lerGeracaoMinima() {
-  try { return Number(typeof localStorage !== 'undefined' && localStorage.getItem(CHAVE_GERACAO_MINIMA)) || 0; } catch (e) { return 0; }
+/**
+ * 29/10/2026 (Tiago: depois de salvar os favoritos a Início ficava 30-40 s no Apps Script): o que cada gravação muda nas
+ * telas publicadas. Por padrão ('*'), TODAS - a planilha tem fórmula ligando as abas e errar aqui mostraria número velho.
+ * Só entra aqui gravação em aba que só o próprio Apps Script lê (conferido em apps-script/: as aux_gastos* só o Gastos.gs
+ * lê; coordenadas do portfólio de FII e vídeos não são publicados). Favoritos: a Início do Worker serve, com a lista
+ * que este aparelho acabou de salvar por cima (ver remendoFavoritos), até a publicação nova chegar.
+ */
+export const ESCOPO_GRAVACAO = Object.freeze({
+  salvarFavoritos: ['home'],
+  salvarImportacaoGastos: ['gastos'], salvarRegraGastos: ['gastos'], excluirArquivoGastos: ['gastos'], excluirArquivosGastos: ['gastos'], salvarFontesGastos: ['gastos'],
+  fiiPortfolioCoords: [], sincronizarVideos: [],
+});
+const SEM_GERACAO_MINIMA = Object.freeze(['salvarFavoritos']); // muda só o que o remendo cobre
+const escopoDe = (action) => (Object.prototype.hasOwnProperty.call(ESCOPO_GRAVACAO, action) ? ESCOPO_GRAVACAO[action] : ['*']);
+
+function lerMapaGeracaoMinima() {
+  try {
+    const bruto = typeof localStorage !== 'undefined' ? localStorage.getItem(CHAVE_GERACAO_MINIMA) : null;
+    if (!bruto) return {};
+    const v = JSON.parse(bruto);
+    if (typeof v === 'number') return { '*': v }; // formato antigo (um número só = vale pra tudo)
+    return v && typeof v === 'object' ? v : {};
+  } catch (e) { return {}; }
 }
-/** Depois de gravar: publicação com geração anterior a este instante (relógio do Apps Script) não serve mais. */
-export function marcarGeracaoMinima(instanteMs) {
-  if (!Number.isFinite(instanteMs) || instanteMs <= lerGeracaoMinima()) return;
-  try { if (typeof localStorage !== 'undefined') localStorage.setItem(CHAVE_GERACAO_MINIMA, String(instanteMs)); } catch (e) { /* sem armazenamento: só esta aba */ }
+function lerGeracaoMinima(action) {
+  const m = lerMapaGeracaoMinima();
+  const ativo = action === 'ativo' || action === 'ativoBase';
+  return Math.max(Number(m['*']) || 0, Number(m[action]) || 0, ativo ? Number(m.ativos) || 0 : 0);
+}
+/** Depois de gravar: publicação com geração anterior a este instante (relógio do Apps Script) não serve mais - nas telas `familias`. */
+export function marcarGeracaoMinima(instanteMs, familias = ['*']) {
+  if (!Number.isFinite(instanteMs)) return;
+  const m = lerMapaGeracaoMinima();
+  let mudou = false;
+  familias.forEach((f) => { if (!(Number(m[f]) >= instanteMs)) { m[f] = instanteMs; mudou = true; } });
+  if (!mudou) return;
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem(CHAVE_GERACAO_MINIMA, JSON.stringify(m)); } catch (e) { /* sem armazenamento: só esta aba */ }
+}
+
+/** Favoritos salvos aqui valem por cima de uma Início publicada ANTES deles; publicação mais nova já os tem (e o remendo some). */
+function remendoFavoritos(json, geracao) {
+  let local = null;
+  try { local = JSON.parse((typeof localStorage !== 'undefined' && localStorage.getItem(CHAVE_FAVORITOS_LOCAIS)) || 'null'); } catch (e) { local = null; }
+  if (!local || !Array.isArray(local.ids)) return json;
+  if (instanteDaGeracao(geracao) >= Number(local.em)) {
+    try { localStorage.removeItem(CHAVE_FAVORITOS_LOCAIS); } catch (e) { /* ok */ }
+    return json;
+  }
+  return { ...json, favoritos: [...local.ids] };
 }
 
 let publicacaoAgendada = null;
-/** Pede ao Apps Script, em segundo plano, a republicação (várias gravações seguidas = 1 pedido). Nunca atrapalha quem gravou. */
-export function pedirPublicacao(token, { atrasoMs = 1500, agendar = typeof setTimeout === 'function' ? setTimeout : null, cancelar = typeof clearTimeout === 'function' ? clearTimeout : null } = {}) {
-  if (!LEITURA_URL || !token || !agendar) return;
+let familiasPedidas = new Set();
+/** Pede ao Apps Script, em segundo plano, a republicação das telas `familias` (várias gravações seguidas = 1 pedido). */
+export function pedirPublicacao(token, { familias = ['*'], atrasoMs = 1500, agendar = typeof setTimeout === 'function' ? setTimeout : null, cancelar = typeof clearTimeout === 'function' ? clearTimeout : null } = {}) {
+  if (!LEITURA_URL || !token || !agendar || !familias.length) return;
+  familias.forEach((f) => familiasPedidas.add(f));
   if (publicacaoAgendada && cancelar) cancelar(publicacaoAgendada);
   publicacaoAgendada = agendar(() => {
     publicacaoAgendada = null;
+    const pedidas = familiasPedidas.has('*') ? 'tudo' : [...familiasPedidas].join(',');
+    familiasPedidas = new Set();
     try {
-      fetch(APPS_SCRIPT_URL, { method: 'POST', body: new URLSearchParams({ action: 'publicarLeitura', token, familias: 'tudo' }), keepalive: true }).catch(() => {});
+      fetch(APPS_SCRIPT_URL, { method: 'POST', body: new URLSearchParams({ action: 'publicarLeitura', token, familias: pedidas }), keepalive: true }).catch(() => {});
     } catch (e) { /* segundo plano */ }
   }, atrasoMs);
 }
@@ -86,10 +133,11 @@ async function lerDoWorker(action, params, token, chave, guardada, inicio) {
     if (guardada && guardada.etag) headers['If-None-Match'] = `"${guardada.etag}"`;
     const res = await fetch(`${LEITURA_URL}/v1/tela/${k}`, { method: 'GET', headers, ...(ctrl ? { signal: ctrl.signal } : {}) });
     const geracao = res.headers && typeof res.headers.get === 'function' ? res.headers.get('X-Geracao') : null;
-    if (instanteDaGeracao(geracao) < lerGeracaoMinima()) return null; // anterior à última gravação deste aparelho
+    if (instanteDaGeracao(geracao) < lerGeracaoMinima(action)) return null; // anterior à última gravação deste aparelho (que mexe nesta tela)
+    const remendar = (j) => (action === 'home' ? remendoFavoritos(j, geracao) : j);
     if (res.status === 304 && guardada) {
       registrarDesempenho(action, { total: agoraMs() - inicio, servidor: null, naoMudou: true, bytes: 0, ok: true, fonte: 'cf' });
-      return { ...clonar(guardada.json), _naoMudou: true, _fonte: 'leitura' };
+      return { ...remendar(clonar(guardada.json)), _naoMudou: true, _fonte: 'leitura' };
     }
     if (res.status !== 200) return null;
     const texto = await res.text();
@@ -102,7 +150,7 @@ async function lerDoWorker(action, params, token, chave, guardada, inicio) {
       cacheDados().then((m) => m.gravarCacheDados(chave, reg)).catch(() => {});
     }
     registrarDesempenho(action, { total: agoraMs() - inicio, servidor: null, naoMudou: false, bytes: texto.length, ok: true, fonte: 'cf' });
-    return { ...clonar(json), _fonte: 'leitura' };
+    return { ...remendar(clonar(json)), _fonte: 'leitura' };
   } catch (e) {
     return null; // rede, 1,5 s esgotado, JSON ruim: Apps Script
   } finally {
@@ -157,9 +205,18 @@ async function request(method, action, token, params = {}, { _semEtag = false } 
     // pra próxima carga buscar o estado novo em vez de mostrar o aviso velho por até 15 min.
     if (method !== 'GET') { try { if (typeof localStorage !== 'undefined') localStorage.removeItem('investiments_sync_resumo'); } catch (_) { /* só conveniência */ } }
     // 29/10/2026: gravou -> o Worker só volta a valer com a geração nova; e pede a republicação em segundo plano
+    // 29/10/2026: só nas telas que ESTA gravação muda (ESCOPO_GRAVACAO; o padrão é todas)
     if (method !== 'GET' && json && json.ok !== false && action !== 'criarSessao' && action !== 'publicarLeitura') {
-      marcarGeracaoMinima(Number(json._agora) || Date.now());
-      pedirPublicacao(token);
+      const instante = Number(json._agora) || Date.now();
+      const escopo = escopoDe(action);
+      if (action === 'salvarFavoritos') {
+        try {
+          localStorage.setItem(CHAVE_FAVORITOS_LOCAIS, JSON.stringify({ ids: Array.isArray(json.favoritos) ? json.favoritos : JSON.parse(params.ids || '[]'), em: instante }));
+        } catch (e) {
+          marcarGeracaoMinima(instante, escopo); // sem armazenamento pro remendo: a Início vem do Apps Script até a publicação nova
+        }
+      } else if (!SEM_GERACAO_MINIMA.includes(action)) marcarGeracaoMinima(instante, escopo);
+      pedirPublicacao(token, { familias: escopo });
     }
     // 25/09/2026: sessão recusada (expirou/foi encerrada) - esquece o token,
     // e a próxima página já manda pro login em vez de repetir o erro.
@@ -793,6 +850,45 @@ export async function removerAtivo(token, classe, ticker) {
 export const INTRADIA_MAX_POR_PEDIDO = 40;
 const JANELA_INTRADIA_MS = 25;
 let loteIntradia = null;
+export const INTRADIA_WORKER_MAX = 15; // o mesmo de worker/src/intradia.js
+export const TEMPO_MAXIMO_INTRADIA_WORKER_MS = 4000;
+const CHAVE_INTRADIA_WORKER_PAUSA = 'investiments_intradia_worker_pausa';
+const PAUSA_INTRADIA_WORKER_MS = 30 * 60 * 1000;
+
+/** { resultado, faltam } do Worker (faltam = o Yahoo não respondeu lá, ou o pedido falhou); null = nem tenta. */
+async function intradiaDoWorker(token, chaves) {
+  if (!LEITURA_URL || !String(token || '').startsWith('s1.') || typeof fetch !== 'function') return null;
+  try { if (Number(globalThis.sessionStorage && sessionStorage.getItem(CHAVE_INTRADIA_WORKER_PAUSA)) > Date.now()) return null; } catch (e) { /* sem sessionStorage */ }
+  const inicio = agoraMs();
+  const partes = [];
+  for (let i = 0; i < chaves.length; i += INTRADIA_WORKER_MAX) partes.push(chaves.slice(i, i + INTRADIA_WORKER_MAX));
+  const resultado = {};
+  const faltam = [];
+  let respondeuAlgo = false;
+  await Promise.all(partes.map(async (p) => {
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const relogio = ctrl ? setTimeout(() => ctrl.abort(), TEMPO_MAXIMO_INTRADIA_WORKER_MS) : null;
+    try {
+      const res = await fetch(`${LEITURA_URL}/v1/intradia?simbolos=${encodeURIComponent(p.join(','))}`, { method: 'GET', headers: { Authorization: `Bearer ${token}` }, ...(ctrl ? { signal: ctrl.signal } : {}) });
+      const j = res.status === 200 ? JSON.parse(await res.text()) : null;
+      if (!j || j.ok !== true || !j.resultado) { faltam.push(...p); return; }
+      const falhas = new Set(Array.isArray(j.falhas) ? j.falhas : []);
+      p.forEach((c) => {
+        if (falhas.has(c) || !(c in j.resultado)) faltam.push(c);
+        else { resultado[c] = j.resultado[c]; respondeuAlgo = true; }
+      });
+    } catch (e) {
+      faltam.push(...p);
+    } finally {
+      if (relogio) clearTimeout(relogio);
+    }
+  }));
+  // o Yahoo recusando o Cloudflare (tudo falhou): 30 min sem tentar por lá nesta aba
+  if (!respondeuAlgo) { try { sessionStorage.setItem(CHAVE_INTRADIA_WORKER_PAUSA, String(Date.now() + PAUSA_INTRADIA_WORKER_MS)); } catch (e) { /* ok */ } }
+  else registrarDesempenho('intradia', { total: agoraMs() - inicio, servidor: null, naoMudou: false, bytes: 0, ok: true, fonte: 'cf' });
+  return { resultado, faltam };
+}
+
 export async function getIntradia(token, chaves) {
   const lista = [...new Set((chaves || []).map((c) => String(c || '').trim()).filter(Boolean))];
   if (!lista.length) return { ok: true, resultado: {} };
@@ -801,12 +897,15 @@ export async function getIntradia(token, chaves) {
     lote.promessa = new Promise((r) => setTimeout(r, JANELA_INTRADIA_MS)).then(async () => {
       if (loteIntradia === lote) loteIntradia = null;
       const todas = [...lote.chaves];
+      // 29/10/2026: primeiro o Worker (Yahoo direto, ~300 ms); o que ele não conseguir vai ao Apps Script
+      const doWorker = await intradiaDoWorker(token, todas);
+      const faltam = doWorker ? doWorker.faltam : todas;
       const partes = [];
-      for (let i = 0; i < todas.length; i += INTRADIA_MAX_POR_PEDIDO) partes.push(todas.slice(i, i + INTRADIA_MAX_POR_PEDIDO));
+      for (let i = 0; i < faltam.length; i += INTRADIA_MAX_POR_PEDIDO) partes.push(faltam.slice(i, i + INTRADIA_MAX_POR_PEDIDO));
       const respostas = await Promise.all(partes.map((p) => request('GET', 'intradia', token, { simbolos: p.join(',') })));
       const falha = respostas.find((r) => !r || r.ok !== true);
-      if (falha && respostas.every((r) => !r || r.ok !== true)) return falha;
-      return { ok: true, resultado: Object.assign({}, ...respostas.map((r) => (r && r.ok === true && r.resultado) || {})) };
+      if (falha && respostas.every((r) => !r || r.ok !== true) && !(doWorker && Object.keys(doWorker.resultado).length)) return falha;
+      return { ok: true, resultado: Object.assign({}, doWorker ? doWorker.resultado : {}, ...respostas.map((r) => (r && r.ok === true && r.resultado) || {})) };
     });
     loteIntradia = lote;
   }
