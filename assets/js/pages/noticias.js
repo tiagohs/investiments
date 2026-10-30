@@ -24,6 +24,8 @@ const CHAVE_PREFS = 'noticias.prefs.v1';
 const ABAS_VIDEOS = [{ id: 'noticias', nome: 'Notícias' }, { id: 'especialistas', nome: 'Especialistas' }, { id: 'meus', nome: 'Meus canais' }];
 const INTERVALO_MS = 2 * 60 * 1000; // RF-08: no pregão, a cada 2 min com a tela à vista
 const INDICE_DA_CLASSE = { acoes: 'IBOV', fiis: 'IFIX', acoesEua: 'SPX' };
+// 30/10/2026 (Tiago: "mostrar as 10 últimas notícias, com uma opção ver mais"): listas com 10 e "Ver mais" (+10, na própria tela)
+export const POR_PAGINA = 10;
 
 const pct = (f) => formatPctSinal(f, 2);
 const pp = (f) => `${formatNumeroBR(Math.abs(f * 100), 1)} p.p.`;
@@ -88,7 +90,7 @@ const ESQUELETO = `
   <section class="nt-manchetes" aria-labelledby="ntTituloSecao">
     <h2 id="ntTituloSecao" class="nt-sec-h2">Economia e mercado</h2>
     <div class="card nt-principal" id="ntPrincipal"><span class="skel nt-skel-titulo"></span></div>
-    <div class="card nt-recentes"><h3>Mais recentes</h3><div id="ntRecentes"></div></div>
+    <div class="card nt-recentes"><h3>Mais recentes</h3><div id="ntRecentes"></div><button type="button" class="btn btn-text nt-ver-mais" id="ntRecentesMais" hidden>Ver mais</button></div>
     <aside class="card nt-agenda" aria-labelledby="ntTituloAgenda">
       <div class="nt-agenda-cab"><h3 id="ntTituloAgenda">Agenda</h3><div class="nt-seg nt-seg-p" role="tablist" aria-label="Período" id="ntAbasAgenda"></div></div>
       <div id="ntAgenda"><span class="skel nt-skel-linha"></span></div>
@@ -104,7 +106,8 @@ const ESQUELETO = `
     <div class="nt-chips" role="group" aria-label="Classe" id="ntClasses"></div>
     <div class="nt-chips nt-tickers" role="group" aria-label="Ativo" id="ntTickers"></div>
     <div class="card nt-fatores" id="ntFatores" hidden></div>
-    <div class="nt-feed" id="ntFeed"></div>
+    <div class="card nt-feed" id="ntFeed" hidden></div>
+    <button type="button" class="btn btn-tonal nt-ver-mais" id="ntFeedMais" hidden>Ver mais notícias</button>
     <p class="nt-vazio" id="ntFeedVazio" hidden></p>
   </section>`;
 
@@ -120,7 +123,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     aba: ABAS_VIDEOS.some((a) => a.id === prefs.aba) ? prefs.aba : 'noticias',
     agenda: prefs.agenda === 'semana' ? 'semana' : 'hoje',
     ordem: ['recentes', 'posicao', 'variacao'].includes(prefs.ordem) ? prefs.ordem : 'recentes',
-    classe: 'todos', ticker: null,
+    classe: 'todos', ticker: null, verRecentes: POR_PAGINA, verFeed: POR_PAGINA,
     mercado: {}, videos: {}, series: {}, carteira: [], noticiasAtivos: {}, proventos: [], proventosLidos: false, vencimentos: [], eventosIbge: [],
     ultimaCarga: 0,
   };
@@ -165,15 +168,24 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     estado.indice = id; gravarPrefs(estado);
     // o IFIX filtra os FIIs e o Exterior os EUA (RF-07); o Ibovespa mostra tudo
     const ind = INDICES.find((i) => i.id === id);
-    if (id !== 'dolar') { estado.classe = ind.classe || 'todos'; estado.ticker = null; }
+    if (id !== 'dolar') { estado.classe = ind.classe || 'todos'; estado.ticker = null; estado.verFeed = POR_PAGINA; }
+    estado.verRecentes = POR_PAGINA;
     desenharAbasIndice(); desenharMercado(); desenharAtivos();
     if (!estado.mercado[id]) carregarMercado(id).then(desenharMercado);
   }
   segmentado($('ntAbasVideo'), ABAS_VIDEOS, estado.aba, (id) => { estado.aba = id; gravarPrefs(estado); marcar($('ntAbasVideo'), id); desenharVideos(); if (!estado.videos[id]) carregarVideos(id).then(desenharVideos); });
   segmentado($('ntAbasAgenda'), [{ id: 'hoje', nome: 'Hoje' }, { id: 'semana', nome: 'Semana' }], estado.agenda, (id) => { estado.agenda = id; gravarPrefs(estado); marcar($('ntAbasAgenda'), id); desenharAgenda(); });
-  $('ntOrdem').addEventListener('change', () => { estado.ordem = $('ntOrdem').value; gravarPrefs(estado); desenharAtivos(); });
-  $('ntClasses').addEventListener('click', (ev) => { const b = ev.target.closest('[data-classe]'); if (!b) return; estado.classe = b.dataset.classe; estado.ticker = null; desenharAtivos(); });
-  $('ntTickers').addEventListener('click', (ev) => { const b = ev.target.closest('[data-ticker]'); if (!b) return; estado.ticker = estado.ticker === b.dataset.ticker ? null : b.dataset.ticker; desenharAtivos(); });
+  $('ntOrdem').addEventListener('change', () => { estado.ordem = $('ntOrdem').value; estado.verFeed = POR_PAGINA; gravarPrefs(estado); desenharAtivos(); });
+  $('ntClasses').addEventListener('click', (ev) => { const b = ev.target.closest('[data-classe]'); if (!b) return; estado.classe = b.dataset.classe; estado.ticker = null; estado.verFeed = POR_PAGINA; desenharAtivos(); });
+  // tocar de novo no ativo escolhido tira a escolha e volta para "Todos" (Tiago, 30/10/2026)
+  $('ntTickers').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-ticker]'); if (!b) return;
+    if (estado.ticker === b.dataset.ticker) { estado.ticker = null; estado.classe = 'todos'; } else estado.ticker = b.dataset.ticker;
+    estado.verFeed = POR_PAGINA;
+    desenharAtivos();
+  });
+  $('ntRecentesMais').addEventListener('click', () => { estado.verRecentes += POR_PAGINA; desenharManchetes(estado.mercado[estado.indice]); });
+  $('ntFeedMais').addEventListener('click', () => { estado.verFeed += POR_PAGINA; desenharAtivos(); });
 
   // ---- 1. Mercado hoje ----
   function desenharMercado() {
@@ -288,7 +300,10 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     $('ntPrincipal').innerHTML = p
       ? `<span class="nt-editoria">${esc(INDICES.find((i) => i.id === estado.indice).editoria)}</span>${linkExterno(p.link, esc(p.titulo), 'nt-principal-titulo')}${p.resumo && (Array.isArray(p.resumo) ? p.resumo.length : p.resumo) ? `<p>${esc(Array.isArray(p.resumo) ? p.resumo[0] : p.resumo)}</p>` : ''}<span class="nt-meta">${esc(p.fonte || '')}${p.data ? ` · ${esc(haQuanto(p.data, agoraMs, formatDM))}` : ''}</span>`
       : '<p class="nt-vazio-linha">Manchetes indisponíveis agora.</p>';
-    const resto = m && m.ok ? (m.noticias || []).filter((n) => !p || n.titulo !== p.titulo).slice(0, 7) : [];
+    const todas = m && m.ok ? (m.noticias || []).filter((n) => !p || n.titulo !== p.titulo) : [];
+    const resto = todas.slice(0, estado.verRecentes);
+    $('ntRecentesMais').hidden = todas.length <= resto.length;
+    $('ntRecentesMais').textContent = `Ver mais (${todas.length - resto.length})`;
     $('ntRecentes').innerHTML = resto.map((n) => `<a class="nt-recente" href="${escAttr(linkSeguro(n.link))}" target="_blank" rel="noopener noreferrer"><span class="nt-hora">${esc(haQuanto(n.data, agoraMs, formatDM))}</span><span><span class="nt-recente-titulo">${esc(n.titulo)}</span><span class="nt-meta">${esc(n.fonte || '')}</span></span></a>`).join('') || '<p class="nt-vazio-linha">Nada por enquanto.</p>';
   }
   function desenharAgenda() {
@@ -304,9 +319,14 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     const daClasse = ativos.filter((a) => estado.classe === 'todos' || a.classe === estado.classe);
     $('ntTickers').innerHTML = daClasse.map((a) => `<button type="button" class="chip nt-ticker" data-ticker="${escAttr(a.ticker)}" aria-pressed="${estado.ticker === a.ticker}"><span>${esc(a.ticker)}</span><span class="nt-var nt-${tom(a.variacaoDia)}">${typeof a.variacaoDia === 'number' ? esc(pct(a.variacaoDia)) : ''}</span>${a.noticias.length ? `<span class="nt-conta" aria-label="${a.noticias.length} notícias">${a.noticias.length}</span>` : ''}</button>`).join('');
     desenharFatores(ativos);
-    const feed = feedDosAtivos(ativos, { classe: estado.classe, ticker: estado.ticker, ordem: estado.ordem });
+    const tudo = feedDosAtivos(ativos, { classe: estado.classe, ticker: estado.ticker, ordem: estado.ordem, max: 1000 });
+    const feed = tudo.slice(0, estado.verFeed);
     const agoraMs = agora();
-    $('ntFeed').innerHTML = feed.map((n) => `<a class="card card-clicavel nt-noticia" href="${escAttr(linkSeguro(n.link))}" target="_blank" rel="noopener noreferrer"><span class="nt-noticia-topo"><span class="chip-tonal nt-classe-${escAttr(n.classe)}">${esc(n.ticker)}</span><span class="nt-meta">${esc(n.fonte || '')}${n.data ? ` · ${esc(haQuanto(n.data, agoraMs, formatDM))}` : ''}</span></span><span class="nt-noticia-titulo">${esc(n.titulo)}</span>${n.resumo ? `<span class="nt-noticia-resumo">${esc(n.resumo)}</span>` : ''}</a>`).join('');
+    // lista (uma notícia por linha, como "Mais recentes"): o ativo, o título, a fonte e há quanto tempo
+    $('ntFeed').innerHTML = feed.map((n) => `<a class="nt-noticia" href="${escAttr(linkSeguro(n.link))}" target="_blank" rel="noopener noreferrer"><span class="chip-tonal nt-classe-${escAttr(n.classe)}">${esc(n.ticker)}</span><span class="nt-noticia-corpo"><span class="nt-noticia-titulo">${esc(n.titulo)}</span><span class="nt-meta">${esc(n.fonte || '')}${n.data ? ` · ${esc(haQuanto(n.data, agoraMs, formatDM))}` : ''}</span></span></a>`).join('');
+    $('ntFeed').hidden = !feed.length;
+    $('ntFeedMais').hidden = tudo.length <= feed.length;
+    $('ntFeedMais').textContent = `Ver mais notícias (${tudo.length - feed.length})`;
     const vazio = $('ntFeedVazio');
     vazio.hidden = feed.length > 0 || !estado.carteiraLida;
     vazio.textContent = estado.ticker ? `Nada novo sobre ${estado.ticker} nos últimos 60 dias.` : 'Ainda sem notícias dos ativos: elas chegam com a próxima publicação das cotações (a cada 30 min no pregão).';
@@ -314,7 +334,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
   function desenharFatores(ativos) {
     const el = $('ntFatores');
     const a = estado.ticker && ativos.find((x) => x.ticker === estado.ticker);
-    if (!a) { el.hidden = true; return; }
+    if (!a) { el.hidden = true; el.innerHTML = ''; return; }
     const chaveIndice = INDICE_DA_CLASSE[a.classe] || 'IBOV';
     const rIndice = resumoDaSerie(estado.series[chaveIndice]);
     const termometro = {};

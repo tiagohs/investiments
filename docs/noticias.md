@@ -18,9 +18,9 @@ Nova tela no menu principal (depois de Metas). Design: canvas "Tela de Notícias
 | RF-02 | Must | Tempo real: o Ibovespa lê o tempo real do InfoMoney do dia inteiro; IFIX, Exterior e Dólar leem as atualizações dele sobre o assunto, completadas pelas notícias das últimas 12 h (Google Notícias). Cada item tem hora e título, com link para a fonte. |
 | RF-03 | Must | "O que mexe com a bolsa": petróleo Brent, minério de ferro, ouro, Bitcoin e juro de 10 anos dos EUA, com a variação do dia. |
 | RF-04 | Must | Vídeos em carrossel (rola para o lado ou 4 por página), com as abas UOL (últimos vídeos postados), Especialistas e Meus canais. O player só carrega ao clicar. |
-| RF-05 | Must | Manchetes ligadas ao índice escolhido: uma matéria grande e a lista "Mais recentes". |
+| RF-05 | Must | Manchetes ligadas ao índice escolhido: uma matéria grande e a lista "Mais recentes" com 10 e "Ver mais" (até 25, na própria tela). |
 | RF-06 | Must | Agenda (Hoje/Semana): proventos da carteira (data-com e pagamento, com valor), vencimentos de renda fixa, fatos relevantes e emissões dos FIIs da carteira, resultados das empresas da carteira, indicadores (IBGE), Copom e Focus, e eventos dos EUA (payroll, CPI, Fed). |
-| RF-07 | Must | Notícias dos ativos: todos da carteira por padrão. Filtro por classe (o IFIX filtra FIIs e o Exterior filtra EUA) e por ticker. Ordenação: recentes, posição ou variação. |
+| RF-07 | Must | Notícias dos ativos: todos da carteira por padrão, em lista com as 10 primeiras e "Ver mais" (+10, na própria tela). Filtro por classe (o IFIX filtra FIIs e o Exterior filtra EUA) e por ticker; tocar de novo no ticker escolhido volta para Todos. Ordenação: recentes, posição ou variação. |
 | RF-09 | Should | "Possíveis fatores hoje" ao escolher um ativo: lista ordenada por peso (forte, médio ou fraco) com o sinal de cada fator (+, − ou =). Fatores medidos: o mercado (o ativo contra o índice), o setor ou a commodity ligada, a data-com de ontem e a variação do dólar (EUA). Também as notícias do dia classificadas por tema e tom. Termina com um resumo de uma frase e o aviso "não é recomendação nem certeza de causa". |
 | RF-08 | Should | No pregão, a tela se atualiza sozinha a cada 2 min enquanto está aberta e à vista. |
 

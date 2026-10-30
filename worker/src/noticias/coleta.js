@@ -30,7 +30,7 @@ export const CANAIS_POR_DISPARO = 5;
 const SLOT_MS = 5 * 60 * 1000;
 const TEMPO_MAXIMO_FONTE_MS = 6000;
 const MAX_TEMPO_REAL = 30;
-const MAX_NOTICIAS = 12;
+const MAX_NOTICIAS = 25; // a tela mostra 10 e "Ver mais"
 const MAX_VIDEOS_POR_ABA = 24;
 const MAX_POR_ATIVO = 6;
 

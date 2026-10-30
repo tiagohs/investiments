@@ -189,3 +189,38 @@ test('CSS (bug 30/10/2026): o cartão de fatores tinha display:grid e aparecia v
   controle.pararTimer();
   assert.equal(doc.getElementById('ntFatores').hidden, true, 'sem ativo escolhido: escondido');
 });
+
+test('listas (Tiago, 30/10/2026): 10 notícias e "Ver mais" (+10) na própria tela; tirar o ativo escolhido volta para Todos e esconde os fatores', async () => {
+  const { doc, w } = montarDom();
+  const { apis } = apisFalsas();
+  const muitas = (n, pre) => Array.from({ length: n }, (_, i) => ({ titulo: `${pre} ${i}`, link: `https://n.test/${pre}${i}`, data: new Date(AGORA - i * 60000).toISOString(), fonte: 'F' }));
+  apis.getNoticiasMercado = async (tk, indice) => ({ ok: true, indice, manchete: null, tempoReal: [], noticias: muitas(24, 'm'), avisos: [] });
+  apis.getNoticiasAtivos = async () => ({ ok: true, ativos: { TEST11: muitas(8, 'f'), ABCD3: muitas(7, 'a') } });
+  const { estado, controle } = await montarPaginaNoticias('s1.x.y', { doc, apis, agora: () => AGORA });
+  controle.pararTimer();
+  const clique = (el) => el.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  // Mais recentes: a 1ª vira a principal; 23 sobram -> 10, depois 20, depois 23
+  assert.equal(doc.querySelectorAll('#ntRecentes .nt-recente').length, 10);
+  assert.equal(doc.getElementById('ntRecentesMais').textContent, 'Ver mais (13)');
+  clique(doc.getElementById('ntRecentesMais'));
+  clique(doc.getElementById('ntRecentesMais'));
+  assert.equal(doc.querySelectorAll('#ntRecentes .nt-recente').length, 23);
+  assert.equal(doc.getElementById('ntRecentesMais').hidden, true);
+  // ativos: 15 notícias -> 10 + "Ver mais"
+  assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 10);
+  assert.equal(doc.getElementById('ntFeedMais').textContent, 'Ver mais notícias (5)');
+  clique(doc.getElementById('ntFeedMais'));
+  assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 15);
+  // escolhe um FII na aba FIIs e tira: volta para Todos, fatores escondidos e vazios
+  clique(doc.querySelector('#ntClasses [data-classe="fiis"]'));
+  clique(doc.querySelector('#ntTickers [data-ticker="TEST11"]'));
+  assert.equal(doc.getElementById('ntFatores').hidden, false);
+  assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 8);
+  clique(doc.querySelector('#ntTickers [data-ticker="TEST11"]'));
+  assert.equal(estado.ticker, null);
+  assert.equal(estado.classe, 'todos');
+  assert.equal(doc.querySelector('#ntClasses [aria-pressed="true"]').dataset.classe, 'todos');
+  assert.equal(doc.getElementById('ntFatores').hidden, true);
+  assert.equal(doc.getElementById('ntFatores').innerHTML, '');
+  assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 10, 'de novo 10 de todos');
+});

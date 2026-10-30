@@ -136,11 +136,15 @@
 .nt-sinal-neutro{ background:var(--md-sys-color-surface-container-highest); color:var(--ink-muted); }
 .nt-peso{ font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:var(--md-sys-color-surface-container-highest); color:var(--ink); }
 .nt-peso-forte{ background:var(--md-sys-color-primary-container); color:var(--md-sys-color-on-primary-container); }
-.nt-feed{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; }
-.nt-noticia{ display:flex; flex-direction:column; gap:10px; }
-.nt-noticia-topo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-.nt-noticia-titulo{ font-size:16px; line-height:23px; font-weight:500; }
-.nt-noticia-resumo{ font-size:13px; line-height:20px; color:var(--ink-muted); }
+.nt-feed{ display:flex; flex-direction:column; padding-top:8px; padding-bottom:8px; }
+.nt-noticia{ display:grid; grid-template-columns:96px minmax(0,1fr); gap:14px; align-items:start; padding:12px 0; border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.nt-noticia:last-child{ border-bottom:0; }
+.nt-noticia .chip-tonal{ justify-self:start; font-family:var(--md-ref-typeface-mono); font-size:12px; }
+.nt-noticia-corpo{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+.nt-noticia-titulo{ font-size:15px; line-height:22px; font-weight:500; }
+.nt-ver-mais{ align-self:center; margin-top:4px; }
+.nt-recentes{ display:flex; flex-direction:column; }
+.nt-recentes .nt-ver-mais{ align-self:flex-start; }
 .nt-classe-acoes{ background:color-mix(in srgb, var(--chart-1) 18%, transparent); }
 .nt-classe-fiis{ background:color-mix(in srgb, var(--chart-2) 18%, transparent); }
 .nt-classe-acoesEua{ background:color-mix(in srgb, var(--chart-4) 18%, transparent); }
@@ -150,7 +154,6 @@
   .nt-manchetes{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .nt-agenda{ grid-column:1 / -1; }
   .nt-trilho{ grid-auto-columns:calc((100% - 32px) / 3); }
-  .nt-feed{ grid-template-columns:repeat(2, minmax(0,1fr)); }
 }
 @media (max-width: 760px){
   .nt-mercado{ padding:18px 16px 20px; border-radius:20px; }
@@ -159,7 +162,7 @@
   .nt-manchete{ font-size:22px; line-height:29px; }
   .nt-valor{ font-size:26px; line-height:32px; }
   .nt-trilho{ grid-auto-columns:78%; }
-  .nt-feed{ grid-template-columns:minmax(0,1fr); }
+  .nt-noticia{ grid-template-columns:minmax(0,1fr); gap:6px; }
   .nt-indices{ flex-wrap:nowrap; overflow-x:auto; width:100%; }
   .nt-indice-btn{ flex:none; }
 }
