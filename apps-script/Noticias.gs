@@ -98,6 +98,10 @@ var NOTICIAS_CONSULTAS_INDICE_ = {
   spx: '"Wall Street" OR "S&P 500" OR Nasdaq OR "Federal Reserve" when:1d',
   dolar: 'dólar OR câmbio when:1d'
 };
+// Calendário do IBGE (a API não responde ao Cloudflare): as pesquisas que mexem com o mercado - a lista e os nomes são os
+// de worker/src/noticias/coleta.js!PRODUTOS_IBGE (o teste confere). Cache de 12 h.
+var NOTICIAS_PRODUTOS_IBGE_ = ['9256', '9260', '9300', '9171', '9227', '9229', '9294'];
+var NOTICIAS_TTL_IBGE_ = 12 * 60 * 60;
 var NOTICIAS_CACHE_INDICE_ = 'noticias_indice_v1_';
 var NOTICIAS_TTL_INDICE_ = 20 * 60;
 
@@ -105,7 +109,7 @@ function urlGoogleNoticiasIndice_(indice) {
   return 'https://news.google.com/rss/search?q=' + encodeURIComponent(NOTICIAS_CONSULTAS_INDICE_[indice]) + '&hl=pt-BR&gl=BR&ceid=BR:pt-419';
 }
 
-/** { ok, em, indices: { ibov: [...] }, ativos: { TICKER: [...] }, buscadas, falhas }. opcoes.fetchAll troca o UrlFetchApp nos testes. */
+/** { ok, em, indices: { ibov: [...] }, ativos: { TICKER: [...] }, ibge: { produto: { items } }, buscadas, falhas }. opcoes.fetchAll troca o UrlFetchApp nos testes. */
 function noticiasGoogle_(opcoes) {
   var o = opcoes || {};
   var fetchAll = o.fetchAll || function (pedidos) { return UrlFetchApp.fetchAll(pedidos); };
@@ -113,13 +117,15 @@ function noticiasGoogle_(opcoes) {
   var cache = CacheService.getScriptCache();
   var alvos = Object.keys(NOTICIAS_CONSULTAS_INDICE_).map(function (i) {
     return { tipo: 'indice', id: i, chave: NOTICIAS_CACHE_INDICE_ + i, url: urlGoogleNoticiasIndice_(i), max: 25, ttl: NOTICIAS_TTL_INDICE_ };
-  }).concat(lerAtivosNoticias_(ss).map(function (a) {
+  }).concat(NOTICIAS_PRODUTOS_IBGE_.map(function (id) {
+    return { tipo: 'ibge', id: id, chave: 'noticias_ibge_v1_' + id, url: 'https://servicodados.ibge.gov.br/api/v3/calendario/' + id + '?qtd=4', ttl: NOTICIAS_TTL_IBGE_ };
+  })).concat(lerAtivosNoticias_(ss).map(function (a) {
     return { tipo: 'ativo', id: a.ticker, chave: ATIVO_CACHE_NOTICIAS_PREFIXO + a.ticker, url: urlNoticiasAtivo_(a.ticker, a.nome, a.classe), max: 10, ttl: ATIVO_CACHE_NOTICIAS_TTL };
   }));
   var guardadas = {};
   try { guardadas = cache.getAll(alvos.map(function (x) { return x.chave; })) || {}; } catch (e) { guardadas = {}; }
-  var out = { ok: true, em: new Date().toISOString(), indices: {}, ativos: {}, buscadas: 0, falhas: 0 };
-  var pr = function (x, itens) { if (x.tipo === 'indice') out.indices[x.id] = itens; else out.ativos[x.id] = itens; };
+  var out = { ok: true, em: new Date().toISOString(), indices: {}, ativos: {}, ibge: {}, buscadas: 0, falhas: 0 };
+  var pr = function (x, itens) { if (x.tipo === 'indice') out.indices[x.id] = itens; else if (x.tipo === 'ibge') out.ibge[x.id] = itens; else out.ativos[x.id] = itens; };
   var faltam = [];
   alvos.forEach(function (x) {
     var g = guardadas[x.chave];
@@ -135,7 +141,15 @@ function noticiasGoogle_(opcoes) {
       var r = respostas[i];
       out.buscadas++;
       if (!r || r.getResponseCode() !== 200) { out.falhas++; return; }
-      var itens = extrairItensRss_(r.getContentText()).slice(0, x.max);
+      var itens;
+      if (x.tipo === 'ibge') {
+        // só o que o Worker usa (a descrição do produto tem HTML e passa de 1 KB)
+        try {
+          itens = { items: (JSON.parse(r.getContentText()).items || []).map(function (i) {
+            return { data_divulgacao: i.data_divulgacao, mes_referencia_fim: i.mes_referencia_fim, ano_referencia_fim: i.ano_referencia_fim };
+          }) };
+        } catch (e) { out.falhas++; return; }
+      } else itens = extrairItensRss_(r.getContentText()).slice(0, x.max);
       pr(x, itens);
       try { cache.put(x.chave, JSON.stringify(itens), x.ttl); } catch (e) { /* cache é só otimização */ }
     });

@@ -282,24 +282,30 @@ test('site: lê as telas de notícias do Worker (sem Apps Script, sem geração 
   assert.deepEqual([...ACOES_SO_WORKER], ['noticiasMercado', 'noticiasVideos', 'noticiasAtivos', 'noticiasAgenda']);
 });
 
-test('agenda do IBGE: 1 leitura por dia (7 pesquisas), hora de São Paulo, publicada em noticiasAgenda; falha não apaga a anterior', async () => {
+test('agenda do IBGE (via Apps Script, a API não responde ao Cloudflare): hora de São Paulo, publicada em noticiasAgenda; sem a publicação, fica a anterior', async () => {
   const env = { DB: d1() };
   const agoraMs = Date.parse('2026-10-30T14:05:00Z');
-  const json = (id) => JSON.stringify({ items: [{ data_divulgacao: '12/11/2026 12:00:00', mes_referencia_fim: 10, ano_referencia_fim: 2026, produto_id: Number(id) }, { data_divulgacao: 'quebrado' }] });
+  const ibge = Object.fromEntries(Object.keys(PRODUTOS_IBGE).map((id) => [id, { items: [{ data_divulgacao: '12/11/2026 12:00:00', mes_referencia_fim: 10, ano_referencia_fim: 2026 }, { data_divulgacao: 'quebrado' }] }]));
+  publicarDoAppsScript(env, 'noticiasGoogle', { indices: {}, ativos: {}, ibge: { ...ibge, 99999: { items: [{ data_divulgacao: '12/11/2026 12:00:00' }] } } });
   const pedidos = [];
-  const SO_AGENDA = { tempoReal: false, manchetes: false, videos: false, ativos: false, agenda: true };
-  await coletarNoticias(env, { agoraMs, tarefas: SO_AGENDA, fetchImpl: (async (u) => { pedidos.push(String(u)); const id = String(u).match(/calendario\/(\d+)/)[1]; return new Response(json(id), { status: 200 }); }) });
-  assert.equal(pedidos.length, Object.keys(PRODUTOS_IBGE).length);
+  const SO_AGENDA = { tempoReal: false, manchetes: false, videos: false, ativos: true, agenda: true };
+  await coletarNoticias(env, { agoraMs, tarefas: SO_AGENDA, fetchImpl: async (u) => { pedidos.push(String(u)); return new Response('', { status: 500 }); } });
+  assert.deepEqual(pedidos, [], 'nenhum pedido ao IBGE daqui');
   const ag = tela(env, 'noticiasAgenda');
-  assert.equal(ag.eventos.length, 7);
+  assert.equal(ag.eventos.length, 7, 'produto fora da lista não entra');
   assert.deepEqual(ag.eventos.find((e) => e.titulo.startsWith('IPCA (')), { dia: '2026-11-12', hora: '9h00', titulo: 'IPCA (ref. 10/2026)', detalhe: 'IBGE', tag: 'macro' }, '12:00 UTC = 9h de São Paulo');
   assert.deepEqual(dataIbge('05/11/2026 13:00:00'), { dia: '2026-11-05', hora: '10h00' });
-  // 1 h depois: não busca de novo
-  const p2 = [];
-  await coletarNoticias(env, { agoraMs: agoraMs + 3600e3, tarefas: SO_AGENDA, fetchImpl: async (u) => { p2.push(u); return new Response('', { status: 500 }); } });
-  assert.equal(p2.length, 0, 'leitura de menos de 20 h vale');
-  // no dia seguinte, o IBGE fora do ar: a agenda continua com a leitura de ontem
-  const r3 = await coletarNoticias(env, { agoraMs: agoraMs + 24 * 3600e3, tarefas: SO_AGENDA, fetchImpl: async () => new Response('', { status: 500 }) });
-  assert.deepEqual(r3.falhas, [{ fonte: 'agenda IBGE', status: '7 de 7' }]);
+  env.DB.db.prepare("DELETE FROM publicacao WHERE chave = 'noticiasGoogle'").run();
+  await coletarNoticias(env, { agoraMs: agoraMs + 24 * 3600e3, tarefas: SO_AGENDA, fetchImpl: async () => new Response('', { status: 500 }) });
   assert.equal(tela(env, 'noticiasAgenda').eventos.length, 7);
+});
+
+test('D1 (cota grátis): fonte que não mudou não é regravada', async () => {
+  const env = { DB: d1() };
+  publicarDoAppsScript(env, 'noticiasGoogle', { indices: {}, ativos: { ABCD3: [itemGas('a', '2026-10-30T12:00:00Z')] } });
+  const contar = () => env.DB.db.prepare("SELECT count(*) n FROM noticias_fonte WHERE em = ?").get(new Date(Date.parse('2026-10-30T14:10:00Z')).toISOString()).n;
+  const SO = { tempoReal: false, manchetes: false, videos: false, ativos: true, agenda: false };
+  await coletarNoticias(env, { agoraMs: Date.parse('2026-10-30T14:05:00Z'), tarefas: SO, fetchImpl: async () => new Response('', { status: 500 }) });
+  await coletarNoticias(env, { agoraMs: Date.parse('2026-10-30T14:10:00Z'), tarefas: SO, fetchImpl: async () => new Response('', { status: 500 }) });
+  assert.equal(contar(), 0, 'a 2ª rodada não gravou a mesma fonte de novo');
 });

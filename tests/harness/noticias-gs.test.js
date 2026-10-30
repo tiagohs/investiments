@@ -5,6 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { criarSandboxGs } from './gas-vm-harness.mjs';
+import { PRODUTOS_IBGE } from '../../worker/src/noticias/coleta.js';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
 const rss = (titulo) => `<rss><channel><item><title>${titulo} - Jornal A</title><link>https://n.exemplo.test/${encodeURIComponent(titulo)}</link><pubDate>Fri, 30 Oct 2026 15:00:00 GMT</pubDate><source url="https://j.test">Jornal A</source></item></channel></rss>`;
@@ -18,14 +19,17 @@ function montar() {
 test('noticiasGoogle_: 4 índices + cada ativo num fetchAll; 2ª vez vem do cache; falha não derruba o resto', () => {
   const sb = montar();
   const lotes = [];
-  const fetchAll = (pedidos) => { lotes.push(pedidos.map((p) => p.url)); return pedidos.map((p, i) => ({ getResponseCode: () => (p.url.includes('Nasdaq') ? 503 : 200), getContentText: () => rss(`notícia ${i}`) })); };
+  const ibge = JSON.stringify({ items: [{ data_divulgacao: '12/11/2026 12:00:00', mes_referencia_fim: 10, ano_referencia_fim: 2026, descricao_produto: '<p>texto longo</p>' }] });
+  const fetchAll = (pedidos) => { lotes.push(pedidos.map((p) => p.url)); return pedidos.map((p, i) => ({ getResponseCode: () => (p.url.includes('Nasdaq') ? 503 : 200), getContentText: () => (p.url.includes('ibge') ? ibge : rss(`notícia ${i}`)) })); };
   const r = plain(sb.noticiasGoogle_({ fetchAll }));
   assert.equal(lotes.length, 1);
-  assert.equal(lotes[0].length, 6, '4 índices + 2 ativos');
+  assert.equal(lotes[0].length, 13, '4 índices + 7 pesquisas do IBGE + 2 ativos');
+  assert.deepEqual(Object.keys(r.ibge).sort(), Object.keys(PRODUTOS_IBGE).sort(), 'as mesmas pesquisas que o Worker conhece');
+  assert.deepEqual(r.ibge['9256'], { items: [{ data_divulgacao: '12/11/2026 12:00:00', mes_referencia_fim: 10, ano_referencia_fim: 2026 }] }, 'sem a descrição em HTML');
   assert.ok(lotes[0].some((u) => u.includes('hl=en-US') && u.includes('WXYZ')), 'EUA em inglês, como na tela do ativo');
   assert.deepEqual(Object.keys(r.indices).sort(), ['dolar', 'ibov', 'ifix'], 'o índice que falhou fica de fora');
   assert.equal(r.falhas, 1);
-  assert.equal(r.ativos.ABCD3[0].titulo, 'notícia 4');
+  assert.equal(r.ativos.ABCD3[0].titulo, 'notícia 11');
   assert.equal(r.ativos.ABCD3[0].fonte, 'Jornal A');
   const r2 = plain(sb.noticiasGoogle_({ fetchAll }));
   assert.equal(lotes.length, 2);

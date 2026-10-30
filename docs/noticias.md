@@ -36,7 +36,7 @@ Critérios de aceite (exemplos):
 |---|---|
 | RNF-01 | Abertura: o cache do aparelho pinta em menos de 300 ms; os dados novos chegam do Worker em menos de 800 ms (p95). Nenhuma leitura da tela passa pelo Apps Script. |
 | RNF-02 | Frescor no pregão: tempo real em até 5 min; índices e commodities em até 5 min; notícias dos ativos em até 30 min; vídeos em até 30 min. Fora do pregão: até 2 h. |
-| RNF-03 | Custo zero: dentro do Workers Free (10 ms de CPU por execução, 50 pedidos externos por execução, 5 crons por conta, 100 mil requisições/dia) e do D1 grátis. Não gasta a cota de gatilhos do Apps Script. |
+| RNF-03 | Custo zero: dentro do Workers Free (10 ms de CPU por execução, 50 pedidos externos por execução, 5 crons por conta, 100 mil requisições/dia somando todos os Workers da conta) e do D1 grátis (100 mil linhas gravadas e 5 milhões lidas por dia). Uso estimado desta tela: ~290 execuções do cron e até ~3 mil leituras do site por dia, ~3 mil linhas gravadas (só fonte que mudou) e ~25 mil lidas. Não usa gatilho novo do Apps Script. |
 | RNF-04 | Peso: a tela baixa no máximo 120 KB de JS próprio; imagens com `loading="lazy"`; player do YouTube só ao clicar. |
 | RNF-05 | Resiliência: uma fonte fora do ar esconde só a sua parte, com aviso. O resto da tela continua. |
 | RNF-06 | Saúde: o popover do Registro de Controle mostra a última coleta do cron e as falhas dela; no pregão, mais de 12 min sem coleta (fora, 40 min) fica em atenção. |
@@ -91,7 +91,7 @@ O endereço é `…/mercados/ibovespa-hoje-bolsa-de-valores-ao-vivo-DDMMAAAA/` e
 
 **ADR-N5. Agenda em três fontes.**
 - Da carteira, das telas já publicadas: proventos (data-com e pagamento) e vencimentos de renda fixa, com o selo "na sua carteira".
-- IBGE: a API pública de calendário (`servicodados.ibge.gov.br/api/v3/calendario/{produto}`), 1 leitura por dia pelo cron, só das pesquisas que mexem com o mercado (IPCA, IPCA-15, PIB trimestral, PNAD, PMC, PMS e PIM). A API dá a hora em UTC; a tela mostra a de São Paulo. Falha: fica a leitura anterior.
+- IBGE: a API pública de calendário (`servicodados.ibge.gov.br/api/v3/calendario/{produto}`), só das pesquisas que mexem com o mercado (IPCA, IPCA-15, PIB trimestral, PNAD, PMC, PMS e PIM). Como o Google, ela não responde ao Cloudflare: o Apps Script busca junto do `noticiasGoogle` (cache de 12 h) e o cron converte a hora (UTC) para a de São Paulo. Falha: fica a leitura anterior.
 - Datas fixas em `noticias-calc.js!EVENTOS_MERCADO`: Copom e Fed (calendários oficiais de 2026), payroll e CPI dos EUA (calendário do BLS de 2026) e feriados da B3. O Focus entra toda segunda. Atualizar a lista na virada do ano.
 
 Fora por enquanto: resultados das empresas da carteira (nenhuma fonte aberta com a data antes da divulgação; a notícia do resultado já entra pelos fatores e pelo feed).
