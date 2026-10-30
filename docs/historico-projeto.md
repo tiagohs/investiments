@@ -686,3 +686,15 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - `diagnosticarFormulasPlanilhaDireto()` (EmagrecerPlanilha.gs, só leitura): fórmulas por aba, funções que recalculam sozinhas e fórmulas abaixo do último valor digitado. Serve para decidir o próximo emagrecimento (ex.: DB-Stocks).
 - Teste de arquitetura de formatação (que não estava no pre-commit das últimas mudanças) pegou `toLocaleString('pt-BR')` e uma lista de meses própria em `inflacao-pessoal.js` e `organizacao-inflacao.js`. Agora usam `formatNumeroPt` e `MESES_CURTOS` de format.js, com o mesmo texto na tela.
 - 29/10/2026 (b): o emagrecimento passou a incluir as abas sem uso (`EMAGRECER_ABAS_SEM_USO_`: "[RV] Metas de compra e venda", que o Tiago não usa). Nelas a fórmula fica só até a última linha com valor digitado: saem ~180 fórmulas e ~360 GOOGLEFINANCE de linhas vazias. Os painéis 📈Dash e as abas auxiliares deles ficam como estão (em uso). Teste em emagrecer-planilha.
+
+### 30/10/2026 (tela de Notícias - docs/noticias.md, fases N1 a N4b)
+
+- Item "Notícias" no menu, depois de Metas (`noticias/index.html`).
+- Mercado hoje: Ibovespa (padrão), IFIX, Exterior e Dólar, com valor, variação, gráfico do dia, abertura, máxima e mínima, e o tempo real do InfoMoney ao lado. IFIX filtra os FIIs da carteira e Exterior os EUA.
+- "O que mexe com a bolsa": Brent, minério, ouro, Bitcoin e juro de 10 anos dos EUA (chaves novas do intradia, nos dois lados).
+- Vídeos em carrossel (Notícias, Especialistas, Meus canais), com o player só ao clicar. Coluna D nova em `aux_videos-canais`.
+- Manchetes do índice, agenda (proventos da carteira, Copom, Fed, Focus e feriados) e as notícias dos ativos com "Possíveis fatores hoje" calculados por regra (sem Workers AI).
+- Worker: cron a cada 5 min (`worker/src/noticias`), uma fatia por disparo, telas `noticias*` no D1 só quando mudam. O site lê essas telas só do Worker (`ACOES_SO_WORKER`, sem geração mínima).
+- Bug de teste corrigido: `leitura-cliente` contava 1 pedido a mais quando rodava no horário do pregão (o pedido de cotações frescas). O relógio do pedido agora fica fixo nos testes.
+- Testes: worker-noticias, noticias, publicacao-leitura (contrato das telas só do Worker), carga-telas (orçamento da tela nova).
+

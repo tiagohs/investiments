@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { criarSandboxGs } from './gas-vm-harness.mjs';
 import worker, { gravarLote } from '../../worker/src/index.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_PUBLICADAS_POR_ATIVO, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, talvezNoPregao } from '../../assets/js/leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_PUBLICADAS, ACOES_PUBLICADAS_POR_ATIVO, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, ACOES_SO_WORKER, talvezNoPregao } from '../../assets/js/leitura-chave.js';
 import { getAtivo, esquecerRespostasGuardadas } from '../../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../../assets/js/cache-dados.js';
 import { LEITURA_URL } from '../../assets/js/config.js';
@@ -178,7 +178,9 @@ test('contrato: toda ação GET do Router.gs é publicada ou está na lista "só
   assert.deepEqual(semClasse, [], 'ação GET nova: classifique em Publicacao.gs (familiasLeitura_ ou LEITURA_SO_APPS_SCRIPT_)');
   assert.deepEqual(publicadas.filter((a) => so.includes(a)), [], 'nenhuma nas duas listas');
   assert.deepEqual([...ACOES_PUBLICADAS].sort(), [...publicadas].sort(), 'o site conhece exatamente as telas que o Apps Script publica');
-  assert.ok(ACOES_LIDAS_DO_WORKER.every((a) => publicadas.includes(a) || porAtivo.includes(a)), 'o site só lê do Worker o que é publicado');
+  assert.ok(ACOES_LIDAS_DO_WORKER.every((a) => publicadas.includes(a) || porAtivo.includes(a) || ACOES_SO_WORKER.includes(a)), 'o site só lê do Worker o que é publicado');
+  // 30/10/2026: as telas de notícias o próprio Worker publica (cron) - não podem ser ações do Apps Script
+  assert.deepEqual(ACOES_SO_WORKER.filter((a) => acoes.includes(a) || publicadas.includes(a)), [], 'tela só do Worker não é ação do Router.gs');
   assert.deepEqual(porAtivo.filter((a) => so.includes(a)), [], 'ativo não pode estar em "só Apps Script"');
   for (const [acao, params] of [['home', {}], ['ativo', { ref: 'PETR4', semIndices: 1 }], ['x', { q: 'a b/ç', vazio: '', nulo: null }]]) {
     assert.equal(sb.chaveLeitura_(acao, params), chaveLeitura(acao, params));

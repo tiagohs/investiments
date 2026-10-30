@@ -24,9 +24,9 @@ add remove delete edit search filter_list download upload content_copy open_in_n
 trending_up trending_down trending_flat show_chart bar_chart pie_chart calendar_month schedule savings apartment public percent request_quote undo
 visibility visibility_off help lightbulb folder_open inbox cloud_off tune sort arrow_upward arrow_downward star history target paid
 arrow_circle_up arrow_circle_down keyboard_arrow_down keyboard_arrow_up check_box check_box_outline_blank indeterminate_check_box add_circle
-restart_alt unfold_more north_east south_east person notifications table_chart keyboard_return link filter_alt dashboard bolt`.split(/\s+/).filter(Boolean);
+restart_alt unfold_more north_east south_east person notifications table_chart keyboard_return link filter_alt dashboard bolt newspaper play_arrow`.split(/\s+/).filter(Boolean);
 // ícones que também ganham a versão preenchida (item ativo do menu, estados)
-const COM_PREENCHIDO = new Set(['home', 'monitoring', 'flag', 'account_balance_wallet', 'swap_horiz', 'payments', 'receipt_long', 'check_circle', 'error', 'warning', 'info', 'star', 'person']);
+const COM_PREENCHIDO = new Set(['home', 'monitoring', 'flag', 'account_balance_wallet', 'swap_horiz', 'payments', 'receipt_long', 'check_circle', 'error', 'warning', 'info', 'star', 'person', 'newspaper']);
 // nomes antigos do sprite => mesmo símbolo, id antigo
 const LEGADO = { priority_high: 'warn', close: 'bad', chevron_right: 'chev-r', bar_chart: 'chart', apartment: 'building', public: 'globe', shopping_cart: 'cart', account_balance_wallet: 'wallet', paid: 'coins' };
 

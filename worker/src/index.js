@@ -6,12 +6,14 @@
  *   GET  /v1/estado              idade e tamanho de cada publicação (saúde, RF-10)
  *   GET  /v1/intradia?simbolos=  gráfico do dia direto do Yahoo (29/10/2026, intradia.js) - o resto do app não muda
  *   POST /v1/publicar            lote do Apps Script, assinado (X-Carimbo, X-Assinatura) - ADR-06
+ *   cron (a cada 5 min)          telas noticias* (30/10/2026, noticias/coleta.js, docs/noticias.md) - mesmas linhas do D1
  *
  * Ambiente: DB (D1), SESSAO_SEGREDO, PUBLICACAO_SEGREDO e EMAILS_AUTORIZADOS (secrets), ORIGENS (vars do wrangler.toml).
  */
 import { verificarSessao, verificarPublicacao, base64ParaBytes } from './auth.js';
 import { chaveLeitura, ACAO_VALIDA, instanteDaGeracao } from '../../assets/js/leitura-chave.js';
 import { intradiaWorker } from './intradia.js';
+import { coletarNoticias } from './noticias/coleta.js';
 
 /** Teto de um corpo comprimido: a linha do D1 aceita 2.000.000 bytes no total. */
 export const MAX_CORPO_BYTES = 1900000;
@@ -146,5 +148,9 @@ export default {
     } catch (e) {
       return json({ ok: false, erro: 'erro interno' }, 500, cors);
     }
+  },
+  // 30/10/2026: tela de Notícias - o cron busca as fontes (uma fatia por disparo) e publica no D1
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(coletarNoticias(env, { agoraMs: event.scheduledTime || Date.now() }).catch(() => null));
   },
 };

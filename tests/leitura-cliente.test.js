@@ -18,7 +18,10 @@ function resposta(status, corpo, cab = {}) {
   const h = new Map(Object.entries(cab).map(([k, v]) => [k.toLowerCase(), v]));
   return { status, headers: { get: (k) => (h.has(k.toLowerCase()) ? h.get(k.toLowerCase()) : null) }, text: async () => (corpo == null ? '' : JSON.stringify(corpo)), json: async () => corpo };
 }
-function limpar() { memoria.clear(); esquecerRespostasGuardadas(); usarMemoriaNoCacheDados(new Map()); }
+// 30/10/2026: rodando NO PREGÃO, uma tela de cotação velha pede as cotações frescas (+1 fetch, api-client.js!pedirCotacoesFrescas)
+// e os testes de contagem de pedidos falhavam só nesse horário. Aqui o pedido fica "feito agora" (essa regra tem os testes
+// dela em tests/cotacao-tela.test.js).
+function limpar() { memoria.clear(); memoria.set('investiments_cotacao_pedida_em', String(Date.now() + 24 * 3600e3)); esquecerRespostasGuardadas(); usarMemoriaNoCacheDados(new Map()); }
 
 test('tela publicada vem do Worker (Authorization s1, sem Apps Script); 2ª vez manda If-None-Match e 304 reaproveita', async (t) => {
   limpar();
@@ -252,6 +255,7 @@ test('29/10/2026: gráfico do dia pelo Worker (Yahoo direto); o que ele não con
 
 test('29/10/2026 (cotação de agora ao entrar): tela de cotação do Worker com mais de 5 min no pregão - mostra, pede a publicação das cotações e avisa as telas quando chega', async (t) => {
   limpar();
+  memoria.delete('investiments_cotacao_pedida_em'); // este teste é o do pedido
   const QUI_14H_SP = Date.parse('2026-10-29T17:00:00Z');
   t.mock.timers.enable({ apis: ['Date'], now: QUI_14H_SP });
   let idadeMin = 10;

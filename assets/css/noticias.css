@@ -1,0 +1,164 @@
+/* assets/css/noticias.css - 30/10/2026: tela de Notícias (docs/noticias.md; design no canvas "Tela de Notícias").
+   Só tokens do M3 (m3-tokens.css): claro e escuro saem dos mesmos nomes. Prefixo nt-. */
+.nt-pagina{ display:flex; flex-direction:column; gap:24px; padding-bottom:48px; }
+.nt-conteudo{ display:flex; flex-direction:column; gap:28px; min-width:0; }
+.nt-conteudo h2, .nt-conteudo h3{ margin:0; font-family:var(--display); color:var(--ink); }
+.nt-sec-h2, .nt-sec-cab h2, .nt-videos h2{ font-size:22px; line-height:28px; font-weight:600; }
+.nt-eyebrow{ font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--md-sys-color-primary); }
+.nt-eyebrow-neutro{ color:var(--ink-muted); }
+.nt-editoria{ font-size:12px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-muted); }
+.nt-meta{ font-size:12px; line-height:16px; color:var(--ink-muted); }
+.nt-hora{ font-family:var(--md-ref-typeface-mono); font-size:12px; color:var(--ink-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.nt-aviso{ margin:0; font-size:12px; color:var(--md-ext-color-on-warn-container, var(--ink-muted)); }
+.nt-vazio-linha, .nt-vazio{ margin:0; font-size:14px; color:var(--ink-muted); list-style:none; }
+.nt-vazio{ padding:24px; text-align:center; border:1px dashed var(--md-sys-color-outline-variant); border-radius:16px; }
+.nt-conteudo a{ color:inherit; text-decoration:none; }
+.nt-conteudo a:hover{ text-decoration:underline; text-underline-offset:3px; }
+.nt-conteudo a:focus-visible, .nt-conteudo button:focus-visible{ outline:2px solid var(--md-sys-color-primary); outline-offset:2px; border-radius:6px; }
+
+/* variação: cor + sinal no texto (nunca só cor) */
+.nt-var{ font-family:var(--md-ref-typeface-mono); font-size:12px; font-variant-numeric:tabular-nums; }
+.nt-sobe{ color:var(--good); }
+.nt-cai{ color:var(--bad); }
+.nt-neutro{ color:var(--ink-muted); }
+
+/* esqueletos */
+.nt-skel-titulo{ display:block; height:28px; width:80%; border-radius:8px; }
+.nt-skel-linha{ display:block; height:18px; margin:10px 0; border-radius:6px; list-style:none; }
+.nt-skel-valor{ display:inline-block; height:30px; width:160px; border-radius:8px; }
+.nt-skel-mini{ display:inline-block; height:14px; width:48px; border-radius:6px; }
+.nt-skel-video{ display:block; aspect-ratio:16/9; border-radius:16px; }
+
+/* ---- 1. Mercado hoje ---- */
+.nt-mercado{ display:flex; flex-direction:column; gap:20px; border-radius:24px; padding:24px 28px 28px; }
+.nt-mercado-topo{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.nt-rotulos{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.nt-indices{ display:flex; gap:8px; flex-wrap:wrap; }
+.nt-indice-btn{ display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 14px; border-radius:999px; border:1px solid var(--md-sys-color-outline-variant);
+  background:transparent; color:var(--ink); font:inherit; font-size:14px; font-weight:500; cursor:pointer; }
+.nt-indice-btn[aria-selected="true"]{ background:var(--md-sys-color-secondary-container); color:var(--md-sys-color-on-secondary-container); border-color:transparent; font-weight:600; }
+.nt-mercado-grade{ display:grid; grid-template-columns:minmax(0,7fr) minmax(0,5fr); gap:24px; }
+.nt-mercado-principal{ display:flex; flex-direction:column; gap:12px; min-width:0; }
+.nt-manchete{ font-size:26px; line-height:34px; font-weight:600; text-wrap:balance; }
+.nt-valor-linha{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+.nt-valor-nome{ font-size:15px; color:var(--ink-muted); }
+.nt-valor{ font-family:var(--md-ref-typeface-mono); font-size:32px; line-height:40px; font-weight:500; font-variant-numeric:tabular-nums; }
+.nt-var-chip{ font-family:var(--md-ref-typeface-mono); font-variant-numeric:tabular-nums; }
+.nt-grafico{ margin:0; }
+.nt-grafico-area{ min-height:180px; }
+.nt-grafico figcaption{ font-size:12px; color:var(--ink-muted); margin-top:4px; }
+.nt-ohlc{ display:flex; gap:24px; flex-wrap:wrap; font-size:13px; color:var(--ink-muted); }
+.nt-ohlc b{ font-family:var(--md-ref-typeface-mono); font-weight:500; color:var(--ink); font-variant-numeric:tabular-nums; }
+.nt-resumo{ margin:0; padding-left:18px; display:flex; flex-direction:column; gap:4px; font-size:14px; line-height:20px; color:var(--ink); }
+.nt-tempo-real{ display:flex; flex-direction:column; gap:10px; min-width:0; border-left:1px solid var(--md-sys-color-outline-variant); padding-left:24px; }
+.nt-tr-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.nt-tr-cab h3{ font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px; }
+.nt-ponto-vivo{ width:8px; height:8px; border-radius:50%; background:var(--bad); }
+.nt-fonte{ font-size:12px; color:var(--ink-muted); }
+.nt-tr-lista{ list-style:none; margin:0; padding:0; max-height:380px; overflow-y:auto; }
+.nt-tr-lista li{ display:grid; grid-template-columns:48px minmax(0,1fr); gap:10px; padding:9px 0; border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.nt-tr-lista .nt-hora{ color:var(--bad); padding-top:2px; }
+.nt-tr-titulo{ font-size:14px; line-height:20px; font-weight:500; }
+
+/* "O que mexe com a bolsa" */
+.nt-termo{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:14px 18px; }
+.nt-termo h2{ font-size:15px; font-weight:600; }
+.nt-termo-lista{ display:flex; gap:8px; flex-wrap:wrap; }
+.nt-termo-item{ display:inline-flex; align-items:center; gap:8px; min-height:32px; padding:0 12px; border-radius:999px; background:var(--md-sys-color-surface-container-low); border:1px solid var(--md-sys-color-outline-variant); font-size:13px; }
+.nt-termo-item b{ font-family:var(--md-ref-typeface-mono); font-weight:500; font-variant-numeric:tabular-nums; }
+
+/* segmentado (abas de vídeo e agenda) */
+.nt-seg{ display:inline-flex; gap:4px; padding:4px; border-radius:999px; background:var(--md-sys-color-surface-container); }
+.nt-seg-btn{ min-height:32px; padding:0 14px; border-radius:999px; border:0; background:transparent; color:var(--ink-muted); font:inherit; font-size:14px; cursor:pointer; }
+.nt-seg-btn[aria-selected="true"]{ background:var(--md-sys-color-surface-container-lowest); color:var(--ink); font-weight:600; box-shadow:var(--md-sys-elevation-level1); }
+.nt-seg-p .nt-seg-btn{ min-height:28px; padding:0 10px; font-size:13px; }
+
+/* ---- 2. Vídeos ---- */
+.nt-videos{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+.nt-sec-cab{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.nt-sec-titulo{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.nt-paginas{ display:flex; align-items:center; gap:8px; }
+.nt-pagina-texto{ font-size:13px; color:var(--ink-muted); font-variant-numeric:tabular-nums; }
+.nt-seta{ border:1px solid var(--md-sys-color-outline); }
+.nt-trilho{ display:grid; grid-auto-flow:column; grid-auto-columns:calc((100% - 48px) / 4); gap:16px; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:6px; overscroll-behavior-x:contain; }
+.nt-video{ scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; min-width:0; }
+.nt-video-capa{ position:relative; display:block; padding:0; border:0; aspect-ratio:16/9; border-radius:16px; overflow:hidden; background:var(--md-sys-color-surface-container-highest); cursor:pointer; }
+.nt-video-capa img{ width:100%; height:100%; object-fit:cover; display:block; }
+.nt-video-player{ width:100%; aspect-ratio:16/9; border:0; border-radius:16px; background:#000; }
+.nt-play{ position:absolute; inset:0; margin:auto; width:48px; height:48px; border-radius:50%; background:rgba(15,23,42,.78); color:#fff; display:flex; align-items:center; justify-content:center; }
+.nt-play .ico{ width:28px; height:28px; fill:currentColor; }
+.nt-selo{ position:absolute; left:10px; top:10px; max-width:calc(100% - 20px); padding:2px 8px; border-radius:6px; background:rgba(15,23,42,.85); color:#f1f5f9; font-size:11px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nt-video-titulo{ font-size:15px; line-height:21px; font-weight:500; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+
+/* ---- 3. Manchetes + agenda ---- */
+.nt-manchetes{ display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr) minmax(0,3fr); gap:24px; align-items:start; }
+.nt-manchetes > h2{ grid-column:1 / -1; }
+.nt-principal{ display:flex; flex-direction:column; gap:10px; }
+.nt-principal-titulo{ font-family:var(--display); font-size:22px; line-height:30px; font-weight:600; text-wrap:balance; }
+.nt-principal p{ margin:0; font-size:14px; line-height:22px; color:var(--ink-muted); }
+.nt-recentes h3, .nt-agenda h3{ font-size:15px; font-weight:600; margin-bottom:6px; }
+.nt-recente{ display:grid; grid-template-columns:64px minmax(0,1fr); gap:10px; padding:10px 0; border-bottom:1px solid var(--md-sys-color-outline-variant); }
+.nt-recente > span:last-child{ display:flex; flex-direction:column; gap:2px; }
+.nt-recente-titulo{ font-size:14px; line-height:20px; font-weight:500; }
+.nt-agenda{ display:flex; flex-direction:column; gap:12px; }
+.nt-agenda-cab{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.nt-agenda-grupo{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+.nt-agenda-dia{ font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-muted); }
+.nt-agenda-item{ display:grid; grid-template-columns:44px minmax(0,1fr); gap:8px; font-size:13px; line-height:18px; }
+.nt-agenda-item > span:last-child{ display:flex; flex-direction:column; gap:2px; }
+.nt-agenda-titulo{ font-weight:500; }
+.nt-tag{ font-size:12px; color:var(--ink-muted); }
+.nt-tag-carteira{ color:var(--md-sys-color-primary); font-weight:500; }
+.nt-tag-feriado{ color:var(--bad); }
+
+/* ---- 4. Notícias dos ativos ---- */
+.nt-ativos{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+.nt-ordem{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--ink-muted); }
+.nt-ordem select{ min-height:40px; padding:0 12px; border-radius:8px; border:1px solid var(--md-sys-color-outline); background:var(--md-sys-color-surface-container-lowest); color:var(--ink); font:inherit; font-size:14px; }
+.nt-chips{ display:flex; flex-wrap:wrap; gap:8px; }
+.nt-tickers{ flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; }
+.nt-ticker{ flex:none; }
+.nt-conta{ min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--md-sys-color-primary-container); color:var(--md-sys-color-on-primary-container); font-size:11px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; }
+.nt-fatores{ display:grid; grid-template-columns:minmax(0,4fr) minmax(0,8fr); gap:20px; }
+.nt-fatores-resumo{ display:flex; flex-direction:column; gap:8px; }
+.nt-fatores-resumo p{ margin:0; font-size:14px; line-height:21px; }
+.nt-fatores-ticker{ font-family:var(--display); font-size:22px; font-weight:600; }
+.nt-fatores-ticker .nt-var{ font-size:16px; }
+.nt-fatores-lista{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.nt-fatores-lista li{ display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:12px; align-items:start; padding:10px 12px; border-radius:12px; background:var(--md-sys-color-surface-container-low); }
+.nt-fatores-lista li > span:nth-child(2){ display:flex; flex-direction:column; gap:2px; }
+.nt-fator-titulo{ font-size:14px; font-weight:500; }
+.nt-sinal{ width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-family:var(--md-ref-typeface-mono); }
+.nt-sinal-sobe{ background:var(--md-ext-color-good-container); color:var(--md-ext-color-on-good-container); }
+.nt-sinal-cai{ background:var(--md-sys-color-error-container); color:var(--md-sys-color-on-error-container); }
+.nt-sinal-neutro{ background:var(--md-sys-color-surface-container-highest); color:var(--ink-muted); }
+.nt-peso{ font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; background:var(--md-sys-color-surface-container-highest); color:var(--ink); }
+.nt-peso-forte{ background:var(--md-sys-color-primary-container); color:var(--md-sys-color-on-primary-container); }
+.nt-feed{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; }
+.nt-noticia{ display:flex; flex-direction:column; gap:10px; }
+.nt-noticia-topo{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.nt-noticia-titulo{ font-size:16px; line-height:23px; font-weight:500; }
+.nt-noticia-resumo{ font-size:13px; line-height:20px; color:var(--ink-muted); }
+.nt-classe-acoes{ background:color-mix(in srgb, var(--chart-1) 18%, transparent); }
+.nt-classe-fiis{ background:color-mix(in srgb, var(--chart-2) 18%, transparent); }
+.nt-classe-acoesEua{ background:color-mix(in srgb, var(--chart-4) 18%, transparent); }
+
+/* ---- celular e tablet ---- */
+@media (max-width: 1100px){
+  .nt-manchetes{ grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .nt-agenda{ grid-column:1 / -1; }
+  .nt-trilho{ grid-auto-columns:calc((100% - 32px) / 3); }
+  .nt-feed{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 760px){
+  .nt-mercado{ padding:18px 16px 20px; border-radius:20px; }
+  .nt-mercado-grade, .nt-manchetes, .nt-fatores{ grid-template-columns:minmax(0,1fr); }
+  .nt-tempo-real{ border-left:0; padding-left:0; border-top:1px solid var(--md-sys-color-outline-variant); padding-top:16px; }
+  .nt-manchete{ font-size:22px; line-height:29px; }
+  .nt-valor{ font-size:26px; line-height:32px; }
+  .nt-trilho{ grid-auto-columns:78%; }
+  .nt-feed{ grid-template-columns:minmax(0,1fr); }
+  .nt-indices{ flex-wrap:nowrap; overflow-x:auto; width:100%; }
+  .nt-indice-btn{ flex:none; }
+}
+@media (prefers-reduced-motion: reduce){ .nt-trilho{ scroll-behavior:auto; } }

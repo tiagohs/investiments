@@ -20,6 +20,7 @@ export const TELAS = [
   { rotulo: 'Aportes (carrinho)', secao: 'Transações', href: 'transacoes/index.html#aportes', icone: 'swap-horiz', palavras: 'aporte carrinho novo aporte comprar' },
   { rotulo: 'Lançamentos', secao: 'Transações', href: 'transacoes/index.html#lancamentos', icone: 'swap-horiz', palavras: 'lancamentos importar b3 historico' },
   { rotulo: 'Proventos', secao: 'Seção', href: 'proventos/index.html', icone: 'payments', palavras: 'dividendos rendimentos jcp' },
+  { rotulo: 'Notícias', secao: 'Seção', href: 'noticias/index.html', icone: 'newspaper', palavras: 'mercado ibovespa ifix dólar tempo real vídeos agenda' },
   { rotulo: 'Organização Financeira', secao: 'Seção', href: 'organizacao/despesas.html', icone: 'receipt-long', palavras: 'organizacao despesas gastos salario renda' },
 ];
 /** Telas que a página pode acrescentar (ex.: abas internas): registrarTelasBusca([{ rotulo, secao, href, icone }]). */

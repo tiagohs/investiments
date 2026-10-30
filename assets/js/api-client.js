@@ -12,7 +12,7 @@
  */
 
 import { APPS_SCRIPT_URL, LEITURA_URL } from './config.js';
-import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, IDADE_MAXIMA_COTACAO_MS, IDADE_MAXIMA_LEITURA_MS, talvezNoPregao } from './leitura-chave.js';
+import { chaveLeitura, instanteDaGeracao, ACOES_LIDAS_DO_WORKER, ACOES_COM_COTACAO, ACOES_SO_WORKER, IDADE_MAXIMA_COTACAO_MS, IDADE_MAXIMA_LEITURA_MS, talvezNoPregao } from './leitura-chave.js';
 import { clearToken } from './auth.js';
 // 08/10/2026: cache-dados.js e desempenho.js carregam sob demanda (import dinâmico) - não pesam no 1º carregamento das telas
 let cacheDadosMod = null;
@@ -80,6 +80,7 @@ function lerMapaGeracaoMinima() {
   } catch (e) { return {}; }
 }
 function lerGeracaoMinima(action) {
+  if (ACOES_SO_WORKER.includes(action)) return 0; // 30/10/2026 (ADR-N6): nenhuma gravação do site muda notícia
   const m = lerMapaGeracaoMinima();
   const ativo = action === 'ativo' || action === 'ativoBase';
   return Math.max(Number(m['*']) || 0, Number(m[action]) || 0, ativo ? Number(m.ativos) || 0 : 0);
@@ -992,6 +993,25 @@ export async function consolidar(token, { tudo = false, onRodada = null, maxRoda
   }
   return { ok: true, resultado: { ...ultima, feito, avisos, rodadas: maxRodadas, incompleto: true } };
 }
+
+// ---------------------------------------------------------------------------
+// 30/10/2026: tela de Notícias (docs/noticias.md). Publicadas pelo cron do próprio Worker (worker/src/noticias/coleta.js):
+// sem Apps Script de reserva. Worker fora do ar ou tela ainda não publicada = a última cópia guardada (_velha), ou erro.
+// ---------------------------------------------------------------------------
+async function lerSoDoWorker(acao, params, token) {
+  const inicio = agoraMs();
+  const chave = chaveResposta(acao, params);
+  const guardada = await respostaGuardada(chave);
+  const r = await lerDoWorker(acao, params, token, chave, guardada, inicio);
+  if (r) return r;
+  if (guardada && guardada.json) return { ...clonar(guardada.json), _fonte: 'guardada', _velha: true };
+  return { ok: false, etapa: acao, erro: 'notícias indisponíveis agora (o Worker ainda não publicou ou não respondeu)' };
+}
+/** indice: 'ibov' | 'ifix' | 'spx' | 'dolar'. */
+export function getNoticiasMercado(token, indice = 'ibov') { return lerSoDoWorker('noticiasMercado', { indice }, token); }
+/** aba: 'noticias' | 'especialistas' | 'meus'. */
+export function getNoticiasVideos(token, aba = 'noticias') { return lerSoDoWorker('noticiasVideos', { aba }, token); }
+export function getNoticiasAtivos(token) { return lerSoDoWorker('noticiasAtivos', {}, token); }
 
 /** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
 export async function getTesesAtivo(token, ticker) {

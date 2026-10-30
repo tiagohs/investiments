@@ -52,6 +52,8 @@ function familiasLeitura_() {
     { acao: 'inflacaoPessoal', fn: handleInflacaoPessoal, cotacao: false },
     { acao: 'salario', fn: handleSalario, cotacao: false },
     { acao: 'metasHistorico', fn: handleMetasHistorico, cotacao: false },
+    // 30/10/2026: canais e ativos da tela de Notícias - quem lê é o cron do Worker (worker/src/noticias/coleta.js)
+    { acao: 'noticiasConfig', fn: handleNoticiasConfig, cotacao: false },
     // 29/10/2026: o Registro de Controle do topo de TODA tela (3-4 s no Apps Script). Vai junto de cada publicação de
     // cotação (`cotacao: true`, mas `preco: false` - não é preço: não pede cotação nova nem muda o "Cotações de HH:MM"); o
     // site só aceita a cópia com até 10 min (leitura-chave.js!IDADE_MAXIMA_LEITURA_MS) - mais velha, vai ao Apps Script.

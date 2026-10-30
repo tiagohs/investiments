@@ -11,3 +11,7 @@ ORIGENS = "https://tiagohs.github.io,http://localhost:8000,http://127.0.0.1:8000
 binding = "DB"
 database_name = "investiments-leitura"
 database_id = "b692f9ef-6ee9-4e2c-9091-c7a46187d506"
+
+# 30/10/2026: tela de Notícias (worker/src/noticias/coleta.js) - 1 dos 5 crons da conta grátis; cada disparo faz uma fatia
+[triggers]
+crons = ["*/5 * * * *"]

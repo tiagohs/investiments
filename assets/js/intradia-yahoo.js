@@ -4,7 +4,8 @@
  * conferida nos dois lados por tests/harness/intradia-worker.test.js. Só o desenho do dia sai daqui: cotação e variação
  * da tela continuam as da planilha.
  */
-export const INTRADIA_INDICES = Object.freeze({ IBOV: '^BVSP', IFIX: 'IFIX.SA', SPX: '^GSPC', USD: 'BRL=X', EUR: 'EURBRL=X' });
+// 30/10/2026 (tela de Notícias, "O que mexe com a bolsa"): Brent, ouro, Bitcoin, juro de 10 anos dos EUA e minério de ferro
+export const INTRADIA_INDICES = Object.freeze({ IBOV: '^BVSP', IFIX: 'IFIX.SA', SPX: '^GSPC', USD: 'BRL=X', EUR: 'EURBRL=X', BRENT: 'BZ=F', OURO: 'GC=F', BTC: 'BTC-USD', US10Y: '^TNX', MINERIO: 'TIO=F' });
 export const INTRADIA_MAX_PONTOS = 100;
 
 /** 'IBOV' | 'acoes:PETR4' | 'fiis:BTLG11' | 'usa:VNOM' -> símbolo do Yahoo (null = não tem intradia, ex.: renda fixa). */

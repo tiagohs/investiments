@@ -17,7 +17,7 @@
  *   t: [minutos desde o início], v: [preço] (no máx. ~100 pontos), moeda }
  */
 
-var INTRADIA_INDICES_ = { IBOV: '^BVSP', IFIX: 'IFIX.SA', SPX: '^GSPC', USD: 'BRL=X', EUR: 'EURBRL=X' };
+var INTRADIA_INDICES_ = { IBOV: '^BVSP', IFIX: 'IFIX.SA', SPX: '^GSPC', USD: 'BRL=X', EUR: 'EURBRL=X', BRENT: 'BZ=F', OURO: 'GC=F', BTC: 'BTC-USD', US10Y: '^TNX', MINERIO: 'TIO=F' };
 var INTRADIA_TTL_ = 300;
 var INTRADIA_MAX_SIMBOLOS_ = 40;
 var INTRADIA_MAX_PONTOS_ = 100;

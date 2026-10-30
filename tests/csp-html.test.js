@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { LEITURA_URL } from '../assets/js/config.js';
 
 const RAIZ = new URL('..', import.meta.url);
-const PAGINAS = ['index.html', 'distribuicoes-metas.html', 'metas.html', 'login.html', 'ativo/index.html', 'carteiras/index.html', 'organizacao/despesas.html', 'proventos/index.html', 'transacoes/index.html'];
+const PAGINAS = ['index.html', 'distribuicoes-metas.html', 'metas.html', 'login.html', 'ativo/index.html', 'carteiras/index.html', 'organizacao/despesas.html', 'proventos/index.html', 'noticias/index.html', 'transacoes/index.html'];
 const ler = (p) => fs.readFileSync(new URL(p, RAIZ), 'utf8');
 const hash = (t) => `'sha256-${crypto.createHash('sha256').update(t, 'utf8').digest('base64')}'`;
 function csp(html) {

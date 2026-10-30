@@ -28,7 +28,7 @@ env:
   # arquivos soltos na raiz que o site usa (todo *.html da raiz entra também)
   ARQUIVOS_RAIZ: "favicon.ico manifest.json sw.js"
   # pastas que o site usa: assets/ (css, js, fontes, imagens, dados, partials) e as páginas em pasta
-  PASTAS_DE_PAGINAS: "assets ativo carteiras organizacao proventos transacoes"
+  PASTAS_DE_PAGINAS: "assets ativo carteiras noticias organizacao proventos transacoes"
 
 jobs:
   montar:

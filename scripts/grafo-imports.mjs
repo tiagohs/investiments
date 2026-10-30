@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ROOT_DIR = ROOT;
 export const PAGINAS = ['index.html', 'distribuicoes-metas.html', 'metas.html', 'carteiras/index.html', 'ativo/index.html',
-  'transacoes/index.html', 'proventos/index.html', 'organizacao/despesas.html', 'login.html'];
+  'transacoes/index.html', 'proventos/index.html', 'noticias/index.html', 'organizacao/despesas.html', 'login.html'];
 
 const RE_ESTATICO = /(?:^|[\s;}])(?:import|export)\s+(?:[^'"()]*?\s+from\s+)?['"](\.[^'"]+)['"]/g;
 const RE_DINAMICO = /\bimport\(\s*['"](\.[^'"]+)['"]\s*\)/g;
