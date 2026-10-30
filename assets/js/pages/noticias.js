@@ -5,7 +5,7 @@
 // Yahoo pelo /v1/intradia; carteira e proventos são as telas que o Apps Script já publica). Nenhuma leitura espera o
 // Apps Script. Cada parte desenha quando os dados dela chegam; uma fonte fora do ar esconde só a sua parte (RNF-05).
 // As contas (fatores, agenda, feed) moram em noticias-calc.js; aqui só desenha e liga os cliques.
-import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getProventos } from '../api-client.js';
+import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getNoticiasAgenda, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getCarteirasRendaFixa, getProventos } from '../api-client.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPctSinal, formatDM, hojeSP } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
 import { montarCabecalhoPagina } from '../ui/index.js';
@@ -112,7 +112,7 @@ const ESQUELETO = `
  * Monta a tela. `apis` troca as leituras nos testes. Devolve { estado, carregar }.
  */
 export async function montarPaginaNoticias(token, { doc = document, apis = {}, agora = () => Date.now() } = {}) {
-  const api = { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getProventos, ...apis };
+  const api = { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getNoticiasAgenda, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getCarteirasRendaFixa, getProventos, ...apis };
   garantirEstilosCharts(doc);
   const prefs = lerPrefs();
   const estado = {
@@ -121,7 +121,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     agenda: prefs.agenda === 'semana' ? 'semana' : 'hoje',
     ordem: ['recentes', 'posicao', 'variacao'].includes(prefs.ordem) ? prefs.ordem : 'recentes',
     classe: 'todos', ticker: null,
-    mercado: {}, videos: {}, series: {}, carteira: [], noticiasAtivos: {}, proventos: [], proventosLidos: false,
+    mercado: {}, videos: {}, series: {}, carteira: [], noticiasAtivos: {}, proventos: [], proventosLidos: false, vencimentos: [], eventosIbge: [],
     ultimaCarga: 0,
   };
 
@@ -292,7 +292,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     $('ntRecentes').innerHTML = resto.map((n) => `<a class="nt-recente" href="${escAttr(linkSeguro(n.link))}" target="_blank" rel="noopener noreferrer"><span class="nt-hora">${esc(haQuanto(n.data, agoraMs, formatDM))}</span><span><span class="nt-recente-titulo">${esc(n.titulo)}</span><span class="nt-meta">${esc(n.fonte || '')}</span></span></a>`).join('') || '<p class="nt-vazio-linha">Nada por enquanto.</p>';
   }
   function desenharAgenda() {
-    const grupos = agenda({ proventos: estado.proventos, hojeISO: hojeSP(new Date(agora())), periodo: estado.agenda, fmtDM: (d) => formatDM(d), fmtValor });
+    const grupos = agenda({ proventos: estado.proventos, vencimentos: estado.vencimentos, extras: estado.eventosIbge, hojeISO: hojeSP(new Date(agora())), periodo: estado.agenda, fmtDM: (d) => formatDM(d), fmtValor });
     $('ntAgenda').innerHTML = grupos.length ? grupos.map((g) => `<div class="nt-agenda-grupo"><span class="nt-agenda-dia">${esc(g.grupo)}</span>${g.itens.map((e) => `<div class="nt-agenda-item"><span class="nt-hora">${esc(e.quando)}</span><span><span class="nt-agenda-titulo">${esc(e.titulo)}</span><span class="nt-tag nt-tag-${escAttr(e.tag)}">${esc(e.detalhe)}</span></span></div>`).join('')}</div>`).join('')
       : `<p class="nt-vazio-linha">${estado.proventosLidos ? `Nada marcado para ${estado.agenda === 'hoje' ? 'hoje' : 'esta semana'}.` : 'Carregando…'}</p>`;
   }
@@ -309,7 +309,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     $('ntFeed').innerHTML = feed.map((n) => `<a class="card card-clicavel nt-noticia" href="${escAttr(linkSeguro(n.link))}" target="_blank" rel="noopener noreferrer"><span class="nt-noticia-topo"><span class="chip-tonal nt-classe-${escAttr(n.classe)}">${esc(n.ticker)}</span><span class="nt-meta">${esc(n.fonte || '')}${n.data ? ` · ${esc(haQuanto(n.data, agoraMs, formatDM))}` : ''}</span></span><span class="nt-noticia-titulo">${esc(n.titulo)}</span>${n.resumo ? `<span class="nt-noticia-resumo">${esc(n.resumo)}</span>` : ''}</a>`).join('');
     const vazio = $('ntFeedVazio');
     vazio.hidden = feed.length > 0 || !estado.carteiraLida;
-    vazio.textContent = estado.ticker ? `Nada novo sobre ${estado.ticker} nos últimos 7 dias.` : 'As notícias dos ativos chegam aos poucos (5 ativos a cada 10 minutos).';
+    vazio.textContent = estado.ticker ? `Nada novo sobre ${estado.ticker} nos últimos 60 dias.` : 'Ainda sem notícias dos ativos: elas chegam com a próxima publicação das cotações (a cada 30 min no pregão).';
   }
   function desenharFatores(ativos) {
     const el = $('ntFatores');
@@ -373,6 +373,12 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     if (r && r.ok) estado.proventos = [...(r.aReceber || []), ...(r.recebidos || []).map((p) => ({ ...p, dataPagamento: p.dataPagamento || p.data }))];
     estado.proventosLidos = true;
   }
+  async function carregarAgendaExterna() {
+    const [ibge, rf] = await Promise.all([api.getNoticiasAgenda(token).catch(() => null), api.getCarteirasRendaFixa(token).catch(() => null)]);
+    if (ibge && ibge.ok) estado.eventosIbge = ibge.eventos || [];
+    const titulos = (rf && rf.ok && ((rf.carteira && rf.carteira.ativos) || rf.ativos)) || [];
+    if (rf && rf.ok) estado.vencimentos = titulos.filter((t) => t && t.vencimentoData).map((t) => ({ nome: t.nomePersonalizado || t.tipoInvestimento || 'Renda fixa', dia: t.vencimentoData, valor: t.totalAtualizado }));
+  }
 
   async function carregar() {
     // RF-08: o relógio de 2 min não busca com a aba escondida (o botão sempre busca)
@@ -383,6 +389,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
       carregarSeries().then((ok) => { desenharAbasIndice(); desenharMercado(); desenharTermometro(); desenharAtivos(); return ok; }),
       carregarVideos(estado.aba).then(() => desenharVideos()).then(() => true),
       carregarProventos().then(() => { desenharAgenda(); desenharAtivos(); return true; }),
+      carregarAgendaExterna().then(() => { desenharAgenda(); return true; }),
       Promise.all([carregarCarteira(), carregarNoticiasAtivos()]).then(() => { desenharAtivos(); return true; }),
     ]);
     // os outros índices e abas guardados ficam velhos: busca de novo quando forem abertos

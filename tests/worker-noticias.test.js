@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import worker from '../worker/src/index.js';
 import { hmacBase64Url } from '../worker/src/auth.js';
 import { extrairTempoRealInfoMoney, urlTempoRealInfoMoney, extrairRss, extrairFeedYoutube, urlGoogleNoticias, textoLimpo } from '../worker/src/noticias/fontes.js';
-import { coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO } from '../worker/src/noticias/coleta.js';
+import { coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO, PRODUTOS_IBGE, dataIbge } from '../worker/src/noticias/coleta.js';
 import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, esquecerRespostasGuardadas } from '../assets/js/api-client.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL } from '../assets/js/config.js';
@@ -74,12 +74,12 @@ test('fontes: tempo real do InfoMoney (hora, título, link), manchete e resumo; 
 
 test('agendador: no pregão o tempo real roda em todo disparo e o resto alterna; fora dele, cada tarefa a cada 30 min', () => {
   const sp = (iso) => Date.parse(iso); // horários em UTC (SP = UTC-3)
-  assert.deepEqual(tarefasDoDisparo(sp('2026-10-30T14:00:00Z')), { tempoReal: true, manchetes: true, videos: false, ativos: false }, 'sexta 11:00');
-  assert.deepEqual(tarefasDoDisparo(sp('2026-10-30T14:05:00Z')), { tempoReal: true, manchetes: false, videos: true, ativos: true }, 'sexta 11:05');
+  assert.deepEqual(tarefasDoDisparo(sp('2026-10-30T14:00:00Z')), { tempoReal: true, manchetes: true, videos: false, ativos: false, agenda: false }, 'sexta 11:00');
+  assert.deepEqual(tarefasDoDisparo(sp('2026-10-30T14:05:00Z')), { tempoReal: true, manchetes: false, videos: true, ativos: true, agenda: true }, 'sexta 11:05 (a agenda só busca se a última leitura tiver mais de 20 h)');
   const sabado = ['00', '05', '10', '15', '20', '25'].map((m) => tarefasDoDisparo(sp(`2026-10-31T14:${m}:00Z`)));
   assert.equal(sabado.filter((x) => x.manchetes).length, 1, 'sábado: manchetes 1x a cada 30 min');
   assert.equal(sabado.filter((x) => x.videos).length, 1, 'sábado: vídeos 1x a cada 30 min');
-  assert.equal(sabado.filter((x) => !x.tempoReal && !x.manchetes && !x.videos && !x.ativos).length, 4, 'os outros disparos não fazem nada');
+  assert.equal(sabado.filter((x) => !x.tempoReal && !x.manchetes && !x.videos && !x.ativos && !x.agenda).length, 4, 'os outros disparos não fazem nada');
   assert.equal(diaSaoPaulo(sp('2026-10-31T02:00:00Z')), '2026-10-30', 'dia de São Paulo');
   assert.equal(horaSaoPaulo(sp('2026-10-30T12:05:00Z')), '9h05');
   assert.deepEqual(proximosDaFila(['a', 'b', 'c'], 2, 2), { escolhidos: ['c', 'a'], cursor: 1 });
@@ -148,10 +148,14 @@ function fetchFalso(mapa, pedidos = []) {
   };
 }
 
-async function publicarConfig(env, config) {
-  const z = zlib.gzipSync(Buffer.from(JSON.stringify({ ok: true, ...config })));
-  env.DB.db.prepare('INSERT INTO publicacao (chave, geracao, geracao_ms, hash, publicado_em, bytes, corpo) VALUES (?, ?, ?, ?, ?, ?, ?)').run('noticiasConfig', 'v.1700000000000', 1700000000000, 'hashconfig1', '2026-10-30T10:00:00Z', z.length, z);
+/** Uma tela publicada pelo Apps Script (noticiasConfig, noticiasGoogle) direto no D1 de mentira. */
+function publicarDoAppsScript(env, chave, obj, em = '2026-10-30T10:00:00Z') {
+  const z = zlib.gzipSync(Buffer.from(JSON.stringify({ ok: true, ...obj })));
+  env.DB.db.prepare(`INSERT INTO publicacao (chave, geracao, geracao_ms, hash, publicado_em, bytes, corpo) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(chave) DO UPDATE SET corpo = excluded.corpo, publicado_em = excluded.publicado_em`).run(chave, 'v.1700000000000', 1700000000000, `hash${chave}`, em, z.length, z);
 }
+const publicarConfig = async (env, config) => publicarDoAppsScript(env, 'noticiasConfig', config);
+const itemGas = (titulo, data) => ({ titulo, link: `https://noticia.exemplo.test/${encodeURIComponent(titulo)}`, fonte: 'Jornal A', data, imagem: null, fonteUrl: null });
 
 test('coleta: publica as telas no D1 (gzip + hash), não regrava o que não mudou, e fonte fora do ar mantém a última leitura', async () => {
   const env = { DB: d1() };
@@ -159,19 +163,26 @@ test('coleta: publica as telas no D1 (gzip + hash), não regrava o que não mudo
     canais: Array.from({ length: 7 }, (_, i) => ({ id: `UC${String(i).repeat(22)}`, nome: `canal${i}`, tela: i < 2 ? 'noticias' : 'meus' })),
     ativos: [{ ticker: 'ABCD3', classe: 'acoes', nome: 'Empresa Exemplo' }, { ticker: 'WXYZ11', classe: 'fiis', nome: 'Fundo de Investimento Imobiliário Exemplo' }],
   });
+  // o Google Notícias recusa o Cloudflare: as buscas vêm do Apps Script (noticiasGoogle)
+  publicarDoAppsScript(env, 'noticiasGoogle', {
+    indices: { ibov: [itemGas('Mercado anima', '2026-10-30T13:30:00Z')], ifix: [], spx: [itemGas('Wall Street sobe', '2026-10-30T13:00:00Z')], dolar: [] },
+    ativos: { ABCD3: [itemGas('Empresa Exemplo lucra', '2026-10-30T12:00:00Z')], WXYZ11: [] },
+  });
   const manha = Date.parse('2026-10-30T14:00:00Z'); // sexta 11:00, slot par: tempo real + manchetes
   const live = paginaTempoReal([['10h55', 'b1', 'Ibovespa abre em alta'], ['10h10', 'b0', 'Dólar recua']]);
   const pedidos = [];
   const mapa = [
     [(u) => u.includes('ao-vivo-30102026'), live],
-    [(u) => u.includes('news.google.com'), rss([['Mercado anima', 'Jornal A', '2026-10-30T13:30:00Z']])],
     [(u) => u.includes('youtube.com/feeds'), feedYoutube('Canal', [['vid00000001', 'Vídeo', '2026-10-30T12:00:00Z']])],
   ];
   const PAR = { tempoReal: true, manchetes: true, videos: false, ativos: false };
   const IMPAR = { tempoReal: false, manchetes: false, videos: true, ativos: true };
   const r1 = await coletarNoticias(env, { agoraMs: manha, tarefas: PAR, fetchImpl: fetchFalso(mapa, pedidos) });
   assert.deepEqual(r1.falhas, []);
-  assert.equal(pedidos.length, 5, '1 tempo real + 4 índices (vídeos e ativos ficam pro disparo seguinte)');
+  assert.deepEqual(pedidos.length, 1, 'só o tempo real: o Google vem do Apps Script, sem pedido daqui');
+  assert.ok(!pedidos.some((u) => u.includes('news.google.com')), 'nunca pede ao Google Notícias (ele recusa o Cloudflare)');
+  assert.equal(tela(env, 'noticiasMercado?indice=ibov').noticias[0].titulo, 'Mercado anima', 'manchetes do Apps Script');
+  assert.equal(tela(env, 'noticiasMercado?indice=spx').manchete.titulo, 'Wall Street sobe');
   assert.equal(r1.telas, 4);
   const ibov = tela(env, 'noticiasMercado?indice=ibov');
   assert.equal(ibov.ok, true);
@@ -195,16 +206,19 @@ test('coleta: publica as telas no D1 (gzip + hash), não regrava o que não mudo
   const p4 = [];
   const r4 = await coletarNoticias(env, { agoraMs: manha + 5 * 60e3, tarefas: IMPAR, fetchImpl: fetchFalso(mapa, p4) });
   assert.equal(p4.filter((u) => u.includes('youtube')).length, CANAIS_POR_DISPARO);
-  assert.equal(p4.filter((u) => u.includes('news.google.com')).length, 2, 'notícias dos 2 ativos');
-  assert.ok(p4.some((u) => u.includes(encodeURIComponent('"Empresa Exemplo"'))), 'nome curto entra na busca');
-  assert.ok(!p4.some((u) => u.includes(encodeURIComponent('"Fundo de Investimento'))), 'nome genérico de fundo não entra');
+  assert.equal(p4.filter((u) => u.includes('news.google.com')).length, 0);
   assert.ok(r4.telas >= 3);
   assert.equal(tela(env, 'noticiasVideos?aba=noticias').videos.length, 2, 'os 2 canais da aba Notícias, 1 vídeo cada');
-  assert.ok(tela(env, 'noticiasAtivos').ativos.ABCD3.length >= 1);
+  assert.deepEqual(tela(env, 'noticiasAtivos').ativos.ABCD3.map((n) => n.titulo), ['Empresa Exemplo lucra'], 'notícias do ativo do Apps Script');
+  // sem a tela do Google publicada: a falha aparece, e as notícias guardadas continuam
+  env.DB.db.prepare("DELETE FROM publicacao WHERE chave = 'noticiasGoogle'").run();
+  const rSem = await coletarNoticias(env, { agoraMs: manha + 25 * 60e3, tarefas: IMPAR, fetchImpl: fetchFalso(mapa) });
+  assert.deepEqual(rSem.falhas, [{ fonte: 'Google Notícias (Apps Script)', status: 'não publicado' }]);
+  assert.equal(tela(env, 'noticiasAtivos').ativos.ABCD3.length, 1);
   const p5 = [];
   await coletarNoticias(env, { agoraMs: manha + 15 * 60e3, tarefas: IMPAR, fetchImpl: fetchFalso(mapa, p5) });
   const canais5 = p5.filter((u) => u.includes('youtube')).map((u) => u.split('=')[1].slice(2, 3));
-  assert.deepEqual(canais5, ['5', '6', '0', '1', '2'], 'a fila continua de onde parou');
+  assert.deepEqual(canais5, ['3', '4', '5', '6', '0'], 'a fila continua de onde parou (2 disparos ímpares depois do 1º)');
 });
 
 test('cron: o scheduled do Worker roda a coleta com o horário do disparo', async (t) => {
@@ -215,7 +229,7 @@ test('cron: o scheduled do Worker roda a coleta com o horário do disparo', asyn
   await Promise.all(esperas);
   const estado = JSON.parse(env.DB.db.prepare("SELECT valor FROM estado WHERE chave = 'noticias_ultima'").get().valor);
   assert.deepEqual(estado.tarefas, ['tempoReal', 'manchetes']);
-  assert.equal(estado.falhas.length, 5);
+  assert.equal(estado.falhas.length, 2, 'tempo real + Google não publicado');
   const toml = fs.readFileSync(path.join(RAIZ, 'worker/wrangler.toml'), 'utf8');
   assert.match(toml, /\[triggers\]\s*crons = \["\*\/5 \* \* \* \*"\]/, 'um cron só (5 por conta no plano grátis)');
 });
@@ -250,9 +264,9 @@ test('site: lê as telas de notícias do Worker (sem Apps Script, sem geração 
   const payload = Buffer.from(JSON.stringify({ email: 'a@b.test', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
   const token = `s1.${payload}.${await hmacBase64Url('s', payload)}`;
   assert.equal((await getNoticiasMercado(token, 'ibov')).ok, false, 'ainda não publicado: erro, sem Apps Script');
+  publicarDoAppsScript(env, 'noticiasGoogle', { indices: { ibov: [itemGas('Mercado anima', new Date().toISOString())] }, ativos: {} });
   await coletarNoticias(env, { agoraMs: Date.now(), tarefas: { tempoReal: true, manchetes: true, videos: true, ativos: true }, fetchImpl: fetchFalso([
     [(u) => u.includes('infomoney'), paginaTempoReal([['11h00', 'c1', 'Bolsa sobe']])],
-    [(u) => u.includes('news.google.com'), rss([['Mercado anima', 'Jornal A', new Date().toISOString()]])],
   ]) });
   const m = await getNoticiasMercado(token, 'ibov');
   assert.equal(m._fonte, 'leitura');
@@ -265,5 +279,27 @@ test('site: lê as telas de notícias do Worker (sem Apps Script, sem geração 
   const velha = await getNoticiasMercado(token, 'ibov');
   assert.equal(velha._velha, true, 'Worker fora: a última cópia');
   assert.equal(velha.tempoReal[0].titulo, 'Bolsa sobe');
-  assert.deepEqual([...ACOES_SO_WORKER], ['noticiasMercado', 'noticiasVideos', 'noticiasAtivos']);
+  assert.deepEqual([...ACOES_SO_WORKER], ['noticiasMercado', 'noticiasVideos', 'noticiasAtivos', 'noticiasAgenda']);
+});
+
+test('agenda do IBGE: 1 leitura por dia (7 pesquisas), hora de São Paulo, publicada em noticiasAgenda; falha não apaga a anterior', async () => {
+  const env = { DB: d1() };
+  const agoraMs = Date.parse('2026-10-30T14:05:00Z');
+  const json = (id) => JSON.stringify({ items: [{ data_divulgacao: '12/11/2026 12:00:00', mes_referencia_fim: 10, ano_referencia_fim: 2026, produto_id: Number(id) }, { data_divulgacao: 'quebrado' }] });
+  const pedidos = [];
+  const SO_AGENDA = { tempoReal: false, manchetes: false, videos: false, ativos: false, agenda: true };
+  await coletarNoticias(env, { agoraMs, tarefas: SO_AGENDA, fetchImpl: (async (u) => { pedidos.push(String(u)); const id = String(u).match(/calendario\/(\d+)/)[1]; return new Response(json(id), { status: 200 }); }) });
+  assert.equal(pedidos.length, Object.keys(PRODUTOS_IBGE).length);
+  const ag = tela(env, 'noticiasAgenda');
+  assert.equal(ag.eventos.length, 7);
+  assert.deepEqual(ag.eventos.find((e) => e.titulo.startsWith('IPCA (')), { dia: '2026-11-12', hora: '9h00', titulo: 'IPCA (ref. 10/2026)', detalhe: 'IBGE', tag: 'macro' }, '12:00 UTC = 9h de São Paulo');
+  assert.deepEqual(dataIbge('05/11/2026 13:00:00'), { dia: '2026-11-05', hora: '10h00' });
+  // 1 h depois: não busca de novo
+  const p2 = [];
+  await coletarNoticias(env, { agoraMs: agoraMs + 3600e3, tarefas: SO_AGENDA, fetchImpl: async (u) => { p2.push(u); return new Response('', { status: 500 }); } });
+  assert.equal(p2.length, 0, 'leitura de menos de 20 h vale');
+  // no dia seguinte, o IBGE fora do ar: a agenda continua com a leitura de ontem
+  const r3 = await coletarNoticias(env, { agoraMs: agoraMs + 24 * 3600e3, tarefas: SO_AGENDA, fetchImpl: async () => new Response('', { status: 500 }) });
+  assert.deepEqual(r3.falhas, [{ fonte: 'agenda IBGE', status: '7 de 7' }]);
+  assert.equal(tela(env, 'noticiasAgenda').eventos.length, 7);
 });

@@ -8,6 +8,11 @@
  *    para Notícias, @ProfessorBaroni e @josekoborioficial para Especialistas, o resto para Meus canais.
  *  - ativos: os da carteira com posição (Auxiliar_ativos), com o nome - o Worker busca as notícias de cada um.
  * O ID do canal (UC...) sai de resolverCanalYoutube_ (Videos.gs), guardado nas propriedades depois da 1ª vez.
+ *
+ * 30/10/2026 (2): `noticiasGoogle` - o Google Notícias recusa os pedidos do Cloudflare (503/sem resposta), então as buscas
+ * dele saem daqui: as manchetes de cada índice (24 h) e as notícias de cada ativo da carteira (as MESMAS da tela do ativo,
+ * com o mesmo cache de 2 h - buscarNoticiasAtivo_). Só busca o que não está em cache, tudo num fetchAll. Vai junto da
+ * publicação das cotações (a cada 30 min no pregão); o cron do Worker junta nas telas noticiasMercado e noticiasAtivos.
  */
 
 var NOTICIAS_TELA_PADRAO_ = { '@infomoney': 'noticias', '@uol': 'noticias', '@professorbaroni': 'especialistas', '@josekoborioficial': 'especialistas' };
@@ -84,5 +89,67 @@ function handleNoticiasConfig(e, auth) {
     return jsonOut({ ok: true, canais: lerCanaisNoticias_(ss), ativos: lerAtivosNoticias_(ss) });
   } catch (erro) {
     return jsonOut({ ok: false, etapa: 'noticiasConfig', erro: String(erro) });
+  }
+}
+
+var NOTICIAS_CONSULTAS_INDICE_ = {
+  ibov: 'Ibovespa OR "bolsa brasileira" when:1d',
+  ifix: '"fundos imobiliários" OR IFIX OR FIIs when:1d',
+  spx: '"Wall Street" OR "S&P 500" OR Nasdaq OR "Federal Reserve" when:1d',
+  dolar: 'dólar OR câmbio when:1d'
+};
+var NOTICIAS_CACHE_INDICE_ = 'noticias_indice_v1_';
+var NOTICIAS_TTL_INDICE_ = 20 * 60;
+
+function urlGoogleNoticiasIndice_(indice) {
+  return 'https://news.google.com/rss/search?q=' + encodeURIComponent(NOTICIAS_CONSULTAS_INDICE_[indice]) + '&hl=pt-BR&gl=BR&ceid=BR:pt-419';
+}
+
+/** { ok, em, indices: { ibov: [...] }, ativos: { TICKER: [...] }, buscadas, falhas }. opcoes.fetchAll troca o UrlFetchApp nos testes. */
+function noticiasGoogle_(opcoes) {
+  var o = opcoes || {};
+  var fetchAll = o.fetchAll || function (pedidos) { return UrlFetchApp.fetchAll(pedidos); };
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var cache = CacheService.getScriptCache();
+  var alvos = Object.keys(NOTICIAS_CONSULTAS_INDICE_).map(function (i) {
+    return { tipo: 'indice', id: i, chave: NOTICIAS_CACHE_INDICE_ + i, url: urlGoogleNoticiasIndice_(i), max: 25, ttl: NOTICIAS_TTL_INDICE_ };
+  }).concat(lerAtivosNoticias_(ss).map(function (a) {
+    return { tipo: 'ativo', id: a.ticker, chave: ATIVO_CACHE_NOTICIAS_PREFIXO + a.ticker, url: urlNoticiasAtivo_(a.ticker, a.nome, a.classe), max: 10, ttl: ATIVO_CACHE_NOTICIAS_TTL };
+  }));
+  var guardadas = {};
+  try { guardadas = cache.getAll(alvos.map(function (x) { return x.chave; })) || {}; } catch (e) { guardadas = {}; }
+  var out = { ok: true, em: new Date().toISOString(), indices: {}, ativos: {}, buscadas: 0, falhas: 0 };
+  var pr = function (x, itens) { if (x.tipo === 'indice') out.indices[x.id] = itens; else out.ativos[x.id] = itens; };
+  var faltam = [];
+  alvos.forEach(function (x) {
+    var g = guardadas[x.chave];
+    if (g) { try { pr(x, JSON.parse(g)); return; } catch (e) { /* busca de novo */ } }
+    faltam.push(x);
+  });
+  if (faltam.length) {
+    var respostas = [];
+    try {
+      respostas = fetchAll(faltam.map(function (x) { return { url: x.url, muteHttpExceptions: true, followRedirects: true }; }));
+    } catch (e) { respostas = []; }
+    faltam.forEach(function (x, i) {
+      var r = respostas[i];
+      out.buscadas++;
+      if (!r || r.getResponseCode() !== 200) { out.falhas++; return; }
+      var itens = extrairItensRss_(r.getContentText()).slice(0, x.max);
+      pr(x, itens);
+      try { cache.put(x.chave, JSON.stringify(itens), x.ttl); } catch (e) { /* cache é só otimização */ }
+    });
+  }
+  return out;
+}
+
+function handleNoticiasGoogle(e, auth) {
+  if (!auth || !auth.ok) return jsonOut({ ok: false, etapa: 'autenticação', erro: auth ? auth.erro : 'token ausente na chamada' });
+  try {
+    var r = noticiasGoogle_();
+    delete r.em; delete r.buscadas; // o hash da publicação só muda quando as notícias mudam
+    return jsonOut(r);
+  } catch (erro) {
+    return jsonOut({ ok: false, etapa: 'noticiasGoogle', erro: String(erro) });
   }
 }

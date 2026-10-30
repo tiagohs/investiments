@@ -28,7 +28,7 @@ export function instanteDaGeracao(geracao) {
  */
 export const ACOES_PUBLICADAS = Object.freeze(['home', 'transacoes', 'aportesPendentes', 'despesas', 'gastos', 'distribuicoesMetas',
   'carteirasHome', 'carteirasAcoes', 'carteirasFiis', 'carteirasAcoesEua', 'carteirasRendaFixa', 'metas', 'patrimonio', 'macro',
-  'proventos', 'inflacaoPessoal', 'salario', 'metasHistorico', 'noticiasConfig', 'syncHistorico', 'syncStatus']);
+  'proventos', 'inflacaoPessoal', 'salario', 'metasHistorico', 'noticiasConfig', 'noticiasGoogle', 'syncHistorico', 'syncStatus']);
 /** 29/10/2026: telas que só valem do Worker se a cópia for recente (o Registro de Controle muda a cada sincronização). */
 export const IDADE_MAXIMA_LEITURA_MS = Object.freeze({ syncHistorico: 10 * 60 * 1000, syncStatus: 10 * 60 * 1000 });
 // 29/10/2026 (Tiago: "Transações e Organização ainda lentas no Atualizar"): agora TODAS as telas publicadas são lidas do
@@ -44,7 +44,7 @@ export const ACOES_PUBLICADAS_POR_ATIVO = Object.freeze(['ativo', 'ativoBase']);
  * 30/10/2026 (tela de Notícias, docs/noticias.md, ADR-N6): telas que o PRÓPRIO Worker publica (cron, worker/src/noticias)
  * - só existem lá: sem Apps Script de reserva, e a geração mínima não vale (nenhuma gravação do site muda notícia).
  */
-export const ACOES_SO_WORKER = Object.freeze(['noticiasMercado', 'noticiasVideos', 'noticiasAtivos']);
+export const ACOES_SO_WORKER = Object.freeze(['noticiasMercado', 'noticiasVideos', 'noticiasAtivos', 'noticiasAgenda']);
 export const ACOES_LIDAS_DO_WORKER = Object.freeze([...ACOES_PUBLICADAS, ...ACOES_PUBLICADAS_POR_ATIVO, ...ACOES_SO_WORKER]);
 
 /**

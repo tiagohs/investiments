@@ -1012,6 +1012,8 @@ export function getNoticiasMercado(token, indice = 'ibov') { return lerSoDoWorke
 /** aba: 'noticias' | 'especialistas' | 'meus'. */
 export function getNoticiasVideos(token, aba = 'noticias') { return lerSoDoWorker('noticiasVideos', { aba }, token); }
 export function getNoticiasAtivos(token) { return lerSoDoWorker('noticiasAtivos', {}, token); }
+/** Calendário do IBGE (IPCA, PIB, PNAD...), lido pelo cron 1x por dia. */
+export function getNoticiasAgenda(token) { return lerSoDoWorker('noticiasAgenda', {}, token); }
 
 /** 25/09/2026: teses do ativo no Google Drive privado (PDFs + resumos). */
 export async function getTesesAtivo(token, ticker) {

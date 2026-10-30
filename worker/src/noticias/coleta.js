@@ -6,8 +6,10 @@
  *   disparo (a cada 5 min)   no pregão                                fora do pregão (1 a cada 30 min por tarefa)
  *   ---------------------    --------------------------------------   ------------------------------------------
  *   par                      tempo real + manchetes dos 4 índices     tempo real + manchetes (minuto :00 e :30)
- *   ímpar                    tempo real + 5 canais + 5 ativos         5 canais + 5 ativos (minuto :15 e :45)
+ *   ímpar                    tempo real + 5 canais + ativos           5 canais + ativos (minuto :15 e :45)
  *
+ * Google Notícias (manchetes por índice e notícias de cada ativo): busca o Apps Script e publica `noticiasGoogle` - o Google
+ * recusa pedidos do Cloudflare. O cron só junta.
  * O que cada fonte trouxe fica em `noticias_fonte` (uma linha por fonte: o tempo real, cada índice, cada canal, cada
  * ativo); as telas são remontadas dali, e só vão ao D1 as que mudaram (hash). Fonte que falhou: fica a última leitura
  * boa, e a tela diz em `avisos`. Nada de Workers AI (Tiago, 30/10/2026: "não usar neurons por agora").
@@ -16,15 +18,15 @@
  *   noticiasMercado?indice=ibov|ifix|spx|dolar  { ok, indice, atualizadoEm, manchete, tempoReal, noticias, fonteTempoReal, avisos }
  *   noticiasVideos?aba=noticias|especialistas|meus  { ok, aba, atualizadoEm, videos, canais, avisos }
  *   noticiasAtivos                              { ok, atualizadoEm, ativos: { TICKER: [notícia] } }
+ *   noticiasAgenda                              { ok, atualizadoEm, eventos: [{ dia, hora, titulo, detalhe, tag }] } (IBGE, 1x por dia)
  * Configuração (canais e ativos da carteira): a tela `noticiasConfig`, que o Apps Script publica (Noticias.gs).
  */
-import { extrairTempoRealInfoMoney, urlTempoRealInfoMoney, extrairRss, urlGoogleNoticias, extrairFeedYoutube } from './fontes.js';
+import { extrairTempoRealInfoMoney, urlTempoRealInfoMoney, extrairFeedYoutube } from './fontes.js';
 import { talvezNoPregao } from '../../../assets/js/leitura-chave.js';
 
 export const INDICES_NOTICIAS = Object.freeze(['ibov', 'ifix', 'spx', 'dolar']);
 export const ABAS_VIDEOS = Object.freeze(['noticias', 'especialistas', 'meus']);
 export const CANAIS_POR_DISPARO = 5;
-export const ATIVOS_POR_DISPARO = 5;
 const SLOT_MS = 5 * 60 * 1000;
 const TEMPO_MAXIMO_FONTE_MS = 6000;
 const MAX_TEMPO_REAL = 30;
@@ -32,13 +34,6 @@ const MAX_NOTICIAS = 12;
 const MAX_VIDEOS_POR_ABA = 24;
 const MAX_POR_ATIVO = 6;
 
-/** Busca do Google Notícias de cada índice (últimas 24 h). */
-export const CONSULTAS_INDICE = Object.freeze({
-  ibov: 'Ibovespa OR "bolsa brasileira" when:1d',
-  ifix: '"fundos imobiliários" OR IFIX OR FIIs when:1d',
-  spx: '"Wall Street" OR "S&P 500" OR Nasdaq OR "Federal Reserve" when:1d',
-  dolar: 'dólar OR câmbio when:1d',
-});
 /** Do tempo real do InfoMoney (que é da bolsa toda), o que vale para cada índice. ibov = tudo. */
 export const FILTRO_TEMPO_REAL = Object.freeze({
   ibov: null,
@@ -47,13 +42,37 @@ export const FILTRO_TEMPO_REAL = Object.freeze({
   dolar: /(d[oó]lar|c[aâ]mbio|\breal\b|moedas?)/i,
 });
 
-/** Que fatia roda neste disparo. */
+/** Que fatia roda neste disparo. A agenda do IBGE vai junto da fatia dos vídeos quando a última leitura tem mais de 20 h. */
 export function tarefasDoDisparo(agoraMs) {
   const slot = Math.floor(agoraMs / SLOT_MS);
   const par = slot % 2 === 0;
-  if (talvezNoPregao(agoraMs)) return { tempoReal: true, manchetes: par, videos: !par, ativos: !par };
+  if (talvezNoPregao(agoraMs)) return { tempoReal: true, manchetes: par, videos: !par, ativos: !par, agenda: !par };
   const fase = slot % 6;
-  return { tempoReal: fase === 0, manchetes: fase === 0, videos: fase === 3, ativos: fase === 3 };
+  return { tempoReal: fase === 0, manchetes: fase === 0, videos: fase === 3, ativos: fase === 3, agenda: fase === 3 };
+}
+
+/** Pesquisas do IBGE que mexem com o mercado (id do produto na API de calendário v3) -> nome curto na agenda. */
+export const PRODUTOS_IBGE = Object.freeze({
+  9256: 'IPCA', 9260: 'IPCA-15', 9300: 'PIB trimestral', 9171: 'Desemprego (PNAD)', 9227: 'Vendas no varejo (PMC)', 9229: 'Serviços (PMS)', 9294: 'Produção industrial (PIM)',
+});
+const IDADE_AGENDA_MS = 20 * 3600 * 1000;
+
+/** '12/11/2026 12:00:00' (UTC) -> { dia: '2026-11-12', hora: '9h00' } em São Paulo. */
+export function dataIbge(texto) {
+  const m = String(texto || '').match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/);
+  if (!m) return null;
+  const ms = Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4]), Number(m[5]));
+  return { dia: diaSaoPaulo(ms), hora: horaSaoPaulo(ms) };
+}
+
+/** JSON da API de calendário do IBGE -> [{ dia, hora, titulo, detalhe, tag }]. */
+export function eventosIbge(json, nome) {
+  return ((json && json.items) || []).map((i) => {
+    const d = dataIbge(i.data_divulgacao);
+    if (!d) return null;
+    const ref = i.mes_referencia_fim && i.ano_referencia_fim ? ` (ref. ${String(i.mes_referencia_fim).padStart(2, '0')}/${i.ano_referencia_fim})` : '';
+    return { ...d, titulo: `${nome}${ref}`, detalhe: 'IBGE', tag: 'macro' };
+  }).filter(Boolean);
 }
 
 /** 'aaaa-mm-dd' de São Paulo. */
@@ -98,16 +117,27 @@ function paraBytes(v) {
   return new Uint8Array(0);
 }
 
+/** Uma tela que o Apps Script publicou no D1 (JSON), ou null. */
+export async function lerPublicadaDoAppsScript(env, chave) {
+  try {
+    const l = await env.DB.prepare('SELECT corpo, publicado_em FROM publicacao WHERE chave = ?').bind(chave).first();
+    if (!l) return null;
+    const j = JSON.parse(await gunzipTexto(paraBytes(l.corpo)));
+    return j && j.ok !== false ? { ...j, em: j.em || l.publicado_em } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 /** A configuração que o Apps Script publicou (canais e ativos). Sem ela: listas vazias. */
 export async function lerConfigNoticias(env) {
-  try {
-    const l = await env.DB.prepare('SELECT corpo FROM publicacao WHERE chave = ?').bind('noticiasConfig').first();
-    if (!l) return { canais: [], ativos: [] };
-    const j = JSON.parse(await gunzipTexto(paraBytes(l.corpo)));
-    return { canais: Array.isArray(j.canais) ? j.canais : [], ativos: Array.isArray(j.ativos) ? j.ativos : [] };
-  } catch (e) {
-    return { canais: [], ativos: [] };
-  }
+  const j = await lerPublicadaDoAppsScript(env, 'noticiasConfig');
+  return { canais: j && Array.isArray(j.canais) ? j.canais : [], ativos: j && Array.isArray(j.ativos) ? j.ativos : [] };
+}
+
+/** Item do Apps Script (extrairItensRss_: titulo, link, fonte, data, imagem) -> o formato das telas. */
+function itemDoGoogle(n) {
+  return { titulo: String(n.titulo || ''), link: String(n.link || ''), data: n.data || null, fonte: n.fonte || '', resumo: n.resumo || '' };
 }
 
 // ---- busca ----
@@ -134,15 +164,6 @@ export function proximosDaFila(lista, cursor, n) {
   return { escolhidos, cursor: (ini + escolhidos.length) % lista.length };
 }
 
-function consultaDoAtivo(a) {
-  const t = String(a.ticker || '').toUpperCase();
-  const nome = String(a.nome || '').replace(/["()]/g, ' ').replace(/\s+/g, ' ').trim();
-  const partes = [`"${t}"`];
-  // o nome curto ajuda (Petrobras, Vale); nome genérico demais ("Fundo de Investimento...") só atrapalha
-  if (nome && nome.length <= 40 && !/^fundo/i.test(nome)) partes.push(`"${nome}"`);
-  return `${partes.join(' OR ')} when:7d`;
-}
-
 /** Roda a fatia do disparo. Devolve um resumo (vai pra `estado.noticias_ultima`). */
 export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = fetch, tarefas = null } = {}) {
   const t = tarefas || tarefasDoDisparo(agoraMs);
@@ -162,13 +183,15 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
       else falhas.push({ fonte: 'tempo real InfoMoney', status: r.ok ? 'formato' : r.status });
     })());
   }
-  if (t.manchetes) {
-    INDICES_NOTICIAS.forEach((indice) => pedidos.push((async () => {
-      const r = await buscarTexto(urlGoogleNoticias(CONSULTAS_INDICE[indice]), fetchImpl);
-      const itens = r.ok ? extrairRss(r.texto, { max: 25 }) : [];
-      if (itens.length) novas[`gn:${indice}`] = { em: agoraIso, itens };
-      else falhas.push({ fonte: `manchetes ${indice}`, status: r.ok ? 'vazio' : r.status });
-    })()));
+  // 30/10/2026: o Google Notícias recusa os pedidos vindos do Cloudflare (503 e sem resposta, visto no 1º disparo). Quem
+  // busca é o Apps Script (Noticias.gs!noticiasGoogle_, publicado a cada 30 min no pregão); aqui só lemos a tela publicada.
+  const google = (t.manchetes || t.ativos) ? await lerPublicadaDoAppsScript(env, 'noticiasGoogle') : null;
+  if (t.manchetes || t.ativos) {
+    if (!google) falhas.push({ fonte: 'Google Notícias (Apps Script)', status: 'não publicado' });
+    else INDICES_NOTICIAS.forEach((indice) => {
+      const itens = (google.indices && google.indices[indice]) || [];
+      if (itens.length) novas[`gn:${indice}`] = { em: google.em || agoraIso, itens: itens.map(itemDoGoogle) };
+    });
   }
   const config = (t.videos || t.ativos) ? await lerConfigNoticias(env) : { canais: [], ativos: [] };
   if (t.videos) {
@@ -182,16 +205,23 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
       else falhas.push({ fonte: `canal ${c.nome || c.id}`, status: r.status });
     })()));
   }
-  if (t.ativos) {
-    const ativos = config.ativos.filter((a) => /^[A-Z0-9.]{3,12}$/.test(String(a.ticker || '').toUpperCase()));
-    const fila = proximosDaFila(ativos, fontes['cursor:ativos'] && fontes['cursor:ativos'].i, ATIVOS_POR_DISPARO);
-    novas['cursor:ativos'] = { i: fila.cursor };
-    fila.escolhidos.forEach((a) => pedidos.push((async () => {
-      const r = await buscarTexto(urlGoogleNoticias(consultaDoAtivo(a)), fetchImpl);
-      const itens = r.ok ? extrairRss(r.texto, { max: MAX_POR_ATIVO }) : null;
-      if (itens) novas[`at:${String(a.ticker).toUpperCase()}`] = { em: agoraIso, itens };
-      else falhas.push({ fonte: `notícias ${a.ticker}`, status: r.status });
-    })()));
+  if (t.ativos && google && google.ativos) {
+    Object.entries(google.ativos).forEach(([ticker, itens]) => {
+      if (Array.isArray(itens)) novas[`at:${String(ticker).toUpperCase()}`] = { em: google.em || agoraIso, itens: itens.map(itemDoGoogle) };
+    });
+  }
+  const lerAgenda = t.agenda && !(fontes['ibge:agenda'] && agoraMs - msDe(fontes['ibge:agenda'].em) < IDADE_AGENDA_MS);
+  if (lerAgenda) {
+    const eventos = [];
+    let falhou = 0;
+    await Promise.all(Object.entries(PRODUTOS_IBGE).map(async ([id, nome]) => {
+      const r = await buscarTexto(`https://servicodados.ibge.gov.br/api/v3/calendario/${id}?qtd=4`, fetchImpl);
+      let j = null;
+      try { j = r.ok ? JSON.parse(r.texto) : null; } catch (e) { j = null; }
+      if (j) eventos.push(...eventosIbge(j, nome)); else falhou++;
+    }));
+    if (eventos.length) novas['ibge:agenda'] = { em: agoraIso, eventos: eventos.sort((a, b) => (a.dia < b.dia ? -1 : a.dia > b.dia ? 1 : 0)) };
+    if (falhou) falhas.push({ fonte: 'agenda IBGE', status: `${falhou} de ${Object.keys(PRODUTOS_IBGE).length}` });
   }
   await Promise.all(pedidos);
 
@@ -200,6 +230,7 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
   if (t.tempoReal || t.manchetes) INDICES_NOTICIAS.forEach((indice) => telas.push([`noticiasMercado?indice=${indice}`, montarTelaMercado(indice, todas, { agoraMs })]));
   if (t.videos) ABAS_VIDEOS.forEach((aba) => telas.push([`noticiasVideos?aba=${aba}`, montarTelaVideos(aba, config, todas, { agoraMs })]));
   if (t.ativos) telas.push(['noticiasAtivos', montarTelaAtivos(config, todas, { agoraMs })]);
+  if (lerAgenda || (t.agenda && todas['ibge:agenda'])) telas.push(['noticiasAgenda', montarTelaAgenda(todas, { agoraMs })]);
 
   const gravadas = await gravarTelas(env, telas, { agoraMs, agoraIso, novas, falhas, tarefas: t });
   return { ok: true, tarefas: t, fontes: Object.keys(novas).filter((k) => !k.startsWith('cursor:')).length, telas: gravadas, falhas };
@@ -314,4 +345,12 @@ export function montarTelaAtivos(config, fontes, { agoraMs = Date.now() } = {}) 
     if (f) ativos[t] = f.itens.slice().sort((x, y) => msDe(y.data) - msDe(x.data)).slice(0, MAX_POR_ATIVO);
   });
   return { ok: true, atualizadoEm: new Date(agoraMs).toISOString(), ativos };
+}
+
+/** Agenda externa (IBGE): os próximos 60 dias e os 3 últimos (a tela mostra hoje e a semana). */
+export function montarTelaAgenda(fontes, { agoraMs = Date.now() } = {}) {
+  const f = fontes['ibge:agenda'];
+  const de = diaSaoPaulo(agoraMs - 3 * 86400e3);
+  const ate = diaSaoPaulo(agoraMs + 60 * 86400e3);
+  return { ok: true, atualizadoEm: new Date(agoraMs).toISOString(), eventos: ((f && f.eventos) || []).filter((e) => e.dia >= de && e.dia <= ate), lidoEm: f ? f.em : null };
 }

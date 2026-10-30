@@ -696,5 +696,7 @@ Arquitetura e plano: `docs/arquitetura-leitura-cloudflare.md`. Feito:
 - Manchetes do índice, agenda (proventos da carteira, Copom, Fed, Focus e feriados) e as notícias dos ativos com "Possíveis fatores hoje" calculados por regra (sem Workers AI).
 - Worker: cron a cada 5 min (`worker/src/noticias`), uma fatia por disparo, telas `noticias*` no D1 só quando mudam. O site lê essas telas só do Worker (`ACOES_SO_WORKER`, sem geração mínima).
 - Bug de teste corrigido: `leitura-cliente` contava 1 pedido a mais quando rodava no horário do pregão (o pedido de cotações frescas). O relógio do pedido agora fica fixo nos testes.
-- Testes: worker-noticias, noticias, publicacao-leitura (contrato das telas só do Worker), carga-telas (orçamento da tela nova).
-
+- Agenda: também os vencimentos de renda fixa da carteira, o calendário do IBGE (cron 1x por dia, `noticiasAgenda`) e payroll e CPI dos EUA.
+- Saúde da leitura: a última coleta do cron e as falhas dela no popover do Registro de Controle (N5).
+- Testes: worker-noticias, noticias, publicacao-leitura (contrato das telas só do Worker), carga-telas (orçamento da tela nova), leitura-saude (coleta do cron).
+- 30/10/2026 (2): o Google Notícias recusa o Cloudflare (503 e sem resposta nos primeiros disparos): manchetes e notícias dos ativos passam a vir do Apps Script (`noticiasGoogle`, ADR-N8), com o mesmo cache da tela do ativo. Bug de tela: o cartão de "Possíveis fatores" tinha `display:grid` e aparecia vazio mesmo escondido (`[hidden]` agora vence; teste em noticias.test.js). Testes: harness/noticias-gs, worker-noticias.

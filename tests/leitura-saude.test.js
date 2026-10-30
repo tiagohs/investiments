@@ -44,3 +44,19 @@ test('saúde: carregar desenha o estado lido (ou o aviso, sem estado)', async ()
   await carregarSaudeLeitura(el, 's1.x.y', { lerEstadoImpl: async () => null, agoraMs: AGORA });
   assert.match(el.innerHTML, /Não consegui/);
 });
+
+test('saúde (30/10/2026, Notícias): as telas noticias* não entram pela idade; o que vale é o cron ter rodado há pouco', () => {
+  const comNoticias = {
+    ...estado,
+    publicacoes: [...estado.publicacoes, { chave: 'noticiasMercado?indice=ibov', geracao: `noticias.${AGORA - 5 * 3600000}` }],
+    estado: { ...estado.estado, noticias_ultima: JSON.stringify({ em: new Date(AGORA - 20 * 60000).toISOString(), falhas: [{ fonte: 'tempo real InfoMoney', status: 503 }] }) },
+  };
+  const r = resumoSaudeLeitura(comNoticias, { agoraMs: AGORA, noPregao: true });
+  assert.ok(!r.telas.some((t) => t.chave.startsWith('noticias')), 'só muda quando o conteúdo muda: a idade não é sinal');
+  assert.equal(r.noticias.atencao, true, 'no pregão, 20 min sem coleta = cron parado');
+  assert.equal(resumoSaudeLeitura(comNoticias, { agoraMs: AGORA, noPregao: false }).noticias.atencao, false);
+  const html = htmlSaudeLeitura(r, { agoraMs: AGORA });
+  assert.match(html, /Notícias \(coleta do Worker\)<small>tempo real InfoMoney: 503<\/small><\/th><td>há 20 min/);
+  assert.match(html, /3 item\(ns\) com cópia mais velha/);
+  assert.equal(resumoSaudeLeitura(estado, { agoraMs: AGORA }).noticias, null, 'sem cron ainda: nada');
+});

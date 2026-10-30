@@ -39,6 +39,7 @@ Critérios de aceite (exemplos):
 | RNF-03 | Custo zero: dentro do Workers Free (10 ms de CPU por execução, 50 pedidos externos por execução, 5 crons por conta, 100 mil requisições/dia) e do D1 grátis. Não gasta a cota de gatilhos do Apps Script. |
 | RNF-04 | Peso: a tela baixa no máximo 120 KB de JS próprio; imagens com `loading="lazy"`; player do YouTube só ao clicar. |
 | RNF-05 | Resiliência: uma fonte fora do ar esconde só a sua parte, com aviso. O resto da tela continua. |
+| RNF-06 | Saúde: o popover do Registro de Controle mostra a última coleta do cron e as falhas dela; no pregão, mais de 12 min sem coleta (fora, 40 min) fica em atenção. |
 
 ## 4. Arquitetura
 
@@ -58,12 +59,12 @@ flowchart LR
 **Módulos:**
 - `worker/src/noticias/fontes.js`: leitura das fontes (InfoMoney tempo real, RSS, feed do YouTube), sem rede.
 - `worker/src/noticias/coleta.js`: o agendador (`tarefasDoDisparo`), a coleta e a montagem das telas; chamado pelo `scheduled` de `worker/src/index.js`.
-- `apps-script/Noticias.gs`: publica `noticiasConfig` (canais da aba `aux_videos-canais` com a coluna D "Tela de notícias", e os ativos com posição).
+- `apps-script/Noticias.gs`: publica `noticiasConfig` (canais da aba `aux_videos-canais` com a coluna D "Tela de notícias", e os ativos com posição) e `noticiasGoogle` (ADR-N8).
 - `noticias/index.html`, `assets/js/pages/noticias.js` (tela) e `noticias-calc.js` (fatores, agenda, feed e classificador, puros).
 - Índices e "O que mexe com a bolsa" usam o `GET /v1/intradia` que já existia (Yahoo pelo Worker), com as chaves novas BRENT, MINERIO, OURO, BTC e US10Y.
-- Agenda: proventos da tela Proventos (já publicada) + datas fixas do mercado em `noticias-calc.js!EVENTOS_MERCADO` (Copom, Fed, feriados da B3) + Focus toda segunda.
+- Agenda: proventos da tela Proventos e vencimentos da Carteira Renda Fixa (já publicadas), o calendário do IBGE (`noticiasAgenda`, lido pelo cron 1x por dia) e as datas fixas de `noticias-calc.js!EVENTOS_MERCADO`.
 
-**Dados:** as mesmas linhas `publicacao` do D1, com chaves novas: `noticiasMercado?indice=ibov|ifix|spx|dolar`, `noticiasVideos?aba=noticias|especialistas|meus`, `noticiasAtivos`. Cada linha guarda o JSON em gzip, o hash e a geração (`noticias.<ms>`); o Worker responde com ETag e 304. O que cada fonte trouxe por último fica na tabela `noticias_fonte` (o cron cria se faltar). Saúde: `estado.noticias_ultima` (tarefas, telas gravadas e falhas do último disparo), lido pelo `GET /v1/estado`.
+**Dados:** as mesmas linhas `publicacao` do D1, com chaves novas: `noticiasMercado?indice=ibov|ifix|spx|dolar`, `noticiasVideos?aba=noticias|especialistas|meus`, `noticiasAtivos`, `noticiasAgenda`. Cada linha guarda o JSON em gzip, o hash e a geração (`noticias.<ms>`); o Worker responde com ETag e 304. O que cada fonte trouxe por último fica na tabela `noticias_fonte` (o cron cria se faltar). Saúde: `estado.noticias_ultima` (tarefas, telas gravadas e falhas do último disparo), lido pelo `GET /v1/estado`.
 
 ## 5. Decisões (ADRs)
 
@@ -72,22 +73,28 @@ Fetch e parse são leves: XML de RSS e uma página. O Worker faz isso em ~300 ms
 
 **ADR-N2. Um cron só, uma fatia por disparo.**
 O plano grátis dá 10 ms de CPU por execução. Cada disparo (a cada 5 min) faz uma fatia:
-- no pregão: tempo real em todo disparo; nos pares, as manchetes dos 4 índices (4 pedidos); nos ímpares, 5 canais e 5 ativos, revezando em fila;
+- no pregão: tempo real em todo disparo; nos pares, as manchetes dos 4 índices; nos ímpares, 5 canais (em fila) e as notícias dos ativos (ambas do `noticiasGoogle`, ADR-N8);
 - fora do pregão: cada fatia a cada 30 min.
 
 Índices e commodities não passam pelo cron: a tela pede o gráfico do dia ao `/v1/intradia`. A leitura usa expressões simples sobre o texto (a página de ~700 KB do tempo real é lida em menos de 8 ms em Node, testado). Só vão ao D1 as telas cujo hash mudou. Usa 1 dos 5 crons da conta.
 
 **ADR-N3. Tempo real do InfoMoney pelo endereço do dia; manchetes pelo Google Notícias.**
-O endereço é `…/mercados/ibovespa-hoje-bolsa-de-valores-ao-vivo-DDMMAAAA/` e a página lista atualizações com hora e título. Guardamos hora, título e link; o corpo não. Se a página do dia não existir (antes da abertura, fim de semana) ou mudar de formato, fica a última leitura boa com aviso, e a falha vai para `estado.noticias_ultima`. Os feeds de seção do InfoMoney (`/mercados/feed/`) vêm vazios, por isso as manchetes de cada índice e as notícias dos ativos vêm da busca RSS do Google Notícias (pt-BR, últimas 24 h; ativos: ticker e nome curto, 7 dias). Site pessoal e fechado.
+O endereço é `…/mercados/ibovespa-hoje-bolsa-de-valores-ao-vivo-DDMMAAAA/` e a página lista atualizações com hora e título. Guardamos hora, título e link; o corpo não. Se a página do dia não existir (antes da abertura, fim de semana) ou mudar de formato, fica a última leitura boa com aviso, e a falha vai para `estado.noticias_ultima`. Os feeds de seção do InfoMoney (`/mercados/feed/`) vêm vazios, por isso as manchetes de cada índice e as notícias dos ativos vêm da busca RSS do Google Notícias. Site pessoal e fechado.
+
+**ADR-N8. Google Notícias pelo Apps Script.**
+- **Contexto:** o Google Notícias recusa os pedidos vindos do Cloudflare (503 e sem resposta em todos os disparos de 30/10/2026).
+- **Escolha:** o Apps Script busca (`Noticias.gs!noticiasGoogle_`): manchetes dos 4 índices (24 h, cache de 20 min) e as notícias de cada ativo com posição (60 dias, o mesmo cache de 2 h da tela do ativo), num `fetchAll` só, e publica `noticiasGoogle` junto das cotações (a cada 30 min no pregão; fora dele, na publicação diária). O cron do Worker só junta nas telas.
+- **Consequência:** a tela do ativo e a de Notícias dividem o cache; custa poucos segundos por publicação de cotação. Fora do pregão as manchetes podem ter até 1 dia.
 
 **ADR-N4. Vídeos pelo RSS de cada canal.**
 `youtube.com/feeds/videos.xml?channel_id=…` é grátis, sem chave e devolve os 15 últimos vídeos. A UOL entra pelos últimos vídeos postados, não por playlist. A aba de canais da planilha ganha a coluna D "Tela de notícias" (noticias, especialistas, meus ou não). Vazia: @infomoney e @uol vão para Notícias, @ProfessorBaroni e @josekoborioficial para Especialistas, o resto para Meus canais. No máximo 6 vídeos de um canal por aba. O Apps Script já resolve `@nome` em id (`resolverCanalYoutube_`).
 
-**ADR-N5. Agenda sem fonte nova.**
-- Da carteira: os proventos da tela Proventos (já publicada no Worker), com data-com e pagamento e o selo "na sua carteira".
-- Do mercado: datas fixas em `noticias-calc.js!EVENTOS_MERCADO` (Copom, Fed e feriados da B3, calendários oficiais de 2026) e o Focus toda segunda.
+**ADR-N5. Agenda em três fontes.**
+- Da carteira, das telas já publicadas: proventos (data-com e pagamento) e vencimentos de renda fixa, com o selo "na sua carteira".
+- IBGE: a API pública de calendário (`servicodados.ibge.gov.br/api/v3/calendario/{produto}`), 1 leitura por dia pelo cron, só das pesquisas que mexem com o mercado (IPCA, IPCA-15, PIB trimestral, PNAD, PMC, PMS e PIM). A API dá a hora em UTC; a tela mostra a de São Paulo. Falha: fica a leitura anterior.
+- Datas fixas em `noticias-calc.js!EVENTOS_MERCADO`: Copom e Fed (calendários oficiais de 2026), payroll e CPI dos EUA (calendário do BLS de 2026) e feriados da B3. O Focus entra toda segunda. Atualizar a lista na virada do ano.
 
-Próximas fontes, quando valer o custo: vencimentos de renda fixa, calendário do IBGE, payroll e CPI dos EUA, resultados das empresas da carteira.
+Fora por enquanto: resultados das empresas da carteira (nenhuma fonte aberta com a data antes da divulgação; a notícia do resultado já entra pelos fatores e pelo feed).
 
 **ADR-N6. Notícias não esperam gravação.**
 A geração mínima (ADR-10) não vale para as chaves `noticias*`, porque nenhuma gravação do site muda notícia. A única exceção é a agenda da carteira, que segue a regra normal.
@@ -103,7 +110,7 @@ A geração mínima (ADR-10) não vale para as chaves `noticias*`, porque nenhum
 
      As notícias das últimas 24 h passam por um classificador de palavras-chave em português, com tema (resultado, dividendos, recomendação, fato relevante, política, setor, macro) e tom (positivo, negativo ou neutro), e entram como fatores. O peso combina o tamanho do movimento explicado com o tom e a recência da notícia.
   2. **Resumo em uma frase:** montado por regra a partir do fator de maior peso (`noticias-calc.js!possiveisFatores`). **Workers AI não é usado por agora** (decisão do Tiago, 30/10/2026). Se um dia entrar, recebe só os fatores da camada 1, para ativos com movimento acima de 2%, 1 vez por ativo por dia.
-- **Consequência:** funciona e é testável sem IA. Fatores medidos hoje: mercado (ativo x índice da classe), commodity ligada (mapa ticker/setor → Brent, minério ou ouro), data-com no dia útil anterior, dólar (EUA) e as notícias das últimas 24 h. A correlação de 12 meses fica para depois. A tela sempre diz "possíveis fatores".
+- **Consequência:** funciona e é testável sem IA. Fatores medidos hoje: mercado (ativo x índice da classe), commodity ligada (mapa ticker/setor → Brent, minério ou ouro), data-com no dia útil anterior, dólar (EUA) e as notícias das últimas 24 h. A correlação de 12 meses não entra: exigiria o histórico diário das commodities, que a planilha não guarda; o mapa ticker/setor cobre os casos fortes (petróleo e minério). A tela sempre diz "possíveis fatores".
 - **Atende:** RF-09.
 
 ## 6. Plano de entrega
@@ -119,6 +126,7 @@ A geração mínima (ADR-10) não vale para as chaves `noticias*`, porque nenhum
 
 Testes:
 - `tests/worker-noticias.test.js`: leitura de cada fonte com HTML e XML sintéticos, o agendador, a coleta gravando no D1 só o que mudou, fonte fora do ar, o cron, o tempo de CPU (mediana abaixo de 8 ms) e o site lendo do Worker sem Apps Script;
-- `tests/noticias.test.js`: fatores (critérios do RF-09), agenda (RF-06), feed (RF-07) e a tela no JSDOM (troca de índice, player no clique, fonte fora do ar).
+- `tests/noticias.test.js`: fatores (critérios do RF-09), agenda (RF-06), feed (RF-07) e a tela no JSDOM (troca de índice, player no clique, fonte fora do ar);
+- `tests/leitura-saude.test.js`: a coleta do cron na saúde da leitura (RNF-06).
 
 Implantação: `cd worker && npx wrangler deploy` (o cron entra junto). Na planilha, opcional: `configurarNoticiasDireto()` põe o título da coluna D em `aux_videos-canais`; a próxima publicação completa leva os canais e os ativos ao Worker.

@@ -480,6 +480,15 @@ function montarTelaAtivoRendaFixa_(chave) {
 // Notícias (Google Notícias - RSS público), 2h de cache por ticker
 // ---------------------------------------------------------------------------
 
+/** Busca do Google Notícias de um ativo (60 dias; EUA em inglês). Usada aqui e na tela de Notícias (Noticias.gs). */
+function urlNoticiasAtivo_(ticker, nome, classe) {
+  var nomeLimpo = String(nome || '').replace(/\b(S\.?A\.?|Inc\.?|Ltd\.?|N\.V\.|FII|Fundo de Investimento Imobili[aá]rio)\b/gi, '').replace(/\s+/g, ' ').trim();
+  var termo = nomeLimpo ? ('"' + ticker + '" OR "' + nomeLimpo + '"') : ('"' + ticker + '"');
+  var emIngles = classe === 'acoesEua';
+  return 'https://news.google.com/rss/search?q=' + encodeURIComponent(termo + ' when:60d') +
+    (emIngles ? '&hl=en-US&gl=US&ceid=US:en' : '&hl=pt-BR&gl=BR&ceid=BR:pt-419');
+}
+
 function buscarNoticiasAtivo_(ticker, nome, classe) {
   ticker = String(ticker || '').trim().toUpperCase();
   if (!ticker) return [];
@@ -487,12 +496,7 @@ function buscarNoticiasAtivo_(ticker, nome, classe) {
   var chave = ATIVO_CACHE_NOTICIAS_PREFIXO + ticker;
   var emCache = cache.get(chave);
   if (emCache) return JSON.parse(emCache);
-  var nomeLimpo = String(nome || '').replace(/\b(S\.?A\.?|Inc\.?|Ltd\.?|N\.V\.|FII|Fundo de Investimento Imobili[aá]rio)\b/gi, '').replace(/\s+/g, ' ').trim();
-  var termo = nomeLimpo ? ('"' + ticker + '" OR "' + nomeLimpo + '"') : ('"' + ticker + '"');
-  var emIngles = classe === 'acoesEua';
-  var url = 'https://news.google.com/rss/search?q=' + encodeURIComponent(termo + ' when:60d') +
-    (emIngles ? '&hl=en-US&gl=US&ceid=US:en' : '&hl=pt-BR&gl=BR&ceid=BR:pt-419');
-  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  var resp = UrlFetchApp.fetch(urlNoticiasAtivo_(ticker, nome, classe), { muteHttpExceptions: true, followRedirects: true });
   if (resp.getResponseCode() !== 200) return [];
   var itens = extrairItensRss_(resp.getContentText()).slice(0, 10);
   try { cache.put(chave, JSON.stringify(itens), ATIVO_CACHE_NOTICIAS_TTL); } catch (e) { /* cache é só otimização */ }

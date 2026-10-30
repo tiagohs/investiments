@@ -177,13 +177,21 @@ function resumoDosFatores(ativo, v, itens, indice, pct) {
 // ---------------------------------------------------------------------------
 // Agenda (RF-06): proventos da carteira + datas do mercado.
 // ---------------------------------------------------------------------------
-/** Datas fixas do mercado. Copom e Fed: calendários oficiais divulgados pelo BC e pelo Fed para 2026. */
+/**
+ * Datas fixas do mercado: Copom e Fed (calendários oficiais de 2026), payroll e CPI dos EUA (calendário do BLS de 2026;
+ * 8h30 de Nova York = 10h30 de Brasília em novembro e dezembro) e feriados da B3. Os indicadores do IBGE vêm do Worker
+ * (noticiasAgenda, lido 1x por dia da API do IBGE).
+ */
 export const EVENTOS_MERCADO = Object.freeze([
   { dia: '2026-11-03', titulo: 'Copom: 1º dia', detalhe: 'Reunião de juros (Selic)', tag: 'macro' },
   { dia: '2026-11-04', hora: '18h30', titulo: 'Copom: decisão da Selic', detalhe: 'Banco Central', tag: 'macro' },
   { dia: '2026-12-08', titulo: 'Copom: 1º dia', detalhe: 'Reunião de juros (Selic)', tag: 'macro' },
   { dia: '2026-12-09', hora: '18h30', titulo: 'Copom: decisão da Selic', detalhe: 'Banco Central', tag: 'macro' },
   { dia: '2026-12-09', hora: '16h00', titulo: 'Fed: decisão de juros (FOMC)', detalhe: 'Estados Unidos', tag: 'exterior' },
+  { dia: '2026-11-06', hora: '10h30', titulo: 'Payroll (emprego nos EUA)', detalhe: 'Estados Unidos (BLS)', tag: 'exterior' },
+  { dia: '2026-11-10', hora: '10h30', titulo: 'CPI (inflação nos EUA)', detalhe: 'Estados Unidos (BLS)', tag: 'exterior' },
+  { dia: '2026-12-04', hora: '10h30', titulo: 'Payroll (emprego nos EUA)', detalhe: 'Estados Unidos (BLS)', tag: 'exterior' },
+  { dia: '2026-12-10', hora: '10h30', titulo: 'CPI (inflação nos EUA)', detalhe: 'Estados Unidos (BLS)', tag: 'exterior' },
   { dia: '2026-11-02', titulo: 'B3 fechada (Finados)', detalhe: 'Sem pregão', tag: 'feriado' },
   { dia: '2026-11-20', titulo: 'B3 fechada (Consciência Negra)', detalhe: 'Sem pregão', tag: 'feriado' },
   { dia: '2026-12-24', titulo: 'B3 fechada (Véspera de Natal)', detalhe: 'Sem pregão', tag: 'feriado' },
@@ -196,9 +204,10 @@ function somarDias(iso, n) { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDat
 /**
  * Grupos da agenda: [{ grupo: 'Hoje' | 'Amanhã' | 'dd/mm', itens: [{ quando, titulo, detalhe, tag, valor }] }].
  * proventos: os itens a receber da tela Proventos ({ ticker, dataCom, dataPagamento, valorPorCota, valor, moeda }).
+ * vencimentos: títulos de renda fixa da carteira ({ nome, dia, valor }). extras: eventos do IBGE (noticiasAgenda).
  * periodo: 'hoje' (só hoje) | 'semana' (hoje + 6 dias). Focus: toda segunda, 8h25.
  */
-export function agenda({ proventos = [], eventos = EVENTOS_MERCADO, hojeISO, periodo = 'hoje', fmtDM, fmtValor }) {
+export function agenda({ proventos = [], vencimentos = [], eventos = EVENTOS_MERCADO, extras = [], hojeISO, periodo = 'hoje', fmtDM, fmtValor }) {
   const fim = periodo === 'semana' ? somarDias(hojeISO, 6) : hojeISO;
   const dentro = (d) => d && d >= hojeISO && d <= fim;
   const itens = [];
@@ -206,7 +215,8 @@ export function agenda({ proventos = [], eventos = EVENTOS_MERCADO, hojeISO, per
     if (dentro(p.dataCom)) itens.push({ dia: p.dataCom, quando: 'com', titulo: `${p.ticker}: data-com`, detalhe: num(p.valorPorCota) ? `${fmtValor(p.valorPorCota, p.moeda)} por cota · na sua carteira` : 'na sua carteira', tag: 'carteira' });
     if (dentro(p.dataPagamento)) itens.push({ dia: p.dataPagamento, quando: 'pgto', titulo: `${p.ticker}: pagamento`, detalhe: num(p.valor) ? `${fmtValor(p.valor, p.moeda)} · na sua carteira` : 'na sua carteira', tag: 'carteira' });
   });
-  (eventos || []).forEach((e) => { if (dentro(e.dia)) itens.push({ dia: e.dia, quando: e.hora || '', titulo: e.titulo, detalhe: e.detalhe, tag: e.tag }); });
+  (vencimentos || []).forEach((v) => { if (dentro(v.dia)) itens.push({ dia: v.dia, quando: 'venc', titulo: `${v.nome}: vencimento`, detalhe: num(v.valor) ? `${fmtValor(v.valor, 'BRL')} · na sua carteira` : 'na sua carteira', tag: 'carteira' }); });
+  [...(eventos || []), ...(extras || [])].forEach((e) => { if (dentro(e.dia)) itens.push({ dia: e.dia, quando: e.hora || '', titulo: e.titulo, detalhe: e.detalhe, tag: e.tag }); });
   for (let d = hojeISO; d <= fim; d = somarDias(d, 1)) {
     if (new Date(`${d}T12:00:00Z`).getUTCDay() === 1) itens.push({ dia: d, quando: '8h25', titulo: 'Boletim Focus', detalhe: 'Projeções do mercado (BC)', tag: 'macro' });
   }

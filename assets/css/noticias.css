@@ -2,6 +2,8 @@
    Só tokens do M3 (m3-tokens.css): claro e escuro saem dos mesmos nomes. Prefixo nt-. */
 .nt-pagina{ display:flex; flex-direction:column; gap:24px; padding-bottom:48px; }
 .nt-conteudo{ display:flex; flex-direction:column; gap:28px; min-width:0; }
+/* 30/10/2026: [hidden] vence o display das classes (o cartão de fatores aparecia vazio, sem ativo escolhido) */
+.nt-conteudo [hidden]{ display:none !important; }
 .nt-conteudo h2, .nt-conteudo h3{ margin:0; font-family:var(--display); color:var(--ink); }
 .nt-sec-h2, .nt-sec-cab h2, .nt-videos h2{ font-size:22px; line-height:28px; font-weight:600; }
 .nt-eyebrow{ font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--md-sys-color-primary); }

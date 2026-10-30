@@ -72,6 +72,8 @@ test('RF-06: agenda de hoje e da semana - proventos da carteira com o selo, Copo
   assert.ok(semana[1].itens.some((e) => e.titulo === 'Boletim Focus') && semana[1].itens.some((e) => /Finados/.test(e.titulo)));
   assert.equal(semana[2].itens[0].titulo, 'WXYZ3: pagamento', 'carteira antes do Copom no mesmo dia');
   assert.ok(semana[3].itens.some((e) => e.titulo === 'Copom: decisão da Selic'));
+  const comExtras = agenda({ proventos: [], vencimentos: [{ nome: 'Tesouro Exemplo', dia: '2026-11-06', valor: 50 }], extras: [{ dia: '2026-11-06', hora: '9h00', titulo: 'PIB', detalhe: 'IBGE', tag: 'macro' }], hojeISO: '2026-11-06', periodo: 'hoje', fmtDM: formatDM, fmtValor });
+  assert.deepEqual(comExtras[0].itens.map((e) => e.titulo), ['Tesouro Exemplo: vencimento', 'PIB', 'Payroll (emprego nos EUA)'], 'carteira, IBGE e EUA no mesmo dia');
 });
 
 test('RF-07: feed dos ativos por classe, ativo e ordem', () => {
@@ -111,6 +113,8 @@ function apisFalsas({ mercadoFora = false } = {}) {
       getCarteirasAcoes: async () => ({ ok: true, carteira: { ativos: [{ ticker: 'ABCD3', quantidade: 10, variacaoDia: 0.009, totalAtualizado: 500 }] } }),
       getCarteirasFiis: async () => ({ ok: true, carteira: { ativos: [{ ticker: 'TEST11', quantidade: 100, variacaoDia: -0.0077, precoAtual: 100, totalAtualizado: 10000 }, { ticker: 'VEND11', quantidade: 0 }] } }),
       getCarteirasAcoesEua: async () => { throw new Error('rede'); },
+      getNoticiasAgenda: async () => ({ ok: true, eventos: [{ dia: '2026-10-30', hora: '9h00', titulo: 'IPCA-15 (ref. 10/2026)', detalhe: 'IBGE', tag: 'macro' }] }),
+      getCarteirasRendaFixa: async () => ({ ok: true, carteira: { ativos: [{ nomePersonalizado: 'CDB Exemplo', vencimentoData: '2026-10-30', totalAtualizado: 1000 }, { nomePersonalizado: 'Sem data' }] } }),
       getProventos: async () => ({ ok: true, aReceber: [{ ticker: 'TEST11', dataCom: '2026-10-29', dataPagamento: '2026-11-13', valorPorCota: 0.8, valor: 80 }], recebidos: [] }),
     },
   };
@@ -133,7 +137,8 @@ test('tela: Ibovespa por padrão, tempo real, termômetro, vídeos, agenda e as 
   assert.ok(!doc.querySelector('#ntTrilho iframe'), 'player só no clique');
   doc.querySelector('.nt-video-capa').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
   assert.match(doc.querySelector('#ntTrilho iframe').src, /^https:\/\/www\.youtube-nocookie\.com\/embed\/vid0000001a/);
-  assert.match(doc.getElementById('ntAgenda').textContent, /Nada marcado para hoje/);
+  assert.match(doc.getElementById('ntAgenda').textContent, /CDB Exemplo: vencimento\s*R\$\s1\.000,00 · na sua carteira/, 'vencimento da renda fixa');
+  assert.match(doc.getElementById('ntAgenda').textContent, /9h00\s*IPCA-15 \(ref\. 10\/2026\)\s*IBGE/, 'IBGE do Worker');
   assert.equal(doc.querySelector('#ntRecentes a').getAttribute('href'), '#', 'link que não é http(s) não vira link');
   assert.deepEqual([...doc.querySelectorAll('#ntTickers [data-ticker]')].map((b) => b.dataset.ticker), ['ABCD3', 'TEST11'], 'só com posição; a classe que falhou fica de fora');
   assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 2);
@@ -172,4 +177,15 @@ test('tela: notícias do mercado fora do ar escondem só a parte delas (RNF-05)'
   assert.ok(doc.querySelector('#ntGrafico svg'), 'o gráfico continua');
   assert.equal(doc.querySelectorAll('#ntTrilho .nt-video').length, 1, 'os vídeos continuam');
   assert.equal(doc.querySelector('.refresh-status').textContent, 'Falhou ao atualizar');
+});
+
+test('CSS (bug 30/10/2026): o cartão de fatores tinha display:grid e aparecia vazio mesmo com hidden - [hidden] vence', async () => {
+  const { readFileSync } = await import('node:fs');
+  const css = readFileSync(new URL('../assets/css/noticias.css', import.meta.url), 'utf8');
+  assert.match(css, /\.nt-conteudo \[hidden\]\{ display:none !important; \}/);
+  const { doc } = montarDom();
+  const { apis } = apisFalsas();
+  const { controle } = await montarPaginaNoticias('s1.x.y', { doc, apis, agora: () => AGORA });
+  controle.pararTimer();
+  assert.equal(doc.getElementById('ntFatores').hidden, true, 'sem ativo escolhido: escondido');
 });

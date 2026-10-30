@@ -91,6 +91,9 @@ function doGet(e) {
   if (action === 'macro') { // 05/10/2026: contexto de mercado pras análises - juros, Tesouro, bolsa cara/barata (Macro.gs)
     return handleMacro(e, auth);
   }
+  if (action === 'noticiasGoogle') { // 30/10/2026: Google Notícias da tela de Notícias (Noticias.gs) - o Worker lê
+    return handleNoticiasGoogle(e, auth);
+  }
   if (action === 'noticiasConfig') { // 30/10/2026: canais e ativos da tela de Notícias (Noticias.gs) - o Worker lê
     return handleNoticiasConfig(e, auth);
   }
