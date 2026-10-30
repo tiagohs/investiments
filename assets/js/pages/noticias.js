@@ -16,7 +16,7 @@ import { talvezNoPregao } from '../leitura-chave.js';
 import { esc, escAttr } from '../util/html.js';
 import { urlAtivoTicker } from '../link-ativo.js';
 import {
-  INDICES, TERMOMETRO, CLASSES_NOTICIAS, resumoDaSerie, variacaoDoTermometro, possiveisFatores, agenda,
+  INDICES, TERMOMETRO, CLASSES_NOTICIAS, recentes, DIAS_NOTICIA, DIAS_VIDEO, resumoDaSerie, variacaoDoTermometro, possiveisFatores, agenda,
   ativosComNoticias, feedDosAtivos, haQuanto,
 } from './noticias-calc.js';
 
@@ -249,7 +249,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     const t = estado.videos[estado.aba];
     const trilho = $('ntTrilho');
     if (!t) { trilho.innerHTML = '<span class="skel nt-skel-video"></span>'.repeat(4); return; }
-    const lista = t.ok ? (t.videos || []) : [];
+    const lista = t.ok ? recentes(t.videos, 'publicado', DIAS_VIDEO, agora()) : [];
     trilho.innerHTML = lista.length ? lista.map((v) => `
       <article class="nt-video" data-video="${escAttr(v.id)}">
         <button type="button" class="nt-video-capa" aria-label="Assistir: ${escAttr(v.titulo)}">
@@ -297,11 +297,12 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
   // ---- 3. Manchetes + agenda ----
   function desenharManchetes(m) {
     const agoraMs = agora();
-    const p = m && m.ok && m.noticias && m.noticias.length ? (m.indice === 'ibov' ? m.noticias[0] : m.manchete) : null;
+    const frescas = m && m.ok ? recentes(m.noticias, 'data', DIAS_NOTICIA, agoraMs) : [];
+    const p = frescas.length ? (m.indice === 'ibov' ? frescas[0] : m.manchete) : null;
     $('ntPrincipal').innerHTML = p
       ? `<span class="nt-editoria">${esc(INDICES.find((i) => i.id === estado.indice).editoria)}</span>${linkExterno(p.link, esc(p.titulo), 'nt-principal-titulo')}${p.resumo && (Array.isArray(p.resumo) ? p.resumo.length : p.resumo) ? `<p>${esc(Array.isArray(p.resumo) ? p.resumo[0] : p.resumo)}</p>` : ''}<span class="nt-meta">${esc(p.fonte || '')}${p.data ? ` · ${esc(haQuanto(p.data, agoraMs, formatDM))}` : ''}</span>`
       : '<p class="nt-vazio-linha">Manchetes indisponíveis agora.</p>';
-    const todas = m && m.ok ? (m.noticias || []).filter((n) => !p || n.titulo !== p.titulo) : [];
+    const todas = frescas.filter((n) => !p || n.titulo !== p.titulo);
     const resto = todas.slice(0, estado.verRecentes);
     $('ntRecentesMais').hidden = todas.length <= resto.length;
     $('ntRecentesMais').textContent = `Ver mais (${todas.length - resto.length})`;
@@ -315,7 +316,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
 
   // ---- 4. Notícias dos ativos + possíveis fatores ----
   function desenharAtivos() {
-    const ativos = ativosComNoticias(estado.carteira, estado.noticiasAtivos);
+    const ativos = ativosComNoticias(estado.carteira, estado.noticiasAtivos, agora());
     $('ntClasses').innerHTML = CLASSES_NOTICIAS.map((c) => `<button type="button" class="chip" data-classe="${c.id}" aria-pressed="${estado.classe === c.id}">${esc(c.nome)}</button>`).join('');
     const daClasse = ativos.filter((a) => estado.classe === 'todos' || a.classe === estado.classe);
     $('ntTickers').innerHTML = daClasse.map((a) => `<button type="button" class="chip nt-ticker" data-ticker="${escAttr(a.ticker)}" aria-pressed="${estado.ticker === a.ticker}"><span>${esc(a.ticker)}</span><span class="nt-var nt-${tom(a.variacaoDia)}">${typeof a.variacaoDia === 'number' ? esc(pct(a.variacaoDia)) : ''}</span>${a.noticias.length ? `<span class="nt-conta" aria-label="${a.noticias.length} notícias">${a.noticias.length}</span>` : ''}</button>`).join('');
@@ -330,7 +331,7 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
     $('ntFeedMais').textContent = `Ver mais notícias (${tudo.length - feed.length})`;
     const vazio = $('ntFeedVazio');
     vazio.hidden = feed.length > 0 || !estado.carteiraLida;
-    vazio.textContent = estado.ticker ? `Nada novo sobre ${estado.ticker} nos últimos 60 dias.` : 'Ainda sem notícias dos ativos: elas chegam com a próxima publicação das cotações (a cada 30 min no pregão).';
+    vazio.textContent = estado.ticker ? `Nada novo sobre ${estado.ticker} nos últimos 3 dias.` : 'Ainda sem notícias dos ativos: elas chegam com a próxima publicação das cotações (a cada 30 min no pregão).';
   }
   function desenharFatores(ativos) {
     const el = $('ntFatores');

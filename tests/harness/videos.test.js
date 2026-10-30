@@ -145,18 +145,18 @@ test('Vídeos: configurarVideosDireto cria a aba de termos com o tema de cada ca
   assert.equal(ss.getSheetByName('aux_videos-termos')._dados()[1][1], 'meu tema');
 });
 
-test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras do canal, joga fora o que tem mais de 1 ano e registra falha', () => {
+test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras do canal, joga fora o que tem mais de 15 dias (era 1 ano até 30/10/2026) e registra falha', () => {
   const agora = Date.now();
   const iso = (dias) => new Date(agora - dias * 86400000).toISOString();
   const ss = planilhaFalsa({
     'aux_videos-canais': [['Canal', 'Carteiras', 'Obs'], ['UCaaaaaaaaaaaaaaaaaaaaaa', 'fiis', ''], ['@quebrado', '', '']],
-    aux_videos: [['ID'], ['velhovideo1', 'Canal A', 'Antigo', new Date(agora - 400 * 86400000), '', 'fiis', new Date()], ['jaguardado1', 'Canal A', 'Guardado', new Date(agora - 20 * 86400000), '', 'fiis', new Date()]],
+    aux_videos: [['ID'], ['velhovideo1', 'Canal A', 'Antigo', new Date(agora - 16 * 86400000), '', 'fiis', new Date()], ['jaguardado1', 'Canal A', 'Guardado', new Date(agora - 10 * 86400000), '', 'fiis', new Date()]],
   });
   const { sb, registro } = sandbox({
     ss,
     fetch: (url) => {
       if (/feeds\/videos\.xml\?channel_id=UCaaaaaaaaaaaaaaaaaaaaaa/.test(url)) {
-        return { getResponseCode: () => 200, getContentText: () => feed('Canal A', [{ id: 'novovideo01', titulo: 'Novo', data: iso(1) }, { id: 'jaguardado1', titulo: 'Guardado', data: iso(20) }]) };
+        return { getResponseCode: () => 200, getContentText: () => feed('Canal A', [{ id: 'novovideo01', titulo: 'Novo', data: iso(1) }, { id: 'jaguardado1', titulo: 'Guardado', data: iso(10) }]) };
       }
       return { getResponseCode: () => 500, getContentText: () => '' }; // erro de verdade (não é 404)
     },
@@ -165,7 +165,7 @@ test('Vídeos: atualização acumula na aba (sem repetir), guarda as carteiras d
   assert.equal(r.status, 'Atenção', 'um canal falhou');
   assert.equal(r.novos, 1);
   const lidos = plain(sb.lerVideos_(ss));
-  assert.deepEqual(lidos.map((v) => v.id), ['novovideo01', 'jaguardado1'], 'mais novo primeiro, sem o de 400 dias');
+  assert.deepEqual(lidos.map((v) => v.id), ['novovideo01', 'jaguardado1'], 'mais novo primeiro, sem o de 16 dias');
   assert.deepEqual(lidos[0].carteiras, ['fiis']);
   assert.equal(registro.length, 1, 'falha vai pro Registro de Controle');
   assert.match(registro[0][2], /quebrado/);
@@ -294,9 +294,10 @@ test('Vídeos (canal oficial): canal de gestora (canalModo=citam) - só os que c
 
 test('Vídeos (canal oficial): o oficial sempre aparece (até 6 quando há outros pra completar) e completa quando faltam os seus', () => {
   const { sb } = sandbox();
-  const v = (pref, n, idade) => Array.from({ length: n }, (_, i) => ({ id: `${pref}${String(i).padStart(11 - pref.length, '0')}`, canal: pref, titulo: 'x', publicado: isoDias(idade + i), ativos: ['TEST3'], motivo: 'ativo' }));
-  const meus = v('meu', 20, 0); // todos mais novos que os do oficial
-  const canal = { id: CANAL_OFICIAL, nome: 'Oficial', videos: v('ofi', 15, 30) };
+  // 30/10/2026: dentro dos 15 dias que a aba guarda agora (eram 365)
+  const v = (pref, n, idade, passo) => Array.from({ length: n }, (_, i) => ({ id: `${pref}${String(i).padStart(11 - pref.length, '0')}`, canal: pref, titulo: 'x', publicado: isoDias(idade + i * passo), ativos: ['TEST3'], motivo: 'ativo' }));
+  const meus = v('meu', 20, 0, 0.1); // todos mais novos que os do oficial
+  const canal = { id: CANAL_OFICIAL, nome: 'Oficial', videos: v('ofi', 15, 2, 0.5) };
   const r = plain(sb.mesclarVideosCanalOficial_(meus, canal, { agora: AGORA_CANAL }));
   assert.equal(r.length, 12);
   assert.equal(r.filter((x) => x.oficial).length, 6, 'mesmo mais velhos, 6 do oficial entram');

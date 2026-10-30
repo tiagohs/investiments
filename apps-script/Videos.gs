@@ -43,7 +43,9 @@ var ABA_VIDEOS_CANAIS = 'aux_videos-canais';
 var ABA_VIDEOS = 'aux_videos';
 var CABECALHO_VIDEOS_CANAIS = ['Canal (link, @nome ou ID UC...)', 'Carteiras (opcional: acoes, fiis, acoesEua, rendaFixa)', 'Observação'];
 var CABECALHO_VIDEOS = ['ID do vídeo', 'Canal', 'Título', 'Publicado em', 'Descrição', 'Carteiras do canal', 'Atualizado em'];
-var VIDEOS_DIAS_GUARDAR = 365;
+// 30/10/2026 (Tiago: "os vídeos podemos deixar os dos últimos 15 dias"): era 365. A aba aux_videos é reescrita a cada
+// atualização, então o que passou do prazo sai sozinho na próxima.
+var VIDEOS_DIAS_GUARDAR = 15;
 var VIDEOS_MAX_RESPOSTA = 12;
 var CARTEIRAS_VIDEOS = ['acoes', 'fiis', 'acoesEua', 'rendaFixa'];
 var ABA_VIDEOS_TERMOS = 'aux_videos-termos';
@@ -487,7 +489,7 @@ function mesclarVideosCanalOficial_(filtrados, canal, opcoes) {
   var maxOficiais = o.maxOficiais || VIDEOS_MAX_OFICIAIS;
   var nomeCanal = semAcentoVideo_(canal && canal.nome).toLowerCase();
   var oficiais;
-  // mesmo prazo da aba aux_videos (1 ano): canal que quase não posta não traz vídeo velho
+  // mesmo prazo da aba aux_videos (15 dias): canal que quase não posta não traz vídeo velho
   var limite = new Date((o.agora ? o.agora.getTime() : Date.now()) - VIDEOS_DIAS_GUARDAR * 86400000).toISOString();
   var lista = ((canal && canal.videos) || []).filter(function (v) { return String(v.publicado || '') >= limite; });
   if (o.soQueCitam) {

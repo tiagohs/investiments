@@ -78,7 +78,8 @@ test('RF-06: agenda de hoje e da semana - proventos da carteira com o selo, Copo
 
 test('RF-07: feed dos ativos por classe, ativo e ordem', () => {
   const carteira = [{ ticker: 'AAAA3', classe: 'acoes', totalAtualizado: 100, variacaoDia: 0.01 }, { ticker: 'BBBB11', classe: 'fiis', totalAtualizado: 900, variacaoDia: -0.03 }];
-  const ativos = ativosComNoticias(carteira, { AAAA3: [{ titulo: 'a1', data: '2026-10-30T12:00:00Z' }], BBBB11: [{ titulo: 'b1', data: '2026-10-29T12:00:00Z' }] });
+  const ativos = ativosComNoticias(carteira, { AAAA3: [{ titulo: 'a1', data: '2026-10-30T12:00:00Z' }], BBBB11: [{ titulo: 'b1', data: '2026-10-29T12:00:00Z' }, { titulo: 'velha', data: '2026-10-26T12:00:00Z' }] }, Date.parse('2026-10-30T13:00:00Z'));
+  assert.deepEqual(ativos[1].noticias.map((n) => n.titulo), ['b1'], 'mais de 3 dias: fora');
   assert.deepEqual(feedDosAtivos(ativos).map((n) => n.titulo), ['a1', 'b1']);
   assert.deepEqual(feedDosAtivos(ativos, { ordem: 'posicao' }).map((n) => n.titulo), ['b1', 'a1']);
   assert.deepEqual(feedDosAtivos(ativos, { classe: 'fiis' }).map((n) => n.ticker), ['BBBB11']);

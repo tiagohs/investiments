@@ -35,6 +35,16 @@ const MAX_TEMPO_REAL = 30;
 const MAX_NOTICIAS = 25; // a tela mostra 10 e "Ver mais"
 const MAX_VIDEOS_POR_ABA = 24;
 const MAX_POR_ATIVO = 6;
+/**
+ * 30/10/2026 (Tiago: "não deixar salvo notícia de 4 dias atrás, já é antiga; vídeos, os últimos 15 dias"): nada mais velho
+ * que isso é guardado no D1 nem entra nas telas. Linha de fonte sem leitura nova nesse prazo é apagada.
+ */
+export const IDADE_MAX_NOTICIA_MS = 3 * 86400e3;
+export const IDADE_MAX_VIDEO_MS = 15 * 86400e3;
+/** Só os itens com data dentro do prazo (sem data = fora). */
+export function recentes(itens, campo, maxMs, agoraMs) {
+  return (itens || []).filter((x) => { const t = Date.parse((x && x[campo]) || ''); return Number.isFinite(t) && t >= agoraMs - maxMs; });
+}
 
 /** Do tempo real do InfoMoney (que é da bolsa toda), o que vale para cada índice. ibov = tudo. */
 export const FILTRO_TEMPO_REAL = Object.freeze({
@@ -191,7 +201,8 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
     if (!google) falhas.push({ fonte: 'Google Notícias (Apps Script)', status: 'não publicado' });
     else INDICES_NOTICIAS.forEach((indice) => {
       const itens = (google.indices && google.indices[indice]) || [];
-      if (itens.length) novas[`gn:${indice}`] = { em: google.em || agoraIso, itens: itens.map(itemDoGoogle) };
+      const frescos = recentes(itens.map(itemDoGoogle), 'data', IDADE_MAX_NOTICIA_MS, agoraMs);
+      if (frescos.length) novas[`gn:${indice}`] = { em: google.em || agoraIso, itens: frescos };
     });
   }
   const config = (t.videos || t.ativos) ? await lerConfigNoticias(env) : { canais: [], ativos: [] };
@@ -207,13 +218,13 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
     escolhidos.forEach((c) => pedidos.push((async () => {
       const r = await buscarTexto(`https://www.youtube.com/feeds/videos.xml?channel_id=${c.id}`, fetchImpl);
       const itens = r.ok ? extrairFeedYoutube(r.texto, { max: 15 }) : [];
-      if (r.ok) novas[`yt:${c.id}`] = { em: agoraIso, itens };
+      if (r.ok) novas[`yt:${c.id}`] = { em: agoraIso, itens: recentes(itens, 'publicado', IDADE_MAX_VIDEO_MS, agoraMs) };
       else falhas.push({ fonte: `canal ${c.nome || c.id}`, status: r.status });
     })()));
   }
   if (t.ativos && google && google.ativos) {
     Object.entries(google.ativos).forEach(([ticker, itens]) => {
-      if (Array.isArray(itens)) novas[`at:${String(ticker).toUpperCase()}`] = { em: google.em || agoraIso, itens: itens.map(itemDoGoogle) };
+      if (Array.isArray(itens)) novas[`at:${String(ticker).toUpperCase()}`] = { em: google.em || agoraIso, itens: recentes(itens.map(itemDoGoogle), 'data', IDADE_MAX_NOTICIA_MS, agoraMs) };
     });
   }
   // 30/10/2026 (2): a API do IBGE também não responde ao Cloudflare (7 de 7 falharam no 1º disparo): o Apps Script busca
@@ -243,6 +254,11 @@ async function gravarTelas(env, telas, { agoraMs, agoraIso, novas, falhas, taref
   const comandos = mudaram.map(([chave, valor]) => env.DB.prepare(
     'INSERT INTO noticias_fonte (chave, valor, em) VALUES (?, ?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, em = excluded.em',
   ).bind(chave, JSON.stringify(valor), agoraIso));
+  // limpeza: fonte sem leitura nova no prazo (canal tirado da planilha, ativo vendido, tempo real de dias atrás). A agenda
+  // do IBGE fica (são datas futuras, filtradas na montagem); cursores e controles também.
+  comandos.push(env.DB.prepare(
+    `DELETE FROM noticias_fonte WHERE (chave LIKE 'yt:%' AND em < ?) OR ((chave LIKE 'tr:%' OR chave LIKE 'gn:%' OR chave LIKE 'at:%') AND em < ?)`,
+  ).bind(new Date(agoraMs - IDADE_MAX_VIDEO_MS).toISOString(), new Date(agoraMs - IDADE_MAX_NOTICIA_MS).toISOString()));
   const hashes = {};
   if (telas.length) {
     const r = await env.DB.prepare("SELECT chave, hash FROM publicacao WHERE chave LIKE 'noticias%'").all();
@@ -276,11 +292,11 @@ const msDe = (iso) => { const n = Date.parse(iso || ''); return Number.isFinite(
 /** Tela de um índice: tempo real (InfoMoney filtrado + Google Notícias recentes) e manchetes. */
 export function montarTelaMercado(indice, fontes, { agoraMs = Date.now() } = {}) {
   const avisos = [];
-  const live = fontes['tr:infomoney'];
+  const live = fontes['tr:infomoney'] && msDe(fontes['tr:infomoney'].em) >= agoraMs - IDADE_MAX_NOTICIA_MS ? fontes['tr:infomoney'] : null;
   const hoje = diaSaoPaulo(agoraMs);
   const liveDeHoje = live && diaSaoPaulo(msDe(live.em)) === hoje && live.url && live.url.includes(hoje.split('-').reverse().join(''));
   const gn = fontes[`gn:${indice}`];
-  const noticias = (gn && gn.itens ? gn.itens : []).slice().sort((a, b) => msDe(b.data) - msDe(a.data));
+  const noticias = recentes(gn && gn.itens, 'data', IDADE_MAX_NOTICIA_MS, agoraMs).sort((a, b) => msDe(b.data) - msDe(a.data));
   let tempoReal = [];
   let fonteTempoReal = 'Google Notícias';
   if (live && live.itens) {
@@ -324,7 +340,7 @@ export function montarTelaVideos(aba, config, fontes, { agoraMs = Date.now() } =
   canais.forEach((c) => {
     const f = fontes[`yt:${c.id}`];
     if (!f) { semLeitura.push(c.nome || c.entrada || c.id); return; }
-    f.itens.forEach((v) => videos.push({ ...v, canal: v.canal || c.nome, canalId: c.id }));
+    recentes(f.itens, 'publicado', IDADE_MAX_VIDEO_MS, agoraMs).forEach((v) => videos.push({ ...v, canal: v.canal || c.nome, canalId: c.id }));
     if (f.itens[0] && f.itens[0].canal) nomes[c.id] = f.itens[0].canal;
   });
   videos.sort((a, b) => msDe(b.publicado) - msDe(a.publicado));
@@ -345,7 +361,8 @@ export function montarTelaAtivos(config, fontes, { agoraMs = Date.now() } = {}) 
   (config.ativos || []).forEach((a) => {
     const t = String(a.ticker || '').toUpperCase();
     const f = fontes[`at:${t}`];
-    if (f) ativos[t] = f.itens.slice().sort((x, y) => msDe(y.data) - msDe(x.data)).slice(0, MAX_POR_ATIVO);
+    const lista = f ? recentes(f.itens, 'data', IDADE_MAX_NOTICIA_MS, agoraMs).sort((x, y) => msDe(y.data) - msDe(x.data)).slice(0, MAX_POR_ATIVO) : [];
+    if (lista.length) ativos[t] = lista;
   });
   return { ok: true, atualizadoEm: new Date(agoraMs).toISOString(), ativos };
 }

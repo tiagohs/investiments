@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import worker from '../worker/src/index.js';
 import { hmacBase64Url } from '../worker/src/auth.js';
 import { extrairTempoRealInfoMoney, urlTempoRealInfoMoney, extrairRss, extrairFeedYoutube, urlGoogleNoticias, textoLimpo } from '../worker/src/noticias/fontes.js';
-import { coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO, PRODUTOS_IBGE, dataIbge, atualizarNoticiasAgora } from '../worker/src/noticias/coleta.js';
+import { recentes, coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO, PRODUTOS_IBGE, dataIbge, atualizarNoticiasAgora } from '../worker/src/noticias/coleta.js';
 import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, esquecerRespostasGuardadas } from '../assets/js/api-client.js';
 import { forcarNoticias } from '../assets/js/noticias-agora.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
@@ -346,4 +346,32 @@ test('"Atualizar": a rota exige a sessão s1 e o site chama com a aba aberta', a
   const r = await forcarNoticias(token, { aba: 'especialistas' });
   assert.equal(r.ok, true);
   assert.ok(urls[0].startsWith(`${LEITURA_URL}/v1/noticias/agora?aba=especialistas`));
+});
+
+test('prazo (Tiago, 30/10/2026): notícia com mais de 3 dias e vídeo com mais de 15 não ficam no D1 nem nas telas; fonte parada é apagada', async () => {
+  const env = { DB: d1() };
+  const agoraMs = Date.parse('2026-10-30T15:00:00Z');
+  const dias = (n) => new Date(agoraMs - n * 86400e3).toISOString();
+  publicarConfig(env, { canais: [{ id: `UC${'a'.repeat(22)}`, nome: 'c', tela: 'noticias' }], ativos: [{ ticker: 'ABCD3', classe: 'acoes', nome: 'X' }] });
+  publicarDoAppsScript(env, 'noticiasGoogle', { indices: { ibov: [itemGas('nova', dias(0.1)), itemGas('velha', dias(4))] }, ativos: { ABCD3: [itemGas('ok', dias(2.5)), itemGas('antiga', dias(5))] } });
+  const feed = feedYoutube('Canal', [['vid00000001', 'recente', dias(1)], ['vid00000002', 'de 14 dias', dias(14)], ['vid00000003', 'de 20 dias', dias(20)]]);
+  await coletarNoticias(env, { agoraMs, tarefas: { tempoReal: false, manchetes: true, videos: true, ativos: true }, fetchImpl: async () => new Response(feed, { status: 200 }) });
+  const fonte = (k) => JSON.parse(env.DB.db.prepare('SELECT valor FROM noticias_fonte WHERE chave = ?').get(k).valor);
+  assert.deepEqual(fonte('gn:ibov').itens.map((n) => n.titulo), ['nova']);
+  assert.deepEqual(fonte('at:ABCD3').itens.map((n) => n.titulo), ['ok']);
+  assert.deepEqual(fonte(`yt:UC${'a'.repeat(22)}`).itens.map((v) => v.titulo), ['recente', 'de 14 dias']);
+  assert.deepEqual(tela(env, 'noticiasVideos?aba=noticias').videos.map((v) => v.titulo), ['recente', 'de 14 dias']);
+  // 2 dias depois, sem leitura nova: a notícia de 2,5 dias passou do prazo e sai da tela
+  env.DB.db.prepare("DELETE FROM publicacao WHERE chave = 'noticiasGoogle'").run();
+  await coletarNoticias(env, { agoraMs: agoraMs + 2 * 86400e3, tarefas: { tempoReal: false, manchetes: true, videos: false, ativos: true }, fetchImpl: async () => new Response('', { status: 500 }) });
+  assert.deepEqual(tela(env, 'noticiasAtivos').ativos, {}, 'nada com mais de 3 dias');
+  assert.deepEqual(tela(env, 'noticiasMercado?indice=ibov').noticias, []);
+  // 4 dias sem leitura: as linhas das notícias somem do D1; o vídeo (15 dias) fica
+  await coletarNoticias(env, { agoraMs: agoraMs + 4 * 86400e3, tarefas: { tempoReal: false, manchetes: false, videos: false, ativos: false }, fetchImpl: async () => new Response('', { status: 500 }) });
+  const chaves = env.DB.db.prepare('SELECT chave FROM noticias_fonte').all().map((l) => l.chave);
+  assert.ok(!chaves.some((k) => k.startsWith('gn:') || k.startsWith('at:')), chaves.join());
+  assert.ok(chaves.includes(`yt:UC${'a'.repeat(22)}`));
+  await coletarNoticias(env, { agoraMs: agoraMs + 16 * 86400e3, tarefas: { tempoReal: false, manchetes: false, videos: false, ativos: false }, fetchImpl: async () => new Response('', { status: 500 }) });
+  assert.ok(!env.DB.db.prepare('SELECT chave FROM noticias_fonte').all().some((l) => l.chave.startsWith('yt:')), 'vídeo de canal parado há 15 dias: apagado');
+  assert.deepEqual(recentes([{ d: 'x' }, {}], 'd', 1, agoraMs), [], 'sem data: fora');
 });

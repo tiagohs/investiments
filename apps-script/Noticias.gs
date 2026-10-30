@@ -103,6 +103,9 @@ var NOTICIAS_CONSULTAS_INDICE_ = {
 var NOTICIAS_PRODUTOS_IBGE_ = ['9256', '9260', '9300', '9171', '9227', '9229', '9294'];
 var NOTICIAS_TTL_IBGE_ = 12 * 60 * 60;
 var NOTICIAS_CACHE_INDICE_ = 'noticias_indice_v1_';
+// 30/10/2026 (Tiago: "notícia de 4 dias atrás já é antiga"): o que vai ao Worker (e fica no D1) tem no máximo 3 dias.
+// O cache de 2 h da tela do ativo continua com os 60 dias dela (não é guardado em lugar nenhum).
+var NOTICIAS_DIAS_MAX_ = 3;
 // "Atualizar" da tela de Notícias: nesta execução o Google é buscado de novo (sem o cache) - no máximo 1 vez a cada 4 min
 var NOTICIAS_FORCAR_ = false;
 var NOTICIAS_PROP_FORCADO_ = 'NOTICIAS_FORCADO_EM';
@@ -172,6 +175,10 @@ function noticiasGoogle_(opcoes) {
       try { cache.put(x.chave, JSON.stringify(itens), x.ttl); } catch (e) { /* cache é só otimização */ }
     });
   }
+  var limite = new Date(Date.now() - NOTICIAS_DIAS_MAX_ * 86400000).toISOString();
+  var frescas = function (lista) { return (lista || []).filter(function (n) { return n && n.data && n.data >= limite; }); };
+  Object.keys(out.indices).forEach(function (k) { out.indices[k] = frescas(out.indices[k]); });
+  Object.keys(out.ativos).forEach(function (k) { out.ativos[k] = frescas(out.ativos[k]); });
   return out;
 }
 

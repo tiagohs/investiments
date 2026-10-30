@@ -33,6 +33,13 @@ export const CLASSES_NOTICIAS = Object.freeze([
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 
+/** 30/10/2026 (Tiago): notícia com mais de 3 dias e vídeo com mais de 15 não aparecem (o mesmo prazo do Worker). */
+export const DIAS_NOTICIA = 3;
+export const DIAS_VIDEO = 15;
+export function recentes(itens, campo, dias, agoraMs) {
+  return (itens || []).filter((x) => { const t = Date.parse((x && x[campo]) || ''); return Number.isFinite(t) && t >= agoraMs - dias * 86400e3; });
+}
+
 /** Série do gráfico do dia -> { valor, variacao, anterior, abertura, maxima, minima } (null sem série). */
 export function resumoDaSerie(serie) {
   if (!serie || !Array.isArray(serie.v) || !serie.v.length) return null;
@@ -237,8 +244,8 @@ export function agenda({ proventos = [], vencimentos = [], eventos = EVENTOS_MER
 // Feed "Notícias dos seus ativos" (RF-07)
 // ---------------------------------------------------------------------------
 /** ativos da carteira (as 3 classes) com as notícias: [{ ticker, classe, ... , noticias }] */
-export function ativosComNoticias(carteira, porTicker) {
-  return (carteira || []).map((a) => ({ ...a, noticias: (porTicker && porTicker[String(a.ticker).toUpperCase()]) || [] }));
+export function ativosComNoticias(carteira, porTicker, agoraMs = Date.now()) {
+  return (carteira || []).map((a) => ({ ...a, noticias: recentes(porTicker && porTicker[String(a.ticker).toUpperCase()], 'data', DIAS_NOTICIA, agoraMs) }));
 }
 
 /** Itens do feed: [{ ticker, classe, titulo, link, data, fonte, resumo }]. ordem: 'recentes' | 'posicao' | 'variacao'. */

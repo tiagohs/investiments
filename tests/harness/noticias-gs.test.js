@@ -8,7 +8,7 @@ import { criarSandboxGs } from './gas-vm-harness.mjs';
 import { PRODUTOS_IBGE } from '../../worker/src/noticias/coleta.js';
 
 const plain = (x) => JSON.parse(JSON.stringify(x));
-const rss = (titulo) => `<rss><channel><item><title>${titulo} - Jornal A</title><link>https://n.exemplo.test/${encodeURIComponent(titulo)}</link><pubDate>Fri, 30 Oct 2026 15:00:00 GMT</pubDate><source url="https://j.test">Jornal A</source></item></channel></rss>`;
+const rss = (titulo) => `<rss><channel><item><title>${titulo} - Jornal A</title><link>https://n.exemplo.test/${encodeURIComponent(titulo)}</link><pubDate>${new Date(Date.now() - 3600e3).toUTCString()}</pubDate><source url="https://j.test">Jornal A</source></item></channel></rss>`;
 
 function montar() {
   const { sandbox: sb } = criarSandboxGs({ silencioso: true });
@@ -75,4 +75,14 @@ test('"Atualizar" forçado: busca o Google sem o cache (o IBGE continua do cache
   sb.NOTICIAS_FORCAR_ = false;
   assert.equal(sb.noticiasForcadoAgora_(t0 + 60e3), false, 'menos de 4 min: não força');
   assert.equal(sb.noticiasForcadoAgora_(t0 + 5 * 60e3), true);
+});
+
+test('prazo (Tiago, 30/10/2026): o que vai ao Worker tem no máximo 3 dias; a aba de vídeos guarda 15 dias', () => {
+  const sb = montar();
+  const item = (t, diasAtras) => `<item><title>${t} - J</title><link>https://n.test/${t}</link><pubDate>${new Date(Date.now() - diasAtras * 86400e3).toUTCString()}</pubDate><source url="https://j.test">J</source></item>`;
+  const fetchAll = (p) => p.map((x) => ({ getResponseCode: () => 200, getContentText: () => (x.url.includes('ibge') ? '{"items":[]}' : `<rss><channel>${item('nova', 0.5)}${item('de2dias', 2)}${item('de4dias', 4)}</channel></rss>`) }));
+  const r = plain(sb.noticiasGoogle_({ fetchAll }));
+  assert.deepEqual(r.indices.ibov.map((n) => n.titulo), ['nova', 'de2dias']);
+  assert.deepEqual(r.ativos.ABCD3.map((n) => n.titulo), ['nova', 'de2dias']);
+  assert.equal(sb.VIDEOS_DIAS_GUARDAR, 15);
 });
