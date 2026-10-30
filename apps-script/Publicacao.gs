@@ -338,6 +338,8 @@ function handlePublicarLeitura(e) {
     if (!p.precisa) return jsonOut({ ok: true, pulado: p.motivo, cotacaoEm: p.em || null });
   }
   var familias = f === 'tudo' || f === 'cotacao' ? f : f.split(',').map(function (x) { return x.trim(); }).filter(String);
+  // 30/10/2026: "Atualizar" da tela de Notícias - busca o Google de novo, sem o cache (Noticias.gs!noticiasForcadoAgora_)
+  if (e && e.parameter && e.parameter.forcarNoticias === '1') noticiasForcadoAgora_();
   var r = publicarLeitura_({ familias: familias, origem: 'Site' });
   return jsonOut({ ok: r.ok !== false || r.configurado === false, publicacao: r });
 }

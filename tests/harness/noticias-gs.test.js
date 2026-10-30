@@ -59,3 +59,20 @@ test('canais: coluna D manda; vazia, o padrão pelo @nome; "não" tira da tela',
   assert.equal(sb.telaNoticiasDoCanal_('@uol', 'não'), null);
   assert.equal(sb.nomeCurtoCanalNoticias_('https://www.youtube.com/@infomoney'), 'infomoney');
 });
+
+test('"Atualizar" forçado: busca o Google sem o cache (o IBGE continua do cache), no máximo 1 vez a cada 4 min', () => {
+  const sb = montar();
+  const lotes = [];
+  const fetchAll = (p) => { lotes.push(p.map((x) => x.url)); return p.map((x) => ({ getResponseCode: () => 200, getContentText: () => (x.url.includes('ibge') ? '{"items":[]}' : rss('y')) })); };
+  sb.noticiasGoogle_({ fetchAll });
+  assert.equal(lotes[0].length, 13);
+  sb.noticiasGoogle_({ fetchAll });
+  assert.equal(lotes.length, 1, 'tudo em cache: nem chama');
+  const t0 = Date.now();
+  assert.equal(sb.noticiasForcadoAgora_(t0), true);
+  sb.noticiasGoogle_({ fetchAll });
+  assert.equal(lotes[1].length, 6, 'forçado: 4 índices + 2 ativos de novo; as 7 pesquisas do IBGE vêm do cache');
+  sb.NOTICIAS_FORCAR_ = false;
+  assert.equal(sb.noticiasForcadoAgora_(t0 + 60e3), false, 'menos de 4 min: não força');
+  assert.equal(sb.noticiasForcadoAgora_(t0 + 5 * 60e3), true);
+});

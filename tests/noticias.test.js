@@ -224,3 +224,24 @@ test('listas (Tiago, 30/10/2026): 10 notícias e "Ver mais" (+10) na própria te
   assert.equal(doc.getElementById('ntFatores').innerHTML, '');
   assert.equal(doc.querySelectorAll('#ntFeed .nt-noticia').length, 10, 'de novo 10 de todos');
 });
+
+test('"Atualizar dados" clicado força a busca (tempo real + vídeos da aba no Worker, Google pelo Apps Script e depois junta); o relógio de 2 min não força', async () => {
+  const { doc, w } = montarDom();
+  const { apis } = apisFalsas();
+  const chamadas = [];
+  let versao = 1;
+  apis.forcarNoticias = async (tk, op) => { chamadas.push(['worker', op.aba, !!op.soGoogle]); if (op.soGoogle) versao = 2; return { ok: true }; };
+  apis.pedirNoticiasGoogleAgora = async () => { chamadas.push(['gas']); return { ok: true, publicacao: { publicadas: 1 } }; };
+  const mercadoOriginal = apis.getNoticiasMercado;
+  apis.getNoticiasMercado = async (tk, i) => { const m = await mercadoOriginal(tk, i); return { ...m, noticias: [{ titulo: `Manchete v${versao}`, link: 'https://n.test/v', data: new Date(AGORA).toISOString(), fonte: 'F' }] }; };
+  const { estado, controle } = await montarPaginaNoticias('s1.x.y', { doc, apis, agora: () => AGORA });
+  controle.pararTimer();
+  assert.deepEqual(chamadas, [], 'abrir a tela não força nada');
+  await controle.atualizar(); // o relógio de 2 min (sem clique)
+  assert.deepEqual(chamadas, []);
+  doc.querySelector('.refresh-btn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 5));
+  await estado.googleAgora;
+  assert.deepEqual(chamadas, [['worker', 'noticias', false], ['gas'], ['worker', 'noticias', true]]);
+  assert.match(doc.getElementById('ntPrincipal').textContent, /Manchete v2/, 'redesenhou com o Google novo');
+});

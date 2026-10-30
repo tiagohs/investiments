@@ -103,6 +103,21 @@ var NOTICIAS_CONSULTAS_INDICE_ = {
 var NOTICIAS_PRODUTOS_IBGE_ = ['9256', '9260', '9300', '9171', '9227', '9229', '9294'];
 var NOTICIAS_TTL_IBGE_ = 12 * 60 * 60;
 var NOTICIAS_CACHE_INDICE_ = 'noticias_indice_v1_';
+// "Atualizar" da tela de Notícias: nesta execução o Google é buscado de novo (sem o cache) - no máximo 1 vez a cada 4 min
+var NOTICIAS_FORCAR_ = false;
+var NOTICIAS_PROP_FORCADO_ = 'NOTICIAS_FORCADO_EM';
+var NOTICIAS_INTERVALO_FORCAR_MS_ = 4 * 60 * 1000;
+
+/** Liga o "sem cache" nesta execução se o último forçado tiver mais de 4 min. Devolve se ligou. */
+function noticiasForcadoAgora_(agoraMs) {
+  var agora = agoraMs || Date.now();
+  var props = PropertiesService.getScriptProperties();
+  var antes = Number(props.getProperty(NOTICIAS_PROP_FORCADO_)) || 0;
+  if (agora - antes < NOTICIAS_INTERVALO_FORCAR_MS_) return false;
+  props.setProperty(NOTICIAS_PROP_FORCADO_, String(agora));
+  NOTICIAS_FORCAR_ = true;
+  return true;
+}
 var NOTICIAS_TTL_INDICE_ = 20 * 60;
 
 function urlGoogleNoticiasIndice_(indice) {
@@ -123,7 +138,10 @@ function noticiasGoogle_(opcoes) {
     return { tipo: 'ativo', id: a.ticker, chave: ATIVO_CACHE_NOTICIAS_PREFIXO + a.ticker, url: urlNoticiasAtivo_(a.ticker, a.nome, a.classe), max: 10, ttl: ATIVO_CACHE_NOTICIAS_TTL };
   }));
   var guardadas = {};
-  try { guardadas = cache.getAll(alvos.map(function (x) { return x.chave; })) || {}; } catch (e) { guardadas = {}; }
+  var forcar = o.forcar || NOTICIAS_FORCAR_;
+  // forçado: índices e ativos de novo; o IBGE (muda 1x por mês) continua do cache
+  if (forcar) alvos.filter(function (x) { return x.tipo === 'ibge'; }).forEach(function (x) { try { var g = cache.get(x.chave); if (g) guardadas[x.chave] = g; } catch (e) { /* busca */ } });
+  else try { guardadas = cache.getAll(alvos.map(function (x) { return x.chave; })) || {}; } catch (e) { guardadas = {}; }
   var out = { ok: true, em: new Date().toISOString(), indices: {}, ativos: {}, ibge: {}, buscadas: 0, falhas: 0 };
   var pr = function (x, itens) { if (x.tipo === 'indice') out.indices[x.id] = itens; else if (x.tipo === 'ibge') out.ibge[x.id] = itens; else out.ativos[x.id] = itens; };
   var faltam = [];

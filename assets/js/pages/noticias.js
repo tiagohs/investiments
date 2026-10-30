@@ -5,6 +5,7 @@
 // Yahoo pelo /v1/intradia; carteira e proventos são as telas que o Apps Script já publica). Nenhuma leitura espera o
 // Apps Script. Cada parte desenha quando os dados dela chegam; uma fonte fora do ar esconde só a sua parte (RNF-05).
 // As contas (fatores, agenda, feed) moram em noticias-calc.js; aqui só desenha e liga os cliques.
+import { forcarNoticias, pedirNoticiasGoogleAgora } from '../noticias-agora.js';
 import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getNoticiasAgenda, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getCarteirasRendaFixa, getProventos } from '../api-client.js';
 import { formatBRL, formatUSD, formatNumeroBR, formatPctSinal, formatDM, hojeSP } from '../format.js';
 import { mountRefreshControl } from '../shell.js';
@@ -115,7 +116,7 @@ const ESQUELETO = `
  * Monta a tela. `apis` troca as leituras nos testes. Devolve { estado, carregar }.
  */
 export async function montarPaginaNoticias(token, { doc = document, apis = {}, agora = () => Date.now() } = {}) {
-  const api = { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getNoticiasAgenda, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getCarteirasRendaFixa, getProventos, ...apis };
+  const api = { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, getNoticiasAgenda, forcarNoticias, pedirNoticiasGoogleAgora, getIntradia, getCarteirasAcoes, getCarteirasFiis, getCarteirasAcoesEua, getCarteirasRendaFixa, getProventos, ...apis };
   garantirEstilosCharts(doc);
   const prefs = lerPrefs();
   const estado = {
@@ -401,9 +402,26 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
   }
 
   async function carregar() {
+    const forcar = estado.forcar;
+    estado.forcar = false;
     // RF-08: o relógio de 2 min não busca com a aba escondida (o botão sempre busca)
-    if (doc.visibilityState === 'hidden' && agora() - estado.ultimaCarga < 10 * 60 * 1000) return true;
+    if (!forcar && doc.visibilityState === 'hidden' && agora() - estado.ultimaCarga < 10 * 60 * 1000) return true;
     estado.ultimaCarga = agora();
+    // 30/10/2026 (Tiago: "os vídeos mudam rápido"): clique no "Atualizar" = buscar nas fontes, não só ler o que o cron guardou.
+    //  1. o Worker busca agora o tempo real e todos os canais da aba aberta (~1-3 s), e a tela lê em seguida;
+    //  2. em segundo plano, o Apps Script busca o Google de novo (manchetes e notícias dos ativos, 1 a cada 5 min) e,
+    //     quando publicar, o Worker junta e a tela redesenha essas partes.
+    if (forcar) {
+      await api.forcarNoticias(token, { aba: estado.aba });
+      estado.googleAgora = Promise.resolve(api.pedirNoticiasGoogleAgora(token)).then(async (g) => {
+        const pub = g && g.publicacao;
+        if (!pub || !(pub.publicadas > 0)) return false;
+        await api.forcarNoticias(token, { aba: estado.aba, soGoogle: true });
+        await Promise.all([carregarMercado(estado.indice), carregarNoticiasAtivos()]);
+        desenharMercado(); desenharAtivos();
+        return true;
+      }).catch(() => false);
+    }
     const partes = await Promise.all([
       carregarMercado(estado.indice).then(() => desenharMercado()).then(() => true),
       carregarSeries().then((ok) => { desenharAbasIndice(); desenharMercado(); desenharTermometro(); desenharAtivos(); return ok; }),
@@ -419,6 +437,8 @@ export async function montarPaginaNoticias(token, { doc = document, apis = {}, a
   }
 
   desenharAbasIndice(); desenharTermometro(); desenharVideos(); desenharAgenda(); desenharAtivos();
+  // o clique (não o relógio de 2 min) marca a busca forçada - na captura, antes do "Atualizar dados" chamar carregar()
+  if (cab.refreshEl) cab.refreshEl.addEventListener('click', (ev) => { if (ev.target.closest('.refresh-btn')) estado.forcar = true; }, true);
   const controle = mountRefreshControl(doc, cab.refreshEl, carregar, { intervaloMs: INTERVALO_MS });
   await controle.atualizar();
   return { estado, carregar, controle };

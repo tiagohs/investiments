@@ -23,6 +23,7 @@ Nova tela no menu principal (depois de Metas). Design: canvas "Tela de Notícias
 | RF-07 | Must | Notícias dos ativos: todos da carteira por padrão, em lista com as 10 primeiras e "Ver mais" (+10, na própria tela). Filtro por classe (o IFIX filtra FIIs e o Exterior filtra EUA) e por ticker; tocar de novo no ticker escolhido volta para Todos. Ordenação: recentes, posição ou variação. |
 | RF-09 | Should | "Possíveis fatores hoje" ao escolher um ativo: lista ordenada por peso (forte, médio ou fraco) com o sinal de cada fator (+, − ou =). Fatores medidos: o mercado (o ativo contra o índice), o setor ou a commodity ligada, a data-com de ontem e a variação do dólar (EUA). Também as notícias do dia classificadas por tema e tom. Termina com um resumo de uma frase e o aviso "não é recomendação nem certeza de causa". |
 | RF-08 | Should | No pregão, a tela se atualiza sozinha a cada 2 min enquanto está aberta e à vista. |
+| RF-10 | Should | "Atualizar dados" clicado busca nas fontes: o tempo real e todos os canais da aba de vídeos aberta na hora (Worker, 1 a cada 45 s) e, em segundo plano, as manchetes e notícias dos ativos sem cache (Apps Script, 1 a cada 5 min); a tela redesenha quando chegam. A atualização automática só lê o que já foi coletado. |
 
 Critérios de aceite (exemplos):
 - **RF-02.** Dado o pregão aberto, quando o InfoMoney publica uma atualização, então ela aparece na tela em até 6 min. Dado que a página do dia muda de formato ou sai do ar, quando a tela abre, então aparece a última leitura boa com um aviso, e as outras partes da tela continuam.
@@ -128,5 +129,7 @@ Testes:
 - `tests/worker-noticias.test.js`: leitura de cada fonte com HTML e XML sintéticos, o agendador, a coleta gravando no D1 só o que mudou, fonte fora do ar, o cron, o tempo de CPU (mediana abaixo de 8 ms) e o site lendo do Worker sem Apps Script;
 - `tests/noticias.test.js`: fatores (critérios do RF-09), agenda (RF-06), feed (RF-07) e a tela no JSDOM (troca de índice, player no clique, fonte fora do ar);
 - `tests/leitura-saude.test.js`: a coleta do cron na saúde da leitura (RNF-06).
+
+Rota do "Atualizar": `POST /v1/noticias/agora?aba=` (sessão s1); `&so=google` só junta o `noticiasGoogle` recém-publicado. No Apps Script, `publicarLeitura` com `familias=noticiasGoogle&forcarNoticias=1` (Noticias.gs!noticiasForcadoAgora_).
 
 Implantação: `cd worker && npx wrangler deploy` (o cron entra junto). Na planilha, opcional: `configurarNoticiasDireto()` põe o título da coluna D em `aux_videos-canais`; a próxima publicação completa leva os canais e os ativos ao Worker.

@@ -5,6 +5,7 @@
  *   GET  /v1/tela/:acao?params   resposta publicada da tela (Authorization: Bearer s1...), gzip, ETag = hash, 304 se igual
  *   GET  /v1/estado              idade e tamanho de cada publicação (saúde, RF-10)
  *   GET  /v1/intradia?simbolos=  gráfico do dia direto do Yahoo (29/10/2026, intradia.js) - o resto do app não muda
+ *   POST /v1/noticias/agora      "Atualizar" da tela de Notícias: tempo real + vídeos da aba na hora (sessão s1; 1 a cada 45 s)
  *   POST /v1/publicar            lote do Apps Script, assinado (X-Carimbo, X-Assinatura) - ADR-06
  *   cron (a cada 5 min)          telas noticias* (30/10/2026, noticias/coleta.js, docs/noticias.md) - mesmas linhas do D1
  *
@@ -13,7 +14,7 @@
 import { verificarSessao, verificarPublicacao, base64ParaBytes } from './auth.js';
 import { chaveLeitura, ACAO_VALIDA, instanteDaGeracao } from '../../assets/js/leitura-chave.js';
 import { intradiaWorker } from './intradia.js';
-import { coletarNoticias } from './noticias/coleta.js';
+import { coletarNoticias, atualizarNoticiasAgora } from './noticias/coleta.js';
 
 /** Teto de um corpo comprimido: a linha do D1 aceita 2.000.000 bytes no total. */
 export const MAX_CORPO_BYTES = 1900000;
@@ -137,6 +138,12 @@ export default {
     const url = new URL(request.url);
     try {
       if (request.method === 'POST' && url.pathname === '/v1/publicar') return await publicar(request, env, cors);
+      if (request.method === 'POST' && url.pathname === '/v1/noticias/agora') {
+        const sessao = await autenticar(request, env);
+        if (!sessao.ok) return json({ ok: false, etapa: 'autenticação', erro: sessao.erro }, 401, cors);
+        const r = await atualizarNoticiasAgora(env, { aba: String(url.searchParams.get('aba') || ''), soGoogle: url.searchParams.get('so') === 'google' });
+        return json({ ok: r.ok, pulado: r.pulado || null, telas: r.telas || 0, falhas: r.falhas || [] }, 200, cors);
+      }
       if (request.method === 'GET' && (url.pathname.startsWith('/v1/tela/') || url.pathname === '/v1/estado' || url.pathname === '/v1/intradia')) {
         const sessao = await autenticar(request, env);
         if (!sessao.ok) return json({ ok: false, etapa: 'autenticação', erro: sessao.erro }, 401, cors);

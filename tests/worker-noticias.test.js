@@ -12,8 +12,9 @@ import { DatabaseSync } from 'node:sqlite';
 import worker from '../worker/src/index.js';
 import { hmacBase64Url } from '../worker/src/auth.js';
 import { extrairTempoRealInfoMoney, urlTempoRealInfoMoney, extrairRss, extrairFeedYoutube, urlGoogleNoticias, textoLimpo } from '../worker/src/noticias/fontes.js';
-import { coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO, PRODUTOS_IBGE, dataIbge } from '../worker/src/noticias/coleta.js';
+import { coletarNoticias, tarefasDoDisparo, montarTelaMercado, montarTelaVideos, proximosDaFila, diaSaoPaulo, horaSaoPaulo, CANAIS_POR_DISPARO, PRODUTOS_IBGE, dataIbge, atualizarNoticiasAgora } from '../worker/src/noticias/coleta.js';
 import { getNoticiasMercado, getNoticiasVideos, getNoticiasAtivos, esquecerRespostasGuardadas } from '../assets/js/api-client.js';
+import { forcarNoticias } from '../assets/js/noticias-agora.js';
 import { usarMemoriaNoCacheDados } from '../assets/js/cache-dados.js';
 import { LEITURA_URL } from '../assets/js/config.js';
 import { ACOES_SO_WORKER } from '../assets/js/leitura-chave.js';
@@ -308,4 +309,41 @@ test('D1 (cota grátis): fonte que não mudou não é regravada', async () => {
   await coletarNoticias(env, { agoraMs: Date.parse('2026-10-30T14:05:00Z'), tarefas: SO, fetchImpl: async () => new Response('', { status: 500 }) });
   await coletarNoticias(env, { agoraMs: Date.parse('2026-10-30T14:10:00Z'), tarefas: SO, fetchImpl: async () => new Response('', { status: 500 }) });
   assert.equal(contar(), 0, 'a 2ª rodada não gravou a mesma fonte de novo');
+});
+
+test('"Atualizar" (POST /v1/noticias/agora): tempo real + TODOS os canais da aba aberta na hora; 1 a cada 45 s; soGoogle só junta, sem pedido externo', async () => {
+  const env = { DB: d1() };
+  publicarConfig(env, { canais: Array.from({ length: 9 }, (_, i) => ({ id: `UC${String(i).repeat(22)}`, nome: `c${i}`, tela: i < 7 ? 'meus' : 'noticias' })), ativos: [] });
+  const pedidos = [];
+  const f = async (u) => { pedidos.push(String(u)); return new Response(String(u).includes('youtube') ? feedYoutube('Canal', [['vid00000001', 'Vídeo', '2026-10-30T12:00:00Z']]) : paginaTempoReal([['10h00', 'x', 'Agora']]), { status: 200 }); };
+  const t0 = Date.parse('2026-10-30T15:00:00Z');
+  const r = await atualizarNoticiasAgora(env, { aba: 'meus', agoraMs: t0, fetchImpl: f });
+  assert.equal(r.ok, true);
+  assert.equal(pedidos.filter((u) => u.includes('youtube')).length, 7, 'os 7 canais da aba, não a fila de 5');
+  assert.equal(pedidos.filter((u) => u.includes('infomoney')).length, 1);
+  assert.equal(tela(env, 'noticiasVideos?aba=meus').videos.length, 7);
+  pedidos.length = 0;
+  assert.equal((await atualizarNoticiasAgora(env, { aba: 'meus', agoraMs: t0 + 20e3, fetchImpl: f })).pulado, 'atualizado há menos de 45 s');
+  assert.equal(pedidos.length, 0);
+  await atualizarNoticiasAgora(env, { soGoogle: true, agoraMs: t0 + 25e3, fetchImpl: f });
+  assert.equal(pedidos.length, 0, 'soGoogle não pede nada para fora');
+  assert.equal((await atualizarNoticiasAgora(env, { aba: 'xx', agoraMs: t0 + 60e3, fetchImpl: f })).ok, true, 'aba inválida vira a de notícias');
+  assert.equal(pedidos.filter((u) => u.includes('youtube')).length, 2);
+});
+
+test('"Atualizar": a rota exige a sessão s1 e o site chama com a aba aberta', async (t) => {
+  const env = { DB: d1(), SESSAO_SEGREDO: 's', EMAILS_AUTORIZADOS: 'a@b.test', ORIGENS: '' };
+  const sem = await worker.fetch(new Request('https://w.test/v1/noticias/agora?aba=meus', { method: 'POST' }), env);
+  assert.equal(sem.status, 401);
+  const payload = Buffer.from(JSON.stringify({ email: 'a@b.test', exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url');
+  const token = `s1.${payload}.${await hmacBase64Url('s', payload)}`;
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    urls.push(String(url));
+    if (String(url).startsWith(LEITURA_URL)) return worker.fetch(new Request(String(url), init), env);
+    return new Response('', { status: 503 });
+  });
+  const r = await forcarNoticias(token, { aba: 'especialistas' });
+  assert.equal(r.ok, true);
+  assert.ok(urls[0].startsWith(`${LEITURA_URL}/v1/noticias/agora?aba=especialistas`));
 });

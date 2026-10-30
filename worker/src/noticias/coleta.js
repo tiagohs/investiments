@@ -27,6 +27,8 @@ import { talvezNoPregao } from '../../../assets/js/leitura-chave.js';
 export const INDICES_NOTICIAS = Object.freeze(['ibov', 'ifix', 'spx', 'dolar']);
 export const ABAS_VIDEOS = Object.freeze(['noticias', 'especialistas', 'meus']);
 export const CANAIS_POR_DISPARO = 5;
+export const MAX_CANAIS_AGORA = 15;
+export const INTERVALO_MINIMO_AGORA_MS = 45 * 1000;
 const SLOT_MS = 5 * 60 * 1000;
 const TEMPO_MAXIMO_FONTE_MS = 6000;
 const MAX_TEMPO_REAL = 30;
@@ -195,9 +197,14 @@ export async function coletarNoticias(env, { agoraMs = Date.now(), fetchImpl = f
   const config = (t.videos || t.ativos) ? await lerConfigNoticias(env) : { canais: [], ativos: [] };
   if (t.videos) {
     const canais = config.canais.filter((c) => /^UC[\w-]{22}$/.test(String(c.id || '')));
-    const fila = proximosDaFila(canais, fontes['cursor:canais'] && fontes['cursor:canais'].i, CANAIS_POR_DISPARO);
-    novas['cursor:canais'] = { i: fila.cursor };
-    fila.escolhidos.forEach((c) => pedidos.push((async () => {
+    let escolhidos;
+    if (t.videosAba) escolhidos = canais.filter((c) => c.tela === t.videosAba).slice(0, MAX_CANAIS_AGORA); // "Atualizar" da tela: a aba aberta inteira
+    else {
+      const fila = proximosDaFila(canais, fontes['cursor:canais'] && fontes['cursor:canais'].i, CANAIS_POR_DISPARO);
+      novas['cursor:canais'] = { i: fila.cursor };
+      escolhidos = fila.escolhidos;
+    }
+    escolhidos.forEach((c) => pedidos.push((async () => {
       const r = await buscarTexto(`https://www.youtube.com/feeds/videos.xml?channel_id=${c.id}`, fetchImpl);
       const itens = r.ok ? extrairFeedYoutube(r.texto, { max: 15 }) : [];
       if (r.ok) novas[`yt:${c.id}`] = { em: agoraIso, itens };
@@ -349,4 +356,23 @@ export function montarTelaAgenda(fontes, { agoraMs = Date.now() } = {}) {
   const de = diaSaoPaulo(agoraMs - 3 * 86400e3);
   const ate = diaSaoPaulo(agoraMs + 60 * 86400e3);
   return { ok: true, atualizadoEm: new Date(agoraMs).toISOString(), eventos: ((f && f.eventos) || []).filter((e) => e.dia >= de && e.dia <= ate), lidoEm: f ? f.em : null };
+}
+
+/**
+ * 30/10/2026 (Tiago: "os vídeos mudam rápido - dá pra forçar ao clicar em Atualizar?"): POST /v1/noticias/agora.
+ * Busca na hora o tempo real do InfoMoney e TODOS os canais da aba de vídeos aberta, e junta o Google do Apps Script.
+ * soGoogle: só junta o `noticiasGoogle` que o Apps Script acabou de publicar (nenhum pedido externo).
+ * No máximo 1 busca a cada 45 s (o resto devolve `pulado` e a tela lê o que já tem).
+ */
+export async function atualizarNoticiasAgora(env, { aba = 'noticias', soGoogle = false, agoraMs = Date.now(), fetchImpl = fetch } = {}) {
+  const abaOk = ABAS_VIDEOS.includes(aba) ? aba : 'noticias';
+  if (soGoogle) return coletarNoticias(env, { agoraMs, fetchImpl, tarefas: { tempoReal: false, manchetes: true, videos: false, ativos: true, agenda: true } });
+  await env.DB.prepare(SQL_TABELA).run();
+  const ultima = await env.DB.prepare("SELECT valor FROM noticias_fonte WHERE chave = 'agora:ultima'").first();
+  let antes = 0;
+  try { antes = ultima ? Number(JSON.parse(ultima.valor).ms) || 0 : 0; } catch (e) { antes = 0; }
+  if (agoraMs - antes < INTERVALO_MINIMO_AGORA_MS) return { ok: true, pulado: 'atualizado há menos de 45 s' };
+  await env.DB.prepare("INSERT INTO noticias_fonte (chave, valor, em) VALUES ('agora:ultima', ?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, em = excluded.em")
+    .bind(JSON.stringify({ ms: agoraMs }), new Date(agoraMs).toISOString()).run();
+  return coletarNoticias(env, { agoraMs, fetchImpl, tarefas: { tempoReal: true, manchetes: true, videos: true, videosAba: abaOk, ativos: true, agenda: false } });
 }
